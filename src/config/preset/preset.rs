@@ -318,13 +318,6 @@ impl PresetBuilder {
         self
     }
 
-    /// Set realtime window mode to minimal
-    #[allow(dead_code)]
-    pub fn minimal_mode(mut self) -> Self {
-        self.preset.realtime_window_mode = "minimal".to_string();
-        self
-    }
-
     // -------------------------------------------------------------------------
     // Text Options
     // -------------------------------------------------------------------------

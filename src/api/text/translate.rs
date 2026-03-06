@@ -1,39 +1,53 @@
 // --- TEXT TRANSLATION ---
 // Streaming text translation with multiple LLM providers.
 
+use crate::APP;
 use crate::api::client::UREQ_AGENT;
 use crate::api::types::{ChatCompletionResponse, StreamChunk};
 use crate::gui::locale::LocaleText;
 use crate::overlay::utils::get_context_quote;
-use crate::APP;
 use anyhow::Result;
 use std::io::{BufRead, BufReader};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "translation entrypoint passes distinct provider, format, and callback state"
-)]
+pub struct TranslateTextRequest<'a> {
+    pub groq_api_key: &'a str,
+    pub gemini_api_key: &'a str,
+    pub text: String,
+    pub instruction: String,
+    pub model: String,
+    pub provider: String,
+    pub streaming_enabled: bool,
+    pub use_json_format: bool,
+    pub search_label: Option<String>,
+    pub ui_language: &'a str,
+    pub cancel_token: Option<Arc<AtomicBool>>,
+}
+
 pub fn translate_text_streaming<F>(
-    groq_api_key: &str,
-    gemini_api_key: &str,
-    text: String,
-    instruction: String,
-    model: String,
-    provider: String,
-    streaming_enabled: bool,
-    use_json_format: bool,
-    search_label: Option<String>,
-    ui_language: &str,
-    cancel_token: Option<Arc<AtomicBool>>,
+    request: TranslateTextRequest<'_>,
     mut on_chunk: F,
 ) -> Result<String>
 where
     F: FnMut(&str),
 {
+    let TranslateTextRequest {
+        groq_api_key,
+        gemini_api_key,
+        text,
+        instruction,
+        model,
+        provider,
+        streaming_enabled,
+        use_json_format,
+        search_label,
+        ui_language,
+        cancel_token,
+    } = request;
+
     let openrouter_api_key = crate::APP
         .lock()
         .ok()
@@ -211,9 +225,10 @@ where
 
             for line in reader.lines() {
                 if let Some(ref ct) = cancel_token
-                    && ct.load(Ordering::Relaxed) {
-                        return Err(anyhow::anyhow!("Cancelled"));
-                    }
+                    && ct.load(Ordering::Relaxed)
+                {
+                    return Err(anyhow::anyhow!("Cancelled"));
+                }
                 let line = line.map_err(|e| anyhow::anyhow!("Failed to read line: {}", e))?;
                 if let Some(json_str) = line.strip_prefix("data: ") {
                     if json_str.trim() == "[DONE]" {
@@ -223,43 +238,38 @@ where
                     if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str)
                         && let Some(candidates) =
                             chunk_resp.get("candidates").and_then(|c| c.as_array())
-                            && let Some(first_candidate) = candidates.first()
-                                && let Some(parts) = first_candidate
-                                    .get("content")
-                                    .and_then(|c| c.get("parts"))
-                                    .and_then(|p| p.as_array())
-                                {
-                                    for part in parts {
-                                        let is_thought = part
-                                            .get("thought")
-                                            .and_then(|t| t.as_bool())
-                                            .unwrap_or(false);
+                        && let Some(first_candidate) = candidates.first()
+                        && let Some(parts) = first_candidate
+                            .get("content")
+                            .and_then(|c| c.get("parts"))
+                            .and_then(|p| p.as_array())
+                    {
+                        for part in parts {
+                            let is_thought = part
+                                .get("thought")
+                                .and_then(|t| t.as_bool())
+                                .unwrap_or(false);
 
-                                        if let Some(text) =
-                                            part.get("text").and_then(|t| t.as_str())
-                                        {
-                                            if is_thought {
-                                                if !thinking_shown && !content_started {
-                                                    on_chunk(locale.model_thinking);
-                                                    thinking_shown = true;
-                                                }
-                                            } else if !content_started && thinking_shown {
-                                                content_started = true;
-                                                full_content.push_str(text);
-                                                let wipe_content = format!(
-                                                    "{}{}",
-                                                    crate::api::WIPE_SIGNAL,
-                                                    full_content
-                                                );
-                                                on_chunk(&wipe_content);
-                                            } else {
-                                                content_started = true;
-                                                full_content.push_str(text);
-                                                on_chunk(text);
-                                            }
-                                        }
+                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                if is_thought {
+                                    if !thinking_shown && !content_started {
+                                        on_chunk(locale.model_thinking);
+                                        thinking_shown = true;
                                     }
+                                } else if !content_started && thinking_shown {
+                                    content_started = true;
+                                    full_content.push_str(text);
+                                    let wipe_content =
+                                        format!("{}{}", crate::api::WIPE_SIGNAL, full_content);
+                                    on_chunk(&wipe_content);
+                                } else {
+                                    content_started = true;
+                                    full_content.push_str(text);
+                                    on_chunk(text);
                                 }
+                            }
+                        }
+                    }
                 }
             }
         } else {
@@ -270,20 +280,18 @@ where
 
             if let Some(candidates) = chat_resp.get("candidates").and_then(|c| c.as_array())
                 && let Some(first_choice) = candidates.first()
-                    && let Some(parts) = first_choice
-                        .get("content")
-                        .and_then(|c| c.get("parts"))
-                        .and_then(|p| p.as_array())
-                    {
-                        full_content = parts
-                            .iter()
-                            .filter(|p| {
-                                !p.get("thought").and_then(|t| t.as_bool()).unwrap_or(false)
-                            })
-                            .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-                            .collect::<String>();
-                        on_chunk(&full_content);
-                    }
+                && let Some(parts) = first_choice
+                    .get("content")
+                    .and_then(|c| c.get("parts"))
+                    .and_then(|p| p.as_array())
+            {
+                full_content = parts
+                    .iter()
+                    .filter(|p| !p.get("thought").and_then(|t| t.as_bool()).unwrap_or(false))
+                    .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                    .collect::<String>();
+                on_chunk(&full_content);
+            }
         }
     } else if provider == "cerebras" {
         // --- CEREBRAS API ---
@@ -330,9 +338,10 @@ where
 
         if limit == "?"
             && let Some(conf) = crate::model_config::get_model_by_id(&model)
-                && let Some(val) = conf.quota_limit_en.split_whitespace().next() {
-                    limit = val.to_string();
-                }
+            && let Some(val) = conf.quota_limit_en.split_whitespace().next()
+        {
+            limit = val.to_string();
+        }
 
         if remaining != "?" || limit != "?" {
             let usage_str = format!("{} / {}", remaining, limit);
@@ -351,9 +360,10 @@ where
 
             for line in reader.lines() {
                 if let Some(ref ct) = cancel_token
-                    && ct.load(Ordering::Relaxed) {
-                        return Err(anyhow::anyhow!("Cancelled"));
-                    }
+                    && ct.load(Ordering::Relaxed)
+                {
+                    return Err(anyhow::anyhow!("Cancelled"));
+                }
                 let line = line?;
                 if let Some(data) = line.strip_prefix("data: ") {
                     if data == "[DONE]" {
@@ -448,9 +458,10 @@ where
 
             for line in reader.lines() {
                 if let Some(ref ct) = cancel_token
-                    && ct.load(Ordering::Relaxed) {
-                        return Err(anyhow::anyhow!("Cancelled"));
-                    }
+                    && ct.load(Ordering::Relaxed)
+                {
+                    return Err(anyhow::anyhow!("Cancelled"));
+                }
                 let line = line?;
                 if let Some(data) = line.strip_prefix("data: ") {
                     if data == "[DONE]" {
@@ -623,153 +634,140 @@ where
 
     if let Some(choices) = json.get("choices").and_then(|c| c.as_array())
         && let Some(first_choice) = choices.first()
-            && let Some(message) = first_choice.get("message") {
-                if let Some(executed_tools) =
-                    message.get("executed_tools").and_then(|t| t.as_array())
+        && let Some(message) = first_choice.get("message")
+    {
+        if let Some(executed_tools) = message.get("executed_tools").and_then(|t| t.as_array()) {
+            let mut search_queries = Vec::new();
+            for tool in executed_tools {
+                if let Some(tool_type) = tool.get("type").and_then(|t| t.as_str())
+                    && tool_type == "search"
+                    && let Some(args) = tool.get("arguments").and_then(|a| a.as_str())
+                    && let Ok(args_json) = serde_json::from_str::<serde_json::Value>(args)
+                    && let Some(query) = args_json.get("query").and_then(|q| q.as_str())
                 {
-                    let mut search_queries = Vec::new();
-                    for tool in executed_tools {
-                        if let Some(tool_type) = tool.get("type").and_then(|t| t.as_str())
-                            && tool_type == "search"
-                                && let Some(args) = tool.get("arguments").and_then(|a| a.as_str())
-                                    && let Ok(args_json) =
-                                        serde_json::from_str::<serde_json::Value>(args)
-                                        && let Some(query) =
-                                            args_json.get("query").and_then(|q| q.as_str())
-                                        {
-                                            search_queries.push(query.to_string());
-                                        }
-                    }
-
-                    let context_quote = get_context_quote(prompt);
-                    if !search_queries.is_empty() {
-                        let phase1_header = match &search_label {
-                            Some(label) => format!(
-                                "{}\n\n🔍 {} {}...\n\n",
-                                context_quote,
-                                locale.search_doing.to_uppercase(),
-                                label.to_uppercase()
-                            ),
-                            None => format!(
-                                "{}\n\n🔍 {} {}...\n\n",
-                                context_quote,
-                                locale.search_doing.to_uppercase(),
-                                locale.search_searching.to_uppercase()
-                            ),
-                        };
-                        let mut phase1 = phase1_header;
-                        phase1.push_str(&format!("{}\n", locale.search_query_label));
-                        for (i, query) in search_queries.iter().enumerate() {
-                            phase1.push_str(&format!("  {}. \"{}\"\n", i + 1, query));
-                        }
-                        on_chunk(&phase1);
-                        std::thread::sleep(std::time::Duration::from_millis(800));
-                    }
-
-                    let mut all_sources = Vec::new();
-                    for tool in executed_tools {
-                        if let Some(search_results) = tool
-                            .get("search_results")
-                            .and_then(|s| s.get("results"))
-                            .and_then(|r| r.as_array())
-                        {
-                            for result in search_results {
-                                let title = result
-                                    .get("title")
-                                    .and_then(|t| t.as_str())
-                                    .unwrap_or(locale.search_no_title);
-                                let url = result.get("url").and_then(|u| u.as_str()).unwrap_or("");
-                                let score =
-                                    result.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
-                                let content =
-                                    result.get("content").and_then(|c| c.as_str()).unwrap_or("");
-
-                                all_sources.push((
-                                    title.to_string(),
-                                    url.to_string(),
-                                    score,
-                                    content.to_string(),
-                                ));
-                            }
-                        }
-                    }
-
-                    if !all_sources.is_empty() {
-                        all_sources.sort_by(|a, b| {
-                            b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal)
-                        });
-
-                        let context_quote = get_context_quote(prompt);
-                        let mut phase2 = format!(
-                            "{}\n\n{}\n\n",
-                            context_quote,
-                            locale
-                                .search_found_sources
-                                .replace("{}", &all_sources.len().to_string())
-                        );
-                        phase2.push_str(&format!("{}\n\n", locale.search_sources_label));
-
-                        for (i, (title, url, score, content)) in
-                            all_sources.iter().take(6).enumerate()
-                        {
-                            let title_display = if title.chars().count() > 60 {
-                                format!("{}...", title.chars().take(57).collect::<String>())
-                            } else {
-                                title.clone()
-                            };
-
-                            let domain = url.split('/').nth(2).unwrap_or(url);
-                            let score_pct = (score * 100.0) as i32;
-
-                            phase2.push_str(&format!(
-                                "{}. {} [{}%]\n",
-                                i + 1,
-                                title_display,
-                                score_pct
-                            ));
-                            phase2.push_str(&format!("   🔗 {}\n", domain));
-
-                            if !content.is_empty() {
-                                let preview = if content.len() > 100 {
-                                    format!(
-                                        "{}...",
-                                        content
-                                            .chars()
-                                            .take(100)
-                                            .collect::<String>()
-                                            .replace('\n', " ")
-                                    )
-                                } else {
-                                    content.replace('\n', " ")
-                                };
-                                phase2.push_str(&format!("   📄 {}\n", preview));
-                            }
-                            phase2.push('\n');
-                        }
-
-                        on_chunk(&phase2);
-                        std::thread::sleep(std::time::Duration::from_millis(1200));
-
-                        let context_quote = get_context_quote(prompt);
-                        let phase3 = format!(
-                            "{}\n\n{}\n\n{}\n{}\n",
-                            context_quote,
-                            locale.search_synthesizing,
-                            locale
-                                .search_analyzed_sources
-                                .replace("{}", &all_sources.len().min(6).to_string()),
-                            locale.search_processing
-                        );
-                        on_chunk(&phase3);
-                        std::thread::sleep(std::time::Duration::from_millis(600));
-                    }
-                }
-
-                if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
-                    full_content = content.to_string();
-                    on_chunk(&full_content);
+                    search_queries.push(query.to_string());
                 }
             }
+
+            let context_quote = get_context_quote(prompt);
+            if !search_queries.is_empty() {
+                let phase1_header = match &search_label {
+                    Some(label) => format!(
+                        "{}\n\n🔍 {} {}...\n\n",
+                        context_quote,
+                        locale.search_doing.to_uppercase(),
+                        label.to_uppercase()
+                    ),
+                    None => format!(
+                        "{}\n\n🔍 {} {}...\n\n",
+                        context_quote,
+                        locale.search_doing.to_uppercase(),
+                        locale.search_searching.to_uppercase()
+                    ),
+                };
+                let mut phase1 = phase1_header;
+                phase1.push_str(&format!("{}\n", locale.search_query_label));
+                for (i, query) in search_queries.iter().enumerate() {
+                    phase1.push_str(&format!("  {}. \"{}\"\n", i + 1, query));
+                }
+                on_chunk(&phase1);
+                std::thread::sleep(std::time::Duration::from_millis(800));
+            }
+
+            let mut all_sources = Vec::new();
+            for tool in executed_tools {
+                if let Some(search_results) = tool
+                    .get("search_results")
+                    .and_then(|s| s.get("results"))
+                    .and_then(|r| r.as_array())
+                {
+                    for result in search_results {
+                        let title = result
+                            .get("title")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or(locale.search_no_title);
+                        let url = result.get("url").and_then(|u| u.as_str()).unwrap_or("");
+                        let score = result.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
+                        let content = result.get("content").and_then(|c| c.as_str()).unwrap_or("");
+
+                        all_sources.push((
+                            title.to_string(),
+                            url.to_string(),
+                            score,
+                            content.to_string(),
+                        ));
+                    }
+                }
+            }
+
+            if !all_sources.is_empty() {
+                all_sources
+                    .sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+
+                let context_quote = get_context_quote(prompt);
+                let mut phase2 = format!(
+                    "{}\n\n{}\n\n",
+                    context_quote,
+                    locale
+                        .search_found_sources
+                        .replace("{}", &all_sources.len().to_string())
+                );
+                phase2.push_str(&format!("{}\n\n", locale.search_sources_label));
+
+                for (i, (title, url, score, content)) in all_sources.iter().take(6).enumerate() {
+                    let title_display = if title.chars().count() > 60 {
+                        format!("{}...", title.chars().take(57).collect::<String>())
+                    } else {
+                        title.clone()
+                    };
+
+                    let domain = url.split('/').nth(2).unwrap_or(url);
+                    let score_pct = (score * 100.0) as i32;
+
+                    phase2.push_str(&format!("{}. {} [{}%]\n", i + 1, title_display, score_pct));
+                    phase2.push_str(&format!("   🔗 {}\n", domain));
+
+                    if !content.is_empty() {
+                        let preview = if content.len() > 100 {
+                            format!(
+                                "{}...",
+                                content
+                                    .chars()
+                                    .take(100)
+                                    .collect::<String>()
+                                    .replace('\n', " ")
+                            )
+                        } else {
+                            content.replace('\n', " ")
+                        };
+                        phase2.push_str(&format!("   📄 {}\n", preview));
+                    }
+                    phase2.push('\n');
+                }
+
+                on_chunk(&phase2);
+                std::thread::sleep(std::time::Duration::from_millis(1200));
+
+                let context_quote = get_context_quote(prompt);
+                let phase3 = format!(
+                    "{}\n\n{}\n\n{}\n{}\n",
+                    context_quote,
+                    locale.search_synthesizing,
+                    locale
+                        .search_analyzed_sources
+                        .replace("{}", &all_sources.len().min(6).to_string()),
+                    locale.search_processing
+                );
+                on_chunk(&phase3);
+                std::thread::sleep(std::time::Duration::from_millis(600));
+            }
+        }
+
+        if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
+            full_content = content.to_string();
+            on_chunk(&full_content);
+        }
+    }
 
     Ok(full_content)
 }
@@ -848,9 +846,10 @@ where
 
         for line in reader.lines() {
             if let Some(ref ct) = cancel_token
-                && ct.load(Ordering::Relaxed) {
-                    return Err(anyhow::anyhow!("Cancelled"));
-                }
+                && ct.load(Ordering::Relaxed)
+            {
+                return Err(anyhow::anyhow!("Cancelled"));
+            }
             let line = line?;
             if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {

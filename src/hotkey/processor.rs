@@ -1,10 +1,10 @@
 // --- HOTKEY PROCESSOR ---
 // Window procedure for handling hotkey messages.
 
+use crate::APP;
 use crate::overlay;
 use crate::screen_capture::capture_screen_fast;
 use crate::win_types::SendHwnd;
-use crate::APP;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -16,19 +16,21 @@ pub unsafe extern "system" fn hotkey_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    match msg {
-        WM_APP_PROCESS_PENDING_FILE => {
-            handle_pending_file();
-            LRESULT(0)
+) -> LRESULT {
+    unsafe {
+        match msg {
+            WM_APP_PROCESS_PENDING_FILE => {
+                handle_pending_file();
+                LRESULT(0)
+            }
+            WM_HOTKEY => {
+                handle_hotkey(wparam.0 as i32);
+                LRESULT(0)
+            }
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
-        WM_HOTKEY => {
-            handle_hotkey(wparam.0 as i32);
-            LRESULT(0)
-        }
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}}
+}
 
 /// Handle pending file from inter-process communication.
 fn handle_pending_file() {
@@ -97,7 +99,10 @@ fn handle_hotkey(id: i32) {
 
         crate::log_info!(
             "[Hotkey] ImageContinuous Active: active_idx={}, trigger_id={}, current_id={}, early_idx={}",
-            active_idx, trigger_id, id, preset_idx_early
+            active_idx,
+            trigger_id,
+            id,
+            preset_idx_early
         );
 
         if preset_idx_early == active_idx {
@@ -191,30 +196,33 @@ fn handle_hotkey(id: i32) {
 /// Get preset context information.
 fn get_preset_context(id: i32, preset_idx: usize) -> (String, String, bool, String) {
     if let Ok(app) = APP.lock()
-        && preset_idx < app.config.presets.len() {
-            let p = &app.config.presets[preset_idx];
-            let p_type = p.preset_type.clone();
-            let t_mode = p.text_input_mode.clone();
-            let stopping = p_type == "audio" && overlay::is_recording_overlay_active();
+        && preset_idx < app.config.presets.len()
+    {
+        let p = &app.config.presets[preset_idx];
+        let p_type = p.preset_type.clone();
+        let t_mode = p.text_input_mode.clone();
+        let stopping = p_type == "audio" && overlay::is_recording_overlay_active();
 
-            let hk_idx = ((id - 1) % 1000) as usize;
-            let hk_name = if hk_idx < p.hotkeys.len() {
-                let hk = &p.hotkeys[hk_idx];
-                if overlay::continuous_mode::supports_continuous_mode(&p_type) {
-                    crate::log_info!(
-                        "[Hotkey] Setting current hotkey for hold detection: mods={}, code={}, name='{}'",
-                        hk.modifiers, hk.code, hk.name
-                    );
-                    overlay::continuous_mode::set_current_hotkey(hk.modifiers, hk.code);
-                    overlay::continuous_mode::set_latest_hotkey_name(hk.name.clone());
-                }
-                hk.name.clone()
-            } else {
-                String::new()
-            };
+        let hk_idx = ((id - 1) % 1000) as usize;
+        let hk_name = if hk_idx < p.hotkeys.len() {
+            let hk = &p.hotkeys[hk_idx];
+            if overlay::continuous_mode::supports_continuous_mode(&p_type) {
+                crate::log_info!(
+                    "[Hotkey] Setting current hotkey for hold detection: mods={}, code={}, name='{}'",
+                    hk.modifiers,
+                    hk.code,
+                    hk.name
+                );
+                overlay::continuous_mode::set_current_hotkey(hk.modifiers, hk.code);
+                overlay::continuous_mode::set_latest_hotkey_name(hk.name.clone());
+            }
+            hk.name.clone()
+        } else {
+            String::new()
+        };
 
-            return (p_type, t_mode, stopping, hk_name);
-        }
+        return (p_type, t_mode, stopping, hk_name);
+    }
     (
         "image".to_string(),
         "select".to_string(),
@@ -281,7 +289,11 @@ fn handle_text_select_mode(preset_idx: usize, hotkey_name: &str, just_activated_
 
     crate::log_info!(
         "[TextHotkey] Entering text handling: ts_active={}, ts_warming={}, ts_held={}, cm_active={}, just_activated={}",
-        ts_active, ts_warming, ts_held, cm_active, just_activated_continuous
+        ts_active,
+        ts_warming,
+        ts_held,
+        cm_active,
+        just_activated_continuous
     );
 
     let is_visible = overlay::text_selection::is_active();

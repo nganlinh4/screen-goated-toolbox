@@ -7,7 +7,7 @@ use crate::overlay::text_input;
 use crate::win_types::SendHwnd;
 use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::*;
-use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::step::run_chain_step;
@@ -29,13 +29,12 @@ pub fn handle_auto_copy(
     }
 
     // CASE 1: Image Input Adapter (Source Copy)
-    if is_input_adapter
-        && let RefineContext::Image(img_data) = context {
-            let img_data_clone = img_data.clone();
-            std::thread::spawn(move || {
-                crate::overlay::utils::copy_image_to_clipboard(&img_data_clone);
-            });
-        }
+    if is_input_adapter && let RefineContext::Image(img_data) = context {
+        let img_data_clone = img_data.clone();
+        std::thread::spawn(move || {
+            crate::overlay::utils::copy_image_to_clipboard(&img_data_clone);
+        });
+    }
 
     // CASE 2: Text Content (Result or Source Text) OR Image Content (Source Copy)
     let image_copied = is_input_adapter && matches!(context, RefineContext::Image(_));
@@ -174,41 +173,63 @@ pub fn save_to_history(
             }
         });
     } else if block.block_type == "image"
-        && let RefineContext::Image(img_bytes) = context {
-            let img_bytes_clone = img_bytes.clone();
-            std::thread::spawn(move || {
-                if let Ok(img_dynamic) = image::load_from_memory(&img_bytes_clone) {
-                    let img_buffer = img_dynamic.to_rgba8();
-                    if let Ok(app) = crate::APP.lock() {
-                        app.history.save_image(img_buffer, text_for_history);
-                    }
+        && let RefineContext::Image(img_bytes) = context
+    {
+        let img_bytes_clone = img_bytes.clone();
+        std::thread::spawn(move || {
+            if let Ok(img_dynamic) = image::load_from_memory(&img_bytes_clone) {
+                let img_buffer = img_dynamic.to_rgba8();
+                if let Ok(app) = crate::APP.lock() {
+                    app.history.save_image(img_buffer, text_for_history);
                 }
-            });
-        }
+            }
+        });
+    }
 }
 
 /// Continue chain to next blocks (graph traversal).
-#[allow(clippy::too_many_arguments)]
-pub fn continue_chain(
-    block_idx: usize,
-    block: &ProcessingBlock,
-    result_text: String,
-    blocks: Vec<ProcessingBlock>,
-    connections: Vec<(usize, usize)>,
-    config: Config,
-    my_hwnd: Option<HWND>,
-    parent_hwnd: Arc<Mutex<Option<SendHwnd>>>,
-    context: RefineContext,
-    skip_execution: bool,
-    processing_indicator_hwnd: Option<SendHwnd>,
-    cancel_token: Arc<ChainCancelToken>,
-    preset_id: String,
-    disable_auto_paste: bool,
-    chain_id: String,
-    input_hwnd_refocus: Option<SendHwnd>,
-    my_rect: RECT,
-    starting_rect: RECT,
-) {
+pub struct ContinueChainRequest<'a> {
+    pub block_idx: usize,
+    pub block: &'a ProcessingBlock,
+    pub result_text: String,
+    pub blocks: Vec<ProcessingBlock>,
+    pub connections: Vec<(usize, usize)>,
+    pub config: Config,
+    pub my_hwnd: Option<HWND>,
+    pub parent_hwnd: Arc<Mutex<Option<SendHwnd>>>,
+    pub context: RefineContext,
+    pub skip_execution: bool,
+    pub processing_indicator_hwnd: Option<SendHwnd>,
+    pub cancel_token: Arc<ChainCancelToken>,
+    pub preset_id: String,
+    pub disable_auto_paste: bool,
+    pub chain_id: String,
+    pub input_hwnd_refocus: Option<SendHwnd>,
+    pub my_rect: RECT,
+    pub starting_rect: RECT,
+}
+
+pub fn continue_chain(request: ContinueChainRequest<'_>) {
+    let ContinueChainRequest {
+        block_idx,
+        block,
+        result_text,
+        blocks,
+        connections,
+        config,
+        my_hwnd,
+        parent_hwnd,
+        context,
+        skip_execution,
+        processing_indicator_hwnd,
+        cancel_token,
+        preset_id,
+        disable_auto_paste,
+        chain_id,
+        input_hwnd_refocus,
+        my_rect,
+        starting_rect,
+    } = request;
     // Check cancellation before continuing
     if cancel_token.is_cancelled() {
         if let Some(h) = processing_indicator_hwnd {
@@ -312,23 +333,23 @@ pub fn continue_chain(
 
             std::thread::sleep(std::time::Duration::from_millis(delay_ms));
 
-            run_chain_step(
-                next_idx_copy,
-                result_clone,
-                branch_rect,
-                blocks_clone,
-                conns_clone,
-                config_clone,
-                parent_clone,
-                branch_context,
-                next_skip_execution,
-                None, // No processing indicator for parallel branches
-                branch_token,
-                preset_id_clone,
+            run_chain_step(super::step::ChainStepRequest {
+                block_idx: next_idx_copy,
+                input_text: result_clone,
+                current_rect: branch_rect,
+                blocks: blocks_clone,
+                connections: conns_clone,
+                config: config_clone,
+                parent_hwnd: parent_clone,
+                context: branch_context,
+                skip_execution: next_skip_execution,
+                processing_indicator_hwnd: None,
+                cancel_token: branch_token,
+                preset_id: preset_id_clone,
                 disable_auto_paste,
-                chain_id_clone,
-                None,
-            );
+                chain_id: chain_id_clone,
+                input_hwnd_refocus: None,
+            });
         });
     }
 
@@ -339,21 +360,21 @@ pub fn continue_chain(
         ChainCancelToken::child(&cancel_token) // Fork — isolate this branch
     };
 
-    run_chain_step(
-        first_next,
-        result_text,
-        base_rect,
+    run_chain_step(super::step::ChainStepRequest {
+        block_idx: first_next,
+        input_text: result_text,
+        current_rect: base_rect,
         blocks,
         connections,
         config,
-        next_parent,
-        next_context,
-        next_skip_execution,
+        parent_hwnd: next_parent,
+        context: next_context,
+        skip_execution: next_skip_execution,
         processing_indicator_hwnd,
-        first_token,
+        cancel_token: first_token,
         preset_id,
         disable_auto_paste,
         chain_id,
         input_hwnd_refocus,
-    );
+    });
 }

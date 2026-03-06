@@ -2,10 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::preset::{get_default_presets, Preset};
+use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
-    default_tts_language_conditions, get_system_ui_language, EdgeTtsSettings, Hotkey, ThemeMode,
-    TtsLanguageCondition, TtsMethod, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT,
+    DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey, ThemeMode,
+    TtsLanguageCondition, TtsMethod, default_tts_language_conditions, get_system_ui_language,
 };
 
 // ============================================================================

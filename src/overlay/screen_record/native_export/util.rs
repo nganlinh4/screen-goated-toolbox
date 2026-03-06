@@ -34,9 +34,9 @@ pub fn pick_export_folder(initial_dir: Option<String>) -> Result<Option<String>,
             SHGetKnownFolderPath(&FOLDERID_Downloads, KNOWN_FOLDER_FLAG(0), None)
             && let Ok(folder_item) =
                 SHCreateItemFromParsingName::<PCWSTR, _, IShellItem>(PCWSTR(downloads_path.0), None)
-            {
-                let _ = dialog.SetFolder(&folder_item);
-            }
+        {
+            let _ = dialog.SetFolder(&folder_item);
+        }
 
         if dialog.Show(None).is_err() {
             CoUninitialize();

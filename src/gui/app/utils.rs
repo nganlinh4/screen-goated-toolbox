@@ -1,10 +1,10 @@
-use super::types::{SettingsApp, RESTORE_SIGNAL};
+use super::types::{RESTORE_SIGNAL, SettingsApp};
 use crate::config::save_config;
 use eframe::egui;
 use std::sync::atomic::Ordering;
-use windows::core::*;
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Threading::*;
+use windows::core::*;
 
 // Simple Linear Congruential Generator for randomness without external crate
 pub fn simple_rand(seed: u32) -> u32 {

@@ -11,12 +11,12 @@ use messages::{selection_hook_proc, selection_wnd_proc};
 use render::sync_layered_window_contents;
 use state::*;
 use std::sync::atomic::Ordering;
-use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::*;
 
 // Re-export public items
 pub use render::extract_crop_from_hbitmap_public;

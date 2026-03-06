@@ -4,17 +4,17 @@
 use crate::APP;
 use std::cell::RefCell;
 use std::sync::{
-    atomic::{AtomicIsize, Ordering},
     Once,
+    atomic::{AtomicIsize, Ordering},
 };
-use windows::core::w;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
-    DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::w;
 use wry::{Rect, WebContext, WebView, WebViewBuilder};
 
 static REGISTER_POPUP_CLASS: Once = Once::new();
@@ -58,7 +58,7 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
         &self,
     ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
         let raw = raw_window_handle::Win32WindowHandle::new(
-            std::num::NonZeroIsize::new(self.0 .0 as isize).expect("HWND cannot be null"),
+            std::num::NonZeroIsize::new(self.0.0 as isize).expect("HWND cannot be null"),
         );
         let handle = raw_window_handle::RawWindowHandle::Win32(raw);
         unsafe { Ok(raw_window_handle::WindowHandle::borrow_raw(handle)) }
@@ -388,7 +388,7 @@ svg {{
         <div class="label">{settings}</div>
         <div class="check"></div>
     </div>
-    
+
     <div class="menu-item bubble-item {active_class}" data-state="{active_class}" onclick="action('bubble')">
         <div class="icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
@@ -396,7 +396,7 @@ svg {{
         <div class="label">{bubble}</div>
         <div class="check" id="bubble-check-container">{check}</div>
     </div>
-    
+
     <div class="menu-item {stop_tts_disabled}" id="stop-tts-item" onclick="action('stop_tts')">
         <div class="icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
@@ -404,9 +404,9 @@ svg {{
         <div class="label">{stop_tts}</div>
         <div class="check"></div>
     </div>
-    
+
     <div class="separator"></div>
-    
+
     <div class="menu-item" onclick="action('quit')">
         <div class="icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -690,7 +690,6 @@ fn create_popup_window() {
                     attempt
                 );
 
-                
                 POPUP_WEB_CONTEXT.with(|ctx| {
                     let mut ctx_ref = ctx.borrow_mut();
                     let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
@@ -699,11 +698,11 @@ fn create_popup_window() {
                         WebViewBuilder::new()
                     };
                     let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
-                    
+
                     // Store HTML in font server and get URL for same-origin font loading
                     let page_url = crate::overlay::html_components::font_manager::store_html_page(html.clone())
                         .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html)));
-                    
+
                     builder
                         .with_bounds(Rect {
                             position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
@@ -748,7 +747,7 @@ fn create_popup_window() {
                                         if let Some(webview) = cell.borrow().as_ref() {
                                             let js = format!(
                                                 "document.getElementById('bubble-check-container').innerHTML = '{}';",
-                                                if new_state { 
+                                                if new_state {
                                                     r#"<svg class="check-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M13.86 3.66a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.6 9.03a.75.75 0 1 1 1.06-1.06l2.42 2.42 6.72-6.72a.75.75 0 0 1 1.06 0z"/></svg>"#
                                                 } else { "" }
                                             );
@@ -842,253 +841,257 @@ unsafe extern "system" fn popup_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    match msg {
-        WM_APP_SHOW => {
-            // Reposition window to cursor and show
-            let popup_height = get_scaled_dimension(BASE_POPUP_HEIGHT);
-            let popup_width = get_scaled_dimension(BASE_POPUP_WIDTH);
+) -> LRESULT {
+    unsafe {
+        match msg {
+            WM_APP_SHOW => {
+                // Reposition window to cursor and show
+                let popup_height = get_scaled_dimension(BASE_POPUP_HEIGHT);
+                let popup_width = get_scaled_dimension(BASE_POPUP_WIDTH);
 
-            let mut pt = POINT::default();
-            let _ = GetCursorPos(&mut pt);
-            let screen_w = GetSystemMetrics(SM_CXSCREEN);
-            let screen_h = GetSystemMetrics(SM_CYSCREEN);
+                let mut pt = POINT::default();
+                let _ = GetCursorPos(&mut pt);
+                let screen_w = GetSystemMetrics(SM_CXSCREEN);
+                let screen_h = GetSystemMetrics(SM_CYSCREEN);
 
-            let popup_x = (pt.x - popup_width / 2).max(0).min(screen_w - popup_width);
-            let popup_y = (pt.y - popup_height - 10)
-                .max(0)
-                .min(screen_h - popup_height);
+                let popup_x = (pt.x - popup_width / 2).max(0).min(screen_w - popup_width);
+                let popup_y = (pt.y - popup_height - 10)
+                    .max(0)
+                    .min(screen_h - popup_height);
 
-            // Update state via JavaScript (preserves font cache - no reload flash)
-            POPUP_WEBVIEW.with(|cell| {
-                if let Some(webview) = cell.borrow().as_ref() {
-                    let update_script = generate_popup_update_script();
-                    let _ = webview.evaluate_script(&update_script);
-                }
-            });
+                // Update state via JavaScript (preserves font cache - no reload flash)
+                POPUP_WEBVIEW.with(|cell| {
+                    if let Some(webview) = cell.borrow().as_ref() {
+                        let update_script = generate_popup_update_script();
+                        let _ = webview.evaluate_script(&update_script);
+                    }
+                });
 
-            // Resize WebView to current DPI
-            POPUP_WEBVIEW.with(|cell| {
-                if let Some(webview) = cell.borrow().as_ref() {
-                    let _ = webview.set_bounds(Rect {
-                        position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(
-                            0.0, 0.0,
-                        )),
-                        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                            popup_width as u32,
-                            popup_height as u32,
-                        )),
-                    });
-                }
-            });
+                // Resize WebView to current DPI
+                POPUP_WEBVIEW.with(|cell| {
+                    if let Some(webview) = cell.borrow().as_ref() {
+                        let _ = webview.set_bounds(Rect {
+                            position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(
+                                0.0, 0.0,
+                            )),
+                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                                popup_width as u32,
+                                popup_height as u32,
+                            )),
+                        });
+                    }
+                });
 
-            // Reposition and resize window
-            let _ = SetWindowPos(
-                hwnd,
-                None,
-                popup_x,
-                popup_y,
-                popup_width,
-                popup_height,
-                SWP_NOZORDER,
-            );
+                // Reposition and resize window
+                let _ = SetWindowPos(
+                    hwnd,
+                    None,
+                    popup_x,
+                    popup_y,
+                    popup_width,
+                    popup_height,
+                    SWP_NOZORDER,
+                );
 
-            // Make fully visible (undo the warmup transparency)
-            let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
+                // Make fully visible (undo the warmup transparency)
+                let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
 
-            // Show and focus
-            let _ = ShowWindow(hwnd, SW_SHOW);
-            let _ = SetForegroundWindow(hwnd);
+                // Show and focus
+                let _ = ShowWindow(hwnd, SW_SHOW);
+                let _ = SetForegroundWindow(hwnd);
 
-            // Start focus-polling timer
-            let _ = SetTimer(Some(hwnd), 888, 100, None);
+                // Start focus-polling timer
+                let _ = SetTimer(Some(hwnd), 888, 100, None);
 
-            LRESULT(0)
-        }
-
-        WM_ACTIVATE => LRESULT(0),
-
-        WM_TIMER => {
-            if wparam.0 == 888 {
-                // Focus polling: check if we're still the active window
-                let fg = GetForegroundWindow();
-                let root = GetAncestor(fg, GA_ROOT);
-
-                // If focus is on this popup or its children (WebView2), stay open
-                if fg == hwnd || root == hwnd {
-                    return LRESULT(0);
-                }
-
-                // Focus is elsewhere - check grace period
-                let now = windows::Win32::System::SystemInformation::GetTickCount64();
-                if now > IGNORE_FOCUS_LOSS_UNTIL.load(Ordering::SeqCst) {
-                    let _ = KillTimer(Some(hwnd), 888);
-                    hide_tray_popup();
-                }
+                LRESULT(0)
             }
-            LRESULT(0)
-        }
 
-        WM_CLOSE => {
-            // Just hide - don't destroy. Preserves WebView for instant redisplay.
-            let _ = KillTimer(Some(hwnd), 888);
-            let _ = ShowWindow(hwnd, SW_HIDE);
-            LRESULT(0)
-        }
+            WM_ACTIVATE => LRESULT(0),
 
-        WM_DESTROY => {
-            PostQuitMessage(0);
-            LRESULT(0)
-        }
+            WM_TIMER => {
+                if wparam.0 == 888 {
+                    // Focus polling: check if we're still the active window
+                    let fg = GetForegroundWindow();
+                    let root = GetAncestor(fg, GA_ROOT);
 
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+                    // If focus is on this popup or its children (WebView2), stay open
+                    if fg == hwnd || root == hwnd {
+                        return LRESULT(0);
+                    }
+
+                    // Focus is elsewhere - check grace period
+                    let now = windows::Win32::System::SystemInformation::GetTickCount64();
+                    if now > IGNORE_FOCUS_LOSS_UNTIL.load(Ordering::SeqCst) {
+                        let _ = KillTimer(Some(hwnd), 888);
+                        hide_tray_popup();
+                    }
+                }
+                LRESULT(0)
+            }
+
+            WM_CLOSE => {
+                // Just hide - don't destroy. Preserves WebView for instant redisplay.
+                let _ = KillTimer(Some(hwnd), 888);
+                let _ = ShowWindow(hwnd, SW_HIDE);
+                LRESULT(0)
+            }
+
+            WM_DESTROY => {
+                PostQuitMessage(0);
+                LRESULT(0)
+            }
+
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+        }
     }
-}}
+}
 
 /// Fallback native context menu when WebView fails
-unsafe fn show_native_context_menu() { unsafe {
-    use crate::config::ThemeMode;
-    use windows::core::{HSTRING, PCWSTR};
+unsafe fn show_native_context_menu() {
+    unsafe {
+        use crate::config::ThemeMode;
+        use windows::core::{HSTRING, PCWSTR};
 
-    let (settings_text, bubble_text, stop_tts_text, quit_text, bubble_checked, _is_dark) =
-        if let Ok(app) = APP.lock() {
-            let lang = &app.config.ui_language;
-            let settings = match lang.as_str() {
-                "vi" => "Cài đặt",
-                "ko" => "설정",
-                _ => "Settings",
+        let (settings_text, bubble_text, stop_tts_text, quit_text, bubble_checked, _is_dark) =
+            if let Ok(app) = APP.lock() {
+                let lang = &app.config.ui_language;
+                let settings = match lang.as_str() {
+                    "vi" => "Cài đặt",
+                    "ko" => "설정",
+                    _ => "Settings",
+                };
+                let bubble = match lang.as_str() {
+                    "vi" => "Hiện bong bóng",
+                    "ko" => "즐겨찾기 버블",
+                    _ => "Favorite Bubble",
+                };
+                let stop_tts = match lang.as_str() {
+                    "vi" => "Dừng đọc",
+                    "ko" => "재생 중인 모든 음성 중지",
+                    _ => "Stop All Playing TTS",
+                };
+                let quit = match lang.as_str() {
+                    "vi" => "Thoát",
+                    "ko" => "종료",
+                    _ => "Quit",
+                };
+                let checked = app.config.show_favorite_bubble;
+
+                let is_dark = match app.config.theme_mode {
+                    ThemeMode::Dark => true,
+                    ThemeMode::Light => false,
+                    ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
+                };
+
+                (settings, bubble, stop_tts, quit, checked, is_dark)
+            } else {
+                (
+                    "Settings",
+                    "Favorite Bubble",
+                    "Stop All TTS",
+                    "Quit",
+                    false,
+                    true,
+                )
             };
-            let bubble = match lang.as_str() {
-                "vi" => "Hiện bong bóng",
-                "ko" => "즐겨찾기 버블",
-                _ => "Favorite Bubble",
-            };
-            let stop_tts = match lang.as_str() {
-                "vi" => "Dừng đọc",
-                "ko" => "재생 중인 모든 음성 중지",
-                _ => "Stop All Playing TTS",
-            };
-            let quit = match lang.as_str() {
-                "vi" => "Thoát",
-                "ko" => "종료",
-                _ => "Quit",
-            };
-            let checked = app.config.show_favorite_bubble;
 
-            let is_dark = match app.config.theme_mode {
-                ThemeMode::Dark => true,
-                ThemeMode::Light => false,
-                ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-            };
+        let has_tts_pending = crate::api::tts::TTS_MANAGER.has_pending_audio();
 
-            (settings, bubble, stop_tts, quit, checked, is_dark)
-        } else {
-            (
-                "Settings",
-                "Favorite Bubble",
-                "Stop All TTS",
-                "Quit",
-                false,
-                true,
-            )
-        };
+        // Create a dummy window to handle menu messages
+        let instance = GetModuleHandleW(None).unwrap_or_default();
+        let hwnd = CreateWindowExW(
+            WS_EX_TOOLWINDOW,
+            w!("STATIC"),
+            w!("SGTNativeMenu"),
+            WS_POPUP,
+            0,
+            0,
+            0,
+            0,
+            None,
+            None,
+            Some(instance.into()),
+            None,
+        )
+        .unwrap_or_default();
 
-    let has_tts_pending = crate::api::tts::TTS_MANAGER.has_pending_audio();
-
-    // Create a dummy window to handle menu messages
-    let instance = GetModuleHandleW(None).unwrap_or_default();
-    let hwnd = CreateWindowExW(
-        WS_EX_TOOLWINDOW,
-        w!("STATIC"),
-        w!("SGTNativeMenu"),
-        WS_POPUP,
-        0,
-        0,
-        0,
-        0,
-        None,
-        None,
-        Some(instance.into()),
-        None,
-    )
-    .unwrap_or_default();
-
-    if hwnd.is_invalid() {
-        return;
-    }
-
-    let _ = SetForegroundWindow(hwnd);
-
-    let hmenu = CreatePopupMenu().unwrap_or_default();
-
-    fn add_item(hmenu: HMENU, id: usize, text: &str, checked: bool, disabled: bool) {
-        let mut flags = MF_STRING;
-        if checked {
-            flags |= MF_CHECKED;
-        }
-        if disabled {
-            flags |= MF_DISABLED | MF_GRAYED;
+        if hwnd.is_invalid() {
+            return;
         }
 
-        let h_text = HSTRING::from(text);
-        unsafe {
-            let _ = AppendMenuW(hmenu, flags, id, PCWSTR(h_text.as_ptr()));
-        }
-    }
+        let _ = SetForegroundWindow(hwnd);
 
-    add_item(hmenu, 1, settings_text, false, false);
-    add_item(hmenu, 2, bubble_text, bubble_checked, false);
-    add_item(hmenu, 3, stop_tts_text, false, !has_tts_pending);
-    let _ = AppendMenuW(hmenu, MF_SEPARATOR, 0, PCWSTR::null());
-    add_item(hmenu, 4, quit_text, false, false);
+        let hmenu = CreatePopupMenu().unwrap_or_default();
 
-    let mut pt = POINT::default();
-    let _ = GetCursorPos(&mut pt);
+        fn add_item(hmenu: HMENU, id: usize, text: &str, checked: bool, disabled: bool) {
+            let mut flags = MF_STRING;
+            if checked {
+                flags |= MF_CHECKED;
+            }
+            if disabled {
+                flags |= MF_DISABLED | MF_GRAYED;
+            }
 
-    let cmd_id = TrackPopupMenu(
-        hmenu,
-        TPM_RETURNCMD | TPM_NONOTIFY | TPM_BOTTOMALIGN | TPM_LEFTALIGN,
-        pt.x,
-        pt.y,
-        None,
-        hwnd,
-        None,
-    );
-
-    let _ = DestroyMenu(hmenu);
-    let _ = DestroyWindow(hwnd);
-
-    match cmd_id.0 as u32 {
-        1 => {
-            // Settings
-            crate::gui::signal_restore_window();
-        }
-        2 => {
-            // Toggle Bubble
-            if let Ok(mut app) = APP.lock() {
-                app.config.show_favorite_bubble = !app.config.show_favorite_bubble;
-                let enabled = app.config.show_favorite_bubble;
-                crate::config::save_config(&app.config);
-
-                if enabled {
-                    crate::overlay::favorite_bubble::show_favorite_bubble();
-                    std::thread::spawn(|| {
-                        std::thread::sleep(std::time::Duration::from_millis(150));
-                        crate::overlay::favorite_bubble::trigger_blink_animation();
-                    });
-                } else {
-                    crate::overlay::favorite_bubble::hide_favorite_bubble();
-                }
+            let h_text = HSTRING::from(text);
+            unsafe {
+                let _ = AppendMenuW(hmenu, flags, id, PCWSTR(h_text.as_ptr()));
             }
         }
-        3 => {
-            // Stop TTS
-            crate::api::tts::TTS_MANAGER.stop();
+
+        add_item(hmenu, 1, settings_text, false, false);
+        add_item(hmenu, 2, bubble_text, bubble_checked, false);
+        add_item(hmenu, 3, stop_tts_text, false, !has_tts_pending);
+        let _ = AppendMenuW(hmenu, MF_SEPARATOR, 0, PCWSTR::null());
+        add_item(hmenu, 4, quit_text, false, false);
+
+        let mut pt = POINT::default();
+        let _ = GetCursorPos(&mut pt);
+
+        let cmd_id = TrackPopupMenu(
+            hmenu,
+            TPM_RETURNCMD | TPM_NONOTIFY | TPM_BOTTOMALIGN | TPM_LEFTALIGN,
+            pt.x,
+            pt.y,
+            None,
+            hwnd,
+            None,
+        );
+
+        let _ = DestroyMenu(hmenu);
+        let _ = DestroyWindow(hwnd);
+
+        match cmd_id.0 as u32 {
+            1 => {
+                // Settings
+                crate::gui::signal_restore_window();
+            }
+            2 => {
+                // Toggle Bubble
+                if let Ok(mut app) = APP.lock() {
+                    app.config.show_favorite_bubble = !app.config.show_favorite_bubble;
+                    let enabled = app.config.show_favorite_bubble;
+                    crate::config::save_config(&app.config);
+
+                    if enabled {
+                        crate::overlay::favorite_bubble::show_favorite_bubble();
+                        std::thread::spawn(|| {
+                            std::thread::sleep(std::time::Duration::from_millis(150));
+                            crate::overlay::favorite_bubble::trigger_blink_animation();
+                        });
+                    } else {
+                        crate::overlay::favorite_bubble::hide_favorite_bubble();
+                    }
+                }
+            }
+            3 => {
+                // Stop TTS
+                crate::api::tts::TTS_MANAGER.stop();
+            }
+            4 => {
+                // Quit
+                std::process::exit(0);
+            }
+            _ => {}
         }
-        4 => {
-            // Quit
-            std::process::exit(0);
-        }
-        _ => {}
     }
-}}
+}

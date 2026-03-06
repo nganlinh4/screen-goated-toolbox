@@ -41,9 +41,10 @@ pub fn load_config() -> DownloadManagerConfig {
     let path = get_config_path();
     if path.exists()
         && let Ok(content) = fs::read_to_string(&path)
-            && let Ok(config) = serde_json::from_str(&content) {
-                return config;
-            }
+        && let Ok(config) = serde_json::from_str(&content)
+    {
+        return config;
+    }
     DownloadManagerConfig::default()
 }
 

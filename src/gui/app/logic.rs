@@ -382,11 +382,12 @@ impl SettingsApp {
                             key, pressed: true, ..
                         } = event
                             && let Some(vk) = egui_key_to_vk(key)
-                                && !matches!(vk, 16 | 17 | 18 | 91 | 92) {
-                                    let key_name =
-                                        format!("{:?}", key).trim_start_matches("Key").to_string();
-                                    key_recorded = Some((vk, modifiers_bitmap, key_name));
-                                }
+                            && !matches!(vk, 16 | 17 | 18 | 91 | 92)
+                        {
+                            let key_name =
+                                format!("{:?}", key).trim_start_matches("Key").to_string();
+                            key_recorded = Some((vk, modifiers_bitmap, key_name));
+                        }
                     }
 
                     // Check Mouse Events (Middle, Extra1, Extra2)
@@ -399,17 +400,18 @@ impl SettingsApp {
 
                         for btn in mouse_buttons {
                             if i.pointer.button_pressed(btn)
-                                && let Some(vk) = egui_pointer_to_vk(&btn) {
-                                    let name = match btn {
-                                        egui::PointerButton::Middle => "Middle Click",
-                                        egui::PointerButton::Extra1 => "Mouse Back",
-                                        egui::PointerButton::Extra2 => "Mouse Forward",
-                                        _ => "Mouse",
-                                    }
-                                    .to_string();
-                                    key_recorded = Some((vk, modifiers_bitmap, name));
-                                    break;
+                                && let Some(vk) = egui_pointer_to_vk(&btn)
+                            {
+                                let name = match btn {
+                                    egui::PointerButton::Middle => "Middle Click",
+                                    egui::PointerButton::Extra1 => "Mouse Back",
+                                    egui::PointerButton::Extra2 => "Mouse Forward",
+                                    _ => "Mouse",
                                 }
+                                .to_string();
+                                key_recorded = Some((vk, modifiers_bitmap, name));
+                                break;
+                            }
                         }
                     }
                 }
@@ -450,10 +452,10 @@ impl SettingsApp {
                             .hotkeys
                             .iter()
                             .any(|h| h.code == vk && h.modifiers == mods)
-                        {
-                            preset.hotkeys.push(new_hotkey);
-                            self.save_and_sync();
-                        }
+                    {
+                        preset.hotkeys.push(new_hotkey);
+                        self.save_and_sync();
+                    }
                     self.recording_hotkey_for_preset = None;
                     self.hotkey_conflict_msg = None;
                 }
@@ -490,11 +492,12 @@ impl SettingsApp {
                             key, pressed: true, ..
                         } = event
                             && let Some(vk) = egui_key_to_vk(key)
-                                && !matches!(vk, 16 | 17 | 18 | 91 | 92) {
-                                    let key_name =
-                                        format!("{:?}", key).trim_start_matches("Key").to_string();
-                                    key_recorded = Some((vk, modifiers_bitmap, key_name));
-                                }
+                            && !matches!(vk, 16 | 17 | 18 | 91 | 92)
+                        {
+                            let key_name =
+                                format!("{:?}", key).trim_start_matches("Key").to_string();
+                            key_recorded = Some((vk, modifiers_bitmap, key_name));
+                        }
                     }
 
                     // Check Mouse Events
@@ -507,17 +510,18 @@ impl SettingsApp {
 
                         for btn in mouse_buttons {
                             if i.pointer.button_pressed(btn)
-                                && let Some(vk) = egui_pointer_to_vk(&btn) {
-                                    let name = match btn {
-                                        egui::PointerButton::Middle => "Middle Click",
-                                        egui::PointerButton::Extra1 => "Mouse Back",
-                                        egui::PointerButton::Extra2 => "Mouse Forward",
-                                        _ => "Mouse",
-                                    }
-                                    .to_string();
-                                    key_recorded = Some((vk, modifiers_bitmap, name));
-                                    break;
+                                && let Some(vk) = egui_pointer_to_vk(&btn)
+                            {
+                                let name = match btn {
+                                    egui::PointerButton::Middle => "Middle Click",
+                                    egui::PointerButton::Extra1 => "Mouse Back",
+                                    egui::PointerButton::Extra2 => "Mouse Forward",
+                                    _ => "Mouse",
                                 }
+                                .to_string();
+                                key_recorded = Some((vk, modifiers_bitmap, name));
+                                break;
+                            }
                         }
                     }
                 }

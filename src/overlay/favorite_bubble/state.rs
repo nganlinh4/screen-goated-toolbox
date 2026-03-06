@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::sync::{
-    atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU8},
     Once,
+    atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU8},
 };
 use wry::{WebContext, WebView};
 

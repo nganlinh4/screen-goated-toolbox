@@ -4,41 +4,45 @@ import {
   CursorRenderType,
   CursorImageSet,
   CursorRenderState,
-  getScreenStudioCursorImage,
-  getMacos26CursorImage,
-  getSgtcuteCursorImage,
-  getSgtcoolCursorImage,
-  getSgtaiCursorImage,
-  getSgtpixelCursorImage,
-  getJepriwin11CursorImage,
-  getSgtwatermelonCursorImage,
-  getSgtfastfoodCursorImage,
-  getSgtveggieCursorImage,
-  getSgtvietnamCursorImage,
-  getSgtkoreaCursorImage,
+  getCursorImage,
 } from './cursorTypes';
 import { getPreviewFrame } from './cursorAnimationCapture';
 
-// Re-export everything from cursorTypes for backwards compatibility
+// Re-export shared cursor renderer types and helpers.
 export {
   type CursorRenderType,
+  type CursorPack,
+  type CursorRenderKind,
   type CursorImageSet,
   type CursorRenderState,
+  CURSOR_PACKS,
+  CURSOR_RENDER_KINDS,
   getCursorPack,
   resolveCursorRenderType,
-  getMacos26CursorImage,
-  getSgtcuteCursorImage,
-  getSgtcoolCursorImage,
-  getSgtaiCursorImage,
-  getSgtpixelCursorImage,
-  getJepriwin11CursorImage,
-  getSgtwatermelonCursorImage,
-  getSgtfastfoodCursorImage,
-  getSgtveggieCursorImage,
-  getSgtvietnamCursorImage,
-  getSgtkoreaCursorImage,
-  getScreenStudioCursorImage,
+  getCursorImage,
 } from './cursorTypes';
+
+function isDrawableCursorImage(image: HTMLImageElement | null | undefined): image is HTMLImageElement {
+  return Boolean(image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0);
+}
+
+function resolveDrawableCursorType(images: CursorImageSet, requestedType: string): CursorRenderType {
+  if (isDrawableCursorImage(getCursorImage(images, requestedType))) {
+    return requestedType as CursorRenderType;
+  }
+
+  const fallbackChain: CursorRenderType[] = requestedType === 'openhand-screenstudio'
+    ? ['pointer-screenstudio', 'default-screenstudio']
+    : ['default-screenstudio'];
+
+  for (const fallbackType of fallbackChain) {
+    if (isDrawableCursorImage(getCursorImage(images, fallbackType))) {
+      return fallbackType;
+    }
+  }
+
+  return 'default-screenstudio';
+}
 
 // ---------------------------------------------------------------------------
 // drawCenteredCursorImage – render a cursor image centered on the current
@@ -116,61 +120,7 @@ export function drawCursorShape(
     ctx.shadowOffsetY = 0;
   }
 
-  let effectiveType = lowerType;
-  if (effectiveType.endsWith('-screenstudio')) {
-    const image = getScreenStudioCursorImage(images, effectiveType);
-    if (!image || !image.complete || image.naturalWidth === 0) {
-      effectiveType = 'default-screenstudio';
-    }
-  }
-  if (effectiveType === 'pointer-screenstudio' && (!images.pointerScreenStudioImage.complete || images.pointerScreenStudioImage.naturalWidth === 0)) {
-    effectiveType = 'default-screenstudio';
-  }
-  if (effectiveType === 'openhand-screenstudio' && (!images.openHandScreenStudioImage.complete || images.openHandScreenStudioImage.naturalWidth === 0)) {
-    effectiveType = 'pointer-screenstudio';
-  }
-  if (effectiveType.endsWith('-macos26')) {
-    const image = getMacos26CursorImage(images, effectiveType as CursorRenderType);
-    if (!image || !image.complete || image.naturalWidth === 0) {
-      effectiveType = 'default-screenstudio';
-    }
-  }
-  if (effectiveType.endsWith('-sgtcute')) {
-    const image = getSgtcuteCursorImage(images, effectiveType as CursorRenderType);
-    if (!image || !image.complete || image.naturalWidth === 0) {
-      effectiveType = 'default-screenstudio';
-    }
-  }
-  if (effectiveType.endsWith('-sgtcool')) {
-    const image = getSgtcoolCursorImage(images, effectiveType as CursorRenderType);
-    if (!image || !image.complete || image.naturalWidth === 0) {
-      effectiveType = 'default-screenstudio';
-    }
-  }
-  if (effectiveType.endsWith('-sgtai')) {
-    const image = getSgtaiCursorImage(images, effectiveType as CursorRenderType);
-    if (!image || !image.complete || image.naturalWidth === 0) {
-      effectiveType = 'default-screenstudio';
-    }
-  }
-  if (effectiveType.endsWith('-sgtpixel')) {
-    const image = getSgtpixelCursorImage(images, effectiveType as CursorRenderType);
-    if (!image || !image.complete || image.naturalWidth === 0) {
-      effectiveType = 'default-screenstudio';
-    }
-  }
-  if (effectiveType.endsWith('-jepriwin11')) {
-    const image = getJepriwin11CursorImage(images, effectiveType as CursorRenderType);
-    if (!image || !image.complete || image.naturalWidth === 0) {
-      effectiveType = 'default-screenstudio';
-    }
-  }
-  if (effectiveType.endsWith('-sgtwatermelon')) {
-    const image = getSgtwatermelonCursorImage(images, effectiveType as CursorRenderType);
-    if (!image || !image.complete || image.naturalWidth === 0) {
-      effectiveType = 'default-screenstudio';
-    }
-  }
+  const effectiveType = resolveDrawableCursorType(images, lowerType);
 
   const mappingKey = `${cursorType}=>${effectiveType}`;
   if (!state.loggedCursorMappings.has(mappingKey)) {
@@ -183,19 +133,7 @@ export function drawCursorShape(
 
   if (!state.loggedCursorTypes.has(effectiveType)) {
     state.loggedCursorTypes.add(effectiveType);
-    const debugImg =
-      getScreenStudioCursorImage(images, effectiveType) ??
-      getMacos26CursorImage(images, effectiveType as CursorRenderType) ??
-      getSgtcuteCursorImage(images, effectiveType as CursorRenderType) ??
-      getSgtcoolCursorImage(images, effectiveType as CursorRenderType) ??
-      getSgtaiCursorImage(images, effectiveType as CursorRenderType) ??
-      getSgtpixelCursorImage(images, effectiveType as CursorRenderType) ??
-      getJepriwin11CursorImage(images, effectiveType as CursorRenderType) ??
-      getSgtwatermelonCursorImage(images, effectiveType as CursorRenderType) ??
-      getSgtfastfoodCursorImage(images, effectiveType as CursorRenderType) ??
-      getSgtveggieCursorImage(images, effectiveType as CursorRenderType) ??
-      getSgtvietnamCursorImage(images, effectiveType as CursorRenderType) ??
-      getSgtkoreaCursorImage(images, effectiveType as CursorRenderType);
+    const debugImg = getCursorImage(images, effectiveType);
     console.log('[CursorDebug] loaded', {
       effectiveType,
       src: debugImg?.src,
@@ -205,218 +143,8 @@ export function drawCursorShape(
     });
   }
 
-  switch (effectiveType) {
-    case 'text-screenstudio':
-    case 'pointer-screenstudio':
-    case 'openhand-screenstudio':
-    case 'closehand-screenstudio':
-    case 'wait-screenstudio':
-    case 'appstarting-screenstudio':
-    case 'crosshair-screenstudio':
-    case 'resize-ns-screenstudio':
-    case 'resize-we-screenstudio':
-    case 'resize-nwse-screenstudio':
-    case 'resize-nesw-screenstudio': {
-      const img = getScreenStudioCursorImage(images, effectiveType);
-      if (img) drawCenteredCursorImage(ctx, img);
-      break;
-    }
-
-    case 'default-macos26':
-    case 'text-macos26':
-    case 'pointer-macos26':
-    case 'openhand-macos26':
-    case 'closehand-macos26':
-    case 'wait-macos26':
-    case 'appstarting-macos26':
-    case 'crosshair-macos26':
-    case 'resize-ns-macos26':
-    case 'resize-we-macos26':
-    case 'resize-nwse-macos26':
-    case 'resize-nesw-macos26': {
-      const img = getMacos26CursorImage(images, effectiveType);
-      if (img) drawCenteredCursorImage(ctx, img);
-      break;
-    }
-
-    case 'default-sgtcute':
-    case 'text-sgtcute':
-    case 'pointer-sgtcute':
-    case 'openhand-sgtcute':
-    case 'closehand-sgtcute':
-    case 'wait-sgtcute':
-    case 'appstarting-sgtcute':
-    case 'crosshair-sgtcute':
-    case 'resize-ns-sgtcute':
-    case 'resize-we-sgtcute':
-    case 'resize-nwse-sgtcute':
-    case 'resize-nesw-sgtcute': {
-      const img = getSgtcuteCursorImage(images, effectiveType);
-      if (img) drawCenteredCursorImage(ctx, img);
-      break;
-    }
-
-    case 'default-sgtcool':
-    case 'text-sgtcool':
-    case 'pointer-sgtcool':
-    case 'openhand-sgtcool':
-    case 'closehand-sgtcool':
-    case 'wait-sgtcool':
-    case 'appstarting-sgtcool':
-    case 'crosshair-sgtcool':
-    case 'resize-ns-sgtcool':
-    case 'resize-we-sgtcool':
-    case 'resize-nwse-sgtcool':
-    case 'resize-nesw-sgtcool': {
-      const img = getSgtcoolCursorImage(images, effectiveType);
-      if (img) drawCenteredCursorImage(ctx, img);
-      break;
-    }
-
-    case 'default-sgtai':
-    case 'text-sgtai':
-    case 'pointer-sgtai':
-    case 'openhand-sgtai':
-    case 'closehand-sgtai':
-    case 'wait-sgtai':
-    case 'appstarting-sgtai':
-    case 'crosshair-sgtai':
-    case 'resize-ns-sgtai':
-    case 'resize-we-sgtai':
-    case 'resize-nwse-sgtai':
-    case 'resize-nesw-sgtai': {
-      const img = getSgtaiCursorImage(images, effectiveType);
-      if (img) drawCenteredCursorImage(ctx, img);
-      break;
-    }
-
-    case 'default-sgtpixel':
-    case 'text-sgtpixel':
-    case 'pointer-sgtpixel':
-    case 'openhand-sgtpixel':
-    case 'closehand-sgtpixel':
-    case 'wait-sgtpixel':
-    case 'appstarting-sgtpixel':
-    case 'crosshair-sgtpixel':
-    case 'resize-ns-sgtpixel':
-    case 'resize-we-sgtpixel':
-    case 'resize-nwse-sgtpixel':
-    case 'resize-nesw-sgtpixel': {
-      const img = getSgtpixelCursorImage(images, effectiveType);
-      if (img) drawCenteredCursorImage(ctx, img);
-      break;
-    }
-
-    case 'default-jepriwin11':
-    case 'text-jepriwin11':
-    case 'pointer-jepriwin11':
-    case 'openhand-jepriwin11':
-    case 'closehand-jepriwin11':
-    case 'wait-jepriwin11':
-    case 'appstarting-jepriwin11':
-    case 'crosshair-jepriwin11':
-    case 'resize-ns-jepriwin11':
-    case 'resize-we-jepriwin11':
-    case 'resize-nwse-jepriwin11':
-    case 'resize-nesw-jepriwin11': {
-      const img = getJepriwin11CursorImage(images, effectiveType);
-      if (img) drawCenteredCursorImage(ctx, img);
-      break;
-    }
-
-    case 'default-sgtwatermelon':
-    case 'text-sgtwatermelon':
-    case 'pointer-sgtwatermelon':
-    case 'openhand-sgtwatermelon':
-    case 'closehand-sgtwatermelon':
-    case 'wait-sgtwatermelon':
-    case 'appstarting-sgtwatermelon':
-    case 'crosshair-sgtwatermelon':
-    case 'resize-ns-sgtwatermelon':
-    case 'resize-we-sgtwatermelon':
-    case 'resize-nwse-sgtwatermelon':
-    case 'resize-nesw-sgtwatermelon': {
-      const img = getSgtwatermelonCursorImage(images, effectiveType);
-      if (img) drawCenteredCursorImage(ctx, img);
-      break;
-    }
-
-    case 'default-sgtfastfood':
-    case 'text-sgtfastfood':
-    case 'pointer-sgtfastfood':
-    case 'openhand-sgtfastfood':
-    case 'closehand-sgtfastfood':
-    case 'wait-sgtfastfood':
-    case 'appstarting-sgtfastfood':
-    case 'crosshair-sgtfastfood':
-    case 'resize-ns-sgtfastfood':
-    case 'resize-we-sgtfastfood':
-    case 'resize-nwse-sgtfastfood':
-    case 'resize-nesw-sgtfastfood': {
-      const img = getSgtfastfoodCursorImage(images, effectiveType);
-      if (img) drawCenteredCursorImage(ctx, img);
-      break;
-    }
-    case 'default-sgtveggie':
-    case 'text-sgtveggie':
-    case 'pointer-sgtveggie':
-    case 'openhand-sgtveggie':
-    case 'closehand-sgtveggie':
-    case 'wait-sgtveggie':
-    case 'appstarting-sgtveggie':
-    case 'crosshair-sgtveggie':
-    case 'resize-ns-sgtveggie':
-    case 'resize-we-sgtveggie':
-    case 'resize-nwse-sgtveggie':
-    case 'resize-nesw-sgtveggie': {
-      const img = getSgtveggieCursorImage(images, effectiveType);
-      if (img) drawCenteredCursorImage(ctx, img);
-      break;
-    }
-    case 'default-sgtvietnam':
-    case 'text-sgtvietnam':
-    case 'pointer-sgtvietnam':
-    case 'openhand-sgtvietnam':
-    case 'closehand-sgtvietnam':
-    case 'wait-sgtvietnam':
-    case 'appstarting-sgtvietnam':
-    case 'crosshair-sgtvietnam':
-    case 'resize-ns-sgtvietnam':
-    case 'resize-we-sgtvietnam':
-    case 'resize-nwse-sgtvietnam':
-    case 'resize-nesw-sgtvietnam': {
-      const img = getSgtvietnamCursorImage(images, effectiveType);
-      if (img) drawCenteredCursorImage(ctx, img);
-      break;
-    }
-    case 'default-sgtkorea':
-    case 'text-sgtkorea':
-    case 'pointer-sgtkorea':
-    case 'openhand-sgtkorea':
-    case 'closehand-sgtkorea':
-    case 'wait-sgtkorea':
-    case 'appstarting-sgtkorea':
-    case 'crosshair-sgtkorea':
-    case 'resize-ns-sgtkorea':
-    case 'resize-we-sgtkorea':
-    case 'resize-nwse-sgtkorea':
-    case 'resize-nesw-sgtkorea': {
-      const img = getSgtkoreaCursorImage(images, effectiveType);
-      if (img) drawCenteredCursorImage(ctx, img);
-      break;
-    }
-    case 'default-screenstudio': {
-      const img = images.defaultScreenStudioImage;
-      drawCenteredCursorImage(ctx, img);
-      break;
-    }
-
-    default: {
-      const img = images.defaultScreenStudioImage;
-      drawCenteredCursorImage(ctx, img);
-      break;
-    }
-  }
+  const imageToDraw = getCursorImage(images, effectiveType) ?? images.defaultScreenStudioImage;
+  drawCenteredCursorImage(ctx, imageToDraw);
   ctx.restore();
 }
 

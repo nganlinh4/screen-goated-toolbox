@@ -1,9 +1,9 @@
 //! HTML template generation for button canvas
 
+use super::LAST_THEME_IS_DARK;
 use super::css::get_base_css;
 use super::js::get_javascript;
 use super::theme::get_canvas_theme_css;
-use super::LAST_THEME_IS_DARK;
 use std::sync::atomic::Ordering;
 
 /// Generate the complete HTML for the canvas WebView

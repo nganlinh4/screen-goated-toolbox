@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use crate::config::config::Config;
-use crate::config::preset::{get_default_presets, Preset, ProcessingBlock};
+use crate::config::preset::{Preset, ProcessingBlock, get_default_presets};
 
 // ============================================================================
 // CONFIG PATH

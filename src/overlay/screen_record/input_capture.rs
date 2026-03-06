@@ -224,89 +224,93 @@ pub fn stop_capture_and_drain() -> Vec<RawInputEvent> {
     drain_events()
 }
 
-unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT { unsafe {
-    if code != HC_ACTION as i32 {
-        return CallNextHookEx(None, code, wparam, lparam);
-    }
+unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    unsafe {
+        if code != HC_ACTION as i32 {
+            return CallNextHookEx(None, code, wparam, lparam);
+        }
 
-    let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
-    let vk = kbd.vkCode;
-    let message = wparam.0 as u32;
+        let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+        let vk = kbd.vkCode;
+        let message = wparam.0 as u32;
 
-    match message {
-        WM_KEYDOWN | WM_SYSKEYDOWN => {
-            if !IS_RUNNING.load(Ordering::Relaxed) {
-                return CallNextHookEx(None, code, wparam, lparam);
+        match message {
+            WM_KEYDOWN | WM_SYSKEYDOWN => {
+                if !IS_RUNNING.load(Ordering::Relaxed) {
+                    return CallNextHookEx(None, code, wparam, lparam);
+                }
+                if mark_key_down(vk) {
+                    return CallNextHookEx(None, code, wparam, lparam);
+                }
+                let _ = push_queued_event(QueuedInputEvent {
+                    kind: QueuedEventKind::KeyboardDown,
+                    timestamp_ns: relative_timestamp_ns(),
+                    code: vk,
+                    modifiers: snapshot_modifiers_bits(),
+                });
             }
-            if mark_key_down(vk) {
-                return CallNextHookEx(None, code, wparam, lparam);
+            WM_KEYUP | WM_SYSKEYUP => {
+                clear_key_down(vk);
+                if !IS_RUNNING.load(Ordering::Relaxed) {
+                    return CallNextHookEx(None, code, wparam, lparam);
+                }
+                let _ = push_queued_event(QueuedInputEvent {
+                    kind: QueuedEventKind::KeyboardUp,
+                    timestamp_ns: relative_timestamp_ns(),
+                    code: vk,
+                    modifiers: snapshot_modifiers_bits(),
+                });
             }
-            let _ = push_queued_event(QueuedInputEvent {
-                kind: QueuedEventKind::KeyboardDown,
-                timestamp_ns: relative_timestamp_ns(),
-                code: vk,
-                modifiers: snapshot_modifiers_bits(),
-            });
+            _ => {}
         }
-        WM_KEYUP | WM_SYSKEYUP => {
-            clear_key_down(vk);
-            if !IS_RUNNING.load(Ordering::Relaxed) {
-                return CallNextHookEx(None, code, wparam, lparam);
+
+        CallNextHookEx(None, code, wparam, lparam)
+    }
+}
+
+unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    unsafe {
+        if code != HC_ACTION as i32 {
+            return CallNextHookEx(None, code, wparam, lparam);
+        }
+
+        let mouse = &*(lparam.0 as *const MSLLHOOKSTRUCT);
+        let message = wparam.0 as u32;
+        if !IS_RUNNING.load(Ordering::Relaxed) {
+            return CallNextHookEx(None, code, wparam, lparam);
+        }
+        let modifiers = snapshot_modifiers_bits();
+
+        match message {
+            WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONUP
+            | WM_MBUTTONUP => {
+                let kind = match message {
+                    WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP => QueuedEventKind::MouseButtonUp,
+                    _ => QueuedEventKind::MouseButtonDown,
+                };
+
+                let _ = push_queued_event(QueuedInputEvent {
+                    kind,
+                    timestamp_ns: relative_timestamp_ns(),
+                    code: message,
+                    modifiers,
+                });
             }
-            let _ = push_queued_event(QueuedInputEvent {
-                kind: QueuedEventKind::KeyboardUp,
-                timestamp_ns: relative_timestamp_ns(),
-                code: vk,
-                modifiers: snapshot_modifiers_bits(),
-            });
+            WM_MOUSEWHEEL => {
+                let delta = ((mouse.mouseData >> 16) & 0xFFFF) as u16 as i16;
+                let _ = push_queued_event(QueuedInputEvent {
+                    kind: QueuedEventKind::Wheel,
+                    timestamp_ns: relative_timestamp_ns(),
+                    code: delta as i32 as u32,
+                    modifiers,
+                });
+            }
+            _ => {}
         }
-        _ => {}
+
+        CallNextHookEx(None, code, wparam, lparam)
     }
-
-    CallNextHookEx(None, code, wparam, lparam)
-}}
-
-unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT { unsafe {
-    if code != HC_ACTION as i32 {
-        return CallNextHookEx(None, code, wparam, lparam);
-    }
-
-    let mouse = &*(lparam.0 as *const MSLLHOOKSTRUCT);
-    let message = wparam.0 as u32;
-    if !IS_RUNNING.load(Ordering::Relaxed) {
-        return CallNextHookEx(None, code, wparam, lparam);
-    }
-    let modifiers = snapshot_modifiers_bits();
-
-    match message {
-        WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONUP
-        | WM_MBUTTONUP => {
-            let kind = match message {
-                WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP => QueuedEventKind::MouseButtonUp,
-                _ => QueuedEventKind::MouseButtonDown,
-            };
-
-            let _ = push_queued_event(QueuedInputEvent {
-                kind,
-                timestamp_ns: relative_timestamp_ns(),
-                code: message,
-                modifiers,
-            });
-        }
-        WM_MOUSEWHEEL => {
-            let delta = ((mouse.mouseData >> 16) & 0xFFFF) as u16 as i16;
-            let _ = push_queued_event(QueuedInputEvent {
-                kind: QueuedEventKind::Wheel,
-                timestamp_ns: relative_timestamp_ns(),
-                code: delta as i32 as u32,
-                modifiers,
-            });
-        }
-        _ => {}
-    }
-
-    CallNextHookEx(None, code, wparam, lparam)
-}}
+}
 
 fn mouse_button_name(message: u32) -> &'static str {
     match message {

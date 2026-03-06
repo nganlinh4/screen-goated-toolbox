@@ -12,8 +12,8 @@ mod catalog;
 mod scaled;
 mod sources;
 mod system;
-use catalog::collections as catalog_collections;
 pub(super) use catalog::CursorCollectionSpec;
+use catalog::collections as catalog_collections;
 use catalog::{CollectionSource, REGISTRY_FILE_MAP, REQUIRED_FILES, SCHEME_FILE_ORDER};
 use scaled::scaled_cursor_file_map_for_size;
 use sources::{preload_missing_from_github, preload_missing_from_rar, preload_missing_from_zip};
@@ -249,8 +249,8 @@ pub(crate) fn has_original_cursor_backup() -> bool {
 
 #[cfg(target_os = "windows")]
 pub(super) fn current_cursor_base_size() -> Result<u32, String> {
-    use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (cursors_key, _) = hkcu
@@ -266,8 +266,8 @@ pub(super) fn current_cursor_base_size() -> Result<u32, String> {
 
 #[cfg(target_os = "windows")]
 pub(super) fn apply_cursor_base_size(size: u32) -> Result<u32, String> {
-    use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
 
     backup_current_cursor_settings_if_needed()?;
 
@@ -292,8 +292,8 @@ pub(super) fn apply_cursor_base_size(_size: u32) -> Result<u32, String> {
 
 #[cfg(target_os = "windows")]
 pub(crate) fn restore_original_cursor_backup() -> Result<(), String> {
-    use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
 
     let path = backup_path();
     let bytes = fs::read(&path).map_err(|e| format!("Failed reading backup file: {}", e))?;
@@ -453,8 +453,8 @@ fn read_cursor_base_size_from_registry(cursors_key: &winreg::RegKey) -> u32 {
 
 #[cfg(target_os = "windows")]
 fn backup_current_cursor_settings_if_needed() -> Result<(), String> {
-    use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
 
     let backup = backup_path();
     if backup.exists() {
@@ -504,8 +504,8 @@ pub(super) fn apply_downloaded_collection(
     live_preview_only: bool,
 ) -> Result<(), String> {
     use windows::Win32::UI::WindowsAndMessaging::OCR_NORMAL;
-    use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
 
     backup_current_cursor_settings_if_needed()?;
 

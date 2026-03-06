@@ -90,330 +90,336 @@ pub fn show_realtime_overlay(preset_idx: usize) {
     }
 }
 
-unsafe fn internal_create_realtime_loop() { unsafe {
-    let _ = CoInitialize(None); // Required for WebView
-    let instance = GetModuleHandleW(None).unwrap();
+unsafe fn internal_create_realtime_loop() {
+    unsafe {
+        let _ = CoInitialize(None); // Required for WebView
+        let instance = GetModuleHandleW(None).unwrap();
 
-    // --- Register Classes ---
-    let class_name = w!("RealtimeWebViewOverlay");
-    REGISTER_REALTIME_CLASS.call_once(|| {
-        let wc = WNDCLASSW {
-            lpfnWndProc: Some(realtime_wnd_proc_internal),
-            hInstance: instance.into(),
-            hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
-            lpszClassName: class_name,
-            style: CS_HREDRAW | CS_VREDRAW,
-            hbrBackground: HBRUSH(std::ptr::null_mut()),
-            ..Default::default()
-        };
-        let _ = RegisterClassW(&wc);
-    });
+        // --- Register Classes ---
+        let class_name = w!("RealtimeWebViewOverlay");
+        REGISTER_REALTIME_CLASS.call_once(|| {
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(realtime_wnd_proc_internal),
+                hInstance: instance.into(),
+                hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
+                lpszClassName: class_name,
+                style: CS_HREDRAW | CS_VREDRAW,
+                hbrBackground: HBRUSH(std::ptr::null_mut()),
+                ..Default::default()
+            };
+            let _ = RegisterClassW(&wc);
+        });
 
-    let trans_class = w!("RealtimeTranslationWebViewOverlay");
-    REGISTER_TRANSLATION_CLASS.call_once(|| {
-        let wc = WNDCLASSW {
-            lpfnWndProc: Some(translation_wnd_proc_internal),
-            hInstance: instance.into(),
-            hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
-            lpszClassName: trans_class,
-            style: CS_HREDRAW | CS_VREDRAW,
-            hbrBackground: HBRUSH(std::ptr::null_mut()),
-            ..Default::default()
-        };
-        let _ = RegisterClassW(&wc);
-    });
+        let trans_class = w!("RealtimeTranslationWebViewOverlay");
+        REGISTER_TRANSLATION_CLASS.call_once(|| {
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(translation_wnd_proc_internal),
+                hInstance: instance.into(),
+                hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
+                lpszClassName: trans_class,
+                style: CS_HREDRAW | CS_VREDRAW,
+                hbrBackground: HBRUSH(std::ptr::null_mut()),
+                ..Default::default()
+            };
+            let _ = RegisterClassW(&wc);
+        });
 
-    // Create windows hidden
-    let main_hwnd = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-        class_name,
-        w!("Realtime Transcription"),
-        WS_POPUP, // Hidden initially
-        0,
-        0,
-        100,
-        100,
-        None,
-        None,
-        Some(instance.into()),
-        None,
-    )
-    .unwrap();
+        // Create windows hidden
+        let main_hwnd = CreateWindowExW(
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+            class_name,
+            w!("Realtime Transcription"),
+            WS_POPUP, // Hidden initially
+            0,
+            0,
+            100,
+            100,
+            None,
+            None,
+            Some(instance.into()),
+            None,
+        )
+        .unwrap();
 
-    let trans_hwnd = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-        trans_class,
-        w!("Translation"),
-        WS_POPUP, // Hidden initially
-        0,
-        0,
-        100,
-        100,
-        None,
-        None,
-        Some(instance.into()),
-        None,
-    )
-    .unwrap();
+        let trans_hwnd = CreateWindowExW(
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+            trans_class,
+            w!("Translation"),
+            WS_POPUP, // Hidden initially
+            0,
+            0,
+            100,
+            100,
+            None,
+            None,
+            Some(instance.into()),
+            None,
+        )
+        .unwrap();
 
-    // Enable rounded corners (Windows 11+)
-    let corner_pref = DWMWCP_ROUND;
-    let _ = DwmSetWindowAttribute(
-        main_hwnd,
-        DWMWA_WINDOW_CORNER_PREFERENCE,
-        &corner_pref as *const _ as *const std::ffi::c_void,
-        std::mem::size_of_val(&corner_pref) as u32,
-    );
-    let _ = DwmSetWindowAttribute(
-        trans_hwnd,
-        DWMWA_WINDOW_CORNER_PREFERENCE,
-        &corner_pref as *const _ as *const std::ffi::c_void,
-        std::mem::size_of_val(&corner_pref) as u32,
-    );
+        // Enable rounded corners (Windows 11+)
+        let corner_pref = DWMWCP_ROUND;
+        let _ = DwmSetWindowAttribute(
+            main_hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &corner_pref as *const _ as *const std::ffi::c_void,
+            std::mem::size_of_val(&corner_pref) as u32,
+        );
+        let _ = DwmSetWindowAttribute(
+            trans_hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &corner_pref as *const _ as *const std::ffi::c_void,
+            std::mem::size_of_val(&corner_pref) as u32,
+        );
 
-    REALTIME_HWND = main_hwnd;
-    TRANSLATION_HWND = trans_hwnd;
+        REALTIME_HWND = main_hwnd;
+        TRANSLATION_HWND = trans_hwnd;
 
-    // Create WebViews
-    create_realtime_webview(
-        main_hwnd,
-        false,
-        "device",
-        "English",
-        "google-gtx",
-        "gemini",
-        16,
-    );
-    create_realtime_webview(
-        trans_hwnd,
-        true,
-        "device",
-        "English",
-        "google-gtx",
-        "gemini",
-        16,
-    );
+        // Create WebViews
+        create_realtime_webview(
+            main_hwnd,
+            false,
+            "device",
+            "English",
+            "google-gtx",
+            "gemini",
+            16,
+        );
+        create_realtime_webview(
+            trans_hwnd,
+            true,
+            "device",
+            "English",
+            "google-gtx",
+            "gemini",
+            16,
+        );
 
-    // Mark as warmed up and ready
-    IS_WARMED_UP = true;
+        // Mark as warmed up and ready
+        IS_WARMED_UP = true;
 
-    // Message loop
-    let mut msg = MSG::default();
-    while GetMessageW(&mut msg, None, 0, 0).into() {
-        let _ = TranslateMessage(&msg);
-        DispatchMessageW(&msg);
-        if msg.message == WM_QUIT {
-            break;
+        // Message loop
+        let mut msg = MSG::default();
+        while GetMessageW(&mut msg, None, 0, 0).into() {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+            if msg.message == WM_QUIT {
+                break;
+            }
         }
-    }
 
-    // Cleanup
-    destroy_realtime_webview(REALTIME_HWND);
-    destroy_realtime_webview(TRANSLATION_HWND);
-    IS_ACTIVE = false;
-    IS_WARMED_UP = false;
-    IS_INITIALIZING = false;
-    REALTIME_HWND = HWND::default();
-    TRANSLATION_HWND = HWND::default();
-    CoUninitialize();
-}}
+        // Cleanup
+        destroy_realtime_webview(REALTIME_HWND);
+        destroy_realtime_webview(TRANSLATION_HWND);
+        IS_ACTIVE = false;
+        IS_WARMED_UP = false;
+        IS_INITIALIZING = false;
+        REALTIME_HWND = HWND::default();
+        TRANSLATION_HWND = HWND::default();
+        CoUninitialize();
+    }
+}
 
 unsafe extern "system" fn realtime_wnd_proc_internal(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    if msg == WM_APP_REALTIME_START {
-        let preset_idx = wparam.0;
-        handle_start_overlay(preset_idx);
-        return LRESULT(0);
+) -> LRESULT {
+    unsafe {
+        if msg == WM_APP_REALTIME_START {
+            let preset_idx = wparam.0;
+            handle_start_overlay(preset_idx);
+            return LRESULT(0);
+        }
+        realtime_wnd_proc(hwnd, msg, wparam, lparam)
     }
-    realtime_wnd_proc(hwnd, msg, wparam, lparam)
-}}
+}
 
 unsafe extern "system" fn translation_wnd_proc_internal(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    translation_wnd_proc(hwnd, msg, wparam, lparam)
-}}
+) -> LRESULT {
+    unsafe { translation_wnd_proc(hwnd, msg, wparam, lparam) }
+}
 
-unsafe fn handle_start_overlay(preset_idx: usize) { unsafe {
-    if IS_ACTIVE {
-        return;
-    }
+unsafe fn handle_start_overlay(preset_idx: usize) {
+    unsafe {
+        if IS_ACTIVE {
+            return;
+        }
 
-    let mut preset = APP.lock().unwrap().config.presets[preset_idx].clone();
+        let mut preset = APP.lock().unwrap().config.presets[preset_idx].clone();
 
-    // Check if Minimal Mode
-    if preset.realtime_window_mode == "minimal" {
-        crate::overlay::realtime_egui::show_realtime_egui_overlay(preset_idx);
-        return;
-    }
+        // Check if Minimal Mode
+        if preset.realtime_window_mode == "minimal" {
+            crate::overlay::realtime_egui::show_realtime_egui_overlay(preset_idx);
+            return;
+        }
 
-    // Reset state
-    IS_ACTIVE = true;
-    REALTIME_STOP_SIGNAL.store(false, Ordering::SeqCst);
-    MIC_VISIBLE.store(true, Ordering::SeqCst);
-    TRANS_VISIBLE.store(true, Ordering::SeqCst);
-    AUDIO_SOURCE_CHANGE.store(false, Ordering::SeqCst);
-    LANGUAGE_CHANGE.store(false, Ordering::SeqCst);
-    TRANSLATION_MODEL_CHANGE.store(false, Ordering::SeqCst);
+        // Reset state
+        IS_ACTIVE = true;
+        REALTIME_STOP_SIGNAL.store(false, Ordering::SeqCst);
+        MIC_VISIBLE.store(true, Ordering::SeqCst);
+        TRANS_VISIBLE.store(true, Ordering::SeqCst);
+        AUDIO_SOURCE_CHANGE.store(false, Ordering::SeqCst);
+        LANGUAGE_CHANGE.store(false, Ordering::SeqCst);
+        TRANSLATION_MODEL_CHANGE.store(false, Ordering::SeqCst);
 
-    {
-        let mut state = REALTIME_STATE.lock().unwrap();
-        *state = RealtimeState::new();
-    }
+        {
+            let mut state = REALTIME_STATE.lock().unwrap();
+            *state = RealtimeState::new();
+        }
 
-    // Fetch config
-    let (
-        font_size,
-        config_audio_source,
-        config_language,
-        config_translation_model,
-        config_transcription_model,
-        trans_size,
-        transcription_size,
-    ) = {
-        let app = APP.lock().unwrap();
-        (
-            app.config.realtime_font_size,
-            app.config.realtime_audio_source.clone(),
-            app.config.realtime_target_language.clone(),
-            app.config.realtime_translation_model.clone(),
-            app.config.realtime_transcription_model.clone(),
-            app.config.realtime_translation_size,
-            app.config.realtime_transcription_size,
-        )
-    };
+        // Fetch config
+        let (
+            font_size,
+            config_audio_source,
+            config_language,
+            config_translation_model,
+            config_transcription_model,
+            trans_size,
+            transcription_size,
+        ) = {
+            let app = APP.lock().unwrap();
+            (
+                app.config.realtime_font_size,
+                app.config.realtime_audio_source.clone(),
+                app.config.realtime_target_language.clone(),
+                app.config.realtime_translation_model.clone(),
+                app.config.realtime_transcription_model.clone(),
+                app.config.realtime_translation_size,
+                app.config.realtime_transcription_size,
+            )
+        };
 
-    // Default to "device" if no audio source is saved
-    let effective_audio_source = if config_audio_source.is_empty() {
-        "device".to_string()
-    } else {
-        config_audio_source.clone()
-    };
-
-    preset.audio_source = effective_audio_source.clone();
-    if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
-        *new_source = effective_audio_source.clone();
-    }
-
-    let target_language = if !config_language.is_empty() {
-        config_language
-    } else if preset.blocks.len() > 1 {
-        let trans_block = &preset.blocks[1];
-        if !trans_block.selected_language.is_empty() {
-            trans_block.selected_language.clone()
+        // Default to "device" if no audio source is saved
+        let effective_audio_source = if config_audio_source.is_empty() {
+            "device".to_string()
         } else {
-            trans_block
-                .language_vars
-                .get("language")
-                .cloned()
-                .or_else(|| trans_block.language_vars.get("language1").cloned())
-                .unwrap_or_else(|| "English".to_string())
+            config_audio_source.clone()
+        };
+
+        preset.audio_source = effective_audio_source.clone();
+        if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
+            *new_source = effective_audio_source.clone();
         }
-    } else {
-        "English".to_string()
-    };
 
-    if !target_language.is_empty() {
-        if let Ok(mut new_lang) = NEW_TARGET_LANGUAGE.lock() {
-            *new_lang = target_language.clone();
+        let target_language = if !config_language.is_empty() {
+            config_language
+        } else if preset.blocks.len() > 1 {
+            let trans_block = &preset.blocks[1];
+            if !trans_block.selected_language.is_empty() {
+                trans_block.selected_language.clone()
+            } else {
+                trans_block
+                    .language_vars
+                    .get("language")
+                    .cloned()
+                    .or_else(|| trans_block.language_vars.get("language1").cloned())
+                    .unwrap_or_else(|| "English".to_string())
+            }
+        } else {
+            "English".to_string()
+        };
+
+        if !target_language.is_empty() {
+            if let Ok(mut new_lang) = NEW_TARGET_LANGUAGE.lock() {
+                *new_lang = target_language.clone();
+            }
+            LANGUAGE_CHANGE.store(true, Ordering::SeqCst);
         }
-        LANGUAGE_CHANGE.store(true, Ordering::SeqCst);
-    }
 
-    // Calculate positions
-    let screen_w = GetSystemMetrics(SM_CXSCREEN);
-    let screen_h = GetSystemMetrics(SM_CYSCREEN);
-    let has_translation = preset.blocks.len() > 1;
-    let main_w = transcription_size.0;
-    let main_h = transcription_size.1;
-    let trans_w = trans_size.0;
-    let trans_h = trans_size.1;
+        // Calculate positions
+        let screen_w = GetSystemMetrics(SM_CXSCREEN);
+        let screen_h = GetSystemMetrics(SM_CYSCREEN);
+        let has_translation = preset.blocks.len() > 1;
+        let main_w = transcription_size.0;
+        let main_h = transcription_size.1;
+        let trans_w = trans_size.0;
+        let trans_h = trans_size.1;
 
-    let (main_x, main_y) = if has_translation {
-        let total_w = main_w + trans_w + GAP;
-        ((screen_w - total_w) / 2, (screen_h - main_h) / 2)
-    } else {
-        ((screen_w - main_w) / 2, (screen_h - main_h) / 2)
-    };
+        let (main_x, main_y) = if has_translation {
+            let total_w = main_w + trans_w + GAP;
+            ((screen_w - total_w) / 2, (screen_h - main_h) / 2)
+        } else {
+            ((screen_w - main_w) / 2, (screen_h - main_h) / 2)
+        };
 
-    // Update window positions and sizes
-    let _ = SetWindowPos(
-        REALTIME_HWND,
-        Some(HWND_TOPMOST),
-        main_x,
-        main_y,
-        main_w,
-        main_h,
-        SWP_SHOWWINDOW,
-    );
-    if has_translation {
-        let trans_x = main_x + main_w + GAP;
+        // Update window positions and sizes
         let _ = SetWindowPos(
-            TRANSLATION_HWND,
+            REALTIME_HWND,
             Some(HWND_TOPMOST),
-            trans_x,
+            main_x,
             main_y,
-            trans_w,
-            trans_h,
+            main_w,
+            main_h,
             SWP_SHOWWINDOW,
         );
-    } else {
-        let _ = ShowWindow(TRANSLATION_HWND, SW_HIDE);
-    }
+        if has_translation {
+            let trans_x = main_x + main_w + GAP;
+            let _ = SetWindowPos(
+                TRANSLATION_HWND,
+                Some(HWND_TOPMOST),
+                trans_x,
+                main_y,
+                trans_w,
+                trans_h,
+                SWP_SHOWWINDOW,
+            );
+        } else {
+            let _ = ShowWindow(TRANSLATION_HWND, SW_HIDE);
+        }
 
-    // Notify WebViews of new settings
-    notify_webview_settings(
-        REALTIME_HWND,
-        &effective_audio_source,
-        &target_language,
-        &config_translation_model,
-        &config_transcription_model,
-        font_size,
-    );
-
-    // Explicitly resize WebViews to match window sizes
-    resize_webview(REALTIME_HWND, main_w, main_h);
-
-    // Clear text to start fresh
-    clear_webview_text(REALTIME_HWND);
-
-    if has_translation {
+        // Notify WebViews of new settings
         notify_webview_settings(
-            TRANSLATION_HWND,
-            "mic",
+            REALTIME_HWND,
+            &effective_audio_source,
             &target_language,
             &config_translation_model,
             &config_transcription_model,
             font_size,
         );
-        resize_webview(TRANSLATION_HWND, trans_w, trans_h);
-        clear_webview_text(TRANSLATION_HWND);
+
+        // Explicitly resize WebViews to match window sizes
+        resize_webview(REALTIME_HWND, main_w, main_h);
+
+        // Clear text to start fresh
+        clear_webview_text(REALTIME_HWND);
+
+        if has_translation {
+            notify_webview_settings(
+                TRANSLATION_HWND,
+                "mic",
+                &target_language,
+                &config_translation_model,
+                &config_transcription_model,
+                font_size,
+            );
+            resize_webview(TRANSLATION_HWND, trans_w, trans_h);
+            clear_webview_text(TRANSLATION_HWND);
+        }
+
+        // Sync visibility state to webviews (fixes toggled->hidden state on re-show)
+        sync_visibility_to_webviews();
+
+        // Start transcription
+        let trans_hwnd_opt = if has_translation {
+            Some(TRANSLATION_HWND)
+        } else {
+            None
+        };
+        start_realtime_transcription(
+            preset,
+            REALTIME_STOP_SIGNAL.clone(),
+            REALTIME_HWND,
+            trans_hwnd_opt,
+            REALTIME_STATE.clone(),
+        );
     }
-
-    // Sync visibility state to webviews (fixes toggled->hidden state on re-show)
-    sync_visibility_to_webviews();
-
-    // Start transcription
-    let trans_hwnd_opt = if has_translation {
-        Some(TRANSLATION_HWND)
-    } else {
-        None
-    };
-    start_realtime_transcription(
-        preset,
-        REALTIME_STOP_SIGNAL.clone(),
-        REALTIME_HWND,
-        trans_hwnd_opt,
-        REALTIME_STATE.clone(),
-    );
-}}
+}
 
 fn notify_webview_settings(
     hwnd: HWND,

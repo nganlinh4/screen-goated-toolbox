@@ -1,9 +1,9 @@
-use crate::api::realtime_audio::{start_realtime_transcription, RealtimeState};
-use crate::overlay::realtime_webview::state::*;
 use crate::APP;
+use crate::api::realtime_audio::{RealtimeState, start_realtime_transcription};
+use crate::overlay::realtime_webview::state::*;
 use eframe::egui;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 lazy_static::lazy_static! {
     pub static ref MINIMAL_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -131,9 +131,10 @@ pub fn show_realtime_egui_overlay(preset_idx: usize) {
     );
 
     if let Ok(guard) = crate::gui::GUI_CONTEXT.lock()
-        && let Some(ctx) = guard.as_ref() {
-            ctx.request_repaint();
-        }
+        && let Some(ctx) = guard.as_ref()
+    {
+        ctx.request_repaint();
+    }
 }
 
 pub fn render_minimal_overlay(ctx: &egui::Context) {
@@ -454,7 +455,7 @@ fn render_main_ui(ui: &mut egui::Ui, state: &mut RealtimeUiState) {
         ui.horizontal(|ui| {
             let can_enable_tts = !is_device_mode || app_pid > 0;
             let mut tts_on = tts_enabled;
-            
+
             ui.add_enabled_ui(can_enable_tts, |ui| {
                 if ui.checkbox(&mut tts_on, "TTS").changed() {
                     if tts_on {
@@ -474,19 +475,19 @@ fn render_main_ui(ui: &mut egui::Ui, state: &mut RealtimeUiState) {
                     }
                 }
             });
-            
+
             let current_speed = CURRENT_TTS_SPEED.load(Ordering::Relaxed);
             let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);
             let auto_speed = REALTIME_TTS_AUTO_SPEED.load(Ordering::Relaxed);
-            
+
             ui.label(format!("{:.1}x", current_speed as f32 / 100.0));
-            
+
             let mut speed_val = base_speed as i32;
             if ui.add(egui::Slider::new(&mut speed_val, 50..=200).show_value(false)).changed() {
                 REALTIME_TTS_SPEED.store(speed_val as u32, Ordering::SeqCst);
                 REALTIME_TTS_AUTO_SPEED.store(false, Ordering::SeqCst);
             }
-            
+
             let mut auto_on = auto_speed;
             if ui.checkbox(&mut auto_on, locale.realtime_tts_auto).changed() {
                 REALTIME_TTS_AUTO_SPEED.store(auto_on, Ordering::SeqCst);
@@ -575,9 +576,10 @@ fn render_main_ui(ui: &mut egui::Ui, state: &mut RealtimeUiState) {
                 let text = committed.trim_end();
                 let search_limit = text.len().saturating_sub(1);
                 if search_limit > 0
-                    && let Some(idx) = text[..search_limit].rfind(['.', '?', '!', '\n']) {
-                        state.last_spoken_len = idx + 1;
-                    }
+                    && let Some(idx) = text[..search_limit].rfind(['.', '?', '!', '\n'])
+                {
+                    state.last_spoken_len = idx + 1;
+                }
             }
 
             if old_len > state.last_spoken_len {
@@ -785,43 +787,6 @@ fn render_translation(
             );
         }
     });
-}
-
-// Helpers
-#[allow(dead_code)]
-fn tr(key: &str, lang: &str) -> String {
-    match lang {
-        "vi" => match key {
-            "device_mode_warning" => {
-                "⚠ Đã chọn âm thanh thiết bị nhưng chưa chọn ứng dụng".to_string()
-            }
-            "select_app" => "Chọn ứng dụng".to_string(),
-            "toggle_translation" => "Tắt/Mở dịch".to_string(),
-            "toggle_transcription" => "Tắt/Mở phụ đề".to_string(),
-            "font_minus" => "Giảm cỡ chữ".to_string(),
-            "font_plus" => "Tăng cỡ chữ".to_string(),
-            "tts_settings" => "Cài đặt đọc văn bản (TTS)".to_string(),
-            "microphone" => "Microphone".to_string(),
-            "system_audio" => "Âm thanh hệ thống".to_string(),
-            "select_app_title" => "🎧 Chọn ứng dụng để thu âm".to_string(),
-            "auto" => "Tự động".to_string(),
-            _ => key.to_string(),
-        },
-        _ => match key {
-            "device_mode_warning" => "⚠ Device audio selected but no app chosen".to_string(),
-            "select_app" => "Select App".to_string(),
-            "toggle_translation" => "Toggle Translation".to_string(),
-            "toggle_transcription" => "Toggle Transcription".to_string(),
-            "font_minus" => "Font -".to_string(),
-            "font_plus" => "Font +".to_string(),
-            "tts_settings" => "TTS Settings".to_string(),
-            "microphone" => "Microphone".to_string(),
-            "system_audio" => "System Audio".to_string(),
-            "select_app_title" => "🎧 Select App to Record".to_string(),
-            "auto" => "Auto".to_string(),
-            _ => key.to_string(),
-        },
-    }
 }
 
 fn get_segment_color(index: usize, dark_mode: bool) -> egui::Color32 {

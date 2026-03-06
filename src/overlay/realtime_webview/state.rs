@@ -6,7 +6,7 @@ use raw_window_handle::{
 };
 use std::collections::HashMap;
 use std::num::NonZeroIsize;
-use std::sync::{atomic::AtomicBool, Arc, Mutex, Once};
+use std::sync::{Arc, Mutex, Once, atomic::AtomicBool};
 use windows::Win32::Foundation::*;
 pub const WM_UPDATE_TTS_SPEED: u32 = 0x0400 + 401; // WM_USER + 401
 pub const WM_APP_REALTIME_START: u32 = 0x0400 + 500; // WM_USER + 500
@@ -87,7 +87,7 @@ pub struct HwndWrapper(pub HWND);
 
 impl HasWindowHandle for HwndWrapper {
     fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
-        let hwnd = self.0 .0 as isize;
+        let hwnd = self.0.0 as isize;
         if let Some(non_zero) = NonZeroIsize::new(hwnd) {
             let mut handle = Win32WindowHandle::new(non_zero);
             handle.hinstance = None;

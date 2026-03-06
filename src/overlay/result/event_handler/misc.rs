@@ -26,41 +26,43 @@ pub unsafe fn handle_erase_bkgnd(_hwnd: HWND, _wparam: WPARAM) -> LRESULT {
 
 // handle_ctl_color_edit removed (was for native edit control)
 
-pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT { unsafe {
-    // Clean up this window's resources only — callers are responsible for
-    // deciding whether to close siblings (group close) or all windows.
-    {
-        let mut states = WINDOW_STATES.lock().unwrap();
-        if let Some(state) = states.remove(&(hwnd.0 as isize)) {
-            // Signal cancellation token to stop this branch's processing
-            if let Some(ref token) = state.cancellation_token {
-                token.cancel();
-            }
+pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
+    unsafe {
+        // Clean up this window's resources only — callers are responsible for
+        // deciding whether to close siblings (group close) or all windows.
+        {
+            let mut states = WINDOW_STATES.lock().unwrap();
+            if let Some(state) = states.remove(&(hwnd.0 as isize)) {
+                // Signal cancellation token to stop this branch's processing
+                if let Some(ref token) = state.cancellation_token {
+                    token.cancel();
+                }
 
-            // Stop TTS if speaking
-            if state.tts_request_id != 0 {
-                crate::api::tts::TTS_MANAGER.stop_if_active(state.tts_request_id);
-            }
+                // Stop TTS if speaking
+                if state.tts_request_id != 0 {
+                    crate::api::tts::TTS_MANAGER.stop_if_active(state.tts_request_id);
+                }
 
-            // Cleanup GDI resources
-            if !state.content_bitmap.is_invalid() {
-                let _ = DeleteObject(state.content_bitmap.into());
-            }
-            if !state.bg_bitmap.is_invalid() {
-                let _ = DeleteObject(state.bg_bitmap.into());
+                // Cleanup GDI resources
+                if !state.content_bitmap.is_invalid() {
+                    let _ = DeleteObject(state.content_bitmap.into());
+                }
+                if !state.bg_bitmap.is_invalid() {
+                    let _ = DeleteObject(state.bg_bitmap.into());
+                }
             }
         }
+
+        // Cleanup markdown webview and timer (outside lock)
+        let _ = KillTimer(Some(hwnd), 2);
+        markdown_view::destroy_markdown_webview(hwnd);
+
+        // Unregister from button canvas (outside lock to prevent deadlock)
+        button_canvas::unregister_markdown_window(hwnd);
+
+        LRESULT(0)
     }
-
-    // Cleanup markdown webview and timer (outside lock)
-    let _ = KillTimer(Some(hwnd), 2);
-    markdown_view::destroy_markdown_webview(hwnd);
-
-    // Unregister from button canvas (outside lock to prevent deadlock)
-    button_canvas::unregister_markdown_window(hwnd);
-
-    LRESULT(0)
-}}
+}
 
 pub unsafe fn handle_paint(hwnd: HWND) -> LRESULT {
     paint::paint_window(hwnd);
@@ -71,111 +73,119 @@ pub unsafe fn handle_keydown() -> LRESULT {
     LRESULT(0)
 }
 
-pub unsafe fn handle_display_change(hwnd: HWND) -> LRESULT { unsafe {
-    // When monitor topology changes, check if window is still on-screen.
-    // If not (e.g. secondary monitor removed), move it to primary monitor.
-    let mut rect = RECT::default();
-    if GetWindowRect(hwnd, &mut rect).is_ok() {
-        let center_x = (rect.left + rect.right) / 2;
-        let center_y = (rect.top + rect.bottom) / 2;
-        let center = POINT {
-            x: center_x,
-            y: center_y,
-        };
-
-        // Check if the center point maps to any monitor
-        let h_monitor = MonitorFromPoint(center, MONITOR_DEFAULTTONULL);
-
-        if h_monitor.is_invalid() {
-            // Window is off-screen. Move to Primary Monitor center.
-            let h_primary = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
-            let mut mi = MONITORINFO {
-                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                ..Default::default()
+pub unsafe fn handle_display_change(hwnd: HWND) -> LRESULT {
+    unsafe {
+        // When monitor topology changes, check if window is still on-screen.
+        // If not (e.g. secondary monitor removed), move it to primary monitor.
+        let mut rect = RECT::default();
+        if GetWindowRect(hwnd, &mut rect).is_ok() {
+            let center_x = (rect.left + rect.right) / 2;
+            let center_y = (rect.top + rect.bottom) / 2;
+            let center = POINT {
+                x: center_x,
+                y: center_y,
             };
 
-            if GetMonitorInfoW(h_primary, &mut mi).as_bool() {
-                let work = mi.rcWork;
-                let w = rect.right - rect.left;
-                let h = rect.bottom - rect.top;
+            // Check if the center point maps to any monitor
+            let h_monitor = MonitorFromPoint(center, MONITOR_DEFAULTTONULL);
 
-                // Center on primary monitor work area
-                let new_x = work.left + (work.right - work.left - w) / 2;
-                let new_y = work.top + (work.bottom - work.top - h) / 2;
+            if h_monitor.is_invalid() {
+                // Window is off-screen. Move to Primary Monitor center.
+                let h_primary = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
+                let mut mi = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
 
-                let _ = SetWindowPos(
-                    hwnd,
-                    None,
-                    new_x,
-                    new_y,
-                    0,
-                    0,
-                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-                );
+                if GetMonitorInfoW(h_primary, &mut mi).as_bool() {
+                    let work = mi.rcWork;
+                    let w = rect.right - rect.left;
+                    let h = rect.bottom - rect.top;
 
-                // IMPORTANT: Update button canvas about the new position
-                button_canvas::update_window_position(hwnd);
+                    // Center on primary monitor work area
+                    let new_x = work.left + (work.right - work.left - w) / 2;
+                    let new_y = work.top + (work.bottom - work.top - h) / 2;
+
+                    let _ = SetWindowPos(
+                        hwnd,
+                        None,
+                        new_x,
+                        new_y,
+                        0,
+                        0,
+                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                    );
+
+                    // IMPORTANT: Update button canvas about the new position
+                    button_canvas::update_window_position(hwnd);
+                }
             }
         }
+        LRESULT(0)
     }
-    LRESULT(0)
-}}
+}
 
-pub unsafe fn handle_create_webview(hwnd: HWND) -> LRESULT { unsafe {
-    // Get the text to render
-    let (full_text, is_hovered) = {
-        let states = WINDOW_STATES.lock().unwrap();
-        if let Some(state) = states.get(&(hwnd.0 as isize)) {
-            (state.full_text.clone(), state.is_hovered)
-        } else {
-            (String::new(), false)
-        }
-    };
-
-    if markdown_view::has_markdown_webview(hwnd) {
-        // WebView was pre-created, just show and update it
-        markdown_view::update_markdown_content(hwnd, &full_text);
-        markdown_view::show_markdown_webview(hwnd);
-        markdown_view::resize_markdown_webview(hwnd, is_hovered);
-        markdown_view::fit_font_to_window(hwnd);
-        // Register with button canvas for floating buttons
-        button_canvas::register_markdown_window(hwnd);
-    } else {
-        // Try to create WebView
-        let result = markdown_view::create_markdown_webview(hwnd, &full_text, is_hovered);
-        if !result {
-            // Failed to create - revert markdown mode
-            let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                state.is_markdown_mode = false;
+pub unsafe fn handle_create_webview(hwnd: HWND) -> LRESULT {
+    unsafe {
+        // Get the text to render
+        let (full_text, is_hovered) = {
+            let states = WINDOW_STATES.lock().unwrap();
+            if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                (state.full_text.clone(), state.is_hovered)
+            } else {
+                (String::new(), false)
             }
-        } else {
+        };
+
+        if markdown_view::has_markdown_webview(hwnd) {
+            // WebView was pre-created, just show and update it
+            markdown_view::update_markdown_content(hwnd, &full_text);
+            markdown_view::show_markdown_webview(hwnd);
             markdown_view::resize_markdown_webview(hwnd, is_hovered);
             markdown_view::fit_font_to_window(hwnd);
             // Register with button canvas for floating buttons
             button_canvas::register_markdown_window(hwnd);
+        } else {
+            // Try to create WebView
+            let result = markdown_view::create_markdown_webview(hwnd, &full_text, is_hovered);
+            if !result {
+                // Failed to create - revert markdown mode
+                let mut states = WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                    state.is_markdown_mode = false;
+                }
+            } else {
+                markdown_view::resize_markdown_webview(hwnd, is_hovered);
+                markdown_view::fit_font_to_window(hwnd);
+                // Register with button canvas for floating buttons
+                button_canvas::register_markdown_window(hwnd);
+            }
         }
+
+        // IMPORTANT: If refine input is active, resize markdown to leave room for it
+        // AND bring refine input to top so it stays visible
+        // NOTE: Refine input is now part of button_canvas (overlay), so no resizing needed.
+
+        let _ = InvalidateRect(Some(hwnd), None, false);
+        LRESULT(0)
     }
+}
 
-    // IMPORTANT: If refine input is active, resize markdown to leave room for it
-    // AND bring refine input to top so it stays visible
-    // NOTE: Refine input is now part of button_canvas (overlay), so no resizing needed.
+pub unsafe fn handle_show_markdown(hwnd: HWND) -> LRESULT {
+    unsafe {
+        markdown_view::show_markdown_webview(hwnd);
+        let _ = InvalidateRect(Some(hwnd), None, false);
+        LRESULT(0)
+    }
+}
 
-    let _ = InvalidateRect(Some(hwnd), None, false);
-    LRESULT(0)
-}}
-
-pub unsafe fn handle_show_markdown(hwnd: HWND) -> LRESULT { unsafe {
-    markdown_view::show_markdown_webview(hwnd);
-    let _ = InvalidateRect(Some(hwnd), None, false);
-    LRESULT(0)
-}}
-
-pub unsafe fn handle_hide_markdown(hwnd: HWND) -> LRESULT { unsafe {
-    markdown_view::hide_markdown_webview(hwnd);
-    let _ = InvalidateRect(Some(hwnd), None, false);
-    LRESULT(0)
-}}
+pub unsafe fn handle_hide_markdown(hwnd: HWND) -> LRESULT {
+    unsafe {
+        markdown_view::hide_markdown_webview(hwnd);
+        let _ = InvalidateRect(Some(hwnd), None, false);
+        LRESULT(0)
+    }
+}
 
 pub unsafe fn handle_resize_markdown(hwnd: HWND) -> LRESULT {
     let is_hovered = {

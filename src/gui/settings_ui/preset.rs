@@ -1,6 +1,6 @@
 use super::get_localized_preset_name;
 use super::node_graph::{
-    blocks_to_snarl, render_node_graph, request_node_graph_view_reset, ChainNode,
+    ChainNode, blocks_to_snarl, render_node_graph, request_node_graph_view_reset,
 };
 use crate::config::{Config, ProcessingBlock};
 use crate::gui::locale::LocaleText;
@@ -611,9 +611,10 @@ pub fn render_preset_editor(
         }
     });
     if let Some(msg) = hotkey_conflict_msg
-        && *recording_hotkey_for_preset == Some(preset_idx) {
-            ui.colored_label(egui::Color32::RED, msg);
-        }
+        && *recording_hotkey_for_preset == Some(preset_idx)
+    {
+        ui.colored_label(egui::Color32::RED, msg);
+    }
 
     // --- PROCESSING CHAIN UI ---
     // Hide nodegraph when controller UI is enabled OR when in Realtime mode (no graph needed)
@@ -681,10 +682,10 @@ pub fn render_preset_editor(
             .corner_radius(12.0)
             .show(ui, |ui| {
                 ui.set_min_height(260.0);
-                
+
                 // Title - clean, no emoji overload
                 let is_realtime = preset.preset_type == "audio" && preset.audio_processing_mode == "realtime";
-                
+
                 let title = if is_realtime {
                     match config.ui_language.as_str() {
                         "vi" => "Xử lý âm thanh (Thời gian thực)",
@@ -699,9 +700,9 @@ pub fn render_preset_editor(
                     }
                 };
                 ui.label(egui::RichText::new(title).heading().color(accent_color));
-                
+
                 ui.add_space(16.0);
-                
+
                 // Main Description - combined into one clear paragraph
                 let desc = if is_realtime {
                     match config.ui_language.as_str() {

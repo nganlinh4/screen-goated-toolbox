@@ -142,8 +142,8 @@ fn resize_rgba_square(
     source_size: u32,
     target_size: u32,
 ) -> Result<Vec<u8>, String> {
-    use image::imageops::FilterType;
     use image::RgbaImage;
+    use image::imageops::FilterType;
 
     let source_image = RgbaImage::from_raw(source_size, source_size, source_rgba.to_vec())
         .ok_or_else(|| "Failed creating source RGBA image for resizing.".to_string())?;
@@ -290,8 +290,8 @@ fn scale_hotspot(original: u16, source_dim: u32, target_dim: u32) -> u16 {
 
 #[cfg(target_os = "windows")]
 fn encode_png_rgba(rgba: &[u8], target_size: u32) -> Result<Vec<u8>, String> {
-    use image::codecs::png::PngEncoder;
     use image::ImageEncoder;
+    use image::codecs::png::PngEncoder;
 
     let mut png_bytes = Vec::new();
     let encoder = PngEncoder::new(&mut png_bytes);
@@ -346,15 +346,15 @@ fn build_single_image_cur(
 #[cfg(target_os = "windows")]
 fn render_cursor_rgba(path: &Path, target_size: u32) -> Result<Vec<u8>, String> {
     use std::os::windows::ffi::OsStrExt;
-    use windows::core::PCWSTR;
     use windows::Win32::Graphics::Gdi::{
-        CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC,
-        SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS,
+        DeleteDC, DeleteObject, GetDC, ReleaseDC, SelectObject,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        DestroyCursor, DrawIconEx, LoadCursorFromFileW, LoadImageW, DI_NORMAL, IMAGE_CURSOR,
-        LR_LOADFROMFILE,
+        DI_NORMAL, DestroyCursor, DrawIconEx, IMAGE_CURSOR, LR_LOADFROMFILE, LoadCursorFromFileW,
+        LoadImageW,
     };
+    use windows::core::PCWSTR;
 
     let size_i32 = i32::try_from(target_size).map_err(|_| "Invalid cursor size.".to_string())?;
     let wide: Vec<u16> = path

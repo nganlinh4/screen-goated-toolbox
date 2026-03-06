@@ -4,4 +4,4 @@ mod setup;
 mod shader;
 
 pub use compositor::{CompositorUniforms, GpuCompositor};
-pub use setup::create_uniforms;
+pub use setup::{CompositorUniformParams, create_uniforms};

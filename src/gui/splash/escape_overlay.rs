@@ -35,9 +35,9 @@ unsafe extern "system" fn overlay_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    DefWindowProcW(hwnd, msg, wparam, lparam)
-}}
+) -> LRESULT {
+    unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+}
 
 impl EscapeOverlay {
     pub fn new() -> Option<Self> {

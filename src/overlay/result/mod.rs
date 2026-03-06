@@ -8,9 +8,9 @@ pub mod state;
 mod window;
 
 pub use state::{
-    close_chain_windows, link_windows, ChainCancelToken, RefineContext, WindowType, WINDOW_STATES,
+    ChainCancelToken, RefineContext, WINDOW_STATES, WindowType, close_chain_windows, link_windows,
 };
-pub use window::{create_result_window, get_chain_color, update_window_text};
+pub use window::{ResultWindowParams, create_result_window, get_chain_color, update_window_text};
 
 // Trigger functions for button canvas IPC
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -377,29 +377,32 @@ fn start_refinement(hwnd: HWND, user_prompt: &str) {
         };
 
         let result = crate::api::refine_text_streaming(
-            &groq_key,
-            &gemini_key,
-            context_data,
-            final_prev_text,
-            final_user_prompt,
-            &model_id,
-            &provider,
-            streaming,
-            &ui_language,
-            Some(api_cancel),
+            crate::api::RefineTextRequest {
+                groq_api_key: &groq_key,
+                gemini_api_key: &gemini_key,
+                context: context_data,
+                previous_text: final_prev_text,
+                user_prompt: final_user_prompt,
+                original_model_id: &model_id,
+                original_provider: &provider,
+                streaming_enabled: streaming,
+                ui_language: &ui_language,
+                cancel_token: Some(api_cancel),
+            },
             move |chunk| {
                 // Check chain cancel token and signal API-level bridge if cancelled
                 if let Some(ref ct) = chain_token_cb
-                    && ct.is_cancelled() {
-                        api_cancel_cb.store(true, std::sync::atomic::Ordering::SeqCst);
-                        return;
-                    }
+                    && ct.is_cancelled()
+                {
+                    api_cancel_cb.store(true, std::sync::atomic::Ordering::SeqCst);
+                    return;
+                }
 
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get_mut(&(capture_hwnd.0 as isize)) {
                     if first_chunk {
                         state.is_refining = false; // Stop animation loop??
-                                                   // In timer_tasks: state.is_refining = false;
+                        // In timer_tasks: state.is_refining = false;
                         first_chunk = false;
                     }
 
@@ -597,9 +600,10 @@ pub fn trigger_close_group(hwnd: HWND) {
         let states = WINDOW_STATES.lock().unwrap();
         for (h, _) in &group {
             if let Some(state) = states.get(&(h.0 as isize))
-                && let Some(ref token) = state.cancellation_token {
-                    token.cancel();
-                }
+                && let Some(ref token) = state.cancellation_token
+            {
+                token.cancel();
+            }
         }
     }
 

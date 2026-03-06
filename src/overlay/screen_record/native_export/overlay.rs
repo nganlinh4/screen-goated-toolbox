@@ -107,34 +107,38 @@ pub fn load_custom_background_rgba(
         if let Some(pos) = custom_background.find("/bg-downloaded/") {
             let rel = &custom_background[pos + "/bg-downloaded/".len()..];
             let rel = rel.split(['?', '#']).next().unwrap_or(rel);
-            if !rel.is_empty() && !rel.contains("..") && !rel.contains('/') && !rel.contains('\\')
-                && let Some(dir) = dirs::data_local_dir() {
-                    let file_path = dir
-                        .join("screen-goated-toolbox")
-                        .join("backgrounds")
-                        .join(rel);
-                    if file_path.exists() {
-                        let ext = file_path
-                            .extension()
-                            .and_then(|e| e.to_str())
-                            .unwrap_or("")
-                            .to_ascii_lowercase();
-                        if ext == "jpg" || ext == "jpeg" {
-                            let mut out = Vec::new();
-                            let mut enc =
-                                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 92);
-                            let rgb_image =
-                                image::DynamicImage::ImageRgba8(rgba_image.clone()).to_rgb8();
-                            if enc
-                                .encode_image(&image::DynamicImage::ImageRgb8(rgb_image))
-                                .is_ok()
-                                && std::fs::write(&file_path, &out).is_ok()
-                            {
-                                eprintln!("[CustomBg] Self-healed legacy oversized image in-place");
-                            }
+            if !rel.is_empty()
+                && !rel.contains("..")
+                && !rel.contains('/')
+                && !rel.contains('\\')
+                && let Some(dir) = dirs::data_local_dir()
+            {
+                let file_path = dir
+                    .join("screen-goated-toolbox")
+                    .join("backgrounds")
+                    .join(rel);
+                if file_path.exists() {
+                    let ext = file_path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_ascii_lowercase();
+                    if ext == "jpg" || ext == "jpeg" {
+                        let mut out = Vec::new();
+                        let mut enc =
+                            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 92);
+                        let rgb_image =
+                            image::DynamicImage::ImageRgba8(rgba_image.clone()).to_rgb8();
+                        if enc
+                            .encode_image(&image::DynamicImage::ImageRgb8(rgb_image))
+                            .is_ok()
+                            && std::fs::write(&file_path, &out).is_ok()
+                        {
+                            eprintln!("[CustomBg] Self-healed legacy oversized image in-place");
                         }
                     }
                 }
+            }
         }
     }
 

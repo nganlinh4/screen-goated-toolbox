@@ -4,8 +4,8 @@ use super::types::{LiveEvent, LiveInputContent, LiveRequest, QueuedLiveRequest};
 use std::collections::VecDeque;
 use std::sync::mpsc;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
     Condvar, Mutex,
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -67,34 +67,9 @@ impl GeminiLiveManager {
         (id, rx)
     }
 
-    /// Interrupt all pending requests (increment generation, clear queue)
-    #[allow(dead_code)]
-    pub fn interrupt(&self) {
-        self.interrupt_generation.fetch_add(1, Ordering::SeqCst);
-
-        {
-            let mut queue = self.work_queue.lock().unwrap();
-            // Send error to all pending requests before clearing
-            for req in queue.drain(..) {
-                let _ = req
-                    .response_tx
-                    .send(LiveEvent::Error("Interrupted".to_string()));
-            }
-        }
-
-        self.work_signal.notify_all();
-    }
-
     /// Check if a request's generation is still valid
     pub fn is_generation_valid(&self, generation: u64) -> bool {
         generation >= self.interrupt_generation.load(Ordering::SeqCst)
-    }
-
-    /// Shutdown the manager
-    #[allow(dead_code)]
-    pub fn shutdown(&self) {
-        self.shutdown.store(true, Ordering::SeqCst);
-        self.interrupt();
     }
 }
 

@@ -1,10 +1,10 @@
 //! Window procedure and message handlers for button canvas
 
 use super::{
-    get_dpi_scale, theme::get_canvas_theme_css, ACTIVE_DRAG_SNAPSHOT, ACTIVE_DRAG_TARGET,
-    CANVAS_WEBVIEW, CURSOR_POLL_TIMER_ID, DRAG_IS_GROUP, LAST_DRAG_POS, LAST_THEME_IS_DARK,
-    MARKDOWN_WINDOWS, PENDING_REFINE_UPDATES, START_DRAG_POS, WM_APP_HIDE_CANVAS,
-    WM_APP_SEND_REFINE_TEXT, WM_APP_SHOW_CANVAS, WM_APP_UPDATE_WINDOWS,
+    ACTIVE_DRAG_SNAPSHOT, ACTIVE_DRAG_TARGET, CANVAS_WEBVIEW, CURSOR_POLL_TIMER_ID, DRAG_IS_GROUP,
+    LAST_DRAG_POS, LAST_THEME_IS_DARK, MARKDOWN_WINDOWS, PENDING_REFINE_UPDATES, START_DRAG_POS,
+    WM_APP_HIDE_CANVAS, WM_APP_SEND_REFINE_TEXT, WM_APP_SHOW_CANVAS, WM_APP_UPDATE_WINDOWS,
+    get_dpi_scale, theme::get_canvas_theme_css,
 };
 use crate::overlay::result::state::WINDOW_STATES;
 use std::sync::atomic::Ordering;
@@ -17,107 +17,115 @@ pub unsafe extern "system" fn canvas_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    match msg {
-        WM_APP_UPDATE_WINDOWS => {
-            let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-            let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+) -> LRESULT {
+    unsafe {
+        match msg {
+            WM_APP_UPDATE_WINDOWS => {
+                let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
 
-            let _ = SetWindowPos(
-                hwnd,
-                Some(HWND_TOPMOST),
-                v_x,
-                v_y,
-                0,
-                0,
-                SWP_NOSIZE | SWP_NOACTIVATE,
-            );
-            super::window::send_windows_update();
-            LRESULT(0)
+                let _ = SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOPMOST),
+                    v_x,
+                    v_y,
+                    0,
+                    0,
+                    SWP_NOSIZE | SWP_NOACTIVATE,
+                );
+                super::window::send_windows_update();
+                LRESULT(0)
+            }
+
+            WM_APP_SHOW_CANVAS => {
+                handle_show_canvas(hwnd);
+                LRESULT(0)
+            }
+
+            WM_APP_HIDE_CANVAS => {
+                CANVAS_WEBVIEW.with(|cell| {
+                    if let Some(webview) = cell.borrow().as_ref() {
+                        let _ = webview.set_visible(false);
+                    }
+                });
+                let _ = ShowWindow(hwnd, SW_HIDE);
+                let _ = KillTimer(Some(hwnd), CURSOR_POLL_TIMER_ID);
+                LRESULT(0)
+            }
+
+            WM_APP_SEND_REFINE_TEXT => {
+                handle_send_refine_text(wparam, lparam);
+                LRESULT(0)
+            }
+
+            WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+
+            WM_MOUSEMOVE => handle_mouse_move(hwnd, msg, wparam, lparam),
+
+            WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP => {
+                handle_button_up(hwnd, msg, wparam, lparam)
+            }
+
+            WM_TIMER => {
+                handle_timer(wparam);
+                LRESULT(0)
+            }
+
+            WM_DISPLAYCHANGE => {
+                handle_display_change(hwnd);
+                LRESULT(0)
+            }
+
+            WM_CLOSE => {
+                let _ = ShowWindow(hwnd, SW_HIDE);
+                LRESULT(0)
+            }
+
+            WM_DESTROY => {
+                PostQuitMessage(0);
+                LRESULT(0)
+            }
+
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
-
-        WM_APP_SHOW_CANVAS => {
-            handle_show_canvas(hwnd);
-            LRESULT(0)
-        }
-
-        WM_APP_HIDE_CANVAS => {
-            CANVAS_WEBVIEW.with(|cell| {
-                if let Some(webview) = cell.borrow().as_ref() {
-                    let _ = webview.set_visible(false);
-                }
-            });
-            let _ = ShowWindow(hwnd, SW_HIDE);
-            let _ = KillTimer(Some(hwnd), CURSOR_POLL_TIMER_ID);
-            LRESULT(0)
-        }
-
-        WM_APP_SEND_REFINE_TEXT => {
-            handle_send_refine_text(wparam, lparam);
-            LRESULT(0)
-        }
-
-        WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
-
-        WM_MOUSEMOVE => handle_mouse_move(hwnd, msg, wparam, lparam),
-
-        WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP => handle_button_up(hwnd, msg, wparam, lparam),
-
-        WM_TIMER => {
-            handle_timer(wparam);
-            LRESULT(0)
-        }
-
-        WM_DISPLAYCHANGE => {
-            handle_display_change(hwnd);
-            LRESULT(0)
-        }
-
-        WM_CLOSE => {
-            let _ = ShowWindow(hwnd, SW_HIDE);
-            LRESULT(0)
-        }
-
-        WM_DESTROY => {
-            PostQuitMessage(0);
-            LRESULT(0)
-        }
-
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}}
+}
 
-unsafe fn handle_show_canvas(hwnd: HWND) { unsafe {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, IsWindow, SetForegroundWindow,
-    };
+unsafe fn handle_show_canvas(hwnd: HWND) {
+    unsafe {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetForegroundWindow, IsWindow, SetForegroundWindow,
+        };
 
-    let foreground = GetForegroundWindow();
+        let foreground = GetForegroundWindow();
 
-    let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    let v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    let v_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        let v_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
-    let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-    let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), v_x, v_y, v_w, v_h, SWP_NOACTIVATE);
+        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), v_x, v_y, v_w, v_h, SWP_NOACTIVATE);
 
-    CANVAS_WEBVIEW.with(|cell| {
-        if let Some(webview) = cell.borrow().as_ref() {
-            let _ = webview.set_bounds(Rect {
-                position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
-                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(v_w as u32, v_h as u32)),
-            });
-            let _ = webview.set_visible(true);
+        CANVAS_WEBVIEW.with(|cell| {
+            if let Some(webview) = cell.borrow().as_ref() {
+                let _ = webview.set_bounds(Rect {
+                    position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
+                    size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                        v_w as u32, v_h as u32,
+                    )),
+                });
+                let _ = webview.set_visible(true);
+            }
+        });
+
+        if !foreground.0.is_null() && IsWindow(Some(foreground)).as_bool() {
+            let _ = SetForegroundWindow(foreground);
         }
-    });
 
-    if !foreground.0.is_null() && IsWindow(Some(foreground)).as_bool() {
-        let _ = SetForegroundWindow(foreground);
+        let _ = SetTimer(Some(hwnd), CURSOR_POLL_TIMER_ID, 100, None);
     }
-
-    let _ = SetTimer(Some(hwnd), CURSOR_POLL_TIMER_ID, 100, None);
-}}
+}
 
 fn handle_send_refine_text(wparam: WPARAM, lparam: LPARAM) {
     let hwnd_key = wparam.0 as isize;
@@ -149,145 +157,120 @@ fn handle_send_refine_text(wparam: WPARAM, lparam: LPARAM) {
     }
 }
 
-unsafe fn handle_mouse_move(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT { unsafe {
-    let target_val = ACTIVE_DRAG_TARGET.load(Ordering::SeqCst);
-    if target_val != 0 {
-        let mut pt = POINT::default();
-        if GetCursorPos(&mut pt).is_ok() {
-            let mut last = LAST_DRAG_POS.lock().unwrap();
-            let dx = pt.x - last.x;
-            let dy = pt.y - last.y;
+unsafe fn handle_mouse_move(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    unsafe {
+        let target_val = ACTIVE_DRAG_TARGET.load(Ordering::SeqCst);
+        if target_val != 0 {
+            let mut pt = POINT::default();
+            if GetCursorPos(&mut pt).is_ok() {
+                let mut last = LAST_DRAG_POS.lock().unwrap();
+                let dx = pt.x - last.x;
+                let dy = pt.y - last.y;
 
-            if dx != 0 || dy != 0 {
-                if DRAG_IS_GROUP.load(Ordering::SeqCst) {
-                    let snapshot = ACTIVE_DRAG_SNAPSHOT.lock().unwrap();
-                    let mut updates = Vec::with_capacity(snapshot.len());
+                if dx != 0 || dy != 0 {
+                    if DRAG_IS_GROUP.load(Ordering::SeqCst) {
+                        let snapshot = ACTIVE_DRAG_SNAPSHOT.lock().unwrap();
+                        let mut updates = Vec::with_capacity(snapshot.len());
 
-                    if let Ok(mut hdwp) = BeginDeferWindowPos(snapshot.len() as i32) {
-                        for &h_val in snapshot.iter() {
-                            let h = HWND(h_val as *mut std::ffi::c_void);
-                            let mut r = RECT::default();
-                            if GetWindowRect(h, &mut r).is_ok() {
-                                let (nx, ny) = (r.left + dx, r.top + dy);
-                                let (nw, nh) = (r.right - r.left, r.bottom - r.top);
+                        if let Ok(mut hdwp) = BeginDeferWindowPos(snapshot.len() as i32) {
+                            for &h_val in snapshot.iter() {
+                                let h = HWND(h_val as *mut std::ffi::c_void);
+                                let mut r = RECT::default();
+                                if GetWindowRect(h, &mut r).is_ok() {
+                                    let (nx, ny) = (r.left + dx, r.top + dy);
+                                    let (nw, nh) = (r.right - r.left, r.bottom - r.top);
 
-                                hdwp = DeferWindowPos(
-                                    hdwp,
-                                    h,
-                                    None,
-                                    nx,
-                                    ny,
-                                    0,
-                                    0,
-                                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-                                )
-                                .unwrap_or(hdwp);
-                                updates.push((h_val, (nx, ny, nw, nh)));
+                                    hdwp = DeferWindowPos(
+                                        hdwp,
+                                        h,
+                                        None,
+                                        nx,
+                                        ny,
+                                        0,
+                                        0,
+                                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                                    )
+                                    .unwrap_or(hdwp);
+                                    updates.push((h_val, (nx, ny, nw, nh)));
+                                }
+                            }
+                            let _ = EndDeferWindowPos(hdwp);
+                        }
+                        super::update_canvas();
+
+                        if !updates.is_empty() {
+                            let mut windows = MARKDOWN_WINDOWS.lock().unwrap();
+                            for (key, rect) in updates {
+                                if windows.contains_key(&key) {
+                                    windows.insert(key, rect);
+                                }
                             }
                         }
-                        let _ = EndDeferWindowPos(hdwp);
+                    } else {
+                        let target_hwnd = HWND(target_val as *mut std::ffi::c_void);
+                        crate::overlay::result::trigger_drag_window(target_hwnd, dx, dy);
                     }
-                    super::update_canvas();
 
-                    if !updates.is_empty() {
-                        let mut windows = MARKDOWN_WINDOWS.lock().unwrap();
-                        for (key, rect) in updates {
-                            if windows.contains_key(&key) {
-                                windows.insert(key, rect);
-                            }
-                        }
-                    }
-                } else {
-                    let target_hwnd = HWND(target_val as *mut std::ffi::c_void);
-                    crate::overlay::result::trigger_drag_window(target_hwnd, dx, dy);
+                    last.x = pt.x;
+                    last.y = pt.y;
                 }
-
-                last.x = pt.x;
-                last.y = pt.y;
             }
+            return LRESULT(0);
         }
-        return LRESULT(0);
+        DefWindowProcW(hwnd, msg, wparam, lparam)
     }
-    DefWindowProcW(hwnd, msg, wparam, lparam)
-}}
+}
 
-unsafe fn handle_button_up(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT { unsafe {
-    let target_val = ACTIVE_DRAG_TARGET.load(Ordering::SeqCst);
-    if target_val != 0 {
-        use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
+unsafe fn handle_button_up(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    unsafe {
+        let target_val = ACTIVE_DRAG_TARGET.load(Ordering::SeqCst);
+        if target_val != 0 {
+            use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 
-        ACTIVE_DRAG_TARGET.store(0, Ordering::SeqCst);
-        let is_group = DRAG_IS_GROUP.swap(false, Ordering::SeqCst);
-        let _ = ReleaseCapture();
-        super::update_canvas();
+            ACTIVE_DRAG_TARGET.store(0, Ordering::SeqCst);
+            let is_group = DRAG_IS_GROUP.swap(false, Ordering::SeqCst);
+            let _ = ReleaseCapture();
+            super::update_canvas();
 
-        // PERSISTENCE: Save window geometry after manual drag
-        let target_hwnd = HWND(target_val as *mut std::ffi::c_void);
-        if is_group {
-            let snapshot = ACTIVE_DRAG_SNAPSHOT.lock().unwrap();
-            for &h_val in snapshot.iter() {
-                crate::overlay::result::event_handler::save_window_geometry(
-                    HWND(h_val as *mut std::ffi::c_void),
-                    "CANVAS_DRAG_GROUP",
-                );
-            }
-        } else {
-            crate::overlay::result::event_handler::save_window_geometry(
-                target_hwnd,
-                "CANVAS_DRAG_SINGLE",
-            );
-        }
-
-        // Click vs Drag Check
-        let mut pt = POINT::default();
-        let _ = GetCursorPos(&mut pt);
-
-        let start = START_DRAG_POS.lock().unwrap();
-        let dist_sq = ((pt.x - start.x).pow(2) + (pt.y - start.y).pow(2)) as f64;
-
-        if dist_sq.sqrt() < 5.0 {
-            let is_right_click = msg == WM_RBUTTONUP;
-            let is_middle_click = msg == WM_MBUTTONUP;
+            // PERSISTENCE: Save window geometry after manual drag
             let target_hwnd = HWND(target_val as *mut std::ffi::c_void);
-
-            if is_right_click {
-                crate::overlay::result::trigger_close_group(target_hwnd);
-            } else if is_middle_click {
-                crate::overlay::result::trigger_close_all();
+            if is_group {
+                let snapshot = ACTIVE_DRAG_SNAPSHOT.lock().unwrap();
+                for &h_val in snapshot.iter() {
+                    crate::overlay::result::event_handler::save_window_geometry(
+                        HWND(h_val as *mut std::ffi::c_void),
+                        "CANVAS_DRAG_GROUP",
+                    );
+                }
             } else {
-                let _ = PostMessageW(Some(target_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
-        }
-
-        // Force Immediate Cursor Update to JS
-        let scale = get_dpi_scale();
-        let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-        let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-        let rel_x = pt.x - v_x;
-        let rel_y = pt.y - v_y;
-        let logical_x = (rel_x as f64 / scale) as i32;
-        let logical_y = (rel_y as f64 / scale) as i32;
-        CANVAS_WEBVIEW.with(|cell| {
-            if let Some(webview) = cell.borrow().as_ref() {
-                let script = format!(
-                    "window.setBroomDraggingCursor(false);window.updateCursorPosition({}, {});",
-                    logical_x, logical_y
+                crate::overlay::result::event_handler::save_window_geometry(
+                    target_hwnd,
+                    "CANVAS_DRAG_SINGLE",
                 );
-                let _ = webview.evaluate_script(&script);
             }
-        });
 
-        super::window::send_windows_update();
+            // Click vs Drag Check
+            let mut pt = POINT::default();
+            let _ = GetCursorPos(&mut pt);
 
-        return LRESULT(0);
-    }
-    DefWindowProcW(hwnd, msg, wparam, lparam)
-}}
+            let start = START_DRAG_POS.lock().unwrap();
+            let dist_sq = ((pt.x - start.x).pow(2) + (pt.y - start.y).pow(2)) as f64;
 
-unsafe fn handle_timer(wparam: WPARAM) { unsafe {
-    if wparam.0 == CURSOR_POLL_TIMER_ID && ACTIVE_DRAG_TARGET.load(Ordering::SeqCst) == 0 {
-        let mut pt = POINT::default();
-        if GetCursorPos(&mut pt).is_ok() {
+            if dist_sq.sqrt() < 5.0 {
+                let is_right_click = msg == WM_RBUTTONUP;
+                let is_middle_click = msg == WM_MBUTTONUP;
+                let target_hwnd = HWND(target_val as *mut std::ffi::c_void);
+
+                if is_right_click {
+                    crate::overlay::result::trigger_close_group(target_hwnd);
+                } else if is_middle_click {
+                    crate::overlay::result::trigger_close_all();
+                } else {
+                    let _ = PostMessageW(Some(target_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
+            }
+
+            // Force Immediate Cursor Update to JS
             let scale = get_dpi_scale();
             let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
             let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
@@ -295,42 +278,77 @@ unsafe fn handle_timer(wparam: WPARAM) { unsafe {
             let rel_y = pt.y - v_y;
             let logical_x = (rel_x as f64 / scale) as i32;
             let logical_y = (rel_y as f64 / scale) as i32;
-
             CANVAS_WEBVIEW.with(|cell| {
                 if let Some(webview) = cell.borrow().as_ref() {
-                    let script =
-                        format!("window.updateCursorPosition({}, {});", logical_x, logical_y);
+                    let script = format!(
+                        "window.setBroomDraggingCursor(false);window.updateCursorPosition({}, {});",
+                        logical_x, logical_y
+                    );
                     let _ = webview.evaluate_script(&script);
                 }
             });
+
+            super::window::send_windows_update();
+
+            return LRESULT(0);
+        }
+        DefWindowProcW(hwnd, msg, wparam, lparam)
+    }
+}
+
+unsafe fn handle_timer(wparam: WPARAM) {
+    unsafe {
+        if wparam.0 == CURSOR_POLL_TIMER_ID && ACTIVE_DRAG_TARGET.load(Ordering::SeqCst) == 0 {
+            let mut pt = POINT::default();
+            if GetCursorPos(&mut pt).is_ok() {
+                let scale = get_dpi_scale();
+                let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                let rel_x = pt.x - v_x;
+                let rel_y = pt.y - v_y;
+                let logical_x = (rel_x as f64 / scale) as i32;
+                let logical_y = (rel_y as f64 / scale) as i32;
+
+                CANVAS_WEBVIEW.with(|cell| {
+                    if let Some(webview) = cell.borrow().as_ref() {
+                        let script =
+                            format!("window.updateCursorPosition({}, {});", logical_x, logical_y);
+                        let _ = webview.evaluate_script(&script);
+                    }
+                });
+            }
         }
     }
-}}
+}
 
-unsafe fn handle_display_change(hwnd: HWND) { unsafe {
-    let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    let v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    let v_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+unsafe fn handle_display_change(hwnd: HWND) {
+    unsafe {
+        let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        let v_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
-    let _ = SetWindowPos(
-        hwnd,
-        None,
-        v_x,
-        v_y,
-        v_w,
-        v_h,
-        SWP_NOZORDER | SWP_NOACTIVATE,
-    );
-    CANVAS_WEBVIEW.with(|cell| {
-        if let Some(webview) = cell.borrow().as_ref() {
-            let _ = webview.set_bounds(Rect {
-                position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
-                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(v_w as u32, v_h as u32)),
-            });
-        }
-    });
-}}
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            v_x,
+            v_y,
+            v_w,
+            v_h,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+        CANVAS_WEBVIEW.with(|cell| {
+            if let Some(webview) = cell.borrow().as_ref() {
+                let _ = webview.set_bounds(Rect {
+                    position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
+                    size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                        v_w as u32, v_h as u32,
+                    )),
+                });
+            }
+        });
+    }
+}
 
 /// Send updated window data to the canvas
 pub fn send_windows_update() {

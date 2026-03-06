@@ -3,7 +3,6 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{Mutex, Once};
-use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::Graphics::Gdi::*;
@@ -11,6 +10,7 @@ use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::*;
 use wry::{Rect, WebContext, WebView, WebViewBuilder};
 
 static REGISTER_BADGE_CLASS: Once = Once::new();
@@ -66,7 +66,7 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
     ) -> std::result::Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError>
     {
         let raw = raw_window_handle::Win32WindowHandle::new(
-            std::num::NonZeroIsize::new(self.0 .0 as isize).expect("HWND cannot be null"),
+            std::num::NonZeroIsize::new(self.0.0 as isize).expect("HWND cannot be null"),
         );
         let handle = raw_window_handle::RawWindowHandle::Win32(raw);
         unsafe { Ok(raw_window_handle::WindowHandle::borrow_raw(handle)) }
@@ -229,9 +229,9 @@ fn get_badge_html() -> String {
         --this-bloom: rgba(74, 222, 128, 0.6);
         --this-shadow: rgba(0, 0, 0, 0.5);
     }}
-    
+
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    
+
     body {{
         overflow: hidden;
         background: transparent;
@@ -245,7 +245,7 @@ fn get_badge_html() -> String {
         cursor: default;
         padding-bottom: 20px;
     }}
-    
+
     #notifications {{
         display: flex;
         flex-direction: column;
@@ -258,35 +258,35 @@ fn get_badge_html() -> String {
         min-width: 180px;
         max-width: 90%;
         width: auto;
-        
+
         background: var(--this-bg);
         border: 2.5px solid var(--this-border);
         border-radius: 12px;
-        
-        box-shadow: 0 0 12px var(--this-bloom), 
+
+        box-shadow: 0 0 12px var(--this-bloom),
                     0 4px 15px var(--this-shadow);
-                    
+
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
-        
+
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: center;
-        
+
         padding: 4px 18px;
         position: relative;
-        
+
         opacity: 0;
         transform: translateY(20px) scale(0.92);
         transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
     }}
-    
+
     .badge.visible {{
         opacity: 1;
         transform: translateY(0) scale(1);
     }}
-    
+
     .row {{
         display: flex;
         align-items: center;
@@ -295,9 +295,9 @@ fn get_badge_html() -> String {
         line-height: normal;
         position: relative;
     }}
-    
+
     .title-row {{ margin-bottom: 0px; }}
-    
+
     .title {{
         font-size: 15px;
         font-weight: 700;
@@ -305,11 +305,11 @@ fn get_badge_html() -> String {
         display: flex;
         align-items: center;
         gap: 8px;
-        letter-spacing: 1.2px; 
+        letter-spacing: 1.2px;
         text-transform: uppercase;
         font-variation-settings: 'wght' 700, 'wdth' 115, 'ROND' 100;
     }}
-    
+
     .check {{
         color: var(--this-accent);
         font-weight: 800;
@@ -323,12 +323,12 @@ fn get_badge_html() -> String {
         transform: scale(0);
         filter: drop-shadow(0 0 5px var(--this-accent));
     }}
-    
+
     @keyframes pop {{
         from {{ opacity: 0; transform: scale(0); }}
         to {{ opacity: 1; transform: scale(1); }}
     }}
-    
+
     .snippet {{
         font-size: 13px;
         font-weight: 500;
@@ -343,7 +343,7 @@ fn get_badge_html() -> String {
         font-variation-settings: 'wght' 500, 'wdth' 85, 'ROND' 50;
         letter-spacing: -0.3px;
     }}
-    
+
     .snippet-container {{
         width: 100%;
         display: flex;
@@ -489,13 +489,13 @@ fn get_badge_html() -> String {
                 duration: 2500
             }}
         }};
-        
+
         let isDarkMode = false;
-        
+
         window.setTheme = (isDark) => {{
             isDarkMode = isDark;
         }};
-        
+
         function getColors(type, isDark) {{
             const t = themes[type] || themes.success;
             return isDark ? t.dark : t.light;
@@ -518,7 +518,7 @@ fn get_badge_html() -> String {
                 <polyline points="20 6 9 17 4 12"></polyline>
             </svg>`;
         }}
-        
+
         window.addNotification = (title, snippet, type, durationOverride) => {{
             const container = document.getElementById('notifications');
             const colors = getColors(type, isDarkMode);
@@ -526,10 +526,10 @@ fn get_badge_html() -> String {
             const duration = Number.isFinite(durationOverride) && durationOverride > 0
                 ? durationOverride
                 : themeDuration;
-            
+
             const badge = document.createElement('div');
             badge.className = 'badge';
-            
+
             // Set styles
             const s = badge.style;
             s.setProperty('--this-bg', colors.bg);
@@ -539,12 +539,12 @@ fn get_badge_html() -> String {
             s.setProperty('--this-accent', colors.accent);
             s.setProperty('--this-bloom', colors.bloom);
             s.setProperty('--this-shadow', colors.shadow);
-            
+
             const hasSnippet = (snippet && snippet.length > 0);
             const checkDisplay = hasSnippet ? 'flex' : 'none';
             const snippetDisplay = hasSnippet ? 'flex' : 'none';
             const leadingIcon = getLeadingIcon(type);
-            
+
             badge.innerHTML = `
                 <div class="row title-row">
                     <div class="title">
@@ -558,17 +558,17 @@ fn get_badge_html() -> String {
                     <div class="snippet">${{snippet}}</div>
                 </div>
             `;
-            
+
             container.appendChild(badge);
-            
+
             // Animate In
             // Double raf to ensure transition
             requestAnimationFrame(() => {{
                 requestAnimationFrame(() => {{
-                   badge.classList.add('visible'); 
+                   badge.classList.add('visible');
                 }});
             }});
-            
+
             // Remove logic
             setTimeout(() => {{
                 badge.classList.remove('visible');
@@ -755,94 +755,96 @@ unsafe extern "system" fn badge_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    match msg {
-        WM_APP_PROCESS_QUEUE => {
-            let app = APP.lock().unwrap();
-            let is_dark = match app.config.theme_mode {
-                crate::config::ThemeMode::Dark => true,
-                crate::config::ThemeMode::Light => false,
-                crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-            };
-            drop(app);
+) -> LRESULT {
+    unsafe {
+        match msg {
+            WM_APP_PROCESS_QUEUE => {
+                let app = APP.lock().unwrap();
+                let is_dark = match app.config.theme_mode {
+                    crate::config::ThemeMode::Dark => true,
+                    crate::config::ThemeMode::Light => false,
+                    crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
+                };
+                drop(app);
 
-            // Update badge position (if screen changed?)
-            let screen_w = GetSystemMetrics(SM_CXSCREEN);
-            let screen_h = GetSystemMetrics(SM_CYSCREEN);
-            let x = (screen_w - BADGE_WIDTH) / 2;
-            let y = screen_h - BADGE_HEIGHT - 100;
+                // Update badge position (if screen changed?)
+                let screen_w = GetSystemMetrics(SM_CXSCREEN);
+                let screen_h = GetSystemMetrics(SM_CYSCREEN);
+                let x = (screen_w - BADGE_WIDTH) / 2;
+                let y = screen_h - BADGE_HEIGHT - 100;
 
-            let _ = SetWindowPos(
-                hwnd,
-                Some(HWND_TOPMOST),
-                x,
-                y,
-                BADGE_WIDTH,
-                BADGE_HEIGHT,
-                SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            );
+                let _ = SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOPMOST),
+                    x,
+                    y,
+                    BADGE_WIDTH,
+                    BADGE_HEIGHT,
+                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                );
 
-            // Fetch generic queue items
-            let mut items = Vec::new();
-            {
-                let mut q = PENDING_QUEUE.lock().unwrap();
-                while let Some(item) = q.pop_front() {
-                    items.push(item);
-                }
-            }
-
-            if !items.is_empty() {
-                BADGE_WEBVIEW.with(|wv| {
-                    if let Some(webview) = wv.borrow().as_ref() {
-                        // Update Theme
-                        let theme_script = format!("window.setTheme({});", is_dark);
-                        let _ = webview.evaluate_script(&theme_script);
-
-                        // Add Notifications logic
-                        for item in items {
-                            let type_str = match item.n_type {
-                                NotificationType::Success => "success",
-                                NotificationType::FileCopy => "file_copy",
-                                NotificationType::GifCopy => "gif_copy",
-                                NotificationType::Info => "info",
-                                NotificationType::Update => "update",
-                                NotificationType::Error => "error",
-                            };
-
-                            let safe_title = item
-                                .title
-                                .replace('\\', "\\\\")
-                                .replace('"', "\\\"")
-                                .replace('\'', "\\'");
-
-                            let safe_snippet = item
-                                .snippet
-                                .replace('\\', "\\\\")
-                                .replace('"', "\\\"")
-                                .replace('\'', "\\'")
-                                .replace('\n', " ");
-                            let duration_js = item
-                                .duration_ms
-                                .map(|ms| ms.to_string())
-                                .unwrap_or_else(|| "null".to_string());
-
-                            let script = format!(
-                                "window.addNotification('{}', '{}', '{}', {});",
-                                safe_title, safe_snippet, type_str, duration_js
-                            );
-                            let _ = webview.evaluate_script(&script);
-                        }
+                // Fetch generic queue items
+                let mut items = Vec::new();
+                {
+                    let mut q = PENDING_QUEUE.lock().unwrap();
+                    while let Some(item) = q.pop_front() {
+                        items.push(item);
                     }
-                });
-            }
+                }
 
-            LRESULT(0)
+                if !items.is_empty() {
+                    BADGE_WEBVIEW.with(|wv| {
+                        if let Some(webview) = wv.borrow().as_ref() {
+                            // Update Theme
+                            let theme_script = format!("window.setTheme({});", is_dark);
+                            let _ = webview.evaluate_script(&theme_script);
+
+                            // Add Notifications logic
+                            for item in items {
+                                let type_str = match item.n_type {
+                                    NotificationType::Success => "success",
+                                    NotificationType::FileCopy => "file_copy",
+                                    NotificationType::GifCopy => "gif_copy",
+                                    NotificationType::Info => "info",
+                                    NotificationType::Update => "update",
+                                    NotificationType::Error => "error",
+                                };
+
+                                let safe_title = item
+                                    .title
+                                    .replace('\\', "\\\\")
+                                    .replace('"', "\\\"")
+                                    .replace('\'', "\\'");
+
+                                let safe_snippet = item
+                                    .snippet
+                                    .replace('\\', "\\\\")
+                                    .replace('"', "\\\"")
+                                    .replace('\'', "\\'")
+                                    .replace('\n', " ");
+                                let duration_js = item
+                                    .duration_ms
+                                    .map(|ms| ms.to_string())
+                                    .unwrap_or_else(|| "null".to_string());
+
+                                let script = format!(
+                                    "window.addNotification('{}', '{}', '{}', {});",
+                                    safe_title, safe_snippet, type_str, duration_js
+                                );
+                                let _ = webview.evaluate_script(&script);
+                            }
+                        }
+                    });
+                }
+
+                LRESULT(0)
+            }
+            WM_DESTROY => {
+                PostQuitMessage(0);
+                LRESULT(0)
+            }
+            WM_ERASEBKGND => LRESULT(1),
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
-        WM_DESTROY => {
-            PostQuitMessage(0);
-            LRESULT(0)
-        }
-        WM_ERASEBKGND => LRESULT(1),
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}}
+}

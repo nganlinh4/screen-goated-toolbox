@@ -4,7 +4,7 @@
 use super::client::UREQ_AGENT;
 use crate::gui::locale::LocaleText;
 use anyhow::Result;
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use image::{ImageBuffer, Rgba};
 use serde::Deserialize;
 use std::io::{BufRead, BufReader, Cursor};
@@ -180,10 +180,13 @@ where
                 Ok(chunk) => {
                     // Handle thinking tokens (qwen3 and similar models)
                     if let Some(thinking) = &chunk.thinking
-                        && !thinking.is_empty() && !thinking_shown && !content_started {
-                            on_chunk(locale.model_thinking);
-                            thinking_shown = true;
-                        }
+                        && !thinking.is_empty()
+                        && !thinking_shown
+                        && !content_started
+                    {
+                        on_chunk(locale.model_thinking);
+                        thinking_shown = true;
+                    }
 
                     // Handle response content
                     if !chunk.response.is_empty() {
@@ -271,10 +274,13 @@ where
                 Ok(chunk) => {
                     // Handle thinking tokens
                     if let Some(thinking) = &chunk.thinking
-                        && !thinking.is_empty() && !thinking_shown && !content_started {
-                            on_chunk(locale.model_thinking);
-                            thinking_shown = true;
-                        }
+                        && !thinking.is_empty()
+                        && !thinking_shown
+                        && !content_started
+                    {
+                        on_chunk(locale.model_thinking);
+                        thinking_shown = true;
+                    }
 
                     // Handle response content
                     if !chunk.response.is_empty() {

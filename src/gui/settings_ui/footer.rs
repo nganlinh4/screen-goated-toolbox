@@ -1,4 +1,4 @@
-use crate::gui::icons::{paint_icon, Icon};
+use crate::gui::icons::{Icon, paint_icon};
 use crate::gui::locale::LocaleText;
 use eframe::egui;
 use egui::text::{LayoutJob, TextFormat};

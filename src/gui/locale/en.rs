@@ -10,10 +10,10 @@ pub fn get() -> LocaleText {
         view_image_btn: "View Image",
         listen_audio_btn: "Listen Audio",
         view_text_btn: "View Text",
-        
+
         prompt_mode_fixed: "Predefined Prompt",
         prompt_mode_dynamic: "Write on the spot",
-        
+
         get_key_link: "Get API Key at console.groq.com",
         gemini_api_key_label: "Gemini API Key:",
         gemini_get_key_link: "Get API Key at aistudio.google.com",
@@ -27,11 +27,9 @@ pub fn get() -> LocaleText {
         use_cerebras_checkbox: "Cerebras",
         global_settings: "Global Settings",
         preset_name_label: "Preset Name:",
-        
-        
-        
+
         search_placeholder: "Search...",
-        
+
         auto_paste_label: "Auto-paste",
         auto_paste_newline_label: "Auto add newline after copy",
         startup_label: "Run at Windows Startup",
@@ -40,17 +38,13 @@ pub fn get() -> LocaleText {
         cancel_label: "Cancel",
         reset_defaults_btn: "Reset to Defaults",
         force_quit: "Force Quit",
-        
-        
-        
+
         preset_type_label: "Type:",
         preset_type_image: "Image Understanding",
         preset_type_audio: "Audio Understanding",
         preset_type_video: "Video Understanding (upcoming)",
         preset_type_text: "Text Understanding", // NEW
-        
-        
-        
+
         audio_source_label: "Audio Source:",
         audio_src_mic: "Microphone",
         audio_src_device: "Device Audio",
@@ -70,7 +64,7 @@ pub fn get() -> LocaleText {
         usage_model_column: "Model",
         usage_remaining_column: "Remaining / Total",
         usage_check_link: "Check Usage ↗",
-        
+
         footer_admin_text: "Run with admin to translate games",
         footer_version: "Version",
         check_for_updates_btn: "Check for Updates",
@@ -117,42 +111,41 @@ pub fn get() -> LocaleText {
         node_menu_add_special_audio: "⭐ Add Audio -> Text Node",
         input_auto_copy_tooltip: "Auto-copy (Source)",
         input_auto_speak_tooltip: "Speak Source",
-        
-        
+
         tips_title: "Usage Tips",
         tips_click_hint: "Click text to view tip list",
         tips_list: vec![
-        "**Middle-click** any overlay window to instantly close ALL overlays!",
-        "**Right-click** an overlay to quickly copy its text content!",
-        "While drawing the box (dimmed screen), press **ESC** or Hotkey again to cancel.",
-        "If you like **SGT**, please give us a Star on Github and share it!",
-        "Did you know? **Hotkeys** can be assigned to Middle Mouse, Button 4, and 5!",
-        "If the overlay **crashes/lags**, try switching Graphics Mode to 'Minimal'!",
-        "You cannot rename default presets, but **custom presets** can be renamed freely!",
-        "The **History library** automatically cleans up old items when the limit is reached.",
-        "In the action chain, only **one step** can have Auto copy enabled, or no steps at all.",
-        "Even if **Auto-paste** is enabled, it requires a text cursor (blinking) at the paste location to work.",
-        "The **Auto add newline** control only appears when Auto copy is enabled (on at least one step).",
-        "Preset names with a **green/lime background** indicate they have a hotkey assigned and are ready to use.",
-        "Left-click drag moves only the **current overlay**, but right-click drag moves all overlays in the same group.",
-        "On **canvas**: scroll: zoom, drag: pan, double-click: reset view, right-click: add node. On node: drag: move, right-click: delete.",
-        "Text-select mode special feature: If **text is already highlighted**, pressing the hotkey will process it instantly!",
-        "**Audio recording** also has a smart stop mode, remember to try it!",
-        "When browsing the **web** directly in the overlay, use only the mouse - keyboard input won't work, sorry!",
-        "Assign a hotkey to **'Image MASTER'** or **'Selection MASTER'** to open the Wheel selector, giving you quick access to multiple tools with just one key!",
-        "Click the **Edit button** not only to fix text, but you can also type commands for AI to rewrite your content (e.g., 'Translate to Japanese').",
-        "You can **drag and drop** or paste image files or text files directly into the settings window for instant processing!",
-        "Enable the **Favorite Bubble** in the system tray menu to quickly access your configurations without needing to remember hotkeys.",
-        "In Voice Settings, try the **Standard voice** option and adjust the regional accent to see what works best for you!",
-        "The **Realtime Translation** mode can automatically adjust the reading speed (TTS) to keep up with the speaker's pace.",
-        "Click the **display mode button** (next to the eye icon) to switch between plain text and beautifully formatted Markdown/HTML views.",
-        "Models with a **magnifying glass icon** can access the internet to find citations and the latest information.",
-        "When **Auto-copy** is activated, a small green notification will appear at the bottom of your screen to confirm your content has been copied to the clipboard.",
-        "Not sure how to use SGT? Open **'How to use'** and let the AI assistant guide you through it!",
-        "Feeling stressed? Visit **'Be a DJ'** to create a relaxing background music experience while you work.",
-        "Need to download video? The built-in **'Download Video'** supports YouTube, Facebook, and more, including 4K and subtitles!",
-        "**Hold down the Hotkey** or the Preset in the bubble to enter **Continuous Mode**, allowing you to process multiple regions or texts in succession.",
-        "Got a MIDI keyboard? Plug it in when opening **Be a DJ** to adjust the music using physical knobs!",
+            "**Middle-click** any overlay window to instantly close ALL overlays!",
+            "**Right-click** an overlay to quickly copy its text content!",
+            "While drawing the box (dimmed screen), press **ESC** or Hotkey again to cancel.",
+            "If you like **SGT**, please give us a Star on Github and share it!",
+            "Did you know? **Hotkeys** can be assigned to Middle Mouse, Button 4, and 5!",
+            "If the overlay **crashes/lags**, try switching Graphics Mode to 'Minimal'!",
+            "You cannot rename default presets, but **custom presets** can be renamed freely!",
+            "The **History library** automatically cleans up old items when the limit is reached.",
+            "In the action chain, only **one step** can have Auto copy enabled, or no steps at all.",
+            "Even if **Auto-paste** is enabled, it requires a text cursor (blinking) at the paste location to work.",
+            "The **Auto add newline** control only appears when Auto copy is enabled (on at least one step).",
+            "Preset names with a **green/lime background** indicate they have a hotkey assigned and are ready to use.",
+            "Left-click drag moves only the **current overlay**, but right-click drag moves all overlays in the same group.",
+            "On **canvas**: scroll: zoom, drag: pan, double-click: reset view, right-click: add node. On node: drag: move, right-click: delete.",
+            "Text-select mode special feature: If **text is already highlighted**, pressing the hotkey will process it instantly!",
+            "**Audio recording** also has a smart stop mode, remember to try it!",
+            "When browsing the **web** directly in the overlay, use only the mouse - keyboard input won't work, sorry!",
+            "Assign a hotkey to **'Image MASTER'** or **'Selection MASTER'** to open the Wheel selector, giving you quick access to multiple tools with just one key!",
+            "Click the **Edit button** not only to fix text, but you can also type commands for AI to rewrite your content (e.g., 'Translate to Japanese').",
+            "You can **drag and drop** or paste image files or text files directly into the settings window for instant processing!",
+            "Enable the **Favorite Bubble** in the system tray menu to quickly access your configurations without needing to remember hotkeys.",
+            "In Voice Settings, try the **Standard voice** option and adjust the regional accent to see what works best for you!",
+            "The **Realtime Translation** mode can automatically adjust the reading speed (TTS) to keep up with the speaker's pace.",
+            "Click the **display mode button** (next to the eye icon) to switch between plain text and beautifully formatted Markdown/HTML views.",
+            "Models with a **magnifying glass icon** can access the internet to find citations and the latest information.",
+            "When **Auto-copy** is activated, a small green notification will appear at the bottom of your screen to confirm your content has been copied to the clipboard.",
+            "Not sure how to use SGT? Open **'How to use'** and let the AI assistant guide you through it!",
+            "Feeling stressed? Visit **'Be a DJ'** to create a relaxing background music experience while you work.",
+            "Need to download video? The built-in **'Download Video'** supports YouTube, Facebook, and more, including 4K and subtitles!",
+            "**Hold down the Hotkey** or the Preset in the bubble to enter **Continuous Mode**, allowing you to process multiple regions or texts in succession.",
+            "Got a MIDI keyboard? Plug it in when opening **Be a DJ** to adjust the music using physical knobs!",
         ],
         restore_preset_btn: "Restore",
         restore_preset_tooltip: "Reset preset to default settings",
@@ -168,7 +161,7 @@ pub fn get() -> LocaleText {
         search_processing: "🧠 Processing and summarizing results...",
         // --- MASTER PRESET UI EN ---
         controller_checkbox_label: "Controller",
-        
+
         // --- GLOBAL SETTINGS UI HEADERS EN ---
         api_keys_header: "🔑 API Keys",
         groq_label: "Groq API Key:",
@@ -208,16 +201,16 @@ pub fn get() -> LocaleText {
         tts_speed_fast: "Fast",
         _tts_voice_label: "Voice:",
         tts_preview_texts: vec![
-        "Hello, I am {}, ready to read this text for you.",
-        "The quick brown fox jumps over the lazy dog.",
-        "Today is a beautiful day, {} hopes you learn something new.",
-        "Technology is rapidly changing the world we live in.",
-        "I hope you are having a wonderful day, from {}.",
-        "This is a demonstration of the synthetic voice capabilities of {}.",
-        "Remember to take breaks and rest your eyes.",
-        "Success is the sum of small efforts repeated day in and day out.",
-        "Stay curious and never stop exploring with {}.",
-        "Thank you for using Screen Goated Toolbox.",
+            "Hello, I am {}, ready to read this text for you.",
+            "The quick brown fox jumps over the lazy dog.",
+            "Today is a beautiful day, {} hopes you learn something new.",
+            "Technology is rapidly changing the world we live in.",
+            "I hope you are having a wonderful day, from {}.",
+            "This is a demonstration of the synthetic voice capabilities of {}.",
+            "Remember to take breaks and rest your eyes.",
+            "Success is the sum of small efforts repeated day in and day out.",
+            "Stay curious and never stop exploring with {}.",
+            "Thank you for using Screen Goated Toolbox.",
         ],
         tts_male: "Male",
         tts_female: "Female",
@@ -298,7 +291,7 @@ pub fn get() -> LocaleText {
         overlay_back_tooltip: "Back",
         overlay_forward_tooltip: "Forward",
         overlay_opacity_tooltip: "Opacity",
-        
+
         download_feature_btn: "Download Video",
         download_feature_title: "Download Video",
         download_delete_deps_btn: "Delete yt-dlp ({}), ffmpeg ({}) and Deno ({})",
@@ -320,7 +313,7 @@ pub fn get() -> LocaleText {
         download_file_label: "File:",
         download_size_label: "Size:",
         download_change_folder_btn: "Change Folder...",
-        
+
         download_progress_info_fmt: "{}% of {}, at {}, ETA {}",
         download_advanced_header: "Advanced Features",
         download_opt_metadata: "Full Metadata (Thumbnail, Chapters, Info)",
@@ -347,7 +340,7 @@ pub fn get() -> LocaleText {
         download_deno_failed_fmt: "Deno download failed: {}",
         download_deno_yes_btn: "Yes, Download Deno",
         download_deno_no_btn: "No, Use No Cookies",
-        
+
         downloaded_tools_button: "Downloaded Tools",
         downloaded_tools_title: "Downloaded Tools Manager",
         tool_parakeet: "Parakeet Realtime Model",

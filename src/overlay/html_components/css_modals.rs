@@ -198,7 +198,7 @@ pub fn get(is_dark: bool) -> String {
             color: #fff;
             white-space: nowrap;
         }}
-        
+
         /* App Selection Modal */
         #app-modal {{
             display: none;

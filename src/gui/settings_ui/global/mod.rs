@@ -1,6 +1,6 @@
 use super::node_graph::request_node_graph_view_reset;
 use crate::config::Config;
-use crate::gui::icons::{icon_button, Icon};
+use crate::gui::icons::{Icon, icon_button};
 use crate::gui::locale::LocaleText;
 use crate::updater::{UpdateStatus, Updater};
 use auto_launch::AutoLaunch;
@@ -406,9 +406,10 @@ pub fn render_global_settings(
                         if startup_toggle && !(*run_at_startup) {
                             // User is turning it ON - authorize THIS exe as the one allowed to start
                             if let Ok(exe_path) = std::env::current_exe()
-                                && let Some(exe_str) = exe_path.to_str() {
-                                    config.authorized_startup_path = exe_str.to_string();
-                                }
+                                && let Some(exe_str) = exe_path.to_str()
+                            {
+                                config.authorized_startup_path = exe_str.to_string();
+                            }
 
                             if config.run_as_admin_on_startup && current_admin_state {
                                 if crate::gui::utils::set_admin_startup(true) {
@@ -453,9 +454,10 @@ pub fn render_global_settings(
                             if is_admin_mode && !config.run_as_admin_on_startup {
                                 // Transitioning to admin mode requires updated authorization
                                 if let Ok(exe_path) = std::env::current_exe()
-                                    && let Some(exe_str) = exe_path.to_str() {
-                                        config.authorized_startup_path = exe_str.to_string();
-                                    }
+                                    && let Some(exe_str) = exe_path.to_str()
+                                {
+                                    config.authorized_startup_path = exe_str.to_string();
+                                }
 
                                 if crate::gui::utils::set_admin_startup(true) {
                                     config.run_as_admin_on_startup = true;
@@ -468,9 +470,10 @@ pub fn render_global_settings(
                             } else if !is_admin_mode && config.run_as_admin_on_startup {
                                 // Reverting to standard mode
                                 if let Ok(exe_path) = std::env::current_exe()
-                                    && let Some(exe_str) = exe_path.to_str() {
-                                        config.authorized_startup_path = exe_str.to_string();
-                                    }
+                                    && let Some(exe_str) = exe_path.to_str()
+                                {
+                                    config.authorized_startup_path = exe_str.to_string();
+                                }
 
                                 std::thread::spawn(|| {
                                     crate::gui::utils::set_admin_startup(false);

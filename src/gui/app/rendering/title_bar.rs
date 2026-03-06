@@ -6,15 +6,15 @@ use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::ViewMode;
 use eframe::egui;
 #[cfg(target_os = "windows")]
-use windows::core::w;
-#[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GetForegroundWindow, SendMessageW, HTCAPTION, WM_NCLBUTTONDOWN,
+    FindWindowW, GetForegroundWindow, HTCAPTION, SendMessageW, WM_NCLBUTTONDOWN,
 };
+#[cfg(target_os = "windows")]
+use windows::core::w;
 
 impl SettingsApp {
     pub(crate) fn render_title_bar(&mut self, ctx: &egui::Context) {

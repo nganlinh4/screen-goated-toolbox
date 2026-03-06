@@ -1,7 +1,7 @@
 //! WebSocket connection and communication for Gemini Live API
 
 use anyhow::Result;
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use std::net::TcpStream;
 use std::time::Duration;
 
@@ -126,9 +126,10 @@ pub fn send_audio_chunk(
 pub fn parse_input_transcription(msg: &str) -> Option<String> {
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg)
         && let Some(server_content) = json.get("serverContent")
-            && let Some(input_transcription) = server_content.get("inputTranscription")
-                && let Some(text) = input_transcription.get("text").and_then(|t| t.as_str()) {
-                    return Some(text.to_string());
-                }
+        && let Some(input_transcription) = server_content.get("inputTranscription")
+        && let Some(text) = input_transcription.get("text").and_then(|t| t.as_str())
+    {
+        return Some(text.to_string());
+    }
     None
 }

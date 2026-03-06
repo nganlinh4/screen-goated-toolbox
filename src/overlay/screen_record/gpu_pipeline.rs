@@ -18,22 +18,22 @@
 // Frame selection: sample-and-hold using source PTS to handle VFR sources.
 // wgpu (DX12) and D3D11 use completely independent devices — no D3D11On12.
 
+use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
-use std::sync::Mutex;
 use std::time::Instant;
 
-use windows::core::Interface;
 use windows::Win32::Foundation::GENERIC_ALL;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Direct3D12 as d3d12;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Dxgi::IDXGIKeyedMutex;
+use windows::core::Interface;
 
 use super::d3d_interop::{
-    create_d3d11_device, create_d3d11_device_on_adapter, D3D11GpuFence, D3D11Readback,
-    SharedVramBuffer, VideoProcessor,
+    D3D11GpuFence, D3D11Readback, SharedVramBuffer, VideoProcessor, create_d3d11_device,
+    create_d3d11_device_on_adapter,
 };
 use super::gpu_export::{CompositorUniforms, GpuCompositor};
 use super::mf_audio::{AudioConfig, MfAudioDecoder};
@@ -721,18 +721,18 @@ pub fn run_zero_copy_export(
         // Thread 1: Decode
         s.spawn(move || {
             let result = if use_gpu_decode {
-                run_decode_thread(
+                run_decode_thread(DecodeThreadContext {
                     config,
                     cancel_flag,
                     source_times,
-                    &dec_device,
-                    &dec_context,
-                    decode_tx,
-                    dec_gpu_recycle_rx,
-                    &dec_d3d_textures,
-                    dec_keyed_mutexes,
-                    dec_d3d11_fence,
-                )
+                    d3d11_device: &dec_device,
+                    d3d11_context: &dec_context,
+                    tx: decode_tx,
+                    recycle_rx: dec_gpu_recycle_rx,
+                    shared_textures: &dec_d3d_textures,
+                    keyed_mutexes: dec_keyed_mutexes,
+                    d3d11_fence: dec_d3d11_fence,
+                })
             } else {
                 run_decode_thread_cpu(
                     config,
@@ -750,42 +750,42 @@ pub fn run_zero_copy_export(
 
         // Thread 2: Render (compositor)
         s.spawn(move || {
-            if let Err(e) = run_render_thread(
+            if let Err(e) = run_render_thread(RenderThreadContext {
                 config,
                 compositor,
                 build_uniforms,
                 cancel_flag,
-                render_rx,
+                rx: render_rx,
                 mb_samples,
-                render_tx,
+                tx: render_tx,
                 dec_gpu_recycle_tx,
                 dec_cpu_recycle_tx,
                 dec_wgpu_textures,
                 dec_d3d12_fence,
                 dec_keyed_mutexes,
-                gpu_wgpu_textures,
+                gpu_textures: gpu_wgpu_textures,
                 gpu_dx12_keyed_mutexes,
-                gpu_recycle_rx,
+                gpu_slot_rx: gpu_recycle_rx,
                 cpu_recycle_rx,
-            ) {
+            }) {
                 cancel_flag.store(true, Ordering::Relaxed);
                 *render_err_clone.lock().unwrap() = Some(e);
             }
         });
 
         // Main thread: Encode
-        result = run_encode_thread(
+        result = run_encode_thread(EncodeThreadContext {
             config,
-            &enc_device_manager,
+            enc_device_manager: &enc_device_manager,
             progress,
             cancel_flag,
-            &encode_rx,
+            rx: &encode_rx,
             total_frames,
-            &start,
-            gpu_shared_buffers,
+            start: &start,
+            gpu_buffers: gpu_shared_buffers,
             gpu_recycle_tx,
             cpu_recycle_tx,
-        );
+        });
 
         if result.is_err() {
             cancel_flag.store(true, Ordering::Relaxed);
@@ -810,19 +810,32 @@ pub fn run_zero_copy_export(
 /// Per output frame we VP Blt the current NV12 source into a shared ring texture,
 /// GPU fence, then send the ring index to the render thread. Re-VP-Blt for held
 /// frames is cheap (microseconds on GPU) compared to the old CPU readback (~6ms).
-#[allow(clippy::too_many_arguments)]
-fn run_decode_thread(
-    config: &PipelineConfig,
-    cancel_flag: &std::sync::atomic::AtomicBool,
-    source_times: &[f64],
-    d3d11_device: &ID3D11Device,
-    d3d11_context: &ID3D11DeviceContext,
+struct DecodeThreadContext<'a> {
+    config: &'a PipelineConfig,
+    cancel_flag: &'a std::sync::atomic::AtomicBool,
+    source_times: &'a [f64],
+    d3d11_device: &'a ID3D11Device,
+    d3d11_context: &'a ID3D11DeviceContext,
     tx: mpsc::SyncSender<DecodeOutput>,
     recycle_rx: mpsc::Receiver<usize>,
-    shared_textures: &[ID3D11Texture2D],
-    keyed_mutexes: &[IDXGIKeyedMutex],
-    d3d11_fence: Option<&ID3D11Fence>,
-) -> Result<(), String> {
+    shared_textures: &'a [ID3D11Texture2D],
+    keyed_mutexes: &'a [IDXGIKeyedMutex],
+    d3d11_fence: Option<&'a ID3D11Fence>,
+}
+
+fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), String> {
+    let DecodeThreadContext {
+        config,
+        cancel_flag,
+        source_times,
+        d3d11_device,
+        d3d11_context,
+        tx,
+        recycle_rx,
+        shared_textures,
+        keyed_mutexes,
+        d3d11_fence,
+    } = context;
     let t_thread = Instant::now();
 
     let gpu_fence = D3D11GpuFence::new(d3d11_device, d3d11_context)?;
@@ -1418,31 +1431,50 @@ fn run_decode_thread_cpu(
 ///               CPU path uploads BGRA via queue.write_texture (PCIe upload).
 /// Encode output: GPU path copies output to shared VRAM texture, send ring_idx.
 ///                CPU path: pipelined readback depth 2, send BGRA Vec.
-#[allow(clippy::too_many_arguments)]
-fn run_render_thread(
-    config: &PipelineConfig,
-    compositor: &mut GpuCompositor,
-    build_uniforms: &(dyn Fn(f64, f64, f64, f64) -> CompositorUniforms + Sync),
-    cancel_flag: &std::sync::atomic::AtomicBool,
+struct RenderThreadContext<'a> {
+    config: &'a PipelineConfig,
+    compositor: &'a mut GpuCompositor,
+    build_uniforms: &'a (dyn Fn(f64, f64, f64, f64) -> CompositorUniforms + Sync),
+    cancel_flag: &'a std::sync::atomic::AtomicBool,
     rx: mpsc::Receiver<DecodeOutput>,
     mb_samples: u32,
     tx: mpsc::SyncSender<RenderOutput>,
     // Decode recycle channels (render → decode).
     dec_gpu_recycle_tx: mpsc::Sender<usize>,
     dec_cpu_recycle_tx: mpsc::Sender<Vec<u8>>,
-    dec_wgpu_textures: &[wgpu::Texture],
+    dec_wgpu_textures: &'a [wgpu::Texture],
     // Cross-API shared fence: DX12 waits for D3D11's Signal before reading shared textures.
-    dec_d3d12_fence: Option<&d3d12::ID3D12Fence>,
+    dec_d3d12_fence: Option<&'a d3d12::ID3D12Fence>,
     // Keyed mutexes for decode ring slots (CPU ownership protocol).
-    dec_keyed_mutexes: &[IDXGIKeyedMutex],
+    dec_keyed_mutexes: &'a [IDXGIKeyedMutex],
     // Encode output resources.
-    gpu_textures: &[wgpu::Texture],
+    gpu_textures: &'a [wgpu::Texture],
     // D3D12-side keyed mutex per encode ring slot.
     // AcquireSync before writing; ReleaseSync after poll(Wait)+on_submitted_work_done.
-    gpu_dx12_keyed_mutexes: &[IDXGIKeyedMutex],
+    gpu_dx12_keyed_mutexes: &'a [IDXGIKeyedMutex],
     gpu_slot_rx: mpsc::Receiver<usize>,
     cpu_recycle_rx: mpsc::Receiver<Vec<u8>>,
-) -> Result<(), String> {
+}
+
+fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
+    let RenderThreadContext {
+        config,
+        compositor,
+        build_uniforms,
+        cancel_flag,
+        rx,
+        mb_samples,
+        tx,
+        dec_gpu_recycle_tx,
+        dec_cpu_recycle_tx,
+        dec_wgpu_textures,
+        dec_d3d12_fence,
+        dec_keyed_mutexes,
+        gpu_textures,
+        gpu_dx12_keyed_mutexes,
+        gpu_slot_rx,
+        cpu_recycle_rx,
+    } = context;
     let use_gpu_encode = !gpu_textures.is_empty();
     let mut frames_rendered: u32 = 0;
     let mut t_upload = 0.0_f64;
@@ -1512,8 +1544,7 @@ fn run_render_thread(
                 // DX12's L2 cache so subsequent reads get fresh VRAM data.
                 if let Some(fence) = dec_d3d12_fence {
                     unsafe {
-                        if let Some(hal_dev) =
-                            compositor.device().as_hal::<wgpu::hal::api::Dx12>()
+                        if let Some(hal_dev) = compositor.device().as_hal::<wgpu::hal::api::Dx12>()
                         {
                             let raw_queue: &d3d12::ID3D12CommandQueue =
                                 &*(hal_dev.raw_queue() as *const _);
@@ -1764,36 +1795,50 @@ fn resample_pcm_bytes(input: &[u8], speed: f64, channels: usize) -> Vec<u8> {
 ///
 /// GPU path: reads directly from shared VRAM textures via MFCreateDXGISurfaceBuffer.
 /// CPU path: receives BGRA Vec and uses MFCreateMemoryBuffer (original path).
-#[allow(clippy::too_many_arguments)]
-fn run_encode_thread(
-    config: &PipelineConfig,
-    enc_device_manager: &DxgiDeviceManager,
+struct EncodeThreadContext<'a> {
+    config: &'a PipelineConfig,
+    enc_device_manager: &'a DxgiDeviceManager,
     progress: Option<ProgressCallback>,
-    cancel_flag: &std::sync::atomic::AtomicBool,
-    rx: &mpsc::Receiver<RenderOutput>,
+    cancel_flag: &'a std::sync::atomic::AtomicBool,
+    rx: &'a mpsc::Receiver<RenderOutput>,
     total_frames: u32,
-    start: &Instant,
-    gpu_buffers: &[SharedVramBuffer],
+    start: &'a Instant,
+    gpu_buffers: &'a [SharedVramBuffer],
     gpu_recycle_tx: mpsc::Sender<usize>,
     cpu_recycle_tx: mpsc::Sender<Vec<u8>>,
-) -> Result<ZeroCopyExportResult, String> {
+}
+
+fn run_encode_thread(context: EncodeThreadContext<'_>) -> Result<ZeroCopyExportResult, String> {
+    let EncodeThreadContext {
+        config,
+        enc_device_manager,
+        progress,
+        cancel_flag,
+        rx,
+        total_frames,
+        start,
+        gpu_buffers,
+        gpu_recycle_tx,
+        cpu_recycle_tx,
+    } = context;
     let mut audio_decoder = None;
     let mut audio_config = None;
 
     if let Some(path) = &config.audio_path
-        && !path.is_empty() {
-            match MfAudioDecoder::new(path) {
-                Ok(dec) => {
-                    audio_config = Some(AudioConfig {
-                        sample_rate: dec.sample_rate(),
-                        channels: dec.channels(),
-                        bitrate_kbps: 192,
-                    });
-                    audio_decoder = Some(dec);
-                }
-                Err(e) => eprintln!("[Audio] Failed to open native audio decoder: {e}"),
+        && !path.is_empty()
+    {
+        match MfAudioDecoder::new(path) {
+            Ok(dec) => {
+                audio_config = Some(AudioConfig {
+                    sample_rate: dec.sample_rate(),
+                    channels: dec.channels(),
+                    bitrate_kbps: 192,
+                });
+                audio_decoder = Some(dec);
             }
+            Err(e) => eprintln!("[Audio] Failed to open native audio decoder: {e}"),
         }
+    }
 
     let encoder_config = EncoderConfig {
         codec: config.codec,
@@ -2042,16 +2087,17 @@ fn run_encode_thread(
         frames_encoded += 1;
 
         if let Some(ref cb) = progress
-            && (frames_encoded.is_multiple_of(15) || frames_encoded == total_frames) {
-                let elapsed = start.elapsed().as_secs_f64();
-                let pct = (frames_encoded as f64 / total_frames as f64 * 100.0).min(100.0);
-                let eta = if frames_encoded > 0 {
-                    (elapsed / frames_encoded as f64) * (total_frames - frames_encoded) as f64
-                } else {
-                    0.0
-                };
-                cb(pct, eta);
-            }
+            && (frames_encoded.is_multiple_of(15) || frames_encoded == total_frames)
+        {
+            let elapsed = start.elapsed().as_secs_f64();
+            let pct = (frames_encoded as f64 / total_frames as f64 * 100.0).min(100.0);
+            let eta = if frames_encoded > 0 {
+                (elapsed / frames_encoded as f64) * (total_frames - frames_encoded) as f64
+            } else {
+                0.0
+            };
+            cb(pct, eta);
+        }
     }
 
     encoder.finalize()?;

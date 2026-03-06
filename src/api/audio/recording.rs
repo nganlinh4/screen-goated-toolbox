@@ -2,8 +2,9 @@
 
 use std::io::Cursor;
 use std::sync::{
+    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
-    mpsc, Arc, Mutex,
+    mpsc,
 };
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -54,14 +55,16 @@ pub fn record_and_stream_parakeet(
 
     // Run Parakeet session (blocks until stopped)
     let res = crate::api::realtime_audio::parakeet::run_parakeet_session(
-        stop_signal.clone(),
-        pause_signal.clone(),
-        Some(full_audio_buffer.clone()),
-        Some(overlay_hwnd),
-        preset.hide_recording_ui,
-        false, // Download progress shown in UI, not badge
-        Some(preset.audio_source.clone()),
-        preset.auto_stop_recording,
+        crate::api::realtime_audio::parakeet::ParakeetSessionOptions {
+            stop_signal: stop_signal.clone(),
+            pause_signal: pause_signal.clone(),
+            full_audio_buffer: Some(full_audio_buffer.clone()),
+            overlay_hwnd_opt: Some(overlay_hwnd),
+            hide_recording_ui: preset.hide_recording_ui,
+            use_badge: false,
+            audio_source_override: Some(preset.audio_source.clone()),
+            auto_stop_recording: preset.auto_stop_recording,
+        },
         callback,
     );
 

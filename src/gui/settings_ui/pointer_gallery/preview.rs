@@ -45,9 +45,10 @@ pub(super) fn render_collection_previews(
             let key = path.to_string_lossy().to_string();
 
             if !texture_cache.contains_key(&key)
-                && let Some(texture) = load_cursor_preview_texture(ctx, path, &key, now) {
-                    texture_cache.insert(key.clone(), texture);
-                }
+                && let Some(texture) = load_cursor_preview_texture(ctx, path, &key, now)
+            {
+                texture_cache.insert(key.clone(), texture);
+            }
 
             if let Some(preview) = texture_cache.get_mut(&key) {
                 if preview.animated && preview.frames.len() > 1 {
@@ -188,9 +189,10 @@ fn load_or_render_cached_preview_image(
     size: i32,
 ) -> Option<egui::ColorImage> {
     if let Some(cache_path) = preview_cache_file(path, ani_step, size)
-        && let Some(image) = read_cached_preview_png(&cache_path, size) {
-            return Some(image);
-        }
+        && let Some(image) = read_cached_preview_png(&cache_path, size)
+    {
+        return Some(image);
+    }
 
     let image = cursor_file_to_color_image(path, ani_step, size)?;
     if let Some(cache_path) = preview_cache_file(path, ani_step, size) {
@@ -296,14 +298,14 @@ fn load_cursor_preview_texture(
 #[cfg(target_os = "windows")]
 fn cursor_file_to_color_image(path: &Path, ani_step: u32, size: i32) -> Option<egui::ColorImage> {
     use std::os::windows::ffi::OsStrExt;
-    use windows::core::PCWSTR;
     use windows::Win32::Graphics::Gdi::{
-        CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC,
-        SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS,
+        DeleteDC, DeleteObject, GetDC, ReleaseDC, SelectObject,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        DestroyCursor, DrawIconEx, LoadCursorFromFileW, DI_NORMAL,
+        DI_NORMAL, DestroyCursor, DrawIconEx, LoadCursorFromFileW,
     };
+    use windows::core::PCWSTR;
 
     let wide: Vec<u16> = path
         .as_os_str()

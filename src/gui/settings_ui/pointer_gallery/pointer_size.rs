@@ -1,7 +1,7 @@
 use super::backend::{
     apply_cursor_base_size, apply_downloaded_collection, current_cursor_base_size,
 };
-use super::{CollectionStatus, PointerGallery, LIVE_PREVIEW_APPLY_INTERVAL_SECS};
+use super::{CollectionStatus, LIVE_PREVIEW_APPLY_INTERVAL_SECS, PointerGallery};
 
 impl PointerGallery {
     pub(super) fn ensure_pointer_size_loaded(&mut self) {

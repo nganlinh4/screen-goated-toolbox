@@ -7,8 +7,8 @@ pub(super) fn refresh_cursor_settings() {
     use std::os::windows::ffi::OsStrExt;
     use windows::Win32::Foundation::{LPARAM, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{
-        SendMessageTimeoutW, SystemParametersInfoW, HWND_BROADCAST, SMTO_ABORTIFHUNG,
-        SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SPI_SETCURSORS, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+        HWND_BROADCAST, SMTO_ABORTIFHUNG, SPI_SETCURSORS, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE,
+        SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SendMessageTimeoutW, SystemParametersInfoW,
         WM_SETTINGCHANGE,
     };
 
@@ -57,10 +57,10 @@ pub(super) fn set_system_cursor_from_file(
     target_size: Option<u32>,
 ) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
-    use windows::core::PCWSTR;
     use windows::Win32::UI::WindowsAndMessaging::{
-        LoadCursorFromFileW, LoadImageW, SetSystemCursor, IMAGE_CURSOR, LR_LOADFROMFILE,
+        IMAGE_CURSOR, LR_LOADFROMFILE, LoadCursorFromFileW, LoadImageW, SetSystemCursor,
     };
+    use windows::core::PCWSTR;
 
     let wide: Vec<u16> = path
         .as_os_str()

@@ -13,9 +13,10 @@ use windows_capture::encoder::AudioEncoderHandle;
 pub fn get_default_audio_config() -> (u32, u32) {
     let host = cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or_else(|_| cpal::default_host());
     if let Some(device) = host.default_output_device()
-        && let Ok(config) = device.default_output_config() {
-            return (config.sample_rate(), config.channels() as u32);
-        }
+        && let Ok(config) = device.default_output_config()
+    {
+        return (config.sample_rate(), config.channels() as u32);
+    }
     (48_000, 2)
 }
 
@@ -109,13 +110,13 @@ pub fn record_audio(
             if count > 0
                 && let Some((bytes, duration_100ns)) =
                     encode_pcm_chunk_i16(&chunk[..count], channels, sample_rate)
-                {
-                    if let Err(e) = audio_handle.send_audio_buffer(bytes, audio_output_100ns) {
-                        eprintln!("Audio mux send error: {}", e);
-                        break;
-                    }
-                    audio_output_100ns = audio_output_100ns.saturating_add(duration_100ns);
+            {
+                if let Err(e) = audio_handle.send_audio_buffer(bytes, audio_output_100ns) {
+                    eprintln!("Audio mux send error: {}", e);
+                    break;
                 }
+                audio_output_100ns = audio_output_100ns.saturating_add(duration_100ns);
+            }
         }
 
         println!("Audio stop signal received. Flushing buffer into muxer...");

@@ -1,7 +1,7 @@
 //! Worker thread for Gemini Live LLM connection pool
 
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use tungstenite::Message;
 
@@ -124,10 +124,11 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
                 }
                 Ok(Message::Binary(data)) => {
                     if let Ok(text) = String::from_utf8(data.to_vec())
-                        && is_setup_complete(&text) {
-                            setup_complete = true;
-                            break;
-                        }
+                        && is_setup_complete(&text)
+                    {
+                        setup_complete = true;
+                        break;
+                    }
                 }
                 Ok(Message::Close(_)) => break,
                 Ok(_) => {}

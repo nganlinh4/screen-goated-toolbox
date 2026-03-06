@@ -1,36 +1,37 @@
 use crate::overlay::screen_record::audio_engine;
-use crate::overlay::screen_record::d3d_interop::{create_direct3d_surface, VideoProcessor};
+use crate::overlay::screen_record::d3d_interop::{VideoProcessor, create_direct3d_surface};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::mem::zeroed;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use wc_windows::core::Interface as WcInterface;
-use windows::core::{Interface as AppInterface, BOOL};
 use windows::Graphics::Capture::GraphicsCaptureItem;
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Direct3D11::{
-    ID3D11Device, ID3D11DeviceContext, ID3D11Multithread, ID3D11Texture2D,
-    D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE,
+    D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE, ID3D11Device, ID3D11DeviceContext,
+    ID3D11Multithread, ID3D11Texture2D,
 };
-use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
-    DeleteObject, EnumDisplayMonitors, EnumDisplaySettingsW, GetMonitorInfoW, GetObjectW, BITMAP,
-    DEVMODEW, ENUM_CURRENT_SETTINGS, HDC, HMONITOR, MONITORINFOEXW,
+    BITMAP, DEVMODEW, DeleteObject, ENUM_CURRENT_SETTINGS, EnumDisplayMonitors,
+    EnumDisplaySettingsW, GetMonitorInfoW, GetObjectW, HDC, HMONITOR, MONITORINFOEXW,
 };
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorInfo, GetCursorPos, GetIconInfo, GetWindowRect, LoadCursorW, CURSORINFO, ICONINFO,
-    IDC_APPSTARTING, IDC_ARROW, IDC_CROSS, IDC_HAND, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW,
-    IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, IDC_WAIT,
+    CURSORINFO, GetCursorInfo, GetCursorPos, GetIconInfo, GetWindowRect, ICONINFO, IDC_APPSTARTING,
+    IDC_ARROW, IDC_CROSS, IDC_HAND, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE,
+    IDC_SIZEWE, IDC_WAIT, LoadCursorW,
 };
+use windows::core::{BOOL, Interface as AppInterface};
 use windows_capture::{
+    SendDirectX,
     capture::{CaptureControl, Context, GraphicsCaptureApiHandler},
     encoder::{
         AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder,
@@ -39,7 +40,7 @@ use windows_capture::{
     frame::Frame,
     graphics_capture_api::InternalCaptureControl,
     monitor::Monitor,
-    windows_bindings as wc_windows, SendDirectX,
+    windows_bindings as wc_windows,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -631,11 +632,13 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             if let Ok(interop) =
                 windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
                 && let Ok(item) = unsafe { interop.CreateForWindow::<GraphicsCaptureItem>(hwnd) }
-                    && let Ok(size) = item.Size()
-                        && size.Width >= 300 && size.Height >= 300 {
-                            w = size.Width as u32;
-                            h = size.Height as u32;
-                        }
+                && let Ok(size) = item.Size()
+                && size.Width >= 300
+                && size.Height >= 300
+            {
+                w = size.Width as u32;
+                h = size.Height as u32;
+            }
 
             // 2. Fallback: WINDOWPLACEMENT for restored size if currently minimized or small.
             if w == 0 || h == 0 {
@@ -661,14 +664,15 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
             // 3. Fallback: current window rect.
             if (w == 0 || h == 0)
-                && let Ok(rect) = window.rect() {
-                    let pw = (rect.right - rect.left).abs();
-                    let ph = (rect.bottom - rect.top).abs();
-                    if pw >= 300 && ph >= 300 {
-                        w = pw as u32;
-                        h = ph as u32;
-                    }
+                && let Ok(rect) = window.rect()
+            {
+                let pw = (rect.right - rect.left).abs();
+                let ph = (rect.bottom - rect.top).abs();
+                if pw >= 300 && ph >= 300 {
+                    w = pw as u32;
+                    h = ph as u32;
                 }
+            }
 
             // 4. Ultimate fallback: monitor size (window is hidden or completely iconic).
             if w < 300 || h < 300 {
@@ -1249,8 +1253,10 @@ pub unsafe extern "system" fn monitor_enum_proc(
     _: HDC,
     _: *mut RECT,
     lparam: LPARAM,
-) -> BOOL { unsafe {
-    let monitors = &mut *(lparam.0 as *mut Vec<HMONITOR>);
-    monitors.push(hmonitor);
-    true.into()
-}}
+) -> BOOL {
+    unsafe {
+        let monitors = &mut *(lparam.0 as *mut Vec<HMONITOR>);
+        monitors.push(hmonitor);
+        true.into()
+    }
+}

@@ -15,8 +15,8 @@ mod wnd_proc;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicBool, AtomicIsize, Ordering},
     Mutex,
+    atomic::{AtomicBool, AtomicIsize, Ordering},
 };
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;

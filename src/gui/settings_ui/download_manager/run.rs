@@ -49,13 +49,15 @@ fn fetch_btbn_release_label() -> Result<String, String> {
 
     // Prefer human-friendly release name, fallback to published timestamp.
     if let Some(name) = extract_json_string_field(&json_str, "name")
-        && !name.trim().is_empty() {
-            return Ok(name);
-        }
+        && !name.trim().is_empty()
+    {
+        return Ok(name);
+    }
     if let Some(published_at) = extract_json_string_field(&json_str, "published_at")
-        && !published_at.trim().is_empty() {
-            return Ok(published_at);
-        }
+        && !published_at.trim().is_empty()
+    {
+        return Ok(published_at);
+    }
 
     Err("Could not parse BtbN latest release metadata".to_string())
 }
@@ -202,76 +204,79 @@ fn run_ytdlp_download_attempt(
     let stdout_thread = thread::spawn(move || {
         let reader = BufReader::new(stdout);
         for l in reader.lines().map_while(Result::ok) {
-            if l.contains("[download]") && l.contains("%")
-                && let Some(start) = l.find("%") {
-                    let substr = &l[..start];
-                    if let Some(space) = substr.rfind(' ')
-                        && let Ok(p) = substr[space + 1..].parse::<f32>() {
-                            let parts: Vec<&str> = l.split_whitespace().collect();
+            if l.contains("[download]")
+                && l.contains("%")
+                && let Some(start) = l.find("%")
+            {
+                let substr = &l[..start];
+                if let Some(space) = substr.rfind(' ')
+                    && let Ok(p) = substr[space + 1..].parse::<f32>()
+                {
+                    let parts: Vec<&str> = l.split_whitespace().collect();
 
-                            let mut p_val = None;
-                            let mut t_val = None;
-                            let mut s_val = None;
-                            let mut e_val = None;
+                    let mut p_val = None;
+                    let mut t_val = None;
+                    let mut s_val = None;
+                    let mut e_val = None;
 
-                            for (i, part) in parts.iter().enumerate() {
-                                if part.contains("%") {
-                                    p_val = Some(part.trim_end_matches('%'));
-                                } else if *part == "of" && i + 1 < parts.len() {
-                                    let val = parts[i + 1];
-                                    if val != "Unknown" && val != "N/A" {
-                                        t_val = Some(val);
-                                    }
-                                } else if *part == "at" && i + 1 < parts.len() {
-                                    let val = parts[i + 1];
-                                    if val != "Unknown" && val != "N/A" {
-                                        s_val = Some(val);
-                                    }
-                                } else if *part == "ETA" && i + 1 < parts.len() {
-                                    let val = parts[i + 1];
-                                    if val != "Unknown" && val != "N/A" {
-                                        e_val = Some(val);
-                                    }
-                                }
+                    for (i, part) in parts.iter().enumerate() {
+                        if part.contains("%") {
+                            p_val = Some(part.trim_end_matches('%'));
+                        } else if *part == "of" && i + 1 < parts.len() {
+                            let val = parts[i + 1];
+                            if val != "Unknown" && val != "N/A" {
+                                t_val = Some(val);
                             }
-
-                            let fmt_segments: Vec<&str> = fmt_str.split("{}").collect();
-                            let mut status_msg = String::new();
-
-                            if let Some(p_str) = p_val {
-                                if fmt_segments.len() >= 5 {
-                                    status_msg.push_str(fmt_segments[0]);
-                                    status_msg.push_str(p_str);
-
-                                    if let Some(t) = t_val {
-                                        status_msg.push_str(fmt_segments[1]);
-                                        status_msg.push_str(t);
-                                    } else {
-                                        status_msg.push('%');
-                                    }
-
-                                    if let Some(s) = s_val {
-                                        status_msg.push_str(fmt_segments[2]);
-                                        status_msg.push_str(s);
-                                    }
-
-                                    if let Some(e) = e_val {
-                                        status_msg.push_str(fmt_segments[3]);
-                                        status_msg.push_str(e);
-                                        status_msg.push_str(fmt_segments[4]);
-                                    }
-                                } else {
-                                    status_msg = format!("{}%", p_str);
-                                }
-                            } else {
-                                status_msg = l.clone();
+                        } else if *part == "at" && i + 1 < parts.len() {
+                            let val = parts[i + 1];
+                            if val != "Unknown" && val != "N/A" {
+                                s_val = Some(val);
                             }
-
-                            if let Ok(mut s) = state_clone.lock() {
-                                *s = DownloadState::Downloading(p / 100.0, status_msg);
+                        } else if *part == "ETA" && i + 1 < parts.len() {
+                            let val = parts[i + 1];
+                            if val != "Unknown" && val != "N/A" {
+                                e_val = Some(val);
                             }
                         }
+                    }
+
+                    let fmt_segments: Vec<&str> = fmt_str.split("{}").collect();
+                    let mut status_msg = String::new();
+
+                    if let Some(p_str) = p_val {
+                        if fmt_segments.len() >= 5 {
+                            status_msg.push_str(fmt_segments[0]);
+                            status_msg.push_str(p_str);
+
+                            if let Some(t) = t_val {
+                                status_msg.push_str(fmt_segments[1]);
+                                status_msg.push_str(t);
+                            } else {
+                                status_msg.push('%');
+                            }
+
+                            if let Some(s) = s_val {
+                                status_msg.push_str(fmt_segments[2]);
+                                status_msg.push_str(s);
+                            }
+
+                            if let Some(e) = e_val {
+                                status_msg.push_str(fmt_segments[3]);
+                                status_msg.push_str(e);
+                                status_msg.push_str(fmt_segments[4]);
+                            }
+                        } else {
+                            status_msg = format!("{}%", p_str);
+                        }
+                    } else {
+                        status_msg = l.clone();
+                    }
+
+                    if let Ok(mut s) = state_clone.lock() {
+                        *s = DownloadState::Downloading(p / 100.0, status_msg);
+                    }
                 }
+            }
 
             if l.contains("Merging formats into \"") {
                 if let Some(start) = l.find("Merging formats into \"") {
@@ -281,44 +286,46 @@ fn run_ytdlp_download_attempt(
                 }
             } else if l.contains("Destination: ") {
                 if final_filename_clone.lock().unwrap().is_none()
-                    && let Some(start) = l.find("Destination: ") {
-                        let raw_path = &l[start + "Destination: ".len()..];
-                        let clean_path = raw_path.trim();
-                        if !clean_path.ends_with(".vtt")
-                            && !clean_path.ends_with(".srt")
-                            && !clean_path.ends_with(".ass")
-                            && !clean_path.ends_with(".lrc")
-                        {
-                            *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_path));
-                        }
+                    && let Some(start) = l.find("Destination: ")
+                {
+                    let raw_path = &l[start + "Destination: ".len()..];
+                    let clean_path = raw_path.trim();
+                    if !clean_path.ends_with(".vtt")
+                        && !clean_path.ends_with(".srt")
+                        && !clean_path.ends_with(".ass")
+                        && !clean_path.ends_with(".lrc")
+                    {
+                        *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_path));
                     }
+                }
             } else if l.contains(" has already been downloaded")
                 && final_filename_clone.lock().unwrap().is_none()
-                && let Some(end) = l.find(" has already been downloaded") {
-                    let start = if let Some(p) = l.find("[download] ") {
-                        p + "[download] ".len()
-                    } else {
-                        0
-                    };
-                    if start < end {
-                        let filename = &l[start..end];
-                        let clean_filename = filename.trim();
-                        if !clean_filename.ends_with(".vtt")
-                            && !clean_filename.ends_with(".srt")
-                            && !clean_filename.ends_with(".ass")
-                            && !clean_filename.ends_with(".lrc")
-                        {
-                            *final_filename_clone.lock().unwrap() =
-                                Some(PathBuf::from(clean_filename));
-                        }
+                && let Some(end) = l.find(" has already been downloaded")
+            {
+                let start = if let Some(p) = l.find("[download] ") {
+                    p + "[download] ".len()
+                } else {
+                    0
+                };
+                if start < end {
+                    let filename = &l[start..end];
+                    let clean_filename = filename.trim();
+                    if !clean_filename.ends_with(".vtt")
+                        && !clean_filename.ends_with(".srt")
+                        && !clean_filename.ends_with(".ass")
+                        && !clean_filename.ends_with(".lrc")
+                    {
+                        *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_filename));
                     }
                 }
+            }
             if l.contains("[ExtractAudio] Destination: ")
-                && let Some(start) = l.find("[ExtractAudio] Destination: ") {
-                    let raw_path = &l[start + "[ExtractAudio] Destination: ".len()..];
-                    let clean_path = raw_path.trim();
-                    *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_path));
-                }
+                && let Some(start) = l.find("[ExtractAudio] Destination: ")
+            {
+                let raw_path = &l[start + "[ExtractAudio] Destination: ".len()..];
+                let clean_path = raw_path.trim();
+                *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_path));
+            }
             log(&logs_clone, l);
         }
     });
@@ -711,13 +718,14 @@ impl DownloadManager {
         let output = cmd.output();
 
         if let Ok(out) = output
-            && let Ok(path) = String::from_utf8(out.stdout) {
-                let path = path.trim().to_string();
-                if !path.is_empty() {
-                    self.custom_download_path = Some(PathBuf::from(path));
-                    self.save_settings();
-                }
+            && let Ok(path) = String::from_utf8(out.stdout)
+        {
+            let path = path.trim().to_string();
+            if !path.is_empty() {
+                self.custom_download_path = Some(PathBuf::from(path));
+                self.save_settings();
             }
+        }
     }
 
     pub fn start_download_ytdlp(&self) {

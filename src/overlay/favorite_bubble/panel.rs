@@ -360,162 +360,163 @@ unsafe fn refresh_panel_layout_and_content(
     presets: &[crate::config::Preset],
     lang: &str,
     is_dark: bool,
-) { unsafe {
-    let mut bubble_rect = RECT::default();
-    let _ = GetWindowRect(bubble_hwnd, &mut bubble_rect);
+) {
+    unsafe {
+        let mut bubble_rect = RECT::default();
+        let _ = GetWindowRect(bubble_hwnd, &mut bubble_rect);
 
-    let height_per_item = 48;
+        let height_per_item = 48;
 
-    let favs: Vec<_> = presets
-        .iter()
-        .filter(|p| p.is_favorite && !p.is_upcoming)
-        .collect();
+        let favs: Vec<_> = presets
+            .iter()
+            .filter(|p| p.is_favorite && !p.is_upcoming)
+            .collect();
 
-    let fav_count = favs.len();
-    let num_cols = if fav_count > 15 {
-        fav_count.div_ceil(15)
-    } else {
-        1
-    };
+        let fav_count = favs.len();
+        let num_cols = if fav_count > 15 {
+            fav_count.div_ceil(15)
+        } else {
+            1
+        };
 
-    let items_per_col = if fav_count > 0 {
-        fav_count.div_ceil(num_cols)
-    } else {
-        0
-    };
+        let items_per_col = if fav_count > 0 {
+            fav_count.div_ceil(num_cols)
+        } else {
+            0
+        };
 
-    // Buffer for padding (no bounce overshoot with smooth easing)
-    let buffer_x = 40;
-    let buffer_y = 60;
+        // Buffer for padding (no bounce overshoot with smooth easing)
+        let buffer_x = 40;
+        let buffer_y = 60;
 
-    let panel_width = if fav_count == 0 {
-        (PANEL_WIDTH * 2).max(320)
-    } else {
-        (PANEL_WIDTH as usize * num_cols) as i32 + buffer_x
-    };
+        let panel_width = if fav_count == 0 {
+            (PANEL_WIDTH * 2).max(320)
+        } else {
+            (PANEL_WIDTH as usize * num_cols) as i32 + buffer_x
+        };
 
-    // Height for the keep-open toggle row
-    let keep_open_row_height = 40;
+        // Height for the keep-open toggle row
+        let keep_open_row_height = 40;
 
-    let panel_height = if fav_count == 0 {
-        80 + buffer_y + keep_open_row_height
-    } else {
-        (items_per_col as i32 * height_per_item) + 24 + buffer_y + keep_open_row_height + 100
-        // Extra buffer
-    };
-    let panel_height = panel_height.max(50);
+        let panel_height = if fav_count == 0 {
+            80 + buffer_y + keep_open_row_height
+        } else {
+            (items_per_col as i32 * height_per_item) + 24 + buffer_y + keep_open_row_height + 100
+            // Extra buffer
+        };
+        let panel_height = panel_height.max(50);
 
-    // Get DPI scale
-    let dpi = GetDpiForWindow(panel_hwnd);
-    let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
+        // Get DPI scale
+        let dpi = GetDpiForWindow(panel_hwnd);
+        let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
 
-    let panel_width_physical = (panel_width as f32 * scale).ceil() as i32;
-    let panel_height_physical = (panel_height as f32 * scale).ceil() as i32;
+        let panel_width_physical = (panel_width as f32 * scale).ceil() as i32;
+        let panel_height_physical = (panel_height as f32 * scale).ceil() as i32;
 
-    let screen_w = GetSystemMetrics(SM_CXSCREEN);
-    let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
+        let screen_w = GetSystemMetrics(SM_CXSCREEN);
+        let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
 
-    // Extend panel to overlap behind bubble for seamless bloom/collapse animations
-    // The bubble must stay above the panel (handled via Z-order below)
-    let bubble_overlap = bubble_size + 4;
-    let panel_width_with_overlap = panel_width_physical + bubble_overlap;
+        // Extend panel to overlap behind bubble for seamless bloom/collapse animations
+        // The bubble must stay above the panel (handled via Z-order below)
+        let bubble_overlap = bubble_size + 4;
+        let panel_width_with_overlap = panel_width_physical + bubble_overlap;
 
-    let (panel_x, panel_y, side) = if bubble_rect.left > screen_w / 2 {
-        // Bubble on right side - panel extends rightward behind bubble
-        (
-            bubble_rect.left - panel_width_physical - 4, // Left edge stays at original position
-            bubble_rect.top - panel_height_physical / 2 + bubble_size / 2,
-            "right",
-        )
-    } else {
-        // Bubble on left side - panel extends leftward behind bubble
-        (
-            bubble_rect.left, // Start at bubble's left edge
-            bubble_rect.top - panel_height_physical / 2 + bubble_size / 2,
-            "left",
-        )
-    };
+        let (panel_x, panel_y, side) = if bubble_rect.left > screen_w / 2 {
+            // Bubble on right side - panel extends rightward behind bubble
+            (
+                bubble_rect.left - panel_width_physical - 4, // Left edge stays at original position
+                bubble_rect.top - panel_height_physical / 2 + bubble_size / 2,
+                "right",
+            )
+        } else {
+            // Bubble on left side - panel extends leftward behind bubble
+            (
+                bubble_rect.left, // Start at bubble's left edge
+                bubble_rect.top - panel_height_physical / 2 + bubble_size / 2,
+                "left",
+            )
+        };
 
-    // Use the actual clamped panel_y for positioning
-    let actual_panel_y = panel_y.max(10);
+        // Use the actual clamped panel_y for positioning
+        let actual_panel_y = panel_y.max(10);
 
-    let _ = SetWindowPos(
-        panel_hwnd,
-        None,
-        panel_x,
-        actual_panel_y,
-        panel_width_with_overlap,
-        panel_height_physical,
-        SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS,
-    );
-
-    // Explicitly show the window to ensure it's visible after a SW_HIDE
-    let _ = ShowWindow(panel_hwnd, SW_SHOWNOACTIVATE);
-
-    // CRITICAL: Ensure bubble stays above the panel window
-    let bubble_val = BUBBLE_HWND.load(Ordering::SeqCst);
-    if bubble_val != 0 {
-        let bubble_hwnd_local = HWND(bubble_val as *mut std::ffi::c_void);
         let _ = SetWindowPos(
-            bubble_hwnd_local,
-            Some(HWND_TOPMOST),
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            panel_hwnd,
+            None,
+            panel_x,
+            actual_panel_y,
+            panel_width_with_overlap,
+            panel_height_physical,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS,
         );
-    }
 
-    PANEL_WEBVIEW.with(|wv| {
-        if let Some(webview) = wv.borrow().as_ref() {
-            let _ = webview.set_bounds(Rect {
-                position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
-                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                    panel_width_with_overlap as u32,
-                    panel_height_physical as u32,
-                )),
-            });
+        // Explicitly show the window to ensure it's visible after a SW_HIDE
+        let _ = ShowWindow(panel_hwnd, SW_SHOWNOACTIVATE);
+
+        // CRITICAL: Ensure bubble stays above the panel window
+        let bubble_val = BUBBLE_HWND.load(Ordering::SeqCst);
+        if bubble_val != 0 {
+            let bubble_hwnd_local = HWND(bubble_val as *mut std::ffi::c_void);
+            let _ = SetWindowPos(
+                bubble_hwnd_local,
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
         }
-    });
 
-    // Check if theme changed and inject new CSS if needed
-    let last_dark = LAST_THEME_IS_DARK.load(Ordering::SeqCst);
-    if last_dark != is_dark {
-        let new_css = generate_panel_css(is_dark);
-        let escaped_css = escape_js(&new_css); // Reuse escape_js which escapes quotes and newlines
-        // We need to be careful with escape_js for CSS.
-        // Simple escape_js replaces " with \" and \n with \\n.
-        // For inline script, we need to make sure we don't break the string.
         PANEL_WEBVIEW.with(|wv| {
             if let Some(webview) = wv.borrow().as_ref() {
-                let script = format!(
-                    "document.querySelector('style').innerHTML = \"{}\";",
-                    escaped_css
-                );
-                let _ = webview.evaluate_script(&script);
+                let _ = webview.set_bounds(Rect {
+                    position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
+                    size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                        panel_width_with_overlap as u32,
+                        panel_height_physical as u32,
+                    )),
+                });
             }
         });
-        LAST_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
-    }
 
-    let favorites_html = get_favorite_presets_html(presets, lang, is_dark);
-    let keep_open_label = crate::gui::locale::LocaleText::get(lang).favorites_keep_open;
-    update_panel_content(&favorites_html, num_cols, keep_open_label);
+        // Check if theme changed and inject new CSS if needed
+        let last_dark = LAST_THEME_IS_DARK.load(Ordering::SeqCst);
+        if last_dark != is_dark {
+            let new_css = generate_panel_css(is_dark);
+            let escaped_css = escape_js(&new_css); // Reuse escape_js which escapes quotes and newlines
+            // We need to be careful with escape_js for CSS.
+            // Simple escape_js replaces " with \" and \n with \\n.
+            // For inline script, we need to make sure we don't break the string.
+            PANEL_WEBVIEW.with(|wv| {
+                if let Some(webview) = wv.borrow().as_ref() {
+                    let script = format!(
+                        "document.querySelector('style').innerHTML = \"{}\";",
+                        escaped_css
+                    );
+                    let _ = webview.evaluate_script(&script);
+                }
+            });
+            LAST_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
+        }
 
-    // Pass side, bubble overlap, and bubble center relative to panel to JS
-    // Use actual_panel_y (clamped) to match the real window position
-    // bx is the bubble center X relative to the panel's content area
-    let bx = if side == "left" {
-        // Panel starts at bubble_left, bubble center is at bubble_size/2 from panel_x
-        bubble_size / 2
-    } else {
-        // Panel content is on the left, bubble is on the right (behind the overlap area)
-        (panel_width_physical / scale as i32) + (bubble_size / 2) + 4
-    };
-    let by = (bubble_rect.top + bubble_size / 2) - actual_panel_y;
+        let favorites_html = get_favorite_presets_html(presets, lang, is_dark);
+        let keep_open_label = crate::gui::locale::LocaleText::get(lang).favorites_keep_open;
+        update_panel_content(&favorites_html, num_cols, keep_open_label);
 
-    PANEL_WEBVIEW.with(|wv| {
+        // Pass side, bubble overlap, and bubble center relative to panel to JS
+        // Use actual_panel_y (clamped) to match the real window position
+        // bx is the bubble center X relative to the panel's content area
+        let bx = if side == "left" {
+            // Panel starts at bubble_left, bubble center is at bubble_size/2 from panel_x
+            bubble_size / 2
+        } else {
+            // Panel content is on the left, bubble is on the right (behind the overlap area)
+            (panel_width_physical / scale as i32) + (bubble_size / 2) + 4
+        };
+        let by = (bubble_rect.top + bubble_size / 2) - actual_panel_y;
+
+        PANEL_WEBVIEW.with(|wv| {
         if let Some(webview) = wv.borrow().as_ref() {
             let script = format!(
                 "if(window.setSide) window.setSide('{}', {}); if(window.animateIn) window.animateIn({}, {});",
@@ -524,7 +525,8 @@ unsafe fn refresh_panel_layout_and_content(
             let _ = webview.evaluate_script(&script);
         }
     });
-}}
+    }
+}
 
 fn create_panel_webview(panel_hwnd: HWND) {
     crate::log_info!("[BubblePanel] Creating WebView for HWND: {:?}", panel_hwnd);
@@ -705,58 +707,62 @@ unsafe extern "system" fn panel_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    match msg {
-        WM_CLOSE => {
-            close_panel();
-            LRESULT(0)
-        }
-        WM_KILLFOCUS => LRESULT(0),
-        WM_ACTIVATE => {
-            if wparam.0 == 0 {
-                // Window deactivated logic (optional)
-            }
-            LRESULT(0)
-        }
-        WM_REFRESH_PANEL => {
-            let bubble_hwnd = HWND(BUBBLE_HWND.load(Ordering::SeqCst) as *mut std::ffi::c_void);
-
-            if let Ok(app) = APP.lock() {
-                let is_dark = match app.config.theme_mode {
-                    crate::config::ThemeMode::Dark => true,
-                    crate::config::ThemeMode::Light => false,
-                    crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-                };
-
-                // Set expanded to true so it moves with bubble
-                IS_EXPANDED.store(true, Ordering::SeqCst);
-
-                refresh_panel_layout_and_content(
-                    bubble_hwnd,
-                    hwnd,
-                    &app.config.presets,
-                    &app.config.ui_language,
-                    is_dark,
-                );
-            }
-            // Lock released here
-
-            // Correctly call update_bubble_visual outside the lock
-            // (update_bubble_visual internally calls is_dark_mode() which locks APP)
-            update_bubble_visual(bubble_hwnd);
-
-            LRESULT(0)
-        }
-        WM_NCCALCSIZE => {
-            if wparam.0 != 0 {
+) -> LRESULT {
+    unsafe {
+        match msg {
+            WM_CLOSE => {
+                close_panel();
                 LRESULT(0)
-            } else {
-                DefWindowProcW(hwnd, msg, wparam, lparam)
             }
+            WM_KILLFOCUS => LRESULT(0),
+            WM_ACTIVATE => {
+                if wparam.0 == 0 {
+                    // Window deactivated logic (optional)
+                }
+                LRESULT(0)
+            }
+            WM_REFRESH_PANEL => {
+                let bubble_hwnd = HWND(BUBBLE_HWND.load(Ordering::SeqCst) as *mut std::ffi::c_void);
+
+                if let Ok(app) = APP.lock() {
+                    let is_dark = match app.config.theme_mode {
+                        crate::config::ThemeMode::Dark => true,
+                        crate::config::ThemeMode::Light => false,
+                        crate::config::ThemeMode::System => {
+                            crate::gui::utils::is_system_in_dark_mode()
+                        }
+                    };
+
+                    // Set expanded to true so it moves with bubble
+                    IS_EXPANDED.store(true, Ordering::SeqCst);
+
+                    refresh_panel_layout_and_content(
+                        bubble_hwnd,
+                        hwnd,
+                        &app.config.presets,
+                        &app.config.ui_language,
+                        is_dark,
+                    );
+                }
+                // Lock released here
+
+                // Correctly call update_bubble_visual outside the lock
+                // (update_bubble_visual internally calls is_dark_mode() which locks APP)
+                update_bubble_visual(bubble_hwnd);
+
+                LRESULT(0)
+            }
+            WM_NCCALCSIZE => {
+                if wparam.0 != 0 {
+                    LRESULT(0)
+                } else {
+                    DefWindowProcW(hwnd, msg, wparam, lparam)
+                }
+            }
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}}
+}
 
 fn trigger_preset(preset_idx: usize) {
     unsafe {

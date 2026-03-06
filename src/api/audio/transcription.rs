@@ -5,13 +5,13 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 
 use super::utils::extract_pcm_from_wav;
+use crate::APP;
 use crate::api::client::UREQ_AGENT;
 use crate::config::Preset;
 use crate::model_config::{get_model_by_id, model_is_non_llm};
-use crate::APP;
 
 /// Transcribe audio using Gemini REST API with streaming
 pub fn transcribe_audio_gemini<F>(
@@ -82,17 +82,17 @@ where
 
             if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str)
                 && let Some(candidates) = chunk_resp.get("candidates").and_then(|c| c.as_array())
-                    && let Some(first_candidate) = candidates.first()
-                        && let Some(parts) = first_candidate
-                            .get("content")
-                            .and_then(|c| c.get("parts"))
-                            .and_then(|p| p.as_array())
-                            && let Some(first_part) = parts.first()
-                                && let Some(text) = first_part.get("text").and_then(|t| t.as_str())
-                                {
-                                    full_content.push_str(text);
-                                    on_chunk(text);
-                                }
+                && let Some(first_candidate) = candidates.first()
+                && let Some(parts) = first_candidate
+                    .get("content")
+                    .and_then(|c| c.get("parts"))
+                    .and_then(|p| p.as_array())
+                && let Some(first_part) = parts.first()
+                && let Some(text) = first_part.get("text").and_then(|t| t.as_str())
+            {
+                full_content.push_str(text);
+                on_chunk(text);
+            }
         }
     }
 
@@ -177,10 +177,11 @@ pub fn transcribe_with_gemini_live_input(
                     data.len()
                 );
                 if let Ok(text) = String::from_utf8(data.to_vec())
-                    && text.contains("setupComplete") {
-                        println!("[GeminiLiveInput] Setup complete (from binary)!");
-                        break;
-                    }
+                    && text.contains("setupComplete")
+                {
+                    println!("[GeminiLiveInput] Setup complete (from binary)!");
+                    break;
+                }
             }
             Ok(other) => {
                 println!("[GeminiLiveInput] Received other message type: {:?}", other);
@@ -253,23 +254,25 @@ pub fn transcribe_with_gemini_live_input(
                         &msg[..msg.len().min(300)]
                     );
                     if let Some(transcript) = parse_input_transcription(msg)
-                        && !transcript.is_empty() {
-                            println!("[GeminiLiveInput] Got transcript: '{}'", transcript);
-                            transcripts_received += 1;
-                            accumulated_text.push_str(&transcript);
-                        }
+                        && !transcript.is_empty()
+                    {
+                        println!("[GeminiLiveInput] Got transcript: '{}'", transcript);
+                        transcripts_received += 1;
+                        accumulated_text.push_str(&transcript);
+                    }
                 }
                 Ok(tungstenite::Message::Binary(data)) => {
                     if let Ok(text) = String::from_utf8(data.to_vec())
                         && let Some(transcript) = parse_input_transcription(&text)
-                            && !transcript.is_empty() {
-                                println!(
-                                    "[GeminiLiveInput] Got transcript (binary): '{}'",
-                                    transcript
-                                );
-                                transcripts_received += 1;
-                                accumulated_text.push_str(&transcript);
-                            }
+                        && !transcript.is_empty()
+                    {
+                        println!(
+                            "[GeminiLiveInput] Got transcript (binary): '{}'",
+                            transcript
+                        );
+                        transcripts_received += 1;
+                        accumulated_text.push_str(&transcript);
+                    }
                 }
                 Ok(_) => {}
                 Err(tungstenite::Error::Io(ref e))
@@ -304,23 +307,25 @@ pub fn transcribe_with_gemini_live_input(
                     &msg[..msg.len().min(300)]
                 );
                 if let Some(transcript) = parse_input_transcription(msg)
-                    && !transcript.is_empty() {
-                        println!("[GeminiLiveInput] Got final transcript: '{}'", transcript);
-                        transcripts_received += 1;
-                        accumulated_text.push_str(&transcript);
-                    }
+                    && !transcript.is_empty()
+                {
+                    println!("[GeminiLiveInput] Got final transcript: '{}'", transcript);
+                    transcripts_received += 1;
+                    accumulated_text.push_str(&transcript);
+                }
             }
             Ok(tungstenite::Message::Binary(data)) => {
                 if let Ok(text) = String::from_utf8(data.to_vec())
                     && let Some(transcript) = parse_input_transcription(&text)
-                        && !transcript.is_empty() {
-                            println!(
-                                "[GeminiLiveInput] Got final transcript (binary): '{}'",
-                                transcript
-                            );
-                            transcripts_received += 1;
-                            accumulated_text.push_str(&transcript);
-                        }
+                    && !transcript.is_empty()
+                {
+                    println!(
+                        "[GeminiLiveInput] Got final transcript (binary): '{}'",
+                        transcript
+                    );
+                    transcripts_received += 1;
+                    accumulated_text.push_str(&transcript);
+                }
             }
             Ok(_) => {}
             Err(tungstenite::Error::Io(ref e))
@@ -442,27 +447,30 @@ pub fn execute_audio_processing_logic(
 ) -> anyhow::Result<String> {
     // Find the first block that is specifically an "audio" processing block
     // OR allow input_adapter if no audio block exists (for raw audio overlay)
-    let (audio_block, is_raw_input_adapter) =
-        match preset.blocks.iter().find(|b| b.block_type == "audio") {
-            Some(b) => (b.clone(), false),
-            None => match preset
-                .blocks
-                .iter()
-                .find(|b| b.block_type == "input_adapter")
-            {
-                Some(b) => (b.clone(), true),
-                None => {
-                    let debug_types: Vec<_> = preset.blocks.iter().map(|b| &b.block_type).collect();
-                    eprintln!(
+    let (audio_block, is_raw_input_adapter) = match preset
+        .blocks
+        .iter()
+        .find(|b| b.block_type == "audio")
+    {
+        Some(b) => (b.clone(), false),
+        None => match preset
+            .blocks
+            .iter()
+            .find(|b| b.block_type == "input_adapter")
+        {
+            Some(b) => (b.clone(), true),
+            None => {
+                let debug_types: Vec<_> = preset.blocks.iter().map(|b| &b.block_type).collect();
+                eprintln!(
                     "DEBUG [Audio]: No 'audio' blocks found in preset. Block types present: {:?}",
                     debug_types
                 );
-                    return Err(anyhow::anyhow!(
-                        "Audio preset has no 'audio' processing blocks configured"
-                    ));
-                }
-            },
-        };
+                return Err(anyhow::anyhow!(
+                    "Audio preset has no 'audio' processing blocks configured"
+                ));
+            }
+        },
+    };
 
     if is_raw_input_adapter {
         return Ok(String::new());

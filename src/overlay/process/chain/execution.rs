@@ -1,37 +1,58 @@
 // --- CHAIN BLOCK EXECUTION ---
 // API execution with retry logic for chain processing blocks.
 
-use crate::api::{translate_image_streaming, translate_text_streaming};
+use crate::api::{
+    TranslateImageRequest, TranslateTextRequest, translate_image_streaming,
+    translate_text_streaming,
+};
 use crate::config::{Config, ProcessingBlock};
 use crate::gui::settings_ui::get_localized_preset_name;
-use crate::overlay::result::{update_window_text, ChainCancelToken, RefineContext, WINDOW_STATES};
+use crate::overlay::result::{ChainCancelToken, RefineContext, WINDOW_STATES, update_window_text};
 use crate::win_types::SendHwnd;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+pub struct ExecuteBlockRequest<'a> {
+    pub block: &'a ProcessingBlock,
+    pub block_idx: usize,
+    pub blocks: &'a [ProcessingBlock],
+    pub my_hwnd: Option<HWND>,
+    pub input_text: &'a str,
+    pub context: &'a RefineContext,
+    pub model_id: &'a str,
+    pub provider: &'a str,
+    pub model_full_name: &'a str,
+    pub final_prompt: &'a str,
+    pub skip_execution: bool,
+    pub config: &'a Config,
+    pub preset_id: &'a str,
+    pub processing_hwnd_shared: Option<SendHwnd>,
+    pub cancel_token: &'a Arc<ChainCancelToken>,
+}
+
 /// Execute the block's API call and return the result text.
-#[allow(clippy::too_many_arguments)]
-pub fn execute_block(
-    block: &ProcessingBlock,
-    block_idx: usize,
-    blocks: &[ProcessingBlock],
-    my_hwnd: Option<HWND>,
-    input_text: &str,
-    context: &RefineContext,
-    model_id: &str,
-    provider: &str,
-    model_full_name: &str,
-    final_prompt: &str,
-    skip_execution: bool,
-    config: &Config,
-    preset_id: &str,
-    processing_hwnd_shared: Option<SendHwnd>,
-    cancel_token: &Arc<ChainCancelToken>,
-) -> String {
+pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
+    let ExecuteBlockRequest {
+        block,
+        block_idx,
+        blocks,
+        my_hwnd,
+        input_text,
+        context,
+        model_id,
+        provider,
+        model_full_name,
+        final_prompt,
+        skip_execution,
+        config,
+        preset_id,
+        processing_hwnd_shared,
+        cancel_token,
+    } = request;
     if block.block_type == "input_adapter" {
         return input_text.to_string();
     }
@@ -78,44 +99,45 @@ pub fn execute_block(
         let processing_hwnd_clone = processing_hwnd_arc.clone();
 
         if retry_count > 0
-            && let Ok(mut lock) = acc_clone.lock() {
-                lock.clear();
-            }
+            && let Ok(mut lock) = acc_clone.lock()
+        {
+            lock.clear();
+        }
 
         let res_inner = if is_first_processing_block
             && block.block_type == "image"
             && matches!(context, RefineContext::Image(_))
         {
-            execute_image_block(
+            execute_image_block(ExecuteImageBlockRequest {
                 context,
-                &groq_key,
-                &gemini_key,
+                groq_key: &groq_key,
+                gemini_key: &gemini_key,
                 final_prompt,
-                &current_model_full_name,
-                &current_provider,
-                actual_streaming_enabled,
+                model_full_name: &current_model_full_name,
+                provider: &current_provider,
+                streaming_enabled: actual_streaming_enabled,
                 use_json,
-                acc_clone,
+                accumulated: acc_clone,
                 my_hwnd,
-                window_shown_clone,
-                processing_hwnd_clone,
+                window_shown: window_shown_clone,
+                processing_hwnd: processing_hwnd_clone,
                 cancel_token,
-            )
+            })
         } else {
-            execute_text_block(
+            execute_text_block(ExecuteTextBlockRequest {
                 input_text,
-                &groq_key,
-                &gemini_key,
+                groq_key: &groq_key,
+                gemini_key: &gemini_key,
                 final_prompt,
-                &current_model_full_name,
-                &current_provider,
-                actual_streaming_enabled,
+                model_full_name: &current_model_full_name,
+                provider: &current_provider,
+                streaming_enabled: actual_streaming_enabled,
                 preset_id,
                 config,
-                acc_clone,
+                accumulated: acc_clone,
                 my_hwnd,
                 cancel_token,
-            )
+            })
         };
 
         match res_inner {
@@ -173,22 +195,38 @@ pub fn execute_block(
 }
 
 /// Execute an image processing block.
-#[allow(clippy::too_many_arguments)]
-fn execute_image_block(
-    context: &RefineContext,
-    groq_key: &str,
-    gemini_key: &str,
-    final_prompt: &str,
-    model_full_name: &str,
-    provider: &str,
+struct ExecuteImageBlockRequest<'a> {
+    context: &'a RefineContext,
+    groq_key: &'a str,
+    gemini_key: &'a str,
+    final_prompt: &'a str,
+    model_full_name: &'a str,
+    provider: &'a str,
     streaming_enabled: bool,
     use_json: bool,
     accumulated: Arc<Mutex<String>>,
     my_hwnd: Option<HWND>,
     window_shown: Arc<Mutex<bool>>,
     processing_hwnd: Arc<Mutex<Option<SendHwnd>>>,
-    cancel_token: &Arc<ChainCancelToken>,
-) -> anyhow::Result<String> {
+    cancel_token: &'a Arc<ChainCancelToken>,
+}
+
+fn execute_image_block(request: ExecuteImageBlockRequest<'_>) -> anyhow::Result<String> {
+    let ExecuteImageBlockRequest {
+        context,
+        groq_key,
+        gemini_key,
+        final_prompt,
+        model_full_name,
+        provider,
+        streaming_enabled,
+        use_json,
+        accumulated,
+        my_hwnd,
+        window_shown,
+        processing_hwnd,
+        cancel_token,
+    } = request;
     if let RefineContext::Image(img_data) = context {
         let img = image::load_from_memory(img_data)
             .expect("Failed to load png")
@@ -200,16 +238,18 @@ fn execute_image_block(
         let chain_token_cb = cancel_token.clone();
 
         translate_image_streaming(
-            groq_key,
-            gemini_key,
-            final_prompt.to_string(),
-            model_full_name.to_string(),
-            provider.to_string(),
-            img,
-            Some(img_data.clone()),
-            streaming_enabled,
-            use_json,
-            Some(api_cancel),
+            TranslateImageRequest {
+                groq_api_key: groq_key,
+                gemini_api_key: gemini_key,
+                prompt: final_prompt.to_string(),
+                model: model_full_name.to_string(),
+                provider: provider.to_string(),
+                image: img,
+                original_bytes: Some(img_data.clone()),
+                streaming_enabled,
+                use_json_format: use_json,
+                cancel_token: Some(api_cancel),
+            },
             move |chunk| {
                 if chain_token_cb.is_cancelled() {
                     api_cancel_cb.store(true, Ordering::SeqCst);
@@ -230,21 +270,36 @@ fn execute_image_block(
 }
 
 /// Execute a text processing block.
-#[allow(clippy::too_many_arguments)]
-fn execute_text_block(
-    input_text: &str,
-    groq_key: &str,
-    gemini_key: &str,
-    final_prompt: &str,
-    model_full_name: &str,
-    provider: &str,
+struct ExecuteTextBlockRequest<'a> {
+    input_text: &'a str,
+    groq_key: &'a str,
+    gemini_key: &'a str,
+    final_prompt: &'a str,
+    model_full_name: &'a str,
+    provider: &'a str,
     streaming_enabled: bool,
-    preset_id: &str,
-    config: &Config,
+    preset_id: &'a str,
+    config: &'a Config,
     accumulated: Arc<Mutex<String>>,
     my_hwnd: Option<HWND>,
-    cancel_token: &Arc<ChainCancelToken>,
-) -> anyhow::Result<String> {
+    cancel_token: &'a Arc<ChainCancelToken>,
+}
+
+fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<String> {
+    let ExecuteTextBlockRequest {
+        input_text,
+        groq_key,
+        gemini_key,
+        final_prompt,
+        model_full_name,
+        provider,
+        streaming_enabled,
+        preset_id,
+        config,
+        accumulated,
+        my_hwnd,
+        cancel_token,
+    } = request;
     let search_label = Some(get_localized_preset_name(preset_id, &config.ui_language));
 
     // Bridge: chain token → API-level AtomicBool
@@ -253,17 +308,19 @@ fn execute_text_block(
     let chain_token_cb = cancel_token.clone();
 
     translate_text_streaming(
-        groq_key,
-        gemini_key,
-        input_text.to_string(),
-        final_prompt.to_string(),
-        model_full_name.to_string(),
-        provider.to_string(),
-        streaming_enabled,
-        false,
-        search_label,
-        &config.ui_language,
-        Some(api_cancel),
+        TranslateTextRequest {
+            groq_api_key: groq_key,
+            gemini_api_key: gemini_key,
+            text: input_text.to_string(),
+            instruction: final_prompt.to_string(),
+            model: model_full_name.to_string(),
+            provider: provider.to_string(),
+            streaming_enabled,
+            use_json_format: false,
+            search_label,
+            ui_language: &config.ui_language,
+            cancel_token: Some(api_cancel),
+        },
         move |chunk| {
             if chain_token_cb.is_cancelled() {
                 api_cancel_cb.store(true, Ordering::SeqCst);

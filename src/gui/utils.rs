@@ -2,21 +2,21 @@ use eframe::egui;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::process::Command;
-use windows::core::w;
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{
-    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE,
-    DWMWCP_ROUND,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmExtendFrameIntoClientArea,
+    DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW,
 };
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateIcon, FindWindowW, GetSystemMetrics, SetWindowPos, ICON_BIG, ICON_SMALL, SM_CXICON,
-    SM_CXSMICON, SM_CYICON, SM_CYSMICON, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    CreateIcon, FindWindowW, GetSystemMetrics, ICON_BIG, ICON_SMALL, SM_CXICON, SM_CXSMICON,
+    SM_CYICON, SM_CYSMICON, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos,
     WM_SETICON,
 };
+use windows::core::w;
 use windows_core::BOOL;
 
 // --- Monitor Enumeration (Existing Code) ---
@@ -30,18 +30,20 @@ unsafe extern "system" fn monitor_enum_proc(
     _hdc: HDC,
     _lprc: *mut RECT,
     dwdata: LPARAM,
-) -> BOOL { unsafe {
-    let context = &mut *(dwdata.0 as *mut MonitorEnumContext);
-    let mut mi = MONITORINFOEXW::default();
-    mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+) -> BOOL {
+    unsafe {
+        let context = &mut *(dwdata.0 as *mut MonitorEnumContext);
+        let mut mi = MONITORINFOEXW::default();
+        mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
 
-    if GetMonitorInfoW(hmonitor, &mut mi as *mut _ as *mut _).as_bool() {
-        let device_name = String::from_utf16_lossy(&mi.szDevice);
-        let trimmed_name = device_name.trim_matches(char::from(0)).to_string();
-        context.monitors.push(trimmed_name);
+        if GetMonitorInfoW(hmonitor, &mut mi as *mut _ as *mut _).as_bool() {
+            let device_name = String::from_utf16_lossy(&mi.szDevice);
+            let trimmed_name = device_name.trim_matches(char::from(0)).to_string();
+            context.monitors.push(trimmed_name);
+        }
+        BOOL::from(true)
     }
-    BOOL::from(true)
-}}
+}
 
 pub fn get_monitor_names() -> Vec<String> {
     let mut ctx = MonitorEnumContext {
@@ -68,7 +70,7 @@ pub fn copy_to_clipboard_text(text: &str) {
 #[cfg(target_os = "windows")]
 pub fn is_running_as_admin() -> bool {
     use windows::Win32::Security::{
-        GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+        GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation,
     };
     use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
@@ -100,16 +102,17 @@ pub fn is_running_as_admin() -> bool {
 pub fn is_system_in_dark_mode() -> bool {
     #[cfg(target_os = "windows")]
     {
-        use winreg::enums::*;
         use winreg::RegKey;
+        use winreg::enums::*;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         // We check "SystemUsesLightTheme".
         // 0 = Dark Mode (Standard), 1 = Light Mode.
         if let Ok(key) =
             hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize")
-            && let Ok(val) = key.get_value::<u32, &str>("SystemUsesLightTheme") {
-                return val == 0;
-            }
+            && let Ok(val) = key.get_value::<u32, &str>("SystemUsesLightTheme")
+        {
+            return val == 0;
+        }
         true
     }
     #[cfg(not(target_os = "windows"))]
@@ -285,13 +288,14 @@ pub fn is_admin_startup_pointing_to_current_exe() -> bool {
     cmd.creation_flags(0x08000000);
 
     if let Ok(output) = cmd.output()
-        && output.status.success() {
-            let xml_content = String::from_utf8_lossy(&output.stdout);
-            // The XML contains the path, likely quoted.
-            // We just check if the path substring is present.
-            // This handles cases where it might be "C:\Path\To\App.exe" or just C:\Path\To\App.exe
-            return xml_content.to_lowercase().contains(&exe_str.to_lowercase());
-        }
+        && output.status.success()
+    {
+        let xml_content = String::from_utf8_lossy(&output.stdout);
+        // The XML contains the path, likely quoted.
+        // We just check if the path substring is present.
+        // This handles cases where it might be "C:\Path\To\App.exe" or just C:\Path\To\App.exe
+        return xml_content.to_lowercase().contains(&exe_str.to_lowercase());
+    }
     false
 }
 
@@ -305,44 +309,46 @@ fn rgba_to_bgra(data: &[u8]) -> Vec<u8> {
     bgra
 }
 
-unsafe fn create_hicon_from_bytes(bytes: &[u8], target_w: i32, target_h: i32) -> Option<HANDLE> { unsafe {
-    let img = image::load_from_memory(bytes).ok()?;
+unsafe fn create_hicon_from_bytes(bytes: &[u8], target_w: i32, target_h: i32) -> Option<HANDLE> {
+    unsafe {
+        let img = image::load_from_memory(bytes).ok()?;
 
-    // High-quality resize to fix aliasing
-    let resized = img.resize_exact(
-        target_w as u32,
-        target_h as u32,
-        image::imageops::FilterType::Lanczos3,
-    );
-    let rgba = resized.to_rgba8();
-    let bgra_data = rgba_to_bgra(rgba.as_raw());
+        // High-quality resize to fix aliasing
+        let resized = img.resize_exact(
+            target_w as u32,
+            target_h as u32,
+            image::imageops::FilterType::Lanczos3,
+        );
+        let rgba = resized.to_rgba8();
+        let bgra_data = rgba_to_bgra(rgba.as_raw());
 
-    let mask_len = ((target_w * target_h) / 8) as usize;
-    let mask_bits = vec![0u8; mask_len];
+        let mask_len = ((target_w * target_h) / 8) as usize;
+        let mask_bits = vec![0u8; mask_len];
 
-    // Fixed: CreateIcon returns a Result<HICON> in windows 0.48+
-    let hicon_result = CreateIcon(
-        None,
-        target_w,
-        target_h,
-        1,
-        32,
-        mask_bits.as_ptr(),
-        bgra_data.as_ptr(),
-    );
+        // Fixed: CreateIcon returns a Result<HICON> in windows 0.48+
+        let hicon_result = CreateIcon(
+            None,
+            target_w,
+            target_h,
+            1,
+            32,
+            mask_bits.as_ptr(),
+            bgra_data.as_ptr(),
+        );
 
-    match hicon_result {
-        Ok(hicon) => {
-            // Fixed: Unwrap HICON and cast to HANDLE - in windows 0.62 HICON wraps *mut c_void
-            if hicon.is_invalid() {
-                None
-            } else {
-                Some(HANDLE(hicon.0))
+        match hicon_result {
+            Ok(hicon) => {
+                // Fixed: Unwrap HICON and cast to HANDLE - in windows 0.62 HICON wraps *mut c_void
+                if hicon.is_invalid() {
+                    None
+                } else {
+                    Some(HANDLE(hicon.0))
+                }
             }
+            Err(_) => None,
         }
-        Err(_) => None,
     }
-}}
+}
 
 pub fn set_window_icon(hwnd: HWND, is_dark_mode: bool) {
     let icon_bytes: &[u8] = if is_dark_mode {

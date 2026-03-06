@@ -14,8 +14,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 // Re-export public items
 pub use state::{
-    update_audio_viz, AUDIO_ABORT_SIGNAL, AUDIO_INITIALIZING, AUDIO_PAUSE_SIGNAL,
-    AUDIO_STOP_SIGNAL, AUDIO_WARMUP_COMPLETE, CURRENT_RMS,
+    AUDIO_ABORT_SIGNAL, AUDIO_INITIALIZING, AUDIO_PAUSE_SIGNAL, AUDIO_STOP_SIGNAL,
+    AUDIO_WARMUP_COMPLETE, CURRENT_RMS, update_audio_viz,
 };
 
 // --- PUBLIC API ---

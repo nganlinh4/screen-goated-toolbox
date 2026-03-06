@@ -1,6 +1,6 @@
 use super::ViewMode;
 use crate::config::{Config, Preset};
-use crate::gui::icons::{draw_icon_static, icon_button_sized, Icon};
+use crate::gui::icons::{Icon, draw_icon_static, icon_button_sized};
 use crate::gui::locale::LocaleText;
 use eframe::egui;
 
@@ -383,12 +383,13 @@ pub fn render_sidebar(
     }
 
     if let Some(idx) = preset_idx_to_toggle_favorite
-        && let Some(preset) = config.presets.get_mut(idx) {
-            preset.is_favorite = !preset.is_favorite;
-            changed = true;
-            crate::overlay::favorite_bubble::update_favorites_panel();
-            crate::overlay::favorite_bubble::trigger_blink_animation();
-        }
+        && let Some(preset) = config.presets.get_mut(idx)
+    {
+        preset.is_favorite = !preset.is_favorite;
+        changed = true;
+        crate::overlay::favorite_bubble::update_favorites_panel();
+        crate::overlay::favorite_bubble::trigger_blink_animation();
+    }
 
     if let Some(idx) = preset_idx_to_clone {
         let mut new_preset = config.presets[idx].clone();
@@ -569,24 +570,26 @@ fn render_preset_item_parts(
             // Drop Target Logic
             // If dragging, and we are not the source, and hovered, and released
             if let Some(source_idx) = dragging_source_idx
-                && source_idx != idx && response.hovered() && ui.input(|i| i.pointer.any_released())
-                {
-                    // Check if they are in the same column group
-                    let source_preset = &presets[source_idx];
-                    // Target is `preset`
+                && source_idx != idx
+                && response.hovered()
+                && ui.input(|i| i.pointer.any_released())
+            {
+                // Check if they are in the same column group
+                let source_preset = &presets[source_idx];
+                // Target is `preset`
 
-                    let get_group = |p: &Preset| -> u8 {
-                        match p.preset_type.as_str() {
-                            "text" => 1,
-                            "audio" | "video" => 2,
-                            _ => 0, // Image or default
-                        }
-                    };
-
-                    if get_group(source_preset) == get_group(preset) {
-                        *preset_swap_request = Some((source_idx, idx));
+                let get_group = |p: &Preset| -> u8 {
+                    match p.preset_type.as_str() {
+                        "text" => 1,
+                        "audio" | "video" => 2,
+                        _ => 0, // Image or default
                     }
+                };
+
+                if get_group(source_preset) == get_group(preset) {
+                    *preset_swap_request = Some((source_idx, idx));
                 }
+            }
         }
     });
 

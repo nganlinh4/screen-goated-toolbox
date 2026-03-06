@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 
 use std::time::{Duration, Instant};
@@ -161,11 +161,7 @@ impl AudioPlayer {
         let target_device_id = {
             if let Ok(app) = crate::APP.lock() {
                 let id = app.config.tts_output_device.clone();
-                if id.is_empty() {
-                    None
-                } else {
-                    Some(id)
-                }
+                if id.is_empty() { None } else { Some(id) }
             } else {
                 None
             }
@@ -242,141 +238,146 @@ impl AudioPlayer {
         shutdown: Arc<AtomicBool>,
         target_device_id: Option<String>,
         manager: Arc<TtsManager>,
-    ) -> anyhow::Result<()> { unsafe {
-        eprintln!("[TTS WASAPI] Initializing audio output...");
+    ) -> anyhow::Result<()> {
+        unsafe {
+            eprintln!("[TTS WASAPI] Initializing audio output...");
 
-        // Use STA for better compatibility with audio drivers
-        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok();
+            // Use STA for better compatibility with audio drivers
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok();
 
-        let enumerator: IMMDeviceEnumerator =
-            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+            let enumerator: IMMDeviceEnumerator =
+                CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
 
-        let device = if let Some(ref id_str) = target_device_id {
-            eprintln!("[TTS WASAPI] Using specified device: {}", id_str);
-            // Try to find specific device
-            let id_hstring = windows::core::HSTRING::from(id_str.clone());
-            match enumerator.GetDevice(&id_hstring) {
-                Ok(d) => d,
-                Err(e) => {
-                    eprintln!("[TTS WASAPI] ERROR: Specified device not found: {:?}, falling back to default", e);
-                    enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?
+            let device = if let Some(ref id_str) = target_device_id {
+                eprintln!("[TTS WASAPI] Using specified device: {}", id_str);
+                // Try to find specific device
+                let id_hstring = windows::core::HSTRING::from(id_str.clone());
+                match enumerator.GetDevice(&id_hstring) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        eprintln!(
+                            "[TTS WASAPI] ERROR: Specified device not found: {:?}, falling back to default",
+                            e
+                        );
+                        enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?
+                    }
                 }
-            }
-        } else {
-            eprintln!("[TTS WASAPI] Using default audio device");
-            // Use Console role for TTS (Default)
-            enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?
-        };
+            } else {
+                eprintln!("[TTS WASAPI] Using default audio device");
+                // Use Console role for TTS (Default)
+                enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?
+            };
 
-        // Activate IAudioClient
-        let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
+            // Activate IAudioClient
+            let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
 
-        // Note: We no longer try to exclude from loopback
-        let mix_format_ptr = client.GetMixFormat()?;
-        let mix_format = *mix_format_ptr;
+            // Note: We no longer try to exclude from loopback
+            let mix_format_ptr = client.GetMixFormat()?;
+            let mix_format = *mix_format_ptr;
 
-        // Copy fields from packed struct to avoid unaligned references
-        let channels = mix_format.nChannels;
-        let sample_rate = mix_format.nSamplesPerSec;
-        let bits = mix_format.wBitsPerSample;
-        eprintln!(
-            "[TTS WASAPI] Device format: {} channels, {} Hz, {} bits",
-            channels, sample_rate, bits
-        );
+            // Copy fields from packed struct to avoid unaligned references
+            let channels = mix_format.nChannels;
+            let sample_rate = mix_format.nSamplesPerSec;
+            let bits = mix_format.wBitsPerSample;
+            eprintln!(
+                "[TTS WASAPI] Device format: {} channels, {} Hz, {} bits",
+                channels, sample_rate, bits
+            );
 
-        // Initialize (Shared Mode)
-        client.Initialize(
-            AUDCLNT_SHAREMODE_SHARED,
-            0,       // flags
-            1000000, // 100ms buffer
-            0,
-            mix_format_ptr,
-            None,
-        )?;
+            // Initialize (Shared Mode)
+            client.Initialize(
+                AUDCLNT_SHAREMODE_SHARED,
+                0,       // flags
+                1000000, // 100ms buffer
+                0,
+                mix_format_ptr,
+                None,
+            )?;
 
-        let buffer_size = client.GetBufferSize()?;
-        let render_client: IAudioRenderClient = client.GetService()?;
+            let buffer_size = client.GetBufferSize()?;
+            let render_client: IAudioRenderClient = client.GetService()?;
 
-        client.Start()?;
+            client.Start()?;
 
-        eprintln!(
-            "[TTS WASAPI] Audio client started successfully (buffer size: {})",
-            buffer_size
-        );
+            eprintln!(
+                "[TTS WASAPI] Audio client started successfully (buffer size: {})",
+                buffer_size
+            );
 
-        let channels = mix_format.nChannels as usize;
-        let is_float = mix_format.wFormatTag == 3 // WAVE_FORMAT_IEEE_FLOAT
-                       || (mix_format.wFormatTag == 65534 // WAVE_FORMAT_EXTENSIBLE 
+            let channels = mix_format.nChannels as usize;
+            let is_float = mix_format.wFormatTag == 3 // WAVE_FORMAT_IEEE_FLOAT
+                       || (mix_format.wFormatTag == 65534 // WAVE_FORMAT_EXTENSIBLE
                           && (mix_format.cbSize >= 22));
 
-        let _frames_written = 0;
+            let _frames_written = 0;
 
-        let mut last_gen = manager.interrupt_generation.load(Ordering::SeqCst);
+            let mut last_gen = manager.interrupt_generation.load(Ordering::SeqCst);
 
-        while !shutdown.load(Ordering::Relaxed) {
-            let current_gen = manager.interrupt_generation.load(Ordering::SeqCst);
-            if current_gen > last_gen {
-                if let Ok(mut deck) = shared_buffer.lock() {
-                    deck.clear();
+            while !shutdown.load(Ordering::Relaxed) {
+                let current_gen = manager.interrupt_generation.load(Ordering::SeqCst);
+                if current_gen > last_gen {
+                    if let Ok(mut deck) = shared_buffer.lock() {
+                        deck.clear();
+                    }
+                    last_gen = current_gen;
                 }
-                last_gen = current_gen;
-            }
-            let padding = client.GetCurrentPadding()?;
-            let available = buffer_size.saturating_sub(padding);
+                let padding = client.GetCurrentPadding()?;
+                let available = buffer_size.saturating_sub(padding);
 
-            if available > 0 {
-                let buffer_ptr = render_client.GetBuffer(available)?;
+                if available > 0 {
+                    let buffer_ptr = render_client.GetBuffer(available)?;
 
-                // Lock inner buffer
-                let mut deck = shared_buffer.lock().unwrap();
+                    // Lock inner buffer
+                    let mut deck = shared_buffer.lock().unwrap();
 
-                if is_float {
-                    let out_slice = std::slice::from_raw_parts_mut(
-                        buffer_ptr as *mut f32,
-                        (available as usize) * channels,
-                    );
+                    if is_float {
+                        let out_slice = std::slice::from_raw_parts_mut(
+                            buffer_ptr as *mut f32,
+                            (available as usize) * channels,
+                        );
 
-                    for i in 0..available as usize {
-                        if let Some(sample) = deck.pop_front() {
-                            let s = (sample as f32) / 32768.0;
-                            for c in 0..channels {
-                                out_slice[i * channels + c] = s;
+                        for i in 0..available as usize {
+                            if let Some(sample) = deck.pop_front() {
+                                let s = (sample as f32) / 32768.0;
+                                for c in 0..channels {
+                                    out_slice[i * channels + c] = s;
+                                }
+                            } else {
+                                // Silence when buffer is empty
+                                for c in 0..channels {
+                                    out_slice[i * channels + c] = 0.0;
+                                }
                             }
-                        } else {
-                            // Silence when buffer is empty
-                            for c in 0..channels {
-                                out_slice[i * channels + c] = 0.0;
+                        }
+                    } else {
+                        // PCM i16
+                        let out_slice = std::slice::from_raw_parts_mut(
+                            buffer_ptr as *mut i16,
+                            (available as usize) * channels,
+                        );
+                        for i in 0..available as usize {
+                            if let Some(sample) = deck.pop_front() {
+                                for c in 0..channels {
+                                    out_slice[i * channels + c] = sample;
+                                }
+                            } else {
+                                for c in 0..channels {
+                                    out_slice[i * channels + c] = 0;
+                                }
                             }
                         }
                     }
-                } else {
-                    // PCM i16
-                    let out_slice = std::slice::from_raw_parts_mut(
-                        buffer_ptr as *mut i16,
-                        (available as usize) * channels,
-                    );
-                    for i in 0..available as usize {
-                        if let Some(sample) = deck.pop_front() {
-                            for c in 0..channels {
-                                out_slice[i * channels + c] = sample;
-                            }
-                        } else {
-                            for c in 0..channels {
-                                out_slice[i * channels + c] = 0;
-                            }
-                        }
-                    }
+
+                    render_client.ReleaseBuffer(available, 0)?;
                 }
 
-                render_client.ReleaseBuffer(available, 0)?;
+                std::thread::sleep(Duration::from_millis(10));
             }
 
-            std::thread::sleep(Duration::from_millis(10));
+            client.Stop()?;
+            Ok(())
         }
-
-        client.Stop()?;
-        Ok(())
-    }}
+    }
 
     fn play(&self, audio_data: &[u8], is_realtime: bool) {
         // Get effective speed

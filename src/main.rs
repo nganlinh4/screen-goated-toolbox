@@ -17,7 +17,7 @@ mod unpack_dlls;
 mod updater;
 pub mod win_types;
 
-use config::{load_config, Config, ThemeMode};
+use config::{Config, ThemeMode, load_config};
 use gui::locale::LocaleText;
 use history::HistoryManager;
 use lazy_static::lazy_static;
@@ -25,9 +25,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem};
-use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::System::Threading::*;
+use windows::core::*;
 
 pub use hotkey::RESTORE_EVENT;
 pub use screen_capture::GdiCapture;
@@ -418,16 +418,16 @@ fn main() -> eframe::Result<()> {
             // Set native icon
             gui::utils::update_window_icon_native(effective_dark);
 
-            Ok(Box::new(gui::SettingsApp::new(
-                initial_config,
-                APP.clone(),
+            Ok(Box::new(gui::SettingsApp::new(gui::SettingsAppInit {
+                config: initial_config,
+                app_state: APP.clone(),
                 tray_menu,
                 tray_settings_item,
                 tray_quit_item,
                 tray_favorite_bubble_item,
-                cc.egui_ctx.clone(),
+                ctx: cc.egui_ctx.clone(),
                 pending_file_path,
-            )))
+            })))
         }),
     )
 }

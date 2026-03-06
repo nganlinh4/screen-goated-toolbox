@@ -655,8 +655,8 @@ pub fn model_supports_search_by_id(id: &str) -> bool {
 // === OLLAMA MODEL CACHE ===
 
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 
 lazy_static::lazy_static! {

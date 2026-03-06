@@ -1,10 +1,10 @@
 use super::node::ChainNode;
 use super::utils::{insert_next_language_tag, model_supports_search, show_language_vars};
 use super::viewer::ChainViewer;
-use crate::gui::icons::{icon_button, Icon};
+use crate::gui::icons::{Icon, icon_button};
 use crate::model_config::{
-    get_all_models_with_ollama, get_model_by_id, is_ollama_scan_in_progress, model_is_non_llm,
-    trigger_ollama_model_scan, ModelType,
+    ModelType, get_all_models_with_ollama, get_model_by_id, is_ollama_scan_in_progress,
+    model_is_non_llm, trigger_ollama_model_scan,
 };
 use eframe::egui;
 use egui_snarl::{NodeId, Snarl};

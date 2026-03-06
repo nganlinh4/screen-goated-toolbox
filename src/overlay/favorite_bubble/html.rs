@@ -121,7 +121,7 @@ html, body {{
     flex-direction: column;
     padding: 30px 20px;
     /* Ensure container has height for hover detection even if items are small */
-    min-height: 100px; 
+    min-height: 100px;
 }}
 .container.side-right {{ padding-left: 30px; padding-right: 10px; }}
 .container.side-left {{ padding-left: 10px; padding-right: 30px; }}
@@ -146,12 +146,12 @@ html, body {{
     box-shadow: {item_shadow};
     margin-bottom: 4px;
     break-inside: avoid;
-    
+
     /* INITIAL STATE: Hidden */
-    opacity: 0; 
+    opacity: 0;
     transform: scale(0.95);
     will-change: transform, opacity;
-    
+
     /* Defaults */
     --dx: 0px;
     --dy: 0px;
@@ -189,7 +189,7 @@ html, body {{
 }}
 
 .preset-item.retreating {{
-    /* 'both' is CRITICAL here: it makes the element stick to the 0% keyframe 
+    /* 'both' is CRITICAL here: it makes the element stick to the 0% keyframe
        (opacity: 1) during the animation-delay, preventing the blink */
     animation: retreat 0.35s cubic-bezier(0.4, 0, 1, 1) both;
 }}
@@ -214,14 +214,14 @@ html, body {{
     padding: 8px 16px; margin-bottom: 12px; background: {row_bg};
     backdrop-filter: blur(12px); box-shadow: {item_shadow}; border-radius: 20px;
     width: fit-content; margin-left: auto; margin-right: auto;
-    
+
     /* Initially hidden & offset */
     opacity: 0;
     transform: translateY(15px) scale(0.95);
     pointer-events: none;
-    
+
     /* Smooth transition for hover state */
-    transition: 
+    transition:
         opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
         transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }}

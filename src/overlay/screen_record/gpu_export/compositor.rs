@@ -2,14 +2,14 @@ use bytemuck::{Pod, Zeroable};
 use std::collections::VecDeque;
 use std::mem::ManuallyDrop;
 use std::sync::Arc;
-use windows::core::Interface;
 use windows::Win32::Graphics::Direct3D12 as d3d12;
+use windows::core::Interface;
 
 use super::cursors::{
-    dedupe_valid_slots, get_or_render_cursor_tile, CURSOR_ATLAS_COLS, CURSOR_ATLAS_ROWS,
-    CURSOR_TILE_SIZE,
+    CURSOR_ATLAS_COLS, CURSOR_ATLAS_ROWS, CURSOR_TILE_SIZE, dedupe_valid_slots,
+    get_or_render_cursor_tile,
 };
-use super::setup::{shared_gpu_context, OverlayVertex, OUTPUT_TEXTURE_FORMAT};
+use super::setup::{OUTPUT_TEXTURE_FORMAT, OverlayVertex, shared_gpu_context};
 use crate::overlay::screen_record::native_export::config::OverlayQuad;
 
 const READBACK_RING_SIZE: usize = 5;
@@ -30,13 +30,14 @@ impl Dx12SharedCopyContext {
         })
     }
 
-    unsafe fn texture_raw_resource(texture: &wgpu::Texture) -> Option<d3d12::ID3D12Resource> { unsafe {
-        let hal_texture = texture.as_hal::<wgpu::hal::api::Dx12>()?;
-        let resource_058 = hal_texture.raw_resource();
-        let resource_062: &d3d12::ID3D12Resource =
-            &*(resource_058 as *const _);
-        Some(resource_062.clone())
-    }}
+    unsafe fn texture_raw_resource(texture: &wgpu::Texture) -> Option<d3d12::ID3D12Resource> {
+        unsafe {
+            let hal_texture = texture.as_hal::<wgpu::hal::api::Dx12>()?;
+            let resource_058 = hal_texture.raw_resource();
+            let resource_062: &d3d12::ID3D12Resource = &*(resource_058 as *const _);
+            Some(resource_062.clone())
+        }
+    }
 
     fn transition_barrier(
         resource: Option<d3d12::ID3D12Resource>,
@@ -73,71 +74,73 @@ impl Dx12SharedCopyContext {
         &self,
         source: &wgpu::Texture,
         video_texture: &wgpu::Texture,
-    ) -> Result<(), String> { unsafe {
-        let source_resource =
-            Self::texture_raw_resource(source).ok_or("Source texture has no DX12 resource")?;
-        let video_resource = Self::texture_raw_resource(video_texture)
-            .ok_or("Video texture has no DX12 resource")?;
+    ) -> Result<(), String> {
+        unsafe {
+            let source_resource =
+                Self::texture_raw_resource(source).ok_or("Source texture has no DX12 resource")?;
+            let video_resource = Self::texture_raw_resource(video_texture)
+                .ok_or("Video texture has no DX12 resource")?;
 
-        let shader_read = d3d12::D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
-            | d3d12::D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+            let shader_read = d3d12::D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+                | d3d12::D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 
-        let allocator = self
-            .device
-            .CreateCommandAllocator::<d3d12::ID3D12CommandAllocator>(
-                d3d12::D3D12_COMMAND_LIST_TYPE_DIRECT,
-            )
-            .map_err(|e| format!("CreateCommandAllocator: {e}"))?;
-        let command_list = self
-            .device
-            .CreateCommandList::<_, _, d3d12::ID3D12GraphicsCommandList>(
-                0,
-                d3d12::D3D12_COMMAND_LIST_TYPE_DIRECT,
-                &allocator,
-                None,
-            )
-            .map_err(|e| format!("CreateCommandList: {e}"))?;
+            let allocator = self
+                .device
+                .CreateCommandAllocator::<d3d12::ID3D12CommandAllocator>(
+                    d3d12::D3D12_COMMAND_LIST_TYPE_DIRECT,
+                )
+                .map_err(|e| format!("CreateCommandAllocator: {e}"))?;
+            let command_list = self
+                .device
+                .CreateCommandList::<_, _, d3d12::ID3D12GraphicsCommandList>(
+                    0,
+                    d3d12::D3D12_COMMAND_LIST_TYPE_DIRECT,
+                    &allocator,
+                    None,
+                )
+                .map_err(|e| format!("CreateCommandList: {e}"))?;
 
-        let pre_barriers = [
-            Self::transition_barrier(
-                Some(source_resource.clone()),
-                d3d12::D3D12_RESOURCE_STATE_COMMON,
-                d3d12::D3D12_RESOURCE_STATE_COPY_SOURCE,
-            ),
-            Self::transition_barrier(
-                Some(video_resource.clone()),
-                shader_read,
-                d3d12::D3D12_RESOURCE_STATE_COPY_DEST,
-            ),
-            Self::global_uav_barrier(),
-        ];
-        command_list.ResourceBarrier(&pre_barriers);
-        command_list.CopyResource(&video_resource, &source_resource);
+            let pre_barriers = [
+                Self::transition_barrier(
+                    Some(source_resource.clone()),
+                    d3d12::D3D12_RESOURCE_STATE_COMMON,
+                    d3d12::D3D12_RESOURCE_STATE_COPY_SOURCE,
+                ),
+                Self::transition_barrier(
+                    Some(video_resource.clone()),
+                    shader_read,
+                    d3d12::D3D12_RESOURCE_STATE_COPY_DEST,
+                ),
+                Self::global_uav_barrier(),
+            ];
+            command_list.ResourceBarrier(&pre_barriers);
+            command_list.CopyResource(&video_resource, &source_resource);
 
-        let post_barriers = [
-            Self::transition_barrier(
-                Some(video_resource),
-                d3d12::D3D12_RESOURCE_STATE_COPY_DEST,
-                shader_read,
-            ),
-            Self::transition_barrier(
-                Some(source_resource),
-                d3d12::D3D12_RESOURCE_STATE_COPY_SOURCE,
-                d3d12::D3D12_RESOURCE_STATE_COMMON,
-            ),
-        ];
-        command_list.ResourceBarrier(&post_barriers);
+            let post_barriers = [
+                Self::transition_barrier(
+                    Some(video_resource),
+                    d3d12::D3D12_RESOURCE_STATE_COPY_DEST,
+                    shader_read,
+                ),
+                Self::transition_barrier(
+                    Some(source_resource),
+                    d3d12::D3D12_RESOURCE_STATE_COPY_SOURCE,
+                    d3d12::D3D12_RESOURCE_STATE_COMMON,
+                ),
+            ];
+            command_list.ResourceBarrier(&post_barriers);
 
-        command_list
-            .Close()
-            .map_err(|e| format!("CommandList::Close: {e}"))?;
+            command_list
+                .Close()
+                .map_err(|e| format!("CommandList::Close: {e}"))?;
 
-        let command_list_base: d3d12::ID3D12CommandList = command_list
-            .cast()
-            .map_err(|e| format!("CommandList cast: {e}"))?;
-        self.queue.ExecuteCommandLists(&[Some(command_list_base)]);
-        Ok(())
-    }}
+            let command_list_base: d3d12::ID3D12CommandList = command_list
+                .cast()
+                .map_err(|e| format!("CommandList cast: {e}"))?;
+            self.queue.ExecuteCommandLists(&[Some(command_list_base)]);
+            Ok(())
+        }
+    }
 }
 
 #[repr(C, align(16))]
@@ -490,13 +493,14 @@ impl GpuCompositor {
         });
 
         let dx12_shared_copy = unsafe {
-            device.as_hal::<wgpu::hal::api::Dx12>().and_then(|hal_device| {
-                let raw_device: &d3d12::ID3D12Device =
-                    &*(hal_device.raw_device() as *const _);
-                let raw_queue: &d3d12::ID3D12CommandQueue =
-                    &*(hal_device.raw_queue() as *const _);
-                Dx12SharedCopyContext::new(raw_device, raw_queue).ok()
-            })
+            device
+                .as_hal::<wgpu::hal::api::Dx12>()
+                .and_then(|hal_device| {
+                    let raw_device: &d3d12::ID3D12Device = &*(hal_device.raw_device() as *const _);
+                    let raw_queue: &d3d12::ID3D12CommandQueue =
+                        &*(hal_device.raw_queue() as *const _);
+                    Dx12SharedCopyContext::new(raw_device, raw_queue).ok()
+                })
         };
 
         // 1MB vertex buffer — enough for ~8000 quads (6 verts × 24 bytes each).
@@ -1030,11 +1034,10 @@ impl GpuCompositor {
         // proven stable across content and drivers.
         if std::env::var("SGT_EXPERIMENTAL_RAW_DX12_COPY").is_ok()
             && let Some(raw_dx12_copy) = &self.dx12_shared_copy
-                && unsafe { raw_dx12_copy.copy_shared_to_video(source, &self.video_texture) }
-                    .is_ok()
-                {
-                    return;
-                }
+            && unsafe { raw_dx12_copy.copy_shared_to_video(source, &self.video_texture) }.is_ok()
+        {
+            return;
+        }
 
         let mut encoder = self
             .device

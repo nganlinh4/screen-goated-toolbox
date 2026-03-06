@@ -256,10 +256,10 @@ html, body {{
     text-transform: uppercase;
     font-variation-settings: 'wght' 600, 'wdth' 125, 'ROND' 100;
     color: {dismiss_color};
-    
+
     opacity: 0;
     transform: scale(0.5);
-    transition: 
+    transition:
         transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
         opacity 0.15s ease-out,
         background 0.1s ease,
@@ -320,11 +320,11 @@ html, body {{
     white-space: nowrap;
     letter-spacing: 0;
     color: {text_color};
-    
+
     opacity: 0;
     transform: scale(0.8);
-    
-    transition: 
+
+    transition:
         transform 0.15s cubic-bezier(0.22, 1, 0.36, 1),
         opacity 0.15s ease-out,
         background 0.1s ease,
@@ -385,10 +385,10 @@ const dismissBtn = document.querySelector('.dismiss-btn');
 const MAX_SCALE = 1.10;
 const MIN_SCALE = 1.0;
 const EFFECT_RADIUS = 80;
-const BASE_WEIGHT = 500;     
-const MAX_WEIGHT = 650;      
-const BASE_WIDTH = 100;      
-const MAX_WIDTH = 104;       
+const BASE_WEIGHT = 500;
+const MAX_WEIGHT = 650;
+const BASE_WIDTH = 100;
+const MAX_WIDTH = 104;
 
 let animationFrame = null;
 let mouseX = -1000;
@@ -404,7 +404,7 @@ function cacheItemPositions() {
     items.forEach(item => {
         item.style.transform = 'scale(1)';
     });
-    
+
     // Cache the original center positions (before any scaling)
     itemCenters.clear();
     items.forEach(item => {
@@ -420,7 +420,7 @@ function getItemCenter(item) {
     // Use cached position if available
     const cached = itemCenters.get(item);
     if (cached) return cached;
-    
+
     // Fallback to live calculation
     const rect = item.getBoundingClientRect();
     return {
@@ -430,30 +430,30 @@ function getItemCenter(item) {
 }
 
 function isMouseInRect(rect) {
-    return mouseX >= rect.left && mouseX <= rect.right && 
+    return mouseX >= rect.left && mouseX <= rect.right &&
            mouseY >= rect.top && mouseY <= rect.bottom;
 }
 
 function updateFisheye() {
     items.forEach(item => {
         if (!item.classList.contains('visible')) return;
-        
+
         // For fisheye scaling, use cached centers
         const center = getItemCenter(item);
         const dx = mouseX - center.x;
         const dy = mouseY - center.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        
+
         let influence = isMouseInGrid ? Math.max(0, 1 - distance / EFFECT_RADIUS) : 0;
         influence = influence * influence * (3 - 2 * influence); // smoothstep
-        
+
         // Only scale UP - never below 1.0
         const scale = MIN_SCALE + (MAX_SCALE - MIN_SCALE) * influence;
-        
+
         // For hover detection, check if mouse is actually inside this pill
         const rect = item.getBoundingClientRect();
         const isHovered = isMouseInGrid && isMouseInRect(rect);
-        
+
         if (isHovered) {
             item.classList.add('hovered');
             // Let CSS handle font styling for hovered items
@@ -467,7 +467,7 @@ function updateFisheye() {
             item.style.fontVariationSettings = `'wght' ${weight.toFixed(0)}, 'wdth' ${width.toFixed(0)}, 'ROND' 100`;
             item.style.letterSpacing = '0';
         }
-        
+
         item.style.transform = `scale(${scale.toFixed(3)})`;
     });
 }
@@ -475,7 +475,7 @@ function updateFisheye() {
 function onMouseMove(e) {
     mouseX = e.clientX;
     mouseY = e.clientY;
-    
+
     if (!animationFrame) {
         animationFrame = requestAnimationFrame(() => {
             updateFisheye();
@@ -492,7 +492,7 @@ function onMouseLeave() {
     isMouseInGrid = false;
     mouseX = -1000;
     mouseY = -1000;
-    
+
     items.forEach(item => {
         item.style.transform = 'scale(1)';
         item.style.fontVariationSettings = `'wght' ${BASE_WEIGHT}, 'wdth' ${BASE_WIDTH}, 'ROND' 100`;
@@ -507,9 +507,9 @@ grid.addEventListener('mouseleave', onMouseLeave);
 document.querySelector('.container').addEventListener('mousemove', (e) => {
     const gridRect = grid.getBoundingClientRect();
     const padding = 35;
-    if (e.clientX >= gridRect.left - padding && 
+    if (e.clientX >= gridRect.left - padding &&
         e.clientX <= gridRect.right + padding &&
-        e.clientY >= gridRect.top - padding && 
+        e.clientY >= gridRect.top - padding &&
         e.clientY <= gridRect.bottom + padding) {
         onMouseMove(e);
     }
@@ -520,7 +520,7 @@ function animateIn() {
     // Get window center (cursor should be near center when wheel opens)
     const windowCenterX = window.innerWidth / 2;
     const windowCenterY = window.innerHeight / 2;
-    
+
     // Calculate distance of each item from center
     const itemsWithDistance = items.map(item => {
         const rect = item.getBoundingClientRect();
@@ -531,18 +531,18 @@ function animateIn() {
         const distance = Math.sqrt(dx * dx + dy * dy);
         return { item, distance };
     });
-    
+
     // Sort by distance (closest to center first)
     itemsWithDistance.sort((a, b) => a.distance - b.distance);
 
     // Dismiss button first (it's at top center)
     setTimeout(() => dismissBtn.classList.add('visible'), 0);
-    
+
     // Then items in ripple order from center out - fast stagger
     itemsWithDistance.forEach(({ item }, i) => {
         setTimeout(() => item.classList.add('visible'), i * 12);
     });
-    
+
     // Cache positions AFTER animation completes (when items are at scale(1))
     // Wait for all items to animate in + some buffer
     const totalAnimationTime = itemsWithDistance.length * 12 + 150;
@@ -553,23 +553,23 @@ function animateIn() {
 window.updateContent = function(itemsHtml, dismissLabel) {
     grid.innerHTML = itemsHtml;
     dismissBtn.innerText = dismissLabel;
-    
+
     // Re-query items - now nested in .preset-row divs
     items = Array.from(document.querySelectorAll('.preset-item'));
-    
+
     // Clear cached positions
     itemCenters.clear();
-    
+
     // Reset visibility state BEFORE window becomes visible
     dismissBtn.classList.remove('visible');
     items.forEach(item => item.classList.remove('visible'));
-    
+
     // Notify Rust we are ready to be visible
     setTimeout(() => {
         window.ipc.postMessage('ready_to_show');
         // Start animation after a tiny delay to ensure window is shown
         setTimeout(() => requestAnimationFrame(animateIn), 16);
-        
+
         // Fallback: force visible after 300ms if animation didn't work
         setTimeout(() => {
             dismissBtn.classList.add('visible');

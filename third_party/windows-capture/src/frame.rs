@@ -62,6 +62,18 @@ pub struct Frame<'a> {
     title_bar_height: Option<u32>,
 }
 
+pub struct FrameParams<'a> {
+    pub d3d_device: &'a ID3D11Device,
+    pub frame_surface: IDirect3DSurface,
+    pub frame_texture: ID3D11Texture2D,
+    pub timestamp: TimeSpan,
+    pub context: &'a ID3D11DeviceContext,
+    pub buffer: &'a mut Vec<u8>,
+    pub size: (u32, u32),
+    pub color_format: ColorFormat,
+    pub title_bar_height: Option<u32>,
+}
+
 impl<'a> Frame<'a> {
     /// Creates a new `Frame`.
     ///
@@ -81,21 +93,20 @@ impl<'a> Frame<'a> {
     /// # Returns
     ///
     /// A new `Frame` instance.
-    #[allow(clippy::too_many_arguments)]
     #[must_use]
     #[inline]
-    pub const fn new(
-        d3d_device: &'a ID3D11Device,
-        frame_surface: IDirect3DSurface,
-        frame_texture: ID3D11Texture2D,
-        timestamp: TimeSpan,
-        context: &'a ID3D11DeviceContext,
-        buffer: &'a mut Vec<u8>,
-        width: u32,
-        height: u32,
-        color_format: ColorFormat,
-        title_bar_height: Option<u32>,
-    ) -> Self {
+    pub fn new(params: FrameParams<'a>) -> Self {
+        let FrameParams {
+            d3d_device,
+            frame_surface,
+            frame_texture,
+            timestamp,
+            context,
+            buffer,
+            size: (width, height),
+            color_format,
+            title_bar_height,
+        } = params;
         Self {
             d3d_device,
             frame_surface,

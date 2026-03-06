@@ -31,87 +31,89 @@ unsafe extern "system" fn border_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    match msg {
-        WM_PAINT => {
-            let mut ps = PAINTSTRUCT::default();
-            let hdc = BeginPaint(hwnd, &mut ps);
-            let mut rc = RECT::default();
-            let _ = GetClientRect(hwnd, &mut rc);
-            let w = rc.right - rc.left;
-            let h = rc.bottom - rc.top;
+) -> LRESULT {
+    unsafe {
+        match msg {
+            WM_PAINT => {
+                let mut ps = PAINTSTRUCT::default();
+                let hdc = BeginPaint(hwnd, &mut ps);
+                let mut rc = RECT::default();
+                let _ = GetClientRect(hwnd, &mut rc);
+                let w = rc.right - rc.left;
+                let h = rc.bottom - rc.top;
 
-            // Fill interior with key color (transparent via LWA_COLORKEY).
-            let key_brush = CreateSolidBrush(KEY_COLOR);
-            FillRect(hdc, &rc, key_brush);
-            let _ = DeleteObject(key_brush.into());
+                // Fill interior with key color (transparent via LWA_COLORKEY).
+                let key_brush = CreateSolidBrush(KEY_COLOR);
+                FillRect(hdc, &rc, key_brush);
+                let _ = DeleteObject(key_brush.into());
 
-            // Paint four border edges in the brand blue color.
-            let border_brush = CreateSolidBrush(BORDER_COLOR);
-            let top = RECT {
-                left: 0,
-                top: 0,
-                right: w,
-                bottom: BORDER_PX,
-            };
-            let bottom = RECT {
-                left: 0,
-                top: h - BORDER_PX,
-                right: w,
-                bottom: h,
-            };
-            let left = RECT {
-                left: 0,
-                top: 0,
-                right: BORDER_PX,
-                bottom: h,
-            };
-            let right = RECT {
-                left: w - BORDER_PX,
-                top: 0,
-                right: w,
-                bottom: h,
-            };
-            FillRect(hdc, &top, border_brush);
-            FillRect(hdc, &bottom, border_brush);
-            FillRect(hdc, &left, border_brush);
-            FillRect(hdc, &right, border_brush);
-            let _ = DeleteObject(border_brush.into());
+                // Paint four border edges in the brand blue color.
+                let border_brush = CreateSolidBrush(BORDER_COLOR);
+                let top = RECT {
+                    left: 0,
+                    top: 0,
+                    right: w,
+                    bottom: BORDER_PX,
+                };
+                let bottom = RECT {
+                    left: 0,
+                    top: h - BORDER_PX,
+                    right: w,
+                    bottom: h,
+                };
+                let left = RECT {
+                    left: 0,
+                    top: 0,
+                    right: BORDER_PX,
+                    bottom: h,
+                };
+                let right = RECT {
+                    left: w - BORDER_PX,
+                    top: 0,
+                    right: w,
+                    bottom: h,
+                };
+                FillRect(hdc, &top, border_brush);
+                FillRect(hdc, &bottom, border_brush);
+                FillRect(hdc, &left, border_brush);
+                FillRect(hdc, &right, border_brush);
+                let _ = DeleteObject(border_brush.into());
 
-            let _ = EndPaint(hwnd, &ps);
-            LRESULT(0)
+                let _ = EndPaint(hwnd, &ps);
+                LRESULT(0)
+            }
+            WM_APP_MOVE_BORDER => {
+                // wparam = x<<32|y, lparam = w<<32|h packed as two i32 in isize
+                let x = (wparam.0 >> 32) as i32;
+                let y = (wparam.0 & 0xFFFF_FFFF) as i32;
+                let w = (lparam.0 >> 32) as i32;
+                let h = (lparam.0 & 0xFFFF_FFFF) as i32;
+                let _ = SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOPMOST),
+                    x,
+                    y,
+                    w,
+                    h,
+                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                );
+                // Force a repaint of the new bounds.
+                let _ = InvalidateRect(Some(hwnd), None, true);
+                LRESULT(0)
+            }
+            WM_CLOSE => {
+                let _ = DestroyWindow(hwnd);
+                LRESULT(0)
+            }
+            WM_DESTROY => {
+                BORDER_HWND.store(0, Ordering::SeqCst);
+                PostQuitMessage(0);
+                LRESULT(0)
+            }
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
-        WM_APP_MOVE_BORDER => {
-            // wparam = x<<32|y, lparam = w<<32|h packed as two i32 in isize
-            let x = (wparam.0 >> 32) as i32;
-            let y = (wparam.0 & 0xFFFF_FFFF) as i32;
-            let w = (lparam.0 >> 32) as i32;
-            let h = (lparam.0 & 0xFFFF_FFFF) as i32;
-            let _ = SetWindowPos(
-                hwnd,
-                Some(HWND_TOPMOST),
-                x,
-                y,
-                w,
-                h,
-                SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            );
-            // Force a repaint of the new bounds.
-            let _ = InvalidateRect(Some(hwnd), None, true);
-            LRESULT(0)
-        }
-        WM_CLOSE => {
-            let _ = DestroyWindow(hwnd);
-            LRESULT(0)
-        }
-        WM_DESTROY => {
-            BORDER_HWND.store(0, Ordering::SeqCst);
-            PostQuitMessage(0);
-            LRESULT(0)
-        }
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}}
+}
 
 /// Show a blue recording border around the given screen rect.
 /// Spawns a background thread that owns the window and its message loop.

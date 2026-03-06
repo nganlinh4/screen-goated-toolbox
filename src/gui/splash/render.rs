@@ -2,15 +2,15 @@
 // Update physics and paint the splash screen animation.
 
 use super::audio::SplashAudio;
-use super::math::{lerp, smoothstep, Vec3};
+use super::math::{Vec3, lerp, smoothstep};
 use super::scene::{Cloud, MoonFeature, Star, Voxel};
 use super::{
-    DrawListEntry, SplashStatus, ANIMATION_DURATION, C_CLOUD_CORE, C_CLOUD_WHITE, C_CYAN,
-    C_DAY_REP, C_DAY_SEC, C_DAY_TEXT, C_MAGENTA, C_MOON_BASE, C_MOON_GLOW, C_MOON_HIGHLIGHT,
-    C_MOON_SHADOW, C_SKY_DAY_TOP, C_SUN_BODY, C_SUN_FLARE, C_SUN_GLOW, C_SUN_HIGHLIGHT, C_VOID,
-    C_WHITE, EXIT_DURATION, START_TRANSITION,
+    ANIMATION_DURATION, C_CLOUD_CORE, C_CLOUD_WHITE, C_CYAN, C_DAY_REP, C_DAY_SEC, C_DAY_TEXT,
+    C_MAGENTA, C_MOON_BASE, C_MOON_GLOW, C_MOON_HIGHLIGHT, C_MOON_SHADOW, C_SKY_DAY_TOP,
+    C_SUN_BODY, C_SUN_FLARE, C_SUN_GLOW, C_SUN_HIGHLIGHT, C_VOID, C_WHITE, DrawListEntry,
+    EXIT_DURATION, START_TRANSITION, SplashStatus,
 };
-use crate::gui::icons::{paint_icon, Icon};
+use crate::gui::icons::{Icon, paint_icon};
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Stroke, Vec2};
 use std::cell::RefCell;
@@ -18,21 +18,35 @@ use std::cmp::Ordering;
 use std::f32::consts::PI;
 use std::sync::{Arc, Mutex};
 
+pub struct SplashUpdateContext<'a> {
+    pub ctx: &'a egui::Context,
+    pub start_time: f64,
+    pub exit_start_time: &'a mut Option<f64>,
+    pub voxels: &'a mut [Voxel],
+    pub clouds: &'a mut [Cloud],
+    pub mouse_influence: &'a mut Vec2,
+    pub mouse_world_pos: &'a mut Vec3,
+    pub loading_text: &'a mut String,
+    pub is_dark: &'a mut bool,
+    pub audio: &'a Arc<Mutex<Option<SplashAudio>>>,
+    pub has_played_impact: &'a mut bool,
+}
+
 /// Update the splash screen physics and state
-#[allow(clippy::too_many_arguments)]
-pub fn update(
-    ctx: &egui::Context,
-    start_time: f64,
-    exit_start_time: &mut Option<f64>,
-    voxels: &mut [Voxel],
-    clouds: &mut [Cloud],
-    mouse_influence: &mut Vec2,
-    mouse_world_pos: &mut Vec3,
-    loading_text: &mut String,
-    is_dark: &mut bool,
-    audio: &Arc<Mutex<Option<SplashAudio>>>,
-    has_played_impact: &mut bool,
-) -> SplashStatus {
+pub fn update(update_ctx: SplashUpdateContext<'_>) -> SplashStatus {
+    let SplashUpdateContext {
+        ctx,
+        start_time,
+        exit_start_time,
+        voxels,
+        clouds,
+        mouse_influence,
+        mouse_world_pos,
+        loading_text,
+        is_dark,
+        audio,
+        has_played_impact,
+    } = update_ctx;
     *is_dark = ctx.style().visuals.dark_mode;
 
     let now = ctx.input(|i| i.time);
@@ -64,9 +78,10 @@ pub fn update(
         if dt > EXIT_DURATION {
             if let Ok(mut lock) = audio.lock()
                 && let Some(audio) = lock.as_mut()
-                    && let Ok(mut s) = audio.state.lock() {
-                        s.is_finished = true;
-                    }
+                && let Ok(mut s) = audio.state.lock()
+            {
+                s.is_finished = true;
+            }
             return SplashStatus::Finished;
         }
         warp_progress = (dt / EXIT_DURATION).clamp(0.0, 1.0);
@@ -75,18 +90,19 @@ pub fn update(
     // --- UPDATE AUDIO STATE ---
     if let Ok(mut lock) = audio.lock()
         && let Some(audio) = lock.as_mut()
-            && let Ok(mut s) = audio.state.lock() {
-                s.physics_t = physics_t;
-                s.warp_progress = warp_progress;
-                s.is_dark = *is_dark;
+        && let Ok(mut s) = audio.state.lock()
+    {
+        s.physics_t = physics_t;
+        s.warp_progress = warp_progress;
+        s.is_dark = *is_dark;
 
-                // Trigger impact once when assembly is nearly complete
-                if physics_t > 1.6 && !*has_played_impact {
-                    s.impact_trigger = true;
-                    drop(s);
-                    *has_played_impact = true;
-                }
-            }
+        // Trigger impact once when assembly is nearly complete
+        if physics_t > 1.6 && !*has_played_impact {
+            s.impact_trigger = true;
+            drop(s);
+            *has_played_impact = true;
+        }
+    }
 
     ctx.request_repaint();
 
@@ -246,21 +262,35 @@ pub fn update(
     SplashStatus::Ongoing
 }
 
+pub struct SplashPaintContext<'a> {
+    pub ctx: &'a egui::Context,
+    pub start_time: f64,
+    pub exit_start_time: Option<f64>,
+    pub voxels: &'a [Voxel],
+    pub clouds: &'a [Cloud],
+    pub stars: &'a [Star],
+    pub moon_features: &'a [MoonFeature],
+    pub mouse_influence: Vec2,
+    pub is_dark: bool,
+    pub loading_text: &'a str,
+    pub draw_list: &'a RefCell<Vec<DrawListEntry>>,
+}
+
 /// Paint the splash screen
-#[allow(clippy::too_many_arguments)]
-pub fn paint(
-    ctx: &egui::Context,
-    start_time: f64,
-    exit_start_time: Option<f64>,
-    voxels: &[Voxel],
-    clouds: &[Cloud],
-    stars: &[Star],
-    moon_features: &[MoonFeature],
-    mouse_influence: Vec2,
-    is_dark: bool,
-    loading_text: &str,
-    draw_list: &RefCell<Vec<DrawListEntry>>,
-) -> bool {
+pub fn paint(paint_ctx: SplashPaintContext<'_>) -> bool {
+    let SplashPaintContext {
+        ctx,
+        start_time,
+        exit_start_time,
+        voxels,
+        clouds,
+        stars,
+        moon_features,
+        mouse_influence,
+        is_dark,
+        loading_text,
+        draw_list,
+    } = paint_ctx;
     let mut theme_clicked = false;
     let now = ctx.input(|i| i.time);
     let t = (now - start_time) as f32;

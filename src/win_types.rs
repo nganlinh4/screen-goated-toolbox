@@ -17,7 +17,7 @@ impl SendHwnd {
     }
 
     pub fn as_isize(&self) -> isize {
-        self.0 .0 as isize
+        self.0.0 as isize
     }
 
     pub fn from_isize(val: isize) -> Self {
@@ -25,7 +25,7 @@ impl SendHwnd {
     }
 }
 
-/// Thread-safe wrapper for HANDLE  
+/// Thread-safe wrapper for HANDLE
 #[derive(Clone, Copy, Debug)]
 pub struct SendHandle(pub HANDLE);
 unsafe impl Send for SendHandle {}

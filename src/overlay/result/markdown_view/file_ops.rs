@@ -52,43 +52,43 @@ pub fn generate_filename(content: &str) -> String {
                     .get("choices")
                     .and_then(|c| c.as_array())
                     .and_then(|c| c.first())
-                    && let Some(content) = choice
-                        .get("message")
-                        .and_then(|m| m.get("content"))
-                        .and_then(|s| s.as_str())
-                    {
-                        let mut name = content.trim().to_string();
+                && let Some(content) = choice
+                    .get("message")
+                    .and_then(|m| m.get("content"))
+                    .and_then(|s| s.as_str())
+            {
+                let mut name = content.trim().to_string();
 
-                        // Clean up quotes/markdown
-                        name = name.replace(['"', '\'', '`'], "");
+                // Clean up quotes/markdown
+                name = name.replace(['"', '\'', '`'], "");
 
-                        // Remove potential .html extension if the model disobeyed
-                        if name.to_lowercase().ends_with(".html") {
-                            name = name[..name.len() - 5].to_string();
-                        }
+                // Remove potential .html extension if the model disobeyed
+                if name.to_lowercase().ends_with(".html") {
+                    name = name[..name.len() - 5].to_string();
+                }
 
-                        // Remove trailing -html or _html if present to avoid redundancy
-                        let lower_name = name.to_lowercase();
-                        if lower_name.ends_with("-html") || lower_name.ends_with("_html") {
-                            name = name[..name.len() - 5].to_string();
-                        }
+                // Remove trailing -html or _html if present to avoid redundancy
+                let lower_name = name.to_lowercase();
+                if lower_name.ends_with("-html") || lower_name.ends_with("_html") {
+                    name = name[..name.len() - 5].to_string();
+                }
 
-                        // Basic validation: remove invalid characters for Windows filenames
-                        let invalid_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
-                        name = name
-                            .chars()
-                            .filter(|c| !invalid_chars.contains(c))
-                            .collect();
+                // Basic validation: remove invalid characters for Windows filenames
+                let invalid_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+                name = name
+                    .chars()
+                    .filter(|c| !invalid_chars.contains(c))
+                    .collect();
 
-                        if name.is_empty() {
-                            return default_name;
-                        }
+                if name.is_empty() {
+                    return default_name;
+                }
 
-                        // Always append .html
-                        name.push_str(".html");
+                // Always append .html
+                name.push_str(".html");
 
-                        return name;
-                    }
+                return name;
+            }
             default_name
         }
         Err(e) => {
@@ -103,17 +103,17 @@ pub fn generate_filename(content: &str) -> String {
 pub fn save_html_file(markdown_text: &str) -> bool {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
-    use windows::core::PCWSTR;
     use windows::Win32::System::Com::{
-        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+        CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
     };
     use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
     use windows::Win32::UI::Shell::KNOWN_FOLDER_FLAG;
     use windows::Win32::UI::Shell::{
-        FOLDERID_Downloads, FileSaveDialog, IFileSaveDialog, IShellItem,
-        SHCreateItemFromParsingName, SHGetKnownFolderPath, FOS_OVERWRITEPROMPT,
-        FOS_STRICTFILETYPES, SIGDN_FILESYSPATH,
+        FOLDERID_Downloads, FOS_OVERWRITEPROMPT, FOS_STRICTFILETYPES, FileSaveDialog,
+        IFileSaveDialog, IShellItem, SHCreateItemFromParsingName, SHGetKnownFolderPath,
+        SIGDN_FILESYSPATH,
     };
+    use windows::core::PCWSTR;
 
     unsafe {
         // Initialize COM
@@ -151,9 +151,9 @@ pub fn save_html_file(markdown_text: &str) -> bool {
             SHGetKnownFolderPath(&FOLDERID_Downloads, KNOWN_FOLDER_FLAG(0), None)
             && let Ok(folder_item) =
                 SHCreateItemFromParsingName::<PCWSTR, _, IShellItem>(PCWSTR(downloads_path.0), None)
-            {
-                let _ = dialog.SetFolder(&folder_item);
-            }
+        {
+            let _ = dialog.SetFolder(&folder_item);
+        }
 
         // Set default extension
         let default_ext: Vec<u16> = OsStr::new("html")

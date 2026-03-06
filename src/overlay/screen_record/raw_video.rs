@@ -188,14 +188,14 @@ fn set_clipboard_file_drop(path: &str) -> Result<(), String> {
         if preferred_format != 0
             && let Ok(h_effect) =
                 GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, std::mem::size_of::<u32>())
-            {
-                let effect_ptr = GlobalLock(h_effect) as *mut u32;
-                if !effect_ptr.is_null() {
-                    *effect_ptr = DROPEFFECT_COPY;
-                    let _ = GlobalUnlock(h_effect);
-                    let _ = SetClipboardData(preferred_format, Some(HANDLE(h_effect.0 as *mut _)));
-                }
+        {
+            let effect_ptr = GlobalLock(h_effect) as *mut u32;
+            if !effect_ptr.is_null() {
+                *effect_ptr = DROPEFFECT_COPY;
+                let _ = GlobalUnlock(h_effect);
+                let _ = SetClipboardData(preferred_format, Some(HANDLE(h_effect.0 as *mut _)));
             }
+        }
     }
 
     Ok(())

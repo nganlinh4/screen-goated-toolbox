@@ -20,7 +20,7 @@ use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
 
 use crate::capture::GraphicsCaptureApiHandler;
 use crate::d3d11::{self, create_direct3d_device, SendDirectX};
-use crate::frame::Frame;
+use crate::frame::{Frame, FrameParams};
 use crate::settings::{
     CaptureItemTypes, ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
     MinimumUpdateIntervalSettings, SecondaryWindowSettings,
@@ -116,6 +116,26 @@ pub struct GraphicsCaptureApi {
     frame_arrived_event_token: i64,
 }
 
+pub struct GraphicsCaptureApiParams<T, E>
+where
+    T: GraphicsCaptureApiHandler<Error = E> + Send + 'static,
+    E: Send + Sync + 'static,
+{
+    pub d3d_device: ID3D11Device,
+    pub d3d_device_context: ID3D11DeviceContext,
+    pub item: GraphicsCaptureItem,
+    pub item_type: CaptureItemTypes,
+    pub callback: Arc<Mutex<T>>,
+    pub cursor_capture_settings: CursorCaptureSettings,
+    pub draw_border_settings: DrawBorderSettings,
+    pub secondary_window_settings: SecondaryWindowSettings,
+    pub minimum_update_interval_settings: MinimumUpdateIntervalSettings,
+    pub dirty_region_settings: DirtyRegionSettings,
+    pub color_format: ColorFormat,
+    pub thread_id: u32,
+    pub result: Arc<Mutex<Option<E>>>,
+}
+
 impl GraphicsCaptureApi {
     /// Creates a new `GraphicsCaptureApi` instance.
     ///
@@ -139,26 +159,27 @@ impl GraphicsCaptureApi {
     ///
     /// Returns a `Result` containing the new `GraphicsCaptureApi` instance if successful,
     /// or an `Error` if initialization fails.
-    #[allow(clippy::too_many_arguments)]
     #[inline]
-    pub fn new<
+    pub fn new<T, E>(params: GraphicsCaptureApiParams<T, E>) -> Result<Self, Error>
+    where
         T: GraphicsCaptureApiHandler<Error = E> + Send + 'static,
         E: Send + Sync + 'static,
-    >(
-        d3d_device: ID3D11Device,
-        d3d_device_context: ID3D11DeviceContext,
-        item: GraphicsCaptureItem,
-        item_type: CaptureItemTypes,
-        callback: Arc<Mutex<T>>,
-        cursor_capture_settings: CursorCaptureSettings,
-        draw_border_settings: DrawBorderSettings,
-        secondary_window_settings: SecondaryWindowSettings,
-        minimum_update_interval_settings: MinimumUpdateIntervalSettings,
-        dirty_region_settings: DirtyRegionSettings,
-        color_format: ColorFormat,
-        thread_id: u32,
-        result: Arc<Mutex<Option<E>>>,
-    ) -> Result<Self, Error> {
+    {
+        let GraphicsCaptureApiParams {
+            d3d_device,
+            d3d_device_context,
+            item,
+            item_type,
+            callback,
+            cursor_capture_settings,
+            draw_border_settings,
+            secondary_window_settings,
+            minimum_update_interval_settings,
+            dirty_region_settings,
+            color_format,
+            thread_id,
+            result,
+        } = params;
         // Check support
         if !Self::is_supported()? {
             return Err(Error::Unsupported);
@@ -336,18 +357,17 @@ impl GraphicsCaptureApi {
 
                 // Create a frame
                 let mut buffer = buffer_frame_pool.lock();
-                let mut frame = Frame::new(
-                    &d3d_device_frame_pool,
+                let mut frame = Frame::new(FrameParams {
+                    d3d_device: &d3d_device_frame_pool,
                     frame_surface,
                     frame_texture,
                     timestamp,
-                    &context,
-                    &mut buffer,
-                    texture_width,
-                    texture_height,
+                    context: &context,
+                    buffer: &mut buffer,
+                    size: (texture_width, texture_height),
                     color_format,
                     title_bar_height,
-                );
+                });
 
                 // Init internal capture control
                 let stop = Arc::new(AtomicBool::new(false));

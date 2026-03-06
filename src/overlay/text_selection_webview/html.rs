@@ -36,7 +36,7 @@ pub fn get_html(is_dark: bool, initial_text: &str) -> String {
             font-family: 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif;
             font-weight: 500;
         }}
-        
+
         /* Container for the gradient border */
         .badge-container {{
             position: relative;
@@ -59,12 +59,12 @@ pub fn get_html(is_dark: bool, initial_text: &str) -> String {
             width: 200%;
             height: 200%;
             background: conic-gradient(
-                from 0deg, 
-                transparent 0deg, 
-                var(--glow-color) 60deg, 
+                from 0deg,
+                transparent 0deg,
+                var(--glow-color) 60deg,
                 transparent 120deg,
-                transparent 180deg, 
-                var(--glow-color) 240deg, 
+                transparent 180deg,
+                var(--glow-color) 240deg,
                 transparent 300deg
             );
             animation: spin 3s linear infinite;
@@ -101,7 +101,7 @@ pub fn get_html(is_dark: bool, initial_text: &str) -> String {
             animation-duration: 1s; /* Faster spin */
             opacity: 1;
         }}
-        
+
         /* State: Idle */
         body:not(.selecting) .badge-glow {{
             --glow-color: {glow_base};

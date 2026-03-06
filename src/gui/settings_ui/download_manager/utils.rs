@@ -208,9 +208,10 @@ pub fn fetch_video_formats(
     if let Some(formats) = v.get("formats").and_then(|f| f.as_array()) {
         for f in formats {
             if let Some(h) = f.get("height").and_then(|h| h.as_u64())
-                && h > 0 {
-                    heights.insert(h as u32);
-                }
+                && h > 0
+            {
+                heights.insert(h as u32);
+            }
         }
     }
 
@@ -227,9 +228,10 @@ pub fn fetch_video_formats(
             if num_end_idx > 0 {
                 let num_str = &after_ws[..num_end_idx];
                 if let Ok(h) = num_str.parse::<u32>()
-                    && h > 0 {
-                        heights.insert(h);
-                    }
+                    && h > 0
+                {
+                    heights.insert(h);
+                }
             }
         }
     }

@@ -46,131 +46,133 @@ pub unsafe fn draw_direct_sdf_glow(
     time_offset: f32,
     alpha_mult: f32,
     is_glowing: bool,
-) { unsafe {
-    if pixels_ptr.is_null() {
-        return;
-    }
+) {
+    unsafe {
+        if pixels_ptr.is_null() {
+            return;
+        }
 
-    let pixels = std::slice::from_raw_parts_mut(pixels_ptr, (w * h) as usize);
-    let bx = (w as f32) / 2.0;
-    let by = (h as f32) / 2.0;
-    let center_x = bx;
-    let center_y = by;
-    let eff_radius = CORNER_RADIUS.min(bx).min(by);
+        let pixels = std::slice::from_raw_parts_mut(pixels_ptr, (w * h) as usize);
+        let bx = (w as f32) / 2.0;
+        let by = (h as f32) / 2.0;
+        let center_x = bx;
+        let center_y = by;
+        let eff_radius = CORNER_RADIUS.min(bx).min(by);
 
-    // ADAPTIVE GLOW SCALING: Scale based on window size to keep center hollow
-    // For small windows (e.g., 100px): scales to ~20px glow
-    // For large windows (e.g., 600px+): scales to 60px glow
-    let min_dim = (w as f32).min(h as f32);
-    let dynamic_base_scale = (min_dim * 0.2).clamp(20.0, 60.0);
+        // ADAPTIVE GLOW SCALING: Scale based on window size to keep center hollow
+        // For small windows (e.g., 100px): scales to ~20px glow
+        // For large windows (e.g., 600px+): scales to 60px glow
+        let min_dim = (w as f32).min(h as f32);
+        let dynamic_base_scale = (min_dim * 0.2).clamp(20.0, 60.0);
 
-    // Optimization: Skip the middle of the box to save CPU
-    // Increase margin slightly to ensure we don't process internal pixels
-    let safe_margin = 85.0;
-    let skip_min_x = center_x - bx + safe_margin;
-    let skip_max_x = center_x + bx - safe_margin;
-    let skip_min_y = center_y - by + safe_margin;
-    let skip_max_y = center_y + by - safe_margin;
+        // Optimization: Skip the middle of the box to save CPU
+        // Increase margin slightly to ensure we don't process internal pixels
+        let safe_margin = 85.0;
+        let skip_min_x = center_x - bx + safe_margin;
+        let skip_max_x = center_x + bx - safe_margin;
+        let skip_min_y = center_y - by + safe_margin;
+        let skip_max_y = center_y + by - safe_margin;
 
-    // Pre-calculate constants outside loop
-    let time_rad = time_offset.to_radians();
-    let glow_threshold = -dynamic_base_scale * 1.5;
+        // Pre-calculate constants outside loop
+        let time_rad = time_offset.to_radians();
+        let glow_threshold = -dynamic_base_scale * 1.5;
 
-    for y in 0..h {
-        let py = (y as f32) - center_y;
-        let fy = y as f32;
-        let is_y_safe = fy > skip_min_y && fy < skip_max_y;
+        for y in 0..h {
+            let py = (y as f32) - center_y;
+            let fy = y as f32;
+            let is_y_safe = fy > skip_min_y && fy < skip_max_y;
 
-        for x in 0..w {
-            let idx = (y * w + x) as usize;
+            for x in 0..w {
+                let idx = (y * w + x) as usize;
 
-            // Fast Path: Clear middle pixels and skip math entirely
-            if is_y_safe && (x as f32) > skip_min_x && (x as f32) < skip_max_x {
-                pixels[idx] = 0;
-                continue;
-            }
-
-            let px = (x as f32) - center_x;
-
-            // Standard SDF Logic
-            let qx = px.abs() - bx + eff_radius;
-            let qy = py.abs() - by + eff_radius;
-            let d = if qx > 0.0 && qy > 0.0 {
-                ((qx * qx + qy * qy).sqrt()) - eff_radius
-            } else {
-                qx.max(qy) - eff_radius
-            };
-
-            if d > 0.0 {
-                // Border Logic (Outer edge)
-                // Use explicit bounds to avoid expensive clamp if outside
-                if d > 2.0 {
+                // Fast Path: Clear middle pixels and skip math entirely
+                if is_y_safe && (x as f32) > skip_min_x && (x as f32) < skip_max_x {
                     pixels[idx] = 0;
                     continue;
                 }
 
-                let t = (d / 2.0).clamp(0.0, 1.0);
-                let aa = 1.0 - t * t * (3.0 - 2.0 * t);
+                let px = (x as f32) - center_x;
 
-                if aa > 0.0 {
-                    let a = (aa * 255.0 * alpha_mult) as u32;
-                    pixels[idx] = (a << 24) | (a << 16) | (a << 8) | a;
+                // Standard SDF Logic
+                let qx = px.abs() - bx + eff_radius;
+                let qy = py.abs() - by + eff_radius;
+                let d = if qx > 0.0 && qy > 0.0 {
+                    ((qx * qx + qy * qy).sqrt()) - eff_radius
                 } else {
-                    pixels[idx] = 0;
-                }
-            } else {
-                // Inner Glow Logic
-                if !is_glowing || d < glow_threshold {
-                    pixels[idx] = 0;
-                } else {
-                    let dist_in = d.abs();
+                    qx.max(qy) - eff_radius
+                };
 
-                    // OPTIMIZATION: Lazy Math
-                    // Only calculate atan2/sin/cos (Expensive!) if pixel is actually visible.
-                    // Use rough intensity check first to skip pixels that are too faint.
-
-                    let t_rough = (dist_in / (dynamic_base_scale * 1.4)).clamp(0.0, 1.0);
-                    let base_intensity_rough = (1.0 - t_rough).powi(3);
-
-                    if base_intensity_rough < 0.005 {
+                if d > 0.0 {
+                    // Border Logic (Outer edge)
+                    // Use explicit bounds to avoid expensive clamp if outside
+                    if d > 2.0 {
                         pixels[idx] = 0;
                         continue;
                     }
 
-                    // Now perform expensive math only for visible pixels
-                    let angle = py.atan2(px);
-                    let noise = (angle * 4.0 + time_rad * 2.0).sin() * 0.5;
-                    let local_glow_width =
-                        dynamic_base_scale + (noise * (dynamic_base_scale * 0.4));
+                    let t = (d / 2.0).clamp(0.0, 1.0);
+                    let aa = 1.0 - t * t * (3.0 - 2.0 * t);
 
-                    let t = (dist_in / local_glow_width).clamp(0.0, 1.0);
-                    let intensity = (1.0 - t).powi(3);
-                    let final_alpha = if dist_in < 3.0 { 1.0 } else { intensity };
-
-                    if final_alpha > 0.005 {
-                        let deg = angle.to_degrees() + 180.0;
-                        let hue = (deg + time_offset) % 360.0;
-
-                        let rgb = if dist_in < 2.5 {
-                            0x00FFFFFF
-                        } else {
-                            hsv_to_rgb(hue, 0.8, 1.0)
-                        };
-
-                        let a = (final_alpha * 255.0 * alpha_mult) as u32;
-                        let r = ((rgb >> 16) & 0xFF) * a / 255;
-                        let g = ((rgb >> 8) & 0xFF) * a / 255;
-                        let b = (rgb & 0xFF) * a / 255;
-
-                        pixels[idx] = (a << 24) | (r << 16) | (g << 8) | b;
+                    if aa > 0.0 {
+                        let a = (aa * 255.0 * alpha_mult) as u32;
+                        pixels[idx] = (a << 24) | (a << 16) | (a << 8) | a;
                     } else {
                         pixels[idx] = 0;
+                    }
+                } else {
+                    // Inner Glow Logic
+                    if !is_glowing || d < glow_threshold {
+                        pixels[idx] = 0;
+                    } else {
+                        let dist_in = d.abs();
+
+                        // OPTIMIZATION: Lazy Math
+                        // Only calculate atan2/sin/cos (Expensive!) if pixel is actually visible.
+                        // Use rough intensity check first to skip pixels that are too faint.
+
+                        let t_rough = (dist_in / (dynamic_base_scale * 1.4)).clamp(0.0, 1.0);
+                        let base_intensity_rough = (1.0 - t_rough).powi(3);
+
+                        if base_intensity_rough < 0.005 {
+                            pixels[idx] = 0;
+                            continue;
+                        }
+
+                        // Now perform expensive math only for visible pixels
+                        let angle = py.atan2(px);
+                        let noise = (angle * 4.0 + time_rad * 2.0).sin() * 0.5;
+                        let local_glow_width =
+                            dynamic_base_scale + (noise * (dynamic_base_scale * 0.4));
+
+                        let t = (dist_in / local_glow_width).clamp(0.0, 1.0);
+                        let intensity = (1.0 - t).powi(3);
+                        let final_alpha = if dist_in < 3.0 { 1.0 } else { intensity };
+
+                        if final_alpha > 0.005 {
+                            let deg = angle.to_degrees() + 180.0;
+                            let hue = (deg + time_offset) % 360.0;
+
+                            let rgb = if dist_in < 2.5 {
+                                0x00FFFFFF
+                            } else {
+                                hsv_to_rgb(hue, 0.8, 1.0)
+                            };
+
+                            let a = (final_alpha * 255.0 * alpha_mult) as u32;
+                            let r = ((rgb >> 16) & 0xFF) * a / 255;
+                            let g = ((rgb >> 8) & 0xFF) * a / 255;
+                            let b = (rgb & 0xFF) * a / 255;
+
+                            pixels[idx] = (a << 24) | (r << 16) | (g << 8) | b;
+                        } else {
+                            pixels[idx] = 0;
+                        }
                     }
                 }
             }
         }
     }
-}}
+}
 
 // === MINIMAL GRAPHICS MODE ===
 // Super lightweight rendering for weak computers.
@@ -184,54 +186,56 @@ pub unsafe fn draw_minimal_glow(
     time_offset: f32,
     _alpha_mult: f32,
     is_glowing: bool,
-) { unsafe {
-    if pixels_ptr.is_null() {
-        return;
-    }
+) {
+    unsafe {
+        if pixels_ptr.is_null() {
+            return;
+        }
 
-    let pixels = std::slice::from_raw_parts_mut(pixels_ptr, (w * h) as usize);
+        let pixels = std::slice::from_raw_parts_mut(pixels_ptr, (w * h) as usize);
 
-    // Clear all pixels first (transparent)
-    for pixel in pixels.iter_mut() {
-        *pixel = 0;
-    }
+        // Clear all pixels first (transparent)
+        for pixel in pixels.iter_mut() {
+            *pixel = 0;
+        }
 
-    // Draw white border (1 pixel thick)
-    let white: u32 = 0xFFFFFFFF; // ARGB: fully opaque white
+        // Draw white border (1 pixel thick)
+        let white: u32 = 0xFFFFFFFF; // ARGB: fully opaque white
 
-    // Top and bottom edges
-    for x in 0..w {
-        pixels[x as usize] = white; // Top row
-        pixels[((h - 1) * w + x) as usize] = white; // Bottom row
-    }
-    // Left and right edges
-    for y in 0..h {
-        pixels[(y * w) as usize] = white; // Left column
-        pixels[(y * w + w - 1) as usize] = white; // Right column
-    }
+        // Top and bottom edges
+        for x in 0..w {
+            pixels[x as usize] = white; // Top row
+            pixels[((h - 1) * w + x) as usize] = white; // Bottom row
+        }
+        // Left and right edges
+        for y in 0..h {
+            pixels[(y * w) as usize] = white; // Left column
+            pixels[(y * w + w - 1) as usize] = white; // Right column
+        }
 
-    // Draw bouncing green scan line if glowing (processing)
-    if is_glowing {
-        // Use time_offset to calculate scan line position
-        // The scan line bounces up and down between 2px from edges
-        let cycle = (time_offset % 360.0) / 180.0; // 0.0 to 2.0
-        let t = if cycle <= 1.0 { cycle } else { 2.0 - cycle }; // 0.0 to 1.0 (bounce)
+        // Draw bouncing green scan line if glowing (processing)
+        if is_glowing {
+            // Use time_offset to calculate scan line position
+            // The scan line bounces up and down between 2px from edges
+            let cycle = (time_offset % 360.0) / 180.0; // 0.0 to 2.0
+            let t = if cycle <= 1.0 { cycle } else { 2.0 - cycle }; // 0.0 to 1.0 (bounce)
 
-        let margin = 3;
-        let scan_range = h - (margin * 2);
-        if scan_range > 0 {
-            let scan_y = margin + ((t * scan_range as f32) as i32).clamp(0, scan_range - 1);
+            let margin = 3;
+            let scan_range = h - (margin * 2);
+            if scan_range > 0 {
+                let scan_y = margin + ((t * scan_range as f32) as i32).clamp(0, scan_range - 1);
 
-            // Draw 2px thick green line
-            let green: u32 = 0xFF00FF00; // ARGB: fully opaque green
-            for line_offset in 0..2 {
-                let y = scan_y + line_offset;
-                if y > 0 && y < h - 1 {
-                    for x in margin..(w - margin) {
-                        pixels[(y * w + x) as usize] = green;
+                // Draw 2px thick green line
+                let green: u32 = 0xFF00FF00; // ARGB: fully opaque green
+                for line_offset in 0..2 {
+                    let y = scan_y + line_offset;
+                    if y > 0 && y < h - 1 {
+                        for x in margin..(w - margin) {
+                            pixels[(y * w + x) as usize] = green;
+                        }
                     }
                 }
             }
         }
     }
-}}
+}

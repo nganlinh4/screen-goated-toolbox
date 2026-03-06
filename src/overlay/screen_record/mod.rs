@@ -461,177 +461,179 @@ unsafe extern "system" fn sr_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    match msg {
-        WM_APP_SHOW => {
-            let _ = ShowWindow(hwnd, SW_SHOW);
-            let _ = SetForegroundWindow(hwnd);
-            let _ = SetFocus(Some(hwnd));
-            // Push current theme/lang on show
-            push_settings_to_webview();
-            LRESULT(0)
-        }
-        WM_APP_UPDATE_SETTINGS => {
-            push_settings_to_webview();
-            LRESULT(0)
-        }
-        WM_ERASEBKGND => {
-            LRESULT(1) // Suppress — WebView covers full client area
-        }
-        WM_CLOSE => {
-            let _ = ShowWindow(hwnd, SW_HIDE);
-            LRESULT(0)
-        }
-        WM_DESTROY => {
-            PostQuitMessage(0);
-            LRESULT(0)
-        }
-        WM_NCCALCSIZE => {
-            if wparam.0 == 1 {
-                let params = &mut *(lparam.0 as *mut NCCALCSIZE_PARAMS);
-                if IsZoomed(hwnd).as_bool() {
-                    let frame_x =
-                        GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
-                    let frame_y =
-                        GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
-                    params.rgrc[0].left += frame_x;
-                    params.rgrc[0].top += frame_y;
-                    params.rgrc[0].right -= frame_x;
-                    params.rgrc[0].bottom -= frame_y;
+) -> LRESULT {
+    unsafe {
+        match msg {
+            WM_APP_SHOW => {
+                let _ = ShowWindow(hwnd, SW_SHOW);
+                let _ = SetForegroundWindow(hwnd);
+                let _ = SetFocus(Some(hwnd));
+                // Push current theme/lang on show
+                push_settings_to_webview();
+                LRESULT(0)
+            }
+            WM_APP_UPDATE_SETTINGS => {
+                push_settings_to_webview();
+                LRESULT(0)
+            }
+            WM_ERASEBKGND => {
+                LRESULT(1) // Suppress — WebView covers full client area
+            }
+            WM_CLOSE => {
+                let _ = ShowWindow(hwnd, SW_HIDE);
+                LRESULT(0)
+            }
+            WM_DESTROY => {
+                PostQuitMessage(0);
+                LRESULT(0)
+            }
+            WM_NCCALCSIZE => {
+                if wparam.0 == 1 {
+                    let params = &mut *(lparam.0 as *mut NCCALCSIZE_PARAMS);
+                    if IsZoomed(hwnd).as_bool() {
+                        let frame_x =
+                            GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+                        let frame_y =
+                            GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+                        params.rgrc[0].left += frame_x;
+                        params.rgrc[0].top += frame_y;
+                        params.rgrc[0].right -= frame_x;
+                        params.rgrc[0].bottom -= frame_y;
+                    }
                 }
+                LRESULT(0)
             }
-            LRESULT(0)
-        }
-        WM_NCHITTEST => {
-            let x = lparam.0 as i16 as i32;
-            let y = (lparam.0 >> 16) as i16 as i32;
+            WM_NCHITTEST => {
+                let x = lparam.0 as i16 as i32;
+                let y = (lparam.0 >> 16) as i16 as i32;
 
-            // GetWindowRect includes the invisible DWM shadow (~7px each side).
-            // Use DWMWA_EXTENDED_FRAME_BOUNDS for the actual visible rect so resize
-            // zones are measured from the visible edge, not from inside the shadow.
-            let mut rect = RECT::default();
-            let _ = GetWindowRect(hwnd, &mut rect);
-            let mut frame = rect;
-            let _ = DwmGetWindowAttribute(
-                hwnd,
-                DWMWA_EXTENDED_FRAME_BOUNDS,
-                &mut frame as *mut _ as *mut std::ffi::c_void,
-                std::mem::size_of::<RECT>() as u32,
-            );
-
-            let border = 6; // px into visible area; shadow zone is always resize
-            let title_height = 44;
-
-            // Resize zones: shadow (outside visible) + `border` px inside visible
-            let top = frame.top + border;
-            let bottom = frame.bottom - border;
-            let left = frame.left + border;
-            let right = frame.right - border;
-
-            if y < top {
-                if x < left {
-                    return LRESULT(HTTOPLEFT as isize);
-                }
-                if x > right {
-                    return LRESULT(HTTOPRIGHT as isize);
-                }
-                return LRESULT(HTTOP as isize);
-            }
-            if y > bottom {
-                if x < left {
-                    return LRESULT(HTBOTTOMLEFT as isize);
-                }
-                if x > right {
-                    return LRESULT(HTBOTTOMRIGHT as isize);
-                }
-                return LRESULT(HTBOTTOM as isize);
-            }
-            if x < left {
-                return LRESULT(HTLEFT as isize);
-            }
-            if x > right {
-                return LRESULT(HTRIGHT as isize);
-            }
-
-            if y < frame.top + title_height {
-                return LRESULT(HTCLIENT as isize);
-            }
-
-            LRESULT(HTCLIENT as isize)
-        }
-        WM_GETMINMAXINFO => {
-            let info = &mut *(lparam.0 as *mut MINMAXINFO);
-            info.ptMinTrackSize.x = 800;
-            info.ptMinTrackSize.y = 500;
-            LRESULT(0)
-        }
-        WM_EXITSIZEMOVE => {
-            // Persist restored (non-maximized/minimized) screen-record window size.
-            if !IsZoomed(hwnd).as_bool() && !IsIconic(hwnd).as_bool() {
+                // GetWindowRect includes the invisible DWM shadow (~7px each side).
+                // Use DWMWA_EXTENDED_FRAME_BOUNDS for the actual visible rect so resize
+                // zones are measured from the visible edge, not from inside the shadow.
                 let mut rect = RECT::default();
                 let _ = GetWindowRect(hwnd, &mut rect);
-                let w = (rect.right - rect.left).max(800);
-                let h = (rect.bottom - rect.top).max(500);
-                {
-                    let mut app = crate::APP.lock().unwrap();
-                    app.config.screen_record_window_size = (w, h);
-                    crate::config::save_config(&app.config);
+                let mut frame = rect;
+                let _ = DwmGetWindowAttribute(
+                    hwnd,
+                    DWMWA_EXTENDED_FRAME_BOUNDS,
+                    &mut frame as *mut _ as *mut std::ffi::c_void,
+                    std::mem::size_of::<RECT>() as u32,
+                );
+
+                let border = 6; // px into visible area; shadow zone is always resize
+                let title_height = 44;
+
+                // Resize zones: shadow (outside visible) + `border` px inside visible
+                let top = frame.top + border;
+                let bottom = frame.bottom - border;
+                let left = frame.left + border;
+                let right = frame.right - border;
+
+                if y < top {
+                    if x < left {
+                        return LRESULT(HTTOPLEFT as isize);
+                    }
+                    if x > right {
+                        return LRESULT(HTTOPRIGHT as isize);
+                    }
+                    return LRESULT(HTTOP as isize);
                 }
+                if y > bottom {
+                    if x < left {
+                        return LRESULT(HTBOTTOMLEFT as isize);
+                    }
+                    if x > right {
+                        return LRESULT(HTBOTTOMRIGHT as isize);
+                    }
+                    return LRESULT(HTBOTTOM as isize);
+                }
+                if x < left {
+                    return LRESULT(HTLEFT as isize);
+                }
+                if x > right {
+                    return LRESULT(HTRIGHT as isize);
+                }
+
+                if y < frame.top + title_height {
+                    return LRESULT(HTCLIENT as isize);
+                }
+
+                LRESULT(HTCLIENT as isize)
             }
-            LRESULT(0)
-        }
-        WM_SIZE => {
-            SR_WEBVIEW.with(|wv| {
-                if let Some(webview) = wv.borrow().as_ref() {
-                    let mut r = RECT::default();
-                    let _ = GetClientRect(hwnd, &mut r);
-                    let w = (r.right - r.left).max(0);
-                    let h = (r.bottom - r.top).max(0);
-                    let _ = webview.set_bounds(Rect {
-                        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
-                            0, 0,
-                        )),
-                        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                            w as u32, h as u32,
-                        )),
-                    });
+            WM_GETMINMAXINFO => {
+                let info = &mut *(lparam.0 as *mut MINMAXINFO);
+                info.ptMinTrackSize.x = 800;
+                info.ptMinTrackSize.y = 500;
+                LRESULT(0)
+            }
+            WM_EXITSIZEMOVE => {
+                // Persist restored (non-maximized/minimized) screen-record window size.
+                if !IsZoomed(hwnd).as_bool() && !IsIconic(hwnd).as_bool() {
+                    let mut rect = RECT::default();
+                    let _ = GetWindowRect(hwnd, &mut rect);
+                    let w = (rect.right - rect.left).max(800);
+                    let h = (rect.bottom - rect.top).max(500);
+                    {
+                        let mut app = crate::APP.lock().unwrap();
+                        app.config.screen_record_window_size = (w, h);
+                        crate::config::save_config(&app.config);
+                    }
                 }
-            });
-            LRESULT(0)
-        }
-        WM_APP_TOGGLE => {
-            SR_WEBVIEW.with(|wv| {
-                if let Some(webview) = wv.borrow().as_ref() {
-                    let _ = webview.evaluate_script(
-                        "window.dispatchEvent(new CustomEvent('toggle-recording'));",
-                    );
-                }
-            });
-            LRESULT(0)
-        }
-        WM_SETFOCUS => {
-            SR_WEBVIEW.with(|wv| {
-                if let Some(webview) = wv.borrow().as_ref() {
-                    let _ = webview.focus();
-                }
-            });
-            LRESULT(0)
-        }
-        WM_APP_RUN_SCRIPT => {
-            let script_ptr = lparam.0 as *mut String;
-            if !script_ptr.is_null() {
-                let script = Box::from_raw(script_ptr);
+                LRESULT(0)
+            }
+            WM_SIZE => {
                 SR_WEBVIEW.with(|wv| {
                     if let Some(webview) = wv.borrow().as_ref() {
-                        let _ = webview.evaluate_script(&script);
+                        let mut r = RECT::default();
+                        let _ = GetClientRect(hwnd, &mut r);
+                        let w = (r.right - r.left).max(0);
+                        let h = (r.bottom - r.top).max(0);
+                        let _ = webview.set_bounds(Rect {
+                            position: wry::dpi::Position::Physical(
+                                wry::dpi::PhysicalPosition::new(0, 0),
+                            ),
+                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                                w as u32, h as u32,
+                            )),
+                        });
                     }
                 });
+                LRESULT(0)
             }
-            LRESULT(0)
+            WM_APP_TOGGLE => {
+                SR_WEBVIEW.with(|wv| {
+                    if let Some(webview) = wv.borrow().as_ref() {
+                        let _ = webview.evaluate_script(
+                            "window.dispatchEvent(new CustomEvent('toggle-recording'));",
+                        );
+                    }
+                });
+                LRESULT(0)
+            }
+            WM_SETFOCUS => {
+                SR_WEBVIEW.with(|wv| {
+                    if let Some(webview) = wv.borrow().as_ref() {
+                        let _ = webview.focus();
+                    }
+                });
+                LRESULT(0)
+            }
+            WM_APP_RUN_SCRIPT => {
+                let script_ptr = lparam.0 as *mut String;
+                if !script_ptr.is_null() {
+                    let script = Box::from_raw(script_ptr);
+                    SR_WEBVIEW.with(|wv| {
+                        if let Some(webview) = wv.borrow().as_ref() {
+                            let _ = webview.evaluate_script(&script);
+                        }
+                    });
+                }
+                LRESULT(0)
+            }
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}}
+}
 
 // --- HWND WRAPPER ---
 
@@ -770,77 +772,78 @@ fn push_settings_to_webview() {
 
 // --- WINDOW CREATION ---
 
-unsafe fn internal_create_sr_loop() { unsafe {
-    let instance = GetModuleHandleW(None).unwrap();
-    let class_name = windows::core::w!("ScreenRecord_Class");
+unsafe fn internal_create_sr_loop() {
+    unsafe {
+        let instance = GetModuleHandleW(None).unwrap();
+        let class_name = windows::core::w!("ScreenRecord_Class");
 
-    REGISTER_SR_CLASS.call_once(|| {
-        let wc = WNDCLASSW {
-            lpfnWndProc: Some(sr_wnd_proc),
-            hInstance: instance.into(),
-            lpszClassName: class_name,
-            hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
-            hbrBackground: CreateSolidBrush(COLORREF(0x00111111)),
-            ..Default::default()
+        REGISTER_SR_CLASS.call_once(|| {
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(sr_wnd_proc),
+                hInstance: instance.into(),
+                lpszClassName: class_name,
+                hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
+                hbrBackground: CreateSolidBrush(COLORREF(0x00111111)),
+                ..Default::default()
+            };
+            let _ = RegisterClassW(&wc);
+        });
+
+        let screen_w = GetSystemMetrics(SM_CXSCREEN);
+        let screen_h = GetSystemMetrics(SM_CYSCREEN);
+
+        let (width, height) = {
+            let app = crate::APP.lock().unwrap();
+            let (w, h) = app.config.screen_record_window_size;
+            (w.max(1000), h.max(500))
         };
-        let _ = RegisterClassW(&wc);
-    });
+        let x = (screen_w - width) / 2;
+        let y = (screen_h - height) / 2;
 
-    let screen_w = GetSystemMetrics(SM_CXSCREEN);
-    let screen_h = GetSystemMetrics(SM_CYSCREEN);
+        let hwnd = CreateWindowExW(
+            WS_EX_APPWINDOW,
+            class_name,
+            windows::core::w!("SGT Record"),
+            WS_POPUP
+                | WS_THICKFRAME
+                | WS_CAPTION
+                | WS_SYSMENU
+                | WS_MINIMIZEBOX
+                | WS_MAXIMIZEBOX
+                | WS_CLIPCHILDREN,
+            x,
+            y,
+            width,
+            height,
+            None,
+            None,
+            Some(instance.into()),
+            None,
+        )
+        .unwrap();
 
-    let (width, height) = {
-        let app = crate::APP.lock().unwrap();
-        let (w, h) = app.config.screen_record_window_size;
-        (w.max(1000), h.max(500))
-    };
-    let x = (screen_w - width) / 2;
-    let y = (screen_h - height) / 2;
+        SR_HWND = SendHwnd(hwnd);
 
-    let hwnd = CreateWindowExW(
-        WS_EX_APPWINDOW,
-        class_name,
-        windows::core::w!("SGT Record"),
-        WS_POPUP
-            | WS_THICKFRAME
-            | WS_CAPTION
-            | WS_SYSMENU
-            | WS_MINIMIZEBOX
-            | WS_MAXIMIZEBOX
-            | WS_CLIPCHILDREN,
-        x,
-        y,
-        width,
-        height,
-        None,
-        None,
-        Some(instance.into()),
-        None,
-    )
-    .unwrap();
+        let corner_pref = DWMWCP_ROUND;
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &corner_pref as *const _ as *const std::ffi::c_void,
+            std::mem::size_of_val(&corner_pref) as u32,
+        );
 
-    SR_HWND = SendHwnd(hwnd);
+        let wrapper = HwndWrapper(hwnd);
 
-    let corner_pref = DWMWCP_ROUND;
-    let _ = DwmSetWindowAttribute(
-        hwnd,
-        DWMWA_WINDOW_CORNER_PREFERENCE,
-        &corner_pref as *const _ as *const std::ffi::c_void,
-        std::mem::size_of_val(&corner_pref) as u32,
-    );
+        SR_WEB_CONTEXT.with(|ctx| {
+            if ctx.borrow().is_none() {
+                let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
+                *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
+            }
+        });
 
-    let wrapper = HwndWrapper(hwnd);
+        std::thread::sleep(std::time::Duration::from_millis(100));
 
-    SR_WEB_CONTEXT.with(|ctx| {
-        if ctx.borrow().is_none() {
-            let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
-            *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
-        }
-    });
-
-    std::thread::sleep(std::time::Duration::from_millis(100));
-
-    let font_style_tag = r#"<style id="sgt-font-face">
+        let font_style_tag = r#"<style id="sgt-font-face">
         @font-face {
             font-family: 'Google Sans Flex';
             src: url('/font.ttf') format('truetype');
@@ -849,43 +852,43 @@ unsafe fn internal_create_sr_loop() { unsafe {
             font-display: swap;
         }
     </style>"#
-        .to_string();
+            .to_string();
 
-    // Read initial theme/lang from config
-    let (init_lang, init_theme_mode) = {
-        let app = crate::APP.lock().unwrap();
-        (
-            app.config.ui_language.clone(),
-            app.config.theme_mode.clone(),
-        )
-    };
-    let init_theme = match init_theme_mode {
-        crate::config::ThemeMode::Dark => "dark",
-        crate::config::ThemeMode::Light => "light",
-        crate::config::ThemeMode::System => {
-            if crate::gui::utils::is_system_in_dark_mode() {
-                "dark"
-            } else {
-                "light"
+        // Read initial theme/lang from config
+        let (init_lang, init_theme_mode) = {
+            let app = crate::APP.lock().unwrap();
+            (
+                app.config.ui_language.clone(),
+                app.config.theme_mode.clone(),
+            )
+        };
+        let init_theme = match init_theme_mode {
+            crate::config::ThemeMode::Dark => "dark",
+            crate::config::ThemeMode::Light => "light",
+            crate::config::ThemeMode::System => {
+                if crate::gui::utils::is_system_in_dark_mode() {
+                    "dark"
+                } else {
+                    "light"
+                }
             }
-        }
-    };
-    let webview_background_rgba = if init_theme == "dark" {
-        (9, 9, 11, 255)
-    } else {
-        (250, 250, 250, 255)
-    };
-    let themed_html_root = if init_theme == "dark" {
-        "<html lang=\"en\" class=\"dark\" data-sr-initial-theme=\"dark\">"
-    } else {
-        "<html lang=\"en\" data-sr-initial-theme=\"light\">"
-    };
+        };
+        let webview_background_rgba = if init_theme == "dark" {
+            (9, 9, 11, 255)
+        } else {
+            (250, 250, 250, 255)
+        };
+        let themed_html_root = if init_theme == "dark" {
+            "<html lang=\"en\" class=\"dark\" data-sr-initial-theme=\"dark\">"
+        } else {
+            "<html lang=\"en\" data-sr-initial-theme=\"light\">"
+        };
 
-    // Set window icon based on initial theme
-    crate::gui::utils::set_window_icon(hwnd, init_theme == "dark");
+        // Set window icon based on initial theme
+        crate::gui::utils::set_window_icon(hwnd, init_theme == "dark");
 
-    let init_script = format!(
-        r#"
+        let init_script = format!(
+            r#"
         (function() {{
             const originalPostMessage = window.ipc.postMessage;
             window.isWry = true;
@@ -916,12 +919,12 @@ unsafe fn internal_create_sr_loop() { unsafe {
             }}
         }})();
     "#
-    );
+        );
 
-    let webview_result = {
-        let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
+        let webview_result = {
+            let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
 
-        SR_WEB_CONTEXT.with(|ctx| {
+            SR_WEB_CONTEXT.with(|ctx| {
             let mut ctx_ref = ctx.borrow_mut();
             let mut builder = WebViewBuilder::new_with_web_context(ctx_ref.as_mut().unwrap())
                 .with_background_color(webview_background_rgba)
@@ -1446,51 +1449,52 @@ unsafe fn internal_create_sr_loop() { unsafe {
             builder = crate::overlay::html_components::font_manager::configure_webview(builder);
             builder.build_as_child(&wrapper)
         })
-    };
+        };
 
-    let webview = match webview_result {
-        Ok(wv) => wv,
-        Err(e) => {
-            eprintln!("Failed to create ScreenRecord WebView: {:?}", e);
-            let _ = DestroyWindow(hwnd);
-            SR_HWND = SendHwnd::default();
-            return;
+        let webview = match webview_result {
+            Ok(wv) => wv,
+            Err(e) => {
+                eprintln!("Failed to create ScreenRecord WebView: {:?}", e);
+                let _ = DestroyWindow(hwnd);
+                SR_HWND = SendHwnd::default();
+                return;
+            }
+        };
+        let mut r = RECT::default();
+        let _ = GetClientRect(hwnd, &mut r);
+        let _ = webview.set_bounds(Rect {
+            position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
+            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                (r.right - r.left).max(0) as u32,
+                (r.bottom - r.top).max(0) as u32,
+            )),
+        });
+
+        SR_WEBVIEW.with(|wv| {
+            *wv.borrow_mut() = Some(webview);
+        });
+
+        IS_WARMED_UP = true;
+
+        let port = ipc::start_global_media_server().unwrap_or(0);
+        SERVER_PORT.store(port, std::sync::atomic::Ordering::SeqCst);
+
+        // Prepare export GPU pipeline in the background so first export starts faster.
+        thread::spawn(|| {
+            native_export::warm_up_export_pipeline();
+        });
+
+        let mut msg = MSG::default();
+        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+            let _ = TranslateMessage(&msg);
+            let _ = DispatchMessageW(&msg);
         }
-    };
-    let mut r = RECT::default();
-    let _ = GetClientRect(hwnd, &mut r);
-    let _ = webview.set_bounds(Rect {
-        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
-        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-            (r.right - r.left).max(0) as u32,
-            (r.bottom - r.top).max(0) as u32,
-        )),
-    });
 
-    SR_WEBVIEW.with(|wv| {
-        *wv.borrow_mut() = Some(webview);
-    });
-
-    IS_WARMED_UP = true;
-
-    let port = ipc::start_global_media_server().unwrap_or(0);
-    SERVER_PORT.store(port, std::sync::atomic::Ordering::SeqCst);
-
-    // Prepare export GPU pipeline in the background so first export starts faster.
-    thread::spawn(|| {
-        native_export::warm_up_export_pipeline();
-    });
-
-    let mut msg = MSG::default();
-    while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-        let _ = TranslateMessage(&msg);
-        let _ = DispatchMessageW(&msg);
+        SR_WEBVIEW.with(|wv| {
+            *wv.borrow_mut() = None;
+        });
+        SR_HWND = SendHwnd::default();
+        IS_WARMED_UP = false;
+        IS_INITIALIZING = false;
     }
-
-    SR_WEBVIEW.with(|wv| {
-        *wv.borrow_mut() = None;
-    });
-    SR_HWND = SendHwnd::default();
-    IS_WARMED_UP = false;
-    IS_INITIALIZING = false;
-}}
+}
