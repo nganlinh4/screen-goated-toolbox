@@ -63,8 +63,41 @@ const TEXT_EXTENSIONS: &[&str] = &[
     ".env",
 ];
 
-// Perceived types
-const PERCEIVED_TYPES: &[&str] = &["text", "image", "audio"];
+const PROCESS_WITH_SGT_LABEL: &str = "Process with SGT";
+const PROCESS_WITH_SGT_VERB: &str = "SGT_Process";
+const LEGACY_PROCESS_WITH_SGT_VERB: &str = "Process with SGT";
+
+fn supported_extensions() -> impl Iterator<Item = &'static str> {
+    IMAGE_EXTENSIONS
+        .iter()
+        .chain(AUDIO_EXTENSIONS.iter())
+        .chain(TEXT_EXTENSIONS.iter())
+        .copied()
+}
+
+fn cleanup_legacy_context_menu_entries(hkcu: &RegKey) {
+    let legacy_perceived_types = ["text", "image", "audio"];
+
+    for verb in [PROCESS_WITH_SGT_VERB, LEGACY_PROCESS_WITH_SGT_VERB] {
+        let _ = hkcu.delete_subkey_all(format!("Software\\Classes\\*\\shell\\{verb}"));
+
+        for perceived_type in legacy_perceived_types {
+            let _ = hkcu.delete_subkey_all(format!(
+                "Software\\Classes\\SystemFileAssociations\\{}\\shell\\{}",
+                perceived_type, verb
+            ));
+        }
+
+        for extension in supported_extensions() {
+            let _ = hkcu.delete_subkey_all(format!(
+                "Software\\Classes\\SystemFileAssociations\\{}\\shell\\{}",
+                extension, verb
+            ));
+            let _ = hkcu
+                .delete_subkey_all(format!("Software\\Classes\\{}\\shell\\{}", extension, verb));
+        }
+    }
+}
 
 pub fn ensure_context_menu_entry() {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -79,44 +112,24 @@ pub fn ensure_context_menu_entry() {
         return;
     }
 
-    // 1. Remove the old global entry if it exists (Cleanup)
-    if let Ok(classes) = hkcu.open_subkey("Software\\Classes")
-        && let Ok(star) = classes.open_subkey("*")
-        && let Ok(shell) = star.open_subkey("shell")
-    {
-        let _ = shell.delete_subkey_all("SGT_Process");
-        let _ = shell.delete_subkey_all("Process with SGT");
-    }
+    cleanup_legacy_context_menu_entries(&hkcu);
 
-    // 2. Register for specific extensions AND Perceived Types via SystemFileAssociations
-    // Path: HKCU\Software\Classes\SystemFileAssociations\<Key>\shell\SGT_Process
-
-    let all_keys: Vec<&str> = PERCEIVED_TYPES
-        .iter()
-        .chain(IMAGE_EXTENSIONS.iter())
-        .chain(AUDIO_EXTENSIONS.iter())
-        .chain(TEXT_EXTENSIONS.iter())
-        .cloned()
-        .collect();
-
-    for key_name in all_keys {
-        // Use SystemFileAssociations for robust context menu addition
+    // Register only explicit supported extensions.
+    // Using perceived types like "text"/"image"/"audio" is too broad and can
+    // make SGT appear as the effective handler for unrelated/unassociated files.
+    for extension in supported_extensions() {
         let path = format!(
             "Software\\Classes\\SystemFileAssociations\\{}\\shell\\SGT_Process",
-            key_name
+            extension
         );
 
-        // We need to create the full path. create_subkey creates parents if missing.
         if let Ok((key, _)) = hkcu.create_subkey(&path) {
-            let _ = key.set_value("", &"Process with SGT");
+            let _ = key.set_value("", &PROCESS_WITH_SGT_LABEL);
             let _ = key.set_value("Icon", &exe_path_str);
-            // Prevent this verb from ever becoming the default double-click action
-            // when a file type has no other default handler
             let _ = key.set_value("NeverDefault", &"");
 
-            // Command
             if let Ok((cmd_key, _)) = key.create_subkey("command") {
-                let cmd_str = format!("\"{}\" \"%1\"", exe_path_str);
+                let cmd_str = format!("\"{}\" --process-with-sgt \"%1\"", exe_path_str);
                 let _ = cmd_key.set_value("", &cmd_str);
             }
         }

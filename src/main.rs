@@ -65,6 +65,8 @@ lazy_static! {
     }));
 }
 
+const PROCESS_WITH_SGT_FLAG: &str = "--process-with-sgt";
+
 fn parse_arg_value(args: &[String], key: &str) -> Option<String> {
     let mut idx = 0usize;
     while idx < args.len() {
@@ -73,6 +75,24 @@ fn parse_arg_value(args: &[String], key: &str) -> Option<String> {
         }
         idx += 1;
     }
+    None
+}
+
+fn find_process_with_sgt_file_arg(args: &[String]) -> Option<std::path::PathBuf> {
+    if !args.iter().any(|arg| arg == PROCESS_WITH_SGT_FLAG) {
+        return None;
+    }
+
+    for arg in args.iter().skip(1) {
+        if arg.starts_with("--") {
+            continue;
+        }
+        let path = std::path::PathBuf::from(arg);
+        if path.exists() && path.is_file() {
+            return Some(path);
+        }
+    }
+
     None
 }
 
@@ -267,18 +287,11 @@ fn main() -> eframe::Result<()> {
             if GetLastError() == ERROR_ALREADY_EXISTS {
                 // Another instance is running - pass arguments via temp file and signal it
                 let args: Vec<String> = std::env::args().collect();
-                for arg in args.iter().skip(1) {
-                    if arg.starts_with("--") {
-                        continue;
-                    }
-                    let path = std::path::PathBuf::from(arg);
-                    if path.exists() && path.is_file() {
-                        let temp_file = std::env::temp_dir().join("sgt_pending_file.txt");
-                        if let Ok(mut f) = std::fs::File::create(temp_file) {
-                            use std::io::Write;
-                            let _ = write!(f, "{}", path.to_string_lossy());
-                        }
-                        break;
+                if let Some(path) = find_process_with_sgt_file_arg(&args) {
+                    let temp_file = std::env::temp_dir().join("sgt_pending_file.txt");
+                    if let Ok(mut f) = std::fs::File::create(temp_file) {
+                        use std::io::Write;
+                        let _ = write!(f, "{}", path.to_string_lossy());
                     }
                 }
 
@@ -307,7 +320,7 @@ fn main() -> eframe::Result<()> {
 
     // Check for --restarted flag and file arguments
     let args: Vec<String> = std::env::args().collect();
-    let mut pending_file_path: Option<std::path::PathBuf> = None;
+    let pending_file_path = find_process_with_sgt_file_arg(&args);
 
     if args.iter().any(|arg| arg == "--restarted") {
         std::thread::spawn(|| {
@@ -318,18 +331,13 @@ fn main() -> eframe::Result<()> {
         });
     }
 
-    for arg in args.iter().skip(1) {
-        if arg.starts_with("--") {
-            continue;
-        }
-        let path = std::path::PathBuf::from(arg);
-        if path.exists() && path.is_file() {
-            crate::log_info!("Check arguments: Found valid file path: {:?}", path);
-            pending_file_path = Some(path);
-            break;
-        } else {
-            crate::log_info!("Check arguments: Invalid path or not a file: {:?}", arg);
-        }
+    if let Some(path) = &pending_file_path {
+        crate::log_info!(
+            "Check arguments: Found Process with SGT file path: {:?}",
+            path
+        );
+    } else if args.iter().any(|arg| arg == PROCESS_WITH_SGT_FLAG) {
+        crate::log_info!("Check arguments: Process with SGT flag present but no valid file path");
     }
 
     // Clear WebView data if scheduled
