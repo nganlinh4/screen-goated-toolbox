@@ -1,9 +1,10 @@
 import { forwardRef, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Video, Loader2, Play, Pause, Crop } from 'lucide-react';
-import { VideoSegment, BackgroundConfig } from '@/types/video';
+import { VideoSegment, BackgroundConfig, MousePosition } from '@/types/video';
 import { formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';
+import { getContainedRect, getLogicalCropSize, sampleCaptureDimensionsAtTime } from '@/lib/dynamicCapture';
 
 // ============================================================================
 // Placeholder
@@ -238,6 +239,8 @@ export function PlaybackControls({
 // ============================================================================
 interface CropOverlayProps {
   segment: VideoSegment;
+  mousePositions?: MousePosition[];
+  currentTime?: number;
   previewContainerRef: React.RefObject<HTMLDivElement>;
   videoRef: React.RefObject<HTMLVideoElement>;
   onUpdateSegment: (segment: VideoSegment) => void;
@@ -249,6 +252,8 @@ interface CropOverlayProps {
 
 export function CropOverlay({
   segment,
+  mousePositions = [],
+  currentTime = 0,
   previewContainerRef,
   videoRef,
   onUpdateSegment,
@@ -265,25 +270,19 @@ export function CropOverlay({
   const vidH = video.videoHeight;
 
   if (!vidW || !vidH) return null;
-
-  const containerRatio = containerRect.width / containerRect.height;
-  const videoRatio = vidW / vidH;
-
-  let renderW: number, renderH: number, renderTop: number, renderLeft: number;
-
-  if (containerRatio > videoRatio) {
-    renderH = containerRect.height;
-    renderW = renderH * videoRatio;
-    renderTop = 0;
-    renderLeft = (containerRect.width - renderW) / 2;
-  } else {
-    renderW = containerRect.width;
-    renderH = renderW / videoRatio;
-    renderLeft = 0;
-    renderTop = (containerRect.height - renderH) / 2;
-  }
-
   const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
+  const captureDims = sampleCaptureDimensionsAtTime(currentTime, mousePositions, vidW, vidH);
+  const logicalCrop = getLogicalCropSize(captureDims.width, captureDims.height, crop, 0);
+  const contained = getContainedRect(
+    containerRect.width,
+    containerRect.height,
+    logicalCrop.width,
+    logicalCrop.height
+  );
+  const renderW = contained.width;
+  const renderH = contained.height;
+  const renderLeft = contained.left;
+  const renderTop = contained.top;
 
   const handleResizeStart = (e: React.MouseEvent, type: string) => {
     e.preventDefault();

@@ -25,6 +25,7 @@ import {
 import { calculateCurrentZoomStateInternal } from './cameraZoom';
 import { createCursorImageSet, ensureCursorAnimations } from './cursorAssets';
 import { drawFrame as drawFrameImpl, type RendererState } from './drawFrame';
+import { normalizeMousePositionsToVideoSpace } from '@/lib/dynamicCapture';
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -150,6 +151,7 @@ class VideoRenderer {
       processedCursorPositions: null,
       lastMousePositionsRef: null,
       lastCursorProcessSignature: '',
+      lastCursorNormalizationSignature: '',
       calculateCurrentZoomState: (currentTime, segment, viewW, viewH, srcCropW?, srcCropH?) =>
         this.calculateCurrentZoomState(currentTime, segment, viewW, viewH, srcCropW, srcCropH),
       requestRedraw: () => {
@@ -196,7 +198,12 @@ class VideoRenderer {
     const duration = Math.max(segment.trimEnd, ...(segment.trimSegments || []).map(s => s.endTime));
     const trimSegments = getTrimSegments(segment, duration);
 
-    const processed = processCursorPositions(mousePositions, backgroundConfig);
+    const normalizedMousePositions = normalizeMousePositionsToVideoSpace(
+      mousePositions,
+      this.activeRenderContext?.video.videoWidth || 0,
+      this.activeRenderContext?.video.videoHeight || 0
+    );
+    const processed = processCursorPositions(normalizedMousePositions, backgroundConfig);
 
     let simSquishScale = 1.0;
     let simLastHoldTime = -1;

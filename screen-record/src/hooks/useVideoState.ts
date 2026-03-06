@@ -20,6 +20,7 @@ import {
   generateKeystrokeVisibilitySegments,
   rebuildKeystrokeVisibilitySegmentsForMode
 } from '@/lib/keystrokeVisibility';
+import { normalizeMousePositionsToVideoSpace } from '@/lib/dynamicCapture';
 
 const DEFAULT_KEYSTROKE_DELAY_SEC = 0;
 const KEYSTROKE_DELAY_KEY = 'screen-record-keystroke-delay-v1';
@@ -464,7 +465,9 @@ export function useRecording(props: UseRecordingProps) {
       const mouseData: MousePosition[] = rawMouseData.map(p => ({
         x: p.x, y: p.y, timestamp: p.timestamp,
         isClicked: p.isClicked !== undefined ? p.isClicked : p.is_clicked,
-        cursor_type: p.cursor_type || 'default'
+        cursor_type: p.cursor_type || 'default',
+        captureWidth: p.captureWidth ?? p.capture_width,
+        captureHeight: p.captureHeight ?? p.capture_height,
       }));
       setMousePositions(mouseData);
 
@@ -520,11 +523,18 @@ export function useRecording(props: UseRecordingProps) {
         const keystrokeEvents = buildKeystrokeEvents(rawInputEvents || [], timelineDuration);
         const segmentWithKeystrokes: VideoSegment = { ...baseSegment, keystrokeEvents };
 
-        const initialPointerSegments = generateCursorVisibility(segmentWithKeystrokes, mouseData, timelineDuration);
         const vidW = props.videoRef.current?.videoWidth || 0;
         const vidH = props.videoRef.current?.videoHeight || 0;
-        const initialAutoPath = (vidW > 0 && vidH > 0 && mouseData.length > 0)
-          ? autoZoomGenerator.generateMotionPath(baseSegment, mouseData, vidW, vidH)
+        const normalizedMouseData = (vidW > 0 && vidH > 0)
+          ? normalizeMousePositionsToVideoSpace(mouseData, vidW, vidH)
+          : mouseData;
+        const normalizedPointerSegments = generateCursorVisibility(
+          segmentWithKeystrokes,
+          normalizedMouseData,
+          timelineDuration
+        );
+        const initialAutoPath = (vidW > 0 && vidH > 0 && normalizedMouseData.length > 0)
+          ? autoZoomGenerator.generateMotionPath(baseSegment, normalizedMouseData, vidW, vidH)
           : [];
 
         const savedKeystrokeDelay = getSavedKeystrokeDelaySec();
@@ -546,7 +556,7 @@ export function useRecording(props: UseRecordingProps) {
         const initialSegment: VideoSegment = {
           ...baseSegment,
           crop: getSavedCropPref(),
-          cursorVisibilitySegments: wantSmartPointer ? initialPointerSegments : defaultPointerSeg,
+          cursorVisibilitySegments: wantSmartPointer ? normalizedPointerSegments : defaultPointerSeg,
           smoothMotionPath: wantAutoZoom ? initialAutoPath : [],
           zoomInfluencePoints: wantAutoZoom && initialAutoPath.length > 0
             ? [{ time: 0, value: 1.0 }, { time: timelineDuration, value: 1.0 }]
@@ -1423,8 +1433,16 @@ export function useAutoZoom(props: UseAutoZoomProps) {
     if (!props.mousePositions.length || !props.videoRef.current) return;
 
     const vid = props.videoRef.current;
+    const normalizedMousePositions = normalizeMousePositionsToVideoSpace(
+      props.mousePositions,
+      vid.videoWidth || 0,
+      vid.videoHeight || 0
+    );
     const motionPath = autoZoomGenerator.generateMotionPath(
-      props.segment, props.mousePositions, vid.videoWidth, vid.videoHeight
+      props.segment,
+      normalizedMousePositions,
+      vid.videoWidth,
+      vid.videoHeight
     );
 
     saveAutoZoomPref(true);
@@ -1457,6 +1475,7 @@ interface UseCursorHidingProps {
   mousePositions: MousePosition[];
   currentTime: number;
   duration: number;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
 }
 
 export function useCursorHiding(props: UseCursorHidingProps) {
@@ -1490,12 +1509,19 @@ export function useCursorHiding(props: UseCursorHidingProps) {
 
     // Default or empty → generate from mouse data
     saveSmartPointerPref(true);
-    const segments = generateCursorVisibility(props.segment, props.mousePositions, props.duration);
+    const vidW = props.videoRef.current?.videoWidth || 0;
+    const vidH = props.videoRef.current?.videoHeight || 0;
+    const normalizedMousePositions = normalizeMousePositionsToVideoSpace(
+      props.mousePositions,
+      vidW,
+      vidH
+    );
+    const segments = generateCursorVisibility(props.segment, normalizedMousePositions, props.duration);
     props.setSegment({
       ...props.segment,
       cursorVisibilitySegments: clampVisibilitySegmentsToDuration(segments, props.duration),
     });
-  }, [props.segment, props.mousePositions, props.setSegment, props.duration]);
+  }, [props.segment, props.mousePositions, props.setSegment, props.duration, props.videoRef]);
 
   const handleAddPointerSegment = useCallback((atTime?: number) => {
     if (!props.segment) return;

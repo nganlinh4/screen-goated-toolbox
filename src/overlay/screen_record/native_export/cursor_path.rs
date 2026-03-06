@@ -840,6 +840,31 @@ fn squish_ease_up(t: f64, has_room: bool) -> f64 {
     1.0 + (c + 1.0) * tm1.powi(3) + c * tm1.powi(2)
 }
 
+fn normalize_mouse_positions_to_source_frame(
+    mouse_positions: &[MousePosition],
+    source_width: f64,
+    source_height: f64,
+) -> Vec<MousePosition> {
+    mouse_positions
+        .iter()
+        .map(|position| {
+            let capture_width = position
+                .capture_width
+                .filter(|value| value.is_finite() && *value > 1.0)
+                .unwrap_or(source_width.max(1.0));
+            let capture_height = position
+                .capture_height
+                .filter(|value| value.is_finite() && *value > 1.0)
+                .unwrap_or(source_height.max(1.0));
+
+            let mut normalized = position.clone();
+            normalized.x = (position.x / capture_width) * source_width.max(1.0);
+            normalized.y = (position.y / capture_height) * source_height.max(1.0);
+            normalized
+        })
+        .collect()
+}
+
 // ─── Public API ────────────────────────────────────────────────────────────────
 
 /// Generate baked cursor path in Rust.
@@ -847,6 +872,8 @@ fn squish_ease_up(t: f64, has_room: bool) -> f64 {
 pub fn generate_cursor_path(
     segment: &VideoSegment,
     mouse_positions: &[MousePosition],
+    source_width: f64,
+    source_height: f64,
     bg: Option<&BackgroundConfig>,
     fps: u32,
 ) -> Vec<BakedCursorFrame> {
@@ -862,7 +889,9 @@ pub fn generate_cursor_path(
     let full_start = segment.trim_segments[0].start_time;
     let full_end = segment.trim_segments.last().unwrap().end_time;
 
-    let processed = process_cursor_positions(mouse_positions, bg);
+    let normalized_mouse_positions =
+        normalize_mouse_positions_to_source_frame(mouse_positions, source_width, source_height);
+    let processed = process_cursor_positions(&normalized_mouse_positions, bg);
     let cursor_offset_sec = get_cursor_offset_sec(bg);
     let pack = get_cursor_pack(bg).to_string();
 

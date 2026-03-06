@@ -49,6 +49,8 @@ pub struct MousePosition {
     pub timestamp: f64,
     pub is_clicked: bool,
     pub cursor_type: String,
+    pub capture_width: Option<u32>,
+    pub capture_height: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,6 +111,10 @@ pub static mut MONITOR_X: i32 = 0;
 pub static mut MONITOR_Y: i32 = 0;
 /// Dynamically track target window so cursor math stays accurate if the window moves.
 pub static TARGET_HWND: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static LAST_CAPTURE_FRAME_WIDTH: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+pub static LAST_CAPTURE_FRAME_HEIGHT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 
 const DEFAULT_GRAB_SIGNATURE: &str = "hot(13,13)|mask(32x32)|color(32x32)|mono(0)";
 const DEFAULT_TARGET_FPS: u32 = 60;
@@ -528,7 +534,15 @@ fn sample_mouse_position(start: Instant) {
             let mut offset_y = MONITOR_Y;
 
             let hwnd_val = TARGET_HWND.load(Ordering::Relaxed);
+            let mut capture_width = None;
+            let mut capture_height = None;
             if hwnd_val != 0 {
+                let frame_width = LAST_CAPTURE_FRAME_WIDTH.load(Ordering::Relaxed);
+                let frame_height = LAST_CAPTURE_FRAME_HEIGHT.load(Ordering::Relaxed);
+                if frame_width > 1 && frame_height > 1 {
+                    capture_width = Some(frame_width as u32);
+                    capture_height = Some(frame_height as u32);
+                }
                 let hwnd = HWND(hwnd_val as *mut _);
                 let mut rect = RECT::default();
                 if DwmGetWindowAttribute(
@@ -543,6 +557,12 @@ fn sample_mouse_position(start: Instant) {
                 }
                 offset_x = rect.left;
                 offset_y = rect.top;
+                if capture_width.is_none() || capture_height.is_none() {
+                    let width = (rect.right - rect.left).max(1) as u32;
+                    let height = (rect.bottom - rect.top).max(1) as u32;
+                    capture_width = Some(width);
+                    capture_height = Some(height);
+                }
             }
 
             let mouse_pos = MousePosition {
@@ -551,6 +571,8 @@ fn sample_mouse_position(start: Instant) {
                 timestamp: start.elapsed().as_secs_f64(),
                 is_clicked: false,
                 cursor_type,
+                capture_width,
+                capture_height,
             };
             MOUSE_POSITIONS.lock().push_back(mouse_pos);
         }
@@ -699,6 +721,8 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
         let target_fps = flags.fps.unwrap_or_else(|| select_target_fps(monitor_hz));
         *LAST_RECORDING_FPS.lock().unwrap() = Some(target_fps);
+        LAST_CAPTURE_FRAME_WIDTH.store(width as usize, Ordering::Relaxed);
+        LAST_CAPTURE_FRAME_HEIGHT.store(height as usize, Ordering::Relaxed);
         let frame_interval_100ns = 10_000_000 / target_fps as i64;
 
         // DYNAMIC BITRATE CALCULATION
@@ -964,6 +988,8 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             // submits that surface to the encoder at constant target_fps.
             let frame_w = frame.width();
             let frame_h = frame.height();
+            LAST_CAPTURE_FRAME_WIDTH.store(frame_w as usize, Ordering::Relaxed);
+            LAST_CAPTURE_FRAME_HEIGHT.store(frame_h as usize, Ordering::Relaxed);
             let was_empty = self.latest_ready_idx.load(Ordering::Acquire) == NO_READY_VRAM_FRAME;
             match self.stage_frame_in_vram(frame) {
                 Ok(slot) => {

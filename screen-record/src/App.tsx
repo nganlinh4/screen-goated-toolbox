@@ -302,7 +302,7 @@ function App() {
 
   // Cursor hiding
   const cursorHiding = useCursorHiding({
-    segment, setSegment, mousePositions, currentTime, duration
+    segment, setSegment, mousePositions, currentTime, duration, videoRef
   });
   const { editingPointerId, setEditingPointerId, handleSmartPointerHiding,
     handleAddPointerSegment, handleDeletePointerSegment } = cursorHiding;
@@ -1182,6 +1182,8 @@ function App() {
 
                   {isCropping && currentVideo && segment && (
                     <CropOverlay segment={segment}
+                      mousePositions={mousePositions}
+                      currentTime={currentTime}
                       previewContainerRef={previewContainerRef as React.RefObject<HTMLDivElement>}
                       videoRef={videoRef as React.RefObject<HTMLVideoElement>}
                       onUpdateSegment={setSegment}
