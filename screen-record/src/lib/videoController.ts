@@ -368,6 +368,18 @@ export class VideoController {
     element.load();
   }
 
+  private resetTransientPlaybackState() {
+    this.stopPlaybackMonitor();
+    videoRenderer.stopAnimation();
+    this.renderOptions = undefined;
+    this.pendingSeekTime = null;
+    this.lastRequestedSeekTime = null;
+    this.setSeeking(false);
+    this.setPlaying(false);
+    this.setCurrentTime(0);
+    this.setDuration(0);
+  }
+
   private setPlaying(playing: boolean) {
     this.state.isPlaying = playing;
     this.options.onPlayingChange?.(playing);
@@ -702,10 +714,10 @@ export class VideoController {
 
     this.isChangingSource = true;
 
-    // Reset states — single place for cleanup
+    // Fully reset transient playback/render state so trim bounds, pending seeks,
+    // and animation context from the previous project cannot leak into this load.
     this.setReady(false);
-    this.setSeeking(false);
-    this.setPlaying(false);
+    this.resetTransientPlaybackState();
 
     // Reset video element
     this.clearMediaElementSource(this.video);

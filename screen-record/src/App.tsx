@@ -51,7 +51,7 @@ const sv = (v: number, min: number, max: number): CSSProperties =>
 
 const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
   scale: 90,
-  borderRadius: 48,
+  borderRadius: 32,
   backgroundType: 'gradient2',
   shadow: 100,
   volume: 1,
@@ -207,6 +207,7 @@ function App() {
   const [isKeystrokeResizeDragging, setIsKeystrokeResizeDragging] = useState(false);
   const [seekIndicatorKey, setSeekIndicatorKey] = useState(0);
   const [seekIndicatorDir, setSeekIndicatorDir] = useState<'left' | 'right'>('right');
+  const pendingWindowRecordingRef = useRef(false);
   // Stable ref for persist callback — avoids cascading useEffect re-triggers
   const persistRef = useRef<typeof persistCurrentProjectNow>(null!);
   const debugProject = useCallback((event: string, data?: Record<string, unknown>) => {
@@ -859,20 +860,43 @@ function App() {
     setCaptureSource('window');
     setCaptureFps(fps);
     captureFpsRef.current = fps;
-    invoke('show_window_selector').catch(err => setError(String(err)));
+    setCaptureTargetId('0');
   }, []);
 
-  const handleSelectWindowForRecording = useCallback((
+  const finalizeStartRecording = useCallback(async (
+    targetId: string,
+    targetType: 'monitor' | 'window'
+  ) => {
+    await startNewRecording(
+      targetId,
+      selectedRecordingMode,
+      targetType,
+      captureFpsRef.current ?? undefined
+    );
+  }, [startNewRecording, selectedRecordingMode]);
+
+  const handleSelectWindowForRecording = useCallback(async (
     windowId: string,
     _captureMethod: 'game' | 'window'
   ) => {
     setShowWindowSelect(false);
     setCaptureTargetId(windowId);
-  }, []);
+    if (!pendingWindowRecordingRef.current) return;
+    pendingWindowRecordingRef.current = false;
+    try {
+      await finalizeStartRecording(windowId, 'window');
+    } catch (err) {
+      setError(err as string);
+    }
+  }, [finalizeStartRecording, setError]);
 
   const handleStartRecording = useCallback(async () => {
-    if (isRecording) return;
+    if (isRecording || pendingWindowRecordingRef.current) return;
     try {
+      if (projects.currentProjectId && currentVideo && segment) {
+        await persistCurrentProjectNow({ refreshList: false, includeMedia: false });
+      }
+      projects.setCurrentProjectId(null);
       setCurrentRecordingMode(selectedRecordingMode);
       setCurrentRawVideoPath('');
       setLastRawSavedPath('');
@@ -885,14 +909,33 @@ function App() {
         finalTargetId = primary?.id ?? '0';
       }
 
-      await startNewRecording(
-        finalTargetId,
-        selectedRecordingMode,
-        captureSource,
-        captureFpsRef.current ?? undefined
-      );
+      if (captureSource === 'window') {
+        pendingWindowRecordingRef.current = true;
+        try {
+          await invoke('show_window_selector');
+        } catch (err) {
+          pendingWindowRecordingRef.current = false;
+          throw err;
+        }
+        return;
+      }
+
+      await finalizeStartRecording(finalTargetId, captureSource);
     } catch (err) { setError(err as string); }
-  }, [isRecording, selectedRecordingMode, captureSource, captureTargetId, monitors, getMonitors, startNewRecording, setError]);
+  }, [
+    isRecording,
+    projects,
+    currentVideo,
+    segment,
+    persistCurrentProjectNow,
+    selectedRecordingMode,
+    captureSource,
+    captureTargetId,
+    monitors,
+    getMonitors,
+    finalizeStartRecording,
+    setError
+  ]);
 
   // Listen for window selections dispatched by the native overlay via IPC.
   useEffect(() => {
