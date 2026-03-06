@@ -26,12 +26,12 @@ const WM_APP_PROCESS_QUEUE: u32 = WM_USER + 201;
 /// Notification themes
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NotificationType {
-    Success, // Green - auto copied
+    Success,  // Green - auto copied
     FileCopy, // Cyan - copied media file
-    GifCopy, // Pink - copied GIF file
-    Info,    // Yellow - loading/warming up
-    Update,  // Blue - update available (longer duration)
-    Error,   // Red - error (e.g., no writable area for auto-paste)
+    GifCopy,  // Pink - copied GIF file
+    Info,     // Yellow - loading/warming up
+    Update,   // Blue - update available (longer duration)
+    Error,    // Red - error (e.g., no writable area for auto-paste)
 }
 
 #[derive(Clone, Debug)]

@@ -290,6 +290,138 @@ const ASSET_CURSOR_RESIZE_NWSE_SGTPIXEL_SVG: &[u8] =
     include_bytes!("dist/cursor-resize-nwse-sgtpixel.svg");
 const ASSET_CURSOR_RESIZE_NESW_SGTPIXEL_SVG: &[u8] =
     include_bytes!("dist/cursor-resize-nesw-sgtpixel.svg");
+const ASSET_CURSOR_DEFAULT_JEPRIWIN11_SVG: &[u8] =
+    include_bytes!("dist/cursor-default-jepriwin11.svg");
+const ASSET_CURSOR_TEXT_JEPRIWIN11_SVG: &[u8] = include_bytes!("dist/cursor-text-jepriwin11.svg");
+const ASSET_CURSOR_POINTER_JEPRIWIN11_SVG: &[u8] =
+    include_bytes!("dist/cursor-pointer-jepriwin11.svg");
+const ASSET_CURSOR_OPENHAND_JEPRIWIN11_SVG: &[u8] =
+    include_bytes!("dist/cursor-openhand-jepriwin11.svg");
+const ASSET_CURSOR_CLOSEHAND_JEPRIWIN11_SVG: &[u8] =
+    include_bytes!("dist/cursor-closehand-jepriwin11.svg");
+const ASSET_CURSOR_WAIT_JEPRIWIN11_SVG: &[u8] = include_bytes!("dist/cursor-wait-jepriwin11.svg");
+const ASSET_CURSOR_APPSTARTING_JEPRIWIN11_SVG: &[u8] =
+    include_bytes!("dist/cursor-appstarting-jepriwin11.svg");
+const ASSET_CURSOR_CROSSHAIR_JEPRIWIN11_SVG: &[u8] =
+    include_bytes!("dist/cursor-crosshair-jepriwin11.svg");
+const ASSET_CURSOR_RESIZE_NS_JEPRIWIN11_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-ns-jepriwin11.svg");
+const ASSET_CURSOR_RESIZE_WE_JEPRIWIN11_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-we-jepriwin11.svg");
+const ASSET_CURSOR_RESIZE_NWSE_JEPRIWIN11_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nwse-jepriwin11.svg");
+const ASSET_CURSOR_RESIZE_NESW_JEPRIWIN11_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nesw-jepriwin11.svg");
+const ASSET_CURSOR_DEFAULT_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("dist/cursor-default-sgtwatermelon.svg");
+const ASSET_CURSOR_TEXT_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("dist/cursor-text-sgtwatermelon.svg");
+const ASSET_CURSOR_POINTER_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("dist/cursor-pointer-sgtwatermelon.svg");
+const ASSET_CURSOR_OPENHAND_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("dist/cursor-openhand-sgtwatermelon.svg");
+const ASSET_CURSOR_CLOSEHAND_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("dist/cursor-closehand-sgtwatermelon.svg");
+const ASSET_CURSOR_WAIT_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("dist/cursor-wait-sgtwatermelon.svg");
+const ASSET_CURSOR_APPSTARTING_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("dist/cursor-appstarting-sgtwatermelon.svg");
+const ASSET_CURSOR_CROSSHAIR_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("dist/cursor-crosshair-sgtwatermelon.svg");
+const ASSET_CURSOR_RESIZE_NS_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-ns-sgtwatermelon.svg");
+const ASSET_CURSOR_RESIZE_WE_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-we-sgtwatermelon.svg");
+const ASSET_CURSOR_RESIZE_NWSE_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nwse-sgtwatermelon.svg");
+const ASSET_CURSOR_RESIZE_NESW_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nesw-sgtwatermelon.svg");
+const ASSET_CURSOR_DEFAULT_SGTFASTFOOD_SVG: &[u8] =
+    include_bytes!("dist/cursor-default-sgtfastfood.svg");
+const ASSET_CURSOR_TEXT_SGTFASTFOOD_SVG: &[u8] = include_bytes!("dist/cursor-text-sgtfastfood.svg");
+const ASSET_CURSOR_POINTER_SGTFASTFOOD_SVG: &[u8] =
+    include_bytes!("dist/cursor-pointer-sgtfastfood.svg");
+const ASSET_CURSOR_OPENHAND_SGTFASTFOOD_SVG: &[u8] =
+    include_bytes!("dist/cursor-openhand-sgtfastfood.svg");
+const ASSET_CURSOR_CLOSEHAND_SGTFASTFOOD_SVG: &[u8] =
+    include_bytes!("dist/cursor-closehand-sgtfastfood.svg");
+const ASSET_CURSOR_WAIT_SGTFASTFOOD_SVG: &[u8] = include_bytes!("dist/cursor-wait-sgtfastfood.svg");
+const ASSET_CURSOR_APPSTARTING_SGTFASTFOOD_SVG: &[u8] =
+    include_bytes!("dist/cursor-appstarting-sgtfastfood.svg");
+const ASSET_CURSOR_CROSSHAIR_SGTFASTFOOD_SVG: &[u8] =
+    include_bytes!("dist/cursor-crosshair-sgtfastfood.svg");
+const ASSET_CURSOR_RESIZE_NS_SGTFASTFOOD_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-ns-sgtfastfood.svg");
+const ASSET_CURSOR_RESIZE_WE_SGTFASTFOOD_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-we-sgtfastfood.svg");
+const ASSET_CURSOR_RESIZE_NWSE_SGTFASTFOOD_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nwse-sgtfastfood.svg");
+const ASSET_CURSOR_RESIZE_NESW_SGTFASTFOOD_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nesw-sgtfastfood.svg");
+const ASSET_CURSOR_DEFAULT_SGTVEGGIE_SVG: &[u8] =
+    include_bytes!("dist/cursor-default-sgtveggie.svg");
+const ASSET_CURSOR_TEXT_SGTVEGGIE_SVG: &[u8] = include_bytes!("dist/cursor-text-sgtveggie.svg");
+const ASSET_CURSOR_POINTER_SGTVEGGIE_SVG: &[u8] =
+    include_bytes!("dist/cursor-pointer-sgtveggie.svg");
+const ASSET_CURSOR_OPENHAND_SGTVEGGIE_SVG: &[u8] =
+    include_bytes!("dist/cursor-openhand-sgtveggie.svg");
+const ASSET_CURSOR_CLOSEHAND_SGTVEGGIE_SVG: &[u8] =
+    include_bytes!("dist/cursor-closehand-sgtveggie.svg");
+const ASSET_CURSOR_WAIT_SGTVEGGIE_SVG: &[u8] = include_bytes!("dist/cursor-wait-sgtveggie.svg");
+const ASSET_CURSOR_APPSTARTING_SGTVEGGIE_SVG: &[u8] =
+    include_bytes!("dist/cursor-appstarting-sgtveggie.svg");
+const ASSET_CURSOR_CROSSHAIR_SGTVEGGIE_SVG: &[u8] =
+    include_bytes!("dist/cursor-crosshair-sgtveggie.svg");
+const ASSET_CURSOR_RESIZE_NS_SGTVEGGIE_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-ns-sgtveggie.svg");
+const ASSET_CURSOR_RESIZE_WE_SGTVEGGIE_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-we-sgtveggie.svg");
+const ASSET_CURSOR_RESIZE_NWSE_SGTVEGGIE_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nwse-sgtveggie.svg");
+const ASSET_CURSOR_RESIZE_NESW_SGTVEGGIE_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nesw-sgtveggie.svg");
+const ASSET_CURSOR_DEFAULT_SGTVIETNAM_SVG: &[u8] =
+    include_bytes!("dist/cursor-default-sgtvietnam.svg");
+const ASSET_CURSOR_TEXT_SGTVIETNAM_SVG: &[u8] = include_bytes!("dist/cursor-text-sgtvietnam.svg");
+const ASSET_CURSOR_POINTER_SGTVIETNAM_SVG: &[u8] =
+    include_bytes!("dist/cursor-pointer-sgtvietnam.svg");
+const ASSET_CURSOR_OPENHAND_SGTVIETNAM_SVG: &[u8] =
+    include_bytes!("dist/cursor-openhand-sgtvietnam.svg");
+const ASSET_CURSOR_CLOSEHAND_SGTVIETNAM_SVG: &[u8] =
+    include_bytes!("dist/cursor-closehand-sgtvietnam.svg");
+const ASSET_CURSOR_WAIT_SGTVIETNAM_SVG: &[u8] = include_bytes!("dist/cursor-wait-sgtvietnam.svg");
+const ASSET_CURSOR_APPSTARTING_SGTVIETNAM_SVG: &[u8] =
+    include_bytes!("dist/cursor-appstarting-sgtvietnam.svg");
+const ASSET_CURSOR_CROSSHAIR_SGTVIETNAM_SVG: &[u8] =
+    include_bytes!("dist/cursor-crosshair-sgtvietnam.svg");
+const ASSET_CURSOR_RESIZE_NS_SGTVIETNAM_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-ns-sgtvietnam.svg");
+const ASSET_CURSOR_RESIZE_WE_SGTVIETNAM_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-we-sgtvietnam.svg");
+const ASSET_CURSOR_RESIZE_NWSE_SGTVIETNAM_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nwse-sgtvietnam.svg");
+const ASSET_CURSOR_RESIZE_NESW_SGTVIETNAM_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nesw-sgtvietnam.svg");
+const ASSET_CURSOR_DEFAULT_SGTKOREA_SVG: &[u8] = include_bytes!("dist/cursor-default-sgtkorea.svg");
+const ASSET_CURSOR_TEXT_SGTKOREA_SVG: &[u8] = include_bytes!("dist/cursor-text-sgtkorea.svg");
+const ASSET_CURSOR_POINTER_SGTKOREA_SVG: &[u8] = include_bytes!("dist/cursor-pointer-sgtkorea.svg");
+const ASSET_CURSOR_OPENHAND_SGTKOREA_SVG: &[u8] =
+    include_bytes!("dist/cursor-openhand-sgtkorea.svg");
+const ASSET_CURSOR_CLOSEHAND_SGTKOREA_SVG: &[u8] =
+    include_bytes!("dist/cursor-closehand-sgtkorea.svg");
+const ASSET_CURSOR_WAIT_SGTKOREA_SVG: &[u8] = include_bytes!("dist/cursor-wait-sgtkorea.svg");
+const ASSET_CURSOR_APPSTARTING_SGTKOREA_SVG: &[u8] =
+    include_bytes!("dist/cursor-appstarting-sgtkorea.svg");
+const ASSET_CURSOR_CROSSHAIR_SGTKOREA_SVG: &[u8] =
+    include_bytes!("dist/cursor-crosshair-sgtkorea.svg");
+const ASSET_CURSOR_RESIZE_NS_SGTKOREA_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-ns-sgtkorea.svg");
+const ASSET_CURSOR_RESIZE_WE_SGTKOREA_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-we-sgtkorea.svg");
+const ASSET_CURSOR_RESIZE_NWSE_SGTKOREA_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nwse-sgtkorea.svg");
+const ASSET_CURSOR_RESIZE_NESW_SGTKOREA_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nesw-sgtkorea.svg");
 const ASSET_CURSOR_SGTCOOL_SLOT_01_SVG: &[u8] =
     include_bytes!("dist/cursors/sgtcool_raw/slot-01.svg");
 const ASSET_CURSOR_SGTCOOL_SLOT_02_SVG: &[u8] =
@@ -965,6 +1097,177 @@ unsafe fn internal_create_sr_loop() {
                         (Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_SGTPIXEL_SVG), "image/svg+xml")
                     } else if path.ends_with("cursor-resize-nesw-sgtpixel.svg") {
                         (Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_SGTPIXEL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-default-jepriwin11.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_DEFAULT_JEPRIWIN11_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-text-jepriwin11.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_TEXT_JEPRIWIN11_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-pointer-jepriwin11.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_POINTER_JEPRIWIN11_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-openhand-jepriwin11.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_OPENHAND_JEPRIWIN11_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-closehand-jepriwin11.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CLOSEHAND_JEPRIWIN11_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-wait-jepriwin11.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_WAIT_JEPRIWIN11_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-appstarting-jepriwin11.svg") {
+                        (
+                            Cow::Borrowed(ASSET_CURSOR_APPSTARTING_JEPRIWIN11_SVG),
+                            "image/svg+xml",
+                        )
+                    } else if path.ends_with("cursor-crosshair-jepriwin11.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CROSSHAIR_JEPRIWIN11_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-ns-jepriwin11.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NS_JEPRIWIN11_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-we-jepriwin11.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_WE_JEPRIWIN11_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nwse-jepriwin11.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_JEPRIWIN11_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nesw-jepriwin11.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_JEPRIWIN11_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-default-sgtwatermelon.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_DEFAULT_SGTWATERMELON_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-text-sgtwatermelon.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_TEXT_SGTWATERMELON_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-pointer-sgtwatermelon.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_POINTER_SGTWATERMELON_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-openhand-sgtwatermelon.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_OPENHAND_SGTWATERMELON_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-closehand-sgtwatermelon.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CLOSEHAND_SGTWATERMELON_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-wait-sgtwatermelon.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_WAIT_SGTWATERMELON_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-appstarting-sgtwatermelon.svg") {
+                        (
+                            Cow::Borrowed(ASSET_CURSOR_APPSTARTING_SGTWATERMELON_SVG),
+                            "image/svg+xml",
+                        )
+                    } else if path.ends_with("cursor-crosshair-sgtwatermelon.svg") {
+                        (
+                            Cow::Borrowed(ASSET_CURSOR_CROSSHAIR_SGTWATERMELON_SVG),
+                            "image/svg+xml",
+                        )
+                    } else if path.ends_with("cursor-resize-ns-sgtwatermelon.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NS_SGTWATERMELON_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-we-sgtwatermelon.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_WE_SGTWATERMELON_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nwse-sgtwatermelon.svg") {
+                        (
+                            Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_SGTWATERMELON_SVG),
+                            "image/svg+xml",
+                        )
+                    } else if path.ends_with("cursor-resize-nesw-sgtwatermelon.svg") {
+                        (
+                            Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_SGTWATERMELON_SVG),
+                            "image/svg+xml",
+                        )
+                    } else if path.ends_with("cursor-default-sgtfastfood.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_DEFAULT_SGTFASTFOOD_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-text-sgtfastfood.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_TEXT_SGTFASTFOOD_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-pointer-sgtfastfood.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_POINTER_SGTFASTFOOD_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-openhand-sgtfastfood.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_OPENHAND_SGTFASTFOOD_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-closehand-sgtfastfood.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CLOSEHAND_SGTFASTFOOD_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-wait-sgtfastfood.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_WAIT_SGTFASTFOOD_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-appstarting-sgtfastfood.svg") {
+                        (
+                            Cow::Borrowed(ASSET_CURSOR_APPSTARTING_SGTFASTFOOD_SVG),
+                            "image/svg+xml",
+                        )
+                    } else if path.ends_with("cursor-crosshair-sgtfastfood.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CROSSHAIR_SGTFASTFOOD_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-ns-sgtfastfood.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NS_SGTFASTFOOD_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-we-sgtfastfood.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_WE_SGTFASTFOOD_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nwse-sgtfastfood.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_SGTFASTFOOD_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nesw-sgtfastfood.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_SGTFASTFOOD_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-default-sgtveggie.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_DEFAULT_SGTVEGGIE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-text-sgtveggie.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_TEXT_SGTVEGGIE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-pointer-sgtveggie.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_POINTER_SGTVEGGIE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-openhand-sgtveggie.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_OPENHAND_SGTVEGGIE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-closehand-sgtveggie.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CLOSEHAND_SGTVEGGIE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-wait-sgtveggie.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_WAIT_SGTVEGGIE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-appstarting-sgtveggie.svg") {
+                        (
+                            Cow::Borrowed(ASSET_CURSOR_APPSTARTING_SGTVEGGIE_SVG),
+                            "image/svg+xml",
+                        )
+                    } else if path.ends_with("cursor-crosshair-sgtveggie.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CROSSHAIR_SGTVEGGIE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-ns-sgtveggie.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NS_SGTVEGGIE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-we-sgtveggie.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_WE_SGTVEGGIE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nwse-sgtveggie.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_SGTVEGGIE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nesw-sgtveggie.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_SGTVEGGIE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-default-sgtvietnam.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_DEFAULT_SGTVIETNAM_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-text-sgtvietnam.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_TEXT_SGTVIETNAM_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-pointer-sgtvietnam.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_POINTER_SGTVIETNAM_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-openhand-sgtvietnam.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_OPENHAND_SGTVIETNAM_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-closehand-sgtvietnam.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CLOSEHAND_SGTVIETNAM_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-wait-sgtvietnam.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_WAIT_SGTVIETNAM_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-appstarting-sgtvietnam.svg") {
+                        (
+                            Cow::Borrowed(ASSET_CURSOR_APPSTARTING_SGTVIETNAM_SVG),
+                            "image/svg+xml",
+                        )
+                    } else if path.ends_with("cursor-crosshair-sgtvietnam.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CROSSHAIR_SGTVIETNAM_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-ns-sgtvietnam.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NS_SGTVIETNAM_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-we-sgtvietnam.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_WE_SGTVIETNAM_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nwse-sgtvietnam.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_SGTVIETNAM_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nesw-sgtvietnam.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_SGTVIETNAM_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-default-sgtkorea.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_DEFAULT_SGTKOREA_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-text-sgtkorea.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_TEXT_SGTKOREA_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-pointer-sgtkorea.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_POINTER_SGTKOREA_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-openhand-sgtkorea.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_OPENHAND_SGTKOREA_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-closehand-sgtkorea.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CLOSEHAND_SGTKOREA_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-wait-sgtkorea.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_WAIT_SGTKOREA_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-appstarting-sgtkorea.svg") {
+                        (
+                            Cow::Borrowed(ASSET_CURSOR_APPSTARTING_SGTKOREA_SVG),
+                            "image/svg+xml",
+                        )
+                    } else if path.ends_with("cursor-crosshair-sgtkorea.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CROSSHAIR_SGTKOREA_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-ns-sgtkorea.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NS_SGTKOREA_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-we-sgtkorea.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_WE_SGTKOREA_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nwse-sgtkorea.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_SGTKOREA_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nesw-sgtkorea.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_SGTKOREA_SVG), "image/svg+xml")
                     } else if path.ends_with("cursors/sgtcool_raw/slot-01.svg") {
                         (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_01_SVG), "image/svg+xml")
                     } else if path.ends_with("cursors/sgtcool_raw/slot-02.svg") {

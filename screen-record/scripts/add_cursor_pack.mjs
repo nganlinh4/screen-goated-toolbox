@@ -10,7 +10,7 @@
  *   1. Detects the previous pack and next slot IDs from native_export/cursor.rs
  *   2. Optionally generates per-cursor SVGs from a spritesheet
  *   3. Strips off-screen paths via clean_svg_viewport.mjs
- *   4. Patches all 10 TypeScript + Rust source files
+ *   4. Patches all 11 TypeScript + Rust source files
  *
  * After running, verify with:
  *   cd screen-record && npx tsc --noEmit
@@ -459,6 +459,40 @@ function patchNativeExportCursorRs(content, slug, baseSlot, seenSize) {
   return content;
 }
 
+function patchScreenRecordModRs(content, slug) {
+  const upper = slug.toUpperCase();
+
+  const newConsts = CURSOR_TYPES.map((t) => {
+    const prefix = RUST_PREFIX[t];
+    const constName = `ASSET_CURSOR_${prefix}_${upper}_SVG`;
+    const line = `const ${constName}: &[u8] = include_bytes!("dist/cursor-${t}-${slug}.svg");`;
+    return line.length > 100
+      ? `const ${constName}: &[u8] =\n    include_bytes!("dist/cursor-${t}-${slug}.svg");`
+      : line;
+  }).join('\n');
+
+  content = content.replace(
+    /(const ASSET_CURSOR_RESIZE_NESW_[A-Z0-9]+_SVG: &\[u8\] =\n    include_bytes!\("dist\/cursor-resize-nesw-[a-z0-9]+\.svg"\);\n)(const ASSET_CURSOR_SGTCOOL_SLOT_01_SVG)/,
+    `$1${newConsts}\n$2`,
+  );
+
+  const newRouteEntries = CURSOR_TYPES.map((t) => {
+    const prefix = RUST_PREFIX[t];
+    const constName = `ASSET_CURSOR_${prefix}_${upper}_SVG`;
+    return [
+      `                    } else if path.ends_with("cursor-${t}-${slug}.svg") {`,
+      `                        (Cow::Borrowed(${constName}), "image/svg+xml")`,
+    ].join('\n');
+  }).join('\n');
+
+  content = content.replace(
+    /(                    } else if path\.ends_with\("cursor-resize-nesw-[a-z0-9]+\.svg"\) {\n                        \(Cow::Borrowed\(ASSET_CURSOR_RESIZE_NESW_[A-Z0-9]+_SVG\), "image\/svg\+xml"\)\n)(                    } else if path\.ends_with\("cursors\/sgtcool_raw\/slot-01\.svg"\) {)/,
+    `$1${newRouteEntries}\n$2`,
+  );
+
+  return content;
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -508,6 +542,7 @@ async function main() {
     cursorDynamics:        path.join(ROOT, 'screen-record/src/lib/renderer/cursorDynamics.ts'),
     cursorSvgLab:          path.join(ROOT, 'screen-record/src/components/CursorSvgLab.tsx'),
     cursorsRs:             path.join(ROOT, 'src/overlay/screen_record/gpu_export/cursors.rs'),
+    screenRecordModRs:     path.join(ROOT, 'src/overlay/screen_record/mod.rs'),
     nativeExportCursorRs:  cursorRsPath,
   };
 
@@ -520,6 +555,7 @@ async function main() {
   patchFile(files.cursorDynamics,     c => patchCursorDynamics(c, slug, prevSlug));
   patchFile(files.cursorSvgLab,       c => patchCursorSvgLab(c, slug, displayName, prevSlug));
   patchFile(files.cursorsRs,          c => patchCursorsRs(c, slug));
+  patchFile(files.screenRecordModRs,  c => patchScreenRecordModRs(c, slug));
   patchFile(files.nativeExportCursorRs, c => patchNativeExportCursorRs(c, slug, baseSlot, seenSize));
 
   console.log(`
