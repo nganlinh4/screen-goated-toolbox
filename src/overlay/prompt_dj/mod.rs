@@ -3,7 +3,7 @@ use raw_window_handle::{
 };
 use std::borrow::Cow;
 use std::num::NonZeroIsize;
-use std::sync::{Arc, Once};
+use std::sync::Once;
 use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
@@ -34,8 +34,8 @@ const WM_APP_UPDATE_SETTINGS: u32 = WM_USER + 102;
 
 // Thread-local storage for WebView
 thread_local! {
-    static PDJ_WEBVIEW: std::cell::RefCell<Option<Arc<wry::WebView>>> = std::cell::RefCell::new(None);
-    static PDJ_WEB_CONTEXT: std::cell::RefCell<Option<WebContext>> = std::cell::RefCell::new(None);
+    static PDJ_WEBVIEW: std::cell::RefCell<Option<wry::WebView>> = const { std::cell::RefCell::new(None) };
+    static PDJ_WEB_CONTEXT: std::cell::RefCell<Option<WebContext>> = const { std::cell::RefCell::new(None) };
 }
 
 // Assets
@@ -59,7 +59,7 @@ fn update_child_pids() {
     use std::os::windows::process::CommandExt;
 
     let mut cmd = std::process::Command::new("wmic");
-    cmd.args(&["process", "get", "ProcessId,ParentProcessId", "/format:csv"]);
+    cmd.args(["process", "get", "ProcessId,ParentProcessId", "/format:csv"]);
 
     // CREATE_NO_WINDOW = 0x08000000 - prevents console window flash
     #[cfg(windows)]
@@ -67,8 +67,8 @@ fn update_child_pids() {
 
     let output = cmd.output();
 
-    if let Ok(o) = output {
-        if let Ok(s) = String::from_utf8(o.stdout) {
+    if let Ok(o) = output
+        && let Ok(s) = String::from_utf8(o.stdout) {
             let mut tree = std::collections::HashMap::new();
 
             // Parse CSV output
@@ -79,14 +79,13 @@ fn update_child_pids() {
                 let parts: Vec<&str> = line.split(',').collect();
                 // Format is: Node, ParentProcessId, ProcessId (usually)
                 // But wmic csv header is: Node,ParentProcessId,ProcessId
-                if parts.len() >= 3 {
-                    if let (Ok(ppid), Ok(pid)) = (
+                if parts.len() >= 3
+                    && let (Ok(ppid), Ok(pid)) = (
                         parts[1].trim().parse::<u32>(),
                         parts[2].trim().parse::<u32>(),
                     ) {
                         tree.entry(ppid).or_insert_with(Vec::new).push(pid);
                     }
-                }
             }
 
             // Find all descendants recursively
@@ -110,10 +109,9 @@ fn update_child_pids() {
                 *lock = descendants;
             }
         }
-    }
 }
 
-unsafe fn set_app_volume(volume: f32) -> Result<()> {
+unsafe fn set_app_volume(volume: f32) -> Result<()> { unsafe {
     // Access cache
     let current_pid = GetCurrentProcessId();
     let child_pids = CHILD_PIDS.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -130,28 +128,25 @@ unsafe fn set_app_volume(volume: f32) -> Result<()> {
     let count = session_enumerator.GetCount()?;
 
     for i in 0..count {
-        if let Ok(session_control) = session_enumerator.GetSession(i) {
-            if let Ok(session_control2) = session_control.cast::<IAudioSessionControl2>() {
-                if let Ok(pid) = session_control2.GetProcessId() {
+        if let Ok(session_control) = session_enumerator.GetSession(i)
+            && let Ok(session_control2) = session_control.cast::<IAudioSessionControl2>()
+                && let Ok(pid) = session_control2.GetProcessId() {
                     // Match Main Process OR known Children
-                    if pid == current_pid || child_pids.contains(&pid) {
-                        if let Ok(simple_volume) = session_control.cast::<ISimpleAudioVolume>() {
+                    if (pid == current_pid || child_pids.contains(&pid))
+                        && let Ok(simple_volume) = session_control.cast::<ISimpleAudioVolume>() {
                             let _ = simple_volume.SetMasterVolume(volume, std::ptr::null());
                         }
-                    }
                 }
-            }
-        }
     }
     Ok(())
-}
+}}
 
 unsafe extern "system" fn pdj_wnd_proc(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_APP_SHOW => {
             // Update lang and theme if needed
@@ -286,7 +281,7 @@ unsafe extern "system" fn pdj_wnd_proc(
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}
 
 // Wrapper for HWND
 struct HwndWrapper(HWND);
@@ -373,18 +368,20 @@ pub fn update_settings() {
     }
 }
 
-unsafe fn internal_create_pdj_loop() {
+unsafe fn internal_create_pdj_loop() { unsafe {
     // 1. Create Window
     let instance = GetModuleHandleW(None).unwrap();
     let class_name = w!("PromptDJ_Class_Persistent");
 
     REGISTER_PDJ_CLASS.call_once(|| {
-        let mut wc = WNDCLASSW::default();
-        wc.lpfnWndProc = Some(pdj_wnd_proc);
-        wc.hInstance = instance.into();
-        wc.lpszClassName = class_name;
-        wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap();
-        wc.hbrBackground = HBRUSH(std::ptr::null_mut()); // Transparent background
+        let wc = WNDCLASSW {
+            lpfnWndProc: Some(pdj_wnd_proc),
+            hInstance: instance.into(),
+            lpszClassName: class_name,
+            hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
+            hbrBackground: HBRUSH(std::ptr::null_mut()),
+            ..Default::default()
+        };
         let _ = RegisterClassW(&wc);
     });
 
@@ -692,11 +689,10 @@ unsafe fn internal_create_pdj_loop() {
                         let _ = ShowWindow(hwnd_ipc, SW_MINIMIZE);
                     } else if body == "close_window" {
                         let _ = ShowWindow(hwnd_ipc, SW_HIDE);
-                    } else if body.starts_with("set_volume:") {
-                        if let Ok(val) = body.trim_start_matches("set_volume:").parse::<f32>() {
+                    } else if body.starts_with("set_volume:")
+                        && let Ok(val) = body.trim_start_matches("set_volume:").parse::<f32>() {
                             let _ = set_app_volume(val);
                         }
-                    }
                 })
                 .with_url("promptdj://localhost/index.html");
 
@@ -720,12 +716,10 @@ unsafe fn internal_create_pdj_loop() {
             return;
         }
     };
-    let webview_arc = Arc::new(webview);
-
     // Initial Resize
     let mut r = RECT::default();
     let _ = GetClientRect(hwnd, &mut r);
-    let _ = webview_arc.set_bounds(Rect {
+    let _ = webview.set_bounds(Rect {
         position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
             (r.right - r.left) as u32,
@@ -734,7 +728,7 @@ unsafe fn internal_create_pdj_loop() {
     });
 
     PDJ_WEBVIEW.with(|wv| {
-        *wv.borrow_mut() = Some(webview_arc);
+        *wv.borrow_mut() = Some(webview);
     });
 
     // Mark as warmed up and ready
@@ -759,4 +753,4 @@ unsafe fn internal_create_pdj_loop() {
     PDJ_HWND = SendHwnd::default();
     IS_WARMED_UP = false;
     IS_INITIALIZING = false;
-}
+}}

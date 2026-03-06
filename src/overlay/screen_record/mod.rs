@@ -12,15 +12,15 @@ use serde::Deserialize;
 use std::borrow::Cow;
 use std::num::NonZeroIsize;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Once, OnceLock};
+use std::sync::{Once, OnceLock};
 use std::thread;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
-    DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS,
-    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    DWMWA_EXTENDED_FRAME_BOUNDS, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    DwmGetWindowAttribute, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::{
-    CreateSolidBrush, GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    CreateSolidBrush, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetFocus};
@@ -61,8 +61,8 @@ static mut IS_WARMED_UP: bool = false;
 static mut IS_INITIALIZING: bool = false;
 
 thread_local! {
-    static SR_WEBVIEW: std::cell::RefCell<Option<Arc<wry::WebView>>> = std::cell::RefCell::new(None);
-    static SR_WEB_CONTEXT: std::cell::RefCell<Option<WebContext>> = std::cell::RefCell::new(None);
+    static SR_WEBVIEW: std::cell::RefCell<Option<wry::WebView>> = const { std::cell::RefCell::new(None) };
+    static SR_WEB_CONTEXT: std::cell::RefCell<Option<WebContext>> = const { std::cell::RefCell::new(None) };
 }
 
 lazy_static::lazy_static! {
@@ -171,6 +171,8 @@ const ASSET_FONT_TTF: &[u8] =
 const INDEX_HTML: &[u8] = include_bytes!("dist/index.html");
 const ASSET_INDEX_JS: &[u8] = include_bytes!("dist/assets/index.js");
 const ASSET_INDEX_CSS: &[u8] = include_bytes!("dist/assets/index.css");
+const ASSET_REACT_VENDOR_JS: &[u8] = include_bytes!("dist/assets/react-vendor.js");
+const ASSET_VENDOR_JS: &[u8] = include_bytes!("dist/assets/vendor.js");
 const ASSET_VITE_SVG: &[u8] = include_bytes!("dist/vite.svg");
 const ASSET_TAURI_SVG: &[u8] = include_bytes!("dist/tauri.svg");
 const ASSET_POINTER_SVG: &[u8] = include_bytes!("dist/pointer.svg");
@@ -459,7 +461,7 @@ unsafe extern "system" fn sr_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_APP_SHOW => {
             let _ = ShowWindow(hwnd, SW_SHOW);
@@ -474,7 +476,7 @@ unsafe extern "system" fn sr_wnd_proc(
             LRESULT(0)
         }
         WM_ERASEBKGND => {
-            return LRESULT(1); // Suppress — WebView covers full client area
+            LRESULT(1) // Suppress — WebView covers full client area
         }
         WM_CLOSE => {
             let _ = ShowWindow(hwnd, SW_HIDE);
@@ -618,7 +620,7 @@ unsafe extern "system" fn sr_wnd_proc(
         WM_APP_RUN_SCRIPT => {
             let script_ptr = lparam.0 as *mut String;
             if !script_ptr.is_null() {
-                let script = unsafe { Box::from_raw(script_ptr) };
+                let script = Box::from_raw(script_ptr);
                 SR_WEBVIEW.with(|wv| {
                     if let Some(webview) = wv.borrow().as_ref() {
                         let _ = webview.evaluate_script(&script);
@@ -629,7 +631,7 @@ unsafe extern "system" fn sr_wnd_proc(
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}
 
 // --- HWND WRAPPER ---
 
@@ -637,7 +639,7 @@ struct HwndWrapper(HWND);
 
 impl HasWindowHandle for HwndWrapper {
     fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
-        let hwnd = self.0 .0 as isize;
+        let hwnd = self.0.0 as isize;
         if hwnd == 0 {
             return Err(HandleError::Unavailable);
         }
@@ -709,12 +711,10 @@ pub fn toggle_recording() {
 
         if hwnd_wrapper.is_invalid() {
             show_screen_record();
+        } else if IsWindowVisible(hwnd_wrapper.0).as_bool() {
+            let _ = PostMessageW(Some(hwnd_wrapper.0), WM_APP_TOGGLE, WPARAM(0), LPARAM(0));
         } else {
-            if IsWindowVisible(hwnd_wrapper.0).as_bool() {
-                let _ = PostMessageW(Some(hwnd_wrapper.0), WM_APP_TOGGLE, WPARAM(0), LPARAM(0));
-            } else {
-                show_screen_record();
-            }
+            show_screen_record();
         }
     }
 }
@@ -770,17 +770,19 @@ fn push_settings_to_webview() {
 
 // --- WINDOW CREATION ---
 
-unsafe fn internal_create_sr_loop() {
+unsafe fn internal_create_sr_loop() { unsafe {
     let instance = GetModuleHandleW(None).unwrap();
     let class_name = windows::core::w!("ScreenRecord_Class");
 
     REGISTER_SR_CLASS.call_once(|| {
-        let mut wc = WNDCLASSW::default();
-        wc.lpfnWndProc = Some(sr_wnd_proc);
-        wc.hInstance = instance.into();
-        wc.lpszClassName = class_name;
-        wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap();
-        wc.hbrBackground = unsafe { CreateSolidBrush(COLORREF(0x00111111)) };
+        let wc = WNDCLASSW {
+            lpfnWndProc: Some(sr_wnd_proc),
+            hInstance: instance.into(),
+            lpszClassName: class_name,
+            hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
+            hbrBackground: CreateSolidBrush(COLORREF(0x00111111)),
+            ..Default::default()
+        };
         let _ = RegisterClassW(&wc);
     });
 
@@ -947,6 +949,13 @@ unsafe fn internal_create_sr_loop() {
                         (Cow::Borrowed(ASSET_INDEX_JS), "application/javascript")
                     } else if path.ends_with("index.css") {
                         (Cow::Borrowed(ASSET_INDEX_CSS), "text/css")
+                    } else if path.ends_with("react-vendor.js") {
+                        (
+                            Cow::Borrowed(ASSET_REACT_VENDOR_JS),
+                            "application/javascript",
+                        )
+                    } else if path.ends_with("vendor.js") {
+                        (Cow::Borrowed(ASSET_VENDOR_JS), "application/javascript")
                     } else if path.ends_with("vite.svg") {
                         (Cow::Borrowed(ASSET_VITE_SVG), "image/svg+xml")
                     } else if path.ends_with("tauri.svg") {
@@ -1349,7 +1358,7 @@ unsafe fn internal_create_sr_loop() {
                         } else if body == "minimize_window" {
                             let _ = ShowWindow(hwnd, SW_MINIMIZE);
                         } else if body == "toggle_maximize" {
-                            if unsafe { IsZoomed(hwnd).as_bool() } {
+                            if IsZoomed(hwnd).as_bool() {
                                 let _ = ShowWindow(hwnd, SW_RESTORE);
                             } else {
                                 let _ = ShowWindow(hwnd, SW_MAXIMIZE);
@@ -1365,8 +1374,10 @@ unsafe fn internal_create_sr_loop() {
                             ));
                             // Expand to the full monitor rect (covers taskbar too)
                             let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-                            let mut mi = MONITORINFO::default();
-                            mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+                            let mut mi = MONITORINFO {
+                                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                                ..Default::default()
+                            };
                             let _ = GetMonitorInfoW(monitor, &mut mi);
                             let r = mi.rcMonitor;
                             let _ = SetWindowPos(
@@ -1416,18 +1427,16 @@ unsafe fn internal_create_sr_loop() {
                                 };
                                 let script = format!(
                                     "window.dispatchEvent(new CustomEvent('ipc-reply', {{ detail: {} }}))",
-                                    json_res.to_string()
+                                    json_res
                                 );
 
                                 let script_ptr = Box::into_raw(Box::new(script));
-                                unsafe {
-                                    let _ = PostMessageW(
-                                        Some(HWND(target_hwnd_val as *mut std::ffi::c_void)),
-                                        WM_APP_RUN_SCRIPT,
-                                        WPARAM(0),
-                                        LPARAM(script_ptr as isize),
-                                    );
-                                }
+                                let _ = PostMessageW(
+                                    Some(HWND(target_hwnd_val as *mut std::ffi::c_void)),
+                                    WM_APP_RUN_SCRIPT,
+                                    WPARAM(0),
+                                    LPARAM(script_ptr as isize),
+                                );
                             });
                         }
                     }
@@ -1448,11 +1457,9 @@ unsafe fn internal_create_sr_loop() {
             return;
         }
     };
-    let webview_arc = Arc::new(webview);
-
     let mut r = RECT::default();
     let _ = GetClientRect(hwnd, &mut r);
-    let _ = webview_arc.set_bounds(Rect {
+    let _ = webview.set_bounds(Rect {
         position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
             (r.right - r.left).max(0) as u32,
@@ -1461,12 +1468,10 @@ unsafe fn internal_create_sr_loop() {
     });
 
     SR_WEBVIEW.with(|wv| {
-        *wv.borrow_mut() = Some(webview_arc);
+        *wv.borrow_mut() = Some(webview);
     });
 
-    unsafe {
-        IS_WARMED_UP = true;
-    }
+    IS_WARMED_UP = true;
 
     let port = ipc::start_global_media_server().unwrap_or(0);
     SERVER_PORT.store(port, std::sync::atomic::Ordering::SeqCst);
@@ -1477,19 +1482,15 @@ unsafe fn internal_create_sr_loop() {
     });
 
     let mut msg = MSG::default();
-    unsafe {
-        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-            let _ = TranslateMessage(&msg);
-            let _ = DispatchMessageW(&msg);
-        }
+    while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+        let _ = TranslateMessage(&msg);
+        let _ = DispatchMessageW(&msg);
     }
 
     SR_WEBVIEW.with(|wv| {
         *wv.borrow_mut() = None;
     });
-    unsafe {
-        SR_HWND = SendHwnd::default();
-        IS_WARMED_UP = false;
-        IS_INITIALIZING = false;
-    }
-}
+    SR_HWND = SendHwnd::default();
+    IS_WARMED_UP = false;
+    IS_INITIALIZING = false;
+}}

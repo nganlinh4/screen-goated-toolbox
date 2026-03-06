@@ -53,7 +53,7 @@ impl SplashAudio {
         }));
 
         let state_clone = Arc::clone(&state);
-        let sample_rate = u32::from(config.sample_rate()) as f32;
+        let sample_rate = config.sample_rate() as f32;
         let channels = config.channels() as usize;
 
         // Internal rendering state stays in the closure
@@ -148,7 +148,7 @@ impl SplashAudio {
 
                         // 2. COSMIC WIND (original)
                         r.noise_state = (r.noise_state * 0.994
-                            + ((r.vox_phase1 * 43758.5453).sin().fract() - 0.5) * 0.012)
+                            + ((r.vox_phase1 * 43_758.547).sin().fract() - 0.5) * 0.012)
                             .clamp(-1.0, 1.0);
                         let wind = r.noise_state * 0.012 * env;
 

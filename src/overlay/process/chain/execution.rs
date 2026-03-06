@@ -77,11 +77,10 @@ pub fn execute_block(
         let window_shown_clone = window_shown.clone();
         let processing_hwnd_clone = processing_hwnd_arc.clone();
 
-        if retry_count > 0 {
-            if let Ok(mut lock) = acc_clone.lock() {
+        if retry_count > 0
+            && let Ok(mut lock) = acc_clone.lock() {
                 lock.clear();
             }
-        }
 
         let res_inner = if is_first_processing_block
             && block.block_type == "image"
@@ -272,9 +271,9 @@ fn execute_text_block(
             }
 
             let mut t = accumulated.lock().unwrap();
-            if chunk.starts_with(crate::api::WIPE_SIGNAL) {
+            if let Some(wiped) = chunk.strip_prefix(crate::api::WIPE_SIGNAL) {
                 t.clear();
-                t.push_str(&chunk[crate::api::WIPE_SIGNAL.len()..]);
+                t.push_str(wiped);
             } else {
                 t.push_str(chunk);
             }
@@ -302,9 +301,9 @@ fn handle_streaming_chunk(
     processing_hwnd: &Arc<Mutex<Option<SendHwnd>>>,
 ) {
     let mut t = accumulated.lock().unwrap();
-    if chunk.starts_with(crate::api::WIPE_SIGNAL) {
+    if let Some(wiped) = chunk.strip_prefix(crate::api::WIPE_SIGNAL) {
         t.clear();
-        t.push_str(&chunk[crate::api::WIPE_SIGNAL.len()..]);
+        t.push_str(wiped);
     } else {
         t.push_str(chunk);
     }

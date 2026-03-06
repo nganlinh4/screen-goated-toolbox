@@ -15,9 +15,9 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 pub unsafe fn extract_crop_from_hbitmap(
     capture: &GdiCapture,
     crop_rect: RECT,
-) -> image::ImageBuffer<image::Rgba<u8>, Vec<u8>> {
+) -> image::ImageBuffer<image::Rgba<u8>, Vec<u8>> { unsafe {
     extract_crop_from_hbitmap_internal(capture, crop_rect)
-}
+}}
 
 /// Public version of extract_crop_from_hbitmap for use by image_continuous_mode
 pub fn extract_crop_from_hbitmap_public(
@@ -30,7 +30,7 @@ pub fn extract_crop_from_hbitmap_public(
 unsafe fn extract_crop_from_hbitmap_internal(
     capture: &GdiCapture,
     crop_rect: RECT,
-) -> image::ImageBuffer<image::Rgba<u8>, Vec<u8>> {
+) -> image::ImageBuffer<image::Rgba<u8>, Vec<u8>> { unsafe {
     let hdc_screen = GetDC(None);
     let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
 
@@ -48,7 +48,7 @@ unsafe fn extract_crop_from_hbitmap_internal(
             biHeight: -h, // Top-down
             biPlanes: 1,
             biBitCount: 32,
-            biCompression: BI_RGB.0 as u32,
+            biCompression: BI_RGB.0,
             ..Default::default()
         },
         ..Default::default()
@@ -98,14 +98,14 @@ unsafe fn extract_crop_from_hbitmap_internal(
     ReleaseDC(None, hdc_screen);
 
     image::ImageBuffer::from_raw(w as u32, h as u32, buffer).unwrap()
-}
+}}
 
 // --- LAYERED WINDOW RENDERING ---
 
 /// High-performance renderer using UpdateLayeredWindow
 /// This allows an OPAQUE white box even when the dim background is TRANSPARENT
 #[allow(static_mut_refs)]
-pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
+pub unsafe fn sync_layered_window_contents(hwnd: HWND) { unsafe {
     let width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     let height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
@@ -299,7 +299,7 @@ pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
     SelectObject(mem_dc, old_bmp);
     let _ = DeleteDC(mem_dc);
     ReleaseDC(None, hdc_screen);
-}
+}}
 
 /// Draw anti-aliased rounded selection box using SDF
 fn draw_rounded_selection_box(

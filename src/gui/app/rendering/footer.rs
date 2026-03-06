@@ -130,16 +130,14 @@ impl SettingsApp {
                 });
 
             // Close on click outside (check if clicked outside the popup area)
-            if ctx.input(|i| i.pointer.any_click()) {
-                if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+            if ctx.input(|i| i.pointer.any_click())
+                && let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
                     // Check if click is on the backdrop (outside popup content)
-                    if let Some(layer) = ctx.layer_id_at(pos) {
-                        if layer.id == egui::Id::new("tips_backdrop") {
+                    if let Some(layer) = ctx.layer_id_at(pos)
+                        && layer.id == egui::Id::new("tips_backdrop") {
                             self.show_tips_modal = false;
                         }
-                    }
                 }
-            }
 
             // Close on Escape
             if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -168,9 +166,11 @@ pub(super) fn format_tip_with_bold(tip_number: usize, text: &str, is_dark_mode: 
     };
 
     // Create text format for regular text
-    let mut text_format = TextFormat::default();
-    text_format.font_id = egui::FontId::proportional(13.0);
-    text_format.color = regular_color;
+    let text_format = TextFormat {
+        font_id: egui::FontId::proportional(13.0),
+        color: regular_color,
+        ..Default::default()
+    };
 
     // Append number in regular color
     job.append(&number_text, 0.0, text_format.clone());

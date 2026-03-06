@@ -30,6 +30,10 @@ enum AudioMode {
 }
 
 /// Attempt WebSocket reconnection with retry logic
+#[expect(
+    clippy::too_many_arguments,
+    reason = "reconnection keeps each mutable streaming state explicit at the call site"
+)]
 fn try_reconnect(
     socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
     api_key: &str,
@@ -439,6 +443,10 @@ fn build_audio_stream(
 }
 
 /// Main streaming loop - sends audio and receives transcriptions
+#[expect(
+    clippy::too_many_arguments,
+    reason = "streaming loop coordinates distinct buffers, control flags, and callbacks"
+)]
 fn run_streaming_loop<F>(
     preset: &Preset,
     socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
@@ -531,7 +539,7 @@ fn run_streaming_loop<F>(
                     let to_send: Vec<i16> = if silence_buffer.len() >= double_chunk {
                         silence_buffer.drain(..double_chunk).collect()
                     } else if !silence_buffer.is_empty() {
-                        silence_buffer.drain(..).collect()
+                        std::mem::take(&mut silence_buffer)
                     } else {
                         Vec::new()
                     };
@@ -547,8 +555,8 @@ fn run_streaming_loop<F>(
         loop {
             match socket.read() {
                 Ok(tungstenite::Message::Text(msg)) => {
-                    if let Some(t) = parse_input_transcription(msg.as_str()) {
-                        if !t.is_empty() {
+                    if let Some(t) = parse_input_transcription(msg.as_str())
+                        && !t.is_empty() {
                             last_transcription_time = Instant::now();
                             consecutive_empty_reads = 0;
                             if let Ok(mut txt) = accumulated_text.lock() {
@@ -559,12 +567,11 @@ fn run_streaming_loop<F>(
                                 crate::overlay::utils::type_text_to_window(None, &t);
                             }
                         }
-                    }
                 }
                 Ok(tungstenite::Message::Binary(data)) => {
-                    if let Ok(s) = String::from_utf8(data.to_vec()) {
-                        if let Some(t) = parse_input_transcription(&s) {
-                            if !t.is_empty() {
+                    if let Ok(s) = String::from_utf8(data.to_vec())
+                        && let Some(t) = parse_input_transcription(&s)
+                            && !t.is_empty() {
                                 last_transcription_time = Instant::now();
                                 consecutive_empty_reads = 0;
                                 if let Ok(mut txt) = accumulated_text.lock() {
@@ -575,8 +582,6 @@ fn run_streaming_loop<F>(
                                     crate::overlay::utils::type_text_to_window(None, &t);
                                 }
                             }
-                        }
-                    }
                 }
                 Ok(tungstenite::Message::Close(_)) => {
                     if !try_reconnect(
@@ -602,8 +607,7 @@ fn run_streaming_loop<F>(
                     if consecutive_empty_reads >= EMPTY_READ_CHECK_COUNT
                         && last_transcription_time.elapsed()
                             > Duration::from_secs(NO_RESULT_THRESHOLD_SECS)
-                    {
-                        if !try_reconnect(
+                        && !try_reconnect(
                             socket,
                             api_key,
                             audio_buffer,
@@ -613,9 +617,9 @@ fn run_streaming_loop<F>(
                             &mut last_transcription_time,
                             &mut consecutive_empty_reads,
                             stop_signal,
-                        ) {
-                            return;
-                        }
+                        )
+                    {
+                        return;
                     }
                     break;
                 }
@@ -684,8 +688,8 @@ fn wait_for_final_transcriptions(
     while Instant::now() < conclude_end && Instant::now() < max_stop_time {
         match socket.read() {
             Ok(tungstenite::Message::Text(msg)) => {
-                if let Some(t) = parse_input_transcription(msg.as_str()) {
-                    if !t.is_empty() {
+                if let Some(t) = parse_input_transcription(msg.as_str())
+                    && !t.is_empty() {
                         if let Ok(mut txt) = accumulated_text.lock() {
                             txt.push_str(&t);
                             if let Some(h) = streaming_hwnd {
@@ -694,12 +698,11 @@ fn wait_for_final_transcriptions(
                         }
                         conclude_end = Instant::now() + extension;
                     }
-                }
             }
             Ok(tungstenite::Message::Binary(data)) => {
-                if let Ok(s) = String::from_utf8(data.to_vec()) {
-                    if let Some(t) = parse_input_transcription(&s) {
-                        if !t.is_empty() {
+                if let Ok(s) = String::from_utf8(data.to_vec())
+                    && let Some(t) = parse_input_transcription(&s)
+                        && !t.is_empty() {
                             if let Ok(mut txt) = accumulated_text.lock() {
                                 txt.push_str(&t);
                             }
@@ -708,8 +711,6 @@ fn wait_for_final_transcriptions(
                             }
                             conclude_end = Instant::now() + extension;
                         }
-                    }
-                }
             }
             Ok(_) => {}
             Err(tungstenite::Error::Io(ref e))

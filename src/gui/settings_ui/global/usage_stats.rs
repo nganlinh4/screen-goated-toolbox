@@ -4,6 +4,10 @@ use crate::model_config::{get_all_models, get_all_models_with_ollama};
 use eframe::egui;
 use std::collections::HashMap;
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "modal rendering consumes distinct provider toggles and shared UI state"
+)]
 pub fn render_usage_modal(
     ui: &mut egui::Ui,
     usage_stats: &HashMap<String, String>,

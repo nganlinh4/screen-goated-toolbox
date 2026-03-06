@@ -30,18 +30,13 @@ impl Dx12SharedCopyContext {
         })
     }
 
-    unsafe fn texture_raw_resource(texture: &wgpu::Texture) -> Option<d3d12::ID3D12Resource> {
-        let mut raw_resource: Option<d3d12::ID3D12Resource> = None;
-        texture.as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_texture| {
-            if let Some(hal_texture) = hal_texture {
-                let resource_058 = hal_texture.raw_resource();
-                let resource_062: &d3d12::ID3D12Resource =
-                    &*(resource_058 as *const _ as *const d3d12::ID3D12Resource);
-                raw_resource = Some(resource_062.clone());
-            }
-        });
-        raw_resource
-    }
+    unsafe fn texture_raw_resource(texture: &wgpu::Texture) -> Option<d3d12::ID3D12Resource> { unsafe {
+        let hal_texture = texture.as_hal::<wgpu::hal::api::Dx12>()?;
+        let resource_058 = hal_texture.raw_resource();
+        let resource_062: &d3d12::ID3D12Resource =
+            &*(resource_058 as *const _);
+        Some(resource_062.clone())
+    }}
 
     fn transition_barrier(
         resource: Option<d3d12::ID3D12Resource>,
@@ -78,7 +73,7 @@ impl Dx12SharedCopyContext {
         &self,
         source: &wgpu::Texture,
         video_texture: &wgpu::Texture,
-    ) -> Result<(), String> {
+    ) -> Result<(), String> { unsafe {
         let source_resource =
             Self::texture_raw_resource(source).ok_or("Source texture has no DX12 resource")?;
         let video_resource = Self::texture_raw_resource(video_texture)
@@ -142,7 +137,7 @@ impl Dx12SharedCopyContext {
             .map_err(|e| format!("CommandList cast: {e}"))?;
         self.queue.ExecuteCommandLists(&[Some(command_list_base)]);
         Ok(())
-    }
+    }}
 }
 
 #[repr(C, align(16))]
@@ -309,7 +304,7 @@ impl GpuCompositor {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -322,7 +317,7 @@ impl GpuCompositor {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -332,7 +327,7 @@ impl GpuCompositor {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -452,7 +447,7 @@ impl GpuCompositor {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
         let atlas_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -495,17 +490,13 @@ impl GpuCompositor {
         });
 
         let dx12_shared_copy = unsafe {
-            let mut ctx: Option<Dx12SharedCopyContext> = None;
-            device.as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_device| {
-                if let Some(hal_device) = hal_device {
-                    let raw_device: &d3d12::ID3D12Device =
-                        &*(hal_device.raw_device() as *const _ as *const d3d12::ID3D12Device);
-                    let raw_queue: &d3d12::ID3D12CommandQueue =
-                        &*(hal_device.raw_queue() as *const _ as *const d3d12::ID3D12CommandQueue);
-                    ctx = Dx12SharedCopyContext::new(raw_device, raw_queue).ok();
-                }
-            });
-            ctx
+            device.as_hal::<wgpu::hal::api::Dx12>().and_then(|hal_device| {
+                let raw_device: &d3d12::ID3D12Device =
+                    &*(hal_device.raw_device() as *const _);
+                let raw_queue: &d3d12::ID3D12CommandQueue =
+                    &*(hal_device.raw_queue() as *const _);
+                Dx12SharedCopyContext::new(raw_device, raw_queue).ok()
+            })
         };
 
         // 1MB vertex buffer — enough for ~8000 quads (6 verts × 24 bytes each).
@@ -705,6 +696,7 @@ impl GpuCompositor {
                     view: &self
                         .output_texture
                         .create_view(&wgpu::TextureViewDescriptor::default()),
+                    depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: load_op,
@@ -714,6 +706,7 @@ impl GpuCompositor {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
 
             pass.set_pipeline(&self.pipeline);
@@ -804,7 +797,7 @@ impl GpuCompositor {
 
     fn drain_next_readback(&mut self, out: &mut Vec<u8>, blocking: bool) -> Result<bool, String> {
         let _ = self.device.poll(if blocking {
-            wgpu::PollType::Wait
+            wgpu::PollType::wait_indefinitely()
         } else {
             wgpu::PollType::Poll
         });
@@ -827,7 +820,7 @@ impl GpuCompositor {
                     Ok(result) => Some(result),
                     Err(std::sync::mpsc::TryRecvError::Empty) => None,
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        return Err("GPU readback channel disconnected".to_string())
+                        return Err("GPU readback channel disconnected".to_string());
                     }
                 }
             }
@@ -928,6 +921,7 @@ impl GpuCompositor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
+                    depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: load_op,
@@ -937,6 +931,7 @@ impl GpuCompositor {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
 
             pass.set_pipeline(&self.accumulate_pipeline);
@@ -1024,23 +1019,22 @@ impl GpuCompositor {
     /// Copy a shared decode texture into the video input texture (GPU-to-GPU).
     ///
     /// Uses a cache-flush barrier trick to ensure DX12 reads fresh VRAM data:
-    ///   1. copy_buffer_to_texture (1 pixel) → forces source into COPY_DST state
-    ///   2. copy_texture_to_texture (full)   → transitions COPY_DST→COPY_SRC
+    /// 1. copy_buffer_to_texture (1 pixel) -> forces source into COPY_DST state
+    /// 2. copy_texture_to_texture (full) -> transitions COPY_DST to COPY_SRC
+    ///
     /// The COPY_DST→COPY_SRC barrier flushes L2 cache, guaranteeing DX12 reads
     /// the data that D3D11 just wrote (not stale cached data).
     /// Both commands in the same encoder/submit for correct ordering.
     pub fn copy_frame_from_shared(&self, source: &wgpu::Texture) {
         // Experimental raw-DX12 copy path. Keep this opt-in only until it is
         // proven stable across content and drivers.
-        if std::env::var("SGT_EXPERIMENTAL_RAW_DX12_COPY").is_ok() {
-            if let Some(raw_dx12_copy) = &self.dx12_shared_copy {
-                if unsafe { raw_dx12_copy.copy_shared_to_video(source, &self.video_texture) }
+        if std::env::var("SGT_EXPERIMENTAL_RAW_DX12_COPY").is_ok()
+            && let Some(raw_dx12_copy) = &self.dx12_shared_copy
+                && unsafe { raw_dx12_copy.copy_shared_to_video(source, &self.video_texture) }
                     .is_ok()
                 {
                     return;
                 }
-            }
-        }
 
         let mut encoder = self
             .device
@@ -1251,6 +1245,7 @@ impl GpuCompositor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
+                    depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load, // composite onto existing output
@@ -1260,6 +1255,7 @@ impl GpuCompositor {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&shared.overlay_pipeline);
             pass.set_bind_group(0, &self.atlas_bind_group, &[]);

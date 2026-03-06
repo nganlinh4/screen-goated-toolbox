@@ -218,14 +218,13 @@ pub fn render_downloaded_tools_modal(
                                     }
 
                                     // Version
-                                    if let Ok(guard) = download_manager.ytdlp_version.lock() {
-                                        if let Some(ver) = &*guard {
+                                    if let Ok(guard) = download_manager.ytdlp_version.lock()
+                                        && let Some(ver) = &*guard {
                                             ui.label(
                                                 egui::RichText::new(format!("v{}", ver))
                                                     .color(egui::Color32::GRAY),
                                             );
                                         }
-                                    }
                                 },
                             );
                         }
@@ -376,14 +375,13 @@ pub fn render_downloaded_tools_modal(
                                         }
                                     }
 
-                                    if let Ok(guard) = download_manager.deno_version.lock() {
-                                        if let Some(ver) = &*guard {
+                                    if let Ok(guard) = download_manager.deno_version.lock()
+                                        && let Some(ver) = &*guard {
                                             ui.label(
                                                 egui::RichText::new(format!("v{}", ver))
                                                     .color(egui::Color32::GRAY),
                                             );
                                         }
-                                    }
                                 },
                             );
                         }
@@ -560,14 +558,13 @@ pub fn render_downloaded_tools_modal(
                                     }
 
                                     // Version
-                                    if let Ok(guard) = download_manager.ffmpeg_version.lock() {
-                                        if let Some(ver) = &*guard {
+                                    if let Ok(guard) = download_manager.ffmpeg_version.lock()
+                                        && let Some(ver) = &*guard {
                                             ui.label(
                                                 egui::RichText::new(format!("v{}", ver))
                                                     .color(egui::Color32::GRAY),
                                             );
                                         }
-                                    }
                                 },
                             );
                         }
@@ -582,14 +579,12 @@ pub fn render_downloaded_tools_modal(
 fn get_dir_size(path: PathBuf) -> u64 {
     let mut total_size = 0;
     if let Ok(entries) = fs::read_dir(path) {
-        for entry in entries {
-            if let Ok(entry) = entry {
-                if let Ok(metadata) = entry.metadata() {
-                    if metadata.is_dir() {
-                        total_size += get_dir_size(entry.path());
-                    } else {
-                        total_size += metadata.len();
-                    }
+        for entry in entries.flatten() {
+            if let Ok(metadata) = entry.metadata() {
+                if metadata.is_dir() {
+                    total_size += get_dir_size(entry.path());
+                } else {
+                    total_size += metadata.len();
                 }
             }
         }

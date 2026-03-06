@@ -45,14 +45,14 @@ pub static LAST_THEME_IS_DARK: AtomicBool = AtomicBool::new(true);
 
 // Thread Locals
 thread_local! {
-    pub static PANEL_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
-    pub static PHYSICS_STATE: RefCell<(f32, f32)> = RefCell::new((0.0, 0.0));
+    pub static PANEL_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
+    pub static PHYSICS_STATE: RefCell<(f32, f32)> = const { RefCell::new((0.0, 0.0)) };
     // Shared WebContext for this thread using common data directory
-    pub static PANEL_WEB_CONTEXT: RefCell<Option<WebContext>> = RefCell::new(None);
+    pub static PANEL_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
 
     // Icon cache: (size, data)
-    static CACHED_ICON: RefCell<(i32, Vec<u8>)> = RefCell::new((0, vec![]));
-    static CACHED_ICON_LIGHT: RefCell<(i32, Vec<u8>)> = RefCell::new((0, vec![]));
+    static CACHED_ICON: RefCell<(i32, Vec<u8>)> = const { RefCell::new((0, vec![])) };
+    static CACHED_ICON_LIGHT: RefCell<(i32, Vec<u8>)> = const { RefCell::new((0, vec![])) };
 }
 
 // App icon embedded at compile time

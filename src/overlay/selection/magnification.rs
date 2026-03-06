@@ -6,7 +6,7 @@ use windows::core::*;
 use windows::Win32::System::LibraryLoader::*;
 
 #[allow(static_mut_refs)]
-pub unsafe fn load_magnification_api() -> bool {
+pub unsafe fn load_magnification_api() -> bool { unsafe {
     let mag_dll = std::ptr::addr_of!(MAG_DLL).read();
     if !mag_dll.is_invalid() {
         return true; // Already loaded
@@ -20,13 +20,22 @@ pub unsafe fn load_magnification_api() -> bool {
 
         // Get function pointers
         if let Some(init) = GetProcAddress(h, s!("MagInitialize")) {
-            MAG_INITIALIZE = Some(std::mem::transmute(init));
+            MAG_INITIALIZE = Some(std::mem::transmute::<
+                unsafe extern "system" fn() -> isize,
+                MagInitializeFn,
+            >(init));
         }
         if let Some(uninit) = GetProcAddress(h, s!("MagUninitialize")) {
-            MAG_UNINITIALIZE = Some(std::mem::transmute(uninit));
+            MAG_UNINITIALIZE = Some(std::mem::transmute::<
+                unsafe extern "system" fn() -> isize,
+                MagUninitializeFn,
+            >(uninit));
         }
         if let Some(transform) = GetProcAddress(h, s!("MagSetFullscreenTransform")) {
-            MAG_SET_FULLSCREEN_TRANSFORM = Some(std::mem::transmute(transform));
+            MAG_SET_FULLSCREEN_TRANSFORM = Some(std::mem::transmute::<
+                unsafe extern "system" fn() -> isize,
+                MagSetFullscreenTransformFn,
+            >(transform));
         }
 
         let init_ptr = std::ptr::addr_of!(MAG_INITIALIZE).read();
@@ -35,4 +44,4 @@ pub unsafe fn load_magnification_api() -> bool {
     }
 
     false
-}
+}}

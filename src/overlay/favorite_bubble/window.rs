@@ -166,7 +166,7 @@ fn create_bubble_window() {
         destroy_panel();
         BUBBLE_ACTIVE.store(false, Ordering::SeqCst);
         BUBBLE_HWND.store(0, Ordering::SeqCst);
-        let _ = CoUninitialize();
+        CoUninitialize();
     }
 }
 
@@ -175,7 +175,7 @@ unsafe extern "system" fn bubble_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     const WM_MOUSELEAVE: u32 = 0x02A3;
 
     match msg {
@@ -331,7 +331,7 @@ unsafe extern "system" fn bubble_wnd_proc(
                     0u8
                 } else if blink_state > 0 {
                     // Blink animation: Odd state = Active (255), Even state = Low (50)
-                    if blink_state % 2 != 0 {
+                    if !blink_state.is_multiple_of(2) {
                         OPACITY_ACTIVE
                     } else {
                         50 // Drop lower than inactive to be distinct
@@ -501,4 +501,4 @@ unsafe extern "system" fn bubble_wnd_proc(
 
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}

@@ -49,6 +49,8 @@ const C_SUN_HIGHLIGHT: Color32 = Color32::from_rgb(255, 255, 220);
 
 const C_CLOUD_WHITE: Color32 = Color32::from_rgb(255, 255, 255);
 
+type DrawListEntry = (f32, Pos2, f32, Color32, bool, bool);
+
 pub struct SplashScreen {
     start_time: f64,
     voxels: Vec<Voxel>,
@@ -63,7 +65,7 @@ pub struct SplashScreen {
     is_dark: bool,
     audio: Arc<Mutex<Option<SplashAudio>>>,
     has_played_impact: bool,
-    draw_list: RefCell<Vec<(f32, Pos2, f32, Color32, bool, bool)>>,
+    draw_list: RefCell<Vec<DrawListEntry>>,
     // Escape overlay — separate transparent window for voxels that fly beyond the main window
     escape_overlay: RefCell<Option<EscapeOverlay>>,
 }
@@ -80,11 +82,10 @@ impl SplashScreen {
         let audio_container_clone = audio_container.clone();
 
         std::thread::spawn(move || {
-            if let Some(audio) = SplashAudio::new() {
-                if let Ok(mut lock) = audio_container_clone.lock() {
+            if let Some(audio) = SplashAudio::new()
+                && let Ok(mut lock) = audio_container_clone.lock() {
                     *lock = Some(audio);
                 }
-            }
         });
 
         let mut slf = Self {

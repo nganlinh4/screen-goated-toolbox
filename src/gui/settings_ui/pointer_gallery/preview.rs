@@ -44,11 +44,10 @@ pub(super) fn render_collection_previews(
 
             let key = path.to_string_lossy().to_string();
 
-            if !texture_cache.contains_key(&key) {
-                if let Some(texture) = load_cursor_preview_texture(ctx, path, &key, now) {
+            if !texture_cache.contains_key(&key)
+                && let Some(texture) = load_cursor_preview_texture(ctx, path, &key, now) {
                     texture_cache.insert(key.clone(), texture);
                 }
-            }
 
             if let Some(preview) = texture_cache.get_mut(&key) {
                 if preview.animated && preview.frames.len() > 1 {
@@ -188,11 +187,10 @@ fn load_or_render_cached_preview_image(
     ani_step: u32,
     size: i32,
 ) -> Option<egui::ColorImage> {
-    if let Some(cache_path) = preview_cache_file(path, ani_step, size) {
-        if let Some(image) = read_cached_preview_png(&cache_path, size) {
+    if let Some(cache_path) = preview_cache_file(path, ani_step, size)
+        && let Some(image) = read_cached_preview_png(&cache_path, size) {
             return Some(image);
         }
-    }
 
     let image = cursor_file_to_color_image(path, ani_step, size)?;
     if let Some(cache_path) = preview_cache_file(path, ani_step, size) {

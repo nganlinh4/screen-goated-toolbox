@@ -20,11 +20,11 @@ use cursor::{collect_used_cursor_slots, parse_baked_cursor_frames};
 use overlay::load_custom_background_rgba;
 use sampling::{sample_baked_path, sample_parsed_baked_cursor};
 
-use super::gpu_export::{create_uniforms, CompositorUniforms, GpuCompositor};
+use super::SR_HWND;
+use super::gpu_export::{CompositorUniforms, GpuCompositor, create_uniforms};
 use super::gpu_pipeline;
 use super::mf_decode;
 use super::mf_encode;
-use super::SR_HWND;
 use crate::overlay::screen_record::engine::VIDEO_PATH;
 
 pub use progress::{export_replay_args_path, persist_export_result, push_export_progress};
@@ -216,9 +216,9 @@ fn probe_dx12() -> bool {
 /// Uses MFTEnumEx (enumerate-only, no instantiation) so it is cheap (<1 ms).
 fn probe_mf_h264_hardware() -> bool {
     use windows::Win32::Media::MediaFoundation::{
-        IMFActivate, MFMediaType_Video, MFTEnumEx, MFVideoFormat_H264, MFVideoFormat_NV12,
-        MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_HARDWARE, MFT_ENUM_FLAG_SORTANDFILTER,
-        MFT_REGISTER_TYPE_INFO,
+        IMFActivate, MFMediaType_Video, MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_HARDWARE,
+        MFT_ENUM_FLAG_SORTANDFILTER, MFT_REGISTER_TYPE_INFO, MFTEnumEx, MFVideoFormat_H264,
+        MFVideoFormat_NV12,
     };
     use windows::Win32::System::Com::CoTaskMemFree;
 
@@ -713,7 +713,13 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     println!(
         "[Export] Pipeline config: {}x{} @ {} fps, bitrate={}k, trim_start={:.3}, dur={:.3}, output_dur={:.3}",
-        out_w, out_h, config.framerate, bitrate, config.trim_start, config.duration, planned_output_duration_sec
+        out_w,
+        out_h,
+        config.framerate,
+        bitrate,
+        config.trim_start,
+        config.duration,
+        planned_output_duration_sec
     );
 
     let result = gpu_pipeline::run_zero_copy_export(
@@ -784,9 +790,16 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
             println!(
                 "[Export][Summary] status=success out={}x{} fps={} dur={:.3}s frames={} parse={:.3}s gpu={:.3}s cursor={:.3}s total={:.3}s pipeline=zero_copy actual_kbps={:.1}",
-                out_w, out_h, config.framerate, config.duration,
-                r.frames_encoded, parse_secs, gpu_device_secs, cursor_init_secs,
-                total_secs, actual_total_bitrate_kbps
+                out_w,
+                out_h,
+                config.framerate,
+                config.duration,
+                r.frames_encoded,
+                parse_secs,
+                gpu_device_secs,
+                cursor_init_secs,
+                total_secs,
+                actual_total_bitrate_kbps
             );
 
             Ok(serde_json::json!({

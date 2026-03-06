@@ -19,6 +19,7 @@ pub struct EdgeVoice {
 }
 
 /// Cached voice list state
+#[derive(Default)]
 pub struct EdgeVoiceCache {
     /// All voices fetched from Edge TTS
     pub voices: Vec<EdgeVoice>,
@@ -32,19 +33,6 @@ pub struct EdgeVoiceCache {
     pub loading: bool,
     /// Error message if loading failed
     pub error: Option<String>,
-}
-
-impl Default for EdgeVoiceCache {
-    fn default() -> Self {
-        Self {
-            voices: Vec::new(),
-            by_locale: HashMap::new(),
-            by_language: HashMap::new(),
-            loaded: false,
-            loading: false,
-            error: None,
-        }
-    }
 }
 
 lazy_static! {
@@ -91,7 +79,7 @@ pub fn load_edge_voices_async() {
                                     cache
                                         .by_locale
                                         .entry(voice.locale.clone())
-                                        .or_insert_with(Vec::new)
+                                        .or_default()
                                         .push(voice.clone());
 
                                     // Group by language code (first part of locale)
@@ -104,7 +92,7 @@ pub fn load_edge_voices_async() {
                                     cache
                                         .by_language
                                         .entry(lang_code)
-                                        .or_insert_with(Vec::new)
+                                        .or_default()
                                         .push(voice.clone());
                                 }
 

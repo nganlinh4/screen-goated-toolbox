@@ -1,8 +1,8 @@
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::{
-    CreateDIBitmap, GetDC, ReleaseDC, BITMAPINFO, BITMAPINFOHEADER, CBM_INIT, DIB_RGB_COLORS,
+    BITMAPINFO, BITMAPINFOHEADER, CBM_INIT, CreateDIBitmap, DIB_RGB_COLORS, GetDC, ReleaseDC,
 };
-use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
+use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::System::DataExchange::*;
 use windows::Win32::System::Memory::*;
 use windows::Win32::System::Threading::*;
@@ -27,8 +27,7 @@ pub fn is_text_input_focused() -> bool {
         // We use a pattern-based approach which is robust for Chrome/Electron/VSCode
         if let Ok(uia) =
             CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-        {
-            if let Ok(focused) = uia.GetFocusedElement() {
+            && let Ok(focused) = uia.GetFocusedElement() {
                 // Check for ValuePattern (simpler text inputs)
                 // UIA_ValuePatternId = 10002
                 if focused.GetCurrentPattern(UIA_ValuePatternId).is_ok() {
@@ -41,15 +40,16 @@ pub fn is_text_input_focused() -> bool {
                     return true;
                 }
             }
-        }
 
         // Fallback: Check legacy Win32 caret (for traditional Win32 apps like Notepad)
         let hwnd_foreground = GetForegroundWindow();
         if !hwnd_foreground.is_invalid() {
             let thread_id = GetWindowThreadProcessId(hwnd_foreground, None);
             if thread_id != 0 {
-                let mut gui_info = GUITHREADINFO::default();
-                gui_info.cbSize = std::mem::size_of::<GUITHREADINFO>() as u32;
+                let mut gui_info = GUITHREADINFO {
+                    cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+                    ..Default::default()
+                };
 
                 if GetGUIThreadInfo(thread_id, &mut gui_info).is_ok() {
                     let has_caret = !gui_info.hwndCaret.is_invalid();
@@ -260,7 +260,7 @@ pub fn get_clipboard_image_bytes() -> Option<Vec<u8>> {
                                         let pixel_data = &dib_data[pixel_offset..];
                                         let bytes_per_pixel = (bit_count / 8) as usize;
                                         let row_size =
-                                            ((width as usize * bytes_per_pixel + 3) / 4) * 4; // DWORD aligned
+                                            (width as usize * bytes_per_pixel).div_ceil(4) * 4; // DWORD aligned
 
                                         // Create RGBA buffer
                                         let mut rgba_buffer =
@@ -676,23 +676,17 @@ fn extract_http_status_code(error: &str) -> Option<u16> {
             .chars()
             .rev()
             .collect();
-        if last_3.chars().all(|c| c.is_ascii_digit()) {
-            if let Ok(code) = last_3.parse::<u16>() {
-                if (400..=599).contains(&code) {
+        if last_3.chars().all(|c| c.is_ascii_digit())
+            && let Ok(code) = last_3.parse::<u16>()
+                && (400..=599).contains(&code) {
                     return Some(code);
                 }
-            }
-        }
     }
 
     // Check for "XXX" anywhere (common error codes)
-    for code in [429, 400, 401, 403, 404, 500, 502, 503, 504] {
-        if error.contains(&code.to_string()) {
-            return Some(code);
-        }
-    }
-
-    None
+    [429, 400, 401, 403, 404, 500, 502, 503, 504]
+        .into_iter()
+        .find(|&code| error.contains(&code.to_string()))
 }
 
 /// Extracts provider name from error URL
@@ -726,74 +720,208 @@ fn format_http_error(
 
     match status_code {
         429 => match lang {
-            "vi" => format!("Lỗi 429: Đã vượt quá hạn mức của mô hình {} (Rate Limit). Vui lòng chờ một lát rồi thử lại.", model_info),
-            "ko" => format!("오류 429: {} 모델의 요청 제한 초과 (Rate Limit). 잠시 후 다시 시도해 주세요.", model_info),
-            "ja" => format!("エラー 429: {} のレート制限を超えました。しばらくしてから再試行してください。", model_info),
-            "zh" => format!("错误 429: {} 模型请求超出限制 (Rate Limit)。请稍后再试。", model_info),
-            _ => format!("Error 429: Rate limit exceeded for model {}. Please wait a moment and try again.", model_info),
+            "vi" => format!(
+                "Lỗi 429: Đã vượt quá hạn mức của mô hình {} (Rate Limit). Vui lòng chờ một lát rồi thử lại.",
+                model_info
+            ),
+            "ko" => format!(
+                "오류 429: {} 모델의 요청 제한 초과 (Rate Limit). 잠시 후 다시 시도해 주세요.",
+                model_info
+            ),
+            "ja" => format!(
+                "エラー 429: {} のレート制限を超えました。しばらくしてから再試行してください。",
+                model_info
+            ),
+            "zh" => format!(
+                "错误 429: {} 模型请求超出限制 (Rate Limit)。请稍后再试。",
+                model_info
+            ),
+            _ => format!(
+                "Error 429: Rate limit exceeded for model {}. Please wait a moment and try again.",
+                model_info
+            ),
         },
         400 => match lang {
-            "vi" => format!("Lỗi 400: Yêu cầu không hợp lệ đến {}. Vui lòng kiểm tra lại cài đặt.", model_info),
-            "ko" => format!("오류 400: {}에 대한 잘못된 요청입니다. 설정을 확인해 주세요.", model_info),
-            "ja" => format!("エラー 400: {} へのリクエストが無効です。設定を確認してください。", model_info),
+            "vi" => format!(
+                "Lỗi 400: Yêu cầu không hợp lệ đến {}. Vui lòng kiểm tra lại cài đặt.",
+                model_info
+            ),
+            "ko" => format!(
+                "오류 400: {}에 대한 잘못된 요청입니다. 설정을 확인해 주세요.",
+                model_info
+            ),
+            "ja" => format!(
+                "エラー 400: {} へのリクエストが無効です。設定を確認してください。",
+                model_info
+            ),
             "zh" => format!("错误 400: {} 请求无效。请检查设置。", model_info),
-            _ => format!("Error 400: Bad request to {}. Please check your settings.", model_info),
+            _ => format!(
+                "Error 400: Bad request to {}. Please check your settings.",
+                model_info
+            ),
         },
         401 => match lang {
-            "vi" => format!("Lỗi 401: API key của {} không hợp lệ hoặc đã hết hạn.", provider),
-            "ko" => format!("오류 401: {} API 키가 유효하지 않거나 만료되었습니다.", provider),
-            "ja" => format!("エラー 401: {} の API キーが無効または期限切れです。", provider),
+            "vi" => format!(
+                "Lỗi 401: API key của {} không hợp lệ hoặc đã hết hạn.",
+                provider
+            ),
+            "ko" => format!(
+                "오류 401: {} API 키가 유효하지 않거나 만료되었습니다.",
+                provider
+            ),
+            "ja" => format!(
+                "エラー 401: {} の API キーが無効または期限切れです。",
+                provider
+            ),
             "zh" => format!("错误 401: {} API 密钥无效或已过期。", provider),
             _ => format!("Error 401: {} API key is invalid or expired.", provider),
         },
         403 => match lang {
-            "vi" => format!("Lỗi 403: Không có quyền truy cập {}. Vui lòng kiểm tra API key.", provider),
-            "ko" => format!("오류 403: {}에 대한 접근 권한이 없습니다. API 키를 확인해 주세요.", provider),
-            "ja" => format!("エラー 403: {} へのアクセス権限がありません。API キーを確認してください。", provider),
+            "vi" => format!(
+                "Lỗi 403: Không có quyền truy cập {}. Vui lòng kiểm tra API key.",
+                provider
+            ),
+            "ko" => format!(
+                "오류 403: {}에 대한 접근 권한이 없습니다. API 키를 확인해 주세요.",
+                provider
+            ),
+            "ja" => format!(
+                "エラー 403: {} へのアクセス権限がありません。API キーを確認してください。",
+                provider
+            ),
             "zh" => format!("错误 403: 无权访问 {}。请检查 API 密钥。", provider),
-            _ => format!("Error 403: Access forbidden to {}. Please check your API key.", provider),
+            _ => format!(
+                "Error 403: Access forbidden to {}. Please check your API key.",
+                provider
+            ),
         },
         404 => match lang {
-            "vi" => format!("Lỗi 404: Không tìm thấy mô hình {} trên {}.", model_name.unwrap_or("này"), provider),
-            "ko" => format!("오류 404: {}에서 {} 모델을 찾을 수 없습니다.", provider, model_name.unwrap_or("해당")),
-            "ja" => format!("エラー 404: {} で {} が見つかりません。", provider, model_name.unwrap_or("このモデル")),
-            "zh" => format!("错误 404: 在 {} 上找不到模型 {}。", provider, model_name.unwrap_or("此")),
-            _ => format!("Error 404: Model {} not found on {}.", model_name.unwrap_or("this"), provider),
+            "vi" => format!(
+                "Lỗi 404: Không tìm thấy mô hình {} trên {}.",
+                model_name.unwrap_or("này"),
+                provider
+            ),
+            "ko" => format!(
+                "오류 404: {}에서 {} 모델을 찾을 수 없습니다.",
+                provider,
+                model_name.unwrap_or("해당")
+            ),
+            "ja" => format!(
+                "エラー 404: {} で {} が見つかりません。",
+                provider,
+                model_name.unwrap_or("このモデル")
+            ),
+            "zh" => format!(
+                "错误 404: 在 {} 上找不到模型 {}。",
+                provider,
+                model_name.unwrap_or("此")
+            ),
+            _ => format!(
+                "Error 404: Model {} not found on {}.",
+                model_name.unwrap_or("this"),
+                provider
+            ),
         },
         500 => match lang {
-            "vi" => format!("Lỗi 500: Máy chủ {} gặp lỗi nội bộ. Vui lòng thử lại sau.", provider),
-            "ko" => format!("오류 500: {} 서버 내부 오류입니다. 나중에 다시 시도해 주세요.", provider),
-            "ja" => format!("エラー 500: {} サーバー内部エラー。後で再試行してください。", provider),
+            "vi" => format!(
+                "Lỗi 500: Máy chủ {} gặp lỗi nội bộ. Vui lòng thử lại sau.",
+                provider
+            ),
+            "ko" => format!(
+                "오류 500: {} 서버 내부 오류입니다. 나중에 다시 시도해 주세요.",
+                provider
+            ),
+            "ja" => format!(
+                "エラー 500: {} サーバー内部エラー。後で再試行してください。",
+                provider
+            ),
             "zh" => format!("错误 500: {} 服务器内部错误。请稍后再试。", provider),
-            _ => format!("Error 500: {} internal server error. Please try again later.", provider),
+            _ => format!(
+                "Error 500: {} internal server error. Please try again later.",
+                provider
+            ),
         },
         502 => match lang {
-            "vi" => format!("Lỗi 502: Bad Gateway - {} đang gặp sự cố. Vui lòng thử lại sau.", provider),
-            "ko" => format!("오류 502: Bad Gateway - {}에 문제가 발생했습니다. 나중에 다시 시도해 주세요.", provider),
-            "ja" => format!("エラー 502: Bad Gateway - {} に問題が発生しています。後で再試行してください。", provider),
-            "zh" => format!("错误 502: Bad Gateway - {} 遇到问题。请稍后再试。", provider),
-            _ => format!("Error 502: Bad Gateway - {} is having issues. Please try again later.", provider),
+            "vi" => format!(
+                "Lỗi 502: Bad Gateway - {} đang gặp sự cố. Vui lòng thử lại sau.",
+                provider
+            ),
+            "ko" => format!(
+                "오류 502: Bad Gateway - {}에 문제가 발생했습니다. 나중에 다시 시도해 주세요.",
+                provider
+            ),
+            "ja" => format!(
+                "エラー 502: Bad Gateway - {} に問題が発生しています。後で再試行してください。",
+                provider
+            ),
+            "zh" => format!(
+                "错误 502: Bad Gateway - {} 遇到问题。请稍后再试。",
+                provider
+            ),
+            _ => format!(
+                "Error 502: Bad Gateway - {} is having issues. Please try again later.",
+                provider
+            ),
         },
         503 => match lang {
-            "vi" => format!("Lỗi 503: Dịch vụ {} đang quá tải hoặc bảo trì. Vui lòng thử lại sau.", provider),
-            "ko" => format!("오류 503: {} 서비스가 과부하 상태이거나 점검 중입니다. 나중에 다시 시도해 주세요.", provider),
-            "ja" => format!("エラー 503: {} サービスが過負荷またはメンテナンス中です。後で再試行してください。", provider),
+            "vi" => format!(
+                "Lỗi 503: Dịch vụ {} đang quá tải hoặc bảo trì. Vui lòng thử lại sau.",
+                provider
+            ),
+            "ko" => format!(
+                "오류 503: {} 서비스가 과부하 상태이거나 점검 중입니다. 나중에 다시 시도해 주세요.",
+                provider
+            ),
+            "ja" => format!(
+                "エラー 503: {} サービスが過負荷またはメンテナンス中です。後で再試行してください。",
+                provider
+            ),
             "zh" => format!("错误 503: {} 服务过载或维护中。请稍后再试。", provider),
-            _ => format!("Error 503: {} service is overloaded or under maintenance. Please try again later.", provider),
+            _ => format!(
+                "Error 503: {} service is overloaded or under maintenance. Please try again later.",
+                provider
+            ),
         },
         504 => match lang {
-            "vi" => format!("Lỗi 504: Hết thời gian chờ phản hồi từ {}. Vui lòng thử lại.", model_info),
-            "ko" => format!("오류 504: {} 응답 시간 초과. 다시 시도해 주세요.", model_info),
-            "ja" => format!("エラー 504: {} からの応答がタイムアウトしました。再試行してください。", model_info),
+            "vi" => format!(
+                "Lỗi 504: Hết thời gian chờ phản hồi từ {}. Vui lòng thử lại.",
+                model_info
+            ),
+            "ko" => format!(
+                "오류 504: {} 응답 시간 초과. 다시 시도해 주세요.",
+                model_info
+            ),
+            "ja" => format!(
+                "エラー 504: {} からの応答がタイムアウトしました。再試行してください。",
+                model_info
+            ),
             "zh" => format!("错误 504: {} 响应超时。请重试。", model_info),
-            _ => format!("Error 504: Gateway timeout from {}. Please try again.", model_info),
+            _ => format!(
+                "Error 504: Gateway timeout from {}. Please try again.",
+                model_info
+            ),
         },
         _ => match lang {
-            "vi" => format!("Lỗi {}: Có lỗi xảy ra với {} (HTTP {}).", status_code, model_info, status_code),
-            "ko" => format!("오류 {}: {}에서 오류가 발생했습니다 (HTTP {}).", status_code, model_info, status_code),
-            "ja" => format!("エラー {}: {} でエラーが発生しました (HTTP {}).", status_code, model_info, status_code),
-            "zh" => format!("错误 {}: {} 发生错误 (HTTP {}).", status_code, model_info, status_code),
-            _ => format!("Error {}: An error occurred with {} (HTTP {}).", status_code, model_info, status_code),
+            "vi" => format!(
+                "Lỗi {}: Có lỗi xảy ra với {} (HTTP {}).",
+                status_code, model_info, status_code
+            ),
+            "ko" => format!(
+                "오류 {}: {}에서 오류가 발생했습니다 (HTTP {}).",
+                status_code, model_info, status_code
+            ),
+            "ja" => format!(
+                "エラー {}: {} でエラーが発生しました (HTTP {}).",
+                status_code, model_info, status_code
+            ),
+            "zh" => format!(
+                "错误 {}: {} 发生错误 (HTTP {}).",
+                status_code, model_info, status_code
+            ),
+            _ => format!(
+                "Error {}: An error occurred with {} (HTTP {}).",
+                status_code, model_info, status_code
+            ),
         },
     }
 }
@@ -811,7 +939,7 @@ pub fn is_retryable_error(error: &str) -> bool {
             return true;
         }
         // 5xx: Server Errors (Retry!)
-        if code >= 500 && code <= 599 {
+        if (500..=599).contains(&code) {
             return true;
         }
         return false;

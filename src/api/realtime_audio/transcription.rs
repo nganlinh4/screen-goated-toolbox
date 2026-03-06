@@ -45,7 +45,7 @@ pub fn start_realtime_transcription(
     // Spawn translation thread if needed (Independent of transcription model)
     let has_translation = translation_hwnd.is_some() && preset.blocks.len() > 1;
     if has_translation {
-        let t_send = translation_send.clone().unwrap();
+        let t_send = translation_send.unwrap();
         let t_state = state.clone();
         let t_stop = stop_signal.clone();
         let t_preset = preset.clone();
@@ -151,27 +151,23 @@ fn transcription_thread_entry(
         let restart_source = AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst);
         let restart_model = TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst);
 
-        if restart_source {
-            if let Ok(new_source) = NEW_AUDIO_SOURCE.lock() {
-                if !new_source.is_empty() {
+        if restart_source
+            && let Ok(new_source) = NEW_AUDIO_SOURCE.lock()
+                && !new_source.is_empty() {
                     // println!("Changing audio source to: {}", new_source);
                     let mut app = APP.lock().unwrap();
                     app.config.realtime_audio_source = new_source.clone();
                     current_preset.audio_source = new_source.clone();
                     // Save config? Optional, but UI should sync.
                 }
-            }
-        }
 
-        if restart_model {
-            if let Ok(new_model) = NEW_TRANSCRIPTION_MODEL.lock() {
-                if !new_model.is_empty() {
+        if restart_model
+            && let Ok(new_model) = NEW_TRANSCRIPTION_MODEL.lock()
+                && !new_model.is_empty() {
                     // println!("Changing transcription model to: {}", new_model);
                     let mut app = APP.lock().unwrap();
                     app.config.realtime_transcription_model = new_model.clone();
                 }
-            }
-        }
 
         // If a restart is triggered, reset stop signal to allow the new transcription to run
         if restart_source || restart_model {
@@ -413,10 +409,9 @@ fn run_main_loop(
 
             match audio_mode {
                 AudioMode::Normal => {
-                    if !real_audio.is_empty() {
-                        if send_audio_chunk(&mut socket, &real_audio).is_err() {
-                            break;
-                        }
+                    if !real_audio.is_empty() && send_audio_chunk(&mut socket, &real_audio).is_err()
+                    {
+                        break;
                     }
                 }
                 AudioMode::Silence => {
@@ -432,14 +427,12 @@ fn run_main_loop(
                     let to_send: Vec<i16> = if silence_buffer.len() >= chunk_size {
                         silence_buffer.drain(..chunk_size).collect()
                     } else if !silence_buffer.is_empty() {
-                        silence_buffer.drain(..).collect()
+                        std::mem::take(&mut silence_buffer)
                     } else {
                         Vec::new()
                     };
-                    if !to_send.is_empty() {
-                        if send_audio_chunk(&mut socket, &to_send).is_err() {
-                            break;
-                        }
+                    if !to_send.is_empty() && send_audio_chunk(&mut socket, &to_send).is_err() {
+                        break;
                     }
                 }
             }
@@ -453,8 +446,8 @@ fn run_main_loop(
         match socket.read() {
             Ok(tungstenite::Message::Text(msg)) => {
                 let msg = msg.as_str();
-                if let Some(transcript) = parse_input_transcription(msg) {
-                    if !transcript.is_empty() {
+                if let Some(transcript) = parse_input_transcription(msg)
+                    && !transcript.is_empty() {
                         last_transcription_time = Instant::now();
                         consecutive_empty_reads = 0;
                         let display_text = if let Ok(mut s) = state.lock() {
@@ -467,12 +460,11 @@ fn run_main_loop(
                             update_overlay_text(overlay_hwnd, &display_text);
                         }
                     }
-                }
             }
             Ok(tungstenite::Message::Binary(data)) => {
-                if let Ok(text) = String::from_utf8(data.to_vec()) {
-                    if let Some(transcript) = parse_input_transcription(&text) {
-                        if !transcript.is_empty() {
+                if let Ok(text) = String::from_utf8(data.to_vec())
+                    && let Some(transcript) = parse_input_transcription(&text)
+                        && !transcript.is_empty() {
                             last_transcription_time = Instant::now();
                             consecutive_empty_reads = 0;
                             let display_text = if let Ok(mut s) = state.lock() {
@@ -485,8 +477,6 @@ fn run_main_loop(
                                 update_overlay_text(overlay_hwnd, &display_text);
                             }
                         }
-                    }
-                }
             }
             Ok(tungstenite::Message::Close(_)) => {
                 if !try_reconnect(
@@ -511,8 +501,7 @@ fn run_main_loop(
                 if consecutive_empty_reads >= EMPTY_READ_CHECK_COUNT
                     && last_transcription_time.elapsed()
                         > Duration::from_secs(NO_RESULT_THRESHOLD_SECS)
-                {
-                    if !try_reconnect(
+                    && !try_reconnect(
                         &mut socket,
                         gemini_api_key,
                         &audio_buffer,
@@ -521,9 +510,9 @@ fn run_main_loop(
                         &mut mode_start,
                         &mut last_transcription_time,
                         &mut consecutive_empty_reads,
-                    ) {
-                        break;
-                    }
+                    )
+                {
+                    break;
                 }
             }
             Err(e) => {
@@ -557,6 +546,10 @@ fn run_main_loop(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "reconnection keeps each mutable streaming state explicit at the call site"
+)]
 fn try_reconnect(
     socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
     api_key: &str,

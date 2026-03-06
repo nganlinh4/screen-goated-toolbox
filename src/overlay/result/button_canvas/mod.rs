@@ -44,8 +44,8 @@ const WM_APP_SEND_REFINE_TEXT: u32 = WM_APP + 53;
 const CURSOR_POLL_TIMER_ID: usize = 1;
 
 thread_local! {
-    static CANVAS_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
-    static CANVAS_WEB_CONTEXT: RefCell<Option<WebContext>> = RefCell::new(None);
+    static CANVAS_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
+    static CANVAS_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
 }
 
 lazy_static::lazy_static! {

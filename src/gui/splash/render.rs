@@ -5,10 +5,10 @@ use super::audio::SplashAudio;
 use super::math::{lerp, smoothstep, Vec3};
 use super::scene::{Cloud, MoonFeature, Star, Voxel};
 use super::{
-    SplashStatus, ANIMATION_DURATION, C_CLOUD_CORE, C_CLOUD_WHITE, C_CYAN, C_DAY_REP, C_DAY_SEC,
-    C_DAY_TEXT, C_MAGENTA, C_MOON_BASE, C_MOON_GLOW, C_MOON_HIGHLIGHT, C_MOON_SHADOW,
-    C_SKY_DAY_TOP, C_SUN_BODY, C_SUN_FLARE, C_SUN_GLOW, C_SUN_HIGHLIGHT, C_VOID, C_WHITE,
-    EXIT_DURATION, START_TRANSITION,
+    DrawListEntry, SplashStatus, ANIMATION_DURATION, C_CLOUD_CORE, C_CLOUD_WHITE, C_CYAN,
+    C_DAY_REP, C_DAY_SEC, C_DAY_TEXT, C_MAGENTA, C_MOON_BASE, C_MOON_GLOW, C_MOON_HIGHLIGHT,
+    C_MOON_SHADOW, C_SKY_DAY_TOP, C_SUN_BODY, C_SUN_FLARE, C_SUN_GLOW, C_SUN_HIGHLIGHT, C_VOID,
+    C_WHITE, EXIT_DURATION, START_TRANSITION,
 };
 use crate::gui::icons::{paint_icon, Icon};
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
@@ -24,8 +24,8 @@ pub fn update(
     ctx: &egui::Context,
     start_time: f64,
     exit_start_time: &mut Option<f64>,
-    voxels: &mut Vec<Voxel>,
-    clouds: &mut Vec<Cloud>,
+    voxels: &mut [Voxel],
+    clouds: &mut [Cloud],
     mouse_influence: &mut Vec2,
     mouse_world_pos: &mut Vec3,
     loading_text: &mut String,
@@ -40,18 +40,16 @@ pub fn update(
 
     if exit_start_time.is_none() {
         let t = (now - start_time) as f32;
-        if t > ANIMATION_DURATION - 0.5 {
-            if ctx.input(|i| i.pointer.any_click()) {
-                // Prevent click on theme switcher from triggering splash exit
-                let is_in_switcher = if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
-                    pos.x < 100.0 && pos.y < 60.0
-                } else {
-                    false
-                };
+        if t > ANIMATION_DURATION - 0.5 && ctx.input(|i| i.pointer.any_click()) {
+            // Prevent click on theme switcher from triggering splash exit
+            let is_in_switcher = if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
+                pos.x < 100.0 && pos.y < 60.0
+            } else {
+                false
+            };
 
-                if !is_in_switcher {
-                    *exit_start_time = Some(now);
-                }
+            if !is_in_switcher {
+                *exit_start_time = Some(now);
             }
         }
     }
@@ -64,22 +62,20 @@ pub fn update(
     if let Some(exit_start) = *exit_start_time {
         let dt = (now - exit_start) as f32;
         if dt > EXIT_DURATION {
-            if let Ok(mut lock) = audio.lock() {
-                if let Some(audio) = lock.as_mut() {
-                    if let Ok(mut s) = audio.state.lock() {
+            if let Ok(mut lock) = audio.lock()
+                && let Some(audio) = lock.as_mut()
+                    && let Ok(mut s) = audio.state.lock() {
                         s.is_finished = true;
                     }
-                }
-            }
             return SplashStatus::Finished;
         }
         warp_progress = (dt / EXIT_DURATION).clamp(0.0, 1.0);
     }
 
     // --- UPDATE AUDIO STATE ---
-    if let Ok(mut lock) = audio.lock() {
-        if let Some(audio) = lock.as_mut() {
-            if let Ok(mut s) = audio.state.lock() {
+    if let Ok(mut lock) = audio.lock()
+        && let Some(audio) = lock.as_mut()
+            && let Ok(mut s) = audio.state.lock() {
                 s.physics_t = physics_t;
                 s.warp_progress = warp_progress;
                 s.is_dark = *is_dark;
@@ -91,8 +87,6 @@ pub fn update(
                     *has_played_impact = true;
                 }
             }
-        }
-    }
 
     ctx.request_repaint();
 
@@ -265,7 +259,7 @@ pub fn paint(
     mouse_influence: Vec2,
     is_dark: bool,
     loading_text: &str,
-    draw_list: &RefCell<Vec<(f32, Pos2, f32, Color32, bool, bool)>>,
+    draw_list: &RefCell<Vec<DrawListEntry>>,
 ) -> bool {
     let mut theme_clicked = false;
     let now = ctx.input(|i| i.time);
@@ -789,12 +783,10 @@ pub fn paint(
                 } else if v.color == C_DAY_SEC {
                     base_col = C_CYAN;
                 }
-            } else {
-                if v.color == C_MAGENTA {
-                    base_col = C_DAY_REP;
-                } else if v.color == C_CYAN {
-                    base_col = C_DAY_SEC;
-                }
+            } else if v.color == C_MAGENTA {
+                base_col = C_DAY_REP;
+            } else if v.color == C_CYAN {
+                base_col = C_DAY_SEC;
             }
         }
 
@@ -831,15 +823,13 @@ pub fn paint(
             &painter
         };
 
-        if !(!is_dark && is_debris) {
+        if is_dark || !is_debris {
             let shadow_col = if is_dark {
                 Color32::from_black_alpha(200).linear_multiply(col.a() as f32 / 255.0)
+            } else if is_white_voxel {
+                Color32::from_rgb(100, 120, 150).linear_multiply(col.a() as f32 / 255.0)
             } else {
-                if is_white_voxel {
-                    Color32::from_rgb(100, 120, 150).linear_multiply(col.a() as f32 / 255.0)
-                } else {
-                    Color32::from_rgb(0, 40, 100).linear_multiply(col.a() as f32 / 255.0)
-                }
+                Color32::from_rgb(0, 40, 100).linear_multiply(col.a() as f32 / 255.0)
             };
             p.circle_filled(pos, r, shadow_col);
 

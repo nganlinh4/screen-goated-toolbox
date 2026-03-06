@@ -28,12 +28,11 @@ fn main() {
     let app_icon_path = assets_dir.join("app-icon-small.png");
     let app_icon_small_path = assets_dir.join("app-icon-small.png");
 
-    if app_icon_path.exists() {
-        if let Ok(img) = image::open(&app_icon_path) {
+    if app_icon_path.exists()
+        && let Ok(img) = image::open(&app_icon_path) {
             let resized = img.resize(256, 256, image::imageops::FilterType::Lanczos3);
             let _ = resized.save(&app_icon_small_path);
         }
-    }
 
     // Generate multi-size ICO from the optimized small icon
     if app_icon_small_path.exists() {
@@ -153,12 +152,8 @@ fn create_multi_size_ico(png_path: &Path, ico_path: &Path) {
 
             // AND Mask (1 bit per pixel, padded to 32 bits)
             // All zeros (transparent) since we use alpha channel
-            let row_bytes = ((size + 31) / 32) * 4;
-            for _ in 0..size {
-                for _ in 0..row_bytes {
-                    data.push(0);
-                }
-            }
+            let row_bytes = size.div_ceil(32) * 4;
+            data.extend(std::iter::repeat_n(0, (size * row_bytes) as usize));
         }
         images_data.push(data);
     }

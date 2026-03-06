@@ -112,8 +112,6 @@ pub struct CursorPhysics {
 
     pub particles: Vec<DustParticle>,
 
-    // Clean up
-    pub initialized: bool,
     pub needs_cleanup_repaint: bool, // Flag to trigger one final repaint when entering DragOut
 }
 
@@ -129,7 +127,6 @@ impl Default for CursorPhysics {
             mode: AnimationMode::Idle,
 
             particles: Vec::new(),
-            initialized: false,
             needs_cleanup_repaint: false,
         }
     }
@@ -336,14 +333,12 @@ pub fn get_window_group(hwnd: HWND) -> Vec<(HWND, RECT)> {
         }
         group.push((current, r));
 
-        if let Some(s) = states.get(&(current.0 as isize)) {
-            if let Some(linked) = s.linked_window {
-                if states.contains_key(&(linked.0 as isize)) && !visited.contains(&linked.0) {
+        if let Some(s) = states.get(&(current.0 as isize))
+            && let Some(linked) = s.linked_window
+                && states.contains_key(&(linked.0 as isize)) && !visited.contains(&linked.0) {
                     visited.insert(linked.0);
                     queue.push_back(linked);
                 }
-            }
-        }
     }
 
     group

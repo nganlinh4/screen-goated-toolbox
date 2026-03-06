@@ -30,7 +30,7 @@ unsafe extern "system" fn monitor_enum_proc(
     _hdc: HDC,
     _lprc: *mut RECT,
     dwdata: LPARAM,
-) -> BOOL {
+) -> BOOL { unsafe {
     let context = &mut *(dwdata.0 as *mut MonitorEnumContext);
     let mut mi = MONITORINFOEXW::default();
     mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
@@ -41,7 +41,7 @@ unsafe extern "system" fn monitor_enum_proc(
         context.monitors.push(trimmed_name);
     }
     BOOL::from(true)
-}
+}}
 
 pub fn get_monitor_names() -> Vec<String> {
     let mut ctx = MonitorEnumContext {
@@ -107,11 +107,9 @@ pub fn is_system_in_dark_mode() -> bool {
         // 0 = Dark Mode (Standard), 1 = Light Mode.
         if let Ok(key) =
             hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize")
-        {
-            if let Ok(val) = key.get_value::<u32, &str>("SystemUsesLightTheme") {
+            && let Ok(val) = key.get_value::<u32, &str>("SystemUsesLightTheme") {
                 return val == 0;
             }
-        }
         true
     }
     #[cfg(not(target_os = "windows"))]
@@ -210,7 +208,7 @@ pub fn set_admin_startup(enable: bool) -> bool {
         }
 
         let mut cmd = Command::new("schtasks");
-        cmd.args(&[
+        cmd.args([
             "/create",
             "/tn",
             TASK_NAME,
@@ -234,7 +232,7 @@ pub fn set_admin_startup(enable: bool) -> bool {
         }
     } else {
         let mut cmd = Command::new("schtasks");
-        cmd.args(&["/delete", "/tn", TASK_NAME, "/f"]);
+        cmd.args(["/delete", "/tn", TASK_NAME, "/f"]);
         // CREATE_NO_WINDOW = 0x08000000 - prevents console window flash
         #[cfg(windows)]
         cmd.creation_flags(0x08000000);
@@ -251,7 +249,7 @@ pub fn set_admin_startup(enable: bool) -> bool {
 pub fn is_admin_startup_enabled() -> bool {
     // 1. Check if ANY task with our name exists
     let mut cmd = Command::new("schtasks");
-    cmd.args(&["/query", "/tn", TASK_NAME]);
+    cmd.args(["/query", "/tn", TASK_NAME]);
     #[cfg(windows)]
     cmd.creation_flags(0x08000000);
 
@@ -281,20 +279,19 @@ pub fn is_admin_startup_pointing_to_current_exe() -> bool {
     };
 
     let mut cmd = Command::new("schtasks");
-    cmd.args(&["/query", "/tn", TASK_NAME, "/xml"]);
+    cmd.args(["/query", "/tn", TASK_NAME, "/xml"]);
     // CREATE_NO_WINDOW = 0x08000000
     #[cfg(windows)]
     cmd.creation_flags(0x08000000);
 
-    if let Ok(output) = cmd.output() {
-        if output.status.success() {
+    if let Ok(output) = cmd.output()
+        && output.status.success() {
             let xml_content = String::from_utf8_lossy(&output.stdout);
             // The XML contains the path, likely quoted.
             // We just check if the path substring is present.
             // This handles cases where it might be "C:\Path\To\App.exe" or just C:\Path\To\App.exe
             return xml_content.to_lowercase().contains(&exe_str.to_lowercase());
         }
-    }
     false
 }
 
@@ -308,7 +305,7 @@ fn rgba_to_bgra(data: &[u8]) -> Vec<u8> {
     bgra
 }
 
-unsafe fn create_hicon_from_bytes(bytes: &[u8], target_w: i32, target_h: i32) -> Option<HANDLE> {
+unsafe fn create_hicon_from_bytes(bytes: &[u8], target_w: i32, target_h: i32) -> Option<HANDLE> { unsafe {
     let img = image::load_from_memory(bytes).ok()?;
 
     // High-quality resize to fix aliasing
@@ -340,12 +337,12 @@ unsafe fn create_hicon_from_bytes(bytes: &[u8], target_w: i32, target_h: i32) ->
             if hicon.is_invalid() {
                 None
             } else {
-                Some(std::mem::transmute::<_, HANDLE>(hicon))
+                Some(HANDLE(hicon.0))
             }
         }
         Err(_) => None,
     }
-}
+}}
 
 pub fn set_window_icon(hwnd: HWND, is_dark_mode: bool) {
     let icon_bytes: &[u8] = if is_dark_mode {

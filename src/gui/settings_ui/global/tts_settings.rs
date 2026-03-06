@@ -257,12 +257,12 @@ pub fn render_tts_settings_modal(
                     };
 
                     // Split male voices into 2 columns
-                    let male_mid = (male_voices.len() + 1) / 2;
+                    let male_mid = male_voices.len().div_ceil(2);
                     let male_col1: Vec<_> = male_voices.iter().take(male_mid).collect();
                     let male_col2: Vec<_> = male_voices.iter().skip(male_mid).collect();
                     
                     // Split female voices into 2 columns
-                    let female_mid = (female_voices.len() + 1) / 2;
+                    let female_mid = female_voices.len().div_ceil(2);
                     let female_col1: Vec<_> = female_voices.iter().take(female_mid).collect();
                     let female_col2: Vec<_> = female_voices.iter().skip(female_mid).collect();
 

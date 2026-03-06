@@ -109,6 +109,12 @@ pub(crate) fn restore_original_cursor_from_backup() -> Result<(), String> {
     restore_original_cursor_backup()
 }
 
+impl Default for PointerGallery {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PointerGallery {
     pub fn new() -> Self {
         let cache_root = dirs::data_local_dir()

@@ -242,7 +242,7 @@ impl AudioPlayer {
         shutdown: Arc<AtomicBool>,
         target_device_id: Option<String>,
         manager: Arc<TtsManager>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()> { unsafe {
         eprintln!("[TTS WASAPI] Initializing audio output...");
 
         // Use STA for better compatibility with audio drivers
@@ -376,7 +376,7 @@ impl AudioPlayer {
 
         client.Stop()?;
         Ok(())
-    }
+    }}
 
     fn play(&self, audio_data: &[u8], is_realtime: bool) {
         // Get effective speed
@@ -448,16 +448,14 @@ impl AudioPlayer {
         // Apply WSOLA time-stretching
         let stretched_samples = if (speed_ratio - 1.0).abs() < 0.05 {
             input_samples
-        } else {
-            if let Ok(mut wsola) = self.wsola.lock() {
-                let result = wsola.stretch(&input_samples, speed_ratio);
-                if result.is_empty() {
-                    return;
-                }
-                result
-            } else {
-                input_samples
+        } else if let Ok(mut wsola) = self.wsola.lock() {
+            let result = wsola.stretch(&input_samples, speed_ratio);
+            if result.is_empty() {
+                return;
             }
+            result
+        } else {
+            input_samples
         };
 
         // Apply volume scaling before pushing to buffer.

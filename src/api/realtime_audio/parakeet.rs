@@ -57,6 +57,10 @@ pub fn run_parakeet_transcription(
 }
 
 /// Generic Parakeet session that can be used by both Realtime Overlay and Prompt DJ
+#[expect(
+    clippy::too_many_arguments,
+    reason = "session startup needs explicit runtime toggles and shared handles"
+)]
 pub fn run_parakeet_session<F>(
     stop_signal: Arc<AtomicBool>,
     pause_signal: Arc<AtomicBool>,
@@ -153,15 +157,13 @@ where
 
     // 4. Processing Loop
     while !stop_signal.load(Ordering::Relaxed) {
-        if !hide_recording_ui {
-            if let Some(hwnd) = overlay_hwnd_opt {
-                if unsafe {
+        if !hide_recording_ui
+            && let Some(hwnd) = overlay_hwnd_opt
+                && unsafe {
                     !windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool()
                 } {
                     break;
                 }
-            }
-        }
         if pause_signal.load(Ordering::Relaxed) {
             std::thread::sleep(std::time::Duration::from_millis(50));
             continue;
@@ -199,16 +201,14 @@ where
                         has_spoken = true;
                         first_speech = Some(std::time::Instant::now());
                     }
-                } else if has_spoken {
-                    if let Some(start) = first_speech {
-                        if last_active.elapsed().as_millis() > 800
+                } else if has_spoken
+                    && let Some(start) = first_speech
+                        && last_active.elapsed().as_millis() > 800
                             && start.elapsed().as_millis() > 2000
                         {
                             stop_signal.store(true, Ordering::SeqCst);
                             break;
                         }
-                    }
-                }
             }
 
             if let Some(hwnd) = overlay_hwnd_opt {
@@ -219,11 +219,10 @@ where
                 }
             }
 
-            if let Some(full_buf) = &full_audio_buffer {
-                if let Ok(mut full) = full_buf.lock() {
+            if let Some(full_buf) = &full_audio_buffer
+                && let Ok(mut full) = full_buf.lock() {
                     full.extend(new_samples.iter().map(|&s| (s * 32768.0) as i16));
                 }
-            }
 
             sample_accumulator.extend(new_samples);
         }
@@ -252,14 +251,13 @@ where
     // Flush
     let silence = vec![0.0f32; CHUNK_SIZE];
     for _ in 0..3 {
-        if let Ok(text) = parakeet.transcribe(&silence, false) {
-            if !text.is_empty() {
+        if let Ok(text) = parakeet.transcribe(&silence, false)
+            && !text.is_empty() {
                 let processed = process_sentencepiece_text(&text);
                 if !processed.is_empty() {
                     callback(processed);
                 }
             }
-        }
     }
 
     Ok(())
@@ -267,7 +265,7 @@ where
 
 fn process_sentencepiece_text(text: &str) -> String {
     let starts_with_word = text.starts_with('\u{2581}') || text.starts_with('▁');
-    let processed = text.replace('\u{2581}', " ").replace('▁', " ");
+    let processed = text.replace(['\u{2581}', '▁'], " ");
     let processed = processed.trim();
 
     if processed.is_empty() {

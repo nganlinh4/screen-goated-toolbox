@@ -34,8 +34,8 @@ pub static CURRENT_RECORDING_HIDDEN: AtomicBool = AtomicBool::new(false);
 
 // --- THREAD LOCAL ---
 thread_local! {
-    pub static RECORDING_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
-    pub static RECORDING_WEB_CONTEXT: RefCell<Option<WebContext>> = RefCell::new(None);
+    pub static RECORDING_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
+    pub static RECORDING_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
 }
 
 // --- WINDOW MESSAGES ---

@@ -13,7 +13,7 @@ pub unsafe fn measure_text_bounds(
     text: &mut [u16],
     font_size: i32,
     max_width: i32,
-) -> (i32, i32) {
+) -> (i32, i32) { unsafe {
     let hfont = CreateFontW(
         font_size,
         0,
@@ -51,7 +51,7 @@ pub unsafe fn measure_text_bounds(
 
     // Return (Height, Width)
     (calc_rect.bottom, calc_rect.right)
-}
+}}
 
 // --- BITMAP CREATION ---
 
@@ -65,7 +65,7 @@ pub fn create_bitmap_from_pixels(pixels: &[u32], w: i32, h: i32) -> HBITMAP {
                 biHeight: -h,
                 biPlanes: 1,
                 biBitCount: 32,
-                biCompression: BI_RGB.0 as u32,
+                biCompression: BI_RGB.0,
                 ..Default::default()
             },
             ..Default::default()

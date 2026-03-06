@@ -47,6 +47,12 @@ pub struct DownloadManager {
     pub pending_cookie_browser: Option<CookieBrowser>,
 }
 
+impl Default for DownloadManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DownloadManager {
     pub fn new() -> Self {
         let bin_dir = dirs::data_local_dir()

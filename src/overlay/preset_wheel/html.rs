@@ -30,7 +30,7 @@ fn calculate_row_distribution(n: usize) -> Vec<usize> {
     let cols = ((n as f64 / squish_factor).sqrt().ceil() as usize).max(1);
 
     // Calculate number of rows needed
-    let num_rows = (n + cols - 1) / cols;
+    let num_rows = n.div_ceil(cols);
 
     // Calculate base items per row and remainder
     let base = n / num_rows;

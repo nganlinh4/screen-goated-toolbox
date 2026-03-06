@@ -46,7 +46,7 @@ pub unsafe fn draw_direct_sdf_glow(
     time_offset: f32,
     alpha_mult: f32,
     is_glowing: bool,
-) {
+) { unsafe {
     if pixels_ptr.is_null() {
         return;
     }
@@ -170,7 +170,7 @@ pub unsafe fn draw_direct_sdf_glow(
             }
         }
     }
-}
+}}
 
 // === MINIMAL GRAPHICS MODE ===
 // Super lightweight rendering for weak computers.
@@ -184,7 +184,7 @@ pub unsafe fn draw_minimal_glow(
     time_offset: f32,
     _alpha_mult: f32,
     is_glowing: bool,
-) {
+) { unsafe {
     if pixels_ptr.is_null() {
         return;
     }
@@ -234,4 +234,4 @@ pub unsafe fn draw_minimal_glow(
             }
         }
     }
-}
+}}

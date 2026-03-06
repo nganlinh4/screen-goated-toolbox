@@ -4,22 +4,22 @@
 use super::clipboard::{get_clipboard_text, keyboard_hook_proc, process_selected_text};
 use super::html::{get_html, get_localized_badge_text, get_localized_image_badge_text};
 use super::state::*;
-use crate::overlay::realtime_webview::state::HwndWrapper;
 use crate::APP;
+use crate::overlay::realtime_webview::state::HwndWrapper;
 use std::sync::atomic::Ordering;
-use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::System::DataExchange::*;
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::*;
 
 pub unsafe extern "system" fn tag_wnd_proc(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     let lang = {
         if let Ok(app) = APP.try_lock() {
             app.config.ui_language.clone()
@@ -186,7 +186,7 @@ pub unsafe extern "system" fn tag_wnd_proc(
         Ok(lresult) => lresult,
         Err(_) => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}
 
 pub fn internal_create_tag_thread() {
     unsafe {
@@ -197,13 +197,15 @@ pub fn internal_create_tag_thread() {
         let class_name = w!("SGT_TextTag_Web_Persistent");
 
         REGISTER_TAG_CLASS.call_once(|| {
-            let mut wc = WNDCLASSEXW::default();
-            wc.cbSize = std::mem::size_of::<WNDCLASSEXW>() as u32;
-            wc.lpfnWndProc = Some(tag_wnd_proc);
-            wc.hInstance = instance.into();
-            wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap();
-            wc.lpszClassName = class_name;
-            wc.style = CS_HREDRAW | CS_VREDRAW;
+            let wc = WNDCLASSEXW {
+                cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+                lpfnWndProc: Some(tag_wnd_proc),
+                hInstance: instance.into(),
+                hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
+                lpszClassName: class_name,
+                style: CS_HREDRAW | CS_VREDRAW,
+                ..Default::default()
+            };
             let _ = RegisterClassExW(&wc);
         });
 
@@ -268,7 +270,9 @@ pub fn internal_create_tag_thread() {
             let res = {
                 let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
 
-                let build_res = SELECTION_WEB_CONTEXT.with(|ctx| {
+                
+
+                SELECTION_WEB_CONTEXT.with(|ctx| {
                     let mut ctx_ref = ctx.borrow_mut();
                     let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
                         wry::WebViewBuilder::new_with_web_context(web_ctx)
@@ -289,9 +293,7 @@ pub fn internal_create_tag_thread() {
                         .with_url(&page_url)
                         .with_transparent(true)
                         .build_as_child(&HwndWrapper(hwnd))
-                });
-
-                build_res
+                })
             };
 
             match res {
@@ -312,7 +314,7 @@ pub fn internal_create_tag_thread() {
         } else {
             let _ = DestroyWindow(hwnd);
             IS_WARMING_UP.store(false, Ordering::SeqCst);
-            let _ = CoUninitialize();
+            CoUninitialize();
             return;
         }
 
@@ -379,13 +381,11 @@ pub fn internal_create_tag_thread() {
                         IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
                     }
                 }
+            } else if GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
             } else {
-                if GetMessageW(&mut msg, None, 0, 0).as_bool() {
-                    let _ = TranslateMessage(&msg);
-                    DispatchMessageW(&msg);
-                } else {
-                    break;
-                }
+                break;
             }
 
             let is_actually_visible = IsWindowVisible(hwnd).as_bool();
@@ -432,13 +432,11 @@ pub fn internal_create_tag_thread() {
                         let reset_js = format!("updateState(false, '{}')", badge_text);
                         let _ = wv.evaluate_script(&reset_js);
                     }
-                } else {
-                    if !crate::overlay::continuous_mode::is_active()
-                        && !state.hook_handle.is_invalid()
-                    {
-                        let _ = UnhookWindowsHookEx(state.hook_handle);
-                        state.hook_handle = HHOOK::default();
-                    }
+                } else if !crate::overlay::continuous_mode::is_active()
+                    && !state.hook_handle.is_invalid()
+                {
+                    let _ = UnhookWindowsHookEx(state.hook_handle);
+                    state.hook_handle = HHOOK::default();
                 }
             }
 
@@ -607,11 +605,10 @@ pub fn internal_create_tag_thread() {
                     None
                 };
 
-                if let Some(js) = update_js {
-                    if let Some(webview) = SELECTION_STATE.lock().unwrap().webview.as_ref() {
+                if let Some(js) = update_js
+                    && let Some(webview) = SELECTION_STATE.lock().unwrap().webview.as_ref() {
                         let _ = webview.evaluate_script(&js);
                     }
-                }
 
                 if should_spawn_thread {
                     let hwnd_val = hwnd.0 as usize;
@@ -637,7 +634,7 @@ pub fn internal_create_tag_thread() {
 }
 
 /// Worker thread for processing text selection
-unsafe fn worker_thread(hwnd_val: usize, preset_idx_for_thread: usize) {
+unsafe fn worker_thread(hwnd_val: usize, preset_idx_for_thread: usize) { unsafe {
     let hwnd_copy = HWND(hwnd_val as *mut std::ffi::c_void);
 
     if TAG_ABORT_SIGNAL.load(Ordering::Relaxed) || !TEXT_BADGE_VISIBLE.load(Ordering::Relaxed) {
@@ -763,7 +760,7 @@ unsafe fn worker_thread(hwnd_val: usize, preset_idx_for_thread: usize) {
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(150));
                 if crate::overlay::continuous_mode::is_active() {
-                    let _ = super::show_text_selection_tag(retrigger_idx);
+                    super::show_text_selection_tag(retrigger_idx);
                 }
             });
         }
@@ -775,4 +772,4 @@ unsafe fn worker_thread(hwnd_val: usize, preset_idx_for_thread: usize) {
     let mut state = SELECTION_STATE.lock().unwrap();
     state.is_selecting = false;
     state.is_processing = false;
-}
+}}

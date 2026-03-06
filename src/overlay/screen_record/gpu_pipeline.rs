@@ -251,42 +251,43 @@ unsafe fn import_shared_handle_into_wgpu(
 ) -> Result<wgpu::Texture, String> {
     use windows::Win32::Graphics::Direct3D12 as d3d12;
 
-    let hal_texture =
-        device.as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_dev| -> Result<_, String> {
-            let hal_dev = hal_dev.ok_or("No DX12 HAL device")?;
+    let hal_dev = unsafe { device.as_hal::<wgpu::hal::api::Dx12>() }
+        .ok_or_else(|| "No DX12 HAL device".to_string())?;
 
-            // wgpu-hal's raw_device() returns &windows_058::ID3D12Device.
-            // Reinterpret as our windows 0.62 type — same COM vtable, same ABI.
-            let hal_d12_ref = hal_dev.raw_device();
-            let our_d12: &d3d12::ID3D12Device =
-                &*(hal_d12_ref as *const _ as *const d3d12::ID3D12Device);
+    // wgpu-hal's raw_device() returns &windows_058::ID3D12Device.
+    // Reinterpret as our windows 0.62 type — same COM vtable, same ABI.
+    let hal_d12_ref = hal_dev.raw_device();
+    let our_d12: &d3d12::ID3D12Device = unsafe { &*(hal_d12_ref as *const _) };
 
-            // Open the shared NT handle → D3D12 resource (windows 0.62).
-            let mut d3d12_resource: Option<d3d12::ID3D12Resource> = None;
-            our_d12
-                .OpenSharedHandle(handle, &mut d3d12_resource)
-                .map_err(|e| format!("OpenSharedHandle: {e}"))?;
-            let d3d12_resource =
-                d3d12_resource.ok_or_else(|| "OpenSharedHandle returned null".to_string())?;
+    // Open the shared NT handle → D3D12 resource (windows 0.62).
+    let mut d3d12_resource: Option<d3d12::ID3D12Resource> = None;
+    unsafe {
+        our_d12
+            .OpenSharedHandle(handle, &mut d3d12_resource)
+            .map_err(|e| format!("OpenSharedHandle: {e}"))?;
+    }
+    let d3d12_resource =
+        d3d12_resource.ok_or_else(|| "OpenSharedHandle returned null".to_string())?;
 
-            // Convert 0.62 ID3D12Resource → 0.58 for texture_from_raw.
-            // Both are pointer-width COM wrappers — bitwise identical.
-            let hal_resource = std::mem::transmute_copy(&d3d12_resource);
-            std::mem::forget(d3d12_resource); // ownership transferred, prevent double-Release
+    // Convert 0.62 ID3D12Resource → 0.58 for texture_from_raw.
+    // Both are pointer-width COM wrappers — bitwise identical.
+    let hal_resource = unsafe { std::mem::transmute_copy(&d3d12_resource) };
+    std::mem::forget(d3d12_resource); // ownership transferred, prevent double-Release
 
-            Ok(wgpu::hal::dx12::Device::texture_from_raw(
-                hal_resource,
-                wgpu::TextureFormat::Bgra8UnormSrgb,
-                wgpu::TextureDimension::D2,
-                wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                1,
-                1,
-            ))
-        })?;
+    let hal_texture = unsafe {
+        wgpu::hal::dx12::Device::texture_from_raw(
+            hal_resource,
+            wgpu::TextureFormat::Bgra8UnormSrgb,
+            wgpu::TextureDimension::D2,
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            1,
+            1,
+        )
+    };
 
     let desc = wgpu::TextureDescriptor {
         label: Some("Shared Output"),
@@ -303,7 +304,7 @@ unsafe fn import_shared_handle_into_wgpu(
         view_formats: &[],
     };
 
-    Ok(device.create_texture_from_hal::<wgpu::hal::api::Dx12>(hal_texture, &desc))
+    Ok(unsafe { device.create_texture_from_hal::<wgpu::hal::api::Dx12>(hal_texture, &desc) })
 }
 
 /// Try to create a GPU output ring (shared VRAM textures imported into wgpu).
@@ -384,20 +385,13 @@ fn try_create_decode_input_ring(
     // ── Create cross-API shared fence ──────────────────────────────────────
 
     let d3d12_device: d3d12::ID3D12Device = unsafe {
-        let mut d12: Option<d3d12::ID3D12Device> = None;
-        wgpu_device.as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_dev| {
-            if let Some(hal_dev) = hal_dev {
-                let d12_ref = hal_dev.raw_device();
-                d12 = Some((*(d12_ref as *const _ as *const d3d12::ID3D12Device)).clone());
-            }
-        });
-        match d12 {
-            Some(d) => d,
-            None => {
-                eprintln!("[Export] Failed to get ID3D12Device from wgpu");
-                return None;
-            }
-        }
+        let Some(hal_dev) = wgpu_device.as_hal::<wgpu::hal::api::Dx12>() else {
+            eprintln!("[Export] Failed to get ID3D12Device from wgpu");
+            return None;
+        };
+        let d12_ref = hal_dev.raw_device();
+        let d12_ptr: *const d3d12::ID3D12Device = d12_ref as *const _;
+        (*d12_ptr).clone()
     };
 
     let d3d12_fence: d3d12::ID3D12Fence = match unsafe {
@@ -530,26 +524,27 @@ pub fn run_zero_copy_export(
 
     // Get the wgpu adapter's vendor/device for matching.
     let (wgpu_vendor, wgpu_device_id) = unsafe {
-        compositor
-            .device()
-            .as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_dev| -> (u32, u32) {
-                if let Some(hal_dev) = hal_dev {
-                    let d12_ref = hal_dev.raw_device();
-                    let d12: &d3d12::ID3D12Device =
-                        &*(d12_ref as *const _ as *const d3d12::ID3D12Device);
-                    // GetAdapterLuid gives us the LUID; but we need vendor/device.
-                    // Query via DXGI instead: QI to IDXGIDevice, get adapter.
-                    if let Ok(dxgi_dev) = d12.cast::<windows::Win32::Graphics::Dxgi::IDXGIDevice>()
-                    {
-                        if let Ok(adapter) = dxgi_dev.GetAdapter() {
-                            if let Ok(desc) = adapter.GetDesc() {
-                                return (desc.VendorId, desc.DeviceId);
-                            }
-                        }
+        if let Some(hal_dev) = compositor.device().as_hal::<wgpu::hal::api::Dx12>() {
+            let d12_ref = hal_dev.raw_device();
+            let d12: &d3d12::ID3D12Device = &*(d12_ref as *const _);
+            // GetAdapterLuid gives us the LUID; but we need vendor/device.
+            // Query via DXGI instead: QI to IDXGIDevice, get adapter.
+            if let Ok(dxgi_dev) = d12.cast::<windows::Win32::Graphics::Dxgi::IDXGIDevice>() {
+                if let Ok(adapter) = dxgi_dev.GetAdapter() {
+                    if let Ok(desc) = adapter.GetDesc() {
+                        (desc.VendorId, desc.DeviceId)
+                    } else {
+                        (0, 0)
                     }
+                } else {
+                    (0, 0)
                 }
-                (0, 0) // fallback: create_d3d11_device_on_adapter will fall back to default
-            })
+            } else {
+                (0, 0)
+            }
+        } else {
+            (0, 0)
+        }
     };
 
     // Decode D3D11 device — MUST be on the same adapter as wgpu for shared texture coherence.
@@ -1517,16 +1512,13 @@ fn run_render_thread(
                 // DX12's L2 cache so subsequent reads get fresh VRAM data.
                 if let Some(fence) = dec_d3d12_fence {
                     unsafe {
-                        compositor
-                            .device()
-                            .as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_dev| {
-                                if let Some(hal_dev) = hal_dev {
-                                    let raw_queue: &d3d12::ID3D12CommandQueue =
-                                        &*(hal_dev.raw_queue() as *const _
-                                            as *const d3d12::ID3D12CommandQueue);
-                                    let _ = raw_queue.Wait(fence, fence_value);
-                                }
-                            });
+                        if let Some(hal_dev) =
+                            compositor.device().as_hal::<wgpu::hal::api::Dx12>()
+                        {
+                            let raw_queue: &d3d12::ID3D12CommandQueue =
+                                &*(hal_dev.raw_queue() as *const _);
+                            let _ = raw_queue.Wait(fence, fence_value);
+                        }
                     }
                 }
 
@@ -1618,7 +1610,9 @@ fn run_render_thread(
             compositor.queue().on_submitted_work_done(move || {
                 let _ = tx_done.send(());
             });
-            let _ = compositor.device().poll(wgpu::PollType::Wait);
+            let _ = compositor
+                .device()
+                .poll(wgpu::PollType::wait_indefinitely());
             let _ = rx_done.recv();
 
             // Release DX12-side keyed mutex for this encode ring slot — flushes DX12
@@ -1630,16 +1624,14 @@ fn run_render_thread(
             }
 
             // Recycle decode ring slot — GPU work is done (poll+on_submitted_work_done).
-            if let Some(entry) = dec_ring_recycle_queue.pop_front() {
-                if let Some(idx) = entry {
-                    // Release decode keyed mutex so decode thread can re-acquire.
-                    if !dec_keyed_mutexes.is_empty() {
-                        unsafe {
-                            let _ = dec_keyed_mutexes[idx].ReleaseSync(0);
-                        }
+            if let Some(Some(idx)) = dec_ring_recycle_queue.pop_front() {
+                // Release decode keyed mutex so decode thread can re-acquire.
+                if !dec_keyed_mutexes.is_empty() {
+                    unsafe {
+                        let _ = dec_keyed_mutexes[idx].ReleaseSync(0);
                     }
-                    let _ = dec_gpu_recycle_tx.send(idx);
                 }
+                let _ = dec_gpu_recycle_tx.send(idx);
             }
             t_readback += trb0.elapsed().as_secs_f64();
             if tx.send(RenderOutput::Gpu { ring_idx }).is_err() {
@@ -1655,15 +1647,13 @@ fn run_render_thread(
                 let mut out_buf = cpu_recycle_rx.try_recv().unwrap_or_default();
                 compositor.readback_output(&mut out_buf)?;
                 // readback_output internally does poll(Wait) — DX12 copy is done.
-                if let Some(entry) = dec_ring_recycle_queue.pop_front() {
-                    if let Some(idx) = entry {
-                        if !dec_keyed_mutexes.is_empty() {
-                            unsafe {
-                                let _ = dec_keyed_mutexes[idx].ReleaseSync(0);
-                            }
+                if let Some(Some(idx)) = dec_ring_recycle_queue.pop_front() {
+                    if !dec_keyed_mutexes.is_empty() {
+                        unsafe {
+                            let _ = dec_keyed_mutexes[idx].ReleaseSync(0);
                         }
-                        let _ = dec_gpu_recycle_tx.send(idx);
                     }
+                    let _ = dec_gpu_recycle_tx.send(idx);
                 }
                 t_readback += trb0.elapsed().as_secs_f64();
                 queued_readbacks -= 1;
@@ -1685,15 +1675,13 @@ fn run_render_thread(
         let trb0 = Instant::now();
         let mut out_buf = cpu_recycle_rx.try_recv().unwrap_or_default();
         compositor.readback_output(&mut out_buf)?;
-        if let Some(entry) = dec_ring_recycle_queue.pop_front() {
-            if let Some(idx) = entry {
-                if !dec_keyed_mutexes.is_empty() {
-                    unsafe {
-                        let _ = dec_keyed_mutexes[idx].ReleaseSync(0);
-                    }
+        if let Some(Some(idx)) = dec_ring_recycle_queue.pop_front() {
+            if !dec_keyed_mutexes.is_empty() {
+                unsafe {
+                    let _ = dec_keyed_mutexes[idx].ReleaseSync(0);
                 }
-                let _ = dec_gpu_recycle_tx.send(idx);
             }
+            let _ = dec_gpu_recycle_tx.send(idx);
         }
         t_readback += trb0.elapsed().as_secs_f64();
         queued_readbacks -= 1;
@@ -1792,8 +1780,8 @@ fn run_encode_thread(
     let mut audio_decoder = None;
     let mut audio_config = None;
 
-    if let Some(path) = &config.audio_path {
-        if !path.is_empty() {
+    if let Some(path) = &config.audio_path
+        && !path.is_empty() {
             match MfAudioDecoder::new(path) {
                 Ok(dec) => {
                     audio_config = Some(AudioConfig {
@@ -1806,7 +1794,6 @@ fn run_encode_thread(
                 Err(e) => eprintln!("[Audio] Failed to open native audio decoder: {e}"),
             }
         }
-    }
 
     let encoder_config = EncoderConfig {
         codec: config.codec,
@@ -2054,8 +2041,8 @@ fn run_encode_thread(
 
         frames_encoded += 1;
 
-        if let Some(ref cb) = progress {
-            if frames_encoded.is_multiple_of(15) || frames_encoded == total_frames {
+        if let Some(ref cb) = progress
+            && (frames_encoded.is_multiple_of(15) || frames_encoded == total_frames) {
                 let elapsed = start.elapsed().as_secs_f64();
                 let pct = (frames_encoded as f64 / total_frames as f64 * 100.0).min(100.0);
                 let eta = if frames_encoded > 0 {
@@ -2065,7 +2052,6 @@ fn run_encode_thread(
                 };
                 cb(pct, eta);
             }
-        }
     }
 
     encoder.finalize()?;

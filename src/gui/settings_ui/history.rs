@@ -77,13 +77,12 @@ pub fn render_history_panel(
                     );
                 });
 
-                if !search_query.is_empty() {
-                    if icon_button(ui, Icon::Close)
+                if !search_query.is_empty()
+                    && icon_button(ui, Icon::Close)
                         .on_hover_text("Clear search")
                         .clicked()
-                    {
-                        *search_query = "".to_string();
-                    }
+                {
+                    *search_query = "".to_string();
                 }
 
                 if icon_button(ui, Icon::Folder)

@@ -280,7 +280,7 @@ where
     TFrom: WcInterface,
     TTo: AppInterface,
 {
-    let raw = src.as_raw() as *mut std::ffi::c_void;
+    let raw = src.as_raw();
     let borrowed = unsafe { <TTo as AppInterface>::from_raw_borrowed(&raw) }
         .ok_or_else(|| "null COM pointer".to_string())?;
     Ok(borrowed.clone())
@@ -291,7 +291,7 @@ where
     TFrom: AppInterface,
     TTo: WcInterface,
 {
-    let raw = src.as_raw() as *mut std::ffi::c_void;
+    let raw = src.as_raw();
     let borrowed = unsafe { <TTo as WcInterface>::from_raw_borrowed(&raw) }
         .ok_or_else(|| "null COM pointer".to_string())?;
     Ok(borrowed.clone())
@@ -301,7 +301,7 @@ fn select_target_fps(monitor_hz: u32) -> u32 {
     // Prefer exact monitor divisors in the 50-60fps export band.
     // Example: 165Hz -> 55fps (exact), which removes recurring pacing drift.
     for candidate in (50..=60).rev() {
-        if monitor_hz % candidate == 0 {
+        if monitor_hz.is_multiple_of(candidate) {
             return candidate;
         }
     }
@@ -630,25 +630,22 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             //    Minimized windows report 160x28 (iconic title bar size).
             if let Ok(interop) =
                 windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
-            {
-                if let Ok(item) = unsafe { interop.CreateForWindow::<GraphicsCaptureItem>(hwnd) } {
-                    if let Ok(size) = item.Size() {
-                        if size.Width >= 300 && size.Height >= 300 {
+                && let Ok(item) = unsafe { interop.CreateForWindow::<GraphicsCaptureItem>(hwnd) }
+                    && let Ok(size) = item.Size()
+                        && size.Width >= 300 && size.Height >= 300 {
                             w = size.Width as u32;
                             h = size.Height as u32;
                         }
-                    }
-                }
-            }
 
             // 2. Fallback: WINDOWPLACEMENT for restored size if currently minimized or small.
             if w == 0 || h == 0 {
                 unsafe {
-                    let mut wp =
-                        windows::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT::default();
-                    wp.length = std::mem::size_of::<
-                        windows::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT,
-                    >() as u32;
+                    let mut wp = windows::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT {
+                        length: std::mem::size_of::<
+                            windows::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT,
+                        >() as u32,
+                        ..Default::default()
+                    };
                     if windows::Win32::UI::WindowsAndMessaging::GetWindowPlacement(hwnd, &mut wp)
                         .is_ok()
                     {
@@ -663,8 +660,8 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             }
 
             // 3. Fallback: current window rect.
-            if w == 0 || h == 0 {
-                if let Ok(rect) = window.rect() {
+            if (w == 0 || h == 0)
+                && let Ok(rect) = window.rect() {
                     let pw = (rect.right - rect.left).abs();
                     let ph = (rect.bottom - rect.top).abs();
                     if pw >= 300 && ph >= 300 {
@@ -672,7 +669,6 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                         h = ph as u32;
                     }
                 }
-            }
 
             // 4. Ultimate fallback: monitor size (window is hidden or completely iconic).
             if w < 300 || h < 300 {
@@ -702,7 +698,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         enc_h = (enc_h + 15) & !15;
 
         let app_data_dir = dirs::data_local_dir()
-            .unwrap_or_else(|| std::env::temp_dir())
+            .unwrap_or_else(std::env::temp_dir)
             .join("screen-goated-toolbox")
             .join("recordings");
 
@@ -1032,8 +1028,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 frames_to_submit = due_ticks as u32;
                 self.window_paced_skips = self.window_paced_skips.saturating_add(missed_ticks);
                 self.next_submit_timestamp_100ns = Some(
-                    due_100ns
-                        .saturating_add(self.frame_interval_100ns.saturating_mul(due_ticks as i64)),
+                    due_100ns.saturating_add(self.frame_interval_100ns.saturating_mul(due_ticks)),
                 );
                 should_submit = true;
             } else {
@@ -1157,13 +1152,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 let pump_fps = ps as f64 / elapsed.max(0.001);
                 eprintln!(
                     "[CaptureStats] backend=window(pump) wgc_fps={:.1} cached={} pump_fps={:.1} pump_submitted={} pump_dropped={} queue_depth={} dropped_total={}",
-                    capture_fps,
-                    self.window_enqueued,
-                    pump_fps,
-                    ps,
-                    pd,
-                    queue_depth,
-                    dropped_total
+                    capture_fps, self.window_enqueued, pump_fps, ps, pd, queue_depth, dropped_total
                 );
             } else {
                 eprintln!(
@@ -1260,8 +1249,8 @@ pub unsafe extern "system" fn monitor_enum_proc(
     _: HDC,
     _: *mut RECT,
     lparam: LPARAM,
-) -> BOOL {
+) -> BOOL { unsafe {
     let monitors = &mut *(lparam.0 as *mut Vec<HMONITOR>);
     monitors.push(hmonitor);
     true.into()
-}
+}}

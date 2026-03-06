@@ -33,9 +33,9 @@ static WEBVIEW_INIT_FAILED: std::sync::atomic::AtomicBool =
 const WM_APP_SHOW: u32 = WM_APP + 1;
 
 thread_local! {
-    static POPUP_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
+    static POPUP_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
     // Shared WebContext for this thread using common data directory
-    static POPUP_WEB_CONTEXT: RefCell<Option<WebContext>> = RefCell::new(None);
+    static POPUP_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
 }
 
 const BASE_POPUP_WIDTH: i32 = 220;
@@ -690,7 +690,8 @@ fn create_popup_window() {
                     attempt
                 );
 
-                let build_res = POPUP_WEB_CONTEXT.with(|ctx| {
+                
+                POPUP_WEB_CONTEXT.with(|ctx| {
                     let mut ctx_ref = ctx.borrow_mut();
                     let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
                         WebViewBuilder::new_with_web_context(web_ctx)
@@ -776,8 +777,7 @@ fn create_popup_window() {
                             }
                         })
                         .build(&wrapper)
-                });
-                build_res
+                })
             };
 
             crate::log_info!(
@@ -833,7 +833,7 @@ fn create_popup_window() {
             *cell.borrow_mut() = None;
         });
 
-        let _ = windows::Win32::System::Com::CoUninitialize();
+        windows::Win32::System::Com::CoUninitialize();
     }
 }
 
@@ -842,7 +842,7 @@ unsafe extern "system" fn popup_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_APP_SHOW => {
             // Reposition window to cursor and show
@@ -943,10 +943,10 @@ unsafe extern "system" fn popup_wnd_proc(
 
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}
 
 /// Fallback native context menu when WebView fails
-unsafe fn show_native_context_menu() {
+unsafe fn show_native_context_menu() { unsafe {
     use crate::config::ThemeMode;
     use windows::core::{HSTRING, PCWSTR};
 
@@ -1091,4 +1091,4 @@ unsafe fn show_native_context_menu() {
         }
         _ => {}
     }
-}
+}}

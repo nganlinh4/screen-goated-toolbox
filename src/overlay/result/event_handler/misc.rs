@@ -26,7 +26,7 @@ pub unsafe fn handle_erase_bkgnd(_hwnd: HWND, _wparam: WPARAM) -> LRESULT {
 
 // handle_ctl_color_edit removed (was for native edit control)
 
-pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
+pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT { unsafe {
     // Clean up this window's resources only — callers are responsible for
     // deciding whether to close siblings (group close) or all windows.
     {
@@ -60,7 +60,7 @@ pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
     button_canvas::unregister_markdown_window(hwnd);
 
     LRESULT(0)
-}
+}}
 
 pub unsafe fn handle_paint(hwnd: HWND) -> LRESULT {
     paint::paint_window(hwnd);
@@ -71,7 +71,7 @@ pub unsafe fn handle_keydown() -> LRESULT {
     LRESULT(0)
 }
 
-pub unsafe fn handle_display_change(hwnd: HWND) -> LRESULT {
+pub unsafe fn handle_display_change(hwnd: HWND) -> LRESULT { unsafe {
     // When monitor topology changes, check if window is still on-screen.
     // If not (e.g. secondary monitor removed), move it to primary monitor.
     let mut rect = RECT::default();
@@ -89,8 +89,10 @@ pub unsafe fn handle_display_change(hwnd: HWND) -> LRESULT {
         if h_monitor.is_invalid() {
             // Window is off-screen. Move to Primary Monitor center.
             let h_primary = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
-            let mut mi = MONITORINFO::default();
-            mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+            let mut mi = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
 
             if GetMonitorInfoW(h_primary, &mut mi).as_bool() {
                 let work = mi.rcWork;
@@ -117,9 +119,9 @@ pub unsafe fn handle_display_change(hwnd: HWND) -> LRESULT {
         }
     }
     LRESULT(0)
-}
+}}
 
-pub unsafe fn handle_create_webview(hwnd: HWND) -> LRESULT {
+pub unsafe fn handle_create_webview(hwnd: HWND) -> LRESULT { unsafe {
     // Get the text to render
     let (full_text, is_hovered) = {
         let states = WINDOW_STATES.lock().unwrap();
@@ -161,19 +163,19 @@ pub unsafe fn handle_create_webview(hwnd: HWND) -> LRESULT {
 
     let _ = InvalidateRect(Some(hwnd), None, false);
     LRESULT(0)
-}
+}}
 
-pub unsafe fn handle_show_markdown(hwnd: HWND) -> LRESULT {
+pub unsafe fn handle_show_markdown(hwnd: HWND) -> LRESULT { unsafe {
     markdown_view::show_markdown_webview(hwnd);
     let _ = InvalidateRect(Some(hwnd), None, false);
     LRESULT(0)
-}
+}}
 
-pub unsafe fn handle_hide_markdown(hwnd: HWND) -> LRESULT {
+pub unsafe fn handle_hide_markdown(hwnd: HWND) -> LRESULT { unsafe {
     markdown_view::hide_markdown_webview(hwnd);
     let _ = InvalidateRect(Some(hwnd), None, false);
     LRESULT(0)
-}
+}}
 
 pub unsafe fn handle_resize_markdown(hwnd: HWND) -> LRESULT {
     let is_hovered = {

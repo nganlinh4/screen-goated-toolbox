@@ -107,8 +107,8 @@ pub fn load_custom_background_rgba(
         if let Some(pos) = custom_background.find("/bg-downloaded/") {
             let rel = &custom_background[pos + "/bg-downloaded/".len()..];
             let rel = rel.split(['?', '#']).next().unwrap_or(rel);
-            if !rel.is_empty() && !rel.contains("..") && !rel.contains('/') && !rel.contains('\\') {
-                if let Some(dir) = dirs::data_local_dir() {
+            if !rel.is_empty() && !rel.contains("..") && !rel.contains('/') && !rel.contains('\\')
+                && let Some(dir) = dirs::data_local_dir() {
                     let file_path = dir
                         .join("screen-goated-toolbox")
                         .join("backgrounds")
@@ -135,7 +135,6 @@ pub fn load_custom_background_rgba(
                         }
                     }
                 }
-            }
         }
     }
 

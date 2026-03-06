@@ -4,10 +4,9 @@ use super::state::*;
 use super::utils::HwndWrapper;
 use crate::APP;
 use std::sync::atomic::Ordering;
-use windows::core::w;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
-    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DwmExtendFrameIntoClientArea, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -15,13 +14,14 @@ use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, FindWindowW, GetClientRect,
-    GetForegroundWindow, GetSystemMetrics, GetWindowRect, LoadCursorW, PostMessageW,
-    RegisterClassW, SendMessageW, SetForegroundWindow, SetWindowPos, ShowWindow, HTCAPTION,
-    HWND_TOPMOST, IDC_ARROW, SM_CXSCREEN, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SW_HIDE, SW_SHOWNOACTIVATE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_HOTKEY,
+    GetForegroundWindow, GetSystemMetrics, GetWindowRect, HTCAPTION, HWND_TOPMOST, IDC_ARROW,
+    LoadCursorW, PostMessageW, RegisterClassW, SM_CXSCREEN, SW_HIDE, SW_SHOWNOACTIVATE,
+    SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW,
+    SetForegroundWindow, SetWindowPos, ShowWindow, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_HOTKEY,
     WM_KILLFOCUS, WM_NCCALCSIZE, WM_NCLBUTTONDOWN, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
     WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
 };
+use windows::core::w;
 use wry::{Rect, WebContext, WebViewBuilder};
 
 // For focus restoration
@@ -262,7 +262,7 @@ pub fn move_panel_to_bubble(bubble_x: i32, bubble_y: i32) {
         // Update bubble center in JS for correct collapse direction
         let panel_w_css = (panel_w as f32 / scale) as i32;
         let bx = if side == "left" {
-            (bubble_size / 2) as i32
+            bubble_size / 2
         } else {
             panel_w_css + (bubble_size / 2) + 4
         };
@@ -360,7 +360,7 @@ unsafe fn refresh_panel_layout_and_content(
     presets: &[crate::config::Preset],
     lang: &str,
     is_dark: bool,
-) {
+) { unsafe {
     let mut bubble_rect = RECT::default();
     let _ = GetWindowRect(bubble_hwnd, &mut bubble_rect);
 
@@ -373,13 +373,13 @@ unsafe fn refresh_panel_layout_and_content(
 
     let fav_count = favs.len();
     let num_cols = if fav_count > 15 {
-        (fav_count + 14) / 15
+        fav_count.div_ceil(15)
     } else {
         1
     };
 
     let items_per_col = if fav_count > 0 {
-        (fav_count + num_cols - 1) / num_cols
+        fav_count.div_ceil(num_cols)
     } else {
         0
     };
@@ -389,7 +389,7 @@ unsafe fn refresh_panel_layout_and_content(
     let buffer_y = 60;
 
     let panel_width = if fav_count == 0 {
-        (PANEL_WIDTH as i32 * 2).max(320)
+        (PANEL_WIDTH * 2).max(320)
     } else {
         (PANEL_WIDTH as usize * num_cols) as i32 + buffer_x
     };
@@ -406,7 +406,7 @@ unsafe fn refresh_panel_layout_and_content(
     let panel_height = panel_height.max(50);
 
     // Get DPI scale
-    let dpi = unsafe { GetDpiForWindow(panel_hwnd) };
+    let dpi = GetDpiForWindow(panel_hwnd);
     let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
 
     let panel_width_physical = (panel_width as f32 * scale).ceil() as i32;
@@ -484,9 +484,9 @@ unsafe fn refresh_panel_layout_and_content(
     if last_dark != is_dark {
         let new_css = generate_panel_css(is_dark);
         let escaped_css = escape_js(&new_css); // Reuse escape_js which escapes quotes and newlines
-                                               // We need to be careful with escape_js for CSS.
-                                               // Simple escape_js replaces " with \" and \n with \\n.
-                                               // For inline script, we need to make sure we don't break the string.
+        // We need to be careful with escape_js for CSS.
+        // Simple escape_js replaces " with \" and \n with \\n.
+        // For inline script, we need to make sure we don't break the string.
         PANEL_WEBVIEW.with(|wv| {
             if let Some(webview) = wv.borrow().as_ref() {
                 let script = format!(
@@ -508,7 +508,7 @@ unsafe fn refresh_panel_layout_and_content(
     // bx is the bubble center X relative to the panel's content area
     let bx = if side == "left" {
         // Panel starts at bubble_left, bubble center is at bubble_size/2 from panel_x
-        (bubble_size / 2) as i32
+        bubble_size / 2
     } else {
         // Panel content is on the left, bubble is on the right (behind the overlap area)
         (panel_width_physical / scale as i32) + (bubble_size / 2) + 4
@@ -524,7 +524,7 @@ unsafe fn refresh_panel_layout_and_content(
             let _ = webview.evaluate_script(&script);
         }
     });
-}
+}}
 
 fn create_panel_webview(panel_hwnd: HWND) {
     crate::log_info!("[BubblePanel] Creating WebView for HWND: {:?}", panel_hwnd);
@@ -613,23 +613,23 @@ fn create_panel_webview(panel_hwnd: HWND) {
                     } else if body == "focus_bubble" {
                         // Re-assert bubble Z-order on any click interaction
                         ensure_bubble_on_top();
-                    } else if body.starts_with("trigger:") {
-                        if let Ok(idx) = body[8..].parse::<usize>() {
+                    } else if let Some(idx) = body.strip_prefix("trigger:") {
+                        if let Ok(idx) = idx.parse::<usize>() {
                             // trigger() in JS starts the close animation and will send close_now when done.
                             // We must set IS_EXPANDED to false so close_panel_internal (called by close_now)
                             // actually hides the window. We DON'T call close_panel_internal here to allow animation.
                             IS_EXPANDED.store(false, Ordering::SeqCst);
                             trigger_preset(idx);
                         }
-                    } else if body.starts_with("trigger_only:") {
+                    } else if let Some(idx) = body.strip_prefix("trigger_only:") {
                         // Keep Open mode: trigger preset without closing panel
-                        if let Ok(idx) = body[13..].parse::<usize>() {
+                        if let Ok(idx) = idx.parse::<usize>() {
                             trigger_preset(idx);
                             // Re-assert bubble Z-order since panel stays open
                             ensure_bubble_on_top();
                         }
-                    } else if body.starts_with("trigger_continuous:") {
-                        if let Ok(idx) = body[19..].parse::<usize>() {
+                    } else if let Some(idx) = body.strip_prefix("trigger_continuous:") {
+                        if let Ok(idx) = idx.parse::<usize>() {
                             IS_EXPANDED.store(false, Ordering::SeqCst);
                             // activate_continuous_from_panel handles entering continuous mode directly
                             // For image: enters image continuous mode (no need to trigger_preset)
@@ -637,15 +637,15 @@ fn create_panel_webview(panel_hwnd: HWND) {
                             //           and presses hotkey to process - we do NOT trigger here
                             activate_continuous_from_panel(idx);
                         }
-                    } else if body.starts_with("trigger_continuous_only:") {
-                        if let Ok(idx) = body[24..].parse::<usize>() {
+                    } else if let Some(idx) = body.strip_prefix("trigger_continuous_only:") {
+                        if let Ok(idx) = idx.parse::<usize>() {
                             // Same as above - just activate continuous mode, don't trigger preset
                             activate_continuous_from_panel(idx);
                             // Re-assert bubble Z-order since panel stays open
                             ensure_bubble_on_top();
                         }
-                    } else if body.starts_with("set_keep_open:") {
-                        if let Ok(val) = body[14..].parse::<u32>() {
+                    } else if let Some(val) = body.strip_prefix("set_keep_open:") {
+                        if let Ok(val) = val.parse::<u32>() {
                             if let Ok(mut app) = APP.lock() {
                                 app.config.favorites_keep_open = val == 1;
                                 crate::config::save_config(&app.config);
@@ -653,8 +653,8 @@ fn create_panel_webview(panel_hwnd: HWND) {
                             // Re-assert bubble Z-order after toggle interaction
                             ensure_bubble_on_top();
                         }
-                    } else if body.starts_with("resize:") {
-                        if let Ok(h) = body[7..].parse::<i32>() {
+                    } else if let Some(h) = body.strip_prefix("resize:") {
+                        if let Ok(h) = h.parse::<i32>() {
                             resize_panel_height(h);
                         }
                     } else if body == "increase_size" {
@@ -705,7 +705,7 @@ unsafe extern "system" fn panel_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_CLOSE => {
             close_panel();
@@ -756,7 +756,7 @@ unsafe extern "system" fn panel_wnd_proc(
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}
 
 fn trigger_preset(preset_idx: usize) {
     unsafe {

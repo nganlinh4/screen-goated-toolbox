@@ -19,7 +19,7 @@ lazy_static::lazy_static! {
 }
 
 thread_local! {
-    static APP_SELECT_WEBVIEW: std::cell::RefCell<Option<wry::WebView>> = std::cell::RefCell::new(None);
+    static APP_SELECT_WEBVIEW: std::cell::RefCell<Option<wry::WebView>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Get the executable path for a given process ID
@@ -151,10 +151,7 @@ fn extract_icon_as_base64(exe_path: &str) -> Option<String> {
         }
 
         // Encode as PNG using image crate
-        let rgba_image = match image::RgbaImage::from_raw(width, height, pixels) {
-            Some(img) => img,
-            None => return None,
-        };
+        let rgba_image = image::RgbaImage::from_raw(width, height, pixels)?;
 
         let mut png_data: Vec<u8> = Vec::new();
         if rgba_image
@@ -483,9 +480,8 @@ pub fn show_app_selection_popup() {
                         .with_transparent(true)
                         .with_ipc_handler(move |req| {
                             let body = req.body();
-                            if body.starts_with("selectApp:") {
-                                let rest = &body[10..];
-                                if let Some((pid_str, name)) = rest.split_once(':') {
+                            if let Some(rest) = body.strip_prefix("selectApp:")
+                                && let Some((pid_str, name)) = rest.split_once(':') {
                                     if let Ok(pid) = pid_str.parse::<u32>() {
                                         // Store selected app
                                         SELECTED_APP_PID.store(pid, Ordering::SeqCst);
@@ -541,7 +537,6 @@ pub fn show_app_selection_popup() {
                                         );
                                     }
                                 }
-                            }
                         })
                         .build_as_child(&HwndWrapper(hwnd));
                 crate::log_info!(
@@ -578,7 +573,7 @@ pub unsafe extern "system" fn app_select_wndproc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         use crate::api::realtime_audio::WM_THEME_UPDATE;
         use windows::Win32::UI::WindowsAndMessaging::*;
@@ -606,11 +601,10 @@ pub unsafe extern "system" fn app_select_wndproc(
                 // Resize child (WebView) to match parent
                 let width = (lparam.0 & 0xFFFF) as i32;
                 let height = ((lparam.0 >> 16) & 0xFFFF) as i32;
-                if let Ok(child) = GetWindow(hwnd, GW_CHILD) {
-                    if child.0 != std::ptr::null_mut() {
+                if let Ok(child) = GetWindow(hwnd, GW_CHILD)
+                    && !child.0.is_null() {
                         let _ = MoveWindow(child, 0, 0, width, height, true);
                     }
-                }
                 LRESULT(0)
             }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
@@ -625,7 +619,7 @@ pub unsafe extern "system" fn app_select_wndproc(
             windows::Win32::UI::WindowsAndMessaging::DefWindowProcW(hwnd, msg, wparam, lparam)
         }
     }
-}
+}}
 
 fn get_app_selection_css(is_dark: bool) -> String {
     let font_css = crate::overlay::html_components::font_manager::get_font_css();

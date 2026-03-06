@@ -75,31 +75,24 @@ where
 
     for line in reader.lines() {
         let line = line.map_err(|e| anyhow::anyhow!("Failed to read line: {}", e))?;
-        if line.starts_with("data: ") {
-            let json_str = &line["data: ".len()..];
+        if let Some(json_str) = line.strip_prefix("data: ") {
             if json_str.trim() == "[DONE]" {
                 break;
             }
 
-            if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str) {
-                if let Some(candidates) = chunk_resp.get("candidates").and_then(|c| c.as_array()) {
-                    if let Some(first_candidate) = candidates.first() {
-                        if let Some(parts) = first_candidate
+            if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str)
+                && let Some(candidates) = chunk_resp.get("candidates").and_then(|c| c.as_array())
+                    && let Some(first_candidate) = candidates.first()
+                        && let Some(parts) = first_candidate
                             .get("content")
                             .and_then(|c| c.get("parts"))
                             .and_then(|p| p.as_array())
-                        {
-                            if let Some(first_part) = parts.first() {
-                                if let Some(text) = first_part.get("text").and_then(|t| t.as_str())
+                            && let Some(first_part) = parts.first()
+                                && let Some(text) = first_part.get("text").and_then(|t| t.as_str())
                                 {
                                     full_content.push_str(text);
                                     on_chunk(text);
                                 }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -183,12 +176,11 @@ pub fn transcribe_with_gemini_live_input(
                     "[GeminiLiveInput] Received binary message: {} bytes",
                     data.len()
                 );
-                if let Ok(text) = String::from_utf8(data.to_vec()) {
-                    if text.contains("setupComplete") {
+                if let Ok(text) = String::from_utf8(data.to_vec())
+                    && text.contains("setupComplete") {
                         println!("[GeminiLiveInput] Setup complete (from binary)!");
                         break;
                     }
-                }
             }
             Ok(other) => {
                 println!("[GeminiLiveInput] Received other message type: {:?}", other);
@@ -260,18 +252,17 @@ pub fn transcribe_with_gemini_live_input(
                         "[GeminiLiveInput] Message while sending: {}",
                         &msg[..msg.len().min(300)]
                     );
-                    if let Some(transcript) = parse_input_transcription(msg) {
-                        if !transcript.is_empty() {
+                    if let Some(transcript) = parse_input_transcription(msg)
+                        && !transcript.is_empty() {
                             println!("[GeminiLiveInput] Got transcript: '{}'", transcript);
                             transcripts_received += 1;
                             accumulated_text.push_str(&transcript);
                         }
-                    }
                 }
                 Ok(tungstenite::Message::Binary(data)) => {
-                    if let Ok(text) = String::from_utf8(data.to_vec()) {
-                        if let Some(transcript) = parse_input_transcription(&text) {
-                            if !transcript.is_empty() {
+                    if let Ok(text) = String::from_utf8(data.to_vec())
+                        && let Some(transcript) = parse_input_transcription(&text)
+                            && !transcript.is_empty() {
                                 println!(
                                     "[GeminiLiveInput] Got transcript (binary): '{}'",
                                     transcript
@@ -279,8 +270,6 @@ pub fn transcribe_with_gemini_live_input(
                                 transcripts_received += 1;
                                 accumulated_text.push_str(&transcript);
                             }
-                        }
-                    }
                 }
                 Ok(_) => {}
                 Err(tungstenite::Error::Io(ref e))
@@ -314,18 +303,17 @@ pub fn transcribe_with_gemini_live_input(
                     "[GeminiLiveInput] Message in conclude phase: {}",
                     &msg[..msg.len().min(300)]
                 );
-                if let Some(transcript) = parse_input_transcription(msg) {
-                    if !transcript.is_empty() {
+                if let Some(transcript) = parse_input_transcription(msg)
+                    && !transcript.is_empty() {
                         println!("[GeminiLiveInput] Got final transcript: '{}'", transcript);
                         transcripts_received += 1;
                         accumulated_text.push_str(&transcript);
                     }
-                }
             }
             Ok(tungstenite::Message::Binary(data)) => {
-                if let Ok(text) = String::from_utf8(data.to_vec()) {
-                    if let Some(transcript) = parse_input_transcription(&text) {
-                        if !transcript.is_empty() {
+                if let Ok(text) = String::from_utf8(data.to_vec())
+                    && let Some(transcript) = parse_input_transcription(&text)
+                        && !transcript.is_empty() {
                             println!(
                                 "[GeminiLiveInput] Got final transcript (binary): '{}'",
                                 transcript
@@ -333,8 +321,6 @@ pub fn transcribe_with_gemini_live_input(
                             transcripts_received += 1;
                             accumulated_text.push_str(&transcript);
                         }
-                    }
-                }
             }
             Ok(_) => {}
             Err(tungstenite::Error::Io(ref e))

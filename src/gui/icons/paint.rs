@@ -804,10 +804,8 @@ pub(super) fn paint_internal(
             let h = 8.0 * scale;
 
             // Screen rect
-            let screen_rect = egui::Rect::from_center_size(
-                center + egui::vec2(0.0, -1.0 * scale),
-                egui::vec2(w, h),
-            );
+            let screen_rect =
+                egui::Rect::from_center_size(center + egui::vec2(0.0, -scale), egui::vec2(w, h));
             painter.rect_stroke(screen_rect, 1.0 * scale, stroke, egui::StrokeKind::Middle);
 
             // Stand
@@ -873,9 +871,9 @@ pub(super) fn paint_internal(
 
             // Beak (Triangle on right)
             let beak_pts = vec![
-                center + egui::vec2(5.0 * scale, -1.0 * scale), // Top-right of head
+                center + egui::vec2(5.0 * scale, -scale), // Top-right of head
                 center + egui::vec2(11.0 * scale, 3.0 * scale), // Tip
-                center + egui::vec2(4.0 * scale, 5.0 * scale),  // Bottom-right of head
+                center + egui::vec2(4.0 * scale, 5.0 * scale), // Bottom-right of head
             ];
             painter.add(egui::Shape::convex_polygon(beak_pts, color, stroke));
         }

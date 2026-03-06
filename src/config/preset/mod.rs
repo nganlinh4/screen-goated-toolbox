@@ -9,6 +9,7 @@
 
 mod block;
 pub mod defaults;
+#[allow(clippy::module_inception)]
 mod preset;
 
 pub use block::{BlockBuilder, ProcessingBlock};

@@ -27,11 +27,11 @@ pub fn render_procedural_broom(params: BroomRenderParams) -> Vec<u32> {
 
     // Shadow color (Black with 30% opacity)
     let shadow_alpha = (alpha as f32 * 0.3) as u32;
-    let c_shadow = (shadow_alpha << 24) | 0x00000000;
+    let c_shadow = shadow_alpha << 24;
 
     // Helper to draw pixels
     let mut draw_pixel = |x: i32, y: i32, color: u32, is_shadow: bool| {
-        if x >= 0 && x < BROOM_W && y >= 0 && y < BROOM_H {
+        if (0..BROOM_W).contains(&x) && (0..BROOM_H).contains(&y) {
             let idx = (y * BROOM_W + x) as usize;
             if is_shadow {
                 // Only write shadow if pixel is empty

@@ -3,7 +3,7 @@ use crate::config::{Config, ThemeMode};
 use crate::gui::settings_ui::ViewMode;
 use crate::gui::utils::get_monitor_names;
 use crate::updater::{UpdateStatus, Updater};
-use auto_launch::AutoLaunch;
+use auto_launch::{AutoLaunch, WindowsEnableMode};
 use eframe::egui;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel;
@@ -19,6 +19,10 @@ use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 impl SettingsApp {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "app initialization wires together several UI and tray dependencies"
+    )]
     pub fn new(
         mut config: Config,
         app_state: Arc<Mutex<crate::AppState>>,
@@ -35,7 +39,12 @@ impl SettingsApp {
         let app_path_str = app_path.to_str().unwrap_or("");
         let args: &[&str] = &[];
 
-        let auto = AutoLaunch::new(app_name, app_path_str, args);
+        let auto = AutoLaunch::new(
+            app_name,
+            app_path_str,
+            WindowsEnableMode::CurrentUser,
+            args,
+        );
 
         // Check for current admin state early
         let current_admin_state = if cfg!(target_os = "windows") {
@@ -62,11 +71,10 @@ impl SettingsApp {
             if let Ok(key) = hkcu.open_subkey_with_flags(
                 "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
                 KEY_READ,
-            ) {
-                if key.get_value::<String, &str>(app_name).is_ok() {
+            )
+                && key.get_value::<String, &str>(app_name).is_ok() {
                     registry_enabled_in_system = true;
                 }
-            }
         }
         if !registry_enabled_in_system && auto.is_enabled().unwrap_or(false) {
             registry_enabled_in_system = true;
@@ -279,14 +287,11 @@ impl SettingsApp {
 
         // Create tray icon immediately to avoid splash delay
         let icon = crate::icon_gen::get_tray_icon(effective_dark);
-        let tray_icon = match TrayIconBuilder::new()
+        let tray_icon = TrayIconBuilder::new()
             .with_tooltip("Screen Goated Toolbox (nganlinh4)")
             .with_icon(icon)
             .build()
-        {
-            Ok(t) => Some(t),
-            Err(_) => None,
-        };
+            .ok();
 
         Self {
             config,

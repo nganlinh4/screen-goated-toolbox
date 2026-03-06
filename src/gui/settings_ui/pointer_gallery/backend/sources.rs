@@ -20,6 +20,10 @@ struct GithubContentEntry {
     download_url: Option<String>,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "preload flow keeps progress, cancellation, and archive source inputs explicit"
+)]
 pub(super) fn preload_missing_from_github(
     spec: CursorCollectionSpec,
     local_dir: &Path,
@@ -79,6 +83,10 @@ pub(super) fn preload_missing_from_github(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "preload flow keeps progress, cancellation, and archive source inputs explicit"
+)]
 pub(super) fn preload_missing_from_zip(
     spec: CursorCollectionSpec,
     local_dir: &Path,
@@ -165,6 +173,10 @@ fn fetch_remote_entries(api_url: &str) -> Result<Vec<GithubContentEntry>, String
 }
 
 #[cfg(all(target_os = "windows", target_env = "msvc"))]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "RAR preload mirrors the shared preload contract even on the MSVC path"
+)]
 pub(super) fn preload_missing_from_rar(
     spec: CursorCollectionSpec,
     local_dir: &Path,
@@ -268,6 +280,10 @@ pub(super) fn preload_missing_from_rar(
 }
 
 #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "stub keeps the same preload contract as the MSVC implementation"
+)]
 pub(super) fn preload_missing_from_rar(
     _spec: CursorCollectionSpec,
     _local_dir: &Path,

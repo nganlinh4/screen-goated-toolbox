@@ -189,51 +189,44 @@ pub fn parse_live_response(msg: &str) -> (Option<String>, bool, bool) {
     let is_thought = false; // Native audio model doesn't support thinking
     let mut is_turn_complete = false;
 
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg) {
-        if let Some(server_content) = json.get("serverContent") {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg)
+        && let Some(server_content) = json.get("serverContent") {
             // Check for turn complete
-            if let Some(tc) = server_content.get("turnComplete") {
-                if tc.as_bool().unwrap_or(false) {
+            if let Some(tc) = server_content.get("turnComplete")
+                && tc.as_bool().unwrap_or(false) {
                     is_turn_complete = true;
                 }
-            }
 
             // Check for generationComplete (faster signal)
-            if let Some(gc) = server_content.get("generationComplete") {
-                if gc.as_bool().unwrap_or(false) {
+            if let Some(gc) = server_content.get("generationComplete")
+                && gc.as_bool().unwrap_or(false) {
                     is_turn_complete = true;
                 }
-            }
 
             // Check for outputTranscription - this is the text we want!
             // Note: The field name is "outputTranscription" (not "outputAudioTranscription")
             // Don't trim - leading spaces are intentional word separators
-            if let Some(transcription) = server_content.get("outputTranscription") {
-                if let Some(text) = transcription.get("text").and_then(|t| t.as_str()) {
+            if let Some(transcription) = server_content.get("outputTranscription")
+                && let Some(text) = transcription.get("text").and_then(|t| t.as_str()) {
                     // Only skip if it's purely whitespace (like just "\n")
                     if !text.chars().all(char::is_whitespace) {
                         text_chunk = Some(text.to_string());
                     }
                 }
-            }
 
             // Also check model turn for any direct text (fallback)
-            if text_chunk.is_none() {
-                if let Some(model_turn) = server_content.get("modelTurn") {
-                    if let Some(parts) = model_turn.get("parts").and_then(|p| p.as_array()) {
+            if text_chunk.is_none()
+                && let Some(model_turn) = server_content.get("modelTurn")
+                    && let Some(parts) = model_turn.get("parts").and_then(|p| p.as_array()) {
                         for part in parts {
                             // Extract text if present
-                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                                if !text.is_empty() {
+                            if let Some(text) = part.get("text").and_then(|t| t.as_str())
+                                && !text.is_empty() {
                                     text_chunk = Some(text.to_string());
                                 }
-                            }
                         }
                     }
-                }
-            }
         }
-    }
 
     (text_chunk, is_thought, is_turn_complete)
 }
@@ -245,13 +238,12 @@ pub fn is_setup_complete(msg: &str) -> bool {
 
 /// Check if the message contains an error
 pub fn parse_error(msg: &str) -> Option<String> {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg) {
-        if let Some(error) = json.get("error") {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg)
+        && let Some(error) = json.get("error") {
             if let Some(message) = error.get("message").and_then(|m| m.as_str()) {
                 return Some(message.to_string());
             }
             return Some(error.to_string());
         }
-    }
     None
 }

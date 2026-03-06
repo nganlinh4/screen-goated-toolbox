@@ -84,6 +84,10 @@ pub fn execute_chain_pipeline(
 /// Used for continuous input mode to track and close previous chain windows.
 /// NOTE: For text presets, we don't create a processing window (gradient glow).
 /// Instead, we rely on the refining animation baked into the result window.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "chain execution entrypoint carries explicit pipeline context and cancellation state"
+)]
 pub fn execute_chain_pipeline_with_token(
     initial_input: String,
     rect: RECT,

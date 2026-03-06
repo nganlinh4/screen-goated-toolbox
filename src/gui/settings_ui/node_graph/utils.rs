@@ -128,7 +128,7 @@ pub fn insert_next_language_tag(prompt: &mut String, language_vars: &mut HashMap
     prompt.push_str(&tag);
 
     let key = format!("language{}", next_num);
-    if !language_vars.contains_key(&key) {
-        language_vars.insert(key, "Vietnamese".to_string());
-    }
+    language_vars
+        .entry(key)
+        .or_insert_with(|| "Vietnamese".to_string());
 }

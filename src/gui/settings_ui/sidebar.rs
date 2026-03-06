@@ -220,7 +220,7 @@ pub fn render_sidebar(
     // Audio/Video indices are not sorted by type to allow user reordering.
     // They will appear in the order they are defined in config.presets.
 
-    let current_view_mode = view_mode.clone();
+    let current_view_mode = *view_mode;
     // Use actual grid width from previous frame for Global Settings position
     thread_local! {
         static GRID_WIDTH: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
@@ -382,14 +382,13 @@ pub fn render_sidebar(
         *view_mode = ViewMode::Preset(idx);
     }
 
-    if let Some(idx) = preset_idx_to_toggle_favorite {
-        if let Some(preset) = config.presets.get_mut(idx) {
+    if let Some(idx) = preset_idx_to_toggle_favorite
+        && let Some(preset) = config.presets.get_mut(idx) {
             preset.is_favorite = !preset.is_favorite;
             changed = true;
             crate::overlay::favorite_bubble::update_favorites_panel();
             crate::overlay::favorite_bubble::trigger_blink_animation();
         }
-    }
 
     if let Some(idx) = preset_idx_to_clone {
         let mut new_preset = config.presets[idx].clone();
@@ -476,6 +475,10 @@ pub fn render_sidebar(
     changed
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "sidebar item rendering keeps per-item actions and drag state explicit"
+)]
 fn render_preset_item_parts(
     ui: &mut egui::Ui,
     presets: &[Preset],
@@ -565,8 +568,8 @@ fn render_preset_item_parts(
 
             // Drop Target Logic
             // If dragging, and we are not the source, and hovered, and released
-            if let Some(source_idx) = dragging_source_idx {
-                if source_idx != idx && response.hovered() && ui.input(|i| i.pointer.any_released())
+            if let Some(source_idx) = dragging_source_idx
+                && source_idx != idx && response.hovered() && ui.input(|i| i.pointer.any_released())
                 {
                     // Check if they are in the same column group
                     let source_preset = &presets[source_idx];
@@ -584,7 +587,6 @@ fn render_preset_item_parts(
                         *preset_swap_request = Some((source_idx, idx));
                     }
                 }
-            }
         }
     });
 
@@ -606,10 +608,8 @@ fn render_preset_item_parts(
             if icon_button_sized(ui, star_icon, 22.0).clicked() {
                 *preset_idx_to_toggle_favorite = Some(idx);
             }
-            if presets.len() > 1 {
-                if icon_button_sized(ui, Icon::Delete, 22.0).clicked() {
-                    *preset_idx_to_delete = Some(idx);
-                }
+            if presets.len() > 1 && icon_button_sized(ui, Icon::Delete, 22.0).clicked() {
+                *preset_idx_to_delete = Some(idx);
             }
         }
     });

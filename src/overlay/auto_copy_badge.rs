@@ -47,8 +47,8 @@ lazy_static::lazy_static! {
 }
 
 thread_local! {
-    static BADGE_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
-    static BADGE_WEB_CONTEXT: RefCell<Option<WebContext>> = RefCell::new(None);
+    static BADGE_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
+    static BADGE_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
 }
 
 // Dimensions
@@ -596,13 +596,15 @@ fn internal_create_window_loop() {
         let class_name = w!("SGT_AutoCopyBadgeWebView");
 
         REGISTER_BADGE_CLASS.call_once(|| {
-            let mut wc = WNDCLASSW::default();
-            wc.lpfnWndProc = Some(badge_wnd_proc);
-            wc.hInstance = instance.into();
-            wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap_or_default();
-            wc.lpszClassName = class_name;
-            wc.style = CS_HREDRAW | CS_VREDRAW;
-            wc.hbrBackground = HBRUSH(std::ptr::null_mut());
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(badge_wnd_proc),
+                hInstance: instance.into(),
+                hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
+                lpszClassName: class_name,
+                style: CS_HREDRAW | CS_VREDRAW,
+                hbrBackground: HBRUSH(std::ptr::null_mut()),
+                ..Default::default()
+            };
             let _ = RegisterClassW(&wc);
         });
         crate::log_info!("[Badge] Class Registered");
@@ -628,7 +630,7 @@ fn internal_create_window_loop() {
             crate::log_info!("[Badge] Window creation failed, HWND is invalid.");
             IS_WARMING_UP.store(false, Ordering::SeqCst);
             BADGE_HWND.store(0, Ordering::SeqCst);
-            let _ = CoUninitialize();
+            CoUninitialize();
             return;
         }
 
@@ -727,7 +729,7 @@ fn internal_create_window_loop() {
             let _ = DestroyWindow(hwnd);
             IS_WARMING_UP.store(false, Ordering::SeqCst);
             BADGE_HWND.store(0, Ordering::SeqCst);
-            let _ = CoUninitialize();
+            CoUninitialize();
             return;
         }
 
@@ -744,7 +746,7 @@ fn internal_create_window_loop() {
         BADGE_HWND.store(0, Ordering::SeqCst);
         IS_WARMING_UP.store(false, Ordering::SeqCst);
         IS_WARMED_UP.store(false, Ordering::SeqCst);
-        let _ = CoUninitialize();
+        CoUninitialize();
     }
 }
 
@@ -753,7 +755,7 @@ unsafe extern "system" fn badge_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_APP_PROCESS_QUEUE => {
             let app = APP.lock().unwrap();
@@ -843,4 +845,4 @@ unsafe extern "system" fn badge_wnd_proc(
         WM_ERASEBKGND => LRESULT(1),
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}

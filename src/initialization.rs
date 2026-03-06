@@ -49,8 +49,8 @@ pub fn cleanup_temporary_files() {
         .join("screen-goated-toolbox")
         .join("bin");
 
-    if bin_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&bin_dir) {
+    if bin_dir.exists()
+        && let Ok(entries) = std::fs::read_dir(&bin_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().is_some_and(|ext| ext == "tmp") {
@@ -58,23 +58,21 @@ pub fn cleanup_temporary_files() {
                 }
             }
         }
-    }
 
     // 3. Clean up any update-related files in current directory
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
+    if let Ok(exe_path) = std::env::current_exe()
+        && let Some(exe_dir) = exe_path.parent() {
             let temp_download = exe_dir.join("temp_download");
             if temp_download.exists() {
                 let _ = std::fs::remove_file(temp_download);
             }
         }
-    }
 }
 
 /// Apply any pending updates and clean up old exe files.
 pub fn apply_pending_updates() {
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
+    if let Ok(exe_path) = std::env::current_exe()
+        && let Some(exe_dir) = exe_path.parent() {
             let staging_path = exe_dir.join("update_pending.exe");
             let backup_path = exe_path.with_extension("exe.old");
 
@@ -110,7 +108,6 @@ pub fn apply_pending_updates() {
                 }
             }
         }
-    }
 }
 
 /// Set up crash handler to show message box on panic.
@@ -161,16 +158,12 @@ pub fn init_com_and_dpi() {
         let _ = CoInitialize(None);
 
         // Force Per-Monitor V2 DPI Awareness for correct screen metrics
-        if let Ok(hidpi) = LoadLibraryW(w!("user32.dll")) {
-            if let Some(set_context) = GetProcAddress(
-                hidpi,
-                PCSTR::from_raw("SetProcessDpiAwarenessContext\0".as_ptr()),
-            ) {
+        if let Ok(hidpi) = LoadLibraryW(w!("user32.dll"))
+            && let Some(set_context) = GetProcAddress(hidpi, s!("SetProcessDpiAwarenessContext")) {
                 let func: extern "system" fn(isize) -> BOOL = std::mem::transmute(set_context);
                 // -4 is DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
                 let _ = func(-4);
             }
-        }
     }
 }
 

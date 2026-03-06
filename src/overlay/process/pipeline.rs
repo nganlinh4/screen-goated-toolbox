@@ -17,6 +17,8 @@ use super::chain::{execute_chain_pipeline, execute_chain_pipeline_with_token, ru
 use super::types::generate_chain_id;
 use super::window::create_processing_window;
 
+type CapturedImagePayload = (ImageBuffer<Rgba<u8>, Vec<u8>>, Vec<u8>);
+
 // Track last result window rect for continuous mode snaking
 lazy_static::lazy_static! {
     static ref LAST_RESULT_RECT: Arc<Mutex<Option<RECT>>> = Arc::new(Mutex::new(None));
@@ -90,7 +92,7 @@ pub fn start_text_processing(
             continuous_mode,
             move |user_text, input_hwnd| {
                 // Check if we already selected a preset from the wheel (subsequent submissions)
-                let already_selected = selected_preset_idx_clone.lock().unwrap().clone();
+                let already_selected = *selected_preset_idx_clone.lock().unwrap();
 
                 let (final_preset, final_config, is_continuous) = if let Some(preset_idx) =
                     already_selected
@@ -160,7 +162,7 @@ pub fn start_text_processing(
                     }
                 } else {
                     // Normal non-MASTER preset
-                    let is_continuous = (*preset_shared).continuous_input;
+                    let is_continuous = preset_shared.continuous_input;
                     (
                         (*preset_shared).clone(),
                         (*config_shared).clone(),
@@ -175,12 +177,11 @@ pub fn start_text_processing(
                     }
                 } else {
                     // Continuous mode: close previous result overlays before spawning new ones
-                    if let Ok(id_guard) = last_chain_id_clone.lock() {
-                        if let Some(ref old_id) = *id_guard {
+                    if let Ok(id_guard) = last_chain_id_clone.lock()
+                        && let Some(ref old_id) = *id_guard {
                             // Close windows from previous submission
                             result::close_chain_windows(old_id);
                         }
-                    }
                 }
 
                 let overlay_rect = if is_continuous {
@@ -209,8 +210,10 @@ pub fn start_text_processing(
                         // Get monitor rect for boundary checking
                         let monitor_rect = unsafe {
                             let h_monitor = MonitorFromRect(&input_rect, MONITOR_DEFAULTTONEAREST);
-                            let mut mi = MONITORINFO::default();
-                            mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+                            let mut mi = MONITORINFO {
+                                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                                ..Default::default()
+                            };
                             if GetMonitorInfoW(h_monitor, &mut mi).as_bool() {
                                 mi.rcMonitor
                             } else {
@@ -226,17 +229,17 @@ pub fn start_text_processing(
 
                         // First window: place at ideal_rect directly (under input)
                         // Subsequent windows: snake from last result window
-                        let final_rect =
-                            if let Some(last_rect) = LAST_RESULT_RECT.lock().unwrap().clone() {
-                                // Second+ window: snake from previous result window
-                                crate::overlay::result::layout::calculate_next_window_rect(
-                                    last_rect,
-                                    monitor_rect,
-                                )
-                            } else {
-                                // First window: use ideal position directly
-                                ideal_rect
-                            };
+                        let final_rect = if let Some(last_rect) = *LAST_RESULT_RECT.lock().unwrap()
+                        {
+                            // Second+ window: snake from previous result window
+                            crate::overlay::result::layout::calculate_next_window_rect(
+                                last_rect,
+                                monitor_rect,
+                            )
+                        } else {
+                            // First window: use ideal position directly
+                            ideal_rect
+                        };
 
                         // Store this rect as the last result window for next iteration
                         *LAST_RESULT_RECT.lock().unwrap() = Some(final_rect);
@@ -585,7 +588,7 @@ pub fn start_processing_pipeline(
 }
 
 pub fn start_processing_pipeline_parallel(
-    rx: std::sync::mpsc::Receiver<Option<(ImageBuffer<Rgba<u8>, Vec<u8>>, Vec<u8>)>>,
+    rx: std::sync::mpsc::Receiver<Option<CapturedImagePayload>>,
     screen_rect: RECT,
     config: Config,
     preset: Preset,

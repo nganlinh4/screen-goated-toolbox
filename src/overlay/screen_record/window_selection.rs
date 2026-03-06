@@ -7,8 +7,8 @@ use raw_window_handle::{
     HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
 };
 use std::num::NonZeroIsize;
-use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Once;
+use std::sync::atomic::{AtomicIsize, Ordering};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::Graphics::Gdi::HBRUSH;
@@ -34,7 +34,7 @@ struct HwndWrapper(HWND);
 
 impl HasWindowHandle for HwndWrapper {
     fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
-        let hwnd = self.0 .0 as isize;
+        let hwnd = self.0.0 as isize;
         if hwnd == 0 {
             return Err(HandleError::Unavailable);
         }
@@ -54,7 +54,7 @@ unsafe extern "system" fn selector_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_SIZE => {
             SELECTOR_WEBVIEW.with(|wv| {
@@ -97,7 +97,7 @@ unsafe extern "system" fn selector_wnd_proc(
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}
 
 /// Returns true if the selector overlay has been closed (or was never opened).
 pub fn selector_is_closed() -> bool {
@@ -513,7 +513,7 @@ pub fn show_window_selector(windows_data: Vec<serde_json::Value>, is_dark: bool,
 
         // Capture SR HWND value for posting events back to the main SR WebView.
         // SR_HWND is SendHwnd(HWND), so .0 gives HWND and .0.0 gives *mut c_void.
-        let sr_hwnd_val = std::ptr::addr_of!(SR_HWND).read().0 .0 as isize;
+        let sr_hwnd_val = std::ptr::addr_of!(SR_HWND).read().0.0 as isize;
 
         // Use the shared WebContext (same profile as other overlays).
         SELECTOR_WEB_CONTEXT.with(|c| {

@@ -56,13 +56,12 @@ pub fn send_tts_setup(
     }
 
     // Append custom tone/style instructions if provided
-    if let Some(instructions) = custom_instructions {
-        if !instructions.trim().is_empty() {
+    if let Some(instructions) = custom_instructions
+        && !instructions.trim().is_empty() {
             system_text.push_str(" Additional instructions: ");
             system_text.push_str(instructions.trim());
             system_text.push(' ');
         }
-    }
 
     system_text.push_str("Start reading immediately.");
 
@@ -124,44 +123,36 @@ pub fn send_tts_text(socket: &mut WebSocket<TlsStream<TcpStream>>, text: &str) -
 pub fn parse_audio_data(msg: &str) -> Option<Vec<u8>> {
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg) {
         // Check for serverContent -> modelTurn -> parts -> inlineData
-        if let Some(server_content) = json.get("serverContent") {
-            if let Some(model_turn) = server_content.get("modelTurn") {
-                if let Some(parts) = model_turn.get("parts").and_then(|p| p.as_array()) {
+        if let Some(server_content) = json.get("serverContent")
+            && let Some(model_turn) = server_content.get("modelTurn")
+                && let Some(parts) = model_turn.get("parts").and_then(|p| p.as_array()) {
                     for part in parts {
-                        if let Some(inline_data) = part.get("inlineData") {
-                            if let Some(data_b64) = inline_data.get("data").and_then(|d| d.as_str())
-                            {
-                                if let Ok(audio_bytes) = general_purpose::STANDARD.decode(data_b64)
+                        if let Some(inline_data) = part.get("inlineData")
+                            && let Some(data_b64) = inline_data.get("data").and_then(|d| d.as_str())
+                                && let Ok(audio_bytes) = general_purpose::STANDARD.decode(data_b64)
                                 {
                                     return Some(audio_bytes);
                                 }
-                            }
-                        }
                     }
                 }
-            }
-        }
     }
     None
 }
 
 /// Check if the response indicates turn is complete
 pub fn is_turn_complete(msg: &str) -> bool {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg) {
-        if let Some(server_content) = json.get("serverContent") {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg)
+        && let Some(server_content) = json.get("serverContent") {
             // Check for turnComplete
-            if let Some(turn_complete) = server_content.get("turnComplete") {
-                if turn_complete.as_bool().unwrap_or(false) {
+            if let Some(turn_complete) = server_content.get("turnComplete")
+                && turn_complete.as_bool().unwrap_or(false) {
                     return true;
                 }
-            }
             // Also check for generationComplete (seen in TTS responses)
-            if let Some(gen_complete) = server_content.get("generationComplete") {
-                if gen_complete.as_bool().unwrap_or(false) {
+            if let Some(gen_complete) = server_content.get("generationComplete")
+                && gen_complete.as_bool().unwrap_or(false) {
                     return true;
                 }
-            }
         }
-    }
     false
 }

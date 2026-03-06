@@ -9,7 +9,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::InvalidateRect;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
+pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT { unsafe {
     let timer_id = wparam.0;
 
     // Timer ID 2: Markdown hover polling (The Authority on WebView Sizing)
@@ -321,4 +321,4 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
         let _ = InvalidateRect(Some(hwnd), None, false);
     }
     LRESULT(0)
-}
+}}

@@ -17,7 +17,7 @@ pub unsafe extern "system" fn selection_hook_proc(
     code: i32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     if code == HC_ACTION as i32 {
         let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
         if wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize {
@@ -30,25 +30,23 @@ pub unsafe extern "system" fn selection_hook_proc(
                 }
                 return LRESULT(1);
             }
-            if kbd.vkCode == TRIGGER_VK_CODE {
-                if !IS_HOTKEY_HELD.load(Ordering::SeqCst) {
-                    crate::overlay::continuous_mode::deactivate();
-                    SELECTION_ABORT_SIGNAL.store(true, Ordering::SeqCst);
-                    let hwnd = std::ptr::addr_of!(SELECTION_OVERLAY_HWND).read().0;
-                    if !hwnd.is_invalid() {
-                        let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
-                    }
-                    return LRESULT(1);
+            if kbd.vkCode == TRIGGER_VK_CODE && !IS_HOTKEY_HELD.load(Ordering::SeqCst) {
+                crate::overlay::continuous_mode::deactivate();
+                SELECTION_ABORT_SIGNAL.store(true, Ordering::SeqCst);
+                let hwnd = std::ptr::addr_of!(SELECTION_OVERLAY_HWND).read().0;
+                if !hwnd.is_invalid() {
+                    let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
                 }
+                return LRESULT(1);
             }
-        } else if wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize {
-            if kbd.vkCode == TRIGGER_VK_CODE {
-                IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
-            }
+        } else if (wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize)
+            && kbd.vkCode == TRIGGER_VK_CODE
+        {
+            IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
         }
     }
     CallNextHookEx(None, code, wparam, lparam)
-}
+}}
 
 #[allow(static_mut_refs)]
 pub unsafe extern "system" fn selection_wnd_proc(
@@ -56,7 +54,7 @@ pub unsafe extern "system" fn selection_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_LBUTTONDOWN => {
             if !IS_FADING_OUT {
@@ -127,15 +125,11 @@ pub unsafe extern "system" fn selection_wnd_proc(
                     RENDER_CENTER_Y = ZOOM_CENTER_Y;
                 }
 
-                if !MAG_INITIALIZED && ZOOM_LEVEL > 1.0 {
-                    if load_magnification_api() {
-                        if let Some(init_fn) = MAG_INITIALIZE {
-                            if init_fn().as_bool() {
-                                MAG_INITIALIZED = true;
-                            }
+                if !MAG_INITIALIZED && ZOOM_LEVEL > 1.0 && load_magnification_api()
+                    && let Some(init_fn) = MAG_INITIALIZE
+                        && init_fn().as_bool() {
+                            MAG_INITIALIZED = true;
                         }
-                    }
-                }
 
                 let _ = SetTimer(Some(hwnd), ZOOM_TIMER_ID, 16, None);
             }
@@ -160,11 +154,10 @@ pub unsafe extern "system" fn selection_wnd_proc(
                     // COLOR PICKER
                     handle_color_picker(hwnd);
                     IS_FADING_OUT = true;
-                    if MAG_INITIALIZED {
-                        if let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
+                    if MAG_INITIALIZED
+                        && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
                             let _ = transform_fn(1.0, 0, 0);
                         }
-                    }
                     let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
                     return LRESULT(0);
                 }
@@ -188,18 +181,17 @@ pub unsafe extern "system" fn selection_wnd_proc(
             let mut ps = PAINTSTRUCT::default();
             let _ = BeginPaint(hwnd, &mut ps);
             sync_layered_window_contents(hwnd);
-            let _ = EndPaint(hwnd, &mut ps);
+            let _ = EndPaint(hwnd, &ps);
             LRESULT(0)
         }
         WM_ERASEBKGND => LRESULT(1),
         WM_CLOSE => {
             if !IS_FADING_OUT {
                 IS_FADING_OUT = true;
-                if MAG_INITIALIZED {
-                    if let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
+                if MAG_INITIALIZED
+                    && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
                         let _ = transform_fn(1.0, 0, 0);
                     }
-                }
                 let _ = KillTimer(Some(hwnd), FADE_TIMER_ID);
                 let _ = KillTimer(Some(hwnd), ZOOM_TIMER_ID);
                 SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
@@ -231,10 +223,10 @@ pub unsafe extern "system" fn selection_wnd_proc(
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}
 
 /// Handle color picker click
-unsafe fn handle_color_picker(hwnd: HWND) {
+unsafe fn handle_color_picker(hwnd: HWND) { unsafe {
     let mut pt = POINT::default();
     let _ = GetCursorPos(&mut pt);
 
@@ -270,11 +262,11 @@ unsafe fn handle_color_picker(hwnd: HWND) {
         crate::overlay::utils::copy_to_clipboard(&hex, hwnd);
         crate::overlay::auto_copy_badge::show_auto_copy_badge_text(&hex);
     }
-}
+}}
 
 /// Handle selection completion
 #[allow(static_mut_refs)]
-unsafe fn handle_selection(hwnd: HWND, rect: RECT) -> Option<LRESULT> {
+unsafe fn handle_selection(hwnd: HWND, rect: RECT) -> Option<LRESULT> { unsafe {
     // Check if this is a MASTER preset
     let is_master = {
         let guard = APP.lock().unwrap();
@@ -377,22 +369,21 @@ unsafe fn handle_selection(hwnd: HWND, rect: RECT) -> Option<LRESULT> {
 
         // START FADE OUT
         IS_FADING_OUT = true;
-        if MAG_INITIALIZED {
-            if let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
+        if MAG_INITIALIZED
+            && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
                 let _ = transform_fn(1.0, 0, 0);
             }
-        }
         let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
 
         return Some(LRESULT(0));
     }
 
     None
-}
+}}
 
 /// Handle timer events
 #[allow(static_mut_refs)]
-unsafe fn handle_timer(hwnd: HWND, timer_id: usize) {
+unsafe fn handle_timer(hwnd: HWND, timer_id: usize) { unsafe {
     if timer_id == ZOOM_TIMER_ID {
         handle_zoom_timer(hwnd);
     } else if timer_id == CONTINUOUS_CHECK_TIMER_ID {
@@ -400,9 +391,9 @@ unsafe fn handle_timer(hwnd: HWND, timer_id: usize) {
     } else if timer_id == FADE_TIMER_ID {
         handle_fade_timer(hwnd);
     }
-}
+}}
 
-unsafe fn handle_zoom_timer(hwnd: HWND) {
+unsafe fn handle_zoom_timer(hwnd: HWND) { unsafe {
     let t = 0.4;
     let mut changed = false;
 
@@ -430,8 +421,8 @@ unsafe fn handle_zoom_timer(hwnd: HWND) {
 
     // Apply Transform if Changed or Dragging
     if changed || IS_RIGHT_DRAGGING {
-        if MAG_INITIALIZED {
-            if let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
+        if MAG_INITIALIZED
+            && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
                 if RENDER_ZOOM > 1.01 {
                     let screen_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
                     let screen_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
@@ -456,15 +447,14 @@ unsafe fn handle_zoom_timer(hwnd: HWND) {
                     let _ = transform_fn(1.0, 0, 0);
                 }
             }
-        }
         sync_layered_window_contents(hwnd);
     } else if !changed && !IS_RIGHT_DRAGGING {
         let _ = KillTimer(Some(hwnd), ZOOM_TIMER_ID);
     }
-}
+}}
 
 #[allow(static_mut_refs)]
-unsafe fn handle_continuous_check_timer(hwnd: HWND) {
+unsafe fn handle_continuous_check_timer(hwnd: HWND) { unsafe {
     // SYNC PHYSICAL KEY STATE
     if TRIGGER_VK_CODE != 0 {
         let is_physically_down = (GetAsyncKeyState(TRIGGER_VK_CODE as i32) as u16 & 0x8000) != 0;
@@ -511,9 +501,9 @@ unsafe fn handle_continuous_check_timer(hwnd: HWND) {
             }
         }
     }
-}
+}}
 
-unsafe fn handle_fade_timer(hwnd: HWND) {
+unsafe fn handle_fade_timer(hwnd: HWND) { unsafe {
     let mut changed = false;
     if IS_FADING_OUT {
         if CURRENT_ALPHA > FADE_STEP {
@@ -526,17 +516,14 @@ unsafe fn handle_fade_timer(hwnd: HWND) {
             PostQuitMessage(0);
             return;
         }
+    } else if CURRENT_ALPHA < TARGET_OPACITY {
+        CURRENT_ALPHA = (CURRENT_ALPHA as u16 + FADE_STEP as u16).min(TARGET_OPACITY as u16) as u8;
+        changed = true;
     } else {
-        if CURRENT_ALPHA < TARGET_OPACITY {
-            CURRENT_ALPHA =
-                (CURRENT_ALPHA as u16 + FADE_STEP as u16).min(TARGET_OPACITY as u16) as u8;
-            changed = true;
-        } else {
-            let _ = KillTimer(Some(hwnd), FADE_TIMER_ID);
-        }
+        let _ = KillTimer(Some(hwnd), FADE_TIMER_ID);
     }
 
     if changed {
         sync_layered_window_contents(hwnd);
     }
-}
+}}

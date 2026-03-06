@@ -19,6 +19,8 @@ use std::sync::mpsc;
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
+type CapturedImagePayload = (ImageBuffer<Rgba<u8>, Vec<u8>>, Vec<u8>);
+
 /// Image file extensions we support
 const IMAGE_EXTENSIONS: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "tiff", "tif",
@@ -225,7 +227,7 @@ fn process_text_content(text: String) {
 }
 
 /// Process image content in parallel (show wheel immediately, wait for load)
-fn process_image_parallel(rx: mpsc::Receiver<Option<(ImageBuffer<Rgba<u8>, Vec<u8>>, Vec<u8>)>>) {
+fn process_image_parallel(rx: mpsc::Receiver<Option<CapturedImagePayload>>) {
     let cursor_pos = get_cursor_pos();
     let selected = show_preset_wheel("image", None, cursor_pos);
 
@@ -308,12 +310,11 @@ pub fn process_file_path(path: &Path) {
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             // Read file bytes directly (preserves original format e.g. JPEG)
-            if let Ok(bytes) = std::fs::read(&path_clone) {
-                if let Ok(img) = image::load_from_memory(&bytes) {
+            if let Ok(bytes) = std::fs::read(&path_clone)
+                && let Ok(img) = image::load_from_memory(&bytes) {
                     let _ = tx.send(Some((img.to_rgba8(), bytes)));
                     return;
                 }
-            }
             let _ = tx.send(None);
         });
         process_image_parallel(rx);
@@ -479,25 +480,23 @@ pub fn handle_paste(ctx: &egui::Context) -> bool {
     }
 
     // First try to get image from clipboard (images take priority)
-    if let Some(img_bytes) = get_clipboard_image_bytes() {
-        if let Ok(img) = image::load_from_memory(&img_bytes) {
+    if let Some(img_bytes) = get_clipboard_image_bytes()
+        && let Ok(img) = image::load_from_memory(&img_bytes) {
             let rgba = img.to_rgba8();
             std::thread::spawn(move || {
                 process_image_content(rgba);
             });
             return true;
         }
-    }
 
     // Try to get text from clipboard via Windows API
-    if let Some(text) = get_clipboard_text() {
-        if !text.is_empty() {
+    if let Some(text) = get_clipboard_text()
+        && !text.is_empty() {
             std::thread::spawn(move || {
                 process_text_content(text);
             });
             return true;
         }
-    }
 
     false
 }

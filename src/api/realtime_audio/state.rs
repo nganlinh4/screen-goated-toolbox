@@ -23,16 +23,11 @@ pub const PARAKEET_MIN_TIMEOUT_MS: u64 = 350;
 pub const PARAKEET_TIMEOUT_DECAY_RATE: f64 = 2.5;
 
 /// Transcription method being used
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum TranscriptionMethod {
+    #[default]
     GeminiLive,
     Parakeet,
-}
-
-impl Default for TranscriptionMethod {
-    fn default() -> Self {
-        TranscriptionMethod::GeminiLive
-    }
 }
 
 pub struct RealtimeState {
@@ -103,10 +98,10 @@ impl RealtimeState {
     }
 
     pub fn append_transcript(&mut self, new_text: &str) {
-        if self.transcription_method == TranscriptionMethod::Parakeet {
-            if self.last_committed_pos >= self.full_transcript.len() {
-                self.parakeet_segment_start_time = Instant::now();
-            }
+        if self.transcription_method == TranscriptionMethod::Parakeet
+            && self.last_committed_pos >= self.full_transcript.len()
+        {
+            self.parakeet_segment_start_time = Instant::now();
         }
 
         let mut text_to_append = new_text.to_string();
@@ -115,14 +110,13 @@ impl RealtimeState {
             let needs_cap =
                 self.full_transcript.trim().is_empty() || self.source_ends_with_sentence();
 
-            if needs_cap {
-                if let Some(first_char_idx) = text_to_append.find(|c: char| !c.is_whitespace()) {
+            if needs_cap
+                && let Some(first_char_idx) = text_to_append.find(|c: char| !c.is_whitespace()) {
                     let c = text_to_append.chars().nth(first_char_idx).unwrap();
                     let pre_space = &text_to_append[..first_char_idx];
                     let rest = &text_to_append[first_char_idx + 1..];
                     text_to_append = format!("{}{}{}", pre_space, c.to_uppercase(), rest);
                 }
-            }
         }
 
         self.full_transcript.push_str(&text_to_append);

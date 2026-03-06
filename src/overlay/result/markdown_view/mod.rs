@@ -31,7 +31,7 @@ lazy_static::lazy_static! {
 thread_local! {
     pub(crate) static WEBVIEWS: std::cell::RefCell<std::collections::HashMap<isize, wry::WebView>> = std::cell::RefCell::new(std::collections::HashMap::new());
     /// Shared WebContext for all WebViews on this thread - reduces RAM by sharing browser processes
-    pub(crate) static SHARED_WEB_CONTEXT: std::cell::RefCell<Option<wry::WebContext>> = std::cell::RefCell::new(None);
+    pub(crate) static SHARED_WEB_CONTEXT: std::cell::RefCell<Option<wry::WebContext>> = const { std::cell::RefCell::new(None) };
 }
 
 // Re-exports for public API

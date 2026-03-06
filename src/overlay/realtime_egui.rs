@@ -130,11 +130,10 @@ pub fn show_realtime_egui_overlay(preset_idx: usize) {
         REALTIME_STATE.clone(),
     );
 
-    if let Ok(guard) = crate::gui::GUI_CONTEXT.lock() {
-        if let Some(ctx) = guard.as_ref() {
+    if let Ok(guard) = crate::gui::GUI_CONTEXT.lock()
+        && let Some(ctx) = guard.as_ref() {
             ctx.request_repaint();
         }
-    }
 }
 
 pub fn render_minimal_overlay(ctx: &egui::Context) {
@@ -393,23 +392,21 @@ fn render_main_ui(ui: &mut egui::Ui, state: &mut RealtimeUiState) {
                                         || lang
                                             .to_lowercase()
                                             .contains(&search_text.to_lowercase());
-                                    if matches {
-                                        if ui
+                                    if matches
+                                        && ui
                                             .selectable_label(current_lang == *lang, lang)
                                             .clicked()
-                                        {
-                                            if let Ok(mut l) = NEW_TARGET_LANGUAGE.lock() {
-                                                *l = lang.to_string();
-                                            }
-                                            LANGUAGE_CHANGE.store(true, Ordering::SeqCst);
-                                            if let Ok(mut app) = APP.lock() {
-                                                app.config.realtime_target_language =
-                                                    lang.to_string();
-                                            }
-                                            ui.data_mut(|d| d.remove_temp::<String>(search_id));
-
-                                            egui::Popup::toggle_id(ui.ctx(), popup_id);
+                                    {
+                                        if let Ok(mut l) = NEW_TARGET_LANGUAGE.lock() {
+                                            *l = lang.to_string();
                                         }
+                                        LANGUAGE_CHANGE.store(true, Ordering::SeqCst);
+                                        if let Ok(mut app) = APP.lock() {
+                                            app.config.realtime_target_language = lang.to_string();
+                                        }
+                                        ui.data_mut(|d| d.remove_temp::<String>(search_id));
+
+                                        egui::Popup::toggle_id(ui.ctx(), popup_id);
                                     }
                                 }
                             });
@@ -577,13 +574,10 @@ fn render_main_ui(ui: &mut egui::Ui, state: &mut RealtimeUiState) {
             if state.last_spoken_len == 0 && old_len > 50 {
                 let text = committed.trim_end();
                 let search_limit = text.len().saturating_sub(1);
-                if search_limit > 0 {
-                    if let Some(idx) = text[..search_limit]
-                        .rfind(|c| c == '.' || c == '?' || c == '!' || c == '\n')
-                    {
+                if search_limit > 0
+                    && let Some(idx) = text[..search_limit].rfind(['.', '?', '!', '\n']) {
                         state.last_spoken_len = idx + 1;
                     }
-                }
             }
 
             if old_len > state.last_spoken_len {
@@ -832,17 +826,15 @@ fn tr(key: &str, lang: &str) -> String {
 
 fn get_segment_color(index: usize, dark_mode: bool) -> egui::Color32 {
     if dark_mode {
-        if index % 2 == 0 {
+        if index.is_multiple_of(2) {
             egui::Color32::from_gray(230)
         } else {
             egui::Color32::from_rgb(180, 210, 255) // Light Blue
         }
+    } else if index.is_multiple_of(2) {
+        egui::Color32::from_gray(30) // Dark Gray (almost black) for readability
     } else {
-        if index % 2 == 0 {
-            egui::Color32::from_gray(30) // Dark Gray (almost black) for readability
-        } else {
-            egui::Color32::from_rgb(0, 80, 200) // Deep Blue
-        }
+        egui::Color32::from_rgb(0, 80, 200) // Deep Blue
     }
 }
 
@@ -853,11 +845,9 @@ fn get_text_color(is_committed: bool, dark_mode: bool) -> egui::Color32 {
         } else {
             egui::Color32::WHITE
         }
+    } else if is_committed {
+        egui::Color32::from_gray(60)
     } else {
-        if is_committed {
-            egui::Color32::from_gray(60)
-        } else {
-            egui::Color32::BLACK
-        }
+        egui::Color32::BLACK
     }
 }

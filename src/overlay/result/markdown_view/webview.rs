@@ -236,8 +236,8 @@ fn handle_navigation(hwnd_key: isize, url: &str) -> bool {
 
     if is_external {
         // Update browsing state and increment depth counter
-        if let Ok(mut states) = crate::overlay::result::state::WINDOW_STATES.lock() {
-            if let Some(state) = states.get_mut(&hwnd_key) {
+        if let Ok(mut states) = crate::overlay::result::state::WINDOW_STATES.lock()
+            && let Some(state) = states.get_mut(&hwnd_key) {
                 state.is_browsing = true;
                 state.navigation_depth += 1;
                 state.max_navigation_depth = state.navigation_depth;
@@ -246,15 +246,14 @@ fn handle_navigation(hwnd_key: isize, url: &str) -> bool {
                     state.is_editing = false;
                 }
             }
-        }
         crate::overlay::result::button_canvas::update_window_position(HWND(
             hwnd_key as *mut std::ffi::c_void,
         ));
     } else if is_internal {
         // If we hit an internal URL, we are likely back at the start (or initial load)
-        if let Ok(mut states) = crate::overlay::result::state::WINDOW_STATES.lock() {
-            if let Some(state) = states.get_mut(&hwnd_key) {
-                if state.is_browsing {
+        if let Ok(mut states) = crate::overlay::result::state::WINDOW_STATES.lock()
+            && let Some(state) = states.get_mut(&hwnd_key)
+                && state.is_browsing {
                     state.is_browsing = false;
                     state.navigation_depth = 0;
                     state.max_navigation_depth = 0;
@@ -269,8 +268,6 @@ fn handle_navigation(hwnd_key: isize, url: &str) -> bool {
                         hwnd_key as *mut std::ffi::c_void,
                     ));
                 }
-            }
-        }
     }
 
     // Allow all navigation
@@ -282,8 +279,8 @@ fn handle_ipc(parent_hwnd: HWND, body: &str) {
     // Root IPC handler (general markdown actions)
     handle_markdown_ipc(parent_hwnd, body);
 
-    if body.starts_with("opacity:") {
-        if let Ok(opacity_percent) = body["opacity:".len()..].parse::<f32>() {
+    if let Some(opacity) = body.strip_prefix("opacity:")
+        && let Ok(opacity_percent) = opacity.parse::<f32>() {
             let alpha = ((opacity_percent / 100.0) * 255.0) as u8;
             unsafe {
                 use windows::Win32::Foundation::COLORREF;
@@ -293,7 +290,6 @@ fn handle_ipc(parent_hwnd: HWND, body: &str) {
                 let _ = SetLayeredWindowAttributes(parent_hwnd, COLORREF(0), alpha, LWA_ALPHA);
             }
         }
-    }
 }
 
 /// Resize the WebView to match parent window

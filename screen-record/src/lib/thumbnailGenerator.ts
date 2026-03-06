@@ -1,3 +1,5 @@
+import { invoke } from '@/lib/ipc';
+
 export class ThumbnailGenerator {
   private canvas: HTMLCanvasElement;
   private video: HTMLVideoElement;
@@ -22,7 +24,6 @@ export class ThumbnailGenerator {
   ): Promise<string[]> {
     if (options?.filePath && !options.filePath.startsWith('blob:')) {
       try {
-        const { invoke } = await import('@/lib/ipc');
         const b64s = await invoke<string[]>('generate_thumbnails', {
           path: options.filePath,
           count: numThumbnails,

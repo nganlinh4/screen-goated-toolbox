@@ -123,12 +123,11 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
                     }
                 }
                 Ok(Message::Binary(data)) => {
-                    if let Ok(text) = String::from_utf8(data.to_vec()) {
-                        if is_setup_complete(&text) {
+                    if let Ok(text) = String::from_utf8(data.to_vec())
+                        && is_setup_complete(&text) {
                             setup_complete = true;
                             break;
                         }
-                    }
                 }
                 Ok(Message::Close(_)) => break,
                 Ok(_) => {}

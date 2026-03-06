@@ -14,7 +14,7 @@ use crate::overlay::result::layout::{
 use crate::overlay::result::markdown_view;
 use crate::overlay::result::state::{InteractionMode, ResizeEdge, WINDOW_STATES};
 
-pub unsafe fn handle_set_cursor(hwnd: HWND) -> LRESULT {
+pub unsafe fn handle_set_cursor(hwnd: HWND) -> LRESULT { unsafe {
     let mut cursor_id = PCWSTR(std::ptr::null());
     let mut rect = RECT::default();
     let _ = GetClientRect(hwnd, &mut rect);
@@ -79,7 +79,7 @@ pub unsafe fn handle_set_cursor(hwnd: HWND) -> LRESULT {
                 } else {
                     (rect.bottom - margin - btn_size / 2) as f32
                 };
-                let cx_back = (margin + btn_size / 2) as i32;
+                let cx_back = margin + btn_size / 2;
                 let cy_back = cy as i32;
                 let back_rect = RECT {
                     left: cx_back - 14,
@@ -133,9 +133,9 @@ pub unsafe fn handle_set_cursor(hwnd: HWND) -> LRESULT {
         SetCursor(None);
         LRESULT(1)
     }
-}
+}}
 
-pub unsafe fn handle_lbutton_down(hwnd: HWND, lparam: LPARAM) -> LRESULT {
+pub unsafe fn handle_lbutton_down(hwnd: HWND, lparam: LPARAM) -> LRESULT { unsafe {
     let x = (lparam.0 & 0xFFFF) as i16 as i32;
     let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
     let mut rect = RECT::default();
@@ -169,9 +169,9 @@ pub unsafe fn handle_lbutton_down(hwnd: HWND, lparam: LPARAM) -> LRESULT {
         button_canvas::set_drag_mode(true); // Enable unclipped drag mode for smooth UI
     }
     LRESULT(0)
-}
+}}
 
-pub unsafe fn handle_rbutton_down(hwnd: HWND, lparam: LPARAM) -> LRESULT {
+pub unsafe fn handle_rbutton_down(hwnd: HWND, lparam: LPARAM) -> LRESULT { unsafe {
     let x = (lparam.0 & 0xFFFF) as i16 as i32;
     let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
     let mut rect = RECT::default();
@@ -212,9 +212,9 @@ pub unsafe fn handle_rbutton_down(hwnd: HWND, lparam: LPARAM) -> LRESULT {
     SetCapture(hwnd);
     button_canvas::set_drag_mode(true); // Enable unclipped drag mode for smooth UI
     LRESULT(0)
-}
+}}
 
-pub unsafe fn handle_mbutton_down(hwnd: HWND, lparam: LPARAM) -> LRESULT {
+pub unsafe fn handle_mbutton_down(hwnd: HWND, lparam: LPARAM) -> LRESULT { unsafe {
     let x = (lparam.0 & 0xFFFF) as i16 as i32;
     let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
     let mut rect = RECT::default();
@@ -257,9 +257,9 @@ pub unsafe fn handle_mbutton_down(hwnd: HWND, lparam: LPARAM) -> LRESULT {
     SetCapture(hwnd);
     button_canvas::set_drag_mode(true);
     LRESULT(0)
-}
+}}
 
-pub unsafe fn handle_mouse_move(hwnd: HWND, lparam: LPARAM) -> LRESULT {
+pub unsafe fn handle_mouse_move(hwnd: HWND, lparam: LPARAM) -> LRESULT { unsafe {
     let x = (lparam.0 & 0xFFFF) as i16 as f32;
     let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as f32;
     let mut rect = RECT::default();
@@ -333,7 +333,7 @@ pub unsafe fn handle_mouse_move(hwnd: HWND, lparam: LPARAM) -> LRESULT {
                     };
 
                     // Back button (left side)
-                    let cx_back = (margin + btn_size / 2) as i32;
+                    let cx_back = margin + btn_size / 2;
                     let cy_back = cy as i32;
                     let l = cx_back - 14 - padding;
                     let r = cx_back + 14 + padding;
@@ -344,7 +344,7 @@ pub unsafe fn handle_mouse_move(hwnd: HWND, lparam: LPARAM) -> LRESULT {
 
                     // Forward button (right side)
                     if state.navigation_depth < state.max_navigation_depth {
-                        let cx_forward = (rect.right - margin - btn_size / 2) as i32;
+                        let cx_forward = rect.right - margin - btn_size / 2;
                         let lf = cx_forward - 14 - padding;
                         let rf = cx_forward + 14 + padding;
                         state.on_forward_btn =
@@ -554,33 +554,30 @@ pub unsafe fn handle_mouse_move(hwnd: HWND, lparam: LPARAM) -> LRESULT {
     } // Lock released
 
     // Execute deferred group moves using DeferWindowPos for performance
-    if !group_moves.is_empty() {
-        unsafe {
-            if let Ok(mut hdwp) = BeginDeferWindowPos(group_moves.len() as i32) {
-                for (h, x, y, w, h_val) in group_moves {
-                    hdwp = DeferWindowPos(
-                        hdwp,
-                        h,
-                        None,
-                        x,
-                        y,
-                        w,
-                        h_val,
-                        SWP_NOZORDER | SWP_NOACTIVATE,
-                    )
-                    .unwrap_or(hdwp);
-                    button_canvas::update_window_position_direct(h, x, y, w, h_val);
-                }
-                let _ = EndDeferWindowPos(hdwp);
-                button_canvas::update_canvas();
+    if !group_moves.is_empty()
+        && let Ok(mut hdwp) = BeginDeferWindowPos(group_moves.len() as i32) {
+            for (h, x, y, w, h_val) in group_moves {
+                hdwp = DeferWindowPos(
+                    hdwp,
+                    h,
+                    None,
+                    x,
+                    y,
+                    w,
+                    h_val,
+                    SWP_NOZORDER | SWP_NOACTIVATE,
+                )
+                .unwrap_or(hdwp);
+                button_canvas::update_window_position_direct(h, x, y, w, h_val);
             }
+            let _ = EndDeferWindowPos(hdwp);
+            button_canvas::update_canvas();
         }
-    }
 
     LRESULT(0)
-}
+}}
 
-pub unsafe fn handle_mouse_leave(hwnd: HWND) -> LRESULT {
+pub unsafe fn handle_mouse_leave(hwnd: HWND) -> LRESULT { unsafe {
     // Check if cursor is actually outside the window (not just moved to a child window like WebView)
     let mut states = WINDOW_STATES.lock().unwrap();
     if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
@@ -605,4 +602,4 @@ pub unsafe fn handle_mouse_leave(hwnd: HWND) -> LRESULT {
         let _ = InvalidateRect(Some(hwnd), None, false);
     }
     LRESULT(0)
-}
+}}

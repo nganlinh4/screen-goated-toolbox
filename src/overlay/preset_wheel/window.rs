@@ -51,8 +51,8 @@ lazy_static::lazy_static! {
 }
 
 thread_local! {
-    static WHEEL_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
-    static WHEEL_WEB_CONTEXT: RefCell<Option<WebContext>> = RefCell::new(None);
+    static WHEEL_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
+    static WHEEL_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
 }
 
 struct HwndWrapper(HWND);
@@ -416,8 +416,8 @@ fn internal_create_window_loop() {
                             }
                             *SELECTED_PRESET.lock().unwrap() = None;
                             WHEEL_RESULT.store(-2, Ordering::SeqCst);
-                        } else if let Some(idx_str) = body.strip_prefix("select:") {
-                            if let Ok(idx) = idx_str.parse::<usize>() {
+                        } else if let Some(idx_str) = body.strip_prefix("select:")
+                            && let Ok(idx) = idx_str.parse::<usize>() {
                                 let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
                                 let wheel_hwnd = HWND(hwnd_val as *mut _);
                                 if !wheel_hwnd.is_invalid() {
@@ -431,7 +431,6 @@ fn internal_create_window_loop() {
                                 *SELECTED_PRESET.lock().unwrap() = Some(idx);
                                 WHEEL_RESULT.store(idx as i32, Ordering::SeqCst);
                             }
-                        }
                     })
                     .build(&wrapper)
             });
@@ -459,7 +458,7 @@ fn internal_create_window_loop() {
             IS_WARMING_UP.store(false, Ordering::SeqCst);
             OVERLAY_HWND.store(0, Ordering::SeqCst);
             WHEEL_HWND.store(0, Ordering::SeqCst);
-            let _ = CoUninitialize(); // Cleanup COM
+            CoUninitialize(); // Cleanup COM
             return;
         }
 
@@ -475,7 +474,7 @@ fn internal_create_window_loop() {
         WHEEL_HWND.store(0, Ordering::SeqCst);
         OVERLAY_HWND.store(0, Ordering::SeqCst);
         IS_WARMING_UP.store(false, Ordering::SeqCst); // Ensure flag is cleared on exit
-        let _ = CoUninitialize(); // Cleanup COM
+        CoUninitialize(); // Cleanup COM
     }
 }
 
@@ -484,7 +483,7 @@ unsafe extern "system" fn overlay_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_LBUTTONDOWN | WM_RBUTTONDOWN => {
             let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
@@ -499,14 +498,14 @@ unsafe extern "system" fn overlay_wnd_proc(
         WM_ERASEBKGND => LRESULT(1), // Prevent GDI from clearing background to black/white
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}
 
 unsafe extern "system" fn wheel_wnd_proc(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_APP_SHOW => {
             let items_html = PENDING_ITEMS_HTML.lock().unwrap().clone();
@@ -675,4 +674,4 @@ unsafe extern "system" fn wheel_wnd_proc(
 
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}

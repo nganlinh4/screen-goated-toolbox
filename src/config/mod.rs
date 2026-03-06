@@ -28,6 +28,7 @@
 //!     .build();
 //! ```
 
+#[allow(clippy::module_inception)]
 mod config;
 mod io;
 pub mod preset;

@@ -186,12 +186,11 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
                     break;
                 }
                 Ok(Message::Binary(data)) => {
-                    if let Ok(text) = String::from_utf8(data.to_vec()) {
-                        if text.contains("setupComplete") {
+                    if let Ok(text) = String::from_utf8(data.to_vec())
+                        && text.contains("setupComplete") {
                             setup_complete = true;
                             break;
                         }
-                    }
                 }
                 Ok(_) => {}
                 Err(tungstenite::Error::Io(ref e))

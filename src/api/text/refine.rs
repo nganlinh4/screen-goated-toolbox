@@ -15,6 +15,10 @@ use std::sync::{
     Arc,
 };
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "refine entrypoint passes distinct provider, prompt, and callback state"
+)]
 pub fn refine_text_streaming<F>(
     groq_api_key: &str,
     gemini_api_key: &str,
@@ -160,6 +164,10 @@ where
 }
 
 // --- TEXT-ONLY REFINEMENT ---
+#[expect(
+    clippy::too_many_arguments,
+    reason = "provider-specific refinement keeps request pieces explicit instead of bundling ad hoc structs"
+)]
 fn refine_text_only<F>(
     groq_api_key: &str,
     gemini_api_key: &str,
@@ -300,23 +308,20 @@ where
         let locale = LocaleText::get(ui_language);
 
         for line in reader.lines() {
-            if let Some(ref ct) = cancel_token {
-                if ct.load(Ordering::Relaxed) {
+            if let Some(ct) = cancel_token
+                && ct.load(Ordering::Relaxed) {
                     return Err(anyhow::anyhow!("Cancelled"));
                 }
-            }
             let line = line?;
-            if line.starts_with("data: ") {
-                let json_str = &line["data: ".len()..];
+            if let Some(json_str) = line.strip_prefix("data: ") {
                 if json_str.trim() == "[DONE]" {
                     break;
                 }
-                if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str) {
-                    if let Some(candidates) =
+                if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str)
+                    && let Some(candidates) =
                         chunk_resp.get("candidates").and_then(|c| c.as_array())
-                    {
-                        if let Some(first) = candidates.first() {
-                            if let Some(parts) = first
+                        && let Some(first) = candidates.first()
+                            && let Some(parts) = first
                                 .get("content")
                                 .and_then(|c| c.get("parts"))
                                 .and_then(|p| p.as_array())
@@ -350,16 +355,13 @@ where
                                     }
                                 }
                             }
-                        }
-                    }
-                }
             }
         }
     } else {
         let json: serde_json::Value = resp.into_body().read_json()?;
-        if let Some(candidates) = json.get("candidates").and_then(|c| c.as_array()) {
-            if let Some(first) = candidates.first() {
-                if let Some(parts) = first
+        if let Some(candidates) = json.get("candidates").and_then(|c| c.as_array())
+            && let Some(first) = candidates.first()
+                && let Some(parts) = first
                     .get("content")
                     .and_then(|c| c.get("parts"))
                     .and_then(|p| p.as_array())
@@ -371,8 +373,6 @@ where
                         .collect::<String>();
                     on_chunk(&full_content);
                 }
-            }
-        }
     }
 
     Ok(full_content)
@@ -425,13 +425,11 @@ where
         .unwrap_or("?")
         .to_string();
 
-    if limit == "?" {
-        if let Some(conf) = crate::model_config::get_model_by_id(p_model) {
-            if let Some(val) = conf.quota_limit_en.split_whitespace().next() {
+    if limit == "?"
+        && let Some(conf) = crate::model_config::get_model_by_id(p_model)
+            && let Some(val) = conf.quota_limit_en.split_whitespace().next() {
                 limit = val.to_string();
             }
-        }
-    }
 
     if remaining != "?" || limit != "?" {
         let usage_str = format!("{} / {}", remaining, limit);
@@ -451,14 +449,12 @@ where
         let is_reasoning_model = p_model.contains("gpt-oss") || p_model.contains("zai-glm");
 
         for line in reader.lines() {
-            if let Some(ref ct) = cancel_token {
-                if ct.load(Ordering::Relaxed) {
+            if let Some(ct) = cancel_token
+                && ct.load(Ordering::Relaxed) {
                     return Err(anyhow::anyhow!("Cancelled"));
                 }
-            }
             let line = line?;
-            if line.starts_with("data: ") {
-                let data = &line[6..];
+            if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {
                     break;
                 }
@@ -467,7 +463,7 @@ where
                     Ok(chunk) => {
                         if let Some(reasoning) = chunk
                             .choices
-                            .get(0)
+                            .first()
                             .and_then(|c| c.delta.reasoning.as_ref())
                             .filter(|s| !s.is_empty())
                         {
@@ -483,7 +479,7 @@ where
 
                         if let Some(content) = chunk
                             .choices
-                            .get(0)
+                            .first()
                             .and_then(|c| c.delta.content.as_ref())
                             .filter(|s| !s.is_empty())
                         {
@@ -556,14 +552,12 @@ where
         let locale = LocaleText::get(ui_language);
 
         for line in reader.lines() {
-            if let Some(ref ct) = cancel_token {
-                if ct.load(Ordering::Relaxed) {
+            if let Some(ct) = cancel_token
+                && ct.load(Ordering::Relaxed) {
                     return Err(anyhow::anyhow!("Cancelled"));
                 }
-            }
             let line = line?;
-            if line.starts_with("data: ") {
-                let data = &line[6..];
+            if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {
                     break;
                 }
@@ -572,7 +566,7 @@ where
                     Ok(chunk) => {
                         if let Some(reasoning) = chunk
                             .choices
-                            .get(0)
+                            .first()
                             .and_then(|c| c.delta.reasoning.as_ref())
                             .filter(|s| !s.is_empty())
                         {
@@ -585,7 +579,7 @@ where
 
                         if let Some(content) = chunk
                             .choices
-                            .get(0)
+                            .first()
                             .and_then(|c| c.delta.content.as_ref())
                             .filter(|s| !s.is_empty())
                         {
@@ -673,25 +667,22 @@ where
     if streaming_enabled {
         let reader = BufReader::new(resp.into_body().into_reader());
         for line in reader.lines() {
-            if let Some(ref ct) = cancel_token {
-                if ct.load(Ordering::Relaxed) {
+            if let Some(ct) = cancel_token
+                && ct.load(Ordering::Relaxed) {
                     return Err(anyhow::anyhow!("Cancelled"));
                 }
-            }
             let line = line?;
-            if line.starts_with("data: ") {
-                let data = &line[6..];
+            if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {
                     break;
                 }
-                if let Ok(chunk) = serde_json::from_str::<StreamChunk>(data) {
-                    if let Some(content) =
-                        chunk.choices.get(0).and_then(|c| c.delta.content.as_ref())
+                if let Ok(chunk) = serde_json::from_str::<StreamChunk>(data)
+                    && let Some(content) =
+                        chunk.choices.first().and_then(|c| c.delta.content.as_ref())
                     {
                         full_content.push_str(content);
                         on_chunk(content);
                     }
-                }
             }
         }
     } else {
@@ -767,27 +758,23 @@ where
     let json: serde_json::Value = resp.into_body().read_json()?;
     let mut full_content = String::new();
 
-    if let Some(choices) = json.get("choices").and_then(|c| c.as_array()) {
-        if let Some(first_choice) = choices.first() {
-            if let Some(message) = first_choice.get("message") {
+    if let Some(choices) = json.get("choices").and_then(|c| c.as_array())
+        && let Some(first_choice) = choices.first()
+            && let Some(message) = first_choice.get("message") {
                 if let Some(executed_tools) =
                     message.get("executed_tools").and_then(|t| t.as_array())
                 {
                     let mut search_queries = Vec::new();
                     for tool in executed_tools {
-                        if tool.get("type").and_then(|t| t.as_str()) == Some("search") {
-                            if let Some(args) = tool.get("arguments").and_then(|a| a.as_str()) {
-                                if let Ok(args_json) =
+                        if tool.get("type").and_then(|t| t.as_str()) == Some("search")
+                            && let Some(args) = tool.get("arguments").and_then(|a| a.as_str())
+                                && let Ok(args_json) =
                                     serde_json::from_str::<serde_json::Value>(args)
-                                {
-                                    if let Some(query) =
+                                    && let Some(query) =
                                         args_json.get("query").and_then(|q| q.as_str())
                                     {
                                         search_queries.push(query.to_string());
                                     }
-                                }
-                            }
-                        }
                     }
 
                     if !search_queries.is_empty() {
@@ -863,8 +850,6 @@ where
                     on_chunk(&full_content);
                 }
             }
-        }
-    }
 
     Ok(full_content)
 }

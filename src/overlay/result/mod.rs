@@ -371,6 +371,11 @@ fn start_refinement(hwnd: HWND, user_prompt: &str) {
         let mut acc_text = String::new();
         let mut first_chunk = true;
 
+        let ui_language = {
+            let app = crate::APP.lock().unwrap();
+            app.config.ui_language.clone()
+        };
+
         let result = crate::api::refine_text_streaming(
             &groq_key,
             &gemini_key,
@@ -380,19 +385,15 @@ fn start_refinement(hwnd: HWND, user_prompt: &str) {
             &model_id,
             &provider,
             streaming,
-            {
-                let app = crate::APP.lock().unwrap();
-                &app.config.ui_language.clone()
-            },
+            &ui_language,
             Some(api_cancel),
             move |chunk| {
                 // Check chain cancel token and signal API-level bridge if cancelled
-                if let Some(ref ct) = chain_token_cb {
-                    if ct.is_cancelled() {
+                if let Some(ref ct) = chain_token_cb
+                    && ct.is_cancelled() {
                         api_cancel_cb.store(true, std::sync::atomic::Ordering::SeqCst);
                         return;
                     }
-                }
 
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get_mut(&(capture_hwnd.0 as isize)) {
@@ -403,9 +404,9 @@ fn start_refinement(hwnd: HWND, user_prompt: &str) {
                     }
 
                     // Handle WIPE_SIGNAL
-                    if chunk.starts_with(crate::api::WIPE_SIGNAL) {
+                    if let Some(wiped) = chunk.strip_prefix(crate::api::WIPE_SIGNAL) {
                         acc_text.clear();
-                        acc_text.push_str(&chunk[crate::api::WIPE_SIGNAL.len()..]);
+                        acc_text.push_str(wiped);
                     } else {
                         acc_text.push_str(chunk);
                     }
@@ -595,11 +596,10 @@ pub fn trigger_close_group(hwnd: HWND) {
     {
         let states = WINDOW_STATES.lock().unwrap();
         for (h, _) in &group {
-            if let Some(state) = states.get(&(h.0 as isize)) {
-                if let Some(ref token) = state.cancellation_token {
+            if let Some(state) = states.get(&(h.0 as isize))
+                && let Some(ref token) = state.cancellation_token {
                     token.cancel();
                 }
-            }
         }
     }
 

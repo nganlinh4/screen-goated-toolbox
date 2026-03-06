@@ -47,6 +47,10 @@ pub fn get_chain_color(visible_index: usize) -> u32 {
 
 static REGISTER_RESULT_CLASS: Once = Once::new();
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "result window creation needs explicit context, layout, and behavior flags"
+)]
 pub fn create_result_window(
     target_rect: RECT,
     _win_type: WindowType,
@@ -67,13 +71,15 @@ pub fn create_result_window(
         let class_name = w!("TranslationResult");
 
         REGISTER_RESULT_CLASS.call_once(|| {
-            let mut wc = WNDCLASSW::default();
-            wc.lpfnWndProc = Some(result_wnd_proc);
-            wc.hInstance = instance.into();
-            wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap();
-            wc.lpszClassName = class_name;
-            wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
-            wc.hbrBackground = HBRUSH::default();
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(result_wnd_proc),
+                hInstance: instance.into(),
+                hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
+                lpszClassName: class_name,
+                style: CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
+                hbrBackground: HBRUSH::default(),
+                ..Default::default()
+            };
             let _ = RegisterClassW(&wc);
         });
 
@@ -133,7 +139,6 @@ pub fn create_result_window(
         }
 
         let mut physics = CursorPhysics::default();
-        physics.initialized = true;
 
         // Initialize physics with current cursor position to prevent (0,0) glitch
         let mut pt = POINT::default();

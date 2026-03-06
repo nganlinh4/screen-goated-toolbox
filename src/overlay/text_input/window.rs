@@ -3,12 +3,11 @@
 
 use super::messages::input_wnd_proc;
 use super::state::*;
-use super::styles::{get_editor_html, HwndWrapper};
+use super::styles::{HwndWrapper, get_editor_html};
 use std::sync::atomic::Ordering;
-use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
-    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DwmExtendFrameIntoClientArea, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
@@ -16,6 +15,7 @@ use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::HiDpi::GetDpiForSystem;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::*;
 use wry::{Rect, WebContext, WebViewBuilder};
 
 pub fn internal_create_window_loop() {
@@ -26,14 +26,16 @@ pub fn internal_create_window_loop() {
         let class_name = w!("SGT_TextInputWry");
 
         REGISTER_INPUT_CLASS.call_once(|| {
-            let mut wc = WNDCLASSW::default();
-            wc.lpfnWndProc = Some(input_wnd_proc);
-            wc.hInstance = instance.into();
-            wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap();
-            wc.lpszClassName = class_name;
-            wc.style = CS_HREDRAW | CS_VREDRAW;
-            // Use NULL brush to prevent white flashes/stripes on resize
-            wc.hbrBackground = HBRUSH(GetStockObject(NULL_BRUSH).0);
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(input_wnd_proc),
+                hInstance: instance.into(),
+                hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
+                lpszClassName: class_name,
+                style: CS_HREDRAW | CS_VREDRAW,
+                // Use NULL brush to prevent white flashes/stripes on resize
+                hbrBackground: HBRUSH(GetStockObject(NULL_BRUSH).0),
+                ..Default::default()
+            };
             let _ = RegisterClassW(&wc);
         });
         crate::log_info!("[TextInput] Class Registered");
@@ -86,7 +88,7 @@ pub fn internal_create_window_loop() {
             crate::log_info!("[TextInput] Critical Error: Failed to create window.");
             IS_WARMED_UP.store(false, Ordering::SeqCst);
             IS_WARMING_UP.store(false, Ordering::SeqCst);
-            let _ = CoUninitialize();
+            CoUninitialize();
             return;
         }
 
@@ -149,7 +151,7 @@ pub fn internal_create_window_loop() {
             IS_WARMED_UP.store(false, Ordering::SeqCst);
             IS_WARMING_UP.store(false, Ordering::SeqCst);
             let _ = DestroyWindow(hwnd);
-            let _ = CoUninitialize();
+            CoUninitialize();
             return;
         }
 
@@ -171,7 +173,7 @@ pub fn internal_create_window_loop() {
         INPUT_HWND.store(0, Ordering::SeqCst);
         IS_WARMED_UP.store(false, Ordering::SeqCst);
         IS_WARMING_UP.store(false, Ordering::SeqCst);
-        let _ = CoUninitialize();
+        CoUninitialize();
     }
 }
 

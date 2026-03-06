@@ -86,8 +86,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         ..Default::default()
     });
     #[cfg(target_os = "windows")]
-    let mut adapter = instance
-        .enumerate_adapters(wgpu::Backends::DX12)
+    let mut adapter = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::DX12))
         .into_iter()
         .find(|candidate| candidate.get_info().vendor == 0x10DE);
     #[cfg(not(target_os = "windows"))]
@@ -129,6 +128,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         label: Some("SGT GPU Compositor"),
         required_features: wgpu::Features::empty(),
         required_limits: wgpu::Limits::default(),
+        experimental_features: wgpu::ExperimentalFeatures::disabled(),
         memory_hints: wgpu::MemoryHints::Performance,
         trace: wgpu::Trace::Off,
     }))
@@ -217,7 +217,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
             &texture_layout,
             &background_overlay_layout,
         ],
-        push_constant_ranges: &[],
+        immediate_size: 0,
     });
 
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -257,7 +257,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
 
@@ -309,7 +309,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
 
@@ -344,7 +344,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
     let overlay_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Overlay Pipeline Layout"),
         bind_group_layouts: &[&atlas_texture_layout],
-        push_constant_ranges: &[],
+        immediate_size: 0,
     });
 
     let overlay_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -400,7 +400,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
 
@@ -425,6 +425,10 @@ pub(super) fn shared_gpu_context() -> Result<&'static SharedGpuContext, String> 
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "uniform construction matches the shader field layout explicitly"
+)]
 pub fn create_uniforms(
     video_offset: (f32, f32),
     video_scale: (f32, f32),
