@@ -806,10 +806,15 @@ function App() {
     debugProject('grid-load:done', { targetProjectId: projectId });
   }, [persistCurrentProjectNow, projects, debugProject]);
 
+  const requestCloseProjects = useCallback(() => {
+    if (!projects.showProjectsDialog) return;
+    window.dispatchEvent(new CustomEvent('sr-close-projects'));
+  }, [projects.showProjectsDialog]);
+
   const handleToggleProjects = useCallback(async () => {
     if (projects.showProjectsDialog) {
       debugProject('projects-toggle:close');
-      window.dispatchEvent(new CustomEvent('sr-close-projects'));
+      requestCloseProjects();
       return;
     }
 
@@ -830,7 +835,7 @@ function App() {
     }
     projects.setShowProjectsDialog(true);
     debugProject('projects-toggle:open:done', { currentProjectId: projects.currentProjectId });
-  }, [projects.showProjectsDialog, projects.currentProjectId, currentVideo, backgroundConfig.canvasMode, backgroundConfig.canvasWidth, backgroundConfig.canvasHeight, persistCurrentProjectNow, debugProject, projects]);
+  }, [projects.showProjectsDialog, projects.currentProjectId, currentVideo, backgroundConfig.canvasMode, backgroundConfig.canvasWidth, backgroundConfig.canvasHeight, persistCurrentProjectNow, debugProject, projects, requestCloseProjects]);
 
   // Persist canvas mode/size changes quickly so reopening projects can't
   // resurrect stale custom-canvas settings from an older autosave.
@@ -952,6 +957,7 @@ function App() {
     exportHook.setShowExportSuccessDialog(false);
     const result = await handleStopRecording();
     if (result) {
+      requestCloseProjects();
       const { mouseData, initialSegment, videoUrl, recordingMode, rawVideoPath, capturedFps } = result;
       setLastCaptureFps(capturedFps);
       setCurrentRecordingMode(recordingMode);
@@ -994,7 +1000,7 @@ function App() {
       projects.setCurrentProjectId(project.id);
       await projects.loadProjects();
     }
-  }, [handleStopRecording, backgroundConfig, generateThumbnail, projects, rawAutoCopyEnabled, rawSaveDir, flashRawSavedButton, setShowRawVideoDialog, exportHook]);
+  }, [handleStopRecording, backgroundConfig, generateThumbnail, projects, rawAutoCopyEnabled, rawSaveDir, flashRawSavedButton, setShowRawVideoDialog, exportHook, requestCloseProjects]);
 
   // Effects
   useEffect(() => {

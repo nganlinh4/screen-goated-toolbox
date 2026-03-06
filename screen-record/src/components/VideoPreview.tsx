@@ -4,7 +4,7 @@ import { Video, Loader2, Play, Pause, Crop } from 'lucide-react';
 import { VideoSegment, BackgroundConfig, MousePosition } from '@/types/video';
 import { formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';
-import { getContainedRect, getLogicalCropSize, sampleCaptureDimensionsAtTime } from '@/lib/dynamicCapture';
+import { getContainedRect, sampleCaptureDimensionsAtTime } from '@/lib/dynamicCapture';
 
 // ============================================================================
 // Placeholder
@@ -182,7 +182,7 @@ export function PlaybackControls({
         size="icon"
         className={`playback-crop-toggle-btn w-8 h-8 rounded-lg transition-colors ${
           hasAppliedCrop
-            ? 'bg-emerald-500/18 text-emerald-500 hover:bg-emerald-500/26 dark:bg-emerald-400/18 dark:text-emerald-200 dark:hover:bg-emerald-400/26'
+            ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white hover:text-white shadow-sm'
             : 'text-[var(--overlay-panel-fg)]/80 hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--glass-bg)]'
         }`}
         title={t.cropVideo}
@@ -272,12 +272,11 @@ export function CropOverlay({
   if (!vidW || !vidH) return null;
   const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
   const captureDims = sampleCaptureDimensionsAtTime(currentTime, mousePositions, vidW, vidH);
-  const logicalCrop = getLogicalCropSize(captureDims.width, captureDims.height, crop, 0);
   const contained = getContainedRect(
     containerRect.width,
     containerRect.height,
-    logicalCrop.width,
-    logicalCrop.height
+    captureDims.width,
+    captureDims.height
   );
   const renderW = contained.width;
   const renderH = contained.height;

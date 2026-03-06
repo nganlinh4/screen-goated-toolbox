@@ -47,21 +47,6 @@ const CURSOR_ATLAS_ASSETS: &[EmbeddedAsset] = cursor_assets!(
     "sgtkorea",
 );
 
-const RAW_CURSOR_ASSETS: &[EmbeddedAsset] = &[
-    svg_asset!("cursors/sgtcool_raw/slot-01.svg"),
-    svg_asset!("cursors/sgtcool_raw/slot-02.svg"),
-    svg_asset!("cursors/sgtcool_raw/slot-03.svg"),
-    svg_asset!("cursors/sgtcool_raw/slot-04.svg"),
-    svg_asset!("cursors/sgtcool_raw/slot-05.svg"),
-    svg_asset!("cursors/sgtcool_raw/slot-06.svg"),
-    svg_asset!("cursors/sgtcool_raw/slot-07.svg"),
-    svg_asset!("cursors/sgtcool_raw/slot-08.svg"),
-    svg_asset!("cursors/sgtcool_raw/slot-09.svg"),
-    svg_asset!("cursors/sgtcool_raw/slot-10.svg"),
-    svg_asset!("cursors/sgtcool_raw/slot-11.svg"),
-    svg_asset!("cursors/sgtcool_raw/slot-12.svg"),
-];
-
 pub(in crate::overlay::screen_record) const CURSOR_ATLAS_SLOT_COUNT: u32 =
     CURSOR_ATLAS_ASSETS.len() as u32;
 
@@ -74,5 +59,5 @@ pub(in crate::overlay::screen_record) fn cursor_atlas_svg(slot: u32) -> Option<&
 pub(in crate::overlay::screen_record) fn lookup_packaged_cursor_asset(
     path: &str,
 ) -> Option<(&'static [u8], &'static str)> {
-    lookup_asset(CURSOR_ATLAS_ASSETS, path).or_else(|| lookup_asset(RAW_CURSOR_ASSETS, path))
+    lookup_asset(CURSOR_ATLAS_ASSETS, path)
 }
