@@ -279,8 +279,8 @@ pub fn get() -> LocaleText {
         help_assistant_hint: "Nhập câu hỏi về cách sử dụng SGT và nhấn Enter hoặc nút Hỏi",
         prompt_dj_btn: "Làm DJ",
         prompt_dj_title: "SGT DJ - Làm DJ",
-        screen_record_btn: "Quay MH (beta)",
-        screen_record_title: "Screen Record - Quay MH (beta)",
+        screen_record_btn: "Quay MH",
+        screen_record_title: "Screen Record - Quay MH",
         pointer_gallery_btn: "Kho trỏ chuột",
         // --- PARAKEET DOWNLOAD MODAL VI ---
         parakeet_downloading_title: "Đang tải mô hình Parakeet (0.6 GB)",
