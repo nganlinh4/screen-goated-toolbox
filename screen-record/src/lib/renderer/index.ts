@@ -152,6 +152,9 @@ class VideoRenderer {
       lastMousePositionsRef: null,
       lastCursorProcessSignature: '',
       lastCursorNormalizationSignature: '',
+      lastCursorPreviewDebugSignature: '',
+      lastCursorPreviewDebugBucket: -1,
+      lastCursorPreviewDebugPoint: null,
       calculateCurrentZoomState: (currentTime, segment, viewW, viewH, srcCropW?, srcCropH?) =>
         this.calculateCurrentZoomState(currentTime, segment, viewW, viewH, srcCropW, srcCropH),
       requestRedraw: () => {

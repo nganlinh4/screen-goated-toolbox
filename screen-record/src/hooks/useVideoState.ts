@@ -531,7 +531,10 @@ export function useRecording(props: UseRecordingProps) {
         const normalizedPointerSegments = generateCursorVisibility(
           segmentWithKeystrokes,
           normalizedMouseData,
-          timelineDuration
+          timelineDuration,
+          vidW,
+          vidH,
+          props.backgroundConfig
         );
         const initialAutoPath = (vidW > 0 && vidH > 0 && normalizedMouseData.length > 0)
           ? autoZoomGenerator.generateMotionPath(baseSegment, normalizedMouseData, vidW, vidH)
@@ -1476,6 +1479,7 @@ interface UseCursorHidingProps {
   currentTime: number;
   duration: number;
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  backgroundConfig: BackgroundConfig;
 }
 
 export function useCursorHiding(props: UseCursorHidingProps) {
@@ -1516,12 +1520,19 @@ export function useCursorHiding(props: UseCursorHidingProps) {
       vidW,
       vidH
     );
-    const segments = generateCursorVisibility(props.segment, normalizedMousePositions, props.duration);
+    const segments = generateCursorVisibility(
+      props.segment,
+      normalizedMousePositions,
+      props.duration,
+      vidW,
+      vidH,
+      props.backgroundConfig
+    );
     props.setSegment({
       ...props.segment,
       cursorVisibilitySegments: clampVisibilitySegmentsToDuration(segments, props.duration),
     });
-  }, [props.segment, props.mousePositions, props.setSegment, props.duration, props.videoRef]);
+  }, [props.segment, props.mousePositions, props.setSegment, props.duration, props.videoRef, props.backgroundConfig]);
 
   const handleAddPointerSegment = useCallback((atTime?: number) => {
     if (!props.segment) return;
