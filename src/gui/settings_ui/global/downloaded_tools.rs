@@ -6,15 +6,18 @@ use crate::gui::settings_ui::download_manager::{DownloadManager, InstallStatus, 
 use crate::overlay::realtime_webview::state::REALTIME_STATE;
 use eframe::egui;
 use std::fs;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::thread;
+mod ai_runtime;
 mod backgrounds;
 mod pointer_packs;
+mod utils;
 use self::{
+    ai_runtime::render_ai_runtime_section,
     backgrounds::render_background_downloads_section,
     pointer_packs::render_pointer_pack_downloads_section,
+    utils::{format_size, get_dir_size},
 };
 pub fn render_downloaded_tools_modal(
     ctx: &egui::Context,
@@ -32,6 +35,8 @@ pub fn render_downloaded_tools_modal(
             .default_width(620.0)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
+                ui.add_space(8.0);
+                render_ai_runtime_section(ui, text);
                 ui.add_space(8.0);
 
                 ui.group(|ui| {
@@ -66,7 +71,7 @@ pub fn render_downloaded_tools_modal(
                                 {
                                     let _ = fs::remove_dir_all(get_parakeet_model_dir());
                                 }
-                                let size = get_dir_size(get_parakeet_model_dir());
+                                let size = get_dir_size(&get_parakeet_model_dir());
                                 ui.label(
                                     egui::RichText::new(
                                         text.tool_status_installed
@@ -577,25 +582,4 @@ pub fn render_downloaded_tools_modal(
 
         *show_modal = open;
     }
-}
-
-fn get_dir_size(path: PathBuf) -> u64 {
-    let mut total_size = 0;
-    if let Ok(entries) = fs::read_dir(path) {
-        for entry in entries.flatten() {
-            if let Ok(metadata) = entry.metadata() {
-                if metadata.is_dir() {
-                    total_size += get_dir_size(entry.path());
-                } else {
-                    total_size += metadata.len();
-                }
-            }
-        }
-    }
-    total_size
-}
-
-fn format_size(bytes: u64) -> String {
-    let mb = bytes as f64 / 1024.0 / 1024.0;
-    format!("{:.1} MB", mb)
 }

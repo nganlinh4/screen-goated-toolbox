@@ -1,21 +1,20 @@
 use std::fs;
 use std::io::{Cursor, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn main() {
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
 
     // Declare the custom configuration 'nopack' to avoid warnings
     println!("cargo::rustc-check-cfg=cfg(nopack)");
 
     // Ensure assets directory exists
-    let assets_dir = Path::new(&manifest_dir).join("assets");
+    let assets_dir = manifest_dir.join("assets");
     let _ = fs::create_dir_all(&assets_dir);
 
     // Optimize Tray Icon (32x32 is standard for tray)
-    let tray_source = Path::new(&manifest_dir)
-        .join("assets")
-        .join("tray-icon.png");
+    let tray_source = assets_dir.join("tray-icon.png");
     if tray_source.exists() {
         let tray_icon_path = assets_dir.join("tray_icon.png");
         if let Ok(img) = image::open(&tray_source) {
@@ -24,38 +23,28 @@ fn main() {
         }
     }
 
-    // Optimize App Icon for embedding (256x256 max)
-    let app_icon_path = assets_dir.join("app-icon-small.png");
+    // Generate the Windows app icon into OUT_DIR so builds do not dirty the repo.
     let app_icon_small_path = assets_dir.join("app-icon-small.png");
-
-    if app_icon_path.exists()
-        && let Ok(img) = image::open(&app_icon_path)
-    {
-        let resized = img.resize(256, 256, image::imageops::FilterType::Lanczos3);
-        let _ = resized.save(&app_icon_small_path);
-    }
-
-    // Generate multi-size ICO from the optimized small icon
+    let generated_ico_path = out_dir.join("app.ico");
     if app_icon_small_path.exists() {
-        let ico_path = assets_dir.join("app.ico");
-        create_multi_size_ico(&app_icon_small_path, &ico_path);
+        create_multi_size_ico(&app_icon_small_path, &generated_ico_path);
     }
 
     // Embed icon in Windows executable using manual windres compilation
     #[cfg(target_os = "windows")]
     {
-        let ico_path = Path::new(&manifest_dir).join("assets").join("app.ico");
-        let rc_path = Path::new(&manifest_dir).join("app.rc");
+        let rc_path = manifest_dir.join("app.rc");
 
-        if ico_path.exists() && rc_path.exists() {
+        if generated_ico_path.exists() && rc_path.exists() {
             // Define output path for the object file in the OUT_DIR
-            let out_dir = std::env::var("OUT_DIR").unwrap();
-            let res_path = Path::new(&out_dir).join("resources.o");
+            let generated_rc_path = out_dir.join("app.rc");
+            let res_path = out_dir.join("resources.o");
+            write_generated_rc(&rc_path, &generated_rc_path, &generated_ico_path);
 
             // Run windres manually
             // windres app.rc -o resources.o
             let status = std::process::Command::new("windres")
-                .arg(&rc_path)
+                .arg(&generated_rc_path)
                 .arg("-o")
                 .arg(&res_path)
                 .status();
@@ -76,9 +65,19 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=assets/app-icon-small.png");
-    println!("cargo:rerun-if-changed=icon.png");
+    println!("cargo:rerun-if-changed=assets/tray-icon.png");
     println!("cargo:rerun-if-changed=app.rc");
     println!("cargo:rerun-if-changed=build.rs");
+}
+
+#[cfg(target_os = "windows")]
+fn write_generated_rc(template_path: &Path, rc_path: &Path, ico_path: &Path) {
+    let template = fs::read_to_string(template_path)
+        .unwrap_or_else(|err| panic!("Failed to read {}: {}", template_path.display(), err));
+    let ico_path = ico_path.to_string_lossy().replace('\\', "/");
+    let generated = template.replace("\"assets/app.ico\"", &format!("\"{ico_path}\""));
+    fs::write(rc_path, generated)
+        .unwrap_or_else(|err| panic!("Failed to write {}: {}", rc_path.display(), err));
 }
 
 fn create_multi_size_ico(png_path: &Path, ico_path: &Path) {

@@ -3,6 +3,16 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+fn current_download_feedback() -> (String, String) {
+    use crate::overlay::realtime_webview::state::REALTIME_STATE;
+
+    if let Ok(state) = REALTIME_STATE.lock() {
+        (state.download_title.clone(), state.download_message.clone())
+    } else {
+        ("Downloading".to_string(), String::new())
+    }
+}
+
 // Helper function to download file or read local file
 pub fn download_file(
     url: &str,
@@ -59,8 +69,10 @@ pub fn download_file(
             let progress = (downloaded as f32 / total_size as f32) * 100.0;
 
             if use_badge {
-                let msg = format!("Downloading... {:.0}%", progress);
-                crate::overlay::auto_copy_badge::show_notification(&msg);
+                let (title, message) = current_download_feedback();
+                crate::overlay::auto_copy_badge::show_progress_notification(
+                    &title, &message, progress,
+                );
             }
 
             use crate::overlay::realtime_webview::state::REALTIME_STATE;
@@ -122,6 +134,13 @@ pub fn download_parakeet_model(
         state.download_title = locale.parakeet_downloading_title.to_string();
         state.download_message = locale.parakeet_downloading_message.to_string();
         state.download_progress = 0.0;
+    }
+    if use_badge {
+        crate::overlay::auto_copy_badge::show_progress_notification(
+            locale.parakeet_downloading_title,
+            locale.parakeet_downloading_message,
+            0.0,
+        );
     }
 
     use super::WM_DOWNLOAD_PROGRESS;
@@ -188,6 +207,9 @@ pub fn download_parakeet_model(
 
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = false;
+    }
+    if use_badge {
+        crate::overlay::auto_copy_badge::hide_progress_notification();
     }
     unsafe {
         if !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {
