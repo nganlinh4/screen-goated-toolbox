@@ -40,6 +40,7 @@ import {
   normalizeMousePositionsToVideoSpace,
   sampleCaptureDimensionsAtTime,
 } from '@/lib/dynamicCapture';
+import { logPreviewCursorState } from '@/lib/cursorDebug';
 
 // ---------------------------------------------------------------------------
 // RendererState - all mutable state needed by drawFrame
@@ -83,6 +84,9 @@ export interface RendererState {
   lastMousePositionsRef: MousePosition[] | null;
   lastCursorProcessSignature: string;
   lastCursorNormalizationSignature: string;
+  lastCursorPreviewDebugSignature: string;
+  lastCursorPreviewDebugBucket: number;
+  lastCursorPreviewDebugPoint: { x: number; y: number } | null;
 
   // Methods from VideoRenderer that drawFrame delegates to
   calculateCurrentZoomState: (
@@ -140,6 +144,9 @@ function interpolateCursorPosition(
     state.lastMousePositionsRef = mousePositions;
     state.lastCursorProcessSignature = processSignature;
     state.lastCursorNormalizationSignature = normalizationSignature;
+    state.lastCursorPreviewDebugSignature = '';
+    state.lastCursorPreviewDebugBucket = -1;
+    state.lastCursorPreviewDebugPoint = null;
   }
 
   if (!state.processedCursorPositions && mousePositions.length > 0) {
@@ -153,6 +160,66 @@ function interpolateCursorPosition(
 
   const dataToUse = state.processedCursorPositions || mousePositions;
   return interpolateCursorPositionInternal(currentTime, dataToUse);
+}
+
+function logPreviewCursorDebug(
+  state: RendererState,
+  currentTime: number,
+  cursorTime: number,
+  interpolatedPosition: { x: number; y: number; isClicked: boolean; cursor_type: string; cursor_rotation?: number } | null,
+  showCursor: boolean,
+  cursorVis: { opacity: number; scale: number },
+  segment: VideoSegment
+): void {
+  const point = interpolatedPosition ? { x: interpolatedPosition.x, y: interpolatedPosition.y } : null;
+  const deltaPx = point && state.lastCursorPreviewDebugPoint
+    ? Math.hypot(point.x - state.lastCursorPreviewDebugPoint.x, point.y - state.lastCursorPreviewDebugPoint.y)
+    : null;
+  const motionState = !point ? 'missing' : (deltaPx !== null && deltaPx >= 0.75 ? 'moving' : 'stopped');
+  const visibilityReason = segment.useCustomCursor === false
+    ? 'custom-cursor-disabled'
+    : !point
+      ? 'no-sampled-position'
+      : segment.cursorVisibilitySegments === undefined
+        ? 'smart-pointer-off'
+        : segment.cursorVisibilitySegments.length === 0
+          ? 'no-visible-segments'
+          : showCursor
+            ? 'inside-visible-segment'
+            : 'outside-visible-segment';
+  const signature = [
+    motionState,
+    showCursor ? 'show' : 'hide',
+    visibilityReason,
+    interpolatedPosition?.cursor_type || 'none',
+    interpolatedPosition?.isClicked ? 'click' : 'noclick',
+  ].join('|');
+  const debugBucket = motionState === 'moving' ? Math.floor(currentTime * 4) : -1;
+  const shouldLog =
+    signature !== state.lastCursorPreviewDebugSignature ||
+    (motionState === 'moving' && debugBucket !== state.lastCursorPreviewDebugBucket);
+
+  if (shouldLog) {
+    logPreviewCursorState({
+      previewTime: Math.round(currentTime * 1000) / 1000,
+      cursorSampleTime: Math.round(cursorTime * 1000) / 1000,
+      x: point ? Math.round(point.x * 100) / 100 : null,
+      y: point ? Math.round(point.y * 100) / 100 : null,
+      deltaPx: deltaPx !== null ? Math.round(deltaPx * 1000) / 1000 : null,
+      motionState,
+      visible: showCursor,
+      visibilityReason,
+      opacity: Math.round(cursorVis.opacity * 1000) / 1000,
+      scale: Math.round(cursorVis.scale * 1000) / 1000,
+      clicked: Boolean(interpolatedPosition?.isClicked),
+      cursorType: interpolatedPosition?.cursor_type || 'none',
+      segmentCount: segment.cursorVisibilitySegments?.length ?? null,
+    });
+  }
+
+  state.lastCursorPreviewDebugSignature = signature;
+  state.lastCursorPreviewDebugBucket = debugBucket;
+  state.lastCursorPreviewDebugPoint = point;
 }
 
 // ---------------------------------------------------------------------------
@@ -345,7 +412,18 @@ export async function drawFrame(
     );
     const cursorVis = getCursorVisibility(video.currentTime, segment.cursorVisibilitySegments);
     const shouldRenderCustomCursor = segment.useCustomCursor !== false;
-    const showCursor = shouldRenderCustomCursor && interpolatedPosition && cursorVis.opacity > 0.001;
+    const showCursor = Boolean(shouldRenderCustomCursor && interpolatedPosition && cursorVis.opacity > 0.001);
+    if (!isExportMode) {
+      logPreviewCursorDebug(
+        state,
+        video.currentTime,
+        cursorTime,
+        interpolatedPosition,
+        showCursor,
+        cursorVis,
+        segment
+      );
+    }
 
     if (showCursor) {
       const keystrokeDelaySec = getKeystrokeDelaySec(segment);

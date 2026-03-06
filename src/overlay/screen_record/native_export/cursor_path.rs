@@ -699,6 +699,22 @@ fn ease_in_cubic(t: f64) -> f64 {
     t * t * t
 }
 
+fn segment_fade_durations(start_time: f64, end_time: f64) -> (f64, f64) {
+    let duration = (end_time - start_time).max(0.0);
+    let min_fully_visible_duration = 0.06_f64;
+    let preferred_total = FADE_IN_DURATION + FADE_OUT_DURATION;
+    let max_fade_total = (duration - min_fully_visible_duration).max(0.0);
+
+    if duration <= 0.0 || max_fade_total <= 0.0 || preferred_total <= 0.0 {
+        return (0.0, 0.0);
+    }
+
+    let actual_total = preferred_total.min(max_fade_total);
+    let fade_in = actual_total * (FADE_IN_DURATION / preferred_total);
+    let fade_out = actual_total - fade_in;
+    (fade_in, fade_out)
+}
+
 fn get_cursor_visibility(time: f64, segments: &Option<Vec<CursorVisibilitySegment>>) -> (f64, f64) {
     // (opacity, scale)
     let Some(segs) = segments else {
@@ -711,22 +727,27 @@ fn get_cursor_visibility(time: f64, segments: &Option<Vec<CursorVisibilitySegmen
     }
 
     for seg in segs {
-        if time >= seg.start_time && time <= seg.end_time {
-            return (1.0, 1.0);
+        if time < seg.start_time || time > seg.end_time {
+            continue;
         }
-        // Entrance zone
-        let entrance_start = seg.start_time - FADE_IN_DURATION;
-        if time >= entrance_start && time < seg.start_time {
-            let t = ((time - entrance_start) / FADE_IN_DURATION).clamp(0.0, 1.0);
+
+        let (fade_in, fade_out) = segment_fade_durations(seg.start_time, seg.end_time);
+        let fade_in_end = seg.start_time + fade_in;
+        let fade_out_start = seg.end_time - fade_out;
+
+        if fade_in > 0.0 && time < fade_in_end {
+            let t = ((time - seg.start_time) / fade_in).clamp(0.0, 1.0);
             let eased = ease_out_cubic(t);
             return (eased, SCALE_HIDDEN + (1.0 - SCALE_HIDDEN) * eased);
         }
-        // Dismissal zone
-        if time > seg.end_time && time <= seg.end_time + FADE_OUT_DURATION {
-            let t = ((time - seg.end_time) / FADE_OUT_DURATION).clamp(0.0, 1.0);
+
+        if fade_out > 0.0 && time > fade_out_start {
+            let t = ((time - fade_out_start) / fade_out).clamp(0.0, 1.0);
             let eased = 1.0 - ease_in_cubic(t);
             return (eased, SCALE_HIDDEN + (1.0 - SCALE_HIDDEN) * eased);
         }
+
+        return (1.0, 1.0);
     }
 
     (0.0, SCALE_HIDDEN)

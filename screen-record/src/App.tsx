@@ -302,7 +302,7 @@ function App() {
 
   // Cursor hiding
   const cursorHiding = useCursorHiding({
-    segment, setSegment, mousePositions, currentTime, duration, videoRef
+    segment, setSegment, mousePositions, currentTime, duration, videoRef, backgroundConfig
   });
   const { editingPointerId, setEditingPointerId, handleSmartPointerHiding,
     handleAddPointerSegment, handleDeletePointerSegment } = cursorHiding;
