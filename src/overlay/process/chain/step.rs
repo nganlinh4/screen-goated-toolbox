@@ -86,13 +86,13 @@ pub fn run_chain_step(
 
     // PERSISTENCE: Check if the preset has a saved geometry (only for first block)
     let mut starting_rect = current_rect;
-    if block_idx == 0 {
-        if let Ok(app) = crate::APP.lock() {
+    if block_idx == 0
+        && let Ok(app) = crate::APP.lock() {
             let found_preset = app.config.presets.iter().find(|p| p.id == preset_id);
             if let Some(p) = found_preset {
                 let is_image_category = p.preset_type == "image";
-                if !is_image_category {
-                    if let Some(geom) = &p.window_geometry {
+                if !is_image_category
+                    && let Some(geom) = &p.window_geometry {
                         starting_rect = RECT {
                             left: geom.x,
                             top: geom.y,
@@ -100,10 +100,8 @@ pub fn run_chain_step(
                             bottom: geom.y + geom.height,
                         };
                     }
-                }
             }
         }
-    }
 
     let my_rect = if block.show_overlay {
         get_next_window_position_for_chain(&chain_id, starting_rect)
@@ -137,7 +135,7 @@ pub fn run_chain_step(
             &chain_id,
             &config,
             processing_indicator_hwnd,
-            input_hwnd_refocus.clone(),
+            input_hwnd_refocus,
         );
         my_hwnd = created_hwnd;
         processing_indicator_hwnd = new_processing_hwnd;
@@ -159,7 +157,7 @@ pub fn run_chain_step(
         skip_execution,
         &config,
         &preset_id,
-        processing_indicator_hwnd.clone(),
+        processing_indicator_hwnd,
         &cancel_token,
     );
 
@@ -263,7 +261,7 @@ fn create_block_window(
     let parent_clone = parent_hwnd.clone();
     let cancel_token_thread = cancel_token.clone();
     let chain_id_thread = chain_id.to_string();
-    let input_hwnd_refocus_thread = input_hwnd_refocus.clone();
+    let input_hwnd_refocus_thread = input_hwnd_refocus;
     let preset_id_for_window = preset_id.to_string();
     let m_id = model_id.to_string();
     let prov = provider.to_string();
@@ -299,11 +297,10 @@ fn create_block_window(
             }
         }
 
-        if let Ok(p_guard) = parent_clone.lock() {
-            if let Some(ph) = *p_guard {
+        if let Ok(p_guard) = parent_clone.lock()
+            && let Some(ph) = *p_guard {
                 link_windows(ph.0, hwnd);
             }
-        }
 
         if !is_image_block {
             unsafe {
@@ -351,42 +348,41 @@ fn create_block_window(
     }
 
     // Show loading state
-    if !skip_execution && my_hwnd.is_some() {
-        let h = my_hwnd.unwrap();
-        if block.block_type == "input_adapter" {
-            let mut s = WINDOW_STATES.lock().unwrap();
-            if let Some(st) = s.get_mut(&(h.0 as isize)) {
-                st.is_refining = false;
-                st.is_streaming_active = false;
-                st.font_cache_dirty = true;
-            }
-        } else if block.block_type != "image" {
-            let mut s = WINDOW_STATES.lock().unwrap();
-            if let Some(st) = s.get_mut(&(h.0 as isize)) {
-                st.input_text = input_text.to_string();
-                st.is_refining = true;
-                st.is_streaming_active = true;
-                st.was_streaming_active = true;
-                st.font_cache_dirty = true;
-            }
-        } else {
-            let mut s = WINDOW_STATES.lock().unwrap();
-            if let Some(st) = s.get_mut(&(h.0 as isize)) {
-                st.is_streaming_active = true;
-                st.was_streaming_active = true;
+    if !skip_execution
+        && let Some(h) = my_hwnd {
+            if block.block_type == "input_adapter" {
+                let mut s = WINDOW_STATES.lock().unwrap();
+                if let Some(st) = s.get_mut(&(h.0 as isize)) {
+                    st.is_refining = false;
+                    st.is_streaming_active = false;
+                    st.font_cache_dirty = true;
+                }
+            } else if block.block_type != "image" {
+                let mut s = WINDOW_STATES.lock().unwrap();
+                if let Some(st) = s.get_mut(&(h.0 as isize)) {
+                    st.input_text = input_text.to_string();
+                    st.is_refining = true;
+                    st.is_streaming_active = true;
+                    st.was_streaming_active = true;
+                    st.font_cache_dirty = true;
+                }
+            } else {
+                let mut s = WINDOW_STATES.lock().unwrap();
+                if let Some(st) = s.get_mut(&(h.0 as isize)) {
+                    st.is_streaming_active = true;
+                    st.was_streaming_active = true;
+                }
             }
         }
-    }
 
     // Close old processing overlay for text blocks
-    if block.block_type != "image" && block.block_type != "input_adapter" {
-        if let Some(h) = processing_indicator_hwnd {
+    if block.block_type != "image" && block.block_type != "input_adapter"
+        && let Some(h) = processing_indicator_hwnd {
             unsafe {
                 let _ = PostMessageW(Some(h.0), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
             processing_indicator_hwnd = None;
         }
-    }
 
     (my_hwnd, processing_indicator_hwnd)
 }

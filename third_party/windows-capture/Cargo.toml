@@ -60,16 +60,16 @@ path = "examples/cli.rs"
 doc-scrape-examples = false
 
 [dependencies.parking_lot]
-version = "0.12.4"
+version = "0.12.5"
 
 [dependencies.rayon]
-version = "1.10.0"
+version = "1.11.0"
 
 [dependencies.thiserror]
-version = "2.0.12"
+version = "2.0.18"
 
 [dependencies.windows]
-version = "0.61.3"
+version = "0.62.2"
 features = [
     "Foundation_Metadata",
     "Foundation",
@@ -100,11 +100,11 @@ features = [
 ]
 
 [dependencies.windows-future]
-version = "0.2.1"
+version = "0.3.2"
 
 [dev-dependencies.clap]
-version = "4.5.40"
+version = "4.5.60"
 features = ["derive"]
 
 [dev-dependencies.ctrlc]
-version = "3.4.7"
+version = "3.5.2"

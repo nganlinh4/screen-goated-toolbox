@@ -164,9 +164,11 @@ fn format_footer_tip(
     );
 
     // Create text format
-    let mut text_format = TextFormat::default();
-    text_format.font_id = egui::FontId::proportional(11.0);
-    text_format.color = regular_color;
+    let text_format = TextFormat {
+        font_id: egui::FontId::proportional(11.0),
+        color: regular_color,
+        ..Default::default()
+    };
 
     // Parse text for **bold** markers
     let mut current_text = String::new();

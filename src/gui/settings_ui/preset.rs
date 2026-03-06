@@ -7,6 +7,10 @@ use crate::gui::locale::LocaleText;
 use eframe::egui;
 use egui_snarl::Snarl;
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "preset editor rendering needs explicit editing state from the parent view"
+)]
 pub fn render_preset_editor(
     ui: &mut egui::Ui,
     config: &mut Config,
@@ -64,16 +68,11 @@ pub fn render_preset_editor(
 
                 if is_default_preset {
                     ui.label(egui::RichText::new(&display_name).strong().size(15.0));
-                } else {
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut preset.name)
-                                .font(egui::TextStyle::Body),
-                        )
-                        .changed()
-                    {
-                        changed = true;
-                    }
+                } else if ui
+                    .add(egui::TextEdit::singleline(&mut preset.name).font(egui::TextStyle::Body))
+                    .changed()
+                {
+                    changed = true;
                 }
 
                 ui.add_space(10.0);
@@ -82,26 +81,25 @@ pub fn render_preset_editor(
                 // Hide for realtime audio presets (they always use the realtime overlay)
                 let is_realtime_audio =
                     preset.preset_type == "audio" && preset.audio_processing_mode == "realtime";
-                if !is_realtime_audio {
-                    if ui
+                if !is_realtime_audio
+                    && ui
                         .checkbox(
                             &mut preset.show_controller_ui,
                             text.controller_checkbox_label,
                         )
                         .clicked()
-                    {
-                        if !preset.show_controller_ui && preset.blocks.is_empty() {
-                            preset
-                                .blocks
-                                .push(create_default_block_for_type(&preset.preset_type));
-                            *snarl = blocks_to_snarl(
-                                &preset.blocks,
-                                &preset.block_connections,
-                                &preset.preset_type,
-                            );
-                        }
-                        changed = true;
+                {
+                    if !preset.show_controller_ui && preset.blocks.is_empty() {
+                        preset
+                            .blocks
+                            .push(create_default_block_for_type(&preset.preset_type));
+                        *snarl = blocks_to_snarl(
+                            &preset.blocks,
+                            &preset.block_connections,
+                            &preset.preset_type,
+                        );
                     }
+                    changed = true;
                 }
 
                 if is_default_preset {
@@ -275,65 +273,63 @@ pub fn render_preset_editor(
                             }
                         });
 
-                    if preset.text_input_mode == "type" && !preset.show_controller_ui {
-                        if ui
+                    if preset.text_input_mode == "type"
+                        && !preset.show_controller_ui
+                        && ui
                             .checkbox(&mut preset.continuous_input, text.continuous_input_label)
                             .clicked()
-                        {
-                            changed = true;
-                        }
+                    {
+                        changed = true;
                     }
-                } else if preset.preset_type == "audio" {
-                    if !preset.show_controller_ui {
-                        let mode_label = match config.ui_language.as_str() {
-                            "vi" => "Phương thức:",
-                            "ko" => "작동 방식:",
-                            _ => "Mode:",
-                        };
-                        ui.label(mode_label);
+                } else if preset.preset_type == "audio" && !preset.show_controller_ui {
+                    let mode_label = match config.ui_language.as_str() {
+                        "vi" => "Phương thức:",
+                        "ko" => "작동 방식:",
+                        _ => "Mode:",
+                    };
+                    ui.label(mode_label);
 
-                        let mode_record = match config.ui_language.as_str() {
-                            "vi" => "Thu âm rồi xử lý",
-                            "ko" => "녹음 후 처리",
-                            _ => "Record then Process",
-                        };
-                        let mode_realtime = match config.ui_language.as_str() {
-                            "vi" => "Xử lý thời gian thực",
-                            "ko" => "실시간 처리",
-                            _ => "Realtime Processing",
-                        };
+                    let mode_record = match config.ui_language.as_str() {
+                        "vi" => "Thu âm rồi xử lý",
+                        "ko" => "녹음 후 처리",
+                        _ => "Record then Process",
+                    };
+                    let mode_realtime = match config.ui_language.as_str() {
+                        "vi" => "Xử lý thời gian thực",
+                        "ko" => "실시간 처리",
+                        _ => "Realtime Processing",
+                    };
 
-                        let selected_mode_text = if preset.audio_processing_mode == "realtime" {
-                            mode_realtime
-                        } else {
-                            mode_record
-                        };
+                    let selected_mode_text = if preset.audio_processing_mode == "realtime" {
+                        mode_realtime
+                    } else {
+                        mode_record
+                    };
 
-                        egui::ComboBox::from_id_salt("audio_operation_mode_combo")
-                            .selected_text(selected_mode_text)
-                            .show_ui(ui, |ui| {
-                                if ui
-                                    .selectable_value(
-                                        &mut preset.audio_processing_mode,
-                                        "record_then_process".to_string(),
-                                        mode_record,
-                                    )
-                                    .clicked()
-                                {
-                                    changed = true;
-                                }
-                                if ui
-                                    .selectable_value(
-                                        &mut preset.audio_processing_mode,
-                                        "realtime".to_string(),
-                                        mode_realtime,
-                                    )
-                                    .clicked()
-                                {
-                                    changed = true;
-                                }
-                            });
-                    }
+                    egui::ComboBox::from_id_salt("audio_operation_mode_combo")
+                        .selected_text(selected_mode_text)
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_value(
+                                    &mut preset.audio_processing_mode,
+                                    "record_then_process".to_string(),
+                                    mode_record,
+                                )
+                                .clicked()
+                            {
+                                changed = true;
+                            }
+                            if ui
+                                .selectable_value(
+                                    &mut preset.audio_processing_mode,
+                                    "realtime".to_string(),
+                                    mode_realtime,
+                                )
+                                .clicked()
+                            {
+                                changed = true;
+                            }
+                        });
                 }
             });
 
@@ -614,16 +610,15 @@ pub fn render_preset_editor(
             changed = true;
         }
     });
-    if let Some(msg) = hotkey_conflict_msg {
-        if *recording_hotkey_for_preset == Some(preset_idx) {
+    if let Some(msg) = hotkey_conflict_msg
+        && *recording_hotkey_for_preset == Some(preset_idx) {
             ui.colored_label(egui::Color32::RED, msg);
         }
-    }
 
     // --- PROCESSING CHAIN UI ---
     // Hide nodegraph when controller UI is enabled OR when in Realtime mode (no graph needed)
-    if !preset.show_controller_ui
-        && !(preset.preset_type == "audio" && preset.audio_processing_mode == "realtime")
+    if !(preset.show_controller_ui
+        || preset.preset_type == "audio" && preset.audio_processing_mode == "realtime")
     {
         // Use a subtle background for the node graph area
         let is_dark = ui.visuals().dark_mode;

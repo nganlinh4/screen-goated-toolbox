@@ -44,12 +44,14 @@ pub fn internal_create_recording_window() {
         let class_name = w!("SGT_Recording_Persistent");
 
         REGISTER_RECORDING_CLASS.call_once(|| {
-            let mut wc = WNDCLASSW::default();
-            wc.lpfnWndProc = Some(recording_wnd_proc);
-            wc.hInstance = instance.into();
-            wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap();
-            wc.lpszClassName = class_name;
-            wc.style = CS_HREDRAW | CS_VREDRAW;
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(recording_wnd_proc),
+                hInstance: instance.into(),
+                hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
+                lpszClassName: class_name,
+                style: CS_HREDRAW | CS_VREDRAW,
+                ..Default::default()
+            };
             RegisterClassW(&wc);
         });
 
@@ -179,7 +181,7 @@ pub fn internal_create_recording_window() {
         RECORDING_WEBVIEW.with(|cell| *cell.borrow_mut() = None);
         RECORDING_STATE.store(0, Ordering::SeqCst);
 
-        let _ = CoUninitialize();
+        CoUninitialize();
     }
 }
 
@@ -236,8 +238,8 @@ pub fn start_audio_thread(hwnd: HWND, preset_idx: usize) {
         let mut parakeet = false;
 
         for block in &preset.blocks {
-            if block.block_type == "audio" {
-                if let Some(config) = crate::model_config::get_model_by_id(&block.model) {
+            if block.block_type == "audio"
+                && let Some(config) = crate::model_config::get_model_by_id(&block.model) {
                     if config.provider == "gemini-live" {
                         gemini = true;
                     }
@@ -245,7 +247,6 @@ pub fn start_audio_thread(hwnd: HWND, preset_idx: usize) {
                         parakeet = true;
                     }
                 }
-            }
         }
         (gemini, parakeet)
     };

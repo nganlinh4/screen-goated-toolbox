@@ -3,18 +3,18 @@
 use super::state::*;
 use super::webview::*;
 use super::wndproc::*;
-use crate::api::realtime_audio::{start_realtime_transcription, RealtimeState};
 use crate::APP;
+use crate::api::realtime_audio::{RealtimeState, start_realtime_transcription};
 use std::sync::atomic::Ordering;
-use windows::core::w;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
-    DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::w;
 
 pub fn is_realtime_overlay_active() -> bool {
     unsafe { IS_ACTIVE && !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() }
@@ -90,32 +90,36 @@ pub fn show_realtime_overlay(preset_idx: usize) {
     }
 }
 
-unsafe fn internal_create_realtime_loop() {
+unsafe fn internal_create_realtime_loop() { unsafe {
     let _ = CoInitialize(None); // Required for WebView
     let instance = GetModuleHandleW(None).unwrap();
 
     // --- Register Classes ---
     let class_name = w!("RealtimeWebViewOverlay");
     REGISTER_REALTIME_CLASS.call_once(|| {
-        let mut wc = WNDCLASSW::default();
-        wc.lpfnWndProc = Some(realtime_wnd_proc_internal);
-        wc.hInstance = instance.into();
-        wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap();
-        wc.lpszClassName = class_name;
-        wc.style = CS_HREDRAW | CS_VREDRAW;
-        wc.hbrBackground = HBRUSH(std::ptr::null_mut());
+        let wc = WNDCLASSW {
+            lpfnWndProc: Some(realtime_wnd_proc_internal),
+            hInstance: instance.into(),
+            hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
+            lpszClassName: class_name,
+            style: CS_HREDRAW | CS_VREDRAW,
+            hbrBackground: HBRUSH(std::ptr::null_mut()),
+            ..Default::default()
+        };
         let _ = RegisterClassW(&wc);
     });
 
     let trans_class = w!("RealtimeTranslationWebViewOverlay");
     REGISTER_TRANSLATION_CLASS.call_once(|| {
-        let mut wc = WNDCLASSW::default();
-        wc.lpfnWndProc = Some(translation_wnd_proc_internal);
-        wc.hInstance = instance.into();
-        wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap();
-        wc.lpszClassName = trans_class;
-        wc.style = CS_HREDRAW | CS_VREDRAW;
-        wc.hbrBackground = HBRUSH(std::ptr::null_mut());
+        let wc = WNDCLASSW {
+            lpfnWndProc: Some(translation_wnd_proc_internal),
+            hInstance: instance.into(),
+            hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
+            lpszClassName: trans_class,
+            style: CS_HREDRAW | CS_VREDRAW,
+            hbrBackground: HBRUSH(std::ptr::null_mut()),
+            ..Default::default()
+        };
         let _ = RegisterClassW(&wc);
     });
 
@@ -211,33 +215,33 @@ unsafe fn internal_create_realtime_loop() {
     IS_INITIALIZING = false;
     REALTIME_HWND = HWND::default();
     TRANSLATION_HWND = HWND::default();
-    let _ = CoUninitialize();
-}
+    CoUninitialize();
+}}
 
 unsafe extern "system" fn realtime_wnd_proc_internal(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     if msg == WM_APP_REALTIME_START {
         let preset_idx = wparam.0;
         handle_start_overlay(preset_idx);
         return LRESULT(0);
     }
     realtime_wnd_proc(hwnd, msg, wparam, lparam)
-}
+}}
 
 unsafe extern "system" fn translation_wnd_proc_internal(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     translation_wnd_proc(hwnd, msg, wparam, lparam)
-}
+}}
 
-unsafe fn handle_start_overlay(preset_idx: usize) {
+unsafe fn handle_start_overlay(preset_idx: usize) { unsafe {
     if IS_ACTIVE {
         return;
     }
@@ -409,7 +413,7 @@ unsafe fn handle_start_overlay(preset_idx: usize) {
         trans_hwnd_opt,
         REALTIME_STATE.clone(),
     );
-}
+}}
 
 fn notify_webview_settings(
     hwnd: HWND,

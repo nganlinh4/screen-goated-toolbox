@@ -452,7 +452,7 @@ impl DownloadManager {
                                             }
                                         }
                                     }
-                                } else if let Some(_) = error {
+                                } else if error.is_some() {
                                     // Error will be shown in status, just show generic fail here or nothing to keep compact
                                     ui.colored_label(egui::Color32::RED, "❌");
                                 }
@@ -582,15 +582,14 @@ impl DownloadManager {
 
                         match &state {
                             DownloadState::Idle | DownloadState::Error(_) => {
-                                if draw_download_btn(ui) {
-                                    if !self.sessions[idx].input_url.is_empty() {
-                                        // Reset logs on new start
-                                        self.sessions[idx].logs.lock().unwrap().clear();
-                                        self.sessions[idx].show_error_log = false;
-                                        self.start_media_download(
-                                            text.download_progress_info_fmt.to_string(),
-                                        );
-                                    }
+                                if draw_download_btn(ui) && !self.sessions[idx].input_url.is_empty()
+                                {
+                                    // Reset logs on new start
+                                    self.sessions[idx].logs.lock().unwrap().clear();
+                                    self.sessions[idx].show_error_log = false;
+                                    self.start_media_download(
+                                        text.download_progress_info_fmt.to_string(),
+                                    );
                                 }
                                 if let DownloadState::Error(err) = &state {
                                     ui.add_space(5.0);
@@ -688,7 +687,7 @@ impl DownloadManager {
                                             )
                                             .clicked()
                                         {
-                                            let _ = open::that(&path);
+                                            let _ = open::that(path);
                                         }
                                         if ui
                                             .add_enabled(
@@ -700,7 +699,7 @@ impl DownloadManager {
                                             if let Some(parent) = path.parent() {
                                                 let _ = open::that(parent);
                                             } else {
-                                                let _ = open::that(&path);
+                                                let _ = open::that(path);
                                             }
                                         }
                                     });
@@ -709,12 +708,11 @@ impl DownloadManager {
                                 });
 
                                 // Consistent Download Button at bottom
-                                if draw_download_btn(ui) {
-                                    if !self.sessions[idx].input_url.is_empty() {
-                                        self.start_media_download(
-                                            text.download_progress_info_fmt.to_string(),
-                                        );
-                                    }
+                                if draw_download_btn(ui) && !self.sessions[idx].input_url.is_empty()
+                                {
+                                    self.start_media_download(
+                                        text.download_progress_info_fmt.to_string(),
+                                    );
                                 }
                             }
                             DownloadState::Downloading(progress, msg) => {

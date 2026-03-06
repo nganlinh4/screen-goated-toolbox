@@ -19,6 +19,10 @@ pub struct ChainViewer<'a> {
 }
 
 impl<'a> ChainViewer<'a> {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "viewer construction keeps individual capability flags explicit"
+    )]
     pub fn new(
         text: &'a LocaleText,
         ui_language: &str,
@@ -215,11 +219,23 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
             self.changed = true;
             ui.close();
         }
-        if self.preset_type != "text" {
-            if ui.button(add_special_label).clicked() {
-                let mut node = ChainNode::default();
-                // Force it to be Special
-                if let ChainNode::Process {
+        if self.preset_type != "text" && ui.button(add_special_label).clicked() {
+            let mut node = ChainNode::default();
+            // Force it to be Special
+            if let ChainNode::Process {
+                id,
+                block_type,
+                model,
+                prompt,
+                language_vars,
+                show_overlay,
+                streaming_enabled,
+                render_mode,
+                auto_copy,
+                auto_speak,
+            } = node
+            {
+                node = ChainNode::Special {
                     id,
                     block_type,
                     model,
@@ -230,25 +246,11 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
                     render_mode,
                     auto_copy,
                     auto_speak,
-                } = node
-                {
-                    node = ChainNode::Special {
-                        id,
-                        block_type,
-                        model,
-                        prompt,
-                        language_vars,
-                        show_overlay,
-                        streaming_enabled,
-                        render_mode,
-                        auto_copy,
-                        auto_speak,
-                    };
-                }
-                snarl.insert_node(pos, node);
-                self.changed = true;
-                ui.close();
+                };
             }
+            snarl.insert_node(pos, node);
+            self.changed = true;
+            ui.close();
         }
     }
 
@@ -284,14 +286,11 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
         let to_node = snarl.get_node(to.id.node);
         let from_node = snarl.get_node(from.id.node);
 
-        if let (Some(to_node), Some(from_node)) = (to_node, from_node) {
-            if to_node.is_special() {
-                if !from_node.is_input() {
-                    // Violation: Attempting to connect non-input to Special node
-                    return;
-                }
+        if let (Some(to_node), Some(from_node)) = (to_node, from_node)
+            && to_node.is_special() && !from_node.is_input() {
+                // Violation: Attempting to connect non-input to Special node
+                return;
             }
-        }
 
         snarl.connect(from.id, to.id);
         self.changed = true;

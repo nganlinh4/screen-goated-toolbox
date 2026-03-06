@@ -51,13 +51,11 @@ impl InputHistory {
     /// Load history from disk
     pub fn load() -> Self {
         let path = Self::history_path();
-        if path.exists() {
-            if let Ok(data) = fs::read_to_string(&path) {
-                if let Ok(history) = serde_json::from_str::<InputHistory>(&data) {
+        if path.exists()
+            && let Ok(data) = fs::read_to_string(&path)
+                && let Ok(history) = serde_json::from_str::<InputHistory>(&data) {
                     return history;
                 }
-            }
-        }
         Self::default()
     }
 

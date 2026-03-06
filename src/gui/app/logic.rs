@@ -1,5 +1,5 @@
 use super::types::{
-    SettingsApp, UserEvent, MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, RESTORE_SIGNAL,
+    MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, RESTORE_SIGNAL, SettingsApp, UserEvent,
 };
 use crate::config::{Hotkey, ThemeMode};
 use crate::gui::app::utils::simple_rand;
@@ -12,7 +12,7 @@ use std::sync::atomic::Ordering;
 use tray_icon::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
 };
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
@@ -106,7 +106,7 @@ impl SettingsApp {
 
             // E. Update Favorite Bubble + Panel
             unsafe {
-                use crate::overlay::favorite_bubble::{state::BUBBLE_HWND, WM_BUBBLE_THEME_UPDATE};
+                use crate::overlay::favorite_bubble::{WM_BUBBLE_THEME_UPDATE, state::BUBBLE_HWND};
                 use windows::Win32::Foundation::{LPARAM, WPARAM};
                 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
@@ -129,17 +129,15 @@ impl SettingsApp {
         }
 
         // --- LAZY TRAY ICON RECONCILE ---
-        if self.tray_icon.is_none() {
-            if now - self.tray_retry_timer > 1.0 {
-                self.tray_retry_timer = now;
-                let icon = icon_gen::get_tray_icon(self.last_effective_theme_dark);
-                if let Ok(tray) = TrayIconBuilder::new()
-                    .with_tooltip("Screen Goated Toolbox (nganlinh4)")
-                    .with_icon(icon)
-                    .build()
-                {
-                    self.tray_icon = Some(tray);
-                }
+        if self.tray_icon.is_none() && now - self.tray_retry_timer > 1.0 {
+            self.tray_retry_timer = now;
+            let icon = icon_gen::get_tray_icon(self.last_effective_theme_dark);
+            if let Ok(tray) = TrayIconBuilder::new()
+                .with_tooltip("Screen Goated Toolbox (nganlinh4)")
+                .with_icon(icon)
+                .build()
+            {
+                self.tray_icon = Some(tray);
             }
         }
     }
@@ -150,8 +148,10 @@ impl SettingsApp {
                 let mut cursor_pos = POINT::default();
                 let _ = GetCursorPos(&mut cursor_pos);
                 let h_monitor = MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST);
-                let mut mi = MONITORINFO::default();
-                mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+                let mut mi = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
                 let _ = GetMonitorInfoW(h_monitor, &mut mi);
 
                 let work_w = (mi.rcWork.right - mi.rcWork.left) as f32;
@@ -181,7 +181,6 @@ impl SettingsApp {
 
                 self.startup_stage = 1;
                 ctx.request_repaint();
-                return;
             }
         } else if self.startup_stage == 1 {
             // --- EARLY INIT: TRULY BEFORE SPLASH ---
@@ -199,12 +198,10 @@ impl SettingsApp {
 
             self.startup_stage = 2;
             ctx.request_repaint();
-            return;
         } else if self.startup_stage < 35 {
             // Wait for ~35 frames to let background windows (Bubble/Tray) settle
             self.startup_stage += 1;
             ctx.request_repaint();
-            return;
         } else if self.startup_stage == 35 {
             // CRITICAL: Wait for Tray Icon to be ready before starting splash
             // This ensures all shell integration is settled.
@@ -321,7 +318,7 @@ impl SettingsApp {
 
         if self.tip_is_fading_in {
             // Fading In
-            self.tip_fade_state = (elapsed / fade_duration as f32).min(1.0);
+            self.tip_fade_state = (elapsed / fade_duration).min(1.0);
             if elapsed >= fade_duration {
                 self.tip_fade_state = 1.0;
                 // Fully visible, wait for duration
@@ -333,7 +330,7 @@ impl SettingsApp {
             ctx.request_repaint();
         } else {
             // Fading Out
-            self.tip_fade_state = (1.0 - (elapsed / fade_duration as f32)).max(0.0);
+            self.tip_fade_state = (1.0 - (elapsed / fade_duration)).max(0.0);
             if elapsed >= fade_duration {
                 self.tip_fade_state = 0.0;
 
@@ -384,15 +381,12 @@ impl SettingsApp {
                         if let egui::Event::Key {
                             key, pressed: true, ..
                         } = event
-                        {
-                            if let Some(vk) = egui_key_to_vk(key) {
-                                if !matches!(vk, 16 | 17 | 18 | 91 | 92) {
+                            && let Some(vk) = egui_key_to_vk(key)
+                                && !matches!(vk, 16 | 17 | 18 | 91 | 92) {
                                     let key_name =
                                         format!("{:?}", key).trim_start_matches("Key").to_string();
                                     key_recorded = Some((vk, modifiers_bitmap, key_name));
                                 }
-                            }
-                        }
                     }
 
                     // Check Mouse Events (Middle, Extra1, Extra2)
@@ -404,8 +398,8 @@ impl SettingsApp {
                         ];
 
                         for btn in mouse_buttons {
-                            if i.pointer.button_pressed(btn) {
-                                if let Some(vk) = egui_pointer_to_vk(&btn) {
+                            if i.pointer.button_pressed(btn)
+                                && let Some(vk) = egui_pointer_to_vk(&btn) {
                                     let name = match btn {
                                         egui::PointerButton::Middle => "Middle Click",
                                         egui::PointerButton::Extra1 => "Mouse Back",
@@ -416,7 +410,6 @@ impl SettingsApp {
                                     key_recorded = Some((vk, modifiers_bitmap, name));
                                     break;
                                 }
-                            }
                         }
                     }
                 }
@@ -452,8 +445,8 @@ impl SettingsApp {
                         name: name_parts.join(" + "),
                     };
 
-                    if let Some(preset) = self.config.presets.get_mut(preset_idx) {
-                        if !preset
+                    if let Some(preset) = self.config.presets.get_mut(preset_idx)
+                        && !preset
                             .hotkeys
                             .iter()
                             .any(|h| h.code == vk && h.modifiers == mods)
@@ -461,7 +454,6 @@ impl SettingsApp {
                             preset.hotkeys.push(new_hotkey);
                             self.save_and_sync();
                         }
-                    }
                     self.recording_hotkey_for_preset = None;
                     self.hotkey_conflict_msg = None;
                 }
@@ -497,15 +489,12 @@ impl SettingsApp {
                         if let egui::Event::Key {
                             key, pressed: true, ..
                         } = event
-                        {
-                            if let Some(vk) = egui_key_to_vk(key) {
-                                if !matches!(vk, 16 | 17 | 18 | 91 | 92) {
+                            && let Some(vk) = egui_key_to_vk(key)
+                                && !matches!(vk, 16 | 17 | 18 | 91 | 92) {
                                     let key_name =
                                         format!("{:?}", key).trim_start_matches("Key").to_string();
                                     key_recorded = Some((vk, modifiers_bitmap, key_name));
                                 }
-                            }
-                        }
                     }
 
                     // Check Mouse Events
@@ -517,8 +506,8 @@ impl SettingsApp {
                         ];
 
                         for btn in mouse_buttons {
-                            if i.pointer.button_pressed(btn) {
-                                if let Some(vk) = egui_pointer_to_vk(&btn) {
+                            if i.pointer.button_pressed(btn)
+                                && let Some(vk) = egui_pointer_to_vk(&btn) {
                                     let name = match btn {
                                         egui::PointerButton::Middle => "Middle Click",
                                         egui::PointerButton::Extra1 => "Mouse Back",
@@ -529,7 +518,6 @@ impl SettingsApp {
                                     key_recorded = Some((vk, modifiers_bitmap, name));
                                     break;
                                 }
-                            }
                         }
                     }
                 }
@@ -576,16 +564,15 @@ impl SettingsApp {
         // --- Event Handling ---
         while let Ok(event) = self.event_rx.try_recv() {
             match event {
-                UserEvent::Tray(tray_event) => match tray_event {
-                    TrayIconEvent::DoubleClick {
+                UserEvent::Tray(tray_event) => {
+                    if let TrayIconEvent::DoubleClick {
                         button: MouseButton::Left,
                         ..
-                    } => {
+                    } = tray_event
+                    {
                         self.restore_window(ctx);
                     }
-
-                    _ => {}
-                },
+                }
                 UserEvent::Menu(menu_event) => {
                     match menu_event.id.0.as_str() {
                         "1002" => {
@@ -613,11 +600,9 @@ impl SettingsApp {
     }
 
     pub(crate) fn handle_close_request(&mut self, ctx: &egui::Context) {
-        if ctx.input(|i| i.viewport().close_requested()) {
-            if !self.is_quitting {
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-            }
+        if ctx.input(|i| i.viewport().close_requested()) && !self.is_quitting {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         }
     }
 }

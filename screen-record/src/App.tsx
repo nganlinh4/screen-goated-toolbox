@@ -224,7 +224,7 @@ function App() {
   // Video playback — mousePositionsRef is shared so useVideoPlayback always reads latest
   const playback = useVideoPlayback({ segment, backgroundConfig, mousePositionsRef, isCropping });
   const {
-    currentTime, setCurrentTime, duration, isPlaying, isVideoReady, setIsVideoReady,
+    currentTime, setCurrentTime, duration, setDuration, isPlaying, isVideoReady, setIsVideoReady,
     thumbnails, setThumbnails, currentVideo, setCurrentVideo, currentAudio, setCurrentAudio,
     videoRef, audioRef, canvasRef, tempCanvasRef, videoControllerRef,
     renderFrame, togglePlayPause, seek, flushSeek, generateThumbnail, generateThumbnails
@@ -234,7 +234,7 @@ function App() {
   const recording = useRecording({
     videoControllerRef, videoRef, canvasRef, tempCanvasRef, backgroundConfig,
     setSegment, setCurrentVideo, setCurrentAudio, setIsVideoReady, setThumbnails,
-    setDuration: () => {}, setCurrentTime, generateThumbnails, generateThumbnail,
+    setDuration, setCurrentTime, generateThumbnails, generateThumbnail,
     renderFrame, currentVideo, currentAudio
   });
   const {

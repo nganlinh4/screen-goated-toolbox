@@ -4,12 +4,12 @@
 use std::mem::ManuallyDrop;
 
 use base64::Engine as _;
-use windows::core::Interface;
 use windows::Win32::Graphics::Direct3D11::ID3D11Device;
 use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
 use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::StructuredStorage::*;
 use windows::Win32::System::Variant::VT_I8;
+use windows::core::Interface;
 
 /// DXGI Device Manager shared between decoder and encoder.
 /// Media Foundation requires this to enable HW-accelerated decode/encode.

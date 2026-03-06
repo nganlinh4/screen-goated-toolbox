@@ -16,18 +16,20 @@ lazy_static::lazy_static! {
 }
 
 // --- WINDOW PROC FOR OVERLAY ---
-pub unsafe fn create_processing_window(rect: RECT, graphics_mode: String) -> HWND {
+pub unsafe fn create_processing_window(rect: RECT, graphics_mode: String) -> HWND { unsafe {
     let instance = GetModuleHandleW(None).unwrap();
     let class_name = w!("SGTProcessingOverlay");
 
     REGISTER_PROC_CLASS.call_once(|| {
-        let mut wc = WNDCLASSW::default();
-        wc.lpfnWndProc = Some(processing_wnd_proc);
-        wc.hInstance = instance.into();
-        wc.hCursor = LoadCursorW(None, IDC_WAIT).unwrap();
-        wc.lpszClassName = class_name;
-        wc.style = CS_HREDRAW | CS_VREDRAW;
-        wc.hbrBackground = HBRUSH(std::ptr::null_mut());
+        let wc = WNDCLASSW {
+            lpfnWndProc: Some(processing_wnd_proc),
+            hInstance: instance.into(),
+            hCursor: LoadCursorW(None, IDC_WAIT).unwrap(),
+            lpszClassName: class_name,
+            style: CS_HREDRAW | CS_VREDRAW,
+            hbrBackground: HBRUSH(std::ptr::null_mut()),
+            ..Default::default()
+        };
         RegisterClassW(&wc);
     });
 
@@ -63,14 +65,14 @@ pub unsafe fn create_processing_window(rect: RECT, graphics_mode: String) -> HWN
     SetTimer(Some(hwnd), 1, timer_interval, None);
     let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     hwnd
-}
+}}
 
 unsafe extern "system" fn processing_wnd_proc(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_CLOSE => {
             let mut states = PROC_STATES.lock().unwrap();
@@ -150,7 +152,7 @@ unsafe extern "system" fn processing_wnd_proc(
                             biHeight: -buf_h,
                             biPlanes: 1,
                             biBitCount: 32,
-                            biCompression: BI_RGB.0 as u32,
+                            biCompression: BI_RGB.0,
                             ..Default::default()
                         },
                         ..Default::default()
@@ -209,7 +211,7 @@ unsafe extern "system" fn processing_wnd_proc(
                             biHeight: -h,
                             biPlanes: 1,
                             biBitCount: 32,
-                            biCompression: BI_RGB.0 as u32,
+                            biCompression: BI_RGB.0,
                             ..Default::default()
                         },
                         ..Default::default()
@@ -267,10 +269,12 @@ unsafe extern "system" fn processing_wnd_proc(
                     cx: final_w,
                     cy: final_h,
                 };
-                let mut blend = BLENDFUNCTION::default();
-                blend.BlendOp = AC_SRC_OVER as u8;
-                blend.SourceConstantAlpha = alpha;
-                blend.AlphaFormat = AC_SRC_ALPHA as u8;
+                let blend = BLENDFUNCTION {
+                    BlendOp: AC_SRC_OVER as u8,
+                    BlendFlags: 0,
+                    SourceConstantAlpha: alpha,
+                    AlphaFormat: AC_SRC_ALPHA as u8,
+                };
                 let _ = UpdateLayeredWindow(
                     hwnd,
                     None,
@@ -299,7 +303,7 @@ unsafe extern "system" fn processing_wnd_proc(
         WM_PAINT => {
             let mut ps = PAINTSTRUCT::default();
             BeginPaint(hwnd, &mut ps);
-            let _ = EndPaint(hwnd, &mut ps);
+            let _ = EndPaint(hwnd, &ps);
             LRESULT(0)
         }
         WM_DESTROY => {
@@ -311,4 +315,4 @@ unsafe extern "system" fn processing_wnd_proc(
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}

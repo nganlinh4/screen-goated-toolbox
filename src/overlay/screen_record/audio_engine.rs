@@ -1,8 +1,8 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ringbuf::traits::*;
 use ringbuf::HeapRb;
-use std::sync::atomic::{AtomicBool, Ordering};
+use ringbuf::traits::*;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 use windows::Win32::System::Threading::{
@@ -12,11 +12,10 @@ use windows_capture::encoder::AudioEncoderHandle;
 
 pub fn get_default_audio_config() -> (u32, u32) {
     let host = cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or_else(|_| cpal::default_host());
-    if let Some(device) = host.default_output_device() {
-        if let Ok(config) = device.default_output_config() {
+    if let Some(device) = host.default_output_device()
+        && let Ok(config) = device.default_output_config() {
             return (config.sample_rate(), config.channels() as u32);
         }
-    }
     (48_000, 2)
 }
 
@@ -107,8 +106,8 @@ pub fn record_audio(
             }
 
             let count = consumer.pop_slice(&mut chunk);
-            if count > 0 {
-                if let Some((bytes, duration_100ns)) =
+            if count > 0
+                && let Some((bytes, duration_100ns)) =
                     encode_pcm_chunk_i16(&chunk[..count], channels, sample_rate)
                 {
                     if let Err(e) = audio_handle.send_audio_buffer(bytes, audio_output_100ns) {
@@ -117,7 +116,6 @@ pub fn record_audio(
                     }
                     audio_output_100ns = audio_output_100ns.saturating_add(duration_100ns);
                 }
-            }
         }
 
         println!("Audio stop signal received. Flushing buffer into muxer...");

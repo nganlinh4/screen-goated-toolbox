@@ -8,7 +8,6 @@
 
 use std::mem::ManuallyDrop;
 
-use windows::core::Interface;
 use windows::Graphics::DirectX::Direct3D11::IDirect3DSurface;
 use windows::Win32::Foundation::{HANDLE, HMODULE, RECT};
 use windows::Win32::Graphics::Direct3D::{
@@ -19,6 +18,7 @@ use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::Graphics::Dxgi::{self as dxgi, IDXGIResource1, IDXGISurface};
 use windows::Win32::Security::SECURITY_ATTRIBUTES;
 use windows::Win32::System::WinRT::Direct3D11::CreateDirect3D11SurfaceFromDXGISurface;
+use windows::core::Interface;
 
 /// Create a D3D11 device on the SAME adapter as the wgpu/DX12 device.
 ///

@@ -14,7 +14,7 @@ pub unsafe extern "system" fn recording_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_APP_SHOW => {
             let preset_idx = wparam.0;
@@ -260,23 +260,22 @@ pub unsafe extern "system" fn recording_wnd_proc(
 
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}
 
 pub unsafe extern "system" fn recording_hook_proc(
     code: i32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     if code == HC_ACTION as i32 {
         let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
-        if wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize {
-            if kbd.vkCode == VK_ESCAPE.0 as u32 {
-                if super::is_recording_overlay_active() {
-                    super::stop_recording_and_submit();
-                    return LRESULT(1);
-                }
-            }
+        if (wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize)
+            && kbd.vkCode == VK_ESCAPE.0 as u32
+            && super::is_recording_overlay_active()
+        {
+            super::stop_recording_and_submit();
+            return LRESULT(1);
         }
     }
     CallNextHookEx(None, code, wparam, lparam)
-}
+}}

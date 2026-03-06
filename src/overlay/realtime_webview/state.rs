@@ -79,7 +79,7 @@ pub static REGISTER_TRANSLATION_CLASS: Once = Once::new();
 thread_local! {
     pub static REALTIME_WEBVIEWS: std::cell::RefCell<HashMap<isize, wry::WebView>> = std::cell::RefCell::new(HashMap::new());
     // Shared WebContext for this thread using common data directory
-    pub static REALTIME_WEB_CONTEXT: std::cell::RefCell<Option<wry::WebContext>> = std::cell::RefCell::new(None);
+    pub static REALTIME_WEB_CONTEXT: std::cell::RefCell<Option<wry::WebContext>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Wrapper for HWND to implement HasWindowHandle

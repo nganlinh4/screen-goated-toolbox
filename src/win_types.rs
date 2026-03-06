@@ -6,16 +6,10 @@ use windows::Win32::Graphics::Gdi::HBITMAP;
 use windows::Win32::UI::WindowsAndMessaging::HHOOK;
 
 /// Thread-safe wrapper for HWND
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct SendHwnd(pub HWND);
 unsafe impl Send for SendHwnd {}
 unsafe impl Sync for SendHwnd {}
-
-impl Default for SendHwnd {
-    fn default() -> Self {
-        SendHwnd(HWND::default())
-    }
-}
 
 impl SendHwnd {
     pub fn is_invalid(&self) -> bool {
@@ -44,28 +38,16 @@ impl SendHandle {
 }
 
 /// Thread-safe wrapper for HHOOK
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct SendHhook(pub HHOOK);
 unsafe impl Send for SendHhook {}
 unsafe impl Sync for SendHhook {}
 
-impl Default for SendHhook {
-    fn default() -> Self {
-        SendHhook(HHOOK::default())
-    }
-}
-
 /// Thread-safe wrapper for HBITMAP
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct SendHbitmap(pub HBITMAP);
 unsafe impl Send for SendHbitmap {}
 unsafe impl Sync for SendHbitmap {}
-
-impl Default for SendHbitmap {
-    fn default() -> Self {
-        SendHbitmap(HBITMAP::default())
-    }
-}
 
 impl SendHbitmap {
     pub fn is_invalid(&self) -> bool {

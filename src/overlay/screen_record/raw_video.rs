@@ -2,15 +2,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use windows::core::{BOOL, PCWSTR};
 use windows::Win32::Foundation::{HANDLE, POINT};
 use windows::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
 };
 use windows::Win32::System::Memory::{
-    GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE, GMEM_ZEROINIT,
+    GMEM_MOVEABLE, GMEM_ZEROINIT, GlobalAlloc, GlobalLock, GlobalUnlock,
 };
 use windows::Win32::UI::Shell::DROPFILES;
+use windows::core::{BOOL, PCWSTR};
 
 const CLIPBOARD_RETRY_COUNT: usize = 5;
 const CLIPBOARD_RETRY_DELAY_MS: u64 = 10;
@@ -185,8 +185,8 @@ fn set_clipboard_file_drop(path: &str) -> Result<(), String> {
         // Hint paste targets that this is a COPY operation.
         let preferred_format_name = to_wide_z("Preferred DropEffect");
         let preferred_format = RegisterClipboardFormatW(PCWSTR(preferred_format_name.as_ptr()));
-        if preferred_format != 0 {
-            if let Ok(h_effect) =
+        if preferred_format != 0
+            && let Ok(h_effect) =
                 GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, std::mem::size_of::<u32>())
             {
                 let effect_ptr = GlobalLock(h_effect) as *mut u32;
@@ -196,7 +196,6 @@ fn set_clipboard_file_drop(path: &str) -> Result<(), String> {
                     let _ = SetClipboardData(preferred_format, Some(HANDLE(h_effect.0 as *mut _)));
                 }
             }
-        }
     }
 
     Ok(())

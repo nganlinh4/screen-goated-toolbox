@@ -110,7 +110,7 @@ pub fn unregister_all_hotkeys(hwnd: HWND) {
 }
 
 /// Low-Level Mouse Hook Procedure.
-unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT { unsafe {
     if code >= 0 {
         let msg = wparam.0 as u32;
         let vk_code = match msg {
@@ -181,9 +181,9 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                 }
             }
 
-            if let Some(id) = found_id {
-                if let Ok(hwnd_target) = LISTENER_HWND.lock() {
-                    if !hwnd_target.0.is_invalid() {
+            if let Some(id) = found_id
+                && let Ok(hwnd_target) = LISTENER_HWND.lock()
+                    && !hwnd_target.0.is_invalid() {
                         let _ = PostMessageW(
                             Some(hwnd_target.0),
                             WM_HOTKEY,
@@ -192,12 +192,10 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                         );
                         return LRESULT(1); // Consume/Block input
                     }
-                }
-            }
         }
     }
     CallNextHookEx(None, code, wparam, lparam)
-}
+}}
 
 /// Run the hotkey listener message loop.
 pub fn run_hotkey_listener() {

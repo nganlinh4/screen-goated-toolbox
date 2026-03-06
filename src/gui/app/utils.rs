@@ -118,7 +118,7 @@ pub fn restart_app() {
         let temp_dir = std::env::temp_dir();
         let bat_path = temp_dir.join(format!("sgt_restart_{}.bat", std::process::id()));
 
-        if let Ok(_) = std::fs::write(&bat_path, batch_content) {
+        if std::fs::write(&bat_path, batch_content).is_ok() {
             // Spawn the batch file hidden via cmd /C with CREATE_NO_WINDOW
             use std::os::windows::process::CommandExt;
             let _ = std::process::Command::new("cmd")

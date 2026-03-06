@@ -17,7 +17,7 @@ pub unsafe extern "system" fn canvas_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_APP_UPDATE_WINDOWS => {
             let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -85,9 +85,9 @@ pub unsafe extern "system" fn canvas_wnd_proc(
 
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}
 
-unsafe fn handle_show_canvas(hwnd: HWND) {
+unsafe fn handle_show_canvas(hwnd: HWND) { unsafe {
     use windows::Win32::UI::WindowsAndMessaging::{
         GetForegroundWindow, IsWindow, SetForegroundWindow,
     };
@@ -117,7 +117,7 @@ unsafe fn handle_show_canvas(hwnd: HWND) {
     }
 
     let _ = SetTimer(Some(hwnd), CURSOR_POLL_TIMER_ID, 100, None);
-}
+}}
 
 fn handle_send_refine_text(wparam: WPARAM, lparam: LPARAM) {
     let hwnd_key = wparam.0 as isize;
@@ -149,7 +149,7 @@ fn handle_send_refine_text(wparam: WPARAM, lparam: LPARAM) {
     }
 }
 
-unsafe fn handle_mouse_move(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe fn handle_mouse_move(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT { unsafe {
     let target_val = ACTIVE_DRAG_TARGET.load(Ordering::SeqCst);
     if target_val != 0 {
         let mut pt = POINT::default();
@@ -209,9 +209,9 @@ unsafe fn handle_mouse_move(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM
         return LRESULT(0);
     }
     DefWindowProcW(hwnd, msg, wparam, lparam)
-}
+}}
 
-unsafe fn handle_button_up(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe fn handle_button_up(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT { unsafe {
     let target_val = ACTIVE_DRAG_TARGET.load(Ordering::SeqCst);
     if target_val != 0 {
         use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
@@ -282,34 +282,32 @@ unsafe fn handle_button_up(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         return LRESULT(0);
     }
     DefWindowProcW(hwnd, msg, wparam, lparam)
-}
+}}
 
-unsafe fn handle_timer(wparam: WPARAM) {
-    if wparam.0 == CURSOR_POLL_TIMER_ID {
-        if ACTIVE_DRAG_TARGET.load(Ordering::SeqCst) == 0 {
-            let mut pt = POINT::default();
-            if GetCursorPos(&mut pt).is_ok() {
-                let scale = get_dpi_scale();
-                let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-                let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-                let rel_x = pt.x - v_x;
-                let rel_y = pt.y - v_y;
-                let logical_x = (rel_x as f64 / scale) as i32;
-                let logical_y = (rel_y as f64 / scale) as i32;
+unsafe fn handle_timer(wparam: WPARAM) { unsafe {
+    if wparam.0 == CURSOR_POLL_TIMER_ID && ACTIVE_DRAG_TARGET.load(Ordering::SeqCst) == 0 {
+        let mut pt = POINT::default();
+        if GetCursorPos(&mut pt).is_ok() {
+            let scale = get_dpi_scale();
+            let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            let rel_x = pt.x - v_x;
+            let rel_y = pt.y - v_y;
+            let logical_x = (rel_x as f64 / scale) as i32;
+            let logical_y = (rel_y as f64 / scale) as i32;
 
-                CANVAS_WEBVIEW.with(|cell| {
-                    if let Some(webview) = cell.borrow().as_ref() {
-                        let script =
-                            format!("window.updateCursorPosition({}, {});", logical_x, logical_y);
-                        let _ = webview.evaluate_script(&script);
-                    }
-                });
-            }
+            CANVAS_WEBVIEW.with(|cell| {
+                if let Some(webview) = cell.borrow().as_ref() {
+                    let script =
+                        format!("window.updateCursorPosition({}, {});", logical_x, logical_y);
+                    let _ = webview.evaluate_script(&script);
+                }
+            });
         }
     }
-}
+}}
 
-unsafe fn handle_display_change(hwnd: HWND) {
+unsafe fn handle_display_change(hwnd: HWND) { unsafe {
     let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
     let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
     let v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
@@ -332,7 +330,7 @@ unsafe fn handle_display_change(hwnd: HWND) {
             });
         }
     });
-}
+}}
 
 /// Send updated window data to the canvas
 pub fn send_windows_update() {

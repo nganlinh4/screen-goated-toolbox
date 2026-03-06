@@ -1,5 +1,9 @@
 use crate::gui::locale::LocaleText;
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "HTML generation keeps each runtime display option explicit"
+)]
 pub fn get_realtime_html(
     is_translation: bool,
     audio_source: &str,
@@ -25,7 +29,7 @@ pub fn get_realtime_html(
 
     // Title content: volume bars for transcription, text for translation
     let title_content = if is_translation {
-        format!("{}", title_text)
+        title_text.to_string()
     } else {
         // Canvas-based volume visualizer for smooth 60fps animation
         r#"<canvas id="volume-canvas" width="90" height="24"></canvas>"#.to_string()

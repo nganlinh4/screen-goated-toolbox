@@ -9,6 +9,8 @@ use std::sync::{
 
 static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
+type PlaybackRequest = (mpsc::Receiver<AudioEvent>, isize, u64, u64, bool);
+
 /// Manages the persistent TTS WebSocket connection
 pub struct TtsManager {
     /// Flag to indicate if the connection is ready
@@ -20,7 +22,7 @@ pub struct TtsManager {
     pub work_signal: Condvar,
 
     /// Queue for Player: (Input Channel, Window Handle, Request ID, Generation ID, IsRealtime)
-    pub playback_queue: Mutex<VecDeque<(mpsc::Receiver<AudioEvent>, isize, u64, u64, bool)>>,
+    pub playback_queue: Mutex<VecDeque<PlaybackRequest>>,
     /// Signal for Player
     pub playback_signal: Condvar,
 

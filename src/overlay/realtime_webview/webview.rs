@@ -1,12 +1,12 @@
 //! WebView creation and IPC handling for realtime overlay
 
 use super::state::*;
+use crate::APP;
 use crate::api::realtime_audio::WM_COPY_TEXT;
 use crate::api::realtime_audio::{WM_REALTIME_UPDATE, WM_TRANSLATION_UPDATE};
 use crate::config::get_all_languages;
 use crate::gui::locale::LocaleText;
 use crate::overlay::realtime_html::get_realtime_html;
-use crate::APP;
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -51,7 +51,7 @@ pub fn create_realtime_webview(
     let html = get_realtime_html(
         is_translation,
         audio_source,
-        &languages,
+        languages,
         current_language,
         translation_model,
         transcription_model,
@@ -193,11 +193,10 @@ pub fn create_realtime_webview(
                     } else if body == "startGroupDrag" {
                         // Start group drag - nothing special needed, just mark drag started
                         // The actual movement is handled by groupDragMove
-                    } else if body.starts_with("groupDragMove:") {
+                    } else if let Some(coords) = body.strip_prefix("groupDragMove:") {
                         // Move both windows together by delta
-                        let coords = &body[14..];
-                        if let Some((dx_str, dy_str)) = coords.split_once(',') {
-                            if let (Ok(dx), Ok(dy)) = (dx_str.parse::<i32>(), dy_str.parse::<i32>())
+                        if let Some((dx_str, dy_str)) = coords.split_once(',')
+                            && let (Ok(dx), Ok(dy)) = (dx_str.parse::<i32>(), dy_str.parse::<i32>())
                             {
                                 unsafe {
                                     // Move realtime window
@@ -231,11 +230,9 @@ pub fn create_realtime_webview(
                                     }
                                 }
                             }
-                        }
-                    } else if body.starts_with("copyText:") {
+                    } else if let Some(text) = body.strip_prefix("copyText:") {
                         // Copy text to clipboard via UI thread
-                        let text = body[9..].to_string();
-                        let boxed = Box::new(text);
+                        let boxed = Box::new(text.to_string());
                         let ptr = Box::into_raw(boxed);
                         unsafe {
                             let _ = PostMessageW(
@@ -265,16 +262,16 @@ pub fn create_realtime_webview(
                             }
                             crate::config::save_config(&app.config);
                         }
-                    } else if body.starts_with("fontSize:") {
+                    } else if let Some(size) = body.strip_prefix("fontSize:") {
                         // Font size change - store for future use
-                        if let Ok(size) = body[9..].parse::<u32>() {
+                        if let Ok(size) = size.parse::<u32>() {
                             let mut app = APP.lock().unwrap();
                             app.config.realtime_font_size = size;
                             crate::config::save_config(&app.config);
                         }
-                    } else if body.starts_with("audioSource:") {
+                    } else if let Some(source) = body.strip_prefix("audioSource:") {
                         // Audio source change
-                        let source = body[12..].to_string();
+                        let source = source.to_string();
                         if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
                             *new_source = source.clone();
                         }
@@ -307,9 +304,9 @@ pub fn create_realtime_webview(
                             crate::config::save_config(&app.config);
                         }
                         AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
-                    } else if body.starts_with("language:") {
+                    } else if let Some(lang) = body.strip_prefix("language:") {
                         // Target language change - signal update
-                        let lang = body[9..].to_string();
+                        let lang = lang.to_string();
                         if let Ok(mut new_lang) = NEW_TARGET_LANGUAGE.lock() {
                             *new_lang = lang.clone();
                         }
@@ -321,9 +318,9 @@ pub fn create_realtime_webview(
                             crate::config::save_config(&app.config);
                         }
                         LANGUAGE_CHANGE.store(true, Ordering::SeqCst);
-                    } else if body.starts_with("translationModel:") {
+                    } else if let Some(model) = body.strip_prefix("translationModel:") {
                         // Translation model change - signal update
-                        let model = body[17..].to_string();
+                        let model = model.to_string();
                         if let Ok(mut new_model) = NEW_TRANSLATION_MODEL.lock() {
                             *new_model = model.clone();
                         }
@@ -335,9 +332,9 @@ pub fn create_realtime_webview(
                             crate::config::save_config(&app.config);
                         }
                         TRANSLATION_MODEL_CHANGE.store(true, Ordering::SeqCst);
-                    } else if body.starts_with("transcriptionModel:") {
+                    } else if let Some(model) = body.strip_prefix("transcriptionModel:") {
                         // Transcription model change
-                        let model = body[19..].to_string();
+                        let model = model.to_string();
                         if let Ok(mut new_model) = NEW_TRANSCRIPTION_MODEL.lock() {
                             *new_model = model.clone();
                         }
@@ -347,11 +344,10 @@ pub fn create_realtime_webview(
                             crate::config::save_config(&app.config);
                         }
                         TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
-                    } else if body.starts_with("resize:") {
+                    } else if let Some(coords) = body.strip_prefix("resize:") {
                         // Resize window by delta
-                        let coords = &body[7..];
-                        if let Some((dx_str, dy_str)) = coords.split_once(',') {
-                            if let (Ok(dx), Ok(dy)) = (dx_str.parse::<i32>(), dy_str.parse::<i32>())
+                        if let Some((dx_str, dy_str)) = coords.split_once(',')
+                            && let (Ok(dx), Ok(dy)) = (dx_str.parse::<i32>(), dy_str.parse::<i32>())
                             {
                                 unsafe {
                                     let mut rect = RECT::default();
@@ -369,7 +365,6 @@ pub fn create_realtime_webview(
                                     );
                                 }
                             }
-                        }
                     } else if body.starts_with("ttsEnabled:") {
                         // TTS toggle for realtime translations
                         let enabled = &body[11..] == "1";
@@ -421,9 +416,9 @@ pub fn create_realtime_webview(
                                 show_app_selection_popup();
                             }
                         }
-                    } else if body.starts_with("ttsSpeed:") {
+                    } else if let Some(speed) = body.strip_prefix("ttsSpeed:") {
                         // TTS playback speed adjustment (50-200, where 100 = 1.0x)
-                        if let Ok(speed) = body[9..].parse::<u32>() {
+                        if let Ok(speed) = speed.parse::<u32>() {
                             REALTIME_TTS_SPEED.store(speed, Ordering::SeqCst);
                             // Turn off auto-speed when user manually adjusts slider
                             REALTIME_TTS_AUTO_SPEED.store(false, Ordering::SeqCst);
@@ -432,9 +427,9 @@ pub fn create_realtime_webview(
                         // TTS auto-speed toggle
                         let enabled = &body[13..] == "1";
                         REALTIME_TTS_AUTO_SPEED.store(enabled, Ordering::SeqCst);
-                    } else if body.starts_with("ttsVolume:") {
+                    } else if let Some(vol) = body.strip_prefix("ttsVolume:") {
                         // TTS output volume (0-100)
-                        if let Ok(vol) = body[10..].parse::<u32>() {
+                        if let Ok(vol) = vol.parse::<u32>() {
                             CURRENT_TTS_VOLUME.store(vol.min(100), Ordering::Relaxed);
                         }
                     } else if body == "cancelDownload" {

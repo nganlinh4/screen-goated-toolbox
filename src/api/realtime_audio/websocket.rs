@@ -124,14 +124,11 @@ pub fn send_audio_chunk(
 
 /// Parse inputTranscription from WebSocket message (what the user said)
 pub fn parse_input_transcription(msg: &str) -> Option<String> {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg) {
-        if let Some(server_content) = json.get("serverContent") {
-            if let Some(input_transcription) = server_content.get("inputTranscription") {
-                if let Some(text) = input_transcription.get("text").and_then(|t| t.as_str()) {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg)
+        && let Some(server_content) = json.get("serverContent")
+            && let Some(input_transcription) = server_content.get("inputTranscription")
+                && let Some(text) = input_transcription.get("text").and_then(|t| t.as_str()) {
                     return Some(text.to_string());
                 }
-            }
-        }
-    }
     None
 }

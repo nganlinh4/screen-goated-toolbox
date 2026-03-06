@@ -47,13 +47,12 @@ pub fn generate_filename(content: &str) -> String {
         .send_json(payload)
     {
         Ok(resp) => {
-            if let Ok(json) = resp.into_body().read_json::<serde_json::Value>() {
-                if let Some(choice) = json
+            if let Ok(json) = resp.into_body().read_json::<serde_json::Value>()
+                && let Some(choice) = json
                     .get("choices")
                     .and_then(|c| c.as_array())
                     .and_then(|c| c.first())
-                {
-                    if let Some(content) = choice
+                    && let Some(content) = choice
                         .get("message")
                         .and_then(|m| m.get("content"))
                         .and_then(|s| s.as_str())
@@ -61,7 +60,7 @@ pub fn generate_filename(content: &str) -> String {
                         let mut name = content.trim().to_string();
 
                         // Clean up quotes/markdown
-                        name = name.replace('"', "").replace('\'', "").replace('`', "");
+                        name = name.replace(['"', '\'', '`'], "");
 
                         // Remove potential .html extension if the model disobeyed
                         if name.to_lowercase().ends_with(".html") {
@@ -69,9 +68,8 @@ pub fn generate_filename(content: &str) -> String {
                         }
 
                         // Remove trailing -html or _html if present to avoid redundancy
-                        if name.to_lowercase().ends_with("-html") {
-                            name = name[..name.len() - 5].to_string();
-                        } else if name.to_lowercase().ends_with("_html") {
+                        let lower_name = name.to_lowercase();
+                        if lower_name.ends_with("-html") || lower_name.ends_with("_html") {
                             name = name[..name.len() - 5].to_string();
                         }
 
@@ -91,8 +89,6 @@ pub fn generate_filename(content: &str) -> String {
 
                         return name;
                     }
-                }
-            }
             default_name
         }
         Err(e) => {
@@ -153,13 +149,11 @@ pub fn save_html_file(markdown_text: &str) -> bool {
         // Set default folder to Downloads
         if let Ok(downloads_path) =
             SHGetKnownFolderPath(&FOLDERID_Downloads, KNOWN_FOLDER_FLAG(0), None)
-        {
-            if let Ok(folder_item) =
+            && let Ok(folder_item) =
                 SHCreateItemFromParsingName::<PCWSTR, _, IShellItem>(PCWSTR(downloads_path.0), None)
             {
                 let _ = dialog.SetFolder(&folder_item);
             }
-        }
 
         // Set default extension
         let default_ext: Vec<u16> = OsStr::new("html")
@@ -215,9 +209,6 @@ pub fn save_html_file(markdown_text: &str) -> bool {
         let html_content = markdown_to_html(markdown_text, false, "", "");
 
         // Write to file
-        match std::fs::write(&path_str, html_content) {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+        std::fs::write(&path_str, html_content).is_ok()
     }
 }

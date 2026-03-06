@@ -533,8 +533,8 @@ fn detect_download_ext(
 /// For other URLs, return as-is.
 fn resolve_image_url(url: &str) -> Result<String, String> {
     // Google Drive: convert /file/d/ID/view → direct download URL
-    if url.contains("drive.google.com/file/d/") {
-        if let Some(start) = url.find("/file/d/") {
+    if url.contains("drive.google.com/file/d/")
+        && let Some(start) = url.find("/file/d/") {
             let after = &url[start + 8..];
             let file_id = after.split('/').next().unwrap_or(after);
             if !file_id.is_empty() {
@@ -543,7 +543,6 @@ fn resolve_image_url(url: &str) -> Result<String, String> {
                 ));
             }
         }
-    }
 
     if !url.contains("photos.google.com") {
         return Ok(url.to_string());
@@ -553,8 +552,8 @@ fn resolve_image_url(url: &str) -> Result<String, String> {
               (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
     // Strategy 1: Fetch the page and look for og:image or lh3 URLs in the HTML/JS
-    if let Ok(response) = ureq::get(url).header("User-Agent", ua).call() {
-        if let Ok(body) = response.into_body().read_to_string() {
+    if let Ok(response) = ureq::get(url).header("User-Agent", ua).call()
+        && let Ok(body) = response.into_body().read_to_string() {
             // Try og:image meta tag
             if let Some(pos) = body.find("og:image") {
                 let after = &body[pos..];
@@ -569,16 +568,14 @@ fn resolve_image_url(url: &str) -> Result<String, String> {
                 }
             }
             // Try any lh3.googleusercontent.com URL in the page source
-            if let Some(pos) = body.find("https://lh3.googleusercontent.com/pw/") {
-                if let Some(end) = body[pos..].find(|c: char| c == '"' || c == '\'' || c == '\\') {
+            if let Some(pos) = body.find("https://lh3.googleusercontent.com/pw/")
+                && let Some(end) = body[pos..].find(['"', '\'', '\\']) {
                     let raw = &body[pos..pos + end];
                     let decoded = raw.replace("\\u003d", "=").replace("&amp;", "&");
                     let base = decoded.split('=').next().unwrap_or(&decoded);
                     return Ok(format!("{base}=w2560-h2560"));
                 }
-            }
         }
-    }
 
     // Strategy 2: Extract photo ID from URL path and construct direct lh3 URL
     // URL format: .../photo/AF1Qip.../...

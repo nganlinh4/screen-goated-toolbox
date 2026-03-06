@@ -272,9 +272,8 @@ pub fn was_triggered_recently(ms: u128) -> bool {
         let count = HEARTBEAT_COUNT.load(Ordering::SeqCst);
         let recent = elapsed <= ms;
         // A "Hold" must have been triggered at least twice (initial + at least one repeat)
-        let is_hold = recent && count > 1;
 
-        is_hold
+        recent && count > 1
     } else {
         false
     }
@@ -295,7 +294,7 @@ pub fn get_current_hotkey_info() -> Option<(u32, u32)> {
 pub fn are_modifiers_still_held() -> bool {
     use windows::Win32::UI::Input::KeyboardAndMouse::*;
 
-    let hotkey = CURRENT_HOTKEY.lock().unwrap().clone();
+    let hotkey = *CURRENT_HOTKEY.lock().unwrap();
     if let Some((modifiers, _vk_code)) = hotkey {
         unsafe {
             // Check each modifier

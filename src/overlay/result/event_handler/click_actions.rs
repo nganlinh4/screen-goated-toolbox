@@ -13,7 +13,7 @@ use crate::overlay::result::state::{InteractionMode, WINDOW_STATES};
 use crate::overlay::result::{button_canvas, markdown_view};
 use crate::overlay::utils::to_wstring;
 
-pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
+pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT { unsafe {
     let _ = ReleaseCapture();
     button_canvas::set_drag_mode(false); // Disable unclipped drag mode
     let mut perform_click = false;
@@ -198,22 +198,20 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                     markdown_view::destroy_markdown_webview(hwnd);
 
                     // 2. Add WS_CLIPCHILDREN back
-                    unsafe {
-                        // Force style update (WS_CLIPCHILDREN is permanently off)
-                        let _ = SetWindowPos(
-                            hwnd,
-                            Some(HWND::default()),
-                            0,
-                            0,
-                            0,
-                            0,
-                            SWP_FRAMECHANGED
-                                | SWP_NOMOVE
-                                | SWP_NOSIZE
-                                | SWP_NOZORDER
-                                | SWP_NOACTIVATE,
-                        );
-                    }
+                    // Force style update (WS_CLIPCHILDREN is permanently off)
+                    let _ = SetWindowPos(
+                        hwnd,
+                        Some(HWND::default()),
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_FRAMECHANGED
+                            | SWP_NOMOVE
+                            | SWP_NOSIZE
+                            | SWP_NOZORDER
+                            | SWP_NOACTIVATE,
+                    );
 
                     // 3. Cleanup timers and restore event tracking
                     let _ = KillTimer(Some(hwnd), 2);
@@ -299,9 +297,9 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
         }
     }
     LRESULT(0)
-}
+}}
 
-pub unsafe fn handle_rbutton_up(hwnd: HWND) -> LRESULT {
+pub unsafe fn handle_rbutton_up(hwnd: HWND) -> LRESULT { unsafe {
     let _ = ReleaseCapture();
     button_canvas::set_drag_mode(false); // Disable unclipped drag mode
     let mut close_group = false;
@@ -340,14 +338,12 @@ pub unsafe fn handle_rbutton_up(hwnd: HWND) -> LRESULT {
         crate::overlay::result::trigger_close_group(hwnd);
     } else {
         // Post cursor refresh just in case, though the canvas fix should handle it natively
-        unsafe {
-            let _ = PostMessageW(
-                Some(hwnd),
-                WM_SETCURSOR,
-                WPARAM(hwnd.0 as usize),
-                LPARAM(0x02000001),
-            );
-        }
+        let _ = PostMessageW(
+            Some(hwnd),
+            WM_SETCURSOR,
+            WPARAM(hwnd.0 as usize),
+            LPARAM(0x02000001),
+        );
 
         // Trigger font fitting for all windows in the group
         for h in fit_targets {
@@ -370,9 +366,9 @@ pub unsafe fn handle_rbutton_up(hwnd: HWND) -> LRESULT {
         }
     }
     LRESULT(0)
-}
+}}
 
-pub unsafe fn handle_mbutton_up(hwnd: HWND) -> LRESULT {
+pub unsafe fn handle_mbutton_up(hwnd: HWND) -> LRESULT { unsafe {
     let _ = ReleaseCapture();
     button_canvas::set_drag_mode(false); // Disable unclipped drag mode
 
@@ -411,14 +407,12 @@ pub unsafe fn handle_mbutton_up(hwnd: HWND) -> LRESULT {
         crate::overlay::result::trigger_close_all();
     } else {
         // Post cursor refresh
-        unsafe {
-            let _ = PostMessageW(
-                Some(hwnd),
-                WM_SETCURSOR,
-                WPARAM(hwnd.0 as usize),
-                LPARAM(0x02000001),
-            );
-        }
+        let _ = PostMessageW(
+            Some(hwnd),
+            WM_SETCURSOR,
+            WPARAM(hwnd.0 as usize),
+            LPARAM(0x02000001),
+        );
 
         // Trigger font fitting for ALL windows
         for h in fit_targets {
@@ -441,4 +435,4 @@ pub unsafe fn handle_mbutton_up(hwnd: HWND) -> LRESULT {
         }
     }
     LRESULT(0)
-}
+}}

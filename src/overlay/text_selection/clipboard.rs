@@ -11,7 +11,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 /// Get text from clipboard
-pub unsafe fn get_clipboard_text() -> String {
+pub unsafe fn get_clipboard_text() -> String { unsafe {
     let mut result = String::new();
     if OpenClipboard(Some(HWND::default())).is_ok() {
         if let Ok(h_data) = GetClipboardData(13u32) {
@@ -29,7 +29,7 @@ pub unsafe fn get_clipboard_text() -> String {
         let _ = CloseClipboard();
     }
     result
-}
+}}
 
 /// Process selected text with the given preset
 pub fn process_selected_text(preset_idx: usize, clipboard_text: String) {
@@ -226,7 +226,7 @@ pub fn try_instant_process(preset_idx: usize) -> bool {
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(150));
                     if crate::overlay::continuous_mode::is_active() {
-                        let _ = super::show_text_selection_tag(current_idx);
+                        super::show_text_selection_tag(current_idx);
                     }
                 });
             }
@@ -242,7 +242,7 @@ pub unsafe extern "system" fn keyboard_hook_proc(
     code: i32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     if code == HC_ACTION as i32 {
         let kbd_struct = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
         if wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize {
@@ -262,11 +262,11 @@ pub unsafe extern "system" fn keyboard_hook_proc(
             if kbd_struct.vkCode == TRIGGER_VK_CODE && TRIGGER_VK_CODE != 0 {
                 IS_HOTKEY_HELD.store(true, Ordering::SeqCst);
             }
-        } else if wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize {
-            if kbd_struct.vkCode == TRIGGER_VK_CODE {
-                IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
-            }
+        } else if (wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize)
+            && kbd_struct.vkCode == TRIGGER_VK_CODE
+        {
+            IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
         }
     }
     CallNextHookEx(None, code, wparam, lparam)
-}
+}}

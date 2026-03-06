@@ -78,12 +78,11 @@ pub fn get_output_devices() -> Vec<(String, String)> {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         if let Ok(enumerator) =
             CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL)
-        {
-            if let Ok(collection) = enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE) {
-                if let Ok(count) = collection.GetCount() {
+            && let Ok(collection) = enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)
+                && let Ok(count) = collection.GetCount() {
                     for i in 0..count {
-                        if let Ok(device) = collection.Item(i) {
-                            if let Ok(id) = device.GetId() {
+                        if let Ok(device) = collection.Item(i)
+                            && let Ok(id) = device.GetId() {
                                 let id_str = id.to_string().unwrap_or_default();
                                 // Try to get friendly name
                                 let name = if let Ok(_props) = device.OpenPropertyStore(STGM_READ) {
@@ -100,11 +99,8 @@ pub fn get_output_devices() -> Vec<(String, String)> {
                                 };
                                 devices.push((id_str, name));
                             }
-                        }
                     }
                 }
-            }
-        }
     }
     devices
 }

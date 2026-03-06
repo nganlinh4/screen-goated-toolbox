@@ -11,8 +11,6 @@ pub fn generate_image_display_html(img_data: &[u8]) -> String {
     // Simple magic byte detection for MIME type
     let mime_type = if img_data.starts_with(&[0xff, 0xd8, 0xff]) {
         "image/jpeg"
-    } else if img_data.starts_with(&[0x89, 0x50, 0x4e, 0x47]) {
-        "image/png"
     } else {
         "image/png" // Fallback
     };

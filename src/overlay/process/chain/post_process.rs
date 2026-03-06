@@ -29,14 +29,13 @@ pub fn handle_auto_copy(
     }
 
     // CASE 1: Image Input Adapter (Source Copy)
-    if is_input_adapter {
-        if let RefineContext::Image(img_data) = context {
+    if is_input_adapter
+        && let RefineContext::Image(img_data) = context {
             let img_data_clone = img_data.clone();
             std::thread::spawn(move || {
                 crate::overlay::utils::copy_image_to_clipboard(&img_data_clone);
             });
         }
-    }
 
     // CASE 2: Text Content (Result or Source Text) OR Image Content (Source Copy)
     let image_copied = is_input_adapter && matches!(context, RefineContext::Image(_));
@@ -174,8 +173,8 @@ pub fn save_to_history(
                 app.history.save_text(text_for_history, input_text_clone);
             }
         });
-    } else if block.block_type == "image" {
-        if let RefineContext::Image(img_bytes) = context {
+    } else if block.block_type == "image"
+        && let RefineContext::Image(img_bytes) = context {
             let img_bytes_clone = img_bytes.clone();
             std::thread::spawn(move || {
                 if let Ok(img_dynamic) = image::load_from_memory(&img_bytes_clone) {
@@ -186,7 +185,6 @@ pub fn save_to_history(
                 }
             });
         }
-    }
 }
 
 /// Continue chain to next blocks (graph traversal).
@@ -263,7 +261,7 @@ pub fn continue_chain(
     }
 
     let next_parent = if my_hwnd.is_some() {
-        Arc::new(Mutex::new(my_hwnd.map(|h| SendHwnd(h))))
+        Arc::new(Mutex::new(my_hwnd.map(SendHwnd)))
     } else {
         parent_hwnd
     };

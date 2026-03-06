@@ -16,7 +16,7 @@ pub unsafe extern "system" fn result_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_ERASEBKGND => misc::handle_erase_bkgnd(hwnd, wparam),
 
@@ -146,7 +146,7 @@ pub unsafe extern "system" fn result_wnd_proc(
 
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}
 
 /// PERSISTENCE helper: Save current window geometry to its associated preset.
 /// Called when a move/resize operation ends (either natively or via manual drag).

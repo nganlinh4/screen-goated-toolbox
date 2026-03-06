@@ -17,7 +17,7 @@ pub unsafe extern "system" fn realtime_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_START_DRAG => {
             let _ = ReleaseCapture();
@@ -63,16 +63,16 @@ pub unsafe extern "system" fn realtime_wnd_proc(
         }
         WM_REALTIME_UPDATE => {
             // Check if we need to close the modal (flag set by app selection)
-            if CLOSE_TTS_MODAL_REQUEST.load(Ordering::SeqCst) {
-                if CLOSE_TTS_MODAL_REQUEST.swap(false, Ordering::SeqCst) {
-                    let hwnd_key = hwnd.0 as isize;
-                    let script = "var m = document.getElementById('tts-modal'); if(m) m.classList.remove('show'); var o = document.getElementById('tts-modal-overlay'); if(o) o.classList.remove('show');";
-                    REALTIME_WEBVIEWS.with(|wvs| {
-                        if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                            let _ = webview.evaluate_script(script);
-                        }
-                    });
-                }
+            if CLOSE_TTS_MODAL_REQUEST.load(Ordering::SeqCst)
+                && CLOSE_TTS_MODAL_REQUEST.swap(false, Ordering::SeqCst)
+            {
+                let hwnd_key = hwnd.0 as isize;
+                let script = "var m = document.getElementById('tts-modal'); if(m) m.classList.remove('show'); var o = document.getElementById('tts-modal-overlay'); if(o) o.classList.remove('show');";
+                REALTIME_WEBVIEWS.with(|wvs| {
+                    if let Some(webview) = wvs.borrow().get(&hwnd_key) {
+                        let _ = webview.evaluate_script(script);
+                    }
+                });
             }
 
             // Get old (committed) and new (current sentence) text from state
@@ -131,7 +131,7 @@ pub unsafe extern "system" fn realtime_wnd_proc(
                 let hwnd_key = hwnd.0 as isize;
                 REALTIME_WEBVIEWS.with(|wvs| {
                     if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                        let _ = webview.evaluate_script(&script);
+                        let _ = webview.evaluate_script(script);
                     }
                 });
             }
@@ -234,14 +234,14 @@ pub unsafe extern "system" fn realtime_wnd_proc(
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}
 
 pub unsafe extern "system" fn translation_wnd_proc(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_COPY_TEXT => {
             let ptr = lparam.0 as *mut String;
@@ -253,16 +253,16 @@ pub unsafe extern "system" fn translation_wnd_proc(
         }
         WM_TRANSLATION_UPDATE => {
             // Check if we need to close the modal (flag set by app selection)
-            if CLOSE_TTS_MODAL_REQUEST.load(Ordering::SeqCst) {
-                if CLOSE_TTS_MODAL_REQUEST.swap(false, Ordering::SeqCst) {
-                    let hwnd_key = hwnd.0 as isize;
-                    let script = "var m = document.getElementById('tts-modal'); if(m) m.classList.remove('show'); var o = document.getElementById('tts-modal-overlay'); if(o) o.classList.remove('show');";
-                    REALTIME_WEBVIEWS.with(|wvs| {
-                        if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                            let _ = webview.evaluate_script(script);
-                        }
-                    });
-                }
+            if CLOSE_TTS_MODAL_REQUEST.load(Ordering::SeqCst)
+                && CLOSE_TTS_MODAL_REQUEST.swap(false, Ordering::SeqCst)
+            {
+                let hwnd_key = hwnd.0 as isize;
+                let script = "var m = document.getElementById('tts-modal'); if(m) m.classList.remove('show'); var o = document.getElementById('tts-modal-overlay'); if(o) o.classList.remove('show');";
+                REALTIME_WEBVIEWS.with(|wvs| {
+                    if let Some(webview) = wvs.borrow().get(&hwnd_key) {
+                        let _ = webview.evaluate_script(script);
+                    }
+                });
             }
 
             // Get old (committed) and new (uncommitted) translation from state
@@ -300,8 +300,7 @@ pub unsafe extern "system" fn translation_wnd_proc(
                     let search_limit = text.len().saturating_sub(1);
                     if search_limit > 0 {
                         // Find last sentence terminator (. ? ! or newline)
-                        let last_boundary = text[..search_limit]
-                            .rfind(|c| c == '.' || c == '?' || c == '!' || c == '\n');
+                        let last_boundary = text[..search_limit].rfind(['.', '?', '!', '\n']);
 
                         if let Some(idx) = last_boundary {
                             // Mark everything up to (and including) this punctuation as "spoken"
@@ -413,4 +412,4 @@ pub unsafe extern "system" fn translation_wnd_proc(
         WM_DESTROY => LRESULT(0),
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}

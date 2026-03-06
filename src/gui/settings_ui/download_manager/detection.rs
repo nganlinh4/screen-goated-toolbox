@@ -48,7 +48,7 @@ pub fn detect_installed_browsers() -> Vec<CookieBrowser> {
 
     // 2. Scan StartMenuInternet (Existing Logic - Good for defaults)
     let mut cmd = Command::new("reg");
-    cmd.args(&["query", "HKLM\\SOFTWARE\\Clients\\StartMenuInternet"]);
+    cmd.args(["query", "HKLM\\SOFTWARE\\Clients\\StartMenuInternet"]);
     #[cfg(windows)]
     cmd.creation_flags(0x08000000);
 
@@ -130,7 +130,7 @@ fn check_registry_key(root: &str, exe_name: &str) -> bool {
     );
     // We just check if the key exists by querying the default value
     let mut cmd = Command::new("reg");
-    cmd.args(&["query", &key, "/ve"]); // /ve queries "Default" matches
+    cmd.args(["query", &key, "/ve"]); // /ve queries "Default" matches
     #[cfg(windows)]
     cmd.creation_flags(0x08000000);
 

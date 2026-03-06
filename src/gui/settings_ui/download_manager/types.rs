@@ -1,3 +1,4 @@
+use std::fmt;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -94,17 +95,23 @@ pub enum CookieBrowser {
 }
 
 impl CookieBrowser {
-    pub fn to_string(&self) -> String {
+    pub fn as_str(&self) -> &'static str {
         match self {
-            CookieBrowser::None => "None".to_string(),
-            CookieBrowser::Chrome => "Chrome".to_string(),
-            CookieBrowser::Firefox => "Firefox".to_string(),
-            CookieBrowser::Edge => "Edge".to_string(),
-            CookieBrowser::Brave => "Brave".to_string(),
-            CookieBrowser::Opera => "Opera".to_string(),
-            CookieBrowser::Vivaldi => "Vivaldi".to_string(),
-            CookieBrowser::Chromium => "Chromium".to_string(),
-            CookieBrowser::Whale => "Whale".to_string(),
+            CookieBrowser::None => "None",
+            CookieBrowser::Chrome => "Chrome",
+            CookieBrowser::Firefox => "Firefox",
+            CookieBrowser::Edge => "Edge",
+            CookieBrowser::Brave => "Brave",
+            CookieBrowser::Opera => "Opera",
+            CookieBrowser::Vivaldi => "Vivaldi",
+            CookieBrowser::Chromium => "Chromium",
+            CookieBrowser::Whale => "Whale",
         }
+    }
+}
+
+impl fmt::Display for CookieBrowser {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }

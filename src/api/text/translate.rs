@@ -13,6 +13,10 @@ use std::sync::{
     Arc,
 };
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "translation entrypoint passes distinct provider, format, and callback state"
+)]
 pub fn translate_text_streaming<F>(
     groq_api_key: &str,
     gemini_api_key: &str,
@@ -206,24 +210,21 @@ where
             let locale = LocaleText::get(ui_language);
 
             for line in reader.lines() {
-                if let Some(ref ct) = cancel_token {
-                    if ct.load(Ordering::Relaxed) {
+                if let Some(ref ct) = cancel_token
+                    && ct.load(Ordering::Relaxed) {
                         return Err(anyhow::anyhow!("Cancelled"));
                     }
-                }
                 let line = line.map_err(|e| anyhow::anyhow!("Failed to read line: {}", e))?;
-                if line.starts_with("data: ") {
-                    let json_str = &line["data: ".len()..];
+                if let Some(json_str) = line.strip_prefix("data: ") {
                     if json_str.trim() == "[DONE]" {
                         break;
                     }
 
-                    if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str) {
-                        if let Some(candidates) =
+                    if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str)
+                        && let Some(candidates) =
                             chunk_resp.get("candidates").and_then(|c| c.as_array())
-                        {
-                            if let Some(first_candidate) = candidates.first() {
-                                if let Some(parts) = first_candidate
+                            && let Some(first_candidate) = candidates.first()
+                                && let Some(parts) = first_candidate
                                     .get("content")
                                     .and_then(|c| c.get("parts"))
                                     .and_then(|p| p.as_array())
@@ -242,28 +243,23 @@ where
                                                     on_chunk(locale.model_thinking);
                                                     thinking_shown = true;
                                                 }
+                                            } else if !content_started && thinking_shown {
+                                                content_started = true;
+                                                full_content.push_str(text);
+                                                let wipe_content = format!(
+                                                    "{}{}",
+                                                    crate::api::WIPE_SIGNAL,
+                                                    full_content
+                                                );
+                                                on_chunk(&wipe_content);
                                             } else {
-                                                if !content_started && thinking_shown {
-                                                    content_started = true;
-                                                    full_content.push_str(text);
-                                                    let wipe_content = format!(
-                                                        "{}{}",
-                                                        crate::api::WIPE_SIGNAL,
-                                                        full_content
-                                                    );
-                                                    on_chunk(&wipe_content);
-                                                } else {
-                                                    content_started = true;
-                                                    full_content.push_str(text);
-                                                    on_chunk(text);
-                                                }
+                                                content_started = true;
+                                                full_content.push_str(text);
+                                                on_chunk(text);
                                             }
                                         }
                                     }
                                 }
-                            }
-                        }
-                    }
                 }
             }
         } else {
@@ -272,9 +268,9 @@ where
                 .read_json()
                 .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
 
-            if let Some(candidates) = chat_resp.get("candidates").and_then(|c| c.as_array()) {
-                if let Some(first_choice) = candidates.first() {
-                    if let Some(parts) = first_choice
+            if let Some(candidates) = chat_resp.get("candidates").and_then(|c| c.as_array())
+                && let Some(first_choice) = candidates.first()
+                    && let Some(parts) = first_choice
                         .get("content")
                         .and_then(|c| c.get("parts"))
                         .and_then(|p| p.as_array())
@@ -288,8 +284,6 @@ where
                             .collect::<String>();
                         on_chunk(&full_content);
                     }
-                }
-            }
         }
     } else if provider == "cerebras" {
         // --- CEREBRAS API ---
@@ -334,13 +328,11 @@ where
             .unwrap_or("?")
             .to_string();
 
-        if limit == "?" {
-            if let Some(conf) = crate::model_config::get_model_by_id(&model) {
-                if let Some(val) = conf.quota_limit_en.split_whitespace().next() {
+        if limit == "?"
+            && let Some(conf) = crate::model_config::get_model_by_id(&model)
+                && let Some(val) = conf.quota_limit_en.split_whitespace().next() {
                     limit = val.to_string();
                 }
-            }
-        }
 
         if remaining != "?" || limit != "?" {
             let usage_str = format!("{} / {}", remaining, limit);
@@ -358,14 +350,12 @@ where
             let is_reasoning_model = model.contains("gpt-oss") || model.contains("zai-glm");
 
             for line in reader.lines() {
-                if let Some(ref ct) = cancel_token {
-                    if ct.load(Ordering::Relaxed) {
+                if let Some(ref ct) = cancel_token
+                    && ct.load(Ordering::Relaxed) {
                         return Err(anyhow::anyhow!("Cancelled"));
                     }
-                }
                 let line = line?;
-                if line.starts_with("data: ") {
-                    let data = &line[6..];
+                if let Some(data) = line.strip_prefix("data: ") {
                     if data == "[DONE]" {
                         break;
                     }
@@ -374,7 +364,7 @@ where
                         Ok(chunk) => {
                             if let Some(reasoning) = chunk
                                 .choices
-                                .get(0)
+                                .first()
                                 .and_then(|c| c.delta.reasoning.as_ref())
                                 .filter(|s| !s.is_empty())
                             {
@@ -390,7 +380,7 @@ where
 
                             if let Some(content) = chunk
                                 .choices
-                                .get(0)
+                                .first()
                                 .and_then(|c| c.delta.content.as_ref())
                                 .filter(|s| !s.is_empty())
                             {
@@ -457,14 +447,12 @@ where
             let locale = LocaleText::get(ui_language);
 
             for line in reader.lines() {
-                if let Some(ref ct) = cancel_token {
-                    if ct.load(Ordering::Relaxed) {
+                if let Some(ref ct) = cancel_token
+                    && ct.load(Ordering::Relaxed) {
                         return Err(anyhow::anyhow!("Cancelled"));
                     }
-                }
                 let line = line?;
-                if line.starts_with("data: ") {
-                    let data = &line[6..];
+                if let Some(data) = line.strip_prefix("data: ") {
                     if data == "[DONE]" {
                         break;
                     }
@@ -473,7 +461,7 @@ where
                         Ok(chunk) => {
                             if let Some(reasoning) = chunk
                                 .choices
-                                .get(0)
+                                .first()
                                 .and_then(|c| c.delta.reasoning.as_ref())
                                 .filter(|s| !s.is_empty())
                             {
@@ -486,7 +474,7 @@ where
 
                             if let Some(content) = chunk
                                 .choices
-                                .get(0)
+                                .first()
                                 .and_then(|c| c.delta.content.as_ref())
                                 .filter(|s| !s.is_empty())
                             {
@@ -633,29 +621,24 @@ where
 
     let mut full_content = String::new();
 
-    if let Some(choices) = json.get("choices").and_then(|c| c.as_array()) {
-        if let Some(first_choice) = choices.first() {
-            if let Some(message) = first_choice.get("message") {
+    if let Some(choices) = json.get("choices").and_then(|c| c.as_array())
+        && let Some(first_choice) = choices.first()
+            && let Some(message) = first_choice.get("message") {
                 if let Some(executed_tools) =
                     message.get("executed_tools").and_then(|t| t.as_array())
                 {
                     let mut search_queries = Vec::new();
                     for tool in executed_tools {
-                        if let Some(tool_type) = tool.get("type").and_then(|t| t.as_str()) {
-                            if tool_type == "search" {
-                                if let Some(args) = tool.get("arguments").and_then(|a| a.as_str()) {
-                                    if let Ok(args_json) =
+                        if let Some(tool_type) = tool.get("type").and_then(|t| t.as_str())
+                            && tool_type == "search"
+                                && let Some(args) = tool.get("arguments").and_then(|a| a.as_str())
+                                    && let Ok(args_json) =
                                         serde_json::from_str::<serde_json::Value>(args)
-                                    {
-                                        if let Some(query) =
+                                        && let Some(query) =
                                             args_json.get("query").and_then(|q| q.as_str())
                                         {
                                             search_queries.push(query.to_string());
                                         }
-                                    }
-                                }
-                            }
-                        }
                     }
 
                     let context_quote = get_context_quote(prompt);
@@ -787,8 +770,6 @@ where
                     on_chunk(&full_content);
                 }
             }
-        }
-    }
 
     Ok(full_content)
 }
@@ -866,14 +847,12 @@ where
         let reader = BufReader::new(resp.into_body().into_reader());
 
         for line in reader.lines() {
-            if let Some(ref ct) = cancel_token {
-                if ct.load(Ordering::Relaxed) {
+            if let Some(ref ct) = cancel_token
+                && ct.load(Ordering::Relaxed) {
                     return Err(anyhow::anyhow!("Cancelled"));
                 }
-            }
             let line = line?;
-            if line.starts_with("data: ") {
-                let data = &line[6..];
+            if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {
                     break;
                 }
@@ -881,7 +860,7 @@ where
                 match serde_json::from_str::<StreamChunk>(data) {
                     Ok(chunk) => {
                         if let Some(content) =
-                            chunk.choices.get(0).and_then(|c| c.delta.content.as_ref())
+                            chunk.choices.first().and_then(|c| c.delta.content.as_ref())
                         {
                             full_content.push_str(content);
                             on_chunk(content);

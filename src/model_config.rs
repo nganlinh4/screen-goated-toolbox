@@ -23,6 +23,10 @@ pub struct ModelConfig {
 }
 
 impl ModelConfig {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "constructor mirrors the static model catalog fields directly"
+    )]
     pub fn new(
         id: &str,
         provider: &str,
@@ -523,6 +527,7 @@ use crate::config::Config;
 /// Prioritizes:
 /// 1. Same provider, same type (Prioritize based on list order - treating list as priority queue)
 /// 2. Different provider, same type
+///
 /// Checks if the provider is actually configured (has API key) before suggesting it.
 pub fn resolve_fallback_model(
     failed_model_id: &str,

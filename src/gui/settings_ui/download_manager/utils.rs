@@ -1,9 +1,11 @@
 use super::types::InstallStatus;
 use std::fs;
 use std::io::{self, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+
+type VideoFormatLists = (Vec<String>, Vec<String>, Vec<String>);
 
 pub fn log(logs: &Arc<Mutex<Vec<String>>>, msg: impl Into<String>) {
     logs.lock().unwrap().push(msg.into());
@@ -65,7 +67,7 @@ pub fn download_file(
     Ok(())
 }
 
-pub fn extract_ffmpeg(zip_path: &PathBuf, bin_dir: &PathBuf) -> Result<(), String> {
+pub fn extract_ffmpeg(zip_path: &PathBuf, bin_dir: &Path) -> Result<(), String> {
     let file = fs::File::open(zip_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
 
@@ -107,7 +109,7 @@ pub fn extract_ffmpeg(zip_path: &PathBuf, bin_dir: &PathBuf) -> Result<(), Strin
     Ok(())
 }
 
-pub fn extract_deno(zip_path: &PathBuf, bin_dir: &PathBuf) -> Result<(), String> {
+pub fn extract_deno(zip_path: &PathBuf, bin_dir: &Path) -> Result<(), String> {
     let file = fs::File::open(zip_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
 
@@ -132,9 +134,9 @@ use std::process::Command;
 
 pub fn fetch_video_formats(
     url: &str,
-    bin_dir: &PathBuf,
+    bin_dir: &Path,
     cookie_browser: CookieBrowser,
-) -> Result<(Vec<String>, Vec<String>, Vec<String>), String> {
+) -> Result<VideoFormatLists, String> {
     let ytdlp_path = bin_dir.join("yt-dlp.exe");
     if !ytdlp_path.exists() {
         return Err("yt-dlp is missing".to_string());
@@ -205,11 +207,10 @@ pub fn fetch_video_formats(
     let mut heights = std::collections::HashSet::new();
     if let Some(formats) = v.get("formats").and_then(|f| f.as_array()) {
         for f in formats {
-            if let Some(h) = f.get("height").and_then(|h| h.as_u64()) {
-                if h > 0 {
+            if let Some(h) = f.get("height").and_then(|h| h.as_u64())
+                && h > 0 {
                     heights.insert(h as u32);
                 }
-            }
         }
     }
 
@@ -225,11 +226,10 @@ pub fn fetch_video_formats(
                 .unwrap_or(after_ws.len());
             if num_end_idx > 0 {
                 let num_str = &after_ws[..num_end_idx];
-                if let Ok(h) = num_str.parse::<u32>() {
-                    if h > 0 {
+                if let Ok(h) = num_str.parse::<u32>()
+                    && h > 0 {
                         heights.insert(h);
                     }
-                }
             }
         }
     }

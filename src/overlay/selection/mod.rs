@@ -68,7 +68,7 @@ pub fn show_selection_overlay(preset_idx: usize, hotkey_id: i32) {
         let class_name = w!("SnippingOverlay");
 
         let mut wc = WNDCLASSW::default();
-        if !GetClassInfoW(Some(instance.into()), class_name, &mut wc).is_ok() {
+        if GetClassInfoW(Some(instance.into()), class_name, &mut wc).is_err() {
             wc.lpfnWndProc = Some(selection_wnd_proc);
             wc.hInstance = instance.into();
             wc.hCursor = LoadCursorW(None, IDC_CROSS).unwrap();

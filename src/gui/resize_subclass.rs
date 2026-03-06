@@ -23,7 +23,7 @@ type RawWndProcFn = unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRES
 static OLD_WNDPROC: AtomicIsize = AtomicIsize::new(0);
 
 #[inline]
-unsafe fn call_old(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe fn call_old(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT { unsafe {
     let old = OLD_WNDPROC.load(Ordering::SeqCst);
     if old != 0 {
         let f: RawWndProcFn = std::mem::transmute(old as usize);
@@ -31,14 +31,14 @@ unsafe fn call_old(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRES
     } else {
         DefWindowProcW(hwnd, msg, wparam, lparam)
     }
-}
+}}
 
 unsafe extern "system" fn resize_wndproc(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     if msg == WM_NCHITTEST {
         let default = call_old(hwnd, msg, wparam, lparam);
 
@@ -87,7 +87,7 @@ unsafe extern "system" fn resize_wndproc(
     }
 
     call_old(hwnd, msg, wparam, lparam)
-}
+}}
 
 /// Hook the WndProc of the given HWND to add resize hit-testing.
 /// Safe to call multiple times — subsequent calls are no-ops.

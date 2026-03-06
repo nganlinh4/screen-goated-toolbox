@@ -16,6 +16,10 @@ use egui_snarl::{InPinId, OutPinId, Snarl};
 use std::collections::HashMap;
 
 /// Render the node graph in the preset editor
+#[expect(
+    clippy::too_many_arguments,
+    reason = "node graph rendering depends on multiple independent capability flags and editing handles"
+)]
 pub fn render_node_graph(
     ui: &mut egui::Ui,
     snarl: &mut Snarl<ChainNode>,

@@ -1,16 +1,16 @@
 pub fn pick_export_folder(initial_dir: Option<String>) -> Result<Option<String>, String> {
     use std::os::windows::ffi::OsStrExt;
-    use windows::core::PCWSTR;
     use windows::Win32::System::Com::{
-        CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_ALL,
-        COINIT_APARTMENTTHREADED,
+        CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
+        CoUninitialize,
     };
     use windows::Win32::UI::Shell::KNOWN_FOLDER_FLAG;
     use windows::Win32::UI::Shell::{
-        FOLDERID_Downloads, FileOpenDialog, IFileOpenDialog, IShellItem,
-        SHCreateItemFromParsingName, SHGetKnownFolderPath, FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST,
-        FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+        FOLDERID_Downloads, FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS,
+        FileOpenDialog, IFileOpenDialog, IShellItem, SHCreateItemFromParsingName,
+        SHGetKnownFolderPath, SIGDN_FILESYSPATH,
     };
+    use windows::core::PCWSTR;
 
     unsafe {
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
@@ -32,13 +32,11 @@ pub fn pick_export_folder(initial_dir: Option<String>) -> Result<Option<String>,
             }
         } else if let Ok(downloads_path) =
             SHGetKnownFolderPath(&FOLDERID_Downloads, KNOWN_FOLDER_FLAG(0), None)
-        {
-            if let Ok(folder_item) =
+            && let Ok(folder_item) =
                 SHCreateItemFromParsingName::<PCWSTR, _, IShellItem>(PCWSTR(downloads_path.0), None)
             {
                 let _ = dialog.SetFolder(&folder_item);
             }
-        }
 
         if dialog.Show(None).is_err() {
             CoUninitialize();

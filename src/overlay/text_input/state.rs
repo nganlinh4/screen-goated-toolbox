@@ -22,6 +22,8 @@ pub const WM_APP_SHOW: u32 = WM_USER + 99;
 pub const WM_APP_SET_TEXT: u32 = WM_USER + 100;
 pub const WM_APP_HIDE: u32 = WM_USER + 101;
 
+type TextSubmitCallback = Box<dyn Fn(String, HWND) + Send>;
+
 // --- LAZY STATIC ---
 lazy_static::lazy_static! {
     pub static ref SUBMITTED_TEXT: Mutex<Option<String>> = Mutex::new(None);
@@ -32,7 +34,7 @@ lazy_static::lazy_static! {
     pub static ref CFG_TITLE: Mutex<String> = Mutex::new(String::new());
     pub static ref CFG_LANG: Mutex<String> = Mutex::new(String::new());
     pub static ref CFG_CANCEL: Mutex<String> = Mutex::new(String::new());
-    pub static ref CFG_CALLBACK: Mutex<Option<Box<dyn Fn(String, HWND) + Send>>> = Mutex::new(None);
+    pub static ref CFG_CALLBACK: Mutex<Option<TextSubmitCallback>> = Mutex::new(None);
     pub static ref CFG_CONTINUOUS: Mutex<bool> = Mutex::new(false);
 
     // Cross-thread text injection (for auto-paste from transcription)
@@ -41,6 +43,6 @@ lazy_static::lazy_static! {
 
 // --- THREAD LOCAL ---
 thread_local! {
-    pub static TEXT_INPUT_WEBVIEW: RefCell<Option<wry::WebView>> = RefCell::new(None);
-    pub static TEXT_INPUT_WEB_CONTEXT: RefCell<Option<WebContext>> = RefCell::new(None);
+    pub static TEXT_INPUT_WEBVIEW: RefCell<Option<wry::WebView>> = const { RefCell::new(None) };
+    pub static TEXT_INPUT_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
 }

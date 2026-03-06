@@ -276,9 +276,7 @@ impl SettingsApp {
                     .rect
                     .shrink2(egui::vec2(12.0, if is_maximized { 12.0 } else { 6.0 })),
                 crate::gui::icons::Icon::Close,
-                if close_resp.hovered() {
-                    egui::Color32::WHITE
-                } else if is_dark {
+                if close_resp.hovered() || is_dark {
                     egui::Color32::WHITE
                 } else {
                     egui::Color32::BLACK

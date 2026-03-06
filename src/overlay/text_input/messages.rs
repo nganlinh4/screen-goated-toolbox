@@ -83,7 +83,7 @@ pub unsafe extern "system" fn input_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     // State variables for this window instance
     static mut FADE_ALPHA: i32 = 0;
     // IS_DRAGGING is no longer needed with native drag
@@ -98,36 +98,34 @@ pub unsafe extern "system" fn input_wnd_proc(
             // 1. Position Logic - Center on the monitor where the cursor is
             if wparam.0 != 1 {
                 let mut cursor = POINT::default();
-                unsafe {
-                    let _ = GetCursorPos(&mut cursor);
-                    let hmonitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
-                    let mut mi = MONITORINFO {
-                        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                        ..Default::default()
-                    };
-                    let _ = GetMonitorInfoW(hmonitor, &mut mi);
+                let _ = GetCursorPos(&mut cursor);
+                let hmonitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+                let mut mi = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+                let _ = GetMonitorInfoW(hmonitor, &mut mi);
 
-                    let mut rect = RECT::default();
-                    let _ = GetWindowRect(hwnd, &mut rect);
-                    let w = rect.right - rect.left;
-                    let h = rect.bottom - rect.top;
+                let mut rect = RECT::default();
+                let _ = GetWindowRect(hwnd, &mut rect);
+                let w = rect.right - rect.left;
+                let h = rect.bottom - rect.top;
 
-                    let monitor_w = mi.rcWork.right - mi.rcWork.left;
-                    let monitor_h = mi.rcWork.bottom - mi.rcWork.top;
+                let monitor_w = mi.rcWork.right - mi.rcWork.left;
+                let monitor_h = mi.rcWork.bottom - mi.rcWork.top;
 
-                    let x = mi.rcWork.left + (monitor_w - w) / 2;
-                    let y = mi.rcWork.top + (monitor_h - h) / 2;
+                let x = mi.rcWork.left + (monitor_w - w) / 2;
+                let y = mi.rcWork.top + (monitor_h - h) / 2;
 
-                    let _ = SetWindowPos(
-                        hwnd,
-                        Some(HWND_TOP),
-                        x,
-                        y,
-                        0,
-                        0,
-                        SWP_NOSIZE | SWP_SHOWWINDOW,
-                    );
-                }
+                let _ = SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOP),
+                    x,
+                    y,
+                    0,
+                    0,
+                    SWP_NOSIZE | SWP_SHOWWINDOW,
+                );
             }
 
             // 2. Focus - Force window to foreground
@@ -400,4 +398,4 @@ pub unsafe extern "system" fn input_wnd_proc(
 
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}

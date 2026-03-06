@@ -11,6 +11,10 @@ use std::sync::{
     Arc,
 };
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "vision translation needs explicit model, image, and streaming parameters"
+)]
 pub fn translate_image_streaming<F>(
     groq_api_key: &str,
     gemini_api_key: &str,
@@ -45,23 +49,57 @@ where
     let mut mime_type = "image/png".to_string();
 
     // Check for "Zero-Copy" path (Google provider + Original Bytes available)
-    if provider == "google" && original_bytes.is_some() {
-        println!("DEBUG: Zero-Copy optimization active for Google provider");
-        // Use original bytes directly (e.g. JPEG) - no resize, no conversion
-        let bytes = original_bytes.as_ref().unwrap();
-        b64_image = general_purpose::STANDARD.encode(bytes);
+    if provider == "google" {
+        if let Some(bytes) = original_bytes.as_ref() {
+            println!("DEBUG: Zero-Copy optimization active for Google provider");
+            // Use original bytes directly (e.g. JPEG) - no resize, no conversion
+            b64_image = general_purpose::STANDARD.encode(bytes);
 
-        // Sniff mime type
-        if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-            mime_type = "image/jpeg".to_string();
-        } else if bytes.starts_with(&[0x89, 0x50, 0x4e, 0x47]) {
+            // Sniff mime type
+            if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+                mime_type = "image/jpeg".to_string();
+            } else if bytes.starts_with(&[0x89, 0x50, 0x4e, 0x47]) {
+                mime_type = "image/png".to_string();
+            } else if bytes.starts_with(&[0x52, 0x49, 0x46, 0x46])
+                && bytes[8..12] == [0x57, 0x45, 0x42, 0x50]
+            {
+                mime_type = "image/webp".to_string();
+            }
+            println!("DEBUG: Detected MIME type: {}", mime_type);
+        } else {
+            // Standard Processing Path (Resize + Convert to PNG)
+            let mut final_image = image;
+            let max_dim = 2048;
+
+            // Resize if too large (Skip for Google as they handle large images well if we fall back to this path)
+            if provider != "google"
+                && (final_image.width() > max_dim || final_image.height() > max_dim)
+            {
+                println!("DEBUG: Image exceeds {}px, resizing...", max_dim);
+                let (n_w, n_h) = if final_image.width() > final_image.height() {
+                    let ratio = max_dim as f32 / final_image.width() as f32;
+                    (max_dim, (final_image.height() as f32 * ratio) as u32)
+                } else {
+                    let ratio = max_dim as f32 / final_image.height() as f32;
+                    ((final_image.width() as f32 * ratio) as u32, max_dim)
+                };
+                final_image = image::imageops::resize(
+                    &final_image,
+                    n_w,
+                    n_h,
+                    image::imageops::FilterType::Lanczos3,
+                );
+                println!(
+                    "DEBUG: Resized to: {}x{}",
+                    final_image.width(),
+                    final_image.height()
+                );
+            }
+
+            final_image.write_to(&mut Cursor::new(&mut image_data), image::ImageFormat::Png)?;
+            b64_image = general_purpose::STANDARD.encode(&image_data);
             mime_type = "image/png".to_string();
-        } else if bytes.starts_with(&[0x52, 0x49, 0x46, 0x46])
-            && bytes[8..12] == [0x57, 0x45, 0x42, 0x50]
-        {
-            mime_type = "image/webp".to_string();
         }
-        println!("DEBUG: Detected MIME type: {}", mime_type);
     } else {
         // Standard Processing Path (Resize + Convert to PNG)
         let mut final_image = image;
@@ -213,25 +251,21 @@ where
             .map_err(|e| anyhow::anyhow!("Failed to parse QR response: {}", e))?;
 
         // Response format: [{"type":"qrcode","symbol":[{"seq":0,"data":"content","error":null}]}]
-        if let Some(first) = json.as_array().and_then(|a| a.first()) {
-            if let Some(symbols) = first.get("symbol").and_then(|s| s.as_array()) {
-                if let Some(first_symbol) = symbols.first() {
-                    if let Some(data) = first_symbol.get("data").and_then(|d| d.as_str()) {
-                        if !data.is_empty() {
+        if let Some(first) = json.as_array().and_then(|a| a.first())
+            && let Some(symbols) = first.get("symbol").and_then(|s| s.as_array())
+                && let Some(first_symbol) = symbols.first() {
+                    if let Some(data) = first_symbol.get("data").and_then(|d| d.as_str())
+                        && !data.is_empty() {
                             full_content = data.to_string();
                             on_chunk(&full_content);
                             return Ok(full_content);
                         }
-                    }
                     // Check for error
-                    if let Some(error) = first_symbol.get("error").and_then(|e| e.as_str()) {
-                        if !error.is_empty() {
+                    if let Some(error) = first_symbol.get("error").and_then(|e| e.as_str())
+                        && !error.is_empty() {
                             return Err(anyhow::anyhow!("QR_NOT_FOUND: {}", error));
                         }
-                    }
                 }
-            }
-        }
 
         return Err(anyhow::anyhow!(
             "QR_NOT_FOUND: No QR code detected in image"
@@ -321,24 +355,21 @@ where
             let locale = LocaleText::get(&ui_language);
 
             for line in reader.lines() {
-                if let Some(ref ct) = cancel_token {
-                    if ct.load(Ordering::Relaxed) {
+                if let Some(ref ct) = cancel_token
+                    && ct.load(Ordering::Relaxed) {
                         return Err(anyhow::anyhow!("Cancelled"));
                     }
-                }
                 let line = line.map_err(|e| anyhow::anyhow!("Failed to read line: {}", e))?;
-                if line.starts_with("data: ") {
-                    let json_str = &line["data: ".len()..];
+                if let Some(json_str) = line.strip_prefix("data: ") {
                     if json_str.trim() == "[DONE]" {
                         break;
                     }
 
-                    if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str) {
-                        if let Some(candidates) =
+                    if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str)
+                        && let Some(candidates) =
                             chunk_resp.get("candidates").and_then(|c| c.as_array())
-                        {
-                            if let Some(first_candidate) = candidates.first() {
-                                if let Some(parts) = first_candidate
+                            && let Some(first_candidate) = candidates.first()
+                                && let Some(parts) = first_candidate
                                     .get("content")
                                     .and_then(|c| c.get("parts"))
                                     .and_then(|p| p.as_array())
@@ -378,9 +409,6 @@ where
                                         }
                                     }
                                 }
-                            }
-                        }
-                    }
                 }
             }
         } else {
@@ -389,9 +417,9 @@ where
                 .read_json()
                 .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
 
-            if let Some(candidates) = chat_resp.get("candidates").and_then(|c| c.as_array()) {
-                if let Some(first_choice) = candidates.first() {
-                    if let Some(parts) = first_choice
+            if let Some(candidates) = chat_resp.get("candidates").and_then(|c| c.as_array())
+                && let Some(first_choice) = candidates.first()
+                    && let Some(parts) = first_choice
                         .get("content")
                         .and_then(|c| c.get("parts"))
                         .and_then(|p| p.as_array())
@@ -407,8 +435,6 @@ where
 
                         on_chunk(&full_content);
                     }
-                }
-            }
         }
     } else if provider == "openrouter" {
         // --- OPENROUTER API ---
@@ -458,14 +484,12 @@ where
             let locale = LocaleText::get(&ui_language);
 
             for line in reader.lines() {
-                if let Some(ref ct) = cancel_token {
-                    if ct.load(Ordering::Relaxed) {
+                if let Some(ref ct) = cancel_token
+                    && ct.load(Ordering::Relaxed) {
                         return Err(anyhow::anyhow!("Cancelled"));
                     }
-                }
                 let line = line?;
-                if line.starts_with("data: ") {
-                    let data = &line[6..];
+                if let Some(data) = line.strip_prefix("data: ") {
                     if data == "[DONE]" {
                         break;
                     }
@@ -475,7 +499,7 @@ where
                             // Check for reasoning tokens (thinking phase)
                             if let Some(reasoning) = chunk
                                 .choices
-                                .get(0)
+                                .first()
                                 .and_then(|c| c.delta.reasoning.as_ref())
                                 .filter(|s| !s.is_empty())
                             {
@@ -489,7 +513,7 @@ where
                             // Check for content tokens (final result)
                             if let Some(content) = chunk
                                 .choices
-                                .get(0)
+                                .first()
                                 .and_then(|c| c.delta.content.as_ref())
                                 .filter(|s| !s.is_empty())
                             {
@@ -597,16 +621,13 @@ where
         if streaming_enabled {
             let reader = BufReader::new(resp.into_body().into_reader());
             for line in reader.lines() {
-                if let Some(ref ct) = cancel_token {
-                    if ct.load(Ordering::Relaxed) {
+                if let Some(ref ct) = cancel_token
+                    && ct.load(Ordering::Relaxed) {
                         return Err(anyhow::anyhow!("Cancelled"));
                     }
-                }
                 let line = line?;
 
-                if line.starts_with("data: ") {
-                    let data = &line[6..];
-
+                if let Some(data) = line.strip_prefix("data: ") {
                     if data == "[DONE]" {
                         break;
                     }
@@ -614,7 +635,7 @@ where
                     match serde_json::from_str::<StreamChunk>(data) {
                         Ok(chunk) => {
                             if let Some(content) =
-                                chunk.choices.get(0).and_then(|c| c.delta.content.as_ref())
+                                chunk.choices.first().and_then(|c| c.delta.content.as_ref())
                             {
                                 full_content.push_str(content);
                                 on_chunk(content);

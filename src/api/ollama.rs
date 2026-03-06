@@ -179,12 +179,11 @@ where
             match serde_json::from_str::<OllamaStreamChunk>(&line) {
                 Ok(chunk) => {
                     // Handle thinking tokens (qwen3 and similar models)
-                    if let Some(thinking) = &chunk.thinking {
-                        if !thinking.is_empty() && !thinking_shown && !content_started {
+                    if let Some(thinking) = &chunk.thinking
+                        && !thinking.is_empty() && !thinking_shown && !content_started {
                             on_chunk(locale.model_thinking);
                             thinking_shown = true;
                         }
-                    }
 
                     // Handle response content
                     if !chunk.response.is_empty() {
@@ -271,12 +270,11 @@ where
             match serde_json::from_str::<OllamaStreamChunk>(&line) {
                 Ok(chunk) => {
                     // Handle thinking tokens
-                    if let Some(thinking) = &chunk.thinking {
-                        if !thinking.is_empty() && !thinking_shown && !content_started {
+                    if let Some(thinking) = &chunk.thinking
+                        && !thinking.is_empty() && !thinking_shown && !content_started {
                             on_chunk(locale.model_thinking);
                             thinking_shown = true;
                         }
-                    }
 
                     // Handle response content
                     if !chunk.response.is_empty() {

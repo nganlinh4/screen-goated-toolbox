@@ -4,11 +4,11 @@
 // Display capture uses the system yellow border (DrawBorderSettings::Default).
 // Window capture uses this custom blue overlay for a distinct visual indicator.
 
-use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Once;
+use std::sync::atomic::{AtomicIsize, Ordering};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, CreateSolidBrush, DeleteObject, EndPaint, FillRect, InvalidateRect, HBRUSH,
+    BeginPaint, CreateSolidBrush, DeleteObject, EndPaint, FillRect, HBRUSH, InvalidateRect,
     PAINTSTRUCT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -31,7 +31,7 @@ unsafe extern "system" fn border_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_PAINT => {
             let mut ps = PAINTSTRUCT::default();
@@ -111,7 +111,7 @@ unsafe extern "system" fn border_wnd_proc(
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}
 
 /// Show a blue recording border around the given screen rect.
 /// Spawns a background thread that owns the window and its message loop.

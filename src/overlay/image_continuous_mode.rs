@@ -188,13 +188,15 @@ fn overlay_thread_entry() {
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = windows::core::w!("SGT_ImageContinuousOverlay");
 
-        let mut wc = WNDCLASSEXW::default();
-        wc.cbSize = std::mem::size_of::<WNDCLASSEXW>() as u32;
-        wc.lpfnWndProc = Some(rect_overlay_wnd_proc);
-        wc.hInstance = instance.into();
-        wc.lpszClassName = class_name;
-        wc.hCursor = LoadCursorW(None, IDC_CROSS).unwrap();
-        wc.style = CS_HREDRAW | CS_VREDRAW;
+        let wc = WNDCLASSEXW {
+            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+            lpfnWndProc: Some(rect_overlay_wnd_proc),
+            hInstance: instance.into(),
+            lpszClassName: class_name,
+            hCursor: LoadCursorW(None, IDC_CROSS).unwrap(),
+            style: CS_HREDRAW | CS_VREDRAW,
+            ..Default::default()
+        };
         let _ = RegisterClassExW(&wc);
 
         let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -281,7 +283,7 @@ fn overlay_thread_entry() {
 
 // === HOOK PROCS ===
 
-unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT { unsafe {
     if code < 0 {
         return CallNextHookEx(None, code, wparam, lparam);
     }
@@ -305,15 +307,15 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: 
             exit();
             return LRESULT(1);
         }
-    } else if wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize {
-        if vk == TRIGGER_VK.load(Ordering::SeqCst) {
-            HAS_RELEASED_SINCE_ACTIVATION.store(true, Ordering::SeqCst);
-        }
+    } else if (wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize)
+        && vk == TRIGGER_VK.load(Ordering::SeqCst)
+    {
+        HAS_RELEASED_SINCE_ACTIVATION.store(true, Ordering::SeqCst);
     }
     CallNextHookEx(None, code, wparam, lparam)
-}
+}}
 
-unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT { unsafe {
     if code < 0 {
         return CallNextHookEx(None, code, wparam, lparam);
     }
@@ -385,9 +387,7 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                 // Trigger fade-out animation
                 let hwnd_val = RECT_OVERLAY_HWND.load(Ordering::SeqCst);
                 if hwnd_val != 0 {
-                    unsafe {
-                        SetTimer(Some(HWND(hwnd_val as *mut _)), DIM_TIMER_ID, 16, None);
-                    }
+                    SetTimer(Some(HWND(hwnd_val as *mut _)), DIM_TIMER_ID, 16, None);
                 }
 
                 reset_magnification();
@@ -430,11 +430,11 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
     }
 
     CallNextHookEx(None, code, wparam, lparam)
-}
+}}
 
 // === LOGIC ===
 
-unsafe fn handle_color_pick(pt: POINT) {
+unsafe fn handle_color_pick(pt: POINT) { unsafe {
     let capture_guard = GESTURE_CAPTURE.lock().unwrap();
     if let Some(capture) = capture_guard.as_ref() {
         let hdc_screen = GetDC(None);
@@ -458,7 +458,7 @@ unsafe fn handle_color_pick(pt: POINT) {
         crate::overlay::utils::copy_to_clipboard(&hex, HWND::default());
         crate::overlay::auto_copy_badge::show_auto_copy_badge_text(&hex);
     }
-}
+}}
 
 fn handle_region_capture(start_x: i32, start_y: i32, end_x: i32, end_y: i32) {
     let rect = RECT {
@@ -547,31 +547,39 @@ fn ensure_magnification_initialized() {
         return;
     }
     unsafe {
-        if !MAG_DLL_LOADED {
-            if let Ok(lib) = LoadLibraryW(windows::core::w!("Magnification.dll")) {
+        if !MAG_DLL_LOADED
+            && let Ok(lib) = LoadLibraryW(windows::core::w!("Magnification.dll")) {
                 if let Some(init) = GetProcAddress(lib, windows::core::s!("MagInitialize")) {
-                    MAG_INITIALIZE_FN = Some(std::mem::transmute(init));
+                    MAG_INITIALIZE_FN = Some(std::mem::transmute::<
+                        unsafe extern "system" fn() -> isize,
+                        MagInitializeFn,
+                    >(init));
                     if let Some(f) = MAG_INITIALIZE_FN {
                         let _ = f();
                     }
                 }
                 if let Some(u) = GetProcAddress(lib, windows::core::s!("MagUninitialize")) {
-                    MAG_UNINITIALIZE_FN = Some(std::mem::transmute(u));
+                    MAG_UNINITIALIZE_FN = Some(std::mem::transmute::<
+                        unsafe extern "system" fn() -> isize,
+                        MagUninitializeFn,
+                    >(u));
                 }
                 if let Some(s) = GetProcAddress(lib, windows::core::s!("MagSetFullscreenTransform"))
                 {
-                    MAG_SET_FULLSCREEN_TRANSFORM_FN = Some(std::mem::transmute(s));
+                    MAG_SET_FULLSCREEN_TRANSFORM_FN = Some(std::mem::transmute::<
+                        unsafe extern "system" fn() -> isize,
+                        MagSetFullscreenTransformFn,
+                    >(s));
                 }
                 MAG_DLL_LOADED = true;
                 MAG_INITIALIZED.store(true, Ordering::SeqCst);
             }
-        }
     }
 }
 
 // === GRAPHICS ===
 
-unsafe fn capture_screen_now() -> anyhow::Result<GdiCapture> {
+unsafe fn capture_screen_now() -> anyhow::Result<GdiCapture> { unsafe {
     let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
     let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
     let w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
@@ -592,7 +600,7 @@ unsafe fn capture_screen_now() -> anyhow::Result<GdiCapture> {
         width: w,
         height: h,
     })
-}
+}}
 
 /// Darken pixels by dim factor and set alpha to 0xFF.
 /// inv_dim_256 = 256 - dim_alpha (256 = no dim, 0 = full black).
@@ -718,7 +726,7 @@ pub(crate) fn render_frozen_with_selection(
 }
 
 #[allow(static_mut_refs)]
-unsafe fn sync_rect_overlay(hwnd: HWND) {
+unsafe fn sync_rect_overlay(hwnd: HWND) { unsafe {
     let w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     let h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
     let sx = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -914,7 +922,6 @@ unsafe fn sync_rect_overlay(hwnd: HWND) {
         BlendFlags: 0,
         SourceConstantAlpha: 255,
         AlphaFormat: AC_SRC_ALPHA as u8,
-        ..Default::default()
     };
 
     let _ = UpdateLayeredWindow(
@@ -933,14 +940,14 @@ unsafe fn sync_rect_overlay(hwnd: HWND) {
     SelectObject(mem_dc, old_bmp);
     let _ = DeleteDC(mem_dc);
     ReleaseDC(None, hdc_screen);
-}
+}}
 
 unsafe extern "system" fn rect_overlay_wnd_proc(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_TIMER => {
             if wparam.0 == DIM_TIMER_ID {
@@ -978,4 +985,4 @@ unsafe extern "system" fn rect_overlay_wnd_proc(
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}

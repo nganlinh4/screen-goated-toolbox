@@ -42,13 +42,13 @@ pub fn warmup_fonts() {
 
 fn load_gdi_font() {
     unsafe {
-        let mut num_fonts = 0;
+        let num_fonts = 0;
         let len = GOOGLE_SANS_FLEX_TTF.len() as u32;
         let handle = AddFontMemResourceEx(
             GOOGLE_SANS_FLEX_TTF.as_ptr() as *mut _,
             len,
             None,
-            &mut num_fonts,
+            &num_fonts,
         );
 
         if handle.is_invalid() {
@@ -75,10 +75,8 @@ fn start_server() {
                 *guard = Some(url);
             }
 
-            for stream in listener.incoming() {
-                if let Ok(mut stream) = stream {
-                    let _ = handle_request(&mut stream);
-                }
+            for mut stream in listener.incoming().flatten() {
+                let _ = handle_request(&mut stream);
             }
         });
     });
@@ -92,7 +90,7 @@ fn handle_request(stream: &mut std::net::TcpStream) -> std::io::Result<()> {
     // Parse the request line
     let first_line = request.lines().next().unwrap_or("");
     let parts: Vec<&str> = first_line.split_whitespace().collect();
-    let method = parts.get(0).copied().unwrap_or("GET");
+    let method = parts.first().copied().unwrap_or("GET");
     let path = parts.get(1).copied().unwrap_or("/");
 
     // CORS headers for all responses
@@ -177,11 +175,10 @@ fn get_server_url() -> Option<String> {
 
     // Wait for URL to be available (up to 2 seconds)
     for _ in 0..40 {
-        if let Ok(guard) = SERVER_URL.lock() {
-            if let Some(url) = guard.as_ref() {
+        if let Ok(guard) = SERVER_URL.lock()
+            && let Some(url) = guard.as_ref() {
                 return Some(url.clone());
             }
-        }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     None

@@ -26,7 +26,7 @@ pub fn paint_window(hwnd: HWND) {
         // --- PHASE 1: STATE SNAPSHOT & CACHE MANAGEMENT ---
         let state_snapshot = collect_state_snapshot(hwnd, hdc, width, height);
         let Some(state_snapshot) = state_snapshot else {
-            let _ = EndPaint(hwnd, &mut ps);
+            let _ = EndPaint(hwnd, &ps);
             return;
         };
 
@@ -40,7 +40,7 @@ pub fn paint_window(hwnd: HWND) {
                 biHeight: -height,
                 biPlanes: 1,
                 biBitCount: 32,
-                biCompression: BI_RGB.0 as u32,
+                biCompression: BI_RGB.0,
                 ..Default::default()
             },
             ..Default::default()
@@ -96,10 +96,12 @@ pub fn paint_window(hwnd: HWND) {
             if !hbm.is_invalid() {
                 let broom_dc = CreateCompatibleDC(Some(hdc));
                 let old_hbm_broom = SelectObject(broom_dc, hbm.into());
-                let mut bf = BLENDFUNCTION::default();
-                bf.BlendOp = AC_SRC_OVER as u8;
-                bf.SourceConstantAlpha = 255;
-                bf.AlphaFormat = AC_SRC_ALPHA as u8;
+                let bf = BLENDFUNCTION {
+                    BlendOp: AC_SRC_OVER as u8,
+                    BlendFlags: 0,
+                    SourceConstantAlpha: 255,
+                    AlphaFormat: AC_SRC_ALPHA as u8,
+                };
                 let draw_x = bx as i32 - (BROOM_W / 2);
                 let draw_y = by as i32 - (BROOM_H as f32 * 0.65) as i32;
                 let _ = GdiAlphaBlend(
@@ -121,14 +123,13 @@ pub fn paint_window(hwnd: HWND) {
         // Store updated bitmap back
         if !cached_text_bm.is_invalid() {
             let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                if state.content_bitmap != cached_text_bm {
+            if let Some(state) = states.get_mut(&(hwnd.0 as isize))
+                && state.content_bitmap != cached_text_bm {
                     state.content_bitmap = cached_text_bm;
                 }
-            }
         }
 
-        let _ = EndPaint(hwnd, &mut ps);
+        let _ = EndPaint(hwnd, &ps);
     }
 }
 
@@ -155,7 +156,7 @@ unsafe fn collect_state_snapshot(
     hdc: HDC,
     width: i32,
     height: i32,
-) -> Option<StateSnapshot> {
+) -> Option<StateSnapshot> { unsafe {
     let mut states = WINDOW_STATES.lock().unwrap();
     let state = states.get_mut(&(hwnd.0 as isize))?;
 
@@ -172,7 +173,7 @@ unsafe fn collect_state_snapshot(
                 biHeight: -height,
                 biPlanes: 1,
                 biBitCount: 32,
-                biCompression: BI_RGB.0 as u32,
+                biCompression: BI_RGB.0,
                 ..Default::default()
             },
             ..Default::default()
@@ -262,7 +263,7 @@ unsafe fn collect_state_snapshot(
         preset_prompt: state.preset_prompt.clone(),
         input_text: state.input_text.clone(),
     })
-}
+}}
 
 // --- TEXT RENDERING ---
 
@@ -273,7 +274,7 @@ unsafe fn render_text_content(
     width: i32,
     height: i32,
     snapshot: &StateSnapshot,
-) -> HBITMAP {
+) -> HBITMAP { unsafe {
     if snapshot.is_markdown_mode {
         return HBITMAP::default();
     }
@@ -340,7 +341,7 @@ unsafe fn render_text_content(
         let max_possible = if snapshot.is_refining {
             18.min(available_h)
         } else {
-            available_h.max(2).min(150)
+            available_h.clamp(2, 150)
         };
         let mut high = max_possible;
         let mut best_fit = low;
@@ -435,4 +436,4 @@ unsafe fn render_text_content(
     }
 
     cached_text_bm
-}
+}}

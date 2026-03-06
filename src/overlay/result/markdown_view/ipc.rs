@@ -5,8 +5,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 /// Handle IPC messages from markdown WebView
 pub fn handle_markdown_ipc(hwnd: HWND, msg: &str) {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg) {
-        if let Some(action) = json.get("action").and_then(|s| s.as_str()) {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg)
+        && let Some(action) = json.get("action").and_then(|s| s.as_str()) {
             match action {
                 "copy" => {
                     crate::overlay::result::trigger_copy(hwnd);
@@ -34,5 +34,4 @@ pub fn handle_markdown_ipc(hwnd: HWND, msg: &str) {
                 _ => {}
             }
         }
-    }
 }

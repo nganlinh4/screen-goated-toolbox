@@ -2,7 +2,7 @@ use super::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus, Up
 use super::utils::{download_file, extract_deno, extract_ffmpeg, log};
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -11,8 +11,7 @@ use super::DownloadManager;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-const FFMPEG_DOWNLOAD_URL: &str =
-    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-win64-gpl-8.0.zip";
+const FFMPEG_DOWNLOAD_URL: &str = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-win64-gpl-8.0.zip";
 const FFMPEG_RELEASE_API_URL: &str =
     "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest";
 const FFMPEG_RELEASE_MARKER_FILE: &str = "ffmpeg_release_source.txt";
@@ -49,16 +48,14 @@ fn fetch_btbn_release_label() -> Result<String, String> {
         .map_err(|e| e.to_string())?;
 
     // Prefer human-friendly release name, fallback to published timestamp.
-    if let Some(name) = extract_json_string_field(&json_str, "name") {
-        if !name.trim().is_empty() {
+    if let Some(name) = extract_json_string_field(&json_str, "name")
+        && !name.trim().is_empty() {
             return Ok(name);
         }
-    }
-    if let Some(published_at) = extract_json_string_field(&json_str, "published_at") {
-        if !published_at.trim().is_empty() {
+    if let Some(published_at) = extract_json_string_field(&json_str, "published_at")
+        && !published_at.trim().is_empty() {
             return Ok(published_at);
         }
-    }
 
     Err("Could not parse BtbN latest release metadata".to_string())
 }
@@ -184,7 +181,7 @@ fn run_ytdlp_download_attempt(
     #[cfg(target_os = "windows")]
     cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
-    log(&logs, format!("Running yt-dlp ({})...", attempt_label));
+    log(logs, format!("Running yt-dlp ({})...", attempt_label));
 
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
     let stdout = child
@@ -204,144 +201,133 @@ fn run_ytdlp_download_attempt(
 
     let stdout_thread = thread::spawn(move || {
         let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            if let Ok(l) = line {
-                if l.contains("[download]") && l.contains("%") {
-                    if let Some(start) = l.find("%") {
-                        let substr = &l[..start];
-                        if let Some(space) = substr.rfind(' ') {
-                            if let Ok(p) = substr[space + 1..].parse::<f32>() {
-                                let parts: Vec<&str> = l.split_whitespace().collect();
+        for l in reader.lines().map_while(Result::ok) {
+            if l.contains("[download]") && l.contains("%")
+                && let Some(start) = l.find("%") {
+                    let substr = &l[..start];
+                    if let Some(space) = substr.rfind(' ')
+                        && let Ok(p) = substr[space + 1..].parse::<f32>() {
+                            let parts: Vec<&str> = l.split_whitespace().collect();
 
-                                let mut p_val = None;
-                                let mut t_val = None;
-                                let mut s_val = None;
-                                let mut e_val = None;
+                            let mut p_val = None;
+                            let mut t_val = None;
+                            let mut s_val = None;
+                            let mut e_val = None;
 
-                                for (i, part) in parts.iter().enumerate() {
-                                    if part.contains("%") {
-                                        p_val = Some(part.trim_end_matches('%'));
-                                    } else if *part == "of" && i + 1 < parts.len() {
-                                        let val = parts[i + 1];
-                                        if val != "Unknown" && val != "N/A" {
-                                            t_val = Some(val);
-                                        }
-                                    } else if *part == "at" && i + 1 < parts.len() {
-                                        let val = parts[i + 1];
-                                        if val != "Unknown" && val != "N/A" {
-                                            s_val = Some(val);
-                                        }
-                                    } else if *part == "ETA" && i + 1 < parts.len() {
-                                        let val = parts[i + 1];
-                                        if val != "Unknown" && val != "N/A" {
-                                            e_val = Some(val);
-                                        }
+                            for (i, part) in parts.iter().enumerate() {
+                                if part.contains("%") {
+                                    p_val = Some(part.trim_end_matches('%'));
+                                } else if *part == "of" && i + 1 < parts.len() {
+                                    let val = parts[i + 1];
+                                    if val != "Unknown" && val != "N/A" {
+                                        t_val = Some(val);
+                                    }
+                                } else if *part == "at" && i + 1 < parts.len() {
+                                    let val = parts[i + 1];
+                                    if val != "Unknown" && val != "N/A" {
+                                        s_val = Some(val);
+                                    }
+                                } else if *part == "ETA" && i + 1 < parts.len() {
+                                    let val = parts[i + 1];
+                                    if val != "Unknown" && val != "N/A" {
+                                        e_val = Some(val);
                                     }
                                 }
+                            }
 
-                                let fmt_segments: Vec<&str> = fmt_str.split("{}").collect();
-                                let mut status_msg = String::new();
+                            let fmt_segments: Vec<&str> = fmt_str.split("{}").collect();
+                            let mut status_msg = String::new();
 
-                                if let Some(p_str) = p_val {
-                                    if fmt_segments.len() >= 5 {
-                                        status_msg.push_str(fmt_segments[0]);
-                                        status_msg.push_str(p_str);
+                            if let Some(p_str) = p_val {
+                                if fmt_segments.len() >= 5 {
+                                    status_msg.push_str(fmt_segments[0]);
+                                    status_msg.push_str(p_str);
 
-                                        if let Some(t) = t_val {
-                                            status_msg.push_str(fmt_segments[1]);
-                                            status_msg.push_str(t);
-                                        } else {
-                                            status_msg.push_str("%");
-                                        }
-
-                                        if let Some(s) = s_val {
-                                            status_msg.push_str(fmt_segments[2]);
-                                            status_msg.push_str(s);
-                                        }
-
-                                        if let Some(e) = e_val {
-                                            status_msg.push_str(fmt_segments[3]);
-                                            status_msg.push_str(e);
-                                            status_msg.push_str(fmt_segments[4]);
-                                        }
+                                    if let Some(t) = t_val {
+                                        status_msg.push_str(fmt_segments[1]);
+                                        status_msg.push_str(t);
                                     } else {
-                                        status_msg = format!("{}%", p_str);
+                                        status_msg.push('%');
+                                    }
+
+                                    if let Some(s) = s_val {
+                                        status_msg.push_str(fmt_segments[2]);
+                                        status_msg.push_str(s);
+                                    }
+
+                                    if let Some(e) = e_val {
+                                        status_msg.push_str(fmt_segments[3]);
+                                        status_msg.push_str(e);
+                                        status_msg.push_str(fmt_segments[4]);
                                     }
                                 } else {
-                                    status_msg = l.clone();
+                                    status_msg = format!("{}%", p_str);
                                 }
-
-                                if let Ok(mut s) = state_clone.lock() {
-                                    *s = DownloadState::Downloading(p / 100.0, status_msg);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if l.contains("Merging formats into \"") {
-                    if let Some(start) = l.find("Merging formats into \"") {
-                        let raw_path = &l[start + "Merging formats into \"".len()..];
-                        let clean_path = raw_path.trim().trim_end_matches('"');
-                        *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_path));
-                    }
-                } else if l.contains("Destination: ") {
-                    if final_filename_clone.lock().unwrap().is_none() {
-                        if let Some(start) = l.find("Destination: ") {
-                            let raw_path = &l[start + "Destination: ".len()..];
-                            let clean_path = raw_path.trim();
-                            if !clean_path.ends_with(".vtt")
-                                && !clean_path.ends_with(".srt")
-                                && !clean_path.ends_with(".ass")
-                                && !clean_path.ends_with(".lrc")
-                            {
-                                *final_filename_clone.lock().unwrap() =
-                                    Some(PathBuf::from(clean_path));
-                            }
-                        }
-                    }
-                } else if l.contains(" has already been downloaded") {
-                    if final_filename_clone.lock().unwrap().is_none() {
-                        if let Some(end) = l.find(" has already been downloaded") {
-                            let start = if let Some(p) = l.find("[download] ") {
-                                p + "[download] ".len()
                             } else {
-                                0
-                            };
-                            if start < end {
-                                let filename = &l[start..end];
-                                let clean_filename = filename.trim();
-                                if !clean_filename.ends_with(".vtt")
-                                    && !clean_filename.ends_with(".srt")
-                                    && !clean_filename.ends_with(".ass")
-                                    && !clean_filename.ends_with(".lrc")
-                                {
-                                    *final_filename_clone.lock().unwrap() =
-                                        Some(PathBuf::from(clean_filename));
-                                }
+                                status_msg = l.clone();
                             }
+
+                            if let Ok(mut s) = state_clone.lock() {
+                                *s = DownloadState::Downloading(p / 100.0, status_msg);
+                            }
+                        }
+                }
+
+            if l.contains("Merging formats into \"") {
+                if let Some(start) = l.find("Merging formats into \"") {
+                    let raw_path = &l[start + "Merging formats into \"".len()..];
+                    let clean_path = raw_path.trim().trim_end_matches('"');
+                    *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_path));
+                }
+            } else if l.contains("Destination: ") {
+                if final_filename_clone.lock().unwrap().is_none()
+                    && let Some(start) = l.find("Destination: ") {
+                        let raw_path = &l[start + "Destination: ".len()..];
+                        let clean_path = raw_path.trim();
+                        if !clean_path.ends_with(".vtt")
+                            && !clean_path.ends_with(".srt")
+                            && !clean_path.ends_with(".ass")
+                            && !clean_path.ends_with(".lrc")
+                        {
+                            *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_path));
+                        }
+                    }
+            } else if l.contains(" has already been downloaded")
+                && final_filename_clone.lock().unwrap().is_none()
+                && let Some(end) = l.find(" has already been downloaded") {
+                    let start = if let Some(p) = l.find("[download] ") {
+                        p + "[download] ".len()
+                    } else {
+                        0
+                    };
+                    if start < end {
+                        let filename = &l[start..end];
+                        let clean_filename = filename.trim();
+                        if !clean_filename.ends_with(".vtt")
+                            && !clean_filename.ends_with(".srt")
+                            && !clean_filename.ends_with(".ass")
+                            && !clean_filename.ends_with(".lrc")
+                        {
+                            *final_filename_clone.lock().unwrap() =
+                                Some(PathBuf::from(clean_filename));
                         }
                     }
                 }
-                if l.contains("[ExtractAudio] Destination: ") {
-                    if let Some(start) = l.find("[ExtractAudio] Destination: ") {
-                        let raw_path = &l[start + "[ExtractAudio] Destination: ".len()..];
-                        let clean_path = raw_path.trim();
-                        *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_path));
-                    }
+            if l.contains("[ExtractAudio] Destination: ")
+                && let Some(start) = l.find("[ExtractAudio] Destination: ") {
+                    let raw_path = &l[start + "[ExtractAudio] Destination: ".len()..];
+                    let clean_path = raw_path.trim();
+                    *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_path));
                 }
-                log(&logs_clone, l);
-            }
+            log(&logs_clone, l);
         }
     });
 
     let logs_clone_err = logs.clone();
     let stderr_thread = thread::spawn(move || {
         let reader = BufReader::new(stderr);
-        for line in reader.lines() {
-            if let Ok(l) = line {
-                log(&logs_clone_err, format!("ERR: {}", l));
-            }
+        for l in reader.lines().map_while(Result::ok) {
+            log(&logs_clone_err, format!("ERR: {}", l));
         }
     });
 
@@ -362,7 +348,7 @@ fn run_ytdlp_download_attempt(
 }
 
 fn check_update_ytdlp_and_prepare_retry(
-    bin_dir: &PathBuf,
+    bin_dir: &Path,
     state: &Arc<Mutex<DownloadState>>,
     logs: &Arc<Mutex<Vec<String>>>,
     ytdlp_status: &Arc<Mutex<InstallStatus>>,
@@ -500,7 +486,7 @@ impl DownloadManager {
             if let Ok(entries) = fs::read_dir(&bin) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if path.extension().map_or(false, |ext| ext == "tmp") {
+                    if path.extension().is_some_and(|ext| ext == "tmp") {
                         let _ = fs::remove_file(&path);
                     }
                 }
@@ -718,21 +704,20 @@ impl DownloadManager {
     pub fn change_download_folder(&mut self) {
         // PowerShell hack to open folder picker
         let mut cmd = std::process::Command::new("powershell");
-        cmd.args(&["-Command", "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.ShowDialog() | Out-Null; $f.SelectedPath"]);
+        cmd.args(["-Command", "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.ShowDialog() | Out-Null; $f.SelectedPath"]);
         #[cfg(windows)]
         cmd.creation_flags(0x08000000);
 
         let output = cmd.output();
 
-        if let Ok(out) = output {
-            if let Ok(path) = String::from_utf8(out.stdout) {
+        if let Ok(out) = output
+            && let Ok(path) = String::from_utf8(out.stdout) {
                 let path = path.trim().to_string();
                 if !path.is_empty() {
                     self.custom_download_path = Some(PathBuf::from(path));
                     self.save_settings();
                 }
             }
-        }
     }
 
     pub fn start_download_ytdlp(&self) {
@@ -1008,15 +993,12 @@ impl DownloadManager {
             log(&logs, format!("Processing URL: {}", url));
             let ytdlp_exe = bin_dir.join("yt-dlp.exe");
 
-            let mut args = Vec::new();
-
-            // Force UTF-8 output to correctly capture filenames with non-ASCII characters
-            args.push("--encoding".to_string());
-            args.push("utf-8".to_string());
-
-            // Point to ffmpeg
-            args.push("--ffmpeg-location".to_string());
-            args.push(bin_dir.to_string_lossy().to_string());
+            let mut args = vec![
+                "--encoding".to_string(),
+                "utf-8".to_string(),
+                "--ffmpeg-location".to_string(),
+                bin_dir.to_string_lossy().to_string(),
+            ];
 
             let deno_path = bin_dir.join("deno.exe");
             if deno_path.exists() {

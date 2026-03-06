@@ -352,7 +352,6 @@ export function drawCursorShape(
     case 'resize-ns-sgtfastfood':
     case 'resize-we-sgtfastfood':
     case 'resize-nwse-sgtfastfood':
-    case 'resize-nesw-sgtfastfood':
     case 'resize-nesw-sgtfastfood': {
       const img = getSgtfastfoodCursorImage(images, effectiveType);
       if (img) drawCenteredCursorImage(ctx, img);
@@ -369,7 +368,6 @@ export function drawCursorShape(
     case 'resize-ns-sgtveggie':
     case 'resize-we-sgtveggie':
     case 'resize-nwse-sgtveggie':
-    case 'resize-nesw-sgtveggie':
     case 'resize-nesw-sgtveggie': {
       const img = getSgtveggieCursorImage(images, effectiveType);
       if (img) drawCenteredCursorImage(ctx, img);
@@ -386,7 +384,6 @@ export function drawCursorShape(
     case 'resize-ns-sgtvietnam':
     case 'resize-we-sgtvietnam':
     case 'resize-nwse-sgtvietnam':
-    case 'resize-nesw-sgtvietnam':
     case 'resize-nesw-sgtvietnam': {
       const img = getSgtvietnamCursorImage(images, effectiveType);
       if (img) drawCenteredCursorImage(ctx, img);
@@ -403,7 +400,6 @@ export function drawCursorShape(
     case 'resize-ns-sgtkorea':
     case 'resize-we-sgtkorea':
     case 'resize-nwse-sgtkorea':
-    case 'resize-nesw-sgtkorea':
     case 'resize-nesw-sgtkorea': {
       const img = getSgtkoreaCursorImage(images, effectiveType);
       if (img) drawCenteredCursorImage(ctx, img);

@@ -56,7 +56,9 @@ pub fn unpack_dlls() {
     // Add to PATH so child processes (like WebView2 helpers) can also find them
     if let Ok(current_path) = std::env::var("PATH") {
         let new_path = format!("{};{}", bin_dir.to_string_lossy(), current_path);
-        std::env::set_var("PATH", new_path);
+        unsafe {
+            std::env::set_var("PATH", new_path);
+        }
     }
 
     crate::log_info!("[Unpacker] DLLs verified/unpacked to {:?}", bin_dir);

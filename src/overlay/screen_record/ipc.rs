@@ -183,10 +183,9 @@ fn capture_window_thumbnail(hwnd: HWND) -> Option<String> {
             std::mem::size_of::<RECT>() as u32,
         )
         .is_err()
+            && GetWindowRect(hwnd, &mut rect).is_err()
         {
-            if GetWindowRect(hwnd, &mut rect).is_err() {
-                return None;
-            }
+            return None;
         }
 
         let width = rect.right - rect.left;
@@ -410,10 +409,10 @@ fn capture_window_thumbnail_with_timeout(hwnd: HWND) -> Option<String> {
         let result = capture_window_thumbnail(HWND(hwnd_val as *mut std::ffi::c_void));
         let _ = tx.send(result);
     });
-    match rx.recv_timeout(std::time::Duration::from_millis(500)) {
-        Ok(result) => result,
-        Err(_) => None, // Timed out — target window is likely hung
-    }
+    let result: Option<String> = rx
+        .recv_timeout(std::time::Duration::from_millis(500))
+        .unwrap_or_default();
+    result
 }
 
 fn gather_window_infos() -> Result<Vec<serde_json::Value>, String> {
@@ -1298,12 +1297,11 @@ pub fn handle_ipc_command(
                 if let Ok(hwnd) = FindWindowW(
                     windows::core::w!("HotkeyListenerClass"),
                     windows::core::w!("Listener"),
-                ) {
-                    if !hwnd.is_invalid() {
+                )
+                    && !hwnd.is_invalid() {
                         let _ =
                             PostMessageW(Some(hwnd), WM_UNREGISTER_HOTKEYS, WPARAM(0), LPARAM(0));
                     }
-                }
             }
             Ok(serde_json::Value::Null)
         }
@@ -1312,11 +1310,10 @@ pub fn handle_ipc_command(
                 if let Ok(hwnd) = FindWindowW(
                     windows::core::w!("HotkeyListenerClass"),
                     windows::core::w!("Listener"),
-                ) {
-                    if !hwnd.is_invalid() {
+                )
+                    && !hwnd.is_invalid() {
                         let _ = PostMessageW(Some(hwnd), WM_REGISTER_HOTKEYS, WPARAM(0), LPARAM(0));
                     }
-                }
             }
             Ok(serde_json::Value::Null)
         }
@@ -1614,11 +1611,10 @@ fn trigger_hotkey_reload() {
         if let Ok(hwnd) = FindWindowW(
             windows::core::w!("HotkeyListenerClass"),
             windows::core::w!("Listener"),
-        ) {
-            if !hwnd.is_invalid() {
+        )
+            && !hwnd.is_invalid() {
                 let _ = PostMessageW(Some(hwnd), WM_RELOAD_HOTKEYS, WPARAM(0), LPARAM(0));
             }
-        }
     }
 }
 
@@ -1771,7 +1767,7 @@ pub fn start_global_media_server() -> Result<u16, String> {
             let media_path_str = if let Some(idx) = url.find("?path=") {
                 let encoded = &url[idx + 6..];
                 urlencoding::decode(encoded)
-                    .unwrap_or_else(|_| std::borrow::Cow::Borrowed(""))
+                    .unwrap_or(std::borrow::Cow::Borrowed(""))
                     .into_owned()
             } else {
                 String::new()
@@ -1823,21 +1819,18 @@ pub fn start_global_media_server() -> Result<u16, String> {
                     .headers()
                     .iter()
                     .find(|h| h.field.as_str() == "Range")
-                {
-                    if let Some(r) = range.value.as_str().strip_prefix("bytes=") {
+                    && let Some(r) = range.value.as_str().strip_prefix("bytes=") {
                         let parts: Vec<&str> = r.split('-').collect();
                         if parts.len() == 2 {
                             if let Ok(s) = parts[0].parse::<u64>() {
                                 start = s;
                             }
-                            if let Ok(e) = parts[1].parse::<u64>() {
-                                if !parts[1].is_empty() {
+                            if let Ok(e) = parts[1].parse::<u64>()
+                                && !parts[1].is_empty() {
                                     end = e;
                                 }
-                            }
                         }
                     }
-                }
 
                 if let Ok(mut f) = File::open(media_path) {
                     let _ = f.seek(std::io::SeekFrom::Start(start));

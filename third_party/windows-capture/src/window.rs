@@ -155,7 +155,7 @@ impl Window {
         unsafe { GetWindowThreadProcessId(self.window, Some(&mut id)) };
 
         if id == 0 {
-            return Err(windows::core::Error::from_win32().into());
+            return Err(windows::core::Error::from_thread().into());
         }
 
         Ok(id)
@@ -180,7 +180,7 @@ impl Window {
         let size = unsafe { GetModuleBaseNameW(*process, None, &mut name) };
 
         if size == 0 {
-            return Err(windows::core::Error::from_win32().into());
+            return Err(windows::core::Error::from_thread().into());
         }
 
         let name = String::from_utf16(
@@ -225,7 +225,7 @@ impl Window {
         if result.is_ok() {
             Ok(rect)
         } else {
-            Err(Error::WindowsError(windows::core::Error::from_win32()))
+            Err(Error::WindowsError(windows::core::Error::from_thread()))
         }
     }
 

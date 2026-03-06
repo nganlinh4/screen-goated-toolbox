@@ -16,7 +16,7 @@ pub unsafe extern "system" fn hotkey_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT {
+) -> LRESULT { unsafe {
     match msg {
         WM_APP_PROCESS_PENDING_FILE => {
             handle_pending_file();
@@ -28,7 +28,7 @@ pub unsafe extern "system" fn hotkey_proc(
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
+}}
 
 /// Handle pending file from inter-process communication.
 fn handle_pending_file() {
@@ -51,7 +51,7 @@ fn handle_pending_file() {
 /// Handle a hotkey message.
 fn handle_hotkey(id: i32) {
     // Screen record hotkey
-    if id >= 9900 && id <= 9999 {
+    if (9900..=9999).contains(&id) {
         overlay::screen_record::toggle_recording();
         return;
     }
@@ -190,8 +190,8 @@ fn handle_hotkey(id: i32) {
 
 /// Get preset context information.
 fn get_preset_context(id: i32, preset_idx: usize) -> (String, String, bool, String) {
-    if let Ok(app) = APP.lock() {
-        if preset_idx < app.config.presets.len() {
+    if let Ok(app) = APP.lock()
+        && preset_idx < app.config.presets.len() {
             let p = &app.config.presets[preset_idx];
             let p_type = p.preset_type.clone();
             let t_mode = p.text_input_mode.clone();
@@ -215,7 +215,6 @@ fn get_preset_context(id: i32, preset_idx: usize) -> (String, String, bool, Stri
 
             return (p_type, t_mode, stopping, hk_name);
         }
-    }
     (
         "image".to_string(),
         "select".to_string(),
@@ -250,14 +249,12 @@ fn handle_audio_preset(preset_idx: usize) {
                 overlay::show_realtime_overlay(preset_idx);
             });
         }
+    } else if overlay::is_recording_overlay_active() {
+        overlay::stop_recording_and_submit();
     } else {
-        if overlay::is_recording_overlay_active() {
-            overlay::stop_recording_and_submit();
-        } else {
-            std::thread::spawn(move || {
-                overlay::show_recording_overlay(preset_idx);
-            });
-        }
+        std::thread::spawn(move || {
+            overlay::show_recording_overlay(preset_idx);
+        });
     }
 }
 
@@ -305,7 +302,6 @@ fn handle_text_select_mode(preset_idx: usize, hotkey_name: &str, just_activated_
                         }
                     });
                 }
-                return;
             } else {
                 // Don't toggle off while the preset wheel is showing (e.g. master preset
                 // triggered processing which opened the wheel — key repeat gaps would
@@ -315,7 +311,6 @@ fn handle_text_select_mode(preset_idx: usize, hotkey_name: &str, just_activated_
                 }
                 crate::log_info!("[TextHotkey] Toggle OFF - cancelling text selection");
                 overlay::text_selection::cancel_selection();
-                return;
             }
         } else {
             if !overlay::continuous_mode::is_active() {
@@ -365,18 +360,15 @@ fn handle_text_select_mode(preset_idx: usize, hotkey_name: &str, just_activated_
                 );
             }
             overlay::continuous_mode::update_last_trigger_time();
-            return;
         }
     } else if overlay::text_selection::is_warming_up() {
         crate::log_info!("[TextHotkey] Warming up - waiting");
         overlay::continuous_mode::update_last_trigger_time();
-        return;
     } else if overlay::continuous_mode::is_active()
         && !just_activated_continuous
         && !overlay::image_continuous_mode::is_active()
     {
         overlay::continuous_mode::update_last_trigger_time();
-        return;
     } else {
         let is_proc = overlay::text_selection::is_processing();
         crate::log_info!("[TextHotkey] is_processing={}", is_proc);
@@ -404,34 +396,32 @@ fn handle_text_type_mode(preset_idx: usize, hotkey_name: &str) {
 
     if overlay::text_input::is_active() {
         overlay::text_input::cancel_input();
-    } else {
-        if let Ok(app) = APP.lock() {
-            let config = app.config.clone();
-            let preset = config.presets[preset_idx].clone();
-            let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-            let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-            let center_rect = RECT {
-                left: (screen_w - 700) / 2,
-                top: (screen_h - 300) / 2,
-                right: (screen_w + 700) / 2,
-                bottom: (screen_h + 300) / 2,
-            };
+    } else if let Ok(app) = APP.lock() {
+        let config = app.config.clone();
+        let preset = config.presets[preset_idx].clone();
+        let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+        let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+        let center_rect = RECT {
+            left: (screen_w - 700) / 2,
+            top: (screen_h - 300) / 2,
+            right: (screen_w + 700) / 2,
+            bottom: (screen_h + 300) / 2,
+        };
 
-            let localized_name =
-                crate::gui::settings_ui::get_localized_preset_name(&preset.id, &config.ui_language);
+        let localized_name =
+            crate::gui::settings_ui::get_localized_preset_name(&preset.id, &config.ui_language);
 
-            let hotkey_name_clone = hotkey_name.to_string();
-            std::thread::spawn(move || {
-                overlay::process::start_text_processing(
-                    String::new(),
-                    center_rect,
-                    config,
-                    preset,
-                    localized_name,
-                    hotkey_name_clone,
-                );
-            });
-        }
+        let hotkey_name_clone = hotkey_name.to_string();
+        std::thread::spawn(move || {
+            overlay::process::start_text_processing(
+                String::new(),
+                center_rect,
+                config,
+                preset,
+                localized_name,
+                hotkey_name_clone,
+            );
+        });
     }
 }
 

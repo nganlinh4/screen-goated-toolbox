@@ -58,12 +58,12 @@ lazy_static::lazy_static! {
 /// For non-image presets, uses the saved window_geometry from the preset.
 /// Returns the original rect if no saved geometry exists or if it's an image preset.
 pub fn get_rect_with_saved_geometry(preset_id: &str, original_rect: RECT) -> RECT {
-    if let Ok(app) = crate::APP.lock() {
-        if let Some(preset) = app.config.presets.iter().find(|p| p.id == preset_id) {
+    if let Ok(app) = crate::APP.lock()
+        && let Some(preset) = app.config.presets.iter().find(|p| p.id == preset_id) {
             // Only apply saved geometry for non-image presets
             let is_image_category = preset.preset_type == "image";
-            if !is_image_category {
-                if let Some(geom) = &preset.window_geometry {
+            if !is_image_category
+                && let Some(geom) = &preset.window_geometry {
                     return RECT {
                         left: geom.x,
                         top: geom.y,
@@ -71,9 +71,7 @@ pub fn get_rect_with_saved_geometry(preset_id: &str, original_rect: RECT) -> REC
                         bottom: geom.y + geom.height,
                     };
                 }
-            }
         }
-    }
     original_rect
 }
 
@@ -101,8 +99,10 @@ pub fn get_next_window_position_for_chain(chain_id: &str, initial_rect: RECT) ->
 
     let monitor_rect = unsafe {
         let h_monitor = MonitorFromRect(&initial_rect, MONITOR_DEFAULTTONEAREST);
-        let mut mi = MONITORINFO::default();
-        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        let mut mi = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
         if GetMonitorInfoW(h_monitor, &mut mi).as_bool() {
             mi.rcMonitor
         } else {

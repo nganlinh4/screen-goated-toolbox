@@ -85,19 +85,20 @@ fn get_cursor_pack(bg: Option<&BackgroundConfig>) -> &str {
         return p.as_str();
     }
     // Fallback: infer from per-type variants
-    for variant_field in [
+    for v in [
         b.cursor_default_variant.as_deref(),
         b.cursor_text_variant.as_deref(),
         b.cursor_pointer_variant.as_deref(),
         b.cursor_open_hand_variant.as_deref(),
-    ] {
-        if let Some(v) = variant_field {
-            match v {
-                "jepriwin11" | "sgtpixel" | "sgtai" | "sgtcool" | "sgtcute" | "macos26"
-                | "sgtwatermelon" | "sgtfastfood" | "sgtveggie" | "sgtvietnam" | "sgtkorea"
-                | "screenstudio" => return v,
-                _ => {}
-            }
+    ]
+    .into_iter()
+    .flatten()
+    {
+        match v {
+            "jepriwin11" | "sgtpixel" | "sgtai" | "sgtcool" | "sgtcute" | "macos26"
+            | "sgtwatermelon" | "sgtfastfood" | "sgtveggie" | "sgtvietnam" | "sgtkorea"
+            | "screenstudio" => return v,
+            _ => {}
         }
     }
     "screenstudio"
@@ -431,11 +432,12 @@ fn smooth_mouse_positions(positions: &[MousePosition], bg: Option<&BackgroundCon
             let mut sum_x = 0.0_f64;
             let mut sum_y = 0.0_f64;
             let mut total_w = 0.0_f64;
-            for j in j_start..=j_end {
+            for (offset, point) in current[j_start..=j_end].iter().enumerate() {
+                let j = j_start + offset;
                 let dist = (i as isize - j as isize).unsigned_abs() as f64;
                 let w = (-dist * (0.5 / window_size as f64)).exp();
-                sum_x += current[j].x * w;
-                sum_y += current[j].y * w;
+                sum_x += point.x * w;
+                sum_y += point.y * w;
                 total_w += w;
             }
             pass.push(Pos {

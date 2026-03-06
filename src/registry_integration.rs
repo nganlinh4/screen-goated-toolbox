@@ -80,14 +80,12 @@ pub fn ensure_context_menu_entry() {
     }
 
     // 1. Remove the old global entry if it exists (Cleanup)
-    if let Ok(classes) = hkcu.open_subkey("Software\\Classes") {
-        if let Ok(star) = classes.open_subkey("*") {
-            if let Ok(shell) = star.open_subkey("shell") {
+    if let Ok(classes) = hkcu.open_subkey("Software\\Classes")
+        && let Ok(star) = classes.open_subkey("*")
+            && let Ok(shell) = star.open_subkey("shell") {
                 let _ = shell.delete_subkey_all("SGT_Process");
                 let _ = shell.delete_subkey_all("Process with SGT");
             }
-        }
-    }
 
     // 2. Register for specific extensions AND Perceived Types via SystemFileAssociations
     // Path: HKCU\Software\Classes\SystemFileAssociations\<Key>\shell\SGT_Process

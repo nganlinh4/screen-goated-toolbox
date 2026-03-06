@@ -103,8 +103,8 @@ impl eframe::App for SettingsApp {
 
         // Render Splash Overlay (Last Last)
         // Note: Splash remains visible during its exit animation, covering the UI.
-        if let Some(splash) = &self.splash {
-            if splash.paint(ctx, &self.config.theme_mode) {
+        if let Some(splash) = &self.splash
+            && splash.paint(ctx, &self.config.theme_mode) {
                 let is_currently_dark = ctx.style().visuals.dark_mode;
                 self.config.theme_mode = if is_currently_dark {
                     crate::config::ThemeMode::Light
@@ -113,7 +113,6 @@ impl eframe::App for SettingsApp {
                 };
                 self.save_and_sync();
             }
-        }
 
         // Render Drop Overlay when dragging files (Very Last)
         if self.startup_stage >= 37 {

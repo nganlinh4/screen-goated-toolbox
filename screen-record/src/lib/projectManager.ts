@@ -165,10 +165,11 @@ class ProjectManager {
     if (updates.videoBlob) {
       await this.saveVideoBlob(id, updates.videoBlob);
     }
-    if (updates.audioBlob) {
-      await this.saveAudioBlob(id, updates.audioBlob);
+    if ('audioBlob' in updates) {
+      if (updates.audioBlob) await this.saveAudioBlob(id, updates.audioBlob);
+      else await this.deleteAudioBlob(id);
     }
-    if (updates.mousePositions && updates.mousePositions.length > 0) {
+    if (Array.isArray(updates.mousePositions)) {
       await this.saveMouseData(id, updates.mousePositions);
     }
     if (updates.segment) {
@@ -178,9 +179,10 @@ class ProjectManager {
       if (updates.thumbnail) await this.saveThumbnailData(id, updates.thumbnail);
       else await this.deleteThumbnailData(id);
     }
-    if (updates.backgroundConfig?.customBackground !== undefined) {
-      if (updates.backgroundConfig.customBackground) {
-        await this.saveCustomBackgroundData(id, updates.backgroundConfig.customBackground);
+    if ('backgroundConfig' in updates) {
+      const customBackground = updates.backgroundConfig?.customBackground;
+      if (typeof customBackground === 'string' && customBackground.length > 0) {
+        await this.saveCustomBackgroundData(id, customBackground);
       } else {
         await this.deleteCustomBackgroundData(id);
       }
