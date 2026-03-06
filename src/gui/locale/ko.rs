@@ -373,8 +373,8 @@ pub fn get() -> LocaleText {
         help_assistant_hint: "SGT 사용법에 대한 질문을 입력하고 Enter 또는 질문 버튼을 누르세요",
         prompt_dj_btn: "DJ 되기",
         prompt_dj_title: "SGT DJ - DJ 되기",
-        screen_record_btn: "화면 녹화 (beta)",
-        screen_record_title: "Screen Record - 화면 녹화 (beta)",
+        screen_record_btn: "화면 녹화",
+        screen_record_title: "Screen Record - 화면 녹화",
         pointer_gallery_btn: "포인터 갤러리",
         // --- PARAKEET DOWNLOAD MODAL KO ---
         parakeet_downloading_title: "Parakeet 모델 다운로드 중 (0.6 GB)",

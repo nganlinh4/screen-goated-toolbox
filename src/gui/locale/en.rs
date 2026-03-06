@@ -278,8 +278,8 @@ pub fn get() -> LocaleText {
         help_assistant_hint: "Enter a question about using SGT and press Enter or click Ask",
         prompt_dj_btn: "Be a DJ",
         prompt_dj_title: "SGT DJ - Be a DJ",
-        screen_record_btn: "Record Screen (beta)",
-        screen_record_title: "Screen Record (beta)",
+        screen_record_btn: "Record Screen",
+        screen_record_title: "Screen Record",
         pointer_gallery_btn: "Pointer Gallery",
         // --- PARAKEET DOWNLOAD MODAL EN ---
         parakeet_downloading_title: "Downloading Parakeet (0.6 GB)",
