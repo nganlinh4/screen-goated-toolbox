@@ -285,7 +285,7 @@ fn default_screen_record_hotkeys() -> Vec<Hotkey> {
 }
 
 fn default_screen_record_window_size() -> (i32, i32) {
-    (1300, 850)
+    (1450, 850)
 }
 
 // ============================================================================
