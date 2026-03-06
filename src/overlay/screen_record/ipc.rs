@@ -4,7 +4,8 @@
 use super::bg_download;
 use super::engine::{
     get_monitors, CaptureHandler, ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, CAPTURE_ERROR,
-    ENCODER_ACTIVE, ENCODING_FINISHED, MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH,
+    ENCODER_ACTIVE, ENCODING_FINISHED, LAST_CAPTURE_FRAME_HEIGHT, LAST_CAPTURE_FRAME_WIDTH,
+    MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH,
 };
 use super::input_capture;
 use super::mf_decode;
@@ -882,6 +883,8 @@ pub fn handle_ipc_command(
             SHOULD_STOP.store(false, std::sync::atomic::Ordering::SeqCst);
             super::engine::CURSOR_SIGNATURE_CACHE.lock().clear();
             MOUSE_POSITIONS.lock().clear();
+            LAST_CAPTURE_FRAME_WIDTH.store(0, std::sync::atomic::Ordering::Relaxed);
+            LAST_CAPTURE_FRAME_HEIGHT.store(0, std::sync::atomic::Ordering::Relaxed);
             ACTIVE_CAPTURE_CONTROL.lock().take();
             super::engine::EXTERNAL_CAPTURE_CONTROL.lock().take();
             *CAPTURE_ERROR.lock() = None;

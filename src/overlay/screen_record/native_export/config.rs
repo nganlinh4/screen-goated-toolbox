@@ -83,6 +83,10 @@ pub struct MousePosition {
     pub cursor_type: Option<String>,
     #[serde(rename = "cursor_rotation", default)]
     pub cursor_rotation: Option<f64>,
+    #[serde(rename = "captureWidth", default)]
+    pub capture_width: Option<f64>,
+    #[serde(rename = "captureHeight", default)]
+    pub capture_height: Option<f64>,
 }
 
 /// A cursor visibility segment — time range where the cursor is visible.

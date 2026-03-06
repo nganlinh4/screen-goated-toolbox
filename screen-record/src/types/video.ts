@@ -164,6 +164,8 @@ export interface MousePosition {
   isClicked?: boolean;
   cursor_type?: string;
   cursor_rotation?: number; // radians, tip-anchored tail lag rotation
+  captureWidth?: number;
+  captureHeight?: number;
 }
 
 export interface VideoMetadata {

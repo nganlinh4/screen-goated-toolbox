@@ -333,6 +333,8 @@ export class VideoExporter {
       isClicked: Boolean(position.isClicked),
       cursorType: position.cursor_type ?? '',
       rotation: Math.round((position.cursor_rotation ?? 0) * 10000) / 10000,
+      captureWidth: Math.round((position.captureWidth ?? 0) * 1000) / 1000,
+      captureHeight: Math.round((position.captureHeight ?? 0) * 1000) / 1000,
     })));
   }
 

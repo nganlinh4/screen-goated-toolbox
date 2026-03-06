@@ -55,6 +55,60 @@ impl Drop for ExportActiveGuard {
     }
 }
 
+fn sample_capture_dimensions_at_time(
+    time: f64,
+    mouse_positions: &[config::MousePosition],
+    fallback_width: f64,
+    fallback_height: f64,
+) -> (f64, f64) {
+    let mut prev: Option<&config::MousePosition> = None;
+    let mut next: Option<&config::MousePosition> = None;
+
+    for position in mouse_positions {
+        let has_dims = position
+            .capture_width
+            .zip(position.capture_height)
+            .map(|(w, h)| w.is_finite() && h.is_finite() && w > 1.0 && h > 1.0)
+            .unwrap_or(false);
+        if !has_dims {
+            continue;
+        }
+        if (position.timestamp - time).abs() < 0.001 {
+            return (
+                position.capture_width.unwrap_or(fallback_width).max(1.0),
+                position.capture_height.unwrap_or(fallback_height).max(1.0),
+            );
+        }
+        if position.timestamp <= time {
+            prev = Some(position);
+            continue;
+        }
+        next = Some(position);
+        break;
+    }
+
+    match (prev, next) {
+        (Some(p), Some(n)) => {
+            let dt = (n.timestamp - p.timestamp).max(0.000001);
+            let t = ((time - p.timestamp) / dt).clamp(0.0, 1.0);
+            let pw = p.capture_width.unwrap_or(fallback_width).max(1.0);
+            let ph = p.capture_height.unwrap_or(fallback_height).max(1.0);
+            let nw = n.capture_width.unwrap_or(fallback_width).max(1.0);
+            let nh = n.capture_height.unwrap_or(fallback_height).max(1.0);
+            (pw + (nw - pw) * t, ph + (nh - ph) * t)
+        }
+        (Some(p), None) => (
+            p.capture_width.unwrap_or(fallback_width).max(1.0),
+            p.capture_height.unwrap_or(fallback_height).max(1.0),
+        ),
+        (None, Some(n)) => (
+            n.capture_width.unwrap_or(fallback_width).max(1.0),
+            n.capture_height.unwrap_or(fallback_height).max(1.0),
+        ),
+        (None, None) => (fallback_width.max(1.0), fallback_height.max(1.0)),
+    }
+}
+
 pub fn cancel_export() {
     println!("[Cancel] Setting EXPORT_CANCELLED flag");
     EXPORT_CANCELLED.store(true, Ordering::SeqCst);
@@ -358,6 +412,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         let generated = cursor_path::generate_cursor_path(
             &config.segment,
             &config.mouse_positions,
+            src_w as f64,
+            src_h as f64,
             Some(&config.background_config),
             config.framerate,
         );
@@ -412,18 +468,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let out_h = out_h - (out_h % 2);
 
     let scale_factor = config.background_config.scale / 100.0;
-    let crop_aspect = crop_w as f64 / crop_h as f64;
     let out_aspect = out_w as f64 / out_h as f64;
-
-    let (video_w, video_h) = if crop_aspect > out_aspect {
-        let w = (out_w as f64 * scale_factor) as u32;
-        let h = (w as f64 / crop_aspect) as u32;
-        (w & !1, h & !1)
-    } else {
-        let h = (out_h as f64 * scale_factor) as u32;
-        let w = (h as f64 * crop_aspect) as u32;
-        (w & !1, h & !1)
-    };
 
     // Initialize GPU compositor — background uploaded at native image size later;
     // object-fit: cover is handled in the shader (no CPU pre-scaling needed).
@@ -502,9 +547,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         "[Export] Cursor shadow setting: {}% (normalized {:.3})",
         config.background_config.cursor_shadow, cursor_shadow
     );
-    let size_ratio = (out_w as f64 / crop_w as f64).min(out_h as f64 / crop_h as f64);
-    let vw = video_w as f64;
-    let vh = video_h as f64;
     let ow = out_w as f64;
     let oh = out_h as f64;
     let cw = crop_w as f64;
@@ -520,17 +562,44 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         let (cam_x_raw, cam_y_raw, _) = sample_baked_path(cam_pan_time, &baked_path);
         let (_, _, zoom) = sample_baked_path(cam_zoom_time, &baked_path);
         let cursor_sample = sample_parsed_baked_cursor(cursor_time, &parsed_baked_cursor);
+        let (capture_w, capture_h) = sample_capture_dimensions_at_time(
+            base_time,
+            &config.mouse_positions,
+            src_w as f64,
+            src_h as f64,
+        );
+        let logical_crop_w = if let Some(c) = crop {
+            (capture_w * c.width).max(1.0)
+        } else {
+            capture_w.max(1.0)
+        };
+        let logical_crop_h = if let Some(c) = crop {
+            (capture_h * c.height).max(1.0)
+        } else {
+            capture_h.max(1.0)
+        };
+        let dynamic_crop_aspect = logical_crop_w / logical_crop_h.max(1.0);
+        let (video_w, video_h) = if dynamic_crop_aspect > out_aspect {
+            let w = ow * scale_factor;
+            let h = w / dynamic_crop_aspect;
+            (w.max(1.0), h.max(1.0))
+        } else {
+            let h = oh * scale_factor;
+            let w = h * dynamic_crop_aspect;
+            (w.max(1.0), h.max(1.0))
+        };
+        let size_ratio = (ow / logical_crop_w.max(1.0)).min(oh / logical_crop_h.max(1.0));
 
         let cam_x = cam_x_raw - crop_x_offset;
         let cam_y = cam_y_raw - crop_y_offset;
-        let zvw = vw * zoom;
-        let zvh = vh * zoom;
+        let zvw = video_w * zoom;
+        let zvh = video_h * zoom;
         let rx = (cam_x / cw).clamp(0.0, 1.0);
         let ry = (cam_y / ch).clamp(0.0, 1.0);
         let zsx = (1.0 - zoom) * rx;
         let zsy = (1.0 - zoom) * ry;
-        let bcx = (1.0 - vw / ow) / 2.0 * zoom;
-        let bcy = (1.0 - vh / oh) / 2.0 * zoom;
+        let bcx = (1.0 - video_w / ow) / 2.0 * zoom;
+        let bcy = (1.0 - video_h / oh) / 2.0 * zoom;
         let ox = zsx + bcx;
         let oy = zsy + bcy;
 

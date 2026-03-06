@@ -34,6 +34,12 @@ import {
   drawTextOverlay,
 } from './overlayBaker';
 import type { RenderContext, RenderOptions } from './index';
+import {
+  getContainedRect,
+  getLogicalCropSize,
+  normalizeMousePositionsToVideoSpace,
+  sampleCaptureDimensionsAtTime,
+} from '@/lib/dynamicCapture';
 
 // ---------------------------------------------------------------------------
 // RendererState - all mutable state needed by drawFrame
@@ -76,6 +82,7 @@ export interface RendererState {
   processedCursorPositions: MousePosition[] | null;
   lastMousePositionsRef: MousePosition[] | null;
   lastCursorProcessSignature: string;
+  lastCursorNormalizationSignature: string;
 
   // Methods from VideoRenderer that drawFrame delegates to
   calculateCurrentZoomState: (
@@ -117,18 +124,31 @@ function interpolateCursorPosition(
   currentTime: number,
   mousePositions: MousePosition[],
   state: RendererState,
+  fallbackWidth: number,
+  fallbackHeight: number,
   backgroundConfig?: BackgroundConfig | null,
 ): { x: number; y: number; isClicked: boolean; cursor_type: string; cursor_rotation?: number } | null {
+  const normalizationSignature = `${fallbackWidth}x${fallbackHeight}`;
   const processSignature = getCursorProcessingSignature(backgroundConfig);
 
-  if (state.lastMousePositionsRef !== mousePositions || state.lastCursorProcessSignature !== processSignature) {
+  if (
+    state.lastMousePositionsRef !== mousePositions ||
+    state.lastCursorProcessSignature !== processSignature ||
+    state.lastCursorNormalizationSignature !== normalizationSignature
+  ) {
     state.processedCursorPositions = null;
     state.lastMousePositionsRef = mousePositions;
     state.lastCursorProcessSignature = processSignature;
+    state.lastCursorNormalizationSignature = normalizationSignature;
   }
 
   if (!state.processedCursorPositions && mousePositions.length > 0) {
-    state.processedCursorPositions = processCursorPositions(mousePositions, backgroundConfig);
+    const normalizedMousePositions = normalizeMousePositionsToVideoSpace(
+      mousePositions,
+      fallbackWidth,
+      fallbackHeight
+    );
+    state.processedCursorPositions = processCursorPositions(normalizedMousePositions, backgroundConfig);
   }
 
   const dataToUse = state.processedCursorPositions || mousePositions;
@@ -197,22 +217,29 @@ export async function drawFrame(
   try {
     const legacyCrop = (backgroundConfig.cropBottom || 0) / 100;
     const scale = backgroundConfig.scale / 100;
-
-    const effectiveSrcH = srcH * (1 - legacyCrop);
-    const srcAspect = srcW / effectiveSrcH;
-    const canvasAspect = canvasW / canvasH;
-    let fitW: number, fitH: number;
-    if (srcAspect > canvasAspect) {
-      fitW = canvasW;
-      fitH = canvasW / srcAspect;
-    } else {
-      fitH = canvasH;
-      fitW = canvasH * srcAspect;
-    }
-    const scaledWidth = fitW * scale;
-    const scaledHeight = fitH * scale;
-    const x = (canvasW - scaledWidth) / 2;
-    const y = (canvasH - scaledHeight) / 2;
+    const captureDims = sampleCaptureDimensionsAtTime(
+      video.currentTime,
+      mousePositions,
+      vidW,
+      vidH
+    );
+    const logicalCrop = getLogicalCropSize(
+      captureDims.width,
+      captureDims.height,
+      crop,
+      backgroundConfig.cropBottom || 0
+    );
+    const contained = getContainedRect(
+      canvasW,
+      canvasH,
+      logicalCrop.width,
+      logicalCrop.height,
+      scale
+    );
+    const scaledWidth = contained.width;
+    const scaledHeight = contained.height;
+    const x = contained.left;
+    const y = contained.top;
 
     const zoomState = state.calculateCurrentZoomState(video.currentTime, segment, canvas.width, canvas.height, srcW, srcH);
 
@@ -308,7 +335,14 @@ export async function drawFrame(
 
     // --- Compute cursor state (squish, visibility) once per frame ---
     const cursorTime = video.currentTime + getCursorMovementDelaySec(backgroundConfig);
-    const interpolatedPosition = interpolateCursorPosition(cursorTime, mousePositions, state, backgroundConfig);
+    const interpolatedPosition = interpolateCursorPosition(
+      cursorTime,
+      mousePositions,
+      state,
+      vidW,
+      vidH,
+      backgroundConfig
+    );
     const cursorVis = getCursorVisibility(video.currentTime, segment.cursorVisibilitySegments);
     const shouldRenderCustomCursor = segment.useCustomCursor !== false;
     const showCursor = shouldRenderCustomCursor && interpolatedPosition && cursorVis.opacity > 0.001;
@@ -423,7 +457,10 @@ export async function drawFrame(
     const bgStyle = getBackgroundStyle(ctx, backgroundConfig.backgroundType, state.customBgCache, () => {
       state.requestRedraw();
     }, backgroundConfig.customBackground);
-    const sizeRatio = Math.min(canvas.width / srcW, canvas.height / srcH);
+    const sizeRatio = Math.min(
+      canvas.width / Math.max(1, logicalCrop.width),
+      canvas.height / Math.max(1, logicalCrop.height)
+    );
 
     // Helper: compute cursor screen position for a given cursor + zoom state
     const cursorScreenPos = (
@@ -521,8 +558,8 @@ export async function drawFrame(
       }
       if (blurCursorVal > 0 && shouldRenderCustomCursor && interpolatedPosition) {
         const delay = getCursorMovementDelaySec(backgroundConfig);
-        const c0 = interpolateCursorPosition(t0 + delay, mousePositions, state, backgroundConfig);
-        const c1 = interpolateCursorPosition(t1 + delay, mousePositions, state, backgroundConfig);
+        const c0 = interpolateCursorPosition(t0 + delay, mousePositions, state, vidW, vidH, backgroundConfig);
+        const c1 = interpolateCursorPosition(t1 + delay, mousePositions, state, vidW, vidH, backgroundConfig);
         if (c0 && c1 && Math.hypot(c1.x - c0.x, c1.y - c0.y) > 1.0) cursorMoving = true;
       }
     }
@@ -558,7 +595,7 @@ export async function drawFrame(
         } : zoomState;
 
         const subCur = cursorMoving
-          ? interpolateCursorPosition(cursorSubT, mousePositions, state, backgroundConfig)
+          ? interpolateCursorPosition(cursorSubT, mousePositions, state, vidW, vidH, backgroundConfig)
           : interpolatedPosition;
 
         sCtx.clearRect(0, 0, canvasW, canvasH);
@@ -587,7 +624,7 @@ export async function drawFrame(
       for (let i = 0; i < N; i++) {
         const f = N > 1 ? i / (N - 1) : 0.5;
         const subCursorT = video.currentTime + getCursorMovementDelaySec(backgroundConfig) - (cursorShutterSec / 2) + f * cursorShutterSec;
-        const subCur = interpolateCursorPosition(subCursorT, mousePositions, state, backgroundConfig);
+        const subCur = interpolateCursorPosition(subCursorT, mousePositions, state, vidW, vidH, backgroundConfig);
         if (!subCur) continue;
 
         aCtx.save();
