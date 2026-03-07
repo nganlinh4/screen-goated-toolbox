@@ -42,7 +42,7 @@ const CURSOR_PACK_LABELS: Record<CursorVariant, string> = {
   sgtai: 'SGT AI',
   sgtpixel: 'SGT Pixel',
   jepriwin11: 'Jepri Win11',
-  sgtwatermelon: 'SGT Watermelon',
+  sgtwatermelon: 'SGT W.Melon',
   sgtfastfood: 'SGT Fastfood',
   sgtveggie: 'SGT Veggie',
   sgtvietnam: 'SGT Vietnam',
@@ -283,7 +283,7 @@ export function CursorPanel({
                   <span
                     key={pack}
                     className="cursor-variant-col-label text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-on-surface-variant"
-                    style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 30, 'ROND' 100" }}
+                    style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 100, 'ROND' 100" }}
                   >
                     {CURSOR_PACK_LABELS[pack]}
                   </span>
