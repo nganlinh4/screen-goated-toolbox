@@ -75,6 +75,7 @@ export function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React
   const prewarmedUrlSetRef = useRef<Set<string>>(new Set());
   const prewarmInFlightUrlSetRef = useRef<Set<string>>(new Set());
   const pendingPostDownloadPrewarmRef = useRef(false);
+  const pendingAutoApplyRef = useRef(false);
 
   const ensurePrewarmed = useCallback(async (url: string) => {
     if (prewarmedUrlSetRef.current.has(url)) return;
@@ -158,15 +159,24 @@ export function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React
               void ensurePrewarmed(syncedUrl)
                 .then(() => {
                   pendingPostDownloadPrewarmRef.current = false;
+                  if (pendingAutoApplyRef.current) {
+                    pendingAutoApplyRef.current = false;
+                    setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: syncedUrl }));
+                  }
                 })
                 .catch((e) => {
                   pendingPostDownloadPrewarmRef.current = false;
+                  pendingAutoApplyRef.current = false;
                   console.warn('Failed to prewarm downloaded background after download:', e);
                 });
             }
             const needsPrewarm =
               pendingPostDownloadPrewarmRef.current &&
               (!prewarmedUrlSetRef.current.has(syncedUrl) || prewarmInFlightUrlSetRef.current.has(syncedUrl));
+            if (!needsPrewarm && pendingAutoApplyRef.current) {
+              pendingAutoApplyRef.current = false;
+              setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: syncedUrl }));
+            }
             next = needsPrewarm
               ? { status: 'prewarming' }
               : { status: 'done', ext, version };
@@ -177,6 +187,8 @@ export function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React
       }
 
       setState(prev => {
+        // Don't let polling auto-exit 'prewarming' — selectBg owns that transition
+        if (prev.status === 'prewarming' && next.status === 'done') return prev;
         if (prev.status !== next.status) return next;
         if (prev.status === 'downloading' && next.status === 'downloading' && prev.progress !== next.progress) return next;
         if (prev.status === 'done' && next.status === 'done' && (prev.ext !== next.ext || prev.version !== next.version)) return next;
@@ -191,6 +203,7 @@ export function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React
   const startDownload = useCallback(() => {
     if (state.status === 'downloading') return;
     pendingPostDownloadPrewarmRef.current = true;
+    pendingAutoApplyRef.current = true;
     setState({ status: 'downloading', progress: 0 });
     invoke('start_bg_download', { id: bg.id, url: bg.downloadUrl });
   }, [bg.id, bg.downloadUrl, state.status]);
@@ -204,11 +217,13 @@ export function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React
         await ensurePrewarmed(url);
       } catch (e) {
         console.warn('Failed to prewarm selected downloaded background:', e);
-      } finally {
-        setState({ status: 'done', ext: state.ext, version: state.version });
       }
     }
+    // Apply background while spinner is still visible (state still 'prewarming')
     setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: url }));
+    // Defer spinner dismissal to next tick so background renders before overlay drops
+    const doneExt = state.ext, doneVersion = state.version;
+    setTimeout(() => setState({ status: 'done', ext: doneExt, version: doneVersion }), 0);
   }, [bg.id, ensurePrewarmed, state, setBackgroundConfig]);
 
   const deleteBg = useCallback(async () => {
@@ -258,15 +273,18 @@ function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
 }) {
   const { state, startDownload, selectBg, deleteBg } = useDownloadableBg(bg, setBackgroundConfig);
 
+  const [isApplying, setIsApplying] = useState(false);
   const isDownloaded = state.status === 'done';
   const isDownloading = state.status === 'downloading';
   const isPrewarming = state.status === 'prewarming';
   const progress = isDownloading ? (state as { status: 'downloading'; progress: number }).progress : 0;
-  const overlayOpacity = isDownloaded ? 0 : isDownloading ? Math.max(0.4, 1 - (progress / 100)) : 1;
+  const overlayOpacity = (isDownloaded && !isApplying) ? 0 : isDownloading ? Math.max(0.4, 1 - (progress / 100)) : 1;
 
   const handleClick = () => {
     if (isDownloaded) {
+      setIsApplying(true);
       selectBg();
+      setTimeout(() => setIsApplying(false), 0);
     } else if (state.status === 'idle' || state.status === 'error') {
       startDownload();
     }
@@ -330,7 +348,7 @@ function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
                 />
               </svg>
             </div>
-          ) : isPrewarming ? (
+          ) : (isPrewarming || isApplying) ? (
             <Loader2 className="w-3.5 h-3.5 text-white/85 animate-spin drop-shadow-sm" />
           ) : (
             <Download className="w-3.5 h-3.5 text-white/80 drop-shadow-sm" />
@@ -362,6 +380,12 @@ export function BackgroundPanel({
   isBackgroundUploadProcessing
 }: BackgroundPanelProps) {
   const { t } = useSettings();
+  const [applyingKey, setApplyingKey] = useState<string | null>(null);
+  const applyPreset = (key: string, update: Partial<BackgroundConfig>) => {
+    setApplyingKey(key);
+    setBackgroundConfig(prev => ({ ...prev, ...update }));
+    setTimeout(() => setApplyingKey(null), 0);
+  };
   return (
     <PanelCard className="background-panel">
       <div className="background-controls space-y-3.5">
@@ -385,7 +409,7 @@ export function BackgroundPanel({
         </SettingRow>
         <div className="background-style-field">
           <label className="text-xs font-medium uppercase tracking-wide text-on-surface-variant mb-2 block">{t.backgroundStyle}</label>
-          <div className="background-presets-grid grid grid-cols-6 gap-2">
+          <div className="background-presets-grid grid grid-cols-7 gap-2">
             {/* Upload button */}
             <label className={`background-upload-btn aspect-square h-10 rounded-lg transition-all duration-150 cursor-pointer ring-1 ring-[var(--glass-border)] relative overflow-hidden group bg-glass-bg ${
               isBackgroundUploadProcessing
@@ -404,36 +428,42 @@ export function BackgroundPanel({
 
             {/* Black */}
             <button
-              onClick={() => setBackgroundConfig(prev => ({ ...prev, backgroundType: 'solid' }))}
-              className={`bg-preset-black aspect-square h-10 rounded-lg transition-all duration-150 bg-[#0a0a0a] ${
+              onClick={() => applyPreset('solid', { backgroundType: 'solid' })}
+              className={`bg-preset-black aspect-square h-10 rounded-lg transition-all duration-150 bg-[#0a0a0a] relative overflow-hidden ${
                 backgroundConfig.backgroundType === 'solid'
                   ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
                   : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
               }`}
-            />
+            >
+              {applyingKey === 'solid' && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-3.5 h-3.5 text-white/85 animate-spin drop-shadow-sm" /></div>}
+            </button>
 
             {/* White */}
             <button
-              onClick={() => setBackgroundConfig(prev => ({ ...prev, backgroundType: 'white' }))}
-              className={`bg-preset-white aspect-square h-10 rounded-lg transition-all duration-150 bg-white ${
+              onClick={() => applyPreset('white', { backgroundType: 'white' })}
+              className={`bg-preset-white aspect-square h-10 rounded-lg transition-all duration-150 bg-white relative overflow-hidden ${
                 backgroundConfig.backgroundType === 'white'
                   ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
                   : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
               }`}
-            />
+            >
+              {applyingKey === 'white' && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-3.5 h-3.5 text-gray-500/80 animate-spin drop-shadow-sm" /></div>}
+            </button>
 
             {/* Gradients */}
             {Object.entries(GRADIENT_PRESETS).map(([key, gradient]) => (
               <button
                 key={key}
-                onClick={() => setBackgroundConfig(prev => ({ ...prev, backgroundType: key as BackgroundConfig['backgroundType'] }))}
+                onClick={() => applyPreset(key, { backgroundType: key as BackgroundConfig['backgroundType'] })}
                 style={gradient.style}
-                className={`aspect-square h-10 rounded-lg transition-all duration-150 ${gradient.className ?? ''} ${
+                className={`aspect-square h-10 rounded-lg transition-all duration-150 relative overflow-hidden ${gradient.className ?? ''} ${
                   backgroundConfig.backgroundType === key
                     ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
                     : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
                 }`}
-              />
+              >
+                {applyingKey === key && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-3.5 h-3.5 text-white/85 animate-spin drop-shadow-sm" /></div>}
+              </button>
             ))}
 
             {DOWNLOADABLE_BACKGROUNDS.map(bg => (
@@ -448,7 +478,7 @@ export function BackgroundPanel({
             {recentUploads.map((imageUrl, index) => (
               <button
                 key={index}
-                onClick={() => setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: imageUrl }))}
+                onClick={() => applyPreset(imageUrl, { backgroundType: 'custom', customBackground: imageUrl })}
                 className={`uploaded-bg-btn aspect-square h-10 rounded-lg transition-all duration-150 relative overflow-hidden group ${
                   backgroundConfig.backgroundType === 'custom' && backgroundConfig.customBackground === imageUrl
                     ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
@@ -456,6 +486,7 @@ export function BackgroundPanel({
                 }`}
               >
                 <img src={imageUrl} alt={`Upload ${index + 1}`} className="absolute inset-0 w-full h-full object-cover" />
+                {applyingKey === imageUrl && <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-20"><Loader2 className="w-3.5 h-3.5 text-white/85 animate-spin drop-shadow-sm" /></div>}
                 <div
                   onClick={(e) => {
                     e.preventDefault();
