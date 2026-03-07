@@ -6,7 +6,7 @@ use std::sync::{mpsc, Arc};
 use std::thread::{self, JoinHandle};
 
 use parking_lot::{Condvar, Mutex};
-use windows::core::{Interface, HSTRING};
+use windows::core::{HSTRING, Interface};
 use windows::Foundation::{TimeSpan, TypedEventHandler};
 use windows::Graphics::DirectX::Direct3D11::IDirect3DSurface;
 use windows::Graphics::Imaging::{BitmapAlphaMode, BitmapEncoder, BitmapPixelFormat};
@@ -26,7 +26,7 @@ use windows::Storage::Streams::{
 };
 use windows::Storage::{FileAccessMode, StorageFile};
 use windows::Win32::System::Threading::{
-    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
+    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_HIGHEST,
 };
 
 use crate::d3d11::SendDirectX;
@@ -156,7 +156,10 @@ unsafe impl Sync for VideoEncoderError {}
 
 /// The `VideoEncoderSource` enum represents all the types that can be sent to the encoder.
 pub enum VideoEncoderSource {
-    DirectX(SendDirectX<IDirect3DSurface>),
+    DirectX {
+        surface: SendDirectX<IDirect3DSurface>,
+        release_counter: Option<Arc<AtomicUsize>>,
+    },
 }
 
 /// The `AudioEncoderSource` enum represents all the types that can be sent to the encoder.
@@ -207,6 +210,7 @@ impl FramePump {
         &mut self,
         surface: SendDirectX<IDirect3DSurface>,
         max_pending: usize,
+        release_counter: Option<Arc<AtomicUsize>>,
     ) -> bool {
         // Advance PTS clock unconditionally — even dropped frames must consume
         // their slot in the timeline so video stays in sync with audio/mouse.
@@ -223,10 +227,30 @@ impl FramePump {
             return false;
         }
 
+        if let Some(counter) = release_counter.as_ref() {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
         self.pending_video_frames.fetch_add(1, Ordering::Relaxed);
-        self.frame_sender
-            .send(Some((VideoEncoderSource::DirectX(surface), ts)))
+        let release_counter_for_send = release_counter.clone();
+        if self
+            .frame_sender
+            .send(Some((
+                VideoEncoderSource::DirectX {
+                    surface,
+                    release_counter: release_counter_for_send,
+                },
+                ts,
+            )))
             .is_ok()
+        {
+            true
+        } else {
+            if let Some(counter) = release_counter.as_ref() {
+                saturating_decrement(counter.as_ref());
+            }
+            saturating_decrement(self.pending_video_frames.as_ref());
+            false
+        }
     }
 
     /// Send EOF (None) to both video and audio channels, signaling the MF
@@ -252,6 +276,30 @@ impl FramePump {
 }
 
 unsafe impl Send for FramePump {}
+
+fn create_video_stream_sample(
+    source: VideoEncoderSource,
+    timestamp: TimeSpan,
+) -> Result<(MediaStreamSample, Option<Arc<AtomicUsize>>), windows::core::Error> {
+    match source {
+        VideoEncoderSource::DirectX {
+            surface,
+            release_counter,
+        } => {
+            let sample = match MediaStreamSample::CreateFromDirect3D11Surface(&surface.0, timestamp)
+            {
+                Ok(sample) => sample,
+                Err(error) => {
+                    if let Some(counter) = release_counter.as_ref() {
+                        saturating_decrement(counter.as_ref());
+                    }
+                    return Err(error);
+                }
+            };
+            Ok((sample, release_counter))
+        }
+    }
+}
 
 /// The `VideoSettingsBuilder` struct is used to configure settings for the video encoder.
 pub struct VideoSettingsBuilder {
@@ -786,15 +834,17 @@ impl VideoEncoder {
 
                     match frame {
                         Some((source, timestamp)) => {
-                            let sample = match source {
-                                VideoEncoderSource::DirectX(surface) => {
-                                    MediaStreamSample::CreateFromDirect3D11Surface(
-                                        &surface.0, timestamp,
-                                    )?
+                            let (sample, release_counter) =
+                                create_video_stream_sample(source, timestamp)?;
+                            if let Err(error) = sample_requested.Request()?.SetSample(&sample) {
+                                if let Some(counter) = release_counter.as_ref() {
+                                    saturating_decrement(counter.as_ref());
                                 }
-                            };
-
-                            sample_requested.Request()?.SetSample(&sample)?;
+                                return Err(error);
+                            }
+                            if let Some(counter) = release_counter.as_ref() {
+                                saturating_decrement(counter.as_ref());
+                            }
                         }
                         None => {
                             sample_requested.Request()?.SetSample(None)?;
@@ -839,7 +889,7 @@ impl VideoEncoder {
 
             move || -> Result<(), VideoEncoderError> {
                 unsafe {
-                    let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+                    let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
                 }
                 let result = transcode.TranscodeAsync();
 
@@ -1033,15 +1083,17 @@ impl VideoEncoder {
 
                     match frame {
                         Some((source, timestamp)) => {
-                            let sample = match source {
-                                VideoEncoderSource::DirectX(surface) => {
-                                    MediaStreamSample::CreateFromDirect3D11Surface(
-                                        &surface.0, timestamp,
-                                    )?
+                            let (sample, release_counter) =
+                                create_video_stream_sample(source, timestamp)?;
+                            if let Err(error) = sample_requested.Request()?.SetSample(&sample) {
+                                if let Some(counter) = release_counter.as_ref() {
+                                    saturating_decrement(counter.as_ref());
                                 }
-                            };
-
-                            sample_requested.Request()?.SetSample(&sample)?;
+                                return Err(error);
+                            }
+                            if let Some(counter) = release_counter.as_ref() {
+                                saturating_decrement(counter.as_ref());
+                            }
                         }
                         None => {
                             sample_requested.Request()?.SetSample(None)?;
@@ -1077,7 +1129,7 @@ impl VideoEncoder {
 
             move || -> Result<(), VideoEncoderError> {
                 unsafe {
-                    let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+                    let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
                 }
                 let result = transcode.TranscodeAsync();
 
@@ -1134,9 +1186,10 @@ impl VideoEncoder {
 
         self.pending_video_frames.fetch_add(1, Ordering::Relaxed);
         if let Err(error) = self.frame_sender.send(Some((
-            VideoEncoderSource::DirectX(SendDirectX::new(unsafe {
-                frame.as_raw_surface().clone()
-            })),
+            VideoEncoderSource::DirectX {
+                surface: SendDirectX::new(unsafe { frame.as_raw_surface().clone() }),
+                release_counter: None,
+            },
             timestamp,
         ))) {
             saturating_decrement(self.pending_video_frames.as_ref());
@@ -1186,9 +1239,10 @@ impl VideoEncoder {
 
         self.pending_video_frames.fetch_add(1, Ordering::Relaxed);
         if let Err(error) = self.frame_sender.send(Some((
-            VideoEncoderSource::DirectX(SendDirectX::new(unsafe {
-                frame.as_raw_surface().clone()
-            })),
+            VideoEncoderSource::DirectX {
+                surface: SendDirectX::new(unsafe { frame.as_raw_surface().clone() }),
+                release_counter: None,
+            },
             timestamp,
         ))) {
             saturating_decrement(self.pending_video_frames.as_ref());
@@ -1215,6 +1269,7 @@ impl VideoEncoder {
         &mut self,
         surface: SendDirectX<IDirect3DSurface>,
         max_pending_frames: usize,
+        release_counter: Option<Arc<AtomicUsize>>,
     ) -> Result<bool, VideoEncoderError> {
         if self.is_video_disabled {
             return Err(VideoEncoderError::VideoDisabled);
@@ -1228,11 +1283,24 @@ impl VideoEncoder {
 
         let timestamp = self.next_video_timespan();
 
+        if let Some(counter) = release_counter.as_ref() {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
         self.pending_video_frames.fetch_add(1, Ordering::Relaxed);
+        let release_counter_for_send = release_counter.clone();
         if let Err(error) = self
             .frame_sender
-            .send(Some((VideoEncoderSource::DirectX(surface), timestamp)))
+            .send(Some((
+                VideoEncoderSource::DirectX {
+                    surface,
+                    release_counter: release_counter_for_send,
+                },
+                timestamp,
+            )))
         {
+            if let Some(counter) = release_counter.as_ref() {
+                saturating_decrement(counter.as_ref());
+            }
             saturating_decrement(self.pending_video_frames.as_ref());
             return Err(error.into());
         }
@@ -1341,9 +1409,10 @@ impl VideoEncoder {
 
         self.pending_video_frames.fetch_add(1, Ordering::Relaxed);
         if let Err(error) = self.frame_sender.send(Some((
-            VideoEncoderSource::DirectX(SendDirectX::new(unsafe {
-                frame.as_raw_surface().clone()
-            })),
+            VideoEncoderSource::DirectX {
+                surface: SendDirectX::new(unsafe { frame.as_raw_surface().clone() }),
+                release_counter: None,
+            },
             timestamp,
         ))) {
             saturating_decrement(self.pending_video_frames.as_ref());

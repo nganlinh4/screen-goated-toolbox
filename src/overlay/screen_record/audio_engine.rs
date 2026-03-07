@@ -148,8 +148,8 @@ pub fn record_audio(
                     silence_logged = true;
                 }
 
-                let lag_frames = ((lag_100ns as i128) * (sample_rate as i128) / 10_000_000i128)
-                    as usize;
+                let lag_frames =
+                    ((lag_100ns as i128) * (sample_rate as i128) / 10_000_000i128) as usize;
                 let frames_to_send = lag_frames.clamp(1, silence_frames);
                 let samples_to_send = frames_to_send.saturating_mul(channels);
                 if let Some((bytes, duration_100ns)) =
