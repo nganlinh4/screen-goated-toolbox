@@ -4,6 +4,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem::zeroed;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,18 +16,23 @@ use windows::Graphics::Capture::GraphicsCaptureItem;
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE, ID3D11Device, ID3D11DeviceContext,
-    ID3D11Multithread, ID3D11Texture2D,
+    ID3D11Multithread, ID3D11RenderTargetView, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
-    BITMAP, DEVMODEW, DeleteObject, ENUM_CURRENT_SETTINGS, EnumDisplayMonitors,
-    EnumDisplaySettingsW, GetMonitorInfoW, GetObjectW, HDC, HMONITOR, MONITORINFOEXW,
+    BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, DIB_RGB_COLORS, DEVMODEW,
+    DeleteDC, DeleteObject, ENUM_CURRENT_SETTINGS, EnumDisplayMonitors, EnumDisplaySettingsW,
+    GetDC, GetDIBits, GetMonitorInfoW, GetObjectW, HBITMAP, HDC, HMONITOR, MONITORINFOEXW,
+    ReleaseDC,
 };
 use windows::Win32::System::Threading::{
     GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_HIGHEST,
 };
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     CURSORINFO, GetCursorInfo, GetCursorPos, GetIconInfo, GetWindowRect, ICONINFO, IDC_APPSTARTING,
     IDC_ARROW, IDC_CROSS, IDC_HAND, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE,
@@ -92,12 +98,18 @@ lazy_static::lazy_static! {
     static ref CUSTOM_GRAB_SIGNATURES: Mutex<HashSet<String>> = {
         Mutex::new(load_grab_signatures())
     };
+    // Runtime-computed signatures for the current machine's system cursor shapes.
+    // This catches apps/games that clone a system cursor into a private handle.
+    static ref SYSTEM_CURSOR_SIGNATURES: HashMap<String, &'static str> = load_system_cursor_signatures();
     // Resolve system cursor handles once; avoids repeated LoadCursorW calls per sample.
     static ref SYSTEM_CURSOR_HANDLES: SystemCursorHandles = load_system_cursor_handles();
     // Cache cursor_signature() results by HCURSOR raw pointer value.
     // Windows reuses cursor handles for the lifetime of a process, so a given
     // pointer always maps to the same bitmap metadata.  Cleared on recording start.
     pub static ref CURSOR_SIGNATURE_CACHE: Mutex<HashMap<isize, String>> = Mutex::new(HashMap::new());
+    // Most recent unknown cursor seen while no mouse button was held. Used to
+    // safely learn custom drag/grab cursors only when the shape changed under drag.
+    static ref LAST_UNKNOWN_RELEASED_SIGNATURE: Mutex<Option<(String, Instant)>> = Mutex::new(None);
     // Set SCREEN_RECORD_CURSOR_DEBUG=1 to enable verbose cursor classification logs.
     static ref CURSOR_DEBUG_ENABLED: bool = {
         std::env::var("SCREEN_RECORD_CURSOR_DEBUG")
@@ -126,7 +138,9 @@ const ENCODER_MAX_PENDING_FRAMES: usize = 12;
 const MAX_CATCHUP_SUBMITS_PER_CALLBACK: u32 = 6;
 const TIMESTAMP_RESYNC_THRESHOLD_100NS: i64 = 10_000_000;
 const CAPTURE_STATS_WINDOW_SECS: f64 = 1.0;
-const CURSOR_SAMPLE_INTERVAL_MS: u64 = 50;
+const CURSOR_SAMPLE_MIN_FPS: u32 = 30;
+const CURSOR_SAMPLE_MAX_FPS: u32 = 120;
+const CURSOR_GRAB_LEARN_WINDOW_MS: u64 = 1_000;
 const NO_READY_VRAM_FRAME: usize = usize::MAX;
 const MF_HW_ACCEL_AUTO_PIXELS_PER_SEC_THRESHOLD: u64 = 120_000_000;
 const MIN_VALID_WINDOW_FRAME_DIM: u32 = 300;
@@ -153,6 +167,7 @@ struct SystemCursorHandles {
 struct VramFrame {
     texture: SendDirectX<ID3D11Texture2D>,
     surface: SendDirectX<wc_windows::Graphics::DirectX::Direct3D11::IDirect3DSurface>,
+    render_target_view: SendDirectX<ID3D11RenderTargetView>,
     in_flight: Arc<AtomicUsize>,
 }
 
@@ -269,6 +284,15 @@ impl CaptureHandler {
                 self.d3d_context
                     .CopyResource(&target_frame.texture.0, &wgc_texture);
             }
+        } else if can_pad_copy_frame(frame_w, frame_h, self.enc_w, self.enc_h) {
+            VideoProcessor::pad_copy_texture(
+                &self.d3d_context,
+                &target_frame.render_target_view.0,
+                &target_frame.texture.0,
+                &wgc_texture,
+                frame_w,
+                frame_h,
+            )?;
         } else {
             let needs_recreate = match &self.video_processor {
                 Some((in_w, in_h, _)) => *in_w != frame_w || *in_h != frame_h,
@@ -276,13 +300,14 @@ impl CaptureHandler {
             };
 
             if needs_recreate {
-                match VideoProcessor::new(
+                match VideoProcessor::new_with_frame_rate(
                     &self.d3d_device,
                     &self.d3d_context,
                     frame_w,
                     frame_h,
                     self.enc_w,
                     self.enc_h,
+                    self.target_fps,
                 ) {
                     Ok(vp) => {
                         self.video_processor = Some((frame_w, frame_h, vp));
@@ -356,6 +381,10 @@ fn compute_window_vram_pool_frames(max_pending_frames: usize) -> usize {
         WINDOW_CAPTURE_VRAM_POOL_MIN_FRAMES,
         WINDOW_CAPTURE_VRAM_POOL_MAX_FRAMES,
     )
+}
+
+fn can_pad_copy_frame(input_w: u32, input_h: u32, output_w: u32, output_h: u32) -> bool {
+    input_w <= output_w && input_h <= output_h
 }
 
 fn should_ignore_window_frame(frame_w: u32, frame_h: u32) -> bool {
@@ -453,26 +482,37 @@ fn get_cursor_type(is_clicked: bool) -> String {
             let handles = *SYSTEM_CURSOR_HANDLES;
             let mut signature = "system".to_string();
             let cursor_type = if current_handle_key == handles.arrow {
+                clear_last_unknown_released_signature();
                 "default".to_string()
             } else if current_handle_key == handles.ibeam {
+                clear_last_unknown_released_signature();
                 "text".to_string()
             } else if current_handle_key == handles.wait {
+                clear_last_unknown_released_signature();
                 "wait".to_string()
             } else if current_handle_key == handles.appstarting {
+                clear_last_unknown_released_signature();
                 "appstarting".to_string()
             } else if current_handle_key == handles.cross {
+                clear_last_unknown_released_signature();
                 "crosshair".to_string()
             } else if current_handle_key == handles.size_all {
+                clear_last_unknown_released_signature();
                 "move".to_string()
             } else if current_handle_key == handles.size_ns {
+                clear_last_unknown_released_signature();
                 "resize_ns".to_string()
             } else if current_handle_key == handles.size_we {
+                clear_last_unknown_released_signature();
                 "resize_we".to_string()
             } else if current_handle_key == handles.size_nwse {
+                clear_last_unknown_released_signature();
                 "resize_nwse".to_string()
             } else if current_handle_key == handles.size_nesw {
+                clear_last_unknown_released_signature();
                 "resize_nesw".to_string()
             } else if current_handle_key == handles.hand {
+                clear_last_unknown_released_signature();
                 "pointer".to_string()
             } else {
                 signature = {
@@ -486,9 +526,13 @@ fn get_cursor_type(is_clicked: bool) -> String {
                         sig
                     }
                 };
-                if CUSTOM_GRAB_SIGNATURES.lock().contains(&signature) {
+                if let Some(mapped) = SYSTEM_CURSOR_SIGNATURES.get(&signature) {
+                    clear_last_unknown_released_signature();
+                    (*mapped).to_string()
+                } else if CUSTOM_GRAB_SIGNATURES.lock().contains(&signature) {
+                    clear_last_unknown_released_signature();
                     "grab".to_string()
-                } else if is_clicked {
+                } else if should_learn_custom_grab_signature(&signature, is_clicked) {
                     let should_persist = {
                         let mut set = CUSTOM_GRAB_SIGNATURES.lock();
                         set.insert(signature.clone())
@@ -497,8 +541,12 @@ fn get_cursor_type(is_clicked: bool) -> String {
                         println!("[CursorDetect] learn-grab-signature {}", signature);
                         persist_grab_signatures();
                     }
+                    clear_last_unknown_released_signature();
                     "grab".to_string()
                 } else {
+                    if !is_clicked {
+                        remember_unknown_released_signature(&signature);
+                    }
                     "other".to_string()
                 }
             };
@@ -560,6 +608,34 @@ fn load_system_cursor_handles() -> SystemCursorHandles {
     }
 }
 
+fn load_system_cursor_signatures() -> HashMap<String, &'static str> {
+    let handles = *SYSTEM_CURSOR_HANDLES;
+    let mut signatures = HashMap::new();
+    for (handle, cursor_type) in [
+        (handles.arrow, "default"),
+        (handles.ibeam, "text"),
+        (handles.wait, "wait"),
+        (handles.appstarting, "appstarting"),
+        (handles.cross, "crosshair"),
+        (handles.hand, "pointer"),
+        (handles.size_all, "move"),
+        (handles.size_ns, "resize_ns"),
+        (handles.size_we, "resize_we"),
+        (handles.size_nwse, "resize_nwse"),
+        (handles.size_nesw, "resize_nesw"),
+    ] {
+        if handle == 0 {
+            continue;
+        }
+        if let Some(signature) = cursor_signature(
+            windows::Win32::UI::WindowsAndMessaging::HCURSOR(handle as *mut _),
+        ) {
+            signatures.insert(signature, cursor_type);
+        }
+    }
+    signatures
+}
+
 fn grab_signatures_file_path() -> PathBuf {
     let base = dirs::data_local_dir().unwrap_or_else(std::env::temp_dir);
     base.join("screen-goated-toolbox")
@@ -602,6 +678,89 @@ fn persist_grab_signatures() {
     }
 }
 
+fn clear_last_unknown_released_signature() {
+    *LAST_UNKNOWN_RELEASED_SIGNATURE.lock() = None;
+}
+
+pub fn reset_cursor_detection_state() {
+    CURSOR_SIGNATURE_CACHE.lock().clear();
+    clear_last_unknown_released_signature();
+    *LAST_CURSOR_DEBUG.lock() = None;
+}
+
+fn remember_unknown_released_signature(signature: &str) {
+    if signature == "n/a" {
+        return;
+    }
+    *LAST_UNKNOWN_RELEASED_SIGNATURE.lock() = Some((signature.to_string(), Instant::now()));
+}
+
+fn should_learn_custom_grab_signature(signature: &str, is_clicked: bool) -> bool {
+    if !is_clicked || signature == "n/a" {
+        return false;
+    }
+    let last = LAST_UNKNOWN_RELEASED_SIGNATURE.lock();
+    let Some((released_signature, seen_at)) = last.as_ref() else {
+        return false;
+    };
+    seen_at.elapsed() <= Duration::from_millis(CURSOR_GRAB_LEARN_WINDOW_MS)
+        && released_signature != signature
+}
+
+fn hash_bitmap_bits(hbitmap: HBITMAP, bitmap: &BITMAP) -> Option<String> {
+    let width = bitmap.bmWidth.max(1);
+    let height = bitmap.bmHeight.unsigned_abs().max(1);
+    unsafe {
+        let screen_dc = GetDC(None);
+        if screen_dc.0.is_null() {
+            return None;
+        }
+        let mem_dc = CreateCompatibleDC(Some(screen_dc));
+        if mem_dc.0.is_null() {
+            let _ = ReleaseDC(None, screen_dc);
+            return None;
+        }
+
+        let mut bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: width,
+                biHeight: -(height as i32),
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut pixels = vec![0u8; width as usize * height as usize * 4];
+        let lines = GetDIBits(
+            mem_dc,
+            hbitmap,
+            0,
+            height,
+            Some(pixels.as_mut_ptr() as *mut _),
+            &mut bmi,
+            DIB_RGB_COLORS,
+        );
+        let _ = DeleteDC(mem_dc);
+        let _ = ReleaseDC(None, screen_dc);
+        if lines == 0 {
+            return None;
+        }
+
+        let mut hasher = DefaultHasher::new();
+        pixels.hash(&mut hasher);
+        Some(format!(
+            "{}x{}@{}bpp#{:016x}",
+            bitmap.bmWidth,
+            bitmap.bmHeight,
+            bitmap.bmBitsPixel,
+            hasher.finish()
+        ))
+    }
+}
+
 fn cursor_signature(handle: windows::Win32::UI::WindowsAndMessaging::HCURSOR) -> Option<String> {
     unsafe {
         let mut icon_info: ICONINFO = zeroed();
@@ -627,6 +786,17 @@ fn cursor_signature(handle: windows::Win32::UI::WindowsAndMessaging::HCURSOR) ->
             );
         }
 
+        let mask_signature = if !icon_info.hbmMask.0.is_null() {
+            hash_bitmap_bits(icon_info.hbmMask, &mask_bm).unwrap_or_else(|| "n/a".to_string())
+        } else {
+            "none".to_string()
+        };
+        let color_signature = if !icon_info.hbmColor.0.is_null() {
+            hash_bitmap_bits(icon_info.hbmColor, &color_bm).unwrap_or_else(|| "n/a".to_string())
+        } else {
+            "none".to_string()
+        };
+
         if !icon_info.hbmMask.0.is_null() {
             let _ = DeleteObject(icon_info.hbmMask.into());
         }
@@ -634,7 +804,7 @@ fn cursor_signature(handle: windows::Win32::UI::WindowsAndMessaging::HCURSOR) ->
             let _ = DeleteObject(icon_info.hbmColor.into());
         }
 
-        Some(format!(
+        let base_signature = format!(
             "hot({},{})|mask({}x{})|color({}x{})|mono({})",
             icon_info.xHotspot,
             icon_info.yHotspot,
@@ -643,15 +813,34 @@ fn cursor_signature(handle: windows::Win32::UI::WindowsAndMessaging::HCURSOR) ->
             color_bm.bmWidth,
             color_bm.bmHeight,
             if icon_info.hbmColor.0.is_null() { 1 } else { 0 }
+        );
+
+        Some(format!(
+            "{}|mask_bits({})|color_bits({})",
+            base_signature, mask_signature, color_signature
         ))
     }
+}
+
+fn any_mouse_button_down() -> bool {
+    unsafe {
+        (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0
+            || (GetAsyncKeyState(VK_RBUTTON.0 as i32) as u16 & 0x8000) != 0
+            || (GetAsyncKeyState(VK_MBUTTON.0 as i32) as u16 & 0x8000) != 0
+    }
+}
+
+fn compute_cursor_sample_interval(target_fps: u32) -> Duration {
+    let sample_fps = target_fps.clamp(CURSOR_SAMPLE_MIN_FPS, CURSOR_SAMPLE_MAX_FPS);
+    Duration::from_nanos(1_000_000_000_u64 / sample_fps as u64)
 }
 
 fn sample_mouse_position(start: Instant) {
     unsafe {
         let mut point = POINT::default();
         if GetCursorPos(&mut point).is_ok() {
-            let cursor_type = get_cursor_type(false);
+            let is_clicked = any_mouse_button_down();
+            let cursor_type = get_cursor_type(is_clicked);
 
             let mut offset_x = MONITOR_X;
             let mut offset_y = MONITOR_Y;
@@ -692,7 +881,7 @@ fn sample_mouse_position(start: Instant) {
                 x: point.x - offset_x,
                 y: point.y - offset_y,
                 timestamp: start.elapsed().as_secs_f64(),
-                is_clicked: false,
+                is_clicked,
                 cursor_type,
                 capture_width,
                 capture_height,
@@ -702,11 +891,15 @@ fn sample_mouse_position(start: Instant) {
     }
 }
 
-fn spawn_cursor_sampler(start: Instant, stop: Arc<AtomicBool>) -> JoinHandle<()> {
+fn spawn_cursor_sampler(
+    start: Instant,
+    stop: Arc<AtomicBool>,
+    sample_interval: Duration,
+) -> JoinHandle<()> {
     std::thread::spawn(move || {
         while !stop.load(Ordering::Relaxed) {
             sample_mouse_position(start);
-            std::thread::sleep(Duration::from_millis(CURSOR_SAMPLE_INTERVAL_MS));
+            std::thread::sleep(sample_interval);
         }
     })
 }
@@ -960,22 +1153,29 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 .map_err(|e| format!("Failed to create WinRT surface for VRAM ring: {e}"))?;
             let surface = clone_app_interface_to_wc(&surface)
                 .map_err(|e| format!("Failed to bridge WinRT surface to encoder type: {e}"))?;
+            let render_target_view =
+                VideoProcessor::create_render_target_view(&app_d3d_device, &texture)
+                    .map_err(|e| format!("Failed to create VRAM render target view: {e}"))?;
             vram_frames.push(VramFrame {
                 texture: SendDirectX::new(texture),
                 surface: SendDirectX::new(surface),
+                render_target_view: SendDirectX::new(render_target_view),
                 in_flight: Arc::new(AtomicUsize::new(0)),
             });
         }
         let vram_pool = Arc::new(vram_frames);
         let latest_ready_idx = Arc::new(AtomicUsize::new(NO_READY_VRAM_FRAME));
-        let video_processor = if width != enc_w || height != enc_h {
-            match VideoProcessor::new(
+        let video_processor = if (width != enc_w || height != enc_h)
+            && !can_pad_copy_frame(width, height, enc_w, enc_h)
+        {
+            match VideoProcessor::new_with_frame_rate(
                 &app_d3d_device,
                 &app_d3d_context,
                 width,
                 height,
                 enc_w,
                 enc_h,
+                target_fps,
             ) {
                 Ok(vp) => Some((width, height, vp)),
                 Err(e) => {
@@ -994,7 +1194,12 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let pump_dropped = Arc::new(AtomicUsize::new(0));
 
         let mut pump = encoder.create_frame_pump();
-        let cursor_sampler_thread = Some(spawn_cursor_sampler(start, cursor_sampler_stop.clone()));
+        let cursor_sample_interval = compute_cursor_sample_interval(target_fps);
+        let cursor_sampler_thread = Some(spawn_cursor_sampler(
+            start,
+            cursor_sampler_stop.clone(),
+            cursor_sample_interval,
+        ));
         let encoder_shared = Arc::new(Mutex::new(Some(encoder)));
 
         // For window capture, spawn a pump thread that submits the cached
