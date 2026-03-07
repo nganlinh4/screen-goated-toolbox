@@ -994,25 +994,7 @@ pub fn handle_ipc_command(
                 }
 
                 // Show a distinct blue border around the captured window.
-                unsafe {
-                    let mut rect = RECT::default();
-                    if DwmGetWindowAttribute(
-                        hwnd,
-                        DWMWA_EXTENDED_FRAME_BOUNDS,
-                        &mut rect as *mut _ as *mut std::ffi::c_void,
-                        std::mem::size_of::<RECT>() as u32,
-                    )
-                    .is_err()
-                    {
-                        let _ = GetWindowRect(hwnd, &mut rect);
-                    }
-                    super::capture_border::show_capture_border(
-                        rect.left,
-                        rect.top,
-                        rect.right - rect.left,
-                        rect.bottom - rect.top,
-                    );
-                }
+                super::capture_border::show_capture_border(hwnd);
             } else {
                 super::engine::TARGET_HWND.store(0, std::sync::atomic::Ordering::Relaxed);
                 let monitor_index = target_id.parse::<usize>().unwrap_or(0);

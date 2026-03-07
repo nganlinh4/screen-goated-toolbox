@@ -5,8 +5,9 @@
 // Window capture uses this custom blue overlay for a distinct visual indicator.
 
 use std::sync::Once;
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicIsize, AtomicU64, Ordering};
 use windows::Win32::Foundation::*;
+use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CreateSolidBrush, DeleteObject, EndPaint, FillRect, HBRUSH, InvalidateRect,
     PAINTSTRUCT,
@@ -22,9 +23,73 @@ const KEY_COLOR: COLORREF = COLORREF(0x00_04_03_02);
 const BORDER_PX: i32 = 3;
 
 const WM_APP_MOVE_BORDER: u32 = WM_USER + 201;
+const WM_APP_SET_BORDER_VISIBLE: u32 = WM_USER + 202;
+const BORDER_TRACK_POLL_MS: u64 = 16;
 
 static REGISTER_BORDER_CLASS: Once = Once::new();
 static BORDER_HWND: AtomicIsize = AtomicIsize::new(0);
+static BORDER_SESSION: AtomicU64 = AtomicU64::new(0);
+
+fn pack_i32_pair(high: i32, low: i32) -> usize {
+    (((high as u32 as u64) << 32) | (low as u32 as u64)) as usize
+}
+
+fn decode_i32_pair(value: usize) -> (i32, i32) {
+    let packed = value as u64;
+    ((packed >> 32) as u32 as i32, packed as u32 as i32)
+}
+
+fn get_window_bounds(hwnd: HWND) -> Option<RECT> {
+    unsafe {
+        if !IsWindow(Some(hwnd)).as_bool() {
+            return None;
+        }
+
+        let mut rect = RECT::default();
+        if DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut rect as *mut _ as *mut std::ffi::c_void,
+            std::mem::size_of::<RECT>() as u32,
+        )
+        .is_err()
+        {
+            let _ = GetWindowRect(hwnd, &mut rect);
+        }
+
+        let width = rect.right - rect.left;
+        let height = rect.bottom - rect.top;
+        if width <= 0 || height <= 0 {
+            return None;
+        }
+
+        Some(rect)
+    }
+}
+
+fn post_border_bounds(border_hwnd: HWND, rect: RECT) {
+    let width = rect.right - rect.left;
+    let height = rect.bottom - rect.top;
+    unsafe {
+        let _ = PostMessageW(
+            Some(border_hwnd),
+            WM_APP_MOVE_BORDER,
+            WPARAM(pack_i32_pair(rect.left, rect.top)),
+            LPARAM(pack_i32_pair(width, height) as isize),
+        );
+    }
+}
+
+fn post_border_visibility(border_hwnd: HWND, visible: bool) {
+    unsafe {
+        let _ = PostMessageW(
+            Some(border_hwnd),
+            WM_APP_SET_BORDER_VISIBLE,
+            WPARAM(usize::from(visible)),
+            LPARAM(0),
+        );
+    }
+}
 
 unsafe extern "system" fn border_wnd_proc(
     hwnd: HWND,
@@ -83,11 +148,8 @@ unsafe extern "system" fn border_wnd_proc(
                 LRESULT(0)
             }
             WM_APP_MOVE_BORDER => {
-                // wparam = x<<32|y, lparam = w<<32|h packed as two i32 in isize
-                let x = (wparam.0 >> 32) as i32;
-                let y = (wparam.0 & 0xFFFF_FFFF) as i32;
-                let w = (lparam.0 >> 32) as i32;
-                let h = (lparam.0 & 0xFFFF_FFFF) as i32;
+                let (x, y) = decode_i32_pair(wparam.0);
+                let (w, h) = decode_i32_pair(lparam.0 as usize);
                 let _ = SetWindowPos(
                     hwnd,
                     Some(HWND_TOPMOST),
@@ -99,6 +161,11 @@ unsafe extern "system" fn border_wnd_proc(
                 );
                 // Force a repaint of the new bounds.
                 let _ = InvalidateRect(Some(hwnd), None, true);
+                LRESULT(0)
+            }
+            WM_APP_SET_BORDER_VISIBLE => {
+                let cmd = if wparam.0 != 0 { SW_SHOWNOACTIVATE } else { SW_HIDE };
+                let _ = ShowWindow(hwnd, cmd);
                 LRESULT(0)
             }
             WM_CLOSE => {
@@ -115,11 +182,62 @@ unsafe extern "system" fn border_wnd_proc(
     }
 }
 
-/// Show a blue recording border around the given screen rect.
-/// Spawns a background thread that owns the window and its message loop.
-pub fn show_capture_border(x: i32, y: i32, w: i32, h: i32) {
+fn spawn_border_tracker(session: u64, target_hwnd_raw: isize, border_hwnd_raw: isize) {
+    std::thread::spawn(move || {
+        let target_hwnd = HWND(target_hwnd_raw as *mut _);
+        let border_hwnd = HWND(border_hwnd_raw as *mut _);
+        let mut last_rect: Option<RECT> = None;
+        let mut last_visible: Option<bool> = None;
+
+        loop {
+            if BORDER_SESSION.load(Ordering::SeqCst) != session
+                || BORDER_HWND.load(Ordering::SeqCst) != border_hwnd_raw
+            {
+                break;
+            }
+
+            let is_valid = unsafe { IsWindow(Some(target_hwnd)).as_bool() };
+            if !is_valid {
+                post_border_visibility(border_hwnd, false);
+                break;
+            }
+
+            let is_visible = unsafe {
+                IsWindowVisible(target_hwnd).as_bool() && !IsIconic(target_hwnd).as_bool()
+            };
+            if last_visible != Some(is_visible) {
+                post_border_visibility(border_hwnd, is_visible);
+                last_visible = Some(is_visible);
+            }
+
+            if is_visible
+                && let Some(rect) = get_window_bounds(target_hwnd)
+                && last_rect != Some(rect)
+            {
+                post_border_bounds(border_hwnd, rect);
+                last_rect = Some(rect);
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(BORDER_TRACK_POLL_MS));
+        }
+    });
+}
+
+/// Show a blue recording border that continuously tracks the target window.
+/// Spawns a background thread that owns the overlay window and its message loop.
+pub fn show_capture_border(target_hwnd: HWND) {
     // Close any leftover border first.
     hide_capture_border();
+
+    let Some(initial_rect) = get_window_bounds(target_hwnd) else {
+        return;
+    };
+    let session = BORDER_SESSION.fetch_add(1, Ordering::SeqCst) + 1;
+    let target_hwnd_raw = target_hwnd.0 as isize;
+    let x = initial_rect.left;
+    let y = initial_rect.top;
+    let w = initial_rect.right - initial_rect.left;
+    let h = initial_rect.bottom - initial_rect.top;
 
     std::thread::spawn(move || unsafe {
         let hinstance = match GetModuleHandleW(None) {
@@ -164,6 +282,7 @@ pub fn show_capture_border(x: i32, y: i32, w: i32, h: i32) {
         let _ = SetLayeredWindowAttributes(hwnd, KEY_COLOR, 0, LWA_COLORKEY);
 
         BORDER_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
+        spawn_border_tracker(session, target_hwnd_raw, hwnd.0 as isize);
 
         let mut msg = MSG::default();
         loop {
@@ -180,6 +299,7 @@ pub fn show_capture_border(x: i32, y: i32, w: i32, h: i32) {
 
 /// Remove the capture border overlay (no-op if not shown).
 pub fn hide_capture_border() {
+    BORDER_SESSION.fetch_add(1, Ordering::SeqCst);
     let val = BORDER_HWND.load(Ordering::SeqCst);
     if val != 0 {
         unsafe {
