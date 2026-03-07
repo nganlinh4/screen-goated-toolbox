@@ -35,6 +35,11 @@ const ko: Translations = {
   recordingModeWithCursorDetail: '커서 포함 녹화: 바로 원본을 가져가기 적합',
   statusPreparingCursors: '애니메이션 커서 준비 중\u2026',
   statusCursorsReady: '커서 준비 완료!',
+  loading: '불러오는 중\u2026',
+  autoOption: '자동',
+  monitorDisplayName: '디스플레이 {index}',
+  monitorDisplayNamePrimary: '디스플레이 {index} (기본)',
+  monitorPrimaryShort: '기본',
 
   // SidePanel tabs
   tabZoom: '확대',

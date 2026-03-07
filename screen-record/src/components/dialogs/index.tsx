@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Keyboard, X } from 'lucide-react';
 import { MonitorInfo, Hotkey, WindowInfo } from '@/hooks/useAppHooks';
 import { useSettings } from '@/hooks/useSettings';
+import { formatMonitorDialogSummary } from '@/utils/helpers';
 
 // Re-export types for backwards compatibility
 export type { MonitorInfo, Hotkey, WindowInfo };
@@ -170,7 +171,7 @@ export function MonitorSelectDialog({ show, onClose, monitors, onSelectMonitor }
               className="monitor-item w-full p-3 rounded-lg border border-[var(--glass-border)] hover:bg-[var(--glass-bg)] hover:border-[var(--outline)] transition-colors text-left"
             >
               <div className="monitor-name text-sm text-[var(--on-surface)]">{monitor.name}</div>
-              <div className="monitor-specs text-xs text-[var(--outline)] mt-0.5">{monitor.width}x{monitor.height} at ({monitor.x}, {monitor.y})</div>
+              <div className="monitor-specs text-xs text-[var(--outline)] mt-0.5">{formatMonitorDialogSummary(monitor)}</div>
             </button>
           ))}
         </div>

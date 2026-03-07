@@ -33,6 +33,11 @@ const en = {
   recordingModeWithCursorDetail: 'With cursor: best for immediate raw take',
   statusPreparingCursors: 'Preparing animated cursors\u2026',
   statusCursorsReady: 'Cursors ready!',
+  loading: 'Loading\u2026',
+  autoOption: 'Auto',
+  monitorDisplayName: 'Display {index}',
+  monitorDisplayNamePrimary: 'Display {index} (Primary)',
+  monitorPrimaryShort: 'primary',
 
   // SidePanel tabs
   tabZoom: 'Zoom',
