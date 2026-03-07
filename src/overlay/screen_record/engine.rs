@@ -16,7 +16,7 @@ use windows::Graphics::Capture::GraphicsCaptureItem;
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE, ID3D11Device, ID3D11DeviceContext,
-    ID3D11Multithread, ID3D11RenderTargetView, ID3D11Texture2D,
+    ID3D11Multithread, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -167,7 +167,6 @@ struct SystemCursorHandles {
 struct VramFrame {
     texture: SendDirectX<ID3D11Texture2D>,
     surface: SendDirectX<wc_windows::Graphics::DirectX::Direct3D11::IDirect3DSurface>,
-    render_target_view: SendDirectX<ID3D11RenderTargetView>,
     in_flight: Arc<AtomicUsize>,
 }
 
@@ -284,15 +283,6 @@ impl CaptureHandler {
                 self.d3d_context
                     .CopyResource(&target_frame.texture.0, &wgc_texture);
             }
-        } else if can_pad_copy_frame(frame_w, frame_h, self.enc_w, self.enc_h) {
-            VideoProcessor::pad_copy_texture(
-                &self.d3d_context,
-                &target_frame.render_target_view.0,
-                &target_frame.texture.0,
-                &wgc_texture,
-                frame_w,
-                frame_h,
-            )?;
         } else {
             let needs_recreate = match &self.video_processor {
                 Some((in_w, in_h, _)) => *in_w != frame_w || *in_h != frame_h,
@@ -381,10 +371,6 @@ fn compute_window_vram_pool_frames(max_pending_frames: usize) -> usize {
         WINDOW_CAPTURE_VRAM_POOL_MIN_FRAMES,
         WINDOW_CAPTURE_VRAM_POOL_MAX_FRAMES,
     )
-}
-
-fn can_pad_copy_frame(input_w: u32, input_h: u32, output_w: u32, output_h: u32) -> bool {
-    input_w <= output_w && input_h <= output_h
 }
 
 fn should_ignore_window_frame(frame_w: u32, frame_h: u32) -> bool {
@@ -1153,21 +1139,15 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 .map_err(|e| format!("Failed to create WinRT surface for VRAM ring: {e}"))?;
             let surface = clone_app_interface_to_wc(&surface)
                 .map_err(|e| format!("Failed to bridge WinRT surface to encoder type: {e}"))?;
-            let render_target_view =
-                VideoProcessor::create_render_target_view(&app_d3d_device, &texture)
-                    .map_err(|e| format!("Failed to create VRAM render target view: {e}"))?;
             vram_frames.push(VramFrame {
                 texture: SendDirectX::new(texture),
                 surface: SendDirectX::new(surface),
-                render_target_view: SendDirectX::new(render_target_view),
                 in_flight: Arc::new(AtomicUsize::new(0)),
             });
         }
         let vram_pool = Arc::new(vram_frames);
         let latest_ready_idx = Arc::new(AtomicUsize::new(NO_READY_VRAM_FRAME));
-        let video_processor = if (width != enc_w || height != enc_h)
-            && !can_pad_copy_frame(width, height, enc_w, enc_h)
-        {
+        let video_processor = if width != enc_w || height != enc_h {
             match VideoProcessor::new_with_frame_rate(
                 &app_d3d_device,
                 &app_d3d_context,
