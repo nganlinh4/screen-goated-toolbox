@@ -953,6 +953,14 @@ function App() {
     return () => window.removeEventListener('external-window-selected', handler);
   }, [handleSelectWindowForRecording]);
 
+  useEffect(() => {
+    const handler = () => {
+      pendingWindowRecordingRef.current = false;
+    };
+    window.addEventListener('external-window-selection-cancelled', handler);
+    return () => window.removeEventListener('external-window-selection-cancelled', handler);
+  }, []);
+
   const onStopRecording = useCallback(async () => {
     setShowRawVideoDialog(false);
     exportHook.setShowExportSuccessDialog(false);

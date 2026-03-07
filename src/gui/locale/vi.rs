@@ -397,5 +397,6 @@ pub fn get() -> LocaleText {
         continuous_mode_activated: "✨ Cấu hình \"{preset}\" sẽ hoạt động liên tục, bấm ESC hay {hotkey} để thoát",
         win_select_title: "Chọn Cửa Sổ để Quay",
         win_select_subtitle: "Nhấn Escape hoặc click bên ngoài để hủy",
+        win_select_count: "{} cửa sổ",
     }
 }
