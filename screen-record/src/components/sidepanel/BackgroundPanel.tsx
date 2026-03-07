@@ -163,11 +163,13 @@ export function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React
                     pendingAutoApplyRef.current = false;
                     setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: syncedUrl }));
                   }
+                  setState({ status: 'done', ext, version });
                 })
                 .catch((e) => {
                   pendingPostDownloadPrewarmRef.current = false;
                   pendingAutoApplyRef.current = false;
                   console.warn('Failed to prewarm downloaded background after download:', e);
+                  setState({ status: 'done', ext, version });
                 });
             }
             const needsPrewarm =
@@ -187,8 +189,8 @@ export function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React
       }
 
       setState(prev => {
-        // Don't let polling auto-exit 'prewarming' — selectBg owns that transition
-        if (prev.status === 'prewarming' && next.status === 'done') return prev;
+        // Don't let polling auto-exit 'prewarming' while a prewarm is still in flight
+        if (prev.status === 'prewarming' && next.status === 'done' && prewarmInFlightUrlSetRef.current.size > 0) return prev;
         if (prev.status !== next.status) return next;
         if (prev.status === 'downloading' && next.status === 'downloading' && prev.progress !== next.progress) return next;
         if (prev.status === 'done' && next.status === 'done' && (prev.ext !== next.ext || prev.version !== next.version)) return next;
