@@ -66,6 +66,9 @@ const TEXT_EXTENSIONS: &[&str] = &[
 const PROCESS_WITH_SGT_LABEL: &str = "Process with SGT";
 const PROCESS_WITH_SGT_VERB: &str = "SGT_Process";
 const LEGACY_PROCESS_WITH_SGT_VERB: &str = "Process with SGT";
+const CLASSES_ROOT: &str = "Software\\Classes\\";
+const SYSTEM_FILE_ASSOCIATIONS_ROOT: &str = "Software\\Classes\\SystemFileAssociations\\";
+const SHELL_SEGMENT: &str = "\\shell\\";
 
 fn supported_extensions() -> impl Iterator<Item = &'static str> {
     IMAGE_EXTENSIONS
@@ -75,26 +78,34 @@ fn supported_extensions() -> impl Iterator<Item = &'static str> {
         .copied()
 }
 
+fn build_shell_verb_path(root: &str, subject: &str, verb: &str) -> String {
+    let mut path = String::from(root);
+    path.push_str(subject);
+    path.push_str(SHELL_SEGMENT);
+    path.push_str(verb);
+    path
+}
+
 fn cleanup_legacy_context_menu_entries(hkcu: &RegKey) {
     let legacy_perceived_types = ["text", "image", "audio"];
 
     for verb in [PROCESS_WITH_SGT_VERB, LEGACY_PROCESS_WITH_SGT_VERB] {
-        let _ = hkcu.delete_subkey_all(format!("Software\\Classes\\*\\shell\\{verb}"));
+        let _ = hkcu.delete_subkey_all(build_shell_verb_path(CLASSES_ROOT, "*", verb));
 
         for perceived_type in legacy_perceived_types {
-            let _ = hkcu.delete_subkey_all(format!(
-                "Software\\Classes\\SystemFileAssociations\\{}\\shell\\{}",
-                perceived_type, verb
+            let _ = hkcu.delete_subkey_all(build_shell_verb_path(
+                SYSTEM_FILE_ASSOCIATIONS_ROOT,
+                perceived_type,
+                verb,
             ));
         }
 
         for extension in supported_extensions() {
-            let _ = hkcu.delete_subkey_all(format!(
-                "Software\\Classes\\SystemFileAssociations\\{}\\shell\\{}",
-                extension, verb
-            ));
-            let _ = hkcu
-                .delete_subkey_all(format!("Software\\Classes\\{}\\shell\\{}", extension, verb));
+            let association_path =
+                build_shell_verb_path(SYSTEM_FILE_ASSOCIATIONS_ROOT, extension, verb);
+            let extension_path = build_shell_verb_path(CLASSES_ROOT, extension, verb);
+            let _ = hkcu.delete_subkey_all(association_path);
+            let _ = hkcu.delete_subkey_all(extension_path);
         }
     }
 }
@@ -118,9 +129,10 @@ pub fn ensure_context_menu_entry() {
     // Using perceived types like "text"/"image"/"audio" is too broad and can
     // make SGT appear as the effective handler for unrelated/unassociated files.
     for extension in supported_extensions() {
-        let path = format!(
-            "Software\\Classes\\SystemFileAssociations\\{}\\shell\\SGT_Process",
-            extension
+        let path = build_shell_verb_path(
+            SYSTEM_FILE_ASSOCIATIONS_ROOT,
+            extension,
+            PROCESS_WITH_SGT_VERB,
         );
 
         if let Ok((key, _)) = hkcu.create_subkey(&path) {
