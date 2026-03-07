@@ -13,7 +13,7 @@ mod util;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use config::{ExportConfig, ExportRuntimeDiagnostics};
 use cursor::{collect_used_cursor_slots, parse_baked_cursor_frames};
@@ -27,7 +27,7 @@ use super::gpu_export::{
 use super::gpu_pipeline;
 use super::mf_decode;
 use super::mf_encode;
-use crate::overlay::screen_record::engine::VIDEO_PATH;
+use crate::overlay::screen_record::engine::{ENCODER_ACTIVE, IS_RECORDING, VIDEO_PATH};
 
 pub use progress::{export_replay_args_path, persist_export_result, push_export_progress};
 
@@ -41,6 +41,8 @@ static EXPORT_CANCELLED: AtomicBool = AtomicBool::new(false);
 static EXPORT_GPU_WARMED: AtomicBool = AtomicBool::new(false);
 /// Indicates an export is actively running.
 static EXPORT_ACTIVE: AtomicBool = AtomicBool::new(false);
+const EXPORT_WARMUP_IDLE_DELAY: Duration = Duration::from_secs(15);
+const EXPORT_WARMUP_IDLE_POLL: Duration = Duration::from_millis(500);
 
 struct ExportActiveGuard;
 
@@ -117,13 +119,50 @@ pub fn cancel_export() {
     println!("[Cancel] Cancellation signaled");
 }
 
+pub fn warm_up_export_pipeline_when_idle() {
+    let mut idle_since: Option<Instant> = None;
+
+    loop {
+        if EXPORT_GPU_WARMED.load(Ordering::SeqCst) {
+            println!("[Export][Warmup] already complete, idle scheduler exiting");
+            return;
+        }
+
+        let recording_active =
+            IS_RECORDING.load(Ordering::SeqCst) || ENCODER_ACTIVE.load(Ordering::SeqCst);
+        if recording_active || EXPORT_ACTIVE.load(Ordering::SeqCst) {
+            idle_since = None;
+            std::thread::sleep(EXPORT_WARMUP_IDLE_POLL);
+            continue;
+        }
+
+        let idle_start = idle_since.get_or_insert_with(Instant::now);
+        if idle_start.elapsed() < EXPORT_WARMUP_IDLE_DELAY {
+            std::thread::sleep(EXPORT_WARMUP_IDLE_POLL);
+            continue;
+        }
+
+        warm_up_export_pipeline();
+        return;
+    }
+}
+
 pub fn warm_up_export_pipeline() {
+    if EXPORT_ACTIVE.load(Ordering::SeqCst) {
+        println!("[Export][Warmup] export active, skipping warm-up");
+        return;
+    }
+    if IS_RECORDING.load(Ordering::SeqCst) || ENCODER_ACTIVE.load(Ordering::SeqCst) {
+        println!("[Export][Warmup] recording active, deferring warm-up");
+        return;
+    }
     if EXPORT_GPU_WARMED.swap(true, Ordering::SeqCst) {
         println!("[Export][Warmup] already started/skipped");
         return;
     }
-    if EXPORT_ACTIVE.load(Ordering::SeqCst) {
-        println!("[Export][Warmup] export active, skipping warm-up");
+    if IS_RECORDING.load(Ordering::SeqCst) || ENCODER_ACTIVE.load(Ordering::SeqCst) {
+        EXPORT_GPU_WARMED.store(false, Ordering::SeqCst);
+        println!("[Export][Warmup] recording started during warm-up launch, deferring");
         return;
     }
 

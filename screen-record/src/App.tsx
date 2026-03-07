@@ -267,6 +267,7 @@ function App() {
   // Export
   const exportHook = useExport({
     videoRef, canvasRef, tempCanvasRef, audioRef, segment, backgroundConfig,
+    isRecording,
     mousePositions,
     audioFilePath,
     videoFilePath,

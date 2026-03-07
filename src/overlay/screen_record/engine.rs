@@ -23,6 +23,9 @@ use windows::Win32::Graphics::Gdi::{
     BITMAP, DEVMODEW, DeleteObject, ENUM_CURRENT_SETTINGS, EnumDisplayMonitors,
     EnumDisplaySettingsW, GetMonitorInfoW, GetObjectW, HDC, HMONITOR, MONITORINFOEXW,
 };
+use windows::Win32::System::Threading::{
+    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_HIGHEST,
+};
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 use windows::Win32::UI::WindowsAndMessaging::{
     CURSORINFO, GetCursorInfo, GetCursorPos, GetIconInfo, GetWindowRect, ICONINFO, IDC_APPSTARTING,
@@ -125,6 +128,12 @@ const TIMESTAMP_RESYNC_THRESHOLD_100NS: i64 = 10_000_000;
 const CAPTURE_STATS_WINDOW_SECS: f64 = 1.0;
 const CURSOR_SAMPLE_INTERVAL_MS: u64 = 50;
 const NO_READY_VRAM_FRAME: usize = usize::MAX;
+const MF_HW_ACCEL_AUTO_PIXELS_PER_SEC_THRESHOLD: u64 = 120_000_000;
+const MIN_VALID_WINDOW_FRAME_DIM: u32 = 300;
+const WINDOW_CAPTURE_QUEUE_TARGET_MS: usize = 350;
+const WINDOW_CAPTURE_MAX_PENDING_FRAMES: usize = 48;
+const WINDOW_CAPTURE_VRAM_POOL_MIN_FRAMES: usize = 6;
+const WINDOW_CAPTURE_VRAM_POOL_MAX_FRAMES: usize = 12;
 
 #[derive(Clone, Copy)]
 struct SystemCursorHandles {
@@ -144,6 +153,7 @@ struct SystemCursorHandles {
 struct VramFrame {
     texture: SendDirectX<ID3D11Texture2D>,
     surface: SendDirectX<wc_windows::Graphics::DirectX::Direct3D11::IDirect3DSurface>,
+    in_flight: Arc<AtomicUsize>,
 }
 
 // The ring buffer is shared read-only across threads. Actual mutation happens via
@@ -191,6 +201,12 @@ pub struct CaptureHandler {
     pump_submitted: Arc<AtomicUsize>,
     /// Frames dropped by the pump thread due to backpressure (for stats).
     pump_dropped: Arc<AtomicUsize>,
+    /// Pending-frame budget used by the encoder queue for this session.
+    max_pending_frames: usize,
+    /// Last implausible window frame size skipped to avoid log spam.
+    last_ignored_window_frame: Option<(u32, u32)>,
+    /// Avoids spamming when every staged surface is still owned by the encoder.
+    vram_pool_exhausted_logged: bool,
 }
 
 impl CaptureHandler {
@@ -223,8 +239,24 @@ impl CaptureHandler {
         }
     }
 
-    fn stage_frame_in_vram(&mut self, frame: &Frame) -> Result<usize, String> {
-        let slot = self.write_idx;
+    fn next_writable_vram_slot(&self) -> Option<usize> {
+        let latest_ready = self.latest_ready_idx.load(Ordering::Acquire);
+        for offset in 0..self.vram_pool.len() {
+            let slot = (self.write_idx + offset) % self.vram_pool.len();
+            if slot == latest_ready {
+                continue;
+            }
+            if self.vram_pool[slot].in_flight.load(Ordering::Acquire) == 0 {
+                return Some(slot);
+            }
+        }
+        None
+    }
+
+    fn stage_frame_in_vram(&mut self, frame: &Frame) -> Result<Option<usize>, String> {
+        let Some(slot) = self.next_writable_vram_slot() else {
+            return Ok(None);
+        };
         let target_frame = &self.vram_pool[slot];
         let frame_w = frame.width();
         let frame_h = frame.height();
@@ -272,7 +304,7 @@ impl CaptureHandler {
         }
 
         self.write_idx = (self.write_idx + 1) % self.vram_pool.len();
-        Ok(slot)
+        Ok(Some(slot))
     }
 }
 
@@ -310,14 +342,104 @@ fn select_target_fps(monitor_hz: u32) -> u32 {
     DEFAULT_TARGET_FPS
 }
 
-fn mf_hw_accel_enabled() -> bool {
+fn compute_window_max_pending_frames(target_fps: u32) -> usize {
+    let target_fps = target_fps.max(1) as usize;
+    let buffered_frames = (target_fps * WINDOW_CAPTURE_QUEUE_TARGET_MS).div_ceil(1000);
+    buffered_frames.clamp(
+        ENCODER_MAX_PENDING_FRAMES,
+        WINDOW_CAPTURE_MAX_PENDING_FRAMES,
+    )
+}
+
+fn compute_window_vram_pool_frames(max_pending_frames: usize) -> usize {
+    max_pending_frames.div_ceil(2).clamp(
+        WINDOW_CAPTURE_VRAM_POOL_MIN_FRAMES,
+        WINDOW_CAPTURE_VRAM_POOL_MAX_FRAMES,
+    )
+}
+
+fn should_ignore_window_frame(frame_w: u32, frame_h: u32) -> bool {
+    frame_w < MIN_VALID_WINDOW_FRAME_DIM || frame_h < MIN_VALID_WINDOW_FRAME_DIM
+}
+
+fn mf_hw_accel_override() -> Option<bool> {
     match std::env::var("SCREEN_RECORD_MF_HW_ACCEL") {
         Ok(value) => {
             let normalized = value.trim().to_ascii_lowercase();
-            matches!(normalized.as_str(), "1" | "true" | "yes" | "on")
+            Some(matches!(normalized.as_str(), "1" | "true" | "yes" | "on"))
         }
-        Err(_) => false,
+        Err(_) => None,
     }
+}
+
+fn should_prefer_mf_hw_accel(target_type: &str, target_fps: u32, width: u32, height: u32) -> bool {
+    if let Some(explicit) = mf_hw_accel_override() {
+        return explicit;
+    }
+
+    let pixels_per_sec = (width as u64)
+        .saturating_mul(height as u64)
+        .saturating_mul(target_fps.max(1) as u64);
+
+    target_type == "window" || pixels_per_sec >= MF_HW_ACCEL_AUTO_PIXELS_PER_SEC_THRESHOLD
+}
+
+struct ScopedMfHwAccelEnv {
+    previous: Option<std::ffi::OsString>,
+}
+
+impl ScopedMfHwAccelEnv {
+    fn set(enabled: bool) -> Self {
+        let key = "SCREEN_RECORD_MF_HW_ACCEL";
+        let previous = std::env::var_os(key);
+        unsafe {
+            std::env::set_var(key, if enabled { "1" } else { "0" });
+        }
+        Self { previous }
+    }
+}
+
+impl Drop for ScopedMfHwAccelEnv {
+    fn drop(&mut self) {
+        let key = "SCREEN_RECORD_MF_HW_ACCEL";
+        unsafe {
+            match &self.previous {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+}
+
+struct MfEncoderCreateConfig<'a> {
+    enc_w: u32,
+    enc_h: u32,
+    target_fps: u32,
+    final_bitrate: u32,
+    sample_rate: u32,
+    channels: u32,
+    video_path: &'a std::path::Path,
+    prefer_hw: bool,
+}
+
+fn create_video_encoder_with_mf_mode(
+    config: MfEncoderCreateConfig<'_>,
+) -> Result<VideoEncoder, Box<dyn std::error::Error + Send + Sync>> {
+    let _env_scope = ScopedMfHwAccelEnv::set(config.prefer_hw);
+    let encoder = VideoEncoder::new(
+        VideoSettingsBuilder::new(config.enc_w, config.enc_h)
+            .sub_type(VideoSettingsSubType::H264)
+            .bitrate(config.final_bitrate)
+            .frame_rate(config.target_fps),
+        AudioSettingsBuilder::new()
+            .sample_rate(config.sample_rate)
+            .channel_count(config.channels)
+            .bitrate(192_000)
+            .disabled(false),
+        ContainerSettingsBuilder::new(),
+        config.video_path,
+    )?;
+    Ok(encoder)
 }
 
 fn get_cursor_type(is_clicked: bool) -> String {
@@ -738,20 +860,37 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let final_bitrate = target_bitrate.clamp(8_000_000, 80_000_000);
 
         let (sample_rate, channels) = audio_engine::get_default_audio_config();
-
-        let encoder = VideoEncoder::new(
-            VideoSettingsBuilder::new(enc_w, enc_h)
-                .sub_type(VideoSettingsSubType::H264)
-                .bitrate(final_bitrate)
-                .frame_rate(target_fps),
-            AudioSettingsBuilder::new()
-                .sample_rate(sample_rate)
-                .channel_count(channels)
-                .bitrate(192_000)
-                .disabled(false),
-            ContainerSettingsBuilder::new(),
-            &video_path,
-        )?;
+        let mf_hw_preferred =
+            should_prefer_mf_hw_accel(&flags.target_type, target_fps, enc_w, enc_h);
+        let encoder = match create_video_encoder_with_mf_mode(MfEncoderCreateConfig {
+            enc_w,
+            enc_h,
+            target_fps,
+            final_bitrate,
+            sample_rate,
+            channels,
+            video_path: &video_path,
+            prefer_hw: mf_hw_preferred,
+        }) {
+            Ok(encoder) => encoder,
+            Err(error) if mf_hw_preferred && mf_hw_accel_override().is_none() => {
+                eprintln!(
+                    "[CaptureBackend] HW encoder init failed, retrying software path: {}",
+                    error
+                );
+                create_video_encoder_with_mf_mode(MfEncoderCreateConfig {
+                    enc_w,
+                    enc_h,
+                    target_fps,
+                    final_bitrate,
+                    sample_rate,
+                    channels,
+                    video_path: &video_path,
+                    prefer_hw: false,
+                })?
+            }
+            Err(error) => return Err(error),
+        };
         let audio_handle = encoder.create_audio_handle();
         println!(
             "Initializing VideoEncoder: {}x{} @ {}fps (Hz={}), Codec: H264 (MediaFoundation {}), Bitrate: {} Mbps, TargetType: {}, TargetID: {}",
@@ -759,7 +898,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             enc_h,
             target_fps,
             monitor_hz,
-            if mf_hw_accel_enabled() { "HW" } else { "SW" },
+            if mf_hw_preferred { "HW" } else { "SW" },
             final_bitrate / 1_000_000,
             flags.target_type,
             target_id_print
@@ -797,8 +936,18 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let app_d3d_context: ID3D11DeviceContext =
             clone_wc_interface_to_app(&ctx.device_context)
                 .map_err(|e| format!("Failed to bridge capture D3D11 context: {e}"))?;
-        let mut vram_frames = Vec::with_capacity(3);
-        for _ in 0..3 {
+        let max_pending_frames = if is_window_capture {
+            compute_window_max_pending_frames(target_fps)
+        } else {
+            ENCODER_MAX_PENDING_FRAMES
+        };
+        let window_vram_pool_frames = if is_window_capture {
+            compute_window_vram_pool_frames(max_pending_frames)
+        } else {
+            3
+        };
+        let mut vram_frames = Vec::with_capacity(window_vram_pool_frames);
+        for _ in 0..window_vram_pool_frames {
             let texture = VideoProcessor::create_texture(
                 &app_d3d_device,
                 enc_w,
@@ -814,6 +963,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             vram_frames.push(VramFrame {
                 texture: SendDirectX::new(texture),
                 surface: SendDirectX::new(surface),
+                in_flight: Arc::new(AtomicUsize::new(0)),
             });
         }
         let vram_pool = Arc::new(vram_frames);
@@ -861,9 +1011,12 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             let start_time = start; // Anchor exactly to the global start time
             eprintln!(
                 "[FramePump] spawning pump thread: tick={:?} max_pending={}",
-                tick, ENCODER_MAX_PENDING_FRAMES
+                tick, max_pending_frames
             );
             std::thread::spawn(move || {
+                unsafe {
+                    let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+                }
                 eprintln!("[FramePump] pump thread started");
                 let mut next_tick = start_time + tick;
                 let mut total_submitted: u64 = 0;
@@ -908,7 +1061,9 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                         if idx != NO_READY_VRAM_FRAME {
                             while next_tick <= now {
                                 let surface = SendDirectX::new(pump_pool[idx].surface.0.clone());
-                                if pump.submit_surface(surface, ENCODER_MAX_PENDING_FRAMES) {
+                                let release_counter = Some(pump_pool[idx].in_flight.clone());
+                                if pump.submit_surface(surface, max_pending_frames, release_counter)
+                                {
                                     p_submitted.fetch_add(1, Ordering::Relaxed);
                                     total_submitted += 1;
                                 } else {
@@ -964,6 +1119,9 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             pump_stop,
             pump_submitted,
             pump_dropped,
+            max_pending_frames,
+            last_ignored_window_frame: None,
+            vram_pool_exhausted_logged: false,
         })
     }
 
@@ -988,22 +1146,43 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             // submits that surface to the encoder at constant target_fps.
             let frame_w = frame.width();
             let frame_h = frame.height();
-            LAST_CAPTURE_FRAME_WIDTH.store(frame_w as usize, Ordering::Relaxed);
-            LAST_CAPTURE_FRAME_HEIGHT.store(frame_h as usize, Ordering::Relaxed);
-            let was_empty = self.latest_ready_idx.load(Ordering::Acquire) == NO_READY_VRAM_FRAME;
-            match self.stage_frame_in_vram(frame) {
-                Ok(slot) => {
-                    self.latest_ready_idx.store(slot, Ordering::Release);
-                    self.window_enqueued = self.window_enqueued.saturating_add(1);
-                    if was_empty {
-                        eprintln!(
-                            "[FramePump] first frame staged in VRAM: frame={}x{} enc={}x{}",
-                            frame_w, frame_h, self.enc_w, self.enc_h
-                        );
-                    }
+            if should_ignore_window_frame(frame_w, frame_h) {
+                if self.last_ignored_window_frame != Some((frame_w, frame_h)) {
+                    eprintln!(
+                        "[FramePump] ignoring implausible window frame {}x{}; keeping last good frame",
+                        frame_w, frame_h
+                    );
+                    self.last_ignored_window_frame = Some((frame_w, frame_h));
                 }
-                Err(e) => {
-                    eprintln!("[FramePump] VRAM stage failed: {}", e);
+            } else {
+                self.last_ignored_window_frame = None;
+                LAST_CAPTURE_FRAME_WIDTH.store(frame_w as usize, Ordering::Relaxed);
+                LAST_CAPTURE_FRAME_HEIGHT.store(frame_h as usize, Ordering::Relaxed);
+                let was_empty =
+                    self.latest_ready_idx.load(Ordering::Acquire) == NO_READY_VRAM_FRAME;
+                match self.stage_frame_in_vram(frame) {
+                    Ok(Some(slot)) => {
+                        self.vram_pool_exhausted_logged = false;
+                        self.latest_ready_idx.store(slot, Ordering::Release);
+                        self.window_enqueued = self.window_enqueued.saturating_add(1);
+                        if was_empty {
+                            eprintln!(
+                                "[FramePump] first frame staged in VRAM: frame={}x{} enc={}x{}",
+                                frame_w, frame_h, self.enc_w, self.enc_h
+                            );
+                        }
+                    }
+                    Ok(None) => {
+                        if !self.vram_pool_exhausted_logged {
+                            eprintln!(
+                                "[FramePump] all staged surfaces still in flight; keeping last good frame until encoder drains"
+                            );
+                            self.vram_pool_exhausted_logged = true;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[FramePump] VRAM stage failed: {}", e);
+                    }
                 }
             }
 
@@ -1045,7 +1224,14 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 let frame_h = frame.height();
                 let staged_mismatch_slot = if frame_w != self.enc_w || frame_h != self.enc_h {
                     match self.stage_frame_in_vram(frame) {
-                        Ok(slot) => Some(slot),
+                        Ok(Some(slot)) => Some(slot),
+                        Ok(None) => {
+                            eprintln!(
+                                "Encoder GPU resize fallback skipped: no free staged surface for {}x{} -> {}x{}",
+                                frame_w, frame_h, self.enc_w, self.enc_h
+                            );
+                            None
+                        }
                         Err(e) => {
                             eprintln!(
                                 "Encoder GPU resize fallback error ({}x{} -> {}x{}): {}",
@@ -1101,7 +1287,8 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                             let surface = SendDirectX::new(self.vram_pool[slot].surface.0.clone());
                             match encoder.send_directx_surface_nonblocking(
                                 surface,
-                                ENCODER_MAX_PENDING_FRAMES,
+                                self.max_pending_frames,
+                                Some(self.vram_pool[slot].in_flight.clone()),
                             ) {
                                 Ok(true) => {
                                     self.window_enqueued = self.window_enqueued.saturating_add(1);

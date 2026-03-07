@@ -4,8 +4,8 @@
 use super::bg_download;
 use super::engine::{
     ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, CAPTURE_ERROR, CaptureHandler, ENCODER_ACTIVE,
-    ENCODING_FINISHED, LAST_CAPTURE_FRAME_HEIGHT, LAST_CAPTURE_FRAME_WIDTH, MOUSE_POSITIONS,
-    SHOULD_STOP, VIDEO_PATH, get_monitors,
+    ENCODING_FINISHED, IS_RECORDING, LAST_CAPTURE_FRAME_HEIGHT, LAST_CAPTURE_FRAME_WIDTH,
+    MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH, get_monitors,
 };
 use super::input_capture;
 use super::mf_decode;
@@ -867,6 +867,7 @@ pub fn handle_ipc_command(
             Ok(serde_json::Value::Null)
         }
         "start_recording" => {
+            IS_RECORDING.store(true, std::sync::atomic::Ordering::SeqCst);
             let target_type = args["targetType"].as_str().unwrap_or("monitor");
             let target_id = args["targetId"]
                 .as_str()
@@ -931,6 +932,7 @@ pub fn handle_ipc_command(
                         windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool()
                     }
                 {
+                    IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
                     return Err(format!("Invalid window handle: 0x{:X}", hwnd_val));
                 }
 
@@ -986,6 +988,7 @@ pub fn handle_ipc_command(
                         let msg = format!("Window capture failed: {}", e);
                         eprintln!("[CaptureBackend] {}", msg);
                         *CAPTURE_ERROR.lock() = Some(msg.clone());
+                        IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
                         return Err(msg);
                     }
                 }
@@ -1071,6 +1074,7 @@ pub fn handle_ipc_command(
                         let msg = format!("Display capture failed: {}", e);
                         eprintln!("[CaptureBackend] {}", msg);
                         *CAPTURE_ERROR.lock() = Some(msg.clone());
+                        IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
                         return Err(msg);
                     }
                 }
@@ -1114,6 +1118,7 @@ pub fn handle_ipc_command(
             std::thread::sleep(std::time::Duration::from_millis(200));
             if let Some(err_msg) = CAPTURE_ERROR.lock().take() {
                 // Clean up all recording state so nothing keeps running.
+                IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
                 ENCODER_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
                 super::engine::SHOULD_STOP_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);
                 ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -1168,6 +1173,7 @@ pub fn handle_ipc_command(
                     && AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst);
 
                 if !retry_done {
+                    IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
                     ENCODER_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
                     super::engine::SHOULD_STOP_AUDIO
                         .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -1203,6 +1209,7 @@ pub fn handle_ipc_command(
             let encoded_path = urlencoding::encode(&video_path);
             let video_url = format!("http://localhost:{}/?path={}", port, encoded_path);
             let audio_url = format!("http://localhost:{}/?path={}", port, encoded_path);
+            IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
 
             Ok(serde_json::json!([
                 video_url,

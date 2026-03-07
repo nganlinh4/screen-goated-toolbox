@@ -835,6 +835,7 @@ interface UseExportProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   tempCanvasRef: React.RefObject<HTMLCanvasElement>;
   audioRef: React.RefObject<HTMLAudioElement | null>;
+  isRecording: boolean;
   segment: VideoSegment | null;
   backgroundConfig: BackgroundConfig;
   mousePositions: MousePosition[];
@@ -997,7 +998,7 @@ export function useExport(props: UseExportProps) {
   }, []);
 
   useEffect(() => {
-    if (isProcessing || showExportDialog || !hasCheckedExportCapabilities) return;
+    if (props.isRecording || isProcessing || showExportDialog || !hasCheckedExportCapabilities) return;
     const videoEl = props.videoRef.current;
     const canvasEl = props.canvasRef.current;
     const segment = props.segment;
@@ -1062,6 +1063,7 @@ export function useExport(props: UseExportProps) {
       }
     };
   }, [
+    props.isRecording,
     isProcessing,
     showExportDialog,
     hasCheckedExportCapabilities,
@@ -1089,7 +1091,7 @@ export function useExport(props: UseExportProps) {
   ]);
 
   useEffect(() => {
-    if (isProcessing || !showExportDialog || !hasCheckedExportCapabilities) return;
+    if (props.isRecording || isProcessing || !showExportDialog || !hasCheckedExportCapabilities) return;
     const preRenderPolicy = exportOptions.preRenderPolicy || 'idle_only';
     if (preRenderPolicy === 'off') return;
     const videoEl = props.videoRef.current;
@@ -1130,6 +1132,7 @@ export function useExport(props: UseExportProps) {
       window.clearTimeout(timer);
     };
   }, [
+    props.isRecording,
     isProcessing,
     showExportDialog,
     hasCheckedExportCapabilities,
