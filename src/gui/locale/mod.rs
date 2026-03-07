@@ -359,6 +359,7 @@ pub struct LocaleText {
     // --- WINDOW SELECTOR OVERLAY ---
     pub win_select_title: &'static str,
     pub win_select_subtitle: &'static str,
+    pub win_select_count: &'static str,
 }
 
 mod en;

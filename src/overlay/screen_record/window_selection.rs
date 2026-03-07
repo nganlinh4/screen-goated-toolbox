@@ -132,13 +132,13 @@ fn generate_html(
     is_dark: bool,
     title: &str,
     subtitle: &str,
+    count_label: &str,
+    cancel_label: &str,
 ) -> String {
     // Escape </script> sequences to prevent premature tag closure.
     let windows_json = serde_json::to_string(windows)
         .unwrap_or_else(|_| "[]".to_string())
         .replace("</", "<\\/");
-
-    let count = windows.len();
 
     let (
         overlay_bg,
@@ -194,7 +194,7 @@ fn generate_html(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Select Window</title>
+<title>{title}</title>
 <style>
 {font_css}
 *{{box-sizing:border-box;margin:0;padding:0}}
@@ -226,7 +226,7 @@ html,body{{width:100%;height:100%;overflow:hidden;font-family:'Google Sans Flex'
   background:{overlay_bg};
   backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
   display:flex;flex-direction:column;align-items:center;
-  padding:50px 28px 28px;overflow-y:auto;
+  padding:34px 24px 22px;overflow-y:auto;
   animation:overlayIn 0.22s cubic-bezier(0.2,0,0,1) forwards;
 }}
 
@@ -240,10 +240,10 @@ html,body{{width:100%;height:100%;overflow:hidden;font-family:'Google Sans Flex'
 }}
 .close-btn:hover{{color:{close_hover_color}}}
 
-.header{{text-align:center;margin-bottom:24px;flex-shrink:0}}
+.header{{text-align:center;margin-bottom:18px;flex-shrink:0;width:min(92vw,1760px)}}
 .title{{
   color:{title_color};
-  font-size:28px;font-weight:600;
+  font-size:clamp(24px,2.1vw,34px);font-weight:600;
   font-stretch:130%;text-transform:uppercase;
   letter-spacing:0.12em;
   margin-bottom:6px;
@@ -265,33 +265,52 @@ html,body{{width:100%;height:100%;overflow:hidden;font-family:'Google Sans Flex'
    prevents grid from stretching shorter cards to the tallest row height */
 .grid{{
   display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
-  gap:12px;width:100%;max-width:1280px;
+  grid-template-columns:repeat(auto-fill,minmax(clamp(220px,18vw,280px),1fr));
+  gap:14px;width:min(92vw,1760px);max-width:1760px;
   align-items:start
 }}
 
 .card{{
-  background:{card_bg};border:1px solid {card_border};
+  --card-accent-rgb: 128,128,128;
+  --card-hover-border: {card_hover_border};
+  background:
+    radial-gradient(circle at top left, rgba(var(--card-accent-rgb),0.18), transparent 48%),
+    linear-gradient(180deg, rgba(var(--card-accent-rgb),0.12), transparent 68%),
+    {card_bg};
+  border:1px solid {card_border};
   border-radius:10px;overflow:hidden;cursor:pointer;
   transition:background 0.12s,border-color 0.12s,transform 0.12s,box-shadow 0.12s;
   user-select:none;
+  position:relative;
   opacity:0; /* set by JS stagger animation */
 }}
+.card::before{{
+  content:'';
+  position:absolute;left:0;right:0;top:0;height:3px;
+  background:rgba(var(--card-accent-rgb),0.9);
+  opacity:0.92;pointer-events:none
+}}
 .card:hover{{
-  border-color:{card_hover_border};
+  border-color:var(--card-hover-border);
   transform:translateY(-3px);
-  box-shadow:0 10px 28px rgba(0,0,0,0.22)
+  box-shadow:
+    0 10px 28px rgba(0,0,0,0.22),
+    0 0 0 1px rgba(var(--card-accent-rgb),0.20) inset,
+    0 0 24px rgba(var(--card-accent-rgb),0.14)
 }}
 .card:active{{transform:translateY(-1px)}}
 .card.admin-blocked{{opacity:0.35!important;cursor:not-allowed}}
 .card.admin-blocked:hover{{transform:none;box-shadow:none;border-color:{card_border}}}
 
 .thumb{{
-  width:100%;background:{thumb_bg};
+  width:100%;
+  background:
+    linear-gradient(180deg, rgba(var(--card-accent-rgb),0.16), transparent 78%),
+    {thumb_bg};
   display:flex;align-items:center;justify-content:center;
   overflow:hidden;position:relative;
-  /* Hard cap: no thumbnail taller than 160px regardless of aspect ratio */
-  max-height:160px
+  /* Hard cap: no thumbnail taller than 196px regardless of aspect ratio */
+  max-height:196px
 }}
 .thumb img{{
   width:100%;height:100%;object-fit:cover;display:block;
@@ -305,9 +324,17 @@ html,body{{width:100%;height:100%;overflow:hidden;font-family:'Google Sans Flex'
   color:rgba(128,128,128,0.20);font-size:24px
 }}
 
-.info{{padding:8px 10px;display:flex;align-items:center;gap:7px}}
-.icon{{width:16px;height:16px;flex-shrink:0;border-radius:2px;object-fit:contain}}
-.icon-ph{{width:16px;height:16px;background:rgba(128,128,128,0.12);border-radius:2px;flex-shrink:0}}
+.info{{
+  padding:8px 10px;display:flex;align-items:center;gap:9px;
+  background:linear-gradient(90deg, rgba(var(--card-accent-rgb),0.16), transparent 78%)
+}}
+.icon{{
+  width:22px;height:22px;flex-shrink:0;border-radius:6px;object-fit:contain;
+  background:rgba(var(--card-accent-rgb),0.18);
+  box-shadow:0 0 0 1px rgba(var(--card-accent-rgb),0.24) inset;
+  padding:2px
+}}
+.icon-ph{{width:22px;height:22px;background:rgba(128,128,128,0.12);border-radius:4px;flex-shrink:0}}
 .text{{flex:1;min-width:0}}
 .win-title{{
   color:{title_color};font-size:11.5px;font-weight:500;
@@ -324,14 +351,36 @@ html,body{{width:100%;height:100%;overflow:hidden;font-family:'Google Sans Flex'
   border-radius:3px;font-size:8px;font-weight:700;
   padding:1px 4px;letter-spacing:0.07em;text-transform:uppercase;flex-shrink:0
 }}
+@media (max-width: 1100px){{
+  .overlay{{padding:40px 18px 18px}}
+  .header{{width:min(96vw,1200px)}}
+  .grid{{
+    width:min(96vw,1200px);
+    grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
+    gap:12px
+  }}
+  .thumb{{max-height:172px}}
+}}
+@media (max-width: 760px){{
+  .overlay{{padding:42px 14px 14px}}
+  .header{{width:100%;margin-bottom:16px}}
+  .title{{font-size:22px;letter-spacing:0.08em}}
+  .subtitle{{font-size:11px}}
+  .grid{{
+    width:100%;
+    grid-template-columns:repeat(auto-fill,minmax(170px,1fr));
+    gap:10px
+  }}
+  .thumb{{max-height:148px}}
+}}
 </style>
 </head>
 <body>
-<button class="close-btn" id="close-btn" title="Cancel" aria-label="Cancel">&#x2715;</button>
+<button class="close-btn" id="close-btn" title="{cancel_label}" aria-label="{cancel_label}">&#x2715;</button>
 <div class="overlay" id="overlay">
   <div class="header">
     <div class="title" id="title-text">{title}</div>
-    <div class="subtitle">{subtitle}<span class="win-count">{count} windows</span></div>
+    <div class="subtitle">{subtitle}<span class="win-count">{count_label}</span></div>
   </div>
   <div class="grid" id="grid"></div>
 </div>
@@ -350,6 +399,90 @@ var windows={windows_json};
 
 function selectWindow(id){{window.ipc.postMessage('select:'+id);}}
 function cancel(){{window.ipc.postMessage('cancel');}}
+function clamp(value,min,max){{return Math.max(min,Math.min(max,value));}}
+function rgbToHsl(r,g,b){{
+  r/=255;g/=255;b/=255;
+  var max=Math.max(r,g,b),min=Math.min(r,g,b);
+  var h,s,l=(max+min)/2;
+  if(max===min){{h=0;s=0;}}
+  else {{
+    var d=max-min;
+    s=l>0.5?d/(2-max-min):d/(max+min);
+    switch(max){{
+      case r:h=(g-b)/d+(g<b?6:0);break;
+      case g:h=(b-r)/d+2;break;
+      default:h=(r-g)/d+4;break;
+    }}
+    h/=6;
+  }}
+  return [h,s,l];
+}}
+function hslToRgb(h,s,l){{
+  var r,g,b;
+  if(s===0){{r=g=b=l;}}
+  else {{
+    function hue2rgb(p,q,t){{
+      if(t<0)t+=1;
+      if(t>1)t-=1;
+      if(t<1/6)return p+(q-p)*6*t;
+      if(t<1/2)return q;
+      if(t<2/3)return p+(q-p)*(2/3-t)*6;
+      return p;
+    }}
+    var q=l<0.5?l*(1+s):l+s-l*s;
+    var p=2*l-q;
+    r=hue2rgb(p,q,h+1/3);
+    g=hue2rgb(p,q,h);
+    b=hue2rgb(p,q,h-1/3);
+  }}
+  return [Math.round(r*255),Math.round(g*255),Math.round(b*255)];
+}}
+function normalizeAccentColor(rgb){{
+  var hsl=rgbToHsl(rgb[0],rgb[1],rgb[2]);
+  hsl[1]=Math.max(hsl[1],0.28);
+  hsl[2]=clamp(hsl[2],0.34,0.62);
+  return hslToRgb(hsl[0],hsl[1],hsl[2]);
+}}
+function computeAverageIconColor(img){{
+  try {{
+    var canvas=document.createElement('canvas');
+    canvas.width=16;canvas.height=16;
+    var ctx=canvas.getContext('2d',{{willReadFrequently:true}});
+    if(!ctx) return null;
+    ctx.clearRect(0,0,16,16);
+    ctx.drawImage(img,0,0,16,16);
+    var data=ctx.getImageData(0,0,16,16).data;
+    var r=0,g=0,b=0,total=0;
+    for(var i=0;i<data.length;i+=4){{
+      var alpha=data[i+3]/255;
+      if(alpha<0.05) continue;
+      var rr=data[i],gg=data[i+1],bb=data[i+2];
+      var max=Math.max(rr,gg,bb),min=Math.min(rr,gg,bb);
+      var sat=max===0?0:(max-min)/max;
+      var lum=(0.2126*rr+0.7152*gg+0.0722*bb)/255;
+      var weight=alpha*(0.35+sat*0.9);
+      if(lum<0.08||lum>0.96) weight*=0.55;
+      r+=rr*weight;g+=gg*weight;b+=bb*weight;total+=weight;
+    }}
+    if(total<0.001) return null;
+    return normalizeAccentColor([
+      Math.round(r/total),
+      Math.round(g/total),
+      Math.round(b/total)
+    ]);
+  }} catch(_err) {{
+    return null;
+  }}
+}}
+function applyCardAccent(card,rgb){{
+  if(!rgb) return;
+  card.style.setProperty('--card-accent-rgb',rgb.join(','));
+}}
+function attachCardAccentFromIcon(card,img){{
+  var apply=function(){{applyCardAccent(card,computeAverageIconColor(img));}};
+  if(img.complete&&img.naturalWidth>0) apply();
+  else img.addEventListener('load',apply,{{once:true}});
+}}
 
 var grid=document.getElementById('grid');
 var overlay=document.getElementById('overlay');
@@ -384,6 +517,7 @@ windows.forEach(function(w,idx){{
   var info=document.createElement('div');info.className='info';
   if(w.iconDataUrl){{
     var ic=document.createElement('img');ic.className='icon';ic.src=w.iconDataUrl;ic.alt='';info.appendChild(ic);
+    attachCardAccentFromIcon(card,ic);
   }}else{{
     var iph=document.createElement('div');iph.className='icon-ph';info.appendChild(iph);
   }}
@@ -433,7 +567,8 @@ overlay.addEventListener('click',function(e){{if(e.target===overlay)cancel();}})
         scroll_thumb = scroll_thumb,
         title = title,
         subtitle = subtitle,
-        count = count,
+        count_label = count_label,
+        cancel_label = cancel_label,
         windows_json = windows_json,
     )
 }
@@ -529,10 +664,22 @@ pub fn show_window_selector(windows_data: Vec<serde_json::Value>, is_dark: bool,
         let locale = crate::gui::locale::LocaleText::get(&lang);
         let title = locale.win_select_title.to_string();
         let subtitle = locale.win_select_subtitle.to_string();
+        let count_label = locale
+            .win_select_count
+            .replace("{}", &windows_data.len().to_string());
+        let cancel_label = locale.cancel_label.to_string();
 
         // Build HTML with Google Sans Flex font embedded via font manager.
         let font_css = crate::overlay::html_components::font_manager::get_font_css();
-        let html = generate_html(&windows_data, &font_css, is_dark, &title, &subtitle);
+        let html = generate_html(
+            &windows_data,
+            &font_css,
+            is_dark,
+            &title,
+            &subtitle,
+            &count_label,
+            &cancel_label,
+        );
 
         // Serve HTML via font manager's local HTTP server for same-origin font loading.
         let page_url = crate::overlay::html_components::font_manager::store_html_page(html.clone())
@@ -565,6 +712,16 @@ pub fn show_window_selector(windows_data: Vec<serde_json::Value>, is_dark: bool,
                                  {{detail:{{windowId:'{}'}}}}))",
                                 window_id
                             );
+                            let script_ptr = Box::into_raw(Box::new(script));
+                            let _ = PostMessageW(
+                                Some(HWND(sr_hwnd_val as *mut _)),
+                                WM_APP_RUN_SCRIPT,
+                                WPARAM(0),
+                                LPARAM(script_ptr as isize),
+                            );
+                        } else if body == "cancel" {
+                            let script = "window.dispatchEvent(new CustomEvent('external-window-selection-cancelled'))"
+                                .to_string();
                             let script_ptr = Box::into_raw(Box::new(script));
                             let _ = PostMessageW(
                                 Some(HWND(sr_hwnd_val as *mut _)),
