@@ -7,7 +7,7 @@ import {
   Loader2, CircleCheck,
 } from 'lucide-react';
 import { Hotkey, MonitorInfo } from '@/hooks/useAppHooks';
-import { formatTime } from '@/utils/helpers';
+import { formatMonitorSummary, formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';
 import { RecordingMode } from '@/types/video';
 import { useHeaderStatus } from '@/lib/headerStatus';
@@ -216,7 +216,7 @@ export function Header({
             onMouseDown={(e) => e.stopPropagation()}
             onClick={onOpenHotkeyDialog}
             className="bg-transparent border border-[var(--outline-variant)] hover:bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] px-2 h-6 text-[11px] flex-shrink-0 transition-colors whitespace-nowrap"
-            title="Add Global Hotkey"
+            title={t.addHotkey}
           >
             <Keyboard className="w-3 h-3 mr-1" />
             {t.addHotkey}
@@ -340,7 +340,7 @@ export function Header({
                     <div className="capture-monitor-list flex flex-col gap-1.5 max-h-[320px] overflow-y-auto">
                       {monitors.length === 0 ? (
                         <div className="px-2 py-3 text-[11px] text-[var(--on-surface-variant)] text-center opacity-60">
-                          Loading…
+                          {t.loading}
                         </div>
                       ) : monitors.map((m) => (
                         <button
@@ -364,8 +364,7 @@ export function Header({
                           <div className="capture-monitor-info px-2 py-1.5 bg-[var(--surface-container)]/40 group-hover:bg-[var(--surface-container)] transition-colors">
                             <div className="text-[11px] font-medium text-[var(--on-surface)] leading-tight">{m.name}</div>
                             <div className="text-[10px] text-[var(--on-surface-variant)] opacity-70 mt-0.5">
-                              {m.width}×{m.height} · {m.hz}Hz
-                              {m.is_primary && <span className="ml-1.5 opacity-60">primary</span>}
+                              {formatMonitorSummary(m, t)}
                             </div>
                           </div>
                         </button>
@@ -396,7 +395,7 @@ export function Header({
                       className="capture-fps-option capture-fps-auto w-full text-left rounded-md px-2 py-1.5 text-[11px] transition-colors flex items-center gap-2 text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]"
                     >
                       <span className="w-3.5 h-3.5" />
-                      <span className="flex-1">Auto</span>
+                      <span className="flex-1">{t.autoOption}</span>
                     </button>
                     {getPerfectFpsOptions(pickedMonitor.hz).map((fps) => (
                       <button
@@ -434,7 +433,7 @@ export function Header({
                       className="capture-fps-option capture-fps-auto w-full text-left rounded-md px-2 py-1.5 text-[11px] transition-colors flex items-center gap-2 text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]"
                     >
                       <span className="w-3.5 h-3.5" />
-                      <span>Auto</span>
+                      <span>{t.autoOption}</span>
                     </button>
                     {combinedFpsOptions.map((fps) => (
                       <button

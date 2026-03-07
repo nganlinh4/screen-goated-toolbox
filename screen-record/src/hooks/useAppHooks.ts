@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@/lib/ipc';
+import { useSettings } from '@/hooks/useSettings';
+import { sortMonitorsByPosition } from '@/utils/helpers';
 
 // Re-export types for convenience
 export interface MonitorInfo {
@@ -112,32 +114,31 @@ export function useHotkeys() {
 // ============================================================================
 // useMonitors
 // ============================================================================
-const sortMonitorsByPosition = (monitors: MonitorInfo[]) => {
-  return [...monitors]
-    .sort((a, b) => a.x - b.x)
-    .map((monitor, index) => ({ ...monitor, name: `Display ${index + 1}${monitor.is_primary ? ' (Primary)' : ''}` }));
-};
-
 export function useMonitors() {
+  const { t } = useSettings();
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
   const [showMonitorSelect, setShowMonitorSelect] = useState(false);
 
-  const getMonitors = async () => {
+  const getMonitors = useCallback(async () => {
     try {
       const result = await invoke<MonitorInfo[]>("get_monitors");
-      const sortedMonitors = sortMonitorsByPosition(result);
+      const sortedMonitors = sortMonitorsByPosition(result, t);
       setMonitors(sortedMonitors);
       return sortedMonitors;
     } catch (err) {
       console.error("Failed to get monitors:", err);
       return [];
     }
-  };
+  }, [t]);
 
   // Proactive scan on mount so Hz + thumbnails are ready before user opens the dropdown.
   useEffect(() => {
     getMonitors();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setMonitors(prev => sortMonitorsByPosition(prev, t));
+  }, [t]);
 
   return { monitors, showMonitorSelect, setShowMonitorSelect, getMonitors };
 }

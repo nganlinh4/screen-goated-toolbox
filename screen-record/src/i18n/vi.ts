@@ -35,6 +35,11 @@ const vi: Translations = {
   recordingModeWithCursorDetail: 'Quay có chuột: phù hợp để quay và lấy ngay video vừa quay',
   statusPreparingCursors: 'Đang chuẩn bị con trỏ động\u2026',
   statusCursorsReady: 'Con trỏ đã sẵn sàng!',
+  loading: 'Đang tải\u2026',
+  autoOption: 'Tự động',
+  monitorDisplayName: 'Màn hình {index}',
+  monitorDisplayNamePrimary: 'Màn hình {index} (Chính)',
+  monitorPrimaryShort: 'chính',
 
   // SidePanel tabs
   tabZoom: 'Phóng To',
