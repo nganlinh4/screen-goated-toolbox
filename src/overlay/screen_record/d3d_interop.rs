@@ -306,6 +306,27 @@ impl VideoProcessor {
         output_w: u32,
         output_h: u32,
     ) -> Result<Self, String> {
+        Self::new_with_frame_rate(
+            d3d11_device,
+            d3d11_context,
+            input_w,
+            input_h,
+            output_w,
+            output_h,
+            60,
+        )
+    }
+
+    /// Create a D3D11 Video Processor with an explicit nominal frame rate.
+    pub fn new_with_frame_rate(
+        d3d11_device: &ID3D11Device,
+        d3d11_context: &ID3D11DeviceContext,
+        input_w: u32,
+        input_h: u32,
+        output_w: u32,
+        output_h: u32,
+        frame_rate: u32,
+    ) -> Result<Self, String> {
         let video_device: ID3D11VideoDevice = d3d11_device
             .cast()
             .map_err(|e| format!("QI ID3D11VideoDevice: {e}"))?;
@@ -314,16 +335,17 @@ impl VideoProcessor {
             .cast()
             .map_err(|e| format!("QI ID3D11VideoContext: {e}"))?;
 
+        let frame_rate = frame_rate.max(1);
         let content_desc = D3D11_VIDEO_PROCESSOR_CONTENT_DESC {
             InputFrameFormat: D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
             InputFrameRate: DXGI_RATIONAL {
-                Numerator: 60,
+                Numerator: frame_rate,
                 Denominator: 1,
             },
             InputWidth: input_w,
             InputHeight: input_h,
             OutputFrameRate: DXGI_RATIONAL {
-                Numerator: 60,
+                Numerator: frame_rate,
                 Denominator: 1,
             },
             OutputWidth: output_w,
@@ -488,6 +510,62 @@ impl VideoProcessor {
                 .map_err(|e| format!("CreateTexture2D({format:?}): {e}"))?;
         }
         texture.ok_or_else(|| "CreateTexture2D returned null".to_string())
+    }
+
+    pub fn create_render_target_view(
+        d3d11_device: &ID3D11Device,
+        texture: &ID3D11Texture2D,
+    ) -> Result<ID3D11RenderTargetView, String> {
+        let resource: ID3D11Resource = texture
+            .cast()
+            .map_err(|e| format!("Texture2D -> ID3D11Resource cast failed: {e}"))?;
+
+        let mut render_target_view: Option<ID3D11RenderTargetView> = None;
+        unsafe {
+            d3d11_device
+                .CreateRenderTargetView(&resource, None, Some(&mut render_target_view))
+                .map_err(|e| format!("CreateRenderTargetView: {e}"))?;
+        }
+
+        render_target_view.ok_or_else(|| "CreateRenderTargetView returned null".to_string())
+    }
+
+    pub fn pad_copy_texture(
+        d3d11_context: &ID3D11DeviceContext,
+        output_view: &ID3D11RenderTargetView,
+        output_texture: &ID3D11Texture2D,
+        input_texture: &ID3D11Texture2D,
+        copy_w: u32,
+        copy_h: u32,
+    ) -> Result<(), String> {
+        if copy_w == 0 || copy_h == 0 {
+            return Err("pad_copy_texture received zero-sized copy region".to_string());
+        }
+
+        let copy_box = D3D11_BOX {
+            left: 0,
+            top: 0,
+            front: 0,
+            right: copy_w,
+            bottom: copy_h,
+            back: 1,
+        };
+
+        unsafe {
+            d3d11_context.ClearRenderTargetView(output_view, &[0.0, 0.0, 0.0, 1.0]);
+            d3d11_context.CopySubresourceRegion(
+                output_texture,
+                0,
+                0,
+                0,
+                0,
+                input_texture,
+                0,
+                Some(&copy_box),
+            );
+        }
+
+        Ok(())
     }
 }
 

@@ -881,7 +881,7 @@ pub fn handle_ipc_command(
             };
 
             SHOULD_STOP.store(false, std::sync::atomic::Ordering::SeqCst);
-            super::engine::CURSOR_SIGNATURE_CACHE.lock().clear();
+            super::engine::reset_cursor_detection_state();
             MOUSE_POSITIONS.lock().clear();
             LAST_CAPTURE_FRAME_WIDTH.store(0, std::sync::atomic::Ordering::Relaxed);
             LAST_CAPTURE_FRAME_HEIGHT.store(0, std::sync::atomic::Ordering::Relaxed);
