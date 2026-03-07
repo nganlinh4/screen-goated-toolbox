@@ -511,7 +511,6 @@ impl VideoProcessor {
         }
         texture.ok_or_else(|| "CreateTexture2D returned null".to_string())
     }
-
 }
 
 /// Creates an `IDirect3DSurface` (WinRT) from a D3D11 texture.

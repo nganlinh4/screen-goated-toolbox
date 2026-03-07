@@ -164,7 +164,11 @@ unsafe extern "system" fn border_wnd_proc(
                 LRESULT(0)
             }
             WM_APP_SET_BORDER_VISIBLE => {
-                let cmd = if wparam.0 != 0 { SW_SHOWNOACTIVATE } else { SW_HIDE };
+                let cmd = if wparam.0 != 0 {
+                    SW_SHOWNOACTIVATE
+                } else {
+                    SW_HIDE
+                };
                 let _ = ShowWindow(hwnd, cmd);
                 LRESULT(0)
             }

@@ -21,7 +21,7 @@ use windows::Win32::Graphics::Direct3D11::{
 use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
-    BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, DIB_RGB_COLORS, DEVMODEW,
+    BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, DEVMODEW, DIB_RGB_COLORS,
     DeleteDC, DeleteObject, ENUM_CURRENT_SETTINGS, EnumDisplayMonitors, EnumDisplaySettingsW,
     GetDC, GetDIBits, GetMonitorInfoW, GetObjectW, HBITMAP, HDC, HMONITOR, MONITORINFOEXW,
     ReleaseDC,
@@ -613,9 +613,9 @@ fn load_system_cursor_signatures() -> HashMap<String, &'static str> {
         if handle == 0 {
             continue;
         }
-        if let Some(signature) = cursor_signature(
-            windows::Win32::UI::WindowsAndMessaging::HCURSOR(handle as *mut _),
-        ) {
+        if let Some(signature) = cursor_signature(windows::Win32::UI::WindowsAndMessaging::HCURSOR(
+            handle as *mut _,
+        )) {
             signatures.insert(signature, cursor_type);
         }
     }
