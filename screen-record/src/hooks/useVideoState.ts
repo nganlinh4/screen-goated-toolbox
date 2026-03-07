@@ -35,6 +35,7 @@ const DEFAULT_EXPORT_FPS = 60;
 const MIN_EXPORT_FPS = 1;
 const MAX_EXPORT_FPS = 240;
 const MIN_CROP_SIZE = 0.05;
+const TRAILING_MOUSE_SAMPLE_EPSILON_SEC = 1 / 240;
 
 function getSavedKeystrokeDelaySec(): number {
   try {
@@ -106,6 +107,59 @@ function normalizeCropRect(crop: Partial<CropRect> | null | undefined): CropRect
     return undefined;
   }
   return { x, y, width, height };
+}
+
+function hasValidCaptureDimensions(position: MousePosition | undefined): boolean {
+  return typeof position?.captureWidth === 'number'
+    && Number.isFinite(position.captureWidth)
+    && position.captureWidth > 1
+    && typeof position?.captureHeight === 'number'
+    && Number.isFinite(position.captureHeight)
+    && position.captureHeight > 1;
+}
+
+function stabilizeMousePositionsForTimeline(
+  positions: MousePosition[],
+  timelineDuration: number
+): MousePosition[] {
+  if (positions.length === 0) return positions;
+
+  let changed = false;
+  let lastValidDims: { width: number; height: number } | null = null;
+
+  const stabilized = positions.map((position) => {
+    if (hasValidCaptureDimensions(position)) {
+      lastValidDims = {
+        width: position.captureWidth!,
+        height: position.captureHeight!,
+      };
+      return position;
+    }
+    if (!lastValidDims) {
+      return position;
+    }
+    changed = true;
+    return {
+      ...position,
+      captureWidth: lastValidDims.width,
+      captureHeight: lastValidDims.height,
+    };
+  });
+
+  const last = stabilized[stabilized.length - 1];
+  if (
+    Number.isFinite(timelineDuration) &&
+    timelineDuration > 0 &&
+    timelineDuration - last.timestamp > TRAILING_MOUSE_SAMPLE_EPSILON_SEC
+  ) {
+    changed = true;
+    stabilized.push({
+      ...last,
+      timestamp: timelineDuration,
+    });
+  }
+
+  return changed ? stabilized : positions;
 }
 
 export function getSavedCropPref(): CropRect | undefined {
@@ -469,7 +523,6 @@ export function useRecording(props: UseRecordingProps) {
         captureWidth: p.captureWidth ?? p.capture_width,
         captureHeight: p.captureHeight ?? p.capture_height,
       }));
-      setMousePositions(mouseData);
 
       objectUrl = await props.videoControllerRef.current?.loadVideo({
         videoUrl, onLoadingProgress: setLoadingProgress
@@ -507,6 +560,11 @@ export function useRecording(props: UseRecordingProps) {
         const timelineDuration = videoDuration > 0
           ? videoDuration
           : Math.max(maxMouseTimestamp, maxInputTimestamp);
+        const stabilizedMouseData = stabilizeMousePositionsForTimeline(
+          mouseData,
+          timelineDuration
+        );
+        setMousePositions(stabilizedMouseData);
         const baseSegment: VideoSegment = {
           trimStart: 0,
           trimEnd: timelineDuration,
@@ -526,8 +584,8 @@ export function useRecording(props: UseRecordingProps) {
         const vidW = props.videoRef.current?.videoWidth || 0;
         const vidH = props.videoRef.current?.videoHeight || 0;
         const normalizedMouseData = (vidW > 0 && vidH > 0)
-          ? normalizeMousePositionsToVideoSpace(mouseData, vidW, vidH)
-          : mouseData;
+          ? normalizeMousePositionsToVideoSpace(stabilizedMouseData, vidW, vidH)
+          : stabilizedMouseData;
         const normalizedPointerSegments = generateCursorVisibility(
           segmentWithKeystrokes,
           normalizedMouseData,
@@ -579,12 +637,12 @@ export function useRecording(props: UseRecordingProps) {
           videoRenderer.drawFrame({
             video: props.videoRef.current, canvas: props.canvasRef.current,
             tempCanvas: props.tempCanvasRef.current!, segment: initialSegment,
-            backgroundConfig: props.backgroundConfig, mousePositions: mouseData, currentTime: 0
+            backgroundConfig: props.backgroundConfig, mousePositions: stabilizedMouseData, currentTime: 0
           });
         }
 
         return {
-          mouseData,
+          mouseData: stabilizedMouseData,
           initialSegment,
           videoUrl: objectUrl,
           recordingMode: activeRecordingMode,

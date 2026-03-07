@@ -1,22 +1,77 @@
 [
   {
     "id": "warm-abstract",
-    "preview": "/bg-warm-abstract.svg",
+    "preview": "/bg-warm-abstract.jpg",
     "downloadUrl": "https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipPN4cVT1Rngl_wMHjLy1uWx0aiSyENSm8GWW3Ez?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3"
   },
   {
     "id": "cool-abstract",
-    "preview": "/bg-cool-abstract.svg",
+    "preview": "/bg-cool-abstract.jpg",
     "downloadUrl": "https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipNUuKkC-kKZKGQjJ7ga59EJY1d4YwYp0HVeuJ0L?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3"
   },
   {
     "id": "deep-abstract",
-    "preview": "/bg-deep-abstract.svg",
+    "preview": "/bg-deep-abstract.jpg",
     "downloadUrl": "https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipPufDAGMvOMDpTHKG574-ERmZxQN-CtcUCYnzKF?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3"
   },
   {
     "id": "vivid-abstract",
-    "preview": "/bg-vivid-abstract.svg",
+    "preview": "/bg-vivid-abstract.jpg",
     "downloadUrl": "https://drive.google.com/file/d/1kYsxUons_HfjMVxeFU4Rkyw27gK83IVv/view?usp=sharing"
+  },
+  {
+    "id": "macos-tahoe",
+    "preview": "/bg-macos-tahoe.jpg",
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-tahoe-26-5120x2880-22674.jpg"
+  },
+  {
+    "id": "gdrive-2",
+    "preview": "/bg-gdrive-2.jpg",
+    "downloadUrl": "https://drive.google.com/file/d/1f7JGvpb62QiD2JxYQAzrxD-Su5jNuPLj/view"
+  },
+  {
+    "id": "gdrive-3",
+    "preview": "/bg-gdrive-3.jpg",
+    "downloadUrl": "https://drive.google.com/file/d/1_1AgiMznYuCsFHE5zx-j2si9TMpGuPNb/view"
+  },
+  {
+    "id": "mojave-dunes",
+    "preview": "/bg-mojave-dunes.jpg",
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-mojave-sand-dunes-mojave-desert-california-evening-5k-5120x2880-4029.jpg"
+  },
+  {
+    "id": "catalina",
+    "preview": "/bg-catalina.jpg",
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-catalina-mountains-island-daytime-stock-5k-6016x6016-188.jpg"
+  },
+  {
+    "id": "big-sur",
+    "preview": "/bg-big-sur.jpg",
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/coastline-horizon-cold-seascape-rocks-macos-big-sur-stock-5k-6016x6016-3989.jpg"
+  },
+  {
+    "id": "el-capitan",
+    "preview": "/bg-el-capitan.jpg",
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/el-capitan-yosemite-national-park-mountains-os-x-el-capitan-5120x3200-4010.jpg"
+  },
+  {
+    "id": "beach-aerial",
+    "preview": "/bg-beach-aerial.jpg",
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/beach-aerial-view-waves-ocean-macbook-pro-ios-11-mac-os-5120x2880-6422.jpg"
+  },
+  {
+    "id": "sierra-sunset",
+    "preview": "/bg-sierra-sunset.jpg",
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-sierra-mountain-peak-sunset-evening-stock-5k-5120x3684-3987.jpg"
+  },
+  {
+    "id": "windows-11-3d",
+    "preview": "/bg-windows-11-3d.jpg",
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/windows-11-stock-3d-5689x2400-10781.png"
+  },
+  {
+    "id": "cerro-torre",
+    "preview": "/bg-cerro-torre.jpg",
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/cerro-torre-7680x4320-25387.jpg"
   }
 ]
