@@ -33,6 +33,20 @@ const WEB_ASSETS: &[EmbeddedAsset] = &[
     asset!("bg-sierra-sunset.jpg", "image/jpeg"),
     asset!("bg-windows-11-3d.jpg", "image/jpeg"),
     asset!("bg-cerro-torre.jpg", "image/jpeg"),
+    asset!("bg-ipados-orange.jpg", "image/jpeg"),
+    asset!("bg-ipados-blue.jpg", "image/jpeg"),
+    asset!("bg-blue-waves.jpg", "image/jpeg"),
+    asset!("bg-windows-xp.jpg", "image/jpeg"),
+    asset!("bg-antelope-canyon.jpg", "image/jpeg"),
+    asset!("bg-windows-7.jpg", "image/jpeg"),
+    asset!("bg-windows-11-colorful.jpg", "image/jpeg"),
+    asset!("bg-big-sur-iridescence.jpg", "image/jpeg"),
+    asset!("bg-landscape-rocks.jpg", "image/jpeg"),
+    asset!("bg-lake-mountains.jpg", "image/jpeg"),
+    asset!("bg-big-sur-rocks.jpg", "image/jpeg"),
+    asset!("bg-big-sur-waves.jpg", "image/jpeg"),
+    asset!("bg-sierra-glacier.jpg", "image/jpeg"),
+    asset!("bg-monterey-dark.jpg", "image/jpeg"),
 ];
 
 pub(in crate::overlay::screen_record) fn lookup_packaged_web_asset(
