@@ -52,6 +52,9 @@ cargo test               # Run tests
 - Keep this `CLAUDE.md` updated whenever stable workflow/process knowledge changes.
 - Do not add volatile details that are likely to change often; update when needed, not routinely.
 
+## Model Catalog Workflow
+- **Adding/editing/removing a model** — use `/manage-model-catalog` (see `.claude/commands/manage-model-catalog.md`)
+
 ## Frontend (screen-record) Rules
 - **Always add descriptive class names** to JSX elements for DevTools debugging (e.g., `className="zoom-track ..."`, `className="text-segment ..."`)
 - Class names should be semantic, kebab-case, and describe the element's purpose
