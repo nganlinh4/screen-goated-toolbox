@@ -266,7 +266,7 @@ unsafe fn handle_button_up(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 } else if is_middle_click {
                     crate::overlay::result::trigger_close_all();
                 } else {
-                    let _ = PostMessageW(Some(target_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                    crate::overlay::result::trigger_close_window(target_hwnd);
                 }
             }
 

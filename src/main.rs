@@ -369,8 +369,8 @@ fn main() -> eframe::Result<()> {
     let tray_favorite_bubble_item = CheckMenuItem::with_id(
         "1003",
         favorite_bubble_text,
-        has_favorites,
-        initial_config.show_favorite_bubble && has_favorites,
+        true,
+        initial_config.show_favorite_bubble,
         None,
     );
 

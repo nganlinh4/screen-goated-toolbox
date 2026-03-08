@@ -111,7 +111,7 @@ fn create_bubble_window() {
 
             (final_x, final_y, size)
         } else {
-            (100, 100, 40)
+            (100, 100, 28)
         };
 
         // Create layered window for transparency (NOACTIVATE prevents focus stealing)

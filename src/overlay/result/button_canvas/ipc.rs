@@ -194,9 +194,7 @@ fn handle_speaker(hwnd: HWND) {
 }
 
 fn handle_broom_click(hwnd: HWND) {
-    unsafe {
-        let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-    }
+    crate::overlay::result::trigger_close_window(hwnd);
 }
 
 fn handle_broom_right(hwnd: HWND) {

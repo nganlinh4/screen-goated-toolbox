@@ -393,7 +393,7 @@ impl Default for Config {
             show_favorite_bubble: false,
             favorite_bubble_position: None,
             favorites_keep_open: false,
-            favorite_bubble_size: 40,
+            favorite_bubble_size: 28,
 
             // Maintenance
             clear_webview_on_startup: false,
@@ -406,5 +406,5 @@ impl Default for Config {
 }
 
 fn default_bubble_size() -> u32 {
-    40
+    28
 }
