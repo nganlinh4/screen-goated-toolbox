@@ -6,6 +6,13 @@ use super::WEBVIEWS;
 use super::conversion::markdown_to_html;
 use super::webview::create_markdown_webview_ex;
 
+#[derive(Clone, Copy)]
+struct StreamingUpdateOptions {
+    run_inline_sizing: bool,
+    animate_new_words: bool,
+    smooth_scroll: bool,
+}
+
 /// Stream markdown content - optimized for rapid updates during streaming
 /// Uses innerHTML instead of document.write to avoid document recreation
 /// Call this during streaming, then call update_markdown_content at the end for final render
@@ -74,9 +81,11 @@ pub fn stream_markdown_content_ex(
         is_refining,
         preset_prompt,
         input_text,
-        true,
-        true,
-        true,
+        StreamingUpdateOptions {
+            run_inline_sizing: true,
+            animate_new_words: true,
+            smooth_scroll: true,
+        },
     )
 }
 
@@ -95,9 +104,11 @@ pub fn finalize_stream_markdown_content_ex(
         is_refining,
         preset_prompt,
         input_text,
-        false,
-        false,
-        false,
+        StreamingUpdateOptions {
+            run_inline_sizing: false,
+            animate_new_words: false,
+            smooth_scroll: false,
+        },
     )
 }
 
@@ -107,9 +118,7 @@ fn update_stream_markdown_content_ex(
     is_refining: bool,
     preset_prompt: &str,
     input_text: &str,
-    run_inline_sizing: bool,
-    animate_new_words: bool,
-    smooth_scroll: bool,
+    options: StreamingUpdateOptions,
 ) -> bool {
     let hwnd_key = parent_hwnd.0 as isize;
 
@@ -152,7 +161,11 @@ fn update_stream_markdown_content_ex(
                 .replace('\\', "\\\\")
                 .replace('`', "\\`")
                 .replace("${", "\\${");
-            let scroll_behavior = if smooth_scroll { "smooth" } else { "auto" };
+            let scroll_behavior = if options.smooth_scroll {
+                "smooth"
+            } else {
+                "auto"
+            };
 
             let script = format!(
                 r#"(function() {{
@@ -301,7 +314,10 @@ fn update_stream_markdown_content_ex(
     window._streamWordCount = newWordCount;
     window.scrollTo({{ top: document.body.scrollHeight, behavior: scrollBehavior }});
 }})()"#,
-                escaped_content, run_inline_sizing, animate_new_words, scroll_behavior
+                escaped_content,
+                options.run_inline_sizing,
+                options.animate_new_words,
+                scroll_behavior
             );
             let _ = webview.evaluate_script(&script);
             return true;
