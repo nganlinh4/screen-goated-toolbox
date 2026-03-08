@@ -263,8 +263,10 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                     }
                 } else if is_markdown_streaming && !is_streaming {
                     // Streaming just ended in markdown_stream mode
-                    // Render the FINAL content first (in case last chunks weren't rendered due to throttling)
-                    markdown_view::stream_markdown_content(hwnd, &md_text);
+                    // Flush the FINAL content without the live-stream tail effects.
+                    // A full settle-fit runs immediately after, so reusing the streaming
+                    // reveal path here adds an unnecessary visible hitch at the end.
+                    markdown_view::finalize_stream_markdown_content(hwnd, &md_text);
                     // Initialize Grid.js on any tables
                     markdown_view::init_gridjs(hwnd);
                     // Ensure WebView bounds are set (forces layout recalculation)
