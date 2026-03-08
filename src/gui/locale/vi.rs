@@ -232,7 +232,7 @@ pub fn get() -> LocaleText {
         tray_favorite_bubble: "Hiện bong bóng yêu thích",
         tray_favorite_bubble_disabled: "Hiện bong bóng yêu thích (Chưa có mục yêu thích)",
         // --- FAVORITE BUBBLE VI ---
-        favorites_empty: "Vui lòng đưa ít nhất một cấu hình vào ưa thích",
+        favorites_empty: "Vui lòng đưa vài cấu hình vào ưa thích bằng nút ngôi sao",
         favorites_keep_open: "Giữ mở",
         recording_subtext: "Nhấn ESC/Hotkey để dừng",
         recording_paused: "Đã tạm dừng",

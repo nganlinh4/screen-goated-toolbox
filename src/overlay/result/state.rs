@@ -177,7 +177,7 @@ pub struct WindowState {
     pub input_text: String,
 
     pub bg_color: u32,
-    pub linked_window: Option<HWND>,
+    pub linked_windows: Vec<HWND>,
     pub physics: CursorPhysics,
 
     // --- INTERACTION STATE ---
@@ -265,11 +265,15 @@ pub enum WindowType {
 
 pub fn link_windows(hwnd1: HWND, hwnd2: HWND) {
     let mut states = WINDOW_STATES.lock().unwrap();
-    if let Some(s1) = states.get_mut(&(hwnd1.0 as isize)) {
-        s1.linked_window = Some(hwnd2);
+    if let Some(s1) = states.get_mut(&(hwnd1.0 as isize))
+        && !s1.linked_windows.contains(&hwnd2)
+    {
+        s1.linked_windows.push(hwnd2);
     }
-    if let Some(s2) = states.get_mut(&(hwnd2.0 as isize)) {
-        s2.linked_window = Some(hwnd1);
+    if let Some(s2) = states.get_mut(&(hwnd2.0 as isize))
+        && !s2.linked_windows.contains(&hwnd1)
+    {
+        s2.linked_windows.push(hwnd1);
     }
 }
 
@@ -314,7 +318,7 @@ pub fn close_chain_windows(chain_id: &str) {
     }
 }
 
-/// Get a group of windows linked via `linked_window` BFS.
+/// Get a group of windows linked via the stored window adjacency graph.
 /// Used for right-click group close/drag — follows the linked chain.
 pub fn get_window_group(hwnd: HWND) -> Vec<(HWND, RECT)> {
     let mut group = Vec::new();
@@ -333,13 +337,13 @@ pub fn get_window_group(hwnd: HWND) -> Vec<(HWND, RECT)> {
         }
         group.push((current, r));
 
-        if let Some(s) = states.get(&(current.0 as isize))
-            && let Some(linked) = s.linked_window
-            && states.contains_key(&(linked.0 as isize))
-            && !visited.contains(&linked.0)
-        {
-            visited.insert(linked.0);
-            queue.push_back(linked);
+        if let Some(s) = states.get(&(current.0 as isize)) {
+            for linked in &s.linked_windows {
+                if states.contains_key(&(linked.0 as isize)) && !visited.contains(&linked.0) {
+                    visited.insert(linked.0);
+                    queue.push_back(*linked);
+                }
+            }
         }
     }
 

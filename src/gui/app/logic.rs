@@ -186,8 +186,7 @@ impl SettingsApp {
             // --- EARLY INIT: TRULY BEFORE SPLASH ---
 
             // 1. Start favorite bubble (WebView creation)
-            let has_favorites = self.config.presets.iter().any(|p| p.is_favorite);
-            if self.config.show_favorite_bubble && has_favorites {
+            if self.config.show_favorite_bubble {
                 crate::overlay::favorite_bubble::show_favorite_bubble();
             }
 
@@ -256,9 +255,15 @@ impl SettingsApp {
         let current_has_favorites = self.config.presets.iter().any(|p| p.is_favorite);
         let current_bubble_enabled = self.config.show_favorite_bubble;
 
-        // Update tray item enabled state (cheap operation)
-        self.tray_favorite_bubble_item
-            .set_enabled(current_has_favorites);
+        let locale = LocaleText::get(&self.config.ui_language);
+        let bubble_text = if current_has_favorites {
+            locale.tray_favorite_bubble
+        } else {
+            locale.tray_favorite_bubble_disabled
+        };
+
+        self.tray_favorite_bubble_item.set_text(bubble_text);
+        self.tray_favorite_bubble_item.set_enabled(true);
 
         // Detect state change
         let state_changed = current_bubble_enabled != self.last_bubble_enabled
@@ -268,7 +273,7 @@ impl SettingsApp {
             self.last_bubble_enabled = current_bubble_enabled;
             self.last_has_favorites = current_has_favorites;
 
-            if current_bubble_enabled && current_has_favorites {
+            if current_bubble_enabled {
                 crate::overlay::favorite_bubble::show_favorite_bubble();
             } else {
                 crate::overlay::favorite_bubble::hide_favorite_bubble();

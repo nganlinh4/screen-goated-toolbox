@@ -184,11 +184,11 @@ html, body {{
     }}
 }}
 
-.preset-item.blooming {{
+.preset-item.blooming, .empty.blooming {{
     animation: bloom 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }}
 
-.preset-item.retreating {{
+.preset-item.retreating, .empty.retreating {{
     /* 'both' is CRITICAL here: it makes the element stick to the 0% keyframe
        (opacity: 1) during the animation-delay, preventing the blink */
     animation: retreat 0.35s cubic-bezier(0.4, 0, 1, 1) both;

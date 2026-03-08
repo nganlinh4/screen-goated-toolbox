@@ -6,7 +6,7 @@ use std::sync::{
 use wry::{WebContext, WebView};
 
 // Constants
-pub static BUBBLE_SIZE: AtomicI32 = AtomicI32::new(40);
+pub static BUBBLE_SIZE: AtomicI32 = AtomicI32::new(28);
 pub const PANEL_WIDTH: i32 = 200;
 pub const DRAG_THRESHOLD: i32 = 5; // Pixels of movement before counting as a drag
 

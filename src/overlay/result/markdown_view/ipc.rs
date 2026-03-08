@@ -12,9 +12,9 @@ pub fn handle_markdown_ipc(hwnd: HWND, msg: &str) {
             "copy" => {
                 crate::overlay::result::trigger_copy(hwnd);
             }
-            "close" | "broom_click" => unsafe {
-                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            },
+            "close" | "broom_click" => {
+                crate::overlay::result::trigger_close_window(hwnd);
+            }
             "broom_drag_start" => {
                 unsafe {
                     // Native Window Drag

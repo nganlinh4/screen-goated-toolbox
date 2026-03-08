@@ -38,8 +38,8 @@ thread_local! {
     static POPUP_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
 }
 
-const BASE_POPUP_WIDTH: i32 = 220;
-const BASE_POPUP_HEIGHT: i32 = 152; // Base height at 100% scaling (96 DPI) - includes stop TTS row
+const BASE_POPUP_WIDTH: i32 = 224;
+const BASE_POPUP_HEIGHT: i32 = 186; // Base height at 100% scaling (96 DPI) - includes restore row
 
 /// Get DPI-scaled dimension
 fn get_scaled_dimension(base: i32) -> i32 {
@@ -193,49 +193,46 @@ pub fn is_popup_open() -> bool {
 fn generate_popup_html() -> String {
     use crate::config::ThemeMode;
 
-    let (settings_text, bubble_text, stop_tts_text, quit_text, bubble_checked, is_dark_mode) =
-        if let Ok(app) = APP.lock() {
-            let lang = &app.config.ui_language;
-            let settings = match lang.as_str() {
-                "vi" => "Cài đặt",
-                "ko" => "설정",
-                _ => "Settings",
-            };
-            let bubble = match lang.as_str() {
-                "vi" => "Hiện bong bóng",
-                "ko" => "즐겨찾기 버블",
-                _ => "Favorite Bubble",
-            };
-            let stop_tts = match lang.as_str() {
-                "vi" => "Dừng đọc",
-                "ko" => "재생 중인 모든 음성 중지",
-                _ => "Stop All Playing TTS",
-            };
-            let quit = match lang.as_str() {
-                "vi" => "Thoát",
-                "ko" => "종료",
-                _ => "Quit",
-            };
-            let checked = app.config.show_favorite_bubble;
+    let (
+        settings_text,
+        bubble_text,
+        stop_tts_text,
+        restore_overlay_text,
+        quit_text,
+        bubble_checked,
+        is_dark_mode,
+    ) = if let Ok(app) = APP.lock() {
+        let (settings, bubble, stop_tts, restore_overlay, quit) =
+            get_popup_labels(&app.config.ui_language);
+        let checked = app.config.show_favorite_bubble;
 
-            // Theme detection
-            let is_dark = match app.config.theme_mode {
-                ThemeMode::Dark => true,
-                ThemeMode::Light => false,
-                ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-            };
-
-            (settings, bubble, stop_tts, quit, checked, is_dark)
-        } else {
-            (
-                "Settings",
-                "Favorite Bubble",
-                "Stop All TTS",
-                "Quit",
-                false,
-                true,
-            )
+        // Theme detection
+        let is_dark = match app.config.theme_mode {
+            ThemeMode::Dark => true,
+            ThemeMode::Light => false,
+            ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
         };
+
+        (
+            settings,
+            bubble,
+            stop_tts,
+            restore_overlay,
+            quit,
+            checked,
+            is_dark,
+        )
+    } else {
+        (
+            "Settings",
+            "Favorite Bubble",
+            "Stop All TTS",
+            "Restore Last Closed Overlay",
+            "Quit",
+            false,
+            true,
+        )
+    };
 
     // Check if TTS has pending audio
     let has_tts_pending = crate::api::tts::TTS_MANAGER.has_pending_audio();
@@ -268,6 +265,11 @@ fn generate_popup_html() -> String {
     let active_class = if bubble_checked { "active" } else { "" };
 
     let stop_tts_disabled_class = if has_tts_pending { "" } else { "disabled" };
+    let restore_overlay_disabled_class = if crate::overlay::result::can_restore_last_closed() {
+        ""
+    } else {
+        "disabled"
+    };
 
     // Get font CSS to preload fonts into WebView2 cache (tray popup warms up first)
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
@@ -342,11 +344,12 @@ html, body {{
 }}
 
 .check {{
-    width: 16px;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-left: 8px;
+    width: 0;
+    flex: 0 0 0;
+    margin-left: 0;
 }}
 
 .separator {{
@@ -365,9 +368,18 @@ svg {{
     transition: font-variation-settings 0.4s cubic-bezier(0.33, 1, 0.68, 1);
     font-variation-settings: 'wght' 400, 'wdth' 100, 'ROND' 100;
 }}
+.bubble-item .check {{
+    width: 16px;
+    flex: 0 0 16px;
+    margin-left: 8px;
+}}
 .bubble-item.active .label {{
-    font-variation-settings: 'wght' 700, 'wdth' 110, 'ROND' 100;
+    font-variation-settings: 'wght' 700, 'wdth' 96, 'ROND' 100;
     color: var(--text-color);
+}}
+
+.restore-item .label {{
+    font-variation-settings: 'wght' 420, 'wdth' 78, 'ROND' 100;
 }}
 
 .menu-item.disabled {{
@@ -402,6 +414,14 @@ svg {{
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
         </div>
         <div class="label">{stop_tts}</div>
+        <div class="check"></div>
+    </div>
+
+    <div class="menu-item restore-item {restore_overlay_disabled}" id="restore-overlay-item" onclick="action('restore_overlay')">
+        <div class="icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 9 9 9"/></svg>
+        </div>
+        <div class="label">{restore_overlay}</div>
         <div class="check"></div>
     </div>
 
@@ -444,11 +464,12 @@ window.updatePopupState = function(config) {{
 
     // Update label texts for language changes
     const labels = document.querySelectorAll('.menu-item .label');
-    if (labels.length >= 4) {{
+    if (labels.length >= 5) {{
         labels[0].textContent = config.settingsText;
         labels[1].textContent = config.bubbleText;
         labels[2].textContent = config.stopTtsText;
-        labels[3].textContent = config.quitText;
+        labels[3].textContent = config.restoreOverlayText;
+        labels[4].textContent = config.quitText;
     }}
 
     // Update bubble active state
@@ -472,6 +493,15 @@ window.updatePopupState = function(config) {{
             stopTtsItem.classList.remove('disabled');
         }}
     }}
+
+    const restoreOverlayItem = document.getElementById('restore-overlay-item');
+    if (restoreOverlayItem) {{
+        if (config.restoreDisabled) {{
+            restoreOverlayItem.classList.add('disabled');
+        }} else {{
+            restoreOverlayItem.classList.remove('disabled');
+        }}
+    }}
 }};
 
 window.addEventListener('blur', function() {{
@@ -490,6 +520,8 @@ window.addEventListener('blur', function() {{
         bubble = bubble_text,
         stop_tts = stop_tts_text,
         stop_tts_disabled = stop_tts_disabled_class,
+        restore_overlay = restore_overlay_text,
+        restore_overlay_disabled = restore_overlay_disabled_class,
         quit = quit_text,
         check = check_mark
     )
@@ -499,54 +531,45 @@ window.addEventListener('blur', function() {{
 fn generate_popup_update_script() -> String {
     use crate::config::ThemeMode;
 
-    let (bubble_checked, is_dark_mode, settings_text, bubble_text, stop_tts_text, quit_text) =
-        if let Ok(app) = APP.lock() {
-            let is_dark = match app.config.theme_mode {
-                ThemeMode::Dark => true,
-                ThemeMode::Light => false,
-                ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-            };
-            let lang = &app.config.ui_language;
-            let settings = match lang.as_str() {
-                "vi" => "Cài đặt",
-                "ko" => "설정",
-                _ => "Settings",
-            };
-            let bubble = match lang.as_str() {
-                "vi" => "Hiện bong bóng",
-                "ko" => "즐겨찾기 버블",
-                _ => "Favorite Bubble",
-            };
-            let stop_tts = match lang.as_str() {
-                "vi" => "Dừng đọc",
-                "ko" => "재생 중인 모든 음성 중지",
-                _ => "Stop All Playing TTS",
-            };
-            let quit = match lang.as_str() {
-                "vi" => "Thoát",
-                "ko" => "종료",
-                _ => "Quit",
-            };
-            (
-                app.config.show_favorite_bubble,
-                is_dark,
-                settings,
-                bubble,
-                stop_tts,
-                quit,
-            )
-        } else {
-            (
-                false,
-                true,
-                "Settings",
-                "Favorite Bubble",
-                "Stop All Playing TTS",
-                "Quit",
-            )
+    let (
+        bubble_checked,
+        is_dark_mode,
+        settings_text,
+        bubble_text,
+        stop_tts_text,
+        restore_overlay_text,
+        quit_text,
+    ) = if let Ok(app) = APP.lock() {
+        let is_dark = match app.config.theme_mode {
+            ThemeMode::Dark => true,
+            ThemeMode::Light => false,
+            ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
         };
+        let (settings, bubble, stop_tts, restore_overlay, quit) =
+            get_popup_labels(&app.config.ui_language);
+        (
+            app.config.show_favorite_bubble,
+            is_dark,
+            settings,
+            bubble,
+            stop_tts,
+            restore_overlay,
+            quit,
+        )
+    } else {
+        (
+            false,
+            true,
+            "Settings",
+            "Favorite Bubble",
+            "Stop All Playing TTS",
+            "Restore Last Closed Overlay",
+            "Quit",
+        )
+    };
 
     let has_tts_pending = crate::api::tts::TTS_MANAGER.has_pending_audio();
+    let can_restore_last_closed = crate::overlay::result::can_restore_last_closed();
 
     let (bg_color, text_color, hover_color, border_color, separator_color) = if is_dark_mode {
         (
@@ -575,9 +598,11 @@ fn generate_popup_update_script() -> String {
             separatorColor: '{}',
             bubbleActive: {},
             ttsDisabled: {},
+            restoreDisabled: {},
             settingsText: '{}',
             bubbleText: '{}',
             stopTtsText: '{}',
+            restoreOverlayText: '{}',
             quitText: '{}'
         }});"#,
         bg_color,
@@ -587,11 +612,47 @@ fn generate_popup_update_script() -> String {
         separator_color,
         bubble_checked,
         !has_tts_pending,
+        !can_restore_last_closed,
         settings_text,
         bubble_text,
         stop_tts_text,
+        restore_overlay_text,
         quit_text
     )
+}
+
+fn get_popup_labels(
+    ui_language: &str,
+) -> (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+) {
+    match ui_language {
+        "vi" => (
+            "Cài đặt",
+            "Hiện bong bóng",
+            "Dừng đọc",
+            "Khôi phục overlay vừa đóng",
+            "Thoát",
+        ),
+        "ko" => (
+            "설정",
+            "즐겨찾기 버블",
+            "재생 중인 모든 음성 중지",
+            "방금 닫은 오버레이 복원",
+            "종료",
+        ),
+        _ => (
+            "Settings",
+            "Favorite Bubble",
+            "Stop All Playing TTS",
+            "Restore Last Closed Overlay",
+            "Quit",
+        ),
+    }
 }
 
 // Cleanup guard removed - window persists for entire app lifetime
@@ -760,6 +821,13 @@ fn create_popup_window() {
                                     crate::api::tts::TTS_MANAGER.stop();
                                     // Hide popup after action
                                     hide_tray_popup();
+                                }
+                                "restore_overlay" => {
+                                    hide_tray_popup();
+                                    std::thread::spawn(|| {
+                                        std::thread::sleep(std::time::Duration::from_millis(60));
+                                        let _ = crate::overlay::result::restore_last_closed();
+                                    });
                                 }
                                 "quit" => {
                                     // Hide popup first, then exit
@@ -952,50 +1020,48 @@ unsafe fn show_native_context_menu() {
         use crate::config::ThemeMode;
         use windows::core::{HSTRING, PCWSTR};
 
-        let (settings_text, bubble_text, stop_tts_text, quit_text, bubble_checked, _is_dark) =
-            if let Ok(app) = APP.lock() {
-                let lang = &app.config.ui_language;
-                let settings = match lang.as_str() {
-                    "vi" => "Cài đặt",
-                    "ko" => "설정",
-                    _ => "Settings",
-                };
-                let bubble = match lang.as_str() {
-                    "vi" => "Hiện bong bóng",
-                    "ko" => "즐겨찾기 버블",
-                    _ => "Favorite Bubble",
-                };
-                let stop_tts = match lang.as_str() {
-                    "vi" => "Dừng đọc",
-                    "ko" => "재생 중인 모든 음성 중지",
-                    _ => "Stop All Playing TTS",
-                };
-                let quit = match lang.as_str() {
-                    "vi" => "Thoát",
-                    "ko" => "종료",
-                    _ => "Quit",
-                };
-                let checked = app.config.show_favorite_bubble;
+        let (
+            settings_text,
+            bubble_text,
+            stop_tts_text,
+            restore_overlay_text,
+            quit_text,
+            bubble_checked,
+            _is_dark,
+        ) = if let Ok(app) = APP.lock() {
+            let (settings, bubble, stop_tts, restore_overlay, quit) =
+                get_popup_labels(&app.config.ui_language);
+            let checked = app.config.show_favorite_bubble;
 
-                let is_dark = match app.config.theme_mode {
-                    ThemeMode::Dark => true,
-                    ThemeMode::Light => false,
-                    ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-                };
-
-                (settings, bubble, stop_tts, quit, checked, is_dark)
-            } else {
-                (
-                    "Settings",
-                    "Favorite Bubble",
-                    "Stop All TTS",
-                    "Quit",
-                    false,
-                    true,
-                )
+            let is_dark = match app.config.theme_mode {
+                ThemeMode::Dark => true,
+                ThemeMode::Light => false,
+                ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
             };
 
+            (
+                settings,
+                bubble,
+                stop_tts,
+                restore_overlay,
+                quit,
+                checked,
+                is_dark,
+            )
+        } else {
+            (
+                "Settings",
+                "Favorite Bubble",
+                "Stop All TTS",
+                "Restore Last Closed Overlay",
+                "Quit",
+                false,
+                true,
+            )
+        };
+
         let has_tts_pending = crate::api::tts::TTS_MANAGER.has_pending_audio();
+        let can_restore_last_closed = crate::overlay::result::can_restore_last_closed();
 
         // Create a dummy window to handle menu messages
         let instance = GetModuleHandleW(None).unwrap_or_default();
@@ -1041,8 +1107,15 @@ unsafe fn show_native_context_menu() {
         add_item(hmenu, 1, settings_text, false, false);
         add_item(hmenu, 2, bubble_text, bubble_checked, false);
         add_item(hmenu, 3, stop_tts_text, false, !has_tts_pending);
+        add_item(
+            hmenu,
+            4,
+            restore_overlay_text,
+            false,
+            !can_restore_last_closed,
+        );
         let _ = AppendMenuW(hmenu, MF_SEPARATOR, 0, PCWSTR::null());
-        add_item(hmenu, 4, quit_text, false, false);
+        add_item(hmenu, 5, quit_text, false, false);
 
         let mut pt = POINT::default();
         let _ = GetCursorPos(&mut pt);
@@ -1088,6 +1161,12 @@ unsafe fn show_native_context_menu() {
                 crate::api::tts::TTS_MANAGER.stop();
             }
             4 => {
+                // Restore last closed overlay batch
+                std::thread::spawn(|| {
+                    let _ = crate::overlay::result::restore_last_closed();
+                });
+            }
+            5 => {
                 // Quit
                 std::process::exit(0);
             }

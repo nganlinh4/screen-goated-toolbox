@@ -4,6 +4,7 @@ pub mod layout;
 mod logic;
 pub mod markdown_view;
 pub mod paint;
+mod restore;
 pub mod state;
 mod window;
 
@@ -590,10 +591,34 @@ pub fn trigger_speaker(hwnd: HWND) {
     button_canvas::update_window_position(hwnd);
 }
 
+/// Whether the last user-closed overlay batch can be restored.
+pub fn can_restore_last_closed() -> bool {
+    restore::can_restore_last_closed()
+}
+
+/// Restore the last user-closed overlay batch.
+pub fn restore_last_closed() -> bool {
+    restore::restore_last_closed()
+}
+
+/// Trigger close for a single window and record it for tray restore.
+pub fn trigger_close_window(hwnd: HWND) {
+    restore::remember_last_closed(&[hwnd]);
+
+    unsafe {
+        if windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool() {
+            let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
 /// Trigger close for the window group containing `hwnd` (linked chain BFS).
 /// Signals each window's cancellation token to stop streaming, then posts WM_CLOSE.
 pub fn trigger_close_group(hwnd: HWND) {
     let group = state::get_window_group(hwnd);
+    let group_hwnds: Vec<HWND> = group.iter().map(|(h, _)| *h).collect();
+
+    restore::remember_last_closed(&group_hwnds);
 
     // Signal all tokens in the group
     {
@@ -631,6 +656,8 @@ pub fn trigger_close_all() {
             .map(|&k| HWND(k as *mut std::ffi::c_void))
             .collect()
     };
+
+    restore::remember_last_closed(&targets);
 
     for hwnd in targets {
         unsafe {

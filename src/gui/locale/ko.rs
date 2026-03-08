@@ -232,7 +232,7 @@ pub fn get() -> LocaleText {
         tray_favorite_bubble: "즐겨찾기 버블 표시",
         tray_favorite_bubble_disabled: "즐겨찾기 버블 표시 (즐겨찾기 없음)",
         // --- FAVORITE BUBBLE KO ---
-        favorites_empty: "즐겨찾기에 최소한 하나의 프리셋을 추가해주세요",
+        favorites_empty: "별 버튼으로 프리셋을 즐겨찾기에 추가해 주세요",
         favorites_keep_open: "열린 상태 유지",
         recording_subtext: "ESC/Hotkey를 눌러 중지",
         recording_paused: "일시 중지됨",

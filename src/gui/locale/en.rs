@@ -231,7 +231,7 @@ pub fn get() -> LocaleText {
         tray_favorite_bubble: "Show favorite bubble",
         tray_favorite_bubble_disabled: "Show favorite bubble (No favorites set yet)",
         // --- FAVORITE BUBBLE EN ---
-        favorites_empty: "Please add at least one configuration to favorites",
+        favorites_empty: "Please favorite some presets using the star button",
         favorites_keep_open: "Keep Open",
         recording_subtext: "Press ESC/Hotkey to stop",
         recording_paused: "Paused",

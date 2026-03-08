@@ -190,7 +190,7 @@ pub fn create_result_window(params: ResultWindowParams<'_>) -> HWND {
                     provider,
                     streaming_enabled,
                     bg_color: custom_bg_color,
-                    linked_window: None,
+                    linked_windows: Vec::new(),
                     physics,
                     interaction_mode: InteractionMode::None,
                     current_resize_edge: ResizeEdge::None,

@@ -129,15 +129,14 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
                 // CRITICAL: Set alpha to 0 BEFORE closing to prevent last frame freeze
                 let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
 
-                let linked_hwnd = {
+                let linked_hwnds = {
                     let states = WINDOW_STATES.lock().unwrap();
-                    if let Some(state) = states.get(&(hwnd.0 as isize)) {
-                        state.linked_window
-                    } else {
-                        None
-                    }
+                    states
+                        .get(&(hwnd.0 as isize))
+                        .map(|state| state.linked_windows.clone())
+                        .unwrap_or_default()
                 };
-                if let Some(linked) = linked_hwnd {
+                for linked in linked_hwnds {
                     let linked = crate::win_types::SendHwnd(linked).0;
                     if IsWindow(Some(linked)).as_bool() {
                         // Also set linked window to invisible

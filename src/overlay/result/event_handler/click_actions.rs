@@ -295,7 +295,7 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                 let _ = InvalidateRect(Some(hwnd), None, false);
             } else {
                 // Left click outside buttons -> Close this window only
-                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                crate::overlay::result::trigger_close_window(hwnd);
             }
         }
         LRESULT(0)
