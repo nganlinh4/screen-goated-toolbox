@@ -596,9 +596,19 @@ pub fn can_restore_last_closed() -> bool {
     restore::can_restore_last_closed()
 }
 
+/// Cumulative recent restore counts for the tray submenu (up to 5 batches).
+pub fn recent_restore_option_counts() -> Vec<usize> {
+    restore::recent_restore_option_counts()
+}
+
 /// Restore the last user-closed overlay batch.
 pub fn restore_last_closed() -> bool {
     restore::restore_last_closed()
+}
+
+/// Restore the newest `batch_count` closed batches as one operation.
+pub fn restore_recent(batch_count: usize) -> bool {
+    restore::restore_recent(batch_count)
 }
 
 /// Trigger close for a single window and record it for tray restore.

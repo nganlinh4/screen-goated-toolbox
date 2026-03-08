@@ -2,8 +2,11 @@ use super::button_canvas;
 use super::state::{WINDOW_STATES, link_windows};
 use super::{RefineContext, ResultWindowParams, WindowType, create_result_window};
 use crate::win_types::SendHwnd;
-use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::{
+    Mutex,
+    atomic::{AtomicU64, Ordering},
+};
 use windows::Win32::Foundation::*;
 use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -11,9 +14,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetLayeredWindowAttributes, ShowWindow, TranslateMessage,
 };
 
+const MAX_RESTORE_HISTORY: usize = 5;
+static NEXT_RESTORE_WINDOW_ID: AtomicU64 = AtomicU64::new(1);
+
 #[derive(Clone)]
 struct RestorableWindowSnapshot {
-    old_hwnd: isize,
+    restore_id: u64,
     rect: RECT,
     context: RefineContext,
     full_text: String,
@@ -30,7 +36,7 @@ struct RestorableWindowSnapshot {
     is_markdown_streaming: bool,
     is_editing: bool,
     input_text: String,
-    linked_old_hwnds: Vec<isize>,
+    linked_restore_ids: Vec<u64>,
 }
 
 #[derive(Clone)]
@@ -39,16 +45,29 @@ struct RestoreBatchSnapshot {
 }
 
 lazy_static::lazy_static! {
-    static ref LAST_CLOSED_SNAPSHOT: Mutex<Option<RestoreBatchSnapshot>> = Mutex::new(None);
+    static ref RECENT_CLOSED_SNAPSHOTS: Mutex<VecDeque<RestoreBatchSnapshot>> =
+        Mutex::new(VecDeque::new());
 }
 
 pub fn can_restore_last_closed() -> bool {
-    LAST_CLOSED_SNAPSHOT
-        .lock()
-        .unwrap()
-        .as_ref()
-        .map(|snapshot| !snapshot.windows.is_empty())
-        .unwrap_or(false)
+    !RECENT_CLOSED_SNAPSHOTS.lock().unwrap().is_empty()
+}
+
+pub fn recent_restore_option_counts() -> Vec<usize> {
+    let history = RECENT_CLOSED_SNAPSHOTS.lock().unwrap();
+    let mut cumulative = 0usize;
+    let mut counts = Vec::with_capacity(history.len().min(MAX_RESTORE_HISTORY));
+
+    for batch in history.iter().take(MAX_RESTORE_HISTORY) {
+        if batch.windows.is_empty() {
+            continue;
+        }
+
+        cumulative += batch.windows.len();
+        counts.push(cumulative);
+    }
+
+    counts
 }
 
 pub fn remember_last_closed(targets: &[HWND]) {
@@ -56,46 +75,78 @@ pub fn remember_last_closed(targets: &[HWND]) {
         return;
     };
 
-    let mut last = LAST_CLOSED_SNAPSHOT.lock().unwrap();
-    *last = Some(snapshot);
+    let mut history = RECENT_CLOSED_SNAPSHOTS.lock().unwrap();
+    history.push_front(snapshot);
+    while history.len() > MAX_RESTORE_HISTORY {
+        history.pop_back();
+    }
 }
 
 pub fn restore_last_closed() -> bool {
-    let snapshot = {
-        let mut last = LAST_CLOSED_SNAPSHOT.lock().unwrap();
-        last.take()
-    };
-    let Some(snapshot) = snapshot else {
+    restore_recent(1)
+}
+
+pub fn restore_recent(batch_count: usize) -> bool {
+    if batch_count == 0 {
         return false;
-    };
-
-    let mut restored = HashMap::new();
-
-    for window in &snapshot.windows {
-        if let Some(hwnd) = spawn_restored_window(window.clone()) {
-            restored.insert(window.old_hwnd, hwnd);
-        }
     }
 
-    for window in &snapshot.windows {
-        let Some(&hwnd) = restored.get(&window.old_hwnd) else {
-            continue;
-        };
+    let selected_batches = {
+        let mut history = RECENT_CLOSED_SNAPSHOTS.lock().unwrap();
+        let take_count = batch_count.min(history.len());
+        if take_count == 0 {
+            return false;
+        }
 
-        for linked_old_hwnd in &window.linked_old_hwnds {
-            if let Some(&linked_hwnd) = restored.get(linked_old_hwnd) {
-                link_windows(hwnd, linked_hwnd);
+        let mut selected = Vec::with_capacity(take_count);
+        for _ in 0..take_count {
+            if let Some(batch) = history.pop_front() {
+                selected.push(batch);
+            }
+        }
+        selected
+    };
+
+    if restore_batches(&selected_batches) {
+        return true;
+    }
+
+    let mut history = RECENT_CLOSED_SNAPSHOTS.lock().unwrap();
+    for batch in selected_batches.into_iter().rev() {
+        history.push_front(batch);
+    }
+    while history.len() > MAX_RESTORE_HISTORY {
+        history.pop_back();
+    }
+    false
+}
+
+fn restore_batches(batches: &[RestoreBatchSnapshot]) -> bool {
+    let mut restored = HashMap::new();
+
+    for batch in batches.iter().rev() {
+        for window in &batch.windows {
+            if let Some(hwnd) = spawn_restored_window(window.clone()) {
+                restored.insert(window.restore_id, hwnd);
             }
         }
     }
 
-    if restored.is_empty() {
-        let mut last = LAST_CLOSED_SNAPSHOT.lock().unwrap();
-        *last = Some(snapshot);
-        return false;
+    for batch in batches.iter().rev() {
+        for window in &batch.windows {
+            let Some(&hwnd) = restored.get(&window.restore_id) else {
+                continue;
+            };
+
+            for linked_restore_id in &window.linked_restore_ids {
+                if let Some(&linked_hwnd) = restored.get(linked_restore_id) {
+                    link_windows(hwnd, linked_hwnd);
+                }
+            }
+        }
     }
 
-    true
+    !restored.is_empty()
 }
 
 fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
@@ -204,6 +255,15 @@ fn capture_snapshot(targets: &[HWND]) -> Option<RestoreBatchSnapshot> {
         .filter(|hwnd| seen.insert(hwnd.0 as isize))
         .collect();
     let target_set: HashSet<isize> = target_hwnds.iter().map(|hwnd| hwnd.0 as isize).collect();
+    let restore_ids: HashMap<isize, u64> = target_hwnds
+        .iter()
+        .map(|hwnd| {
+            (
+                hwnd.0 as isize,
+                NEXT_RESTORE_WINDOW_ID.fetch_add(1, Ordering::Relaxed),
+            )
+        })
+        .collect();
 
     let states = WINDOW_STATES.lock().unwrap();
     let mut windows = Vec::new();
@@ -220,7 +280,9 @@ fn capture_snapshot(targets: &[HWND]) -> Option<RestoreBatchSnapshot> {
         }
 
         windows.push(RestorableWindowSnapshot {
-            old_hwnd: hwnd_key,
+            restore_id: *restore_ids
+                .get(&hwnd_key)
+                .expect("restore ID must exist for captured hwnd"),
             rect,
             context: state.context_data.clone(),
             full_text: state.full_text.clone(),
@@ -237,11 +299,12 @@ fn capture_snapshot(targets: &[HWND]) -> Option<RestoreBatchSnapshot> {
             is_markdown_streaming: state.is_markdown_streaming,
             is_editing: state.is_editing,
             input_text: state.input_text.clone(),
-            linked_old_hwnds: state
+            linked_restore_ids: state
                 .linked_windows
                 .iter()
                 .map(|linked| linked.0 as isize)
                 .filter(|linked| target_set.contains(linked))
+                .filter_map(|linked| restore_ids.get(&linked).copied())
                 .collect(),
         });
     }
