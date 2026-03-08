@@ -7,48 +7,17 @@ import { PanelCard } from '@/components/layout/PanelCard';
 import { SettingRow } from '@/components/layout/SettingRow';
 import { useSettings } from '@/hooks/useSettings';
 import downloadableBackgrounds from '@/config/downloadable-backgrounds.json';
+import {
+  BUILT_IN_BACKGROUND_PANEL_ORDER,
+  DEFAULT_BUILT_IN_BACKGROUND_ID,
+  type BuiltInBackgroundId,
+} from '@/lib/backgroundPresets';
+import { BUILT_IN_BACKGROUND_SWATCHES } from '@/lib/renderer/builtInBackgrounds';
 
-export const GRADIENT_PRESETS: Record<string, { className?: string; style?: React.CSSProperties }> = {
-  gradient1: { className: 'bg-gradient-to-r from-[#4f7fd9] to-[#8a72d8]' },
-  gradient2: { className: 'bg-gradient-to-r from-rose-400 to-orange-300' },
-  gradient3: { className: 'bg-gradient-to-r from-emerald-500 to-teal-400' },
-  gradient4: {
-    style: {
-      backgroundImage: [
-        'radial-gradient(circle at 18% 78%, rgba(8,85,170,0.18) 0%, rgba(8,85,170,0) 78%)',
-        'radial-gradient(circle at 86% 22%, rgba(249,115,22,0.14) 0%, rgba(249,115,22,0) 80%)',
-        'linear-gradient(45deg, #061a40 0%, #0353a4 55%, #f97316 100%)',
-      ].join(','),
-    },
-  },
-  gradient5: {
-    style: {
-      backgroundImage: [
-        'radial-gradient(circle at 82% 26%, rgba(239,71,111,0.18) 0%, rgba(239,71,111,0) 70%)',
-        'radial-gradient(circle at 22% 86%, rgba(36,123,160,0.18) 0%, rgba(36,123,160,0) 72%)',
-        'linear-gradient(52deg, #0d1b4c 0%, #4b4c99 52%, #ef476f 100%)',
-      ].join(','),
-    },
-  },
-  gradient6: {
-    style: {
-      backgroundImage: [
-        'radial-gradient(circle at 22% 80%, rgba(0,212,255,0.22) 0%, rgba(0,212,255,0) 72%)',
-        'radial-gradient(circle at 78% 22%, rgba(255,228,94,0.26) 0%, rgba(255,228,94,0) 66%)',
-        'linear-gradient(48deg, #00d4ff 0%, #ffe45e 50%, #ff3d81 100%)',
-      ].join(','),
-    },
-  },
-  gradient7: {
-    style: {
-      backgroundImage: [
-        'radial-gradient(circle at 24% 78%, rgba(63,167,214,0.16) 0%, rgba(63,167,214,0) 72%)',
-        'radial-gradient(circle at 78% 26%, rgba(242,158,109,0.16) 0%, rgba(242,158,109,0) 70%)',
-        'linear-gradient(42deg, #3fa7d6 0%, #8d7ae6 52%, #f29e6d 100%)',
-      ].join(','),
-    },
-  },
-};
+export const GRADIENT_PRESETS: Record<BuiltInBackgroundId, { style?: React.CSSProperties }> =
+  Object.fromEntries(
+    BUILT_IN_BACKGROUND_PANEL_ORDER.map((id) => [id, { style: BUILT_IN_BACKGROUND_SWATCHES[id] }])
+  ) as Record<BuiltInBackgroundId, { style?: React.CSSProperties }>;
 
 export interface DownloadableBg {
   id: string;
@@ -129,7 +98,7 @@ export function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React
               typeof prev.customBackground === 'string' &&
               prev.customBackground.includes(`/bg-downloaded/${bg.id}.`)
             ) {
-              return { ...prev, backgroundType: 'gradient2', customBackground: undefined };
+              return { ...prev, backgroundType: DEFAULT_BUILT_IN_BACKGROUND_ID, customBackground: undefined };
             }
             return prev;
           });
@@ -238,7 +207,7 @@ export function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React
           typeof prev.customBackground === 'string' &&
           prev.customBackground.includes(`/bg-downloaded/${bg.id}.`)
         ) {
-          return { ...prev, backgroundType: 'gradient2', customBackground: undefined };
+          return { ...prev, backgroundType: DEFAULT_BUILT_IN_BACKGROUND_ID, customBackground: undefined };
         }
         return prev;
       });
@@ -428,45 +397,24 @@ export function BackgroundPanel({
               </div>
             </label>
 
-            {/* Black */}
-            <button
-              onClick={() => applyPreset('solid', { backgroundType: 'solid' })}
-              className={`bg-preset-black aspect-square h-10 rounded-lg transition-all duration-150 bg-[#0a0a0a] relative overflow-hidden ${
-                backgroundConfig.backgroundType === 'solid'
-                  ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
-                  : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
-              }`}
-            >
-              {applyingKey === 'solid' && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-3.5 h-3.5 text-white/85 animate-spin drop-shadow-sm" /></div>}
-            </button>
-
-            {/* White */}
-            <button
-              onClick={() => applyPreset('white', { backgroundType: 'white' })}
-              className={`bg-preset-white aspect-square h-10 rounded-lg transition-all duration-150 bg-white relative overflow-hidden ${
-                backgroundConfig.backgroundType === 'white'
-                  ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
-                  : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
-              }`}
-            >
-              {applyingKey === 'white' && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-3.5 h-3.5 text-gray-500/80 animate-spin drop-shadow-sm" /></div>}
-            </button>
-
-            {/* Gradients */}
-            {Object.entries(GRADIENT_PRESETS).map(([key, gradient]) => (
+            {BUILT_IN_BACKGROUND_PANEL_ORDER.map((key) => {
+              const preset = GRADIENT_PRESETS[key];
+              const spinnerClass = key === 'white' ? 'text-gray-500/80' : 'text-white/85';
+              return (
               <button
                 key={key}
                 onClick={() => applyPreset(key, { backgroundType: key as BackgroundConfig['backgroundType'] })}
-                style={gradient.style}
-                className={`aspect-square h-10 rounded-lg transition-all duration-150 relative overflow-hidden ${gradient.className ?? ''} ${
+                style={preset.style}
+                className={`bg-preset-${key} aspect-square h-10 rounded-lg transition-all duration-150 relative overflow-hidden ${
                   backgroundConfig.backgroundType === key
                     ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
                     : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
                 }`}
               >
-                {applyingKey === key && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-3.5 h-3.5 text-white/85 animate-spin drop-shadow-sm" /></div>}
+                {applyingKey === key && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className={`w-3.5 h-3.5 ${spinnerClass} animate-spin drop-shadow-sm`} /></div>}
               </button>
-            ))}
+              );
+            })}
 
             {DOWNLOADABLE_BACKGROUNDS.map(bg => (
               <DownloadableBgButton

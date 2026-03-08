@@ -16,14 +16,8 @@ import {
   GradientCache,
   CustomBgCache,
   getBackgroundStyle,
-  fillGradient4Background,
-  fillGradient5Background,
-  fillGradient6Background,
-  fillGradient7Background,
-  GRADIENT4_STYLE_TOKEN,
-  GRADIENT5_STYLE_TOKEN,
-  GRADIENT6_STYLE_TOKEN,
-  GRADIENT7_STYLE_TOKEN,
+  fillBuiltInBackground,
+  parseBuiltInBackgroundToken,
 } from './gradientGenerator';
 import {
   KeystrokeState,
@@ -569,14 +563,14 @@ export async function drawFrame(
         tCtx.translate((canvasW - zW) * subZoom.positionX, (canvasH - zH) * subZoom.positionY);
         tCtx.scale(subZoom.zoomFactor, subZoom.zoomFactor);
       }
-      if (bgStyle === GRADIENT4_STYLE_TOKEN) {
-        fillGradient4Background(state.gradientCache, tCtx, canvasW, canvasH);
-      } else if (bgStyle === GRADIENT5_STYLE_TOKEN) {
-        fillGradient5Background(state.gradientCache, tCtx, canvasW, canvasH);
-      } else if (bgStyle === GRADIENT6_STYLE_TOKEN) {
-        fillGradient6Background(state.gradientCache, tCtx, canvasW, canvasH);
-      } else if (bgStyle === GRADIENT7_STYLE_TOKEN) {
-        fillGradient7Background(state.gradientCache, tCtx, canvasW, canvasH);
+      if (typeof bgStyle === 'string') {
+        const builtInBackgroundId = parseBuiltInBackgroundToken(bgStyle);
+        if (builtInBackgroundId) {
+          fillBuiltInBackground(state.gradientCache, tCtx, builtInBackgroundId, canvasW, canvasH);
+        } else {
+          tCtx.fillStyle = bgStyle;
+          tCtx.fillRect(0, 0, canvasW, canvasH);
+        }
       } else {
         tCtx.fillStyle = bgStyle;
         tCtx.fillRect(0, 0, canvasW, canvasH);

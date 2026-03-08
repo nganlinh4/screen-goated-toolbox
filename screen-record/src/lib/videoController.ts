@@ -2,6 +2,7 @@ import { videoRenderer } from './videoRenderer';
 import type { VideoSegment, BackgroundConfig, MousePosition } from '@/types/video';
 import { clampToTrimSegments, getNextPlayableTime, getTrimSegments } from './trimSegments';
 import { getSpeedAtTime } from './videoExporter';
+import { DEFAULT_BUILT_IN_BACKGROUND_ID } from '@/lib/backgroundPresets';
 
 interface VideoControllerOptions {
   videoRef: HTMLVideoElement;
@@ -324,7 +325,7 @@ export class VideoController {
           backgroundConfig: {
             scale: 100,
             borderRadius: 8,
-            backgroundType: 'solid'
+            backgroundType: DEFAULT_BUILT_IN_BACKGROUND_ID
           },
           mousePositions: []
         };

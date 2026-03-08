@@ -54,6 +54,7 @@ cargo test               # Run tests
 
 ## Model Catalog Workflow
 - **Adding/editing/removing a model** — use `/manage-model-catalog` (see `.claude/commands/manage-model-catalog.md`)
+- **Adding/editing/removing a built-in recorder background** — use `/manage-background-presets` (see `.claude/commands/manage-background-presets.md`)
 
 ## Frontend (screen-record) Rules
 - **Always add descriptive class names** to JSX elements for DevTools debugging (e.g., `className="zoom-track ..."`, `className="text-segment ..."`)
@@ -63,6 +64,7 @@ cargo test               # Run tests
 
 ### Background WYSIWYG Contract
 - For any new background preset/effect, do not maintain separate "look tuning" paths for preview and export.
+- Built-in background data, panel order, and default selection must stay centralized in `screen-record/src/config/shared-background-presets.json`.
 - Implement one shared parameter model (colors, stops, glow centers/radii/intensity, vignette) and consume that model in both:
   - `screen-record/src/lib/videoRenderer.ts`
   - `src/overlay/screen_record/gpu_export.rs`

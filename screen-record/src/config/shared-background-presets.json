@@ -1,0 +1,192 @@
+{
+  "defaultId": "gradient4",
+  "panelOrder": [
+    "solid",
+    "white",
+    "gradient1",
+    "gradient2",
+    "gradient3",
+    "gradient4",
+    "gradient5",
+    "gradient6",
+    "gradient7",
+    "gradient8"
+  ],
+  "backgrounds": {
+    "solid": {
+      "family": "stacked-radial",
+      "gradientAxis": "vertical",
+      "colors": {
+        "start": "#0a0a0a",
+        "mid": "#000000",
+        "end": "#0a0a0a",
+        "overlay": "#1e1e1e"
+      },
+      "overlayCenter": [0.5, 0.5],
+      "overlayRadius": 0.8,
+      "overlayOpacity": 0.15
+    },
+    "white": {
+      "family": "stacked-radial",
+      "gradientAxis": "vertical",
+      "colors": {
+        "start": "#f5f5f5",
+        "mid": "#ffffff",
+        "end": "#f5f5f5",
+        "overlay": "#e1e1e1"
+      },
+      "overlayCenter": [0.5, 0.5],
+      "overlayRadius": 0.8,
+      "overlayOpacity": 0.15
+    },
+    "gradient1": {
+      "family": "linear",
+      "axis": "horizontal",
+      "colors": {
+        "start": "#4f7fd9",
+        "end": "#8a72d8"
+      }
+    },
+    "gradient2": {
+      "family": "linear",
+      "axis": "horizontal",
+      "colors": {
+        "start": "#fb7185",
+        "end": "#fdba74"
+      }
+    },
+    "gradient3": {
+      "family": "linear",
+      "axis": "horizontal",
+      "colors": {
+        "start": "#10b981",
+        "end": "#2dd4bf"
+      }
+    },
+    "gradient4": {
+      "family": "diagonal-glow",
+      "colors": {
+        "start": "#061a40",
+        "mid": "#0353a4",
+        "end": "#f97316",
+        "glowAColorLinear": [0.03, 0.33, 0.67],
+        "glowBColorLinear": [0.98, 0.47, 0.09]
+      },
+      "diagWeights": [0.68, 0.32],
+      "split": 0.55,
+      "glowACenter": [0.18, 0.78],
+      "glowAOuterRadius": 0.78,
+      "glowAInnerRadius": 0.05,
+      "glowAStrength": 0.18,
+      "glowBCenter": [0.86, 0.22],
+      "glowBOuterRadius": 0.8,
+      "glowBInnerRadius": 0.08,
+      "glowBStrength": 0.14,
+      "vignetteStart": 0.2,
+      "vignetteEnd": 1.05,
+      "vignetteStrength": 0.12,
+      "noiseIntensity": 0
+    },
+    "gradient5": {
+      "family": "diagonal-glow",
+      "colors": {
+        "start": "#0d1b4c",
+        "mid": "#4b4c99",
+        "end": "#ef476f",
+        "glowAColorLinear": [0.14, 0.48, 0.62],
+        "glowBColorLinear": [0.93, 0.28, 0.44]
+      },
+      "diagWeights": [0.62, 0.38],
+      "split": 0.52,
+      "glowACenter": [0.22, 0.86],
+      "glowAOuterRadius": 0.76,
+      "glowAInnerRadius": 0.1,
+      "glowAStrength": 0.14,
+      "glowBCenter": [0.82, 0.26],
+      "glowBOuterRadius": 0.74,
+      "glowBInnerRadius": 0.1,
+      "glowBStrength": 0.16,
+      "vignetteStart": 0.24,
+      "vignetteEnd": 1.02,
+      "vignetteStrength": 0.09,
+      "noiseIntensity": 1.6
+    },
+    "gradient6": {
+      "family": "diagonal-glow",
+      "colors": {
+        "start": "#00d4ff",
+        "mid": "#ffe45e",
+        "end": "#ff3d81",
+        "glowAColorLinear": [0.0, 0.78, 0.98],
+        "glowBColorLinear": [1.0, 0.89, 0.37]
+      },
+      "diagWeights": [0.66, 0.34],
+      "split": 0.5,
+      "glowACenter": [0.2, 0.8],
+      "glowAOuterRadius": 0.78,
+      "glowAInnerRadius": 0.1,
+      "glowAStrength": 0.16,
+      "glowBCenter": [0.78, 0.22],
+      "glowBOuterRadius": 0.72,
+      "glowBInnerRadius": 0.08,
+      "glowBStrength": 0.18,
+      "vignetteStart": 0.26,
+      "vignetteEnd": 1.02,
+      "vignetteStrength": 0.06,
+      "noiseIntensity": 1.6
+    },
+    "gradient7": {
+      "family": "diagonal-glow",
+      "colors": {
+        "start": "#3fa7d6",
+        "mid": "#8d7ae6",
+        "end": "#f29e6d",
+        "glowAColorLinear": [0.25, 0.6, 0.78],
+        "glowBColorLinear": [0.9, 0.58, 0.36]
+      },
+      "diagWeights": [0.64, 0.36],
+      "split": 0.52,
+      "glowACenter": [0.24, 0.78],
+      "glowAOuterRadius": 0.78,
+      "glowAInnerRadius": 0.12,
+      "glowAStrength": 0.1,
+      "glowBCenter": [0.78, 0.26],
+      "glowBOuterRadius": 0.76,
+      "glowBInnerRadius": 0.12,
+      "glowBStrength": 0.1,
+      "vignetteStart": 0.26,
+      "vignetteEnd": 1.02,
+      "vignetteStrength": 0.08,
+      "noiseIntensity": 1.2
+    },
+    "gradient8": {
+      "family": "edge-ribbons",
+      "colors": {
+        "base": "#07141c",
+        "depth": "#123142",
+        "ribbonA": "#76f7d0",
+        "ribbonB": "#61c6ff",
+        "glow": "#f4fff8"
+      },
+      "ribbonAStart": [-0.18, 0.28],
+      "ribbonAEnd": [1.04, 0.4],
+      "ribbonAWidth": 0.18,
+      "ribbonACurveAmp": 0.12,
+      "ribbonACurveFreq": 1.3,
+      "ribbonAIntensity": 0.78,
+      "ribbonBStart": [-0.06, 0.9],
+      "ribbonBEnd": [1.08, 0.66],
+      "ribbonBWidth": 0.15,
+      "ribbonBCurveAmp": 0.1,
+      "ribbonBCurveFreq": 1.15,
+      "ribbonBIntensity": 0.58,
+      "glowCenter": [0.88, 0.22],
+      "glowRadius": 0.46,
+      "glowIntensity": 0.24,
+      "vignetteStart": 0.26,
+      "vignetteEnd": 1.06,
+      "vignetteStrength": 0.18,
+      "noiseIntensity": 1
+    }
+  }
+}

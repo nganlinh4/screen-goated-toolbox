@@ -12,6 +12,9 @@ struct Uniforms {
     shadow_opacity: f32,
     gradient_color1: vec4<f32>,
     gradient_color2: vec4<f32>,
+    gradient_color3: vec4<f32>,
+    gradient_color4: vec4<f32>,
+    gradient_color5: vec4<f32>,
     time: f32,
     render_mode: f32,
     cursor_pos: vec2<f32>,
@@ -27,6 +30,12 @@ struct Uniforms {
     bg_style: f32,
     bg_tex_w: f32,
     bg_tex_h: f32,
+    bg_params1: vec4<f32>,
+    bg_params2: vec4<f32>,
+    bg_params3: vec4<f32>,
+    bg_params4: vec4<f32>,
+    bg_params5: vec4<f32>,
+    bg_params6: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -133,29 +142,39 @@ fn sample_cursor_color(sample_pos: vec2<f32>, type_id: f32, tile_idx: f32, curso
     return c;
 }
 
-fn gradient4_color(uv_raw: vec2<f32>, c1: vec4<f32>, c2: vec4<f32>) -> vec4<f32> {
+fn diagonal_glow_color(uv_raw: vec2<f32>, pixel_pos: vec2<f32>) -> vec4<f32> {
     let uv = clamp(uv_raw, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
-    let diag = clamp((uv.x * 0.68) + ((1.0 - uv.y) * 0.32), 0.0, 1.0);
-    // Linearized #0353a4 midpoint (matches preview gradient stop).
-    let mid = vec4<f32>(0.000911, 0.0865, 0.3712, 1.0);
+    let diag = clamp((uv.x * u.bg_params1.x) + ((1.0 - uv.y) * u.bg_params1.y), 0.0, 1.0);
     var base: vec4<f32>;
-    if (diag < 0.55) {
-        base = mix(c1, mid, diag / 0.55);
+    if (diag < u.bg_params1.z) {
+        base = mix(u.gradient_color1, u.gradient_color2, diag / max(u.bg_params1.z, 0.0001));
     } else {
-        base = mix(mid, c2, (diag - 0.55) / 0.45);
+        base = mix(
+            u.gradient_color2,
+            u.gradient_color3,
+            (diag - u.bg_params1.z) / max(1.0 - u.bg_params1.z, 0.0001)
+        );
     }
 
-    let cool = vec3<f32>(0.03, 0.33, 0.67);
-    let warm = vec3<f32>(0.98, 0.47, 0.09);
-    let cool_glow = smoothstep(0.78, 0.05, distance(uv, vec2<f32>(0.18, 0.78)));
-    let warm_glow = smoothstep(0.80, 0.08, distance(uv, vec2<f32>(0.86, 0.22)));
+    let glow_a = smoothstep(
+        u.bg_params2.z,
+        u.bg_params2.w,
+        distance(uv, vec2<f32>(u.bg_params2.x, u.bg_params2.y))
+    ) * u.bg_params1.w;
+    let glow_b = smoothstep(
+        u.bg_params3.z,
+        u.bg_params3.w,
+        distance(uv, vec2<f32>(u.bg_params3.x, u.bg_params3.y))
+    ) * u.bg_params4.x;
 
-    let lit = base.rgb + (cool * cool_glow * 0.18) + (warm * warm_glow * 0.14);
-    base = vec4<f32>(lit, 1.0);
-
-    let vignette = smoothstep(0.20, 1.05, distance(uv, vec2<f32>(0.5, 0.5)));
-    let shaded = mix(base.rgb, base.rgb * 0.82, vignette * 0.12);
-    return vec4<f32>(clamp(shaded, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+    let lit = base.rgb + (u.gradient_color4.rgb * glow_a) + (u.gradient_color5.rgb * glow_b);
+    let shaded = mix(
+        lit,
+        lit * 0.82,
+        smoothstep(u.bg_params4.y, u.bg_params4.z, distance(uv, vec2<f32>(0.5, 0.5))) * u.bg_params4.w
+    );
+    let noise = (hash12(pixel_pos) - 0.5) * (u.bg_params5.x / 255.0);
+    return vec4<f32>(clamp(shaded + vec3<f32>(noise), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }
 
 fn hash12(p: vec2<f32>) -> f32 {
@@ -163,72 +182,87 @@ fn hash12(p: vec2<f32>) -> f32 {
     return fract(sin(h) * 43758.5453);
 }
 
-fn gradient5_color(uv_raw: vec2<f32>, pixel_pos: vec2<f32>, c1: vec4<f32>, c2: vec4<f32>) -> vec4<f32> {
-    let uv = clamp(uv_raw, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
-    let diag = clamp((uv.x * 0.62) + ((1.0 - uv.y) * 0.38), 0.0, 1.0);
-    // Linearized #4b4c99 midpoint.
-    let mid = vec4<f32>(0.0704, 0.0723, 0.3185, 1.0);
-    var base: vec4<f32>;
-    if (diag < 0.52) {
-        base = mix(c1, mid, diag / 0.52);
-    } else {
-        base = mix(mid, c2, (diag - 0.52) / 0.48);
-    }
-
-    let cool = vec3<f32>(0.14, 0.48, 0.62);
-    let warm = vec3<f32>(0.93, 0.28, 0.44);
-    let cool_glow = smoothstep(0.76, 0.10, distance(uv, vec2<f32>(0.22, 0.86)));
-    let warm_glow = smoothstep(0.74, 0.10, distance(uv, vec2<f32>(0.82, 0.26)));
-    let lit = base.rgb + (cool * cool_glow * 0.14) + (warm * warm_glow * 0.16);
-    let shaded = mix(lit, lit * 0.84, smoothstep(0.24, 1.02, distance(uv, vec2<f32>(0.5, 0.5))) * 0.09);
-
-    // Tiny deterministic dithering to hide 8-bit contour bands after encode.
-    let noise = (hash12(pixel_pos) - 0.5) * (1.6 / 255.0);
-    return vec4<f32>(clamp(shaded + vec3<f32>(noise), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+fn gradient8_ribbon(
+    point: vec2<f32>,
+    start: vec2<f32>,
+    end: vec2<f32>,
+    width: f32,
+    curve_amp: f32,
+    curve_freq: f32,
+    intensity: f32
+) -> vec2<f32> {
+    let seg = end - start;
+    let seg_len_sq = max(dot(seg, seg), 1e-6);
+    let t = clamp(dot(point - start, seg) / seg_len_sq, 0.0, 1.0);
+    let seg_len = sqrt(seg_len_sq);
+    let normal = vec2<f32>(-seg.y, seg.x) / seg_len;
+    let curve = sin(t * 3.14159265 * curve_freq) * curve_amp;
+    let curve_point = start + (seg * t) + (normal * curve);
+    let distance_to_curve = distance(point, curve_point);
+    let edge_fade = smoothstep(0.01, 0.14, t) * (1.0 - smoothstep(0.84, 0.99, t));
+    let band = (1.0 - smoothstep(width * 0.55, width * 2.25, distance_to_curve)) * edge_fade * intensity;
+    let core = (1.0 - smoothstep(width * 0.10, width * 0.72, distance_to_curve)) * edge_fade * intensity;
+    return vec2<f32>(band, core);
 }
 
-fn gradient6_color(uv_raw: vec2<f32>, pixel_pos: vec2<f32>, c1: vec4<f32>, c2: vec4<f32>) -> vec4<f32> {
+fn edge_ribbons_color(uv_raw: vec2<f32>, pixel_pos: vec2<f32>) -> vec4<f32> {
     let uv = clamp(uv_raw, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
-    let diag = clamp((uv.x * 0.66) + ((1.0 - uv.y) * 0.34), 0.0, 1.0);
-    // Linearized #ffe45e midpoint.
-    let mid = vec4<f32>(1.0, 0.7758, 0.1119, 1.0);
-    var base: vec4<f32>;
-    if (diag < 0.50) {
-        base = mix(c1, mid, diag / 0.50);
-    } else {
-        base = mix(mid, c2, (diag - 0.50) / 0.50);
-    }
+    let aspect = max(u.output_size.x / max(u.output_size.y, 1.0), 0.0001);
+    let point = vec2<f32>(uv.x * aspect, uv.y);
+    let ribbon_a = gradient8_ribbon(
+        point,
+        vec2<f32>(u.bg_params1.x * aspect, u.bg_params1.y),
+        vec2<f32>(u.bg_params1.z * aspect, u.bg_params1.w),
+        u.bg_params2.x,
+        u.bg_params2.y,
+        u.bg_params2.z,
+        u.bg_params2.w
+    );
+    let ribbon_b = gradient8_ribbon(
+        point,
+        vec2<f32>(u.bg_params3.x * aspect, u.bg_params3.y),
+        vec2<f32>(u.bg_params3.z * aspect, u.bg_params3.w),
+        u.bg_params4.x,
+        u.bg_params4.y,
+        u.bg_params4.z,
+        u.bg_params4.w
+    );
 
-    let cool = vec3<f32>(0.00, 0.78, 0.98);
-    let warm = vec3<f32>(1.00, 0.89, 0.37);
-    let cool_glow = smoothstep(0.78, 0.10, distance(uv, vec2<f32>(0.20, 0.80)));
-    let warm_glow = smoothstep(0.72, 0.08, distance(uv, vec2<f32>(0.78, 0.22)));
-    let lit = base.rgb + (cool * cool_glow * 0.16) + (warm * warm_glow * 0.18);
-    let shaded = mix(lit, lit * 0.88, smoothstep(0.26, 1.02, distance(uv, vec2<f32>(0.5, 0.5))) * 0.06);
-    let noise = (hash12(pixel_pos) - 0.5) * (1.6 / 255.0);
-    return vec4<f32>(clamp(shaded + vec3<f32>(noise), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+    let depth_mix = clamp((uv.y * 0.86) + ((1.0 - uv.x) * 0.14), 0.0, 1.0);
+    var lit = mix(u.gradient_color1.rgb, u.gradient_color2.rgb, depth_mix);
+    lit += (u.gradient_color3.rgb * ribbon_a.x) + (u.gradient_color4.rgb * ribbon_b.x);
+
+    let core_glow = (ribbon_a.y * 0.42) + (ribbon_b.y * 0.28);
+    lit += u.gradient_color5.rgb * core_glow;
+
+    let glow_center = vec2<f32>(u.bg_params5.x * aspect, u.bg_params5.y);
+    let glow_distance = distance(point, glow_center);
+    let glow_strength = (1.0 - smoothstep(0.0, u.bg_params5.z, glow_distance)) * u.bg_params5.w;
+    lit += u.gradient_color5.rgb * glow_strength;
+
+    let vignette = smoothstep(u.bg_params6.x, u.bg_params6.y, distance(vec2<f32>((uv.x - 0.5) * aspect, uv.y - 0.5), vec2<f32>(0.0, 0.0))) * u.bg_params6.z;
+    lit = mix(lit, lit * 0.82, vignette);
+
+    let noise = (hash12(pixel_pos) - 0.5) * (u.bg_params6.w / 255.0);
+    return vec4<f32>(clamp(lit + vec3<f32>(noise), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }
 
-fn gradient7_color(uv_raw: vec2<f32>, pixel_pos: vec2<f32>, c1: vec4<f32>, c2: vec4<f32>) -> vec4<f32> {
+fn stacked_radial_color(uv_raw: vec2<f32>) -> vec4<f32> {
     let uv = clamp(uv_raw, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
-    let diag = clamp((uv.x * 0.64) + ((1.0 - uv.y) * 0.36), 0.0, 1.0);
-    // Linearized #8d7ae6 midpoint.
-    let mid = vec4<f32>(0.2641, 0.1946, 0.7913, 1.0);
-    var base: vec4<f32>;
-    if (diag < 0.52) {
-        base = mix(c1, mid, diag / 0.52);
+    let axis_t = select(uv.y, uv.x, u.bg_params1.x > 0.5);
+    var base: vec3<f32>;
+    if (axis_t < 0.5) {
+        base = mix(u.gradient_color1.rgb, u.gradient_color2.rgb, axis_t / 0.5);
     } else {
-        base = mix(mid, c2, (diag - 0.52) / 0.48);
+        base = mix(u.gradient_color2.rgb, u.gradient_color3.rgb, (axis_t - 0.5) / 0.5);
     }
 
-    let cool = vec3<f32>(0.25, 0.60, 0.78);
-    let warm = vec3<f32>(0.90, 0.58, 0.36);
-    let cool_glow = smoothstep(0.78, 0.12, distance(uv, vec2<f32>(0.24, 0.78)));
-    let warm_glow = smoothstep(0.76, 0.12, distance(uv, vec2<f32>(0.78, 0.26)));
-    let lit = base.rgb + (cool * cool_glow * 0.10) + (warm * warm_glow * 0.10);
-    let shaded = mix(lit, lit * 0.90, smoothstep(0.26, 1.02, distance(uv, vec2<f32>(0.5, 0.5))) * 0.08);
-    let noise = (hash12(pixel_pos) - 0.5) * (1.2 / 255.0);
-    return vec4<f32>(clamp(shaded + vec3<f32>(noise), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+    let aspect = max(u.output_size.x / max(u.output_size.y, 1.0), 0.0001);
+    let center = vec2<f32>(u.bg_params2.x, u.bg_params2.y);
+    let radial_distance = length(vec2<f32>(uv.x - center.x, (uv.y - center.y) / aspect));
+    let overlay_strength = (1.0 - smoothstep(0.0, u.bg_params2.z, radial_distance)) * u.bg_params2.w;
+    let shaded = mix(base, u.gradient_color4.rgb, overlay_strength);
+    return vec4<f32>(clamp(shaded, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }
 
 @fragment
@@ -245,7 +279,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
     if (u.render_mode < 1.5) {
         // 1. Background
-        let t = clamp(bg_uv.x, 0.0, 1.0);
+        let t = clamp(select(bg_uv.x, bg_uv.y, u.bg_params1.x > 0.5), 0.0, 1.0);
         col = mix(u.gradient_color1, u.gradient_color2, t);
         if (u.use_background_texture > 0.5) {
             // object-fit: cover — scale bg_uv so the texture always fills the canvas.
@@ -262,14 +296,12 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
                 cover_uv.x = (bg_uv.x - 0.5) * scale + 0.5;
             }
             col = textureSample(bg_tex, bg_samp, cover_uv);
-        } else if (u.bg_style > 3.5) {
-            col = gradient7_color(bg_uv, in.pixel_pos, u.gradient_color1, u.gradient_color2);
         } else if (u.bg_style > 2.5) {
-            col = gradient6_color(bg_uv, in.pixel_pos, u.gradient_color1, u.gradient_color2);
+            col = stacked_radial_color(bg_uv);
         } else if (u.bg_style > 1.5) {
-            col = gradient5_color(bg_uv, in.pixel_pos, u.gradient_color1, u.gradient_color2);
+            col = edge_ribbons_color(bg_uv, in.pixel_pos);
         } else if (u.bg_style > 0.5) {
-            col = gradient4_color(bg_uv, u.gradient_color1, u.gradient_color2);
+            col = diagonal_glow_color(bg_uv, in.pixel_pos);
         }
 
         // Video positioning

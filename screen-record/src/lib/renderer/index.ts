@@ -94,14 +94,7 @@ class VideoRenderer {
         loggedCursorMappings: new Set(),
       },
       gradientCache: {
-        gradient4Canvas: null,
-        gradient4CacheKey: undefined,
-        gradient5Canvas: null,
-        gradient5CacheKey: undefined,
-        gradient6Canvas: null,
-        gradient6CacheKey: undefined,
-        gradient7Canvas: null,
-        gradient7CacheKey: undefined,
+        renderedCanvasByKey: new Map(),
       },
       customBgCache: {
         customBackgroundPattern: null,
