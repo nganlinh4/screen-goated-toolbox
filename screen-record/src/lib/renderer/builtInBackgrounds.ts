@@ -9,8 +9,10 @@ import {
   type LinearBackgroundPreset,
   type PrismFoldBackgroundPreset,
   type StackedRadialBackgroundPreset,
+  type TopographicFlowBackgroundPreset,
 } from '@/lib/backgroundPresets';
 import { clamp01, hexToLinear, linearToSrgb, mix, smoothstep } from './gradientMath';
+import { getBuiltInBackgroundRenderSize, setCachedBuiltInBackground } from './builtInBackgroundPreview';
 
 const BUILT_IN_BACKGROUND_TOKEN_PREFIX = '__builtin_background__:';
 const swatchStyleCache = new Map<BuiltInBackgroundId, CSSProperties>();
@@ -406,6 +408,87 @@ function fillPrismFoldBackgroundPixels(
   }
 }
 
+function fillTopographicFlowBackgroundPixels(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  preset: TopographicFlowBackgroundPreset
+): void {
+  const baseColor = hexToLinear(preset.colors.base);
+  const lineAColor = hexToLinear(preset.colors.lineA);
+  const lineBColor = hexToLinear(preset.colors.lineB);
+  const glowColor = hexToLinear(preset.colors.glow);
+  const ink = hexToLinear(preset.colors.ink);
+  const aspect = width / Math.max(1, height);
+  const sourceA: [number, number] = [preset.sourceA[0] * aspect, preset.sourceA[1]];
+  const sourceB: [number, number] = [preset.sourceB[0] * aspect, preset.sourceB[1]];
+
+  let idx = 0;
+  for (let y = 0; y < height; y++) {
+    const uy = (y + 0.5) / height;
+    for (let x = 0; x < width; x++) {
+      const ux = (x + 0.5) / width;
+      const centeredX = (ux - 0.5) * aspect;
+      const centeredY = uy - 0.5;
+      const point: [number, number] = [ux * aspect, uy];
+      const distA = Math.hypot(point[0] - sourceA[0], point[1] - sourceA[1]);
+      const distB = Math.hypot(point[0] - sourceB[0], point[1] - sourceB[1]);
+      const warp =
+        (Math.sin(((point[0] * 0.82) + (point[1] * 1.14)) * Math.PI * 2 * preset.warpFreq) * preset.warpAmp) +
+        (Math.sin(((point[0] * -0.58) + (point[1] * 0.92)) * Math.PI * 2 * preset.warpFreq * 0.72) * preset.warpAmp * 0.6);
+      const field = ((distA * 0.92) + (distB * 0.78) + warp) * preset.lineScale;
+      const line = 1 - smoothstep(preset.lineWidth, preset.lineWidth + 0.22, Math.abs(Math.sin(field * Math.PI)));
+      const glow = 1 - smoothstep(
+        preset.lineWidth * 2.6,
+        (preset.lineWidth * 2.6) + 0.24,
+        Math.abs(Math.sin((field + 0.32) * Math.PI))
+      );
+      const edgeBias = mix(
+        preset.centerCalm,
+        1,
+        smoothstep(0.18, 0.84, Math.hypot(centeredX, centeredY))
+      );
+      const phaseMix = clamp01((Math.sin((distA - distB) * 4.6) * 0.5) + 0.5);
+      const lineR = mix(lineAColor[0], lineBColor[0], phaseMix);
+      const lineG = mix(lineAColor[1], lineBColor[1], phaseMix);
+      const lineB = mix(lineAColor[2], lineBColor[2], phaseMix);
+
+      let litR = baseColor[0];
+      let litG = baseColor[1];
+      let litB = baseColor[2];
+      litR += lineR * line * preset.lineStrength * edgeBias;
+      litG += lineG * line * preset.lineStrength * edgeBias;
+      litB += lineB * line * preset.lineStrength * edgeBias;
+      litR += glowColor[0] * glow * preset.glowStrength * edgeBias;
+      litG += glowColor[1] * glow * preset.glowStrength * edgeBias;
+      litB += glowColor[2] * glow * preset.glowStrength * edgeBias;
+
+      const vignette = smoothstep(
+        preset.vignetteStart,
+        preset.vignetteEnd,
+        Math.hypot(centeredX, centeredY)
+      ) * preset.vignetteStrength;
+      litR = mix(litR, ink[0], vignette);
+      litG = mix(litG, ink[1], vignette);
+      litB = mix(litB, ink[2], vignette);
+
+      if (preset.noiseIntensity > 0) {
+        const noiseSeed = Math.sin((x * 12.9898) + (y * 78.233)) * 43758.5453;
+        const noiseUnit = noiseSeed - Math.floor(noiseSeed);
+        const noise = (noiseUnit - 0.5) * (preset.noiseIntensity / 255.0);
+        litR += noise;
+        litG += noise;
+        litB += noise;
+      }
+
+      data[idx++] = Math.round(clamp01(linearToSrgb(litR)) * 255);
+      data[idx++] = Math.round(clamp01(linearToSrgb(litG)) * 255);
+      data[idx++] = Math.round(clamp01(linearToSrgb(litB)) * 255);
+      data[idx++] = 255;
+    }
+  }
+}
+
 export function paintBuiltInBackgroundCanvas(
   canvas: HTMLCanvasElement,
   id: BuiltInBackgroundId,
@@ -433,8 +516,10 @@ export function paintBuiltInBackgroundCanvas(
     fillDiagonalGlowBackgroundPixels(img.data, width, height, preset);
   } else if (preset.family === 'edge-ribbons') {
     fillEdgeRibbonBackgroundPixels(img.data, width, height, preset);
-  } else {
+  } else if (preset.family === 'prism-fold') {
     fillPrismFoldBackgroundPixels(img.data, width, height, preset);
+  } else {
+    fillTopographicFlowBackgroundPixels(img.data, width, height, preset);
   }
   ctx.putImageData(img, 0, 0);
 }
@@ -443,14 +528,16 @@ function getRenderedCanvas(
   cache: BuiltInBackgroundCache,
   id: BuiltInBackgroundId,
   width: number,
-  height: number
+  height: number,
+  interactive = false
 ): HTMLCanvasElement {
-  const key = `${id}:${width}x${height}`;
+  const renderSize = getBuiltInBackgroundRenderSize(width, height, interactive);
+  const key = `${interactive ? 'interactive:' : ''}${id}:${renderSize.width}x${renderSize.height}`;
   const cached = cache.renderedCanvasByKey.get(key);
   if (cached) return cached;
   const canvas = document.createElement('canvas');
-  paintBuiltInBackgroundCanvas(canvas, id, width, height);
-  cache.renderedCanvasByKey.set(key, canvas);
+  paintBuiltInBackgroundCanvas(canvas, id, renderSize.width, renderSize.height);
+  setCachedBuiltInBackground(cache.renderedCanvasByKey, key, canvas);
   return canvas;
 }
 
@@ -459,9 +546,10 @@ export function fillBuiltInBackground(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   id: BuiltInBackgroundId,
   width: number,
-  height: number
+  height: number,
+  interactive = false
 ): void {
-  const canvas = getRenderedCanvas(cache, id, width, height);
+  const canvas = getRenderedCanvas(cache, id, width, height, interactive);
   ctx.drawImage(canvas, 0, 0, width, height);
 }
 

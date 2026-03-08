@@ -429,6 +429,7 @@ interface CanvasResizeOverlayProps {
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
   beginBatch: () => void;
   commitBatch: () => void;
+  onDragStateChange?: (dragging: boolean) => void;
 }
 
 export function CanvasResizeOverlay({
@@ -436,8 +437,11 @@ export function CanvasResizeOverlay({
   backgroundConfig,
   setBackgroundConfig,
   beginBatch,
-  commitBatch
+  commitBatch,
+  onDragStateChange
 }: CanvasResizeOverlayProps) {
+  useEffect(() => () => onDragStateChange?.(false), [onDragStateChange]);
+
   const container = previewContainerRef.current;
   if (!container) return null;
 
@@ -459,6 +463,7 @@ export function CanvasResizeOverlay({
   const handleDragStart = (e: React.MouseEvent, type: string) => {
     e.preventDefault();
     e.stopPropagation();
+    onDragStateChange?.(true);
     beginBatch();
 
     const startX = e.clientX;
@@ -502,6 +507,7 @@ export function CanvasResizeOverlay({
       if (rafId !== null) cancelAnimationFrame(rafId);
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
+      onDragStateChange?.(false);
       commitBatch();
     };
     window.addEventListener('mousemove', handleMove);

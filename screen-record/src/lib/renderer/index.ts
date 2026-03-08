@@ -39,6 +39,7 @@ export interface RenderContext {
   backgroundConfig: BackgroundConfig;
   mousePositions: MousePosition[];
   currentTime: number;
+  interactiveBackgroundPreview?: boolean;
 }
 
 export interface RenderOptions {

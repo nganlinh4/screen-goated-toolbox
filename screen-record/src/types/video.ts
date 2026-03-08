@@ -133,7 +133,7 @@ export interface VideoSegment {
 export interface BackgroundConfig {
   scale: number;
   borderRadius: number;
-  backgroundType: 'solid' | 'white' | 'gradient1' | 'gradient2' | 'gradient3' | 'gradient4' | 'gradient5' | 'gradient6' | 'gradient7' | 'gradient8' | 'gradient9' | 'gradient10' | 'custom';
+  backgroundType: 'solid' | 'white' | 'gradient1' | 'gradient2' | 'gradient3' | 'gradient4' | 'gradient5' | 'gradient6' | 'gradient7' | 'gradient8' | 'gradient9' | 'gradient10' | 'gradient11' | 'custom';
   shadow?: number;
   cursorScale?: number;
   cursorShadow?: number; // 0-200

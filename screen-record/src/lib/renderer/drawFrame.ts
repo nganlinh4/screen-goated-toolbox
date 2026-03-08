@@ -566,7 +566,14 @@ export async function drawFrame(
       if (typeof bgStyle === 'string') {
         const builtInBackgroundId = parseBuiltInBackgroundToken(bgStyle);
         if (builtInBackgroundId) {
-          fillBuiltInBackground(state.gradientCache, tCtx, builtInBackgroundId, canvasW, canvasH);
+          fillBuiltInBackground(
+            state.gradientCache,
+            tCtx,
+            builtInBackgroundId,
+            canvasW,
+            canvasH,
+            Boolean(context.interactiveBackgroundPreview)
+          );
         } else {
           tCtx.fillStyle = bgStyle;
           tCtx.fillRect(0, 0, canvasW, canvasH);

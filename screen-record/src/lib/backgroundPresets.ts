@@ -104,12 +104,37 @@ export interface PrismFoldBackgroundPreset {
   noiseIntensity: number;
 }
 
+export interface TopographicFlowBackgroundPreset {
+  family: 'topographic-flow';
+  colors: {
+    base: string;
+    lineA: string;
+    lineB: string;
+    glow: string;
+    ink: string;
+  };
+  sourceA: [number, number];
+  sourceB: [number, number];
+  lineScale: number;
+  warpFreq: number;
+  warpAmp: number;
+  lineWidth: number;
+  lineStrength: number;
+  glowStrength: number;
+  centerCalm: number;
+  vignetteStart: number;
+  vignetteEnd: number;
+  vignetteStrength: number;
+  noiseIntensity: number;
+}
+
 export type BuiltInBackgroundPreset =
   | LinearBackgroundPreset
   | StackedRadialBackgroundPreset
   | DiagonalGlowBackgroundPreset
   | EdgeRibbonBackgroundPreset
-  | PrismFoldBackgroundPreset;
+  | PrismFoldBackgroundPreset
+  | TopographicFlowBackgroundPreset;
 
 interface SharedBackgroundCatalog {
   defaultId: BuiltInBackgroundId;

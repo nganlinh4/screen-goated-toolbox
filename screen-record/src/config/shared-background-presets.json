@@ -12,7 +12,8 @@
     "gradient7",
     "gradient8",
     "gradient9",
-    "gradient10"
+    "gradient10",
+    "gradient11"
   ],
   "backgrounds": {
     "solid": {
@@ -233,6 +234,29 @@
       "vignetteEnd": 1.08,
       "vignetteStrength": 0.1,
       "noiseIntensity": 1
+    },
+    "gradient11": {
+      "family": "topographic-flow",
+      "colors": {
+        "base": "#08111a",
+        "lineA": "#9fe7ff",
+        "lineB": "#ffcf8d",
+        "glow": "#f8c8ff",
+        "ink": "#081018"
+      },
+      "sourceA": [-0.28, 0.14],
+      "sourceB": [1.22, 0.92],
+      "lineScale": 5.9,
+      "warpFreq": 0.74,
+      "warpAmp": 0.018,
+      "lineWidth": 0.072,
+      "lineStrength": 0.075,
+      "glowStrength": 0.04,
+      "centerCalm": 0.02,
+      "vignetteStart": 0.34,
+      "vignetteEnd": 1.08,
+      "vignetteStrength": 0.07,
+      "noiseIntensity": 0.45
     }
   }
 }

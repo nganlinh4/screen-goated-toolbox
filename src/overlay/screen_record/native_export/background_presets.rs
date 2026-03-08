@@ -126,6 +126,35 @@ enum BackgroundPresetFile {
         #[serde(rename = "noiseIntensity")]
         noise_intensity: f32,
     },
+    TopographicFlow {
+        colors: TopographicFlowColorsFile,
+        #[serde(rename = "sourceA")]
+        source_a: [f32; 2],
+        #[serde(rename = "sourceB")]
+        source_b: [f32; 2],
+        #[serde(rename = "lineScale")]
+        line_scale: f32,
+        #[serde(rename = "warpFreq")]
+        warp_freq: f32,
+        #[serde(rename = "warpAmp")]
+        warp_amp: f32,
+        #[serde(rename = "lineWidth")]
+        line_width: f32,
+        #[serde(rename = "lineStrength")]
+        line_strength: f32,
+        #[serde(rename = "glowStrength")]
+        glow_strength: f32,
+        #[serde(rename = "centerCalm")]
+        center_calm: f32,
+        #[serde(rename = "vignetteStart")]
+        vignette_start: f32,
+        #[serde(rename = "vignetteEnd")]
+        vignette_end: f32,
+        #[serde(rename = "vignetteStrength")]
+        vignette_strength: f32,
+        #[serde(rename = "noiseIntensity")]
+        noise_intensity: f32,
+    },
 }
 
 #[derive(Deserialize)]
@@ -175,6 +204,17 @@ struct PrismFoldColorsFile {
     pane_c: String,
     #[serde(rename = "paneD")]
     pane_d: String,
+}
+
+#[derive(Deserialize)]
+struct TopographicFlowColorsFile {
+    base: String,
+    #[serde(rename = "lineA")]
+    line_a: String,
+    #[serde(rename = "lineB")]
+    line_b: String,
+    glow: String,
+    ink: String,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -391,6 +431,39 @@ fn to_builtin_background_preset(raw: BackgroundPresetFile) -> BuiltInBackgroundP
                 vignette_strength,
                 noise_intensity,
             ],
+        },
+        BackgroundPresetFile::TopographicFlow {
+            colors,
+            source_a,
+            source_b,
+            line_scale,
+            warp_freq,
+            warp_amp,
+            line_width,
+            line_strength,
+            glow_strength,
+            center_calm,
+            vignette_start,
+            vignette_end,
+            vignette_strength,
+            noise_intensity,
+        } => BuiltInBackgroundPreset {
+            family_code: 5.0,
+            gradient_color1: hex_string_to_linear(&colors.base),
+            gradient_color2: hex_string_to_linear(&colors.line_a),
+            gradient_color3: hex_string_to_linear(&colors.line_b),
+            gradient_color4: hex_string_to_linear(&colors.glow),
+            gradient_color5: hex_string_to_linear(&colors.ink),
+            bg_params1: [source_a[0], source_a[1], source_b[0], source_b[1]],
+            bg_params2: [line_scale, warp_freq, warp_amp, line_width],
+            bg_params3: [line_strength, glow_strength, center_calm, 0.0],
+            bg_params4: [
+                vignette_start,
+                vignette_end,
+                vignette_strength,
+                noise_intensity,
+            ],
+            ..BuiltInBackgroundPreset::default()
         },
     }
 }

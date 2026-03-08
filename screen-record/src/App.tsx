@@ -208,6 +208,7 @@ function App() {
   const [isKeystrokeResizeDragging, setIsKeystrokeResizeDragging] = useState(false);
   const [seekIndicatorKey, setSeekIndicatorKey] = useState(0);
   const [seekIndicatorDir, setSeekIndicatorDir] = useState<'left' | 'right'>('right');
+  const [isCanvasResizeDragging, setIsCanvasResizeDragging] = useState(false);
   const pendingWindowRecordingRef = useRef(false);
   // Stable ref for persist callback — avoids cascading useEffect re-triggers
   const persistRef = useRef<typeof persistCurrentProjectNow>(null!);
@@ -223,7 +224,13 @@ function App() {
   const { windows, showWindowSelect, setShowWindowSelect, getWindows } = useWindows();
 
   // Video playback — mousePositionsRef is shared so useVideoPlayback always reads latest
-  const playback = useVideoPlayback({ segment, backgroundConfig, mousePositionsRef, isCropping });
+  const playback = useVideoPlayback({
+    segment,
+    backgroundConfig,
+    mousePositionsRef,
+    isCropping,
+    interactiveBackgroundPreview: isCanvasResizeDragging,
+  });
   const {
     currentTime, setCurrentTime, duration, setDuration, isPlaying, isVideoReady, setIsVideoReady,
     thumbnails, setThumbnails, currentVideo, setCurrentVideo, currentAudio, setCurrentAudio,
@@ -1213,6 +1220,7 @@ function App() {
                       setBackgroundConfig={setBackgroundConfig}
                       beginBatch={beginBatch}
                       commitBatch={commitBatch}
+                      onDragStateChange={setIsCanvasResizeDragging}
                     />
                   )}
 
