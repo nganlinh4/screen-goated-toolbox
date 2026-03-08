@@ -1,9 +1,9 @@
 // Media Foundation hardware-accelerated video encoder.
 // Encodes BGRA frames to H.264 MP4 via SinkWriter.
 
+use windows::core::Interface;
 use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
 use windows::Win32::Media::MediaFoundation::*;
-use windows::core::Interface;
 
 use super::mf_audio::{AudioConfig, AudioStream};
 use super::mf_decode::DxgiDeviceManager;
@@ -320,11 +320,7 @@ fn create_output_media_type(config: &EncoderConfig) -> Result<IMFMediaType, Stri
             .SetUINT32(&MF_MT_MPEG2_PROFILE, profile)
             .map_err(|e| format!("SetUINT32 PROFILE: {e}"))?;
 
-        // Use limited range (16-235) to match typical source H.264 playback behavior
-        // and avoid forcing full-range yuvj420p output in no-effects exports.
-        let _ = media_type.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235.0 as u32);
-        let _ = media_type.SetUINT32(&MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709.0 as u32);
-        let _ = media_type.SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32);
+        configure_screen_export_colorimetry(&media_type);
     }
 
     Ok(media_type)
@@ -360,11 +356,20 @@ fn create_input_media_type(config: &EncoderConfig) -> Result<IMFMediaType, Strin
             .SetUINT32(&MF_MT_INTERLACE_MODE, 2)
             .map_err(|e| format!("SetUINT32 INTERLACE: {e}"))?;
 
-        // Keep nominal range aligned with the encoder output type.
-        let _ = media_type.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235.0 as u32);
-        let _ = media_type.SetUINT32(&MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709.0 as u32);
-        let _ = media_type.SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32);
+        // The compositor produces full-range sRGB BGRA. Declaring it as studio-range
+        // remaps 0-255 into 16-235 and breaks preview=export color matching.
+        configure_screen_export_colorimetry(&media_type);
     }
 
     Ok(media_type)
+}
+
+fn configure_screen_export_colorimetry(media_type: &IMFMediaType) {
+    // Keep recorder exports full-range so flat UI colors and gradients survive the
+    // BGRA -> NV12 -> H.264 path without the 16-235 compression seen in playback.
+    unsafe {
+        let _ = media_type.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_0_255.0 as u32);
+        let _ = media_type.SetUINT32(&MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709.0 as u32);
+        let _ = media_type.SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32);
+    }
 }
