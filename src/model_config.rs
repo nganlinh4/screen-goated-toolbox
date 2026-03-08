@@ -166,6 +166,19 @@ lazy_static::lazy_static! {
             "20 requests/day"
         ),
         ModelConfig::new(
+            "gemini-3.1-flash-lite-preview",
+            "google",
+            "Chính xác, nhanh",
+            "정확하고 빠름",
+            "Accurate, Fast",
+            "gemini-3.1-flash-lite-preview",
+            ModelType::Vision,
+            true,
+            "500 lượt/ngày",
+            "500 요청/일",
+            "500 requests/day"
+        ),
+        ModelConfig::new(
             "gemini-flash",
             "google",
             "Rất chính xác",
@@ -335,6 +348,19 @@ lazy_static::lazy_static! {
             "20 requests/day"
         ),
         ModelConfig::new(
+            "text_gemini_3_1_flash_lite",
+            "google",
+            "Chính xác, nhanh",
+            "정확하고 빠름",
+            "Accurate, Fast",
+            "gemini-3.1-flash-lite-preview",
+            ModelType::Text,
+            true,
+            "500 lượt/ngày",
+            "500 요청/일",
+            "500 requests/day"
+        ),
+        ModelConfig::new(
             "text_gemini_flash",
             "google",
             "Rất chính xác",
@@ -464,6 +490,19 @@ lazy_static::lazy_static! {
             "20 lượt/ngày",
             "20 요청/일",
             "20 requests/day"
+        ),
+        ModelConfig::new(
+            "gemini-audio-3.1-flash-lite",
+            "google",
+            "Chính xác, nhanh",
+            "정확하고 빠름",
+            "Accurate, Fast",
+            "gemini-3.1-flash-lite-preview",
+            ModelType::Audio,
+            true,
+            "500 lượt/ngày",
+            "500 요청/일",
+            "500 requests/day"
         ),
         ModelConfig::new(
             "gemini-audio-flash",
@@ -620,7 +659,9 @@ pub fn model_supports_search_by_name(full_name: &str) -> bool {
     if full_name.contains("gemma-3-27b-it") {
         return false;
     }
-    if full_name.contains("gemini-3-flash-preview") {
+    if full_name.contains("gemini-3-flash-preview")
+        || full_name.contains("gemini-3.1-flash-lite-preview")
+    {
         return false;
     }
 
