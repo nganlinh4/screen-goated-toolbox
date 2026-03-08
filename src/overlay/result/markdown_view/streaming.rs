@@ -33,6 +33,32 @@ pub fn stream_markdown_content(parent_hwnd: HWND, markdown_text: &str) -> bool {
     )
 }
 
+/// Finalize streamed markdown content without the live-stream tail effects.
+/// This avoids a visible end-of-stream hitch before the final settle-fit runs.
+pub fn finalize_stream_markdown_content(parent_hwnd: HWND, markdown_text: &str) -> bool {
+    let hwnd_key = parent_hwnd.0 as isize;
+    let (is_refining, preset_prompt, input_text) = {
+        let states = crate::overlay::result::state::WINDOW_STATES.lock().unwrap();
+        if let Some(state) = states.get(&hwnd_key) {
+            (
+                state.is_refining,
+                state.preset_prompt.clone(),
+                state.input_text.clone(),
+            )
+        } else {
+            (false, String::new(), String::new())
+        }
+    };
+
+    finalize_stream_markdown_content_ex(
+        parent_hwnd,
+        markdown_text,
+        is_refining,
+        &preset_prompt,
+        &input_text,
+    )
+}
+
 /// Stream markdown content - internal version for rapid streaming updates
 /// Uses innerHTML on body to avoid document recreation overhead
 pub fn stream_markdown_content_ex(
@@ -41,6 +67,49 @@ pub fn stream_markdown_content_ex(
     is_refining: bool,
     preset_prompt: &str,
     input_text: &str,
+) -> bool {
+    update_stream_markdown_content_ex(
+        parent_hwnd,
+        markdown_text,
+        is_refining,
+        preset_prompt,
+        input_text,
+        true,
+        true,
+        true,
+    )
+}
+
+/// Finalize streamed markdown content - internal version for the last flush after streaming stops.
+/// Skips the live-stream reveal effects because a full settle-fit follows immediately after.
+pub fn finalize_stream_markdown_content_ex(
+    parent_hwnd: HWND,
+    markdown_text: &str,
+    is_refining: bool,
+    preset_prompt: &str,
+    input_text: &str,
+) -> bool {
+    update_stream_markdown_content_ex(
+        parent_hwnd,
+        markdown_text,
+        is_refining,
+        preset_prompt,
+        input_text,
+        false,
+        false,
+        false,
+    )
+}
+
+fn update_stream_markdown_content_ex(
+    parent_hwnd: HWND,
+    markdown_text: &str,
+    is_refining: bool,
+    preset_prompt: &str,
+    input_text: &str,
+    run_inline_sizing: bool,
+    animate_new_words: bool,
+    smooth_scroll: bool,
 ) -> bool {
     let hwnd_key = parent_hwnd.0 as isize;
 
@@ -83,11 +152,15 @@ pub fn stream_markdown_content_ex(
                 .replace('\\', "\\\\")
                 .replace('`', "\\`")
                 .replace("${", "\\${");
+            let scroll_behavior = if smooth_scroll { "smooth" } else { "auto" };
 
             let script = format!(
                 r#"(function() {{
     const newContent = `{}`;
     const prevWordCount = window._streamWordCount || 0;
+    const shouldRunInlineSizing = {};
+    const shouldAnimateNewWords = {};
+    const scrollBehavior = '{}';
 
     // Update content
     document.body.innerHTML = newContent;
@@ -113,83 +186,85 @@ pub fn stream_markdown_content_ex(
     // If text is longer, we enforce 14px floor for readability.
     var minSize = (textLen < 200) ? 6 : 14;
 
-    if (isNewSession) {{
-         // Reset styles from previous session so DOM is in a known state.
-         // On the very first streaming chunk, the body is hidden (opacity 0) by Rust
-         // and fit_font_to_window runs the full fitting + reveals. This basic sizing
-         // is a fallback for non-first isNewSession triggers (e.g. after WIPE signal).
-         var maxPossible = Math.min(200, winH);
-         var estimated = Math.sqrt((winW * winH) / (textLen + 1));
-         var low = Math.max(minSize, Math.floor(estimated * 0.5));
-         var high = Math.min(maxPossible, Math.ceil(estimated * 1.5));
-         if (low > high) low = high;
+    if (shouldRunInlineSizing) {{
+        if (isNewSession) {{
+             // Reset styles from previous session so DOM is in a known state.
+             // On the very first streaming chunk, the body is hidden (opacity 0) by Rust
+             // and fit_font_to_window runs the full fitting + reveals. This basic sizing
+             // is a fallback for non-first isNewSession triggers (e.g. after WIPE signal).
+             var maxPossible = Math.min(200, winH);
+             var estimated = Math.sqrt((winW * winH) / (textLen + 1));
+             var low = Math.max(minSize, Math.floor(estimated * 0.5));
+             var high = Math.min(maxPossible, Math.ceil(estimated * 1.5));
+             if (low > high) low = high;
 
-         body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
-         body.style.letterSpacing = '0px';
-         body.style.wordSpacing = '0px';
-         body.style.lineHeight = '1.5';
-         body.style.paddingTop = '0';
-         body.style.paddingBottom = '0';
-         var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
-         for (var i = 0; i < blocks.length; i++) {{
-             blocks[i].style.marginBottom = '0.5em';
-             blocks[i].style.paddingBottom = '0';
-         }}
-         void body.offsetHeight;
-         var best = low;
-         while (low <= high) {{
-             var mid = Math.floor((low + high) / 2);
-             body.style.fontSize = mid + 'px';
-             if (fitsVertically()) {{
-                 best = mid;
-                 low = mid + 1;
-             }} else {{
-                 high = mid - 1;
+             body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+             body.style.letterSpacing = '0px';
+             body.style.wordSpacing = '0px';
+             body.style.lineHeight = '1.5';
+             body.style.paddingTop = '0';
+             body.style.paddingBottom = '0';
+             var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
+             for (var i = 0; i < blocks.length; i++) {{
+                 blocks[i].style.marginBottom = '0.5em';
+                 blocks[i].style.paddingBottom = '0';
              }}
-         }}
-         if (best < minSize) best = minSize;
-         body.style.fontSize = best + 'px';
-         // Constrained window + short text can report a near-final height on first pass.
-         // Re-run once after style settle so scale is final without requiring hover-triggered fit.
-         if (isConstrainedShortContent) {{
              void body.offsetHeight;
-             var settleLow = minSize;
-             var settleHigh = best;
-             var settleBest = minSize;
-             while (settleLow <= settleHigh) {{
-                 var settleMid = Math.floor((settleLow + settleHigh) / 2);
-                 body.style.fontSize = settleMid + 'px';
+             var best = low;
+             while (low <= high) {{
+                 var mid = Math.floor((low + high) / 2);
+                 body.style.fontSize = mid + 'px';
                  if (fitsVertically()) {{
-                     settleBest = settleMid;
-                     settleLow = settleMid + 1;
+                     best = mid;
+                     low = mid + 1;
                  }} else {{
-                     settleHigh = settleMid - 1;
+                     high = mid - 1;
                  }}
              }}
-             body.style.fontSize = settleBest + 'px';
-         }}
+             if (best < minSize) best = minSize;
+             body.style.fontSize = best + 'px';
+             // Constrained window + short text can report a near-final height on first pass.
+             // Re-run once after style settle so scale is final without requiring hover-triggered fit.
+             if (isConstrainedShortContent) {{
+                 void body.offsetHeight;
+                 var settleLow = minSize;
+                 var settleHigh = best;
+                 var settleBest = minSize;
+                 while (settleLow <= settleHigh) {{
+                     var settleMid = Math.floor((settleLow + settleHigh) / 2);
+                     body.style.fontSize = settleMid + 'px';
+                     if (fitsVertically()) {{
+                         settleBest = settleMid;
+                         settleLow = settleMid + 1;
+                     }} else {{
+                         settleHigh = settleMid - 1;
+                     }}
+                 }}
+                 body.style.fontSize = settleBest + 'px';
+             }}
 
-    }} else {{
-        // Incrementally adjust font size if overflow occurs
-        var hasOverflow = !fitsVertically();
-        if (hasOverflow) {{
-            var currentSize = parseFloat(body.style.fontSize) || 14;
-            if (currentSize > minSize) {{
-                // Binary search from minSize to currentSize to find the largest fitting size
-                var low = minSize;
-                var high = currentSize;
-                var best = minSize;
-                while (low <= high) {{
-                    var mid = Math.floor((low + high) / 2);
-                    body.style.fontSize = mid + 'px';
-                    if (fitsVertically()) {{
-                        best = mid;
-                        low = mid + 1;
-                    }} else {{
-                        high = mid - 1;
+        }} else {{
+            // Incrementally adjust font size if overflow occurs
+            var hasOverflow = !fitsVertically();
+            if (hasOverflow) {{
+                var currentSize = parseFloat(body.style.fontSize) || 14;
+                if (currentSize > minSize) {{
+                    // Binary search from minSize to currentSize to find the largest fitting size
+                    var low = minSize;
+                    var high = currentSize;
+                    var best = minSize;
+                    while (low <= high) {{
+                        var mid = Math.floor((low + high) / 2);
+                        body.style.fontSize = mid + 'px';
+                        if (fitsVertically()) {{
+                            best = mid;
+                            low = mid + 1;
+                        }} else {{
+                            high = mid - 1;
+                        }}
                     }}
+                    body.style.fontSize = best + 'px';
                 }}
-                body.style.fontSize = best + 'px';
             }}
         }}
     }}
@@ -200,7 +275,7 @@ pub fn stream_markdown_content_ex(
     const newWordCount = words.length;
 
     // SKIP animation for the very first chunk (isNewSession)
-    if (!isNewSession) {{
+    if (shouldAnimateNewWords && !isNewSession) {{
         let newWords = [];
         for (let i = prevWordCount; i < newWordCount; i++) {{
             newWords.push(words[i]);
@@ -224,9 +299,9 @@ pub fn stream_markdown_content_ex(
     }}
 
     window._streamWordCount = newWordCount;
-    window.scrollTo({{ top: document.body.scrollHeight, behavior: 'smooth' }});
+    window.scrollTo({{ top: document.body.scrollHeight, behavior: scrollBehavior }});
 }})()"#,
-                escaped_content
+                escaped_content, run_inline_sizing, animate_new_words, scroll_behavior
             );
             let _ = webview.evaluate_script(&script);
             return true;
@@ -280,9 +355,7 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
         if (window._sgtFitting) return;
         window._sgtFitting = true;
 
-        // Use longer delay + requestAnimationFrame to ensure content is fully rendered
-        // This is critical after streaming ends, as the DOM needs time to settle
-        setTimeout(function() {
+        function runFitWhenReady() {
         requestAnimationFrame(function() {
         requestAnimationFrame(function() {
             // Skip font fitting for image/audio input adapters - detect by checking for slider-container
@@ -704,7 +777,18 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
             // Reveal body (may have been hidden to prevent flash of unstyled content)
             body.style.opacity = '1';
             window._sgtFitting = false;
-        }); }); }, 100);
+        }); });
+        }
+
+        try {
+            if (document.fonts && document.fonts.status !== 'loaded' && document.fonts.ready) {
+                document.fonts.ready.then(runFitWhenReady, runFitWhenReady);
+            } else {
+                runFitWhenReady();
+            }
+        } catch (_err) {
+            runFitWhenReady();
+        }
     })();
     "#;
 
