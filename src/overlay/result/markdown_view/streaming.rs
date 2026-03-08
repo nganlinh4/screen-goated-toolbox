@@ -414,32 +414,15 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
 
             // Allowed ranges — match streaming's 14px readability floor
             var minSize = (textLen < 200) ? 6 : 14;
-            var maxSize = isTinyContent ? 200 : (isShortContent ? 100 : 24);
-
-            // ===== LONG TEXT: readable size + scroll =====
-            // For long text (>= 1500 chars), skip expensive 8-phase fitting.
-            // Streaming already set a readable font (min 14px); the content
-            // scrolls naturally. Fitting would either produce unreadably small
-            // text or waste ~100+ reflows to arrive at the same size.
-            if (!isShortContent) {
-                var currentSize = parseFloat(body.style.fontSize) || 16;
-                if (currentSize < 14) body.style.fontSize = '14px';
-                body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
-                body.style.letterSpacing = '0px';
-                body.style.lineHeight = '1.5';
-                body.style.paddingTop = '0';
-                body.style.paddingBottom = '0';
-                var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
-                for (var i = 0; i < blocks.length; i++) {
-                    blocks[i].style.marginBottom = '0.5em';
-                    blocks[i].style.paddingBottom = '0';
-                }
-                body.style.opacity = '1';
-                window._sgtFitting = false;
-                return;
-            }
+            var maxSize = isTinyContent
+                ? 200
+                : (isShortContent
+                    ? 100
+                    : Math.max(24, Math.min(48, Math.floor(winH / 10))));
 
             // ===== PHASE 0: RESET (Start TIGHT like GDI) =====
+            // Long text keeps this compact baseline too, so the final settle-fit
+            // does not snap away from the condensed streaming look.
             body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
             body.style.letterSpacing = '0px';
             body.style.lineHeight = '1.15'; // Start tight like GDI
@@ -559,143 +542,148 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
                 clearLastMargin();
             }
 
-            // ===== PHASE 2: LINE HEIGHT (expand from tight baseline to fill gap) =====
-            // Start from tight 1.15, expand up to 2.5 to fill remaining space
-            if (fits() && getGap() > 2) {
-                var lowLH = 1.15, highLH = 2.5, bestLH = 1.15;
-                while (highLH - lowLH > 0.01) {
-                    var midLH = (lowLH + highLH) / 2;
-                    body.style.lineHeight = midLH;
-                    clearLastMargin();
-                    if (fits()) {
-                        bestLH = midLH;
-                        lowLH = midLH;
-                    } else {
-                        highLH = midLH;
+            // ===== PHASES 2-7: gap filling =====
+            // Skip these for long text to avoid the expensive settle work and keep
+            // dense streamed content from expanding into loose line spacing.
+            if (isShortContent) {
+                // ===== PHASE 2: LINE HEIGHT (expand from tight baseline to fill gap) =====
+                // Start from tight 1.15, expand up to 2.5 to fill remaining space
+                if (fits() && getGap() > 2) {
+                    var lowLH = 1.15, highLH = 2.5, bestLH = 1.15;
+                    while (highLH - lowLH > 0.01) {
+                        var midLH = (lowLH + highLH) / 2;
+                        body.style.lineHeight = midLH;
+                        clearLastMargin();
+                        if (fits()) {
+                            bestLH = midLH;
+                            lowLH = midLH;
+                        } else {
+                            highLH = midLH;
+                        }
                     }
+                    body.style.lineHeight = bestLH;
+                    clearLastMargin();
                 }
-                body.style.lineHeight = bestLH;
-                clearLastMargin();
-            }
 
-            // ===== PHASE 3: BLOCK MARGINS (Distribute space between paragraphs) =====
-            if (fits() && getGap() > 2) {
-                var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
-                var numGaps = Math.max(1, blocks.length - 1);
+                // ===== PHASE 3: BLOCK MARGINS (Distribute space between paragraphs) =====
+                if (fits() && getGap() > 2) {
+                    var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
+                    var numGaps = Math.max(1, blocks.length - 1);
 
-                var lowM = 0, highM = 3.0, bestM = 0;
-                while (highM - lowM > 0.02) {
-                    var midM = (lowM + highM) / 2;
+                    var lowM = 0, highM = 3.0, bestM = 0;
+                    while (highM - lowM > 0.02) {
+                        var midM = (lowM + highM) / 2;
+                        for (var i = 0; i < blocks.length - 1; i++) {
+                            blocks[i].style.marginBottom = midM + 'em';
+                        }
+                        if (blocks.length > 0) blocks[blocks.length - 1].style.marginBottom = '0';
+                        if (fits()) {
+                            bestM = midM;
+                            lowM = midM;
+                        } else {
+                            highM = midM;
+                        }
+                    }
                     for (var i = 0; i < blocks.length - 1; i++) {
-                        blocks[i].style.marginBottom = midM + 'em';
+                        blocks[i].style.marginBottom = bestM + 'em';
                     }
                     if (blocks.length > 0) blocks[blocks.length - 1].style.marginBottom = '0';
-                    if (fits()) {
-                        bestM = midM;
-                        lowM = midM;
-                    } else {
-                        highM = midM;
-                    }
                 }
-                for (var i = 0; i < blocks.length - 1; i++) {
-                    blocks[i].style.marginBottom = bestM + 'em';
-                }
-                if (blocks.length > 0) blocks[blocks.length - 1].style.marginBottom = '0';
-            }
 
-            // ===== PHASE 4: FONT SIZE MICRO-ADJUST =====
-            // Try bumping font size by 0.5px increments if there's still gap
-            if (fits() && getGap() > 5) {
-                var currentSize = parseFloat(body.style.fontSize) || bestSize;
-                var testSize = currentSize;
-                while (testSize < maxSize) {
-                    testSize += 0.5;
-                    body.style.fontSize = testSize + 'px';
-                    clearLastMargin();
-                    if (!fits()) {
-                        body.style.fontSize = (testSize - 0.5) + 'px';
+                // ===== PHASE 4: FONT SIZE MICRO-ADJUST =====
+                // Try bumping font size by 0.5px increments if there's still gap
+                if (fits() && getGap() > 5) {
+                    var currentSize = parseFloat(body.style.fontSize) || bestSize;
+                    var testSize = currentSize;
+                    while (testSize < maxSize) {
+                        testSize += 0.5;
+                        body.style.fontSize = testSize + 'px';
                         clearLastMargin();
-                        break;
+                        if (!fits()) {
+                            body.style.fontSize = (testSize - 0.5) + 'px';
+                            clearLastMargin();
+                            break;
+                        }
                     }
                 }
-            }
 
-            // ===== PHASE 5: LETTER SPACING (Fine-tune horizontal density) =====
-            // Expanding letter spacing can cause more wrapping, filling vertical space
-            if (fits() && getGap() > 2 && isShortContent) {
-                var lowLS = 0, highLS = 20, bestLS = 0;
-                while (highLS - lowLS > 0.1) {
-                    var midLS = (lowLS + highLS) / 2;
-                    body.style.letterSpacing = midLS + 'px';
+                // ===== PHASE 5: LETTER SPACING (Fine-tune horizontal density) =====
+                // Expanding letter spacing can cause more wrapping, filling vertical space
+                if (fits() && getGap() > 2) {
+                    var lowLS = 0, highLS = 20, bestLS = 0;
+                    while (highLS - lowLS > 0.1) {
+                        var midLS = (lowLS + highLS) / 2;
+                        body.style.letterSpacing = midLS + 'px';
+                        clearLastMargin();
+                        if (fits()) {
+                            bestLS = midLS;
+                            lowLS = midLS;
+                        } else {
+                            highLS = midLS;
+                        }
+                    }
+                    body.style.letterSpacing = bestLS + 'px';
                     clearLastMargin();
-                    if (fits()) {
-                        bestLS = midLS;
-                        lowLS = midLS;
-                    } else {
-                        highLS = midLS;
-                    }
                 }
-                body.style.letterSpacing = bestLS + 'px';
-                clearLastMargin();
-            }
 
-            // ===== PHASE 6: FONT WIDTH (wdth) =====
-            // Expanding font width can also cause more wrapping
-            if (fits() && getGap() > 2 && isShortContent) {
-                var lowW = 90, highW = 150, bestW = 90;
-                while (lowW <= highW) {
-                    var midW = Math.floor((lowW + highW) / 2);
-                    body.style.fontVariationSettings = "'wght' 400, 'wdth' " + midW + ", 'slnt' 0, 'ROND' 100";
+                // ===== PHASE 6: FONT WIDTH (wdth) =====
+                // Expanding font width can also cause more wrapping
+                if (fits() && getGap() > 2) {
+                    var lowW = 90, highW = 150, bestW = 90;
+                    while (lowW <= highW) {
+                        var midW = Math.floor((lowW + highW) / 2);
+                        body.style.fontVariationSettings = "'wght' 400, 'wdth' " + midW + ", 'slnt' 0, 'ROND' 100";
+                        clearLastMargin();
+                        if (fits()) {
+                            bestW = midW;
+                            lowW = midW + 1;
+                        } else {
+                            highW = midW - 1;
+                        }
+                    }
+                    body.style.fontVariationSettings = "'wght' 400, 'wdth' " + bestW + ", 'slnt' 0, 'ROND' 100";
                     clearLastMargin();
-                    if (fits()) {
-                        bestW = midW;
-                        lowW = midW + 1;
-                    } else {
-                        highW = midW - 1;
-                    }
                 }
-                body.style.fontVariationSettings = "'wght' 400, 'wdth' " + bestW + ", 'slnt' 0, 'ROND' 100";
-                clearLastMargin();
-            }
 
-            // ===== PHASE 7: HORIZONTAL FILL (for short/single-line content) =====
-            // If content is only 1-2 lines tall, stretch to fill horizontal space
-            var fontSize = parseFloat(body.style.fontSize) || 14;
-            var lineH = parseFloat(body.style.lineHeight) || 1.5;
-            var approxLineHeight = fontSize * lineH;
-            var isFewLines = doc.scrollHeight < approxLineHeight * 3;
+                // ===== PHASE 7: HORIZONTAL FILL (for short/single-line content) =====
+                // If content is only 1-2 lines tall, stretch to fill horizontal space
+                var fontSize = parseFloat(body.style.fontSize) || 14;
+                var lineH = parseFloat(body.style.lineHeight) || 1.5;
+                var approxLineHeight = fontSize * lineH;
+                var isFewLines = doc.scrollHeight < approxLineHeight * 3;
 
-            if (fits() && isFewLines) {
-                // For very short content, maximize wdth to fill horizontal space
-                var lowW = 90, highW = 500, bestW = 90;
-                var baseHeight = doc.scrollHeight;
-                while (lowW <= highW) {
-                    var midW = Math.floor((lowW + highW) / 2);
-                    body.style.fontVariationSettings = "'wght' 400, 'wdth' " + midW + ", 'slnt' 0, 'ROND' 100";
-                    // Only accept if height doesn't increase (no wrapping)
-                    if (doc.scrollHeight <= baseHeight && fits()) {
-                        bestW = midW;
-                        lowW = midW + 1;
-                    } else {
-                        highW = midW - 1;
+                if (fits() && isFewLines) {
+                    // For very short content, maximize wdth to fill horizontal space
+                    var lowW = 90, highW = 500, bestW = 90;
+                    var baseHeight = doc.scrollHeight;
+                    while (lowW <= highW) {
+                        var midW = Math.floor((lowW + highW) / 2);
+                        body.style.fontVariationSettings = "'wght' 400, 'wdth' " + midW + ", 'slnt' 0, 'ROND' 100";
+                        // Only accept if height doesn't increase (no wrapping)
+                        if (doc.scrollHeight <= baseHeight && fits()) {
+                            bestW = midW;
+                            lowW = midW + 1;
+                        } else {
+                            highW = midW - 1;
+                        }
                     }
-                }
-                body.style.fontVariationSettings = "'wght' 400, 'wdth' " + bestW + ", 'slnt' 0, 'ROND' 100";
+                    body.style.fontVariationSettings = "'wght' 400, 'wdth' " + bestW + ", 'slnt' 0, 'ROND' 100";
 
-                // Also stretch letter-spacing if more room
-                baseHeight = doc.scrollHeight;
-                var lowLS = 0, highLS = 100, bestLS = 0;
-                while (highLS - lowLS > 0.5) {
-                    var midLS = (lowLS + highLS) / 2;
-                    body.style.letterSpacing = midLS + 'px';
-                    if (doc.scrollHeight <= baseHeight && fits()) {
-                        bestLS = midLS;
-                        lowLS = midLS;
-                    } else {
-                        highLS = midLS;
+                    // Also stretch letter-spacing if more room
+                    baseHeight = doc.scrollHeight;
+                    var lowLS = 0, highLS = 100, bestLS = 0;
+                    while (highLS - lowLS > 0.5) {
+                        var midLS = (lowLS + highLS) / 2;
+                        body.style.letterSpacing = midLS + 'px';
+                        if (doc.scrollHeight <= baseHeight && fits()) {
+                            bestLS = midLS;
+                            lowLS = midLS;
+                        } else {
+                            highLS = midLS;
+                        }
                     }
+                    body.style.letterSpacing = bestLS + 'px';
                 }
-                body.style.letterSpacing = bestLS + 'px';
             }
 
             // ===== PHASE 8: OVERFLOW RESCUE CONDENSE =====
