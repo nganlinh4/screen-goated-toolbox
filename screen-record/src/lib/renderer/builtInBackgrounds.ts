@@ -17,10 +17,12 @@ import {
   fillTopographicFlowBackgroundPixels,
   fillWindowlightCausticsBackgroundPixels,
 } from './complexBuiltInBackgrounds';
+import { fillMeltedGlassBackgroundPixels } from './meltedGlassBackground';
 import { fillOrbitalArcsBackgroundPixels } from './orbitalArcsBackground';
 
 const BUILT_IN_BACKGROUND_TOKEN_PREFIX = '__builtin_background__:';
 const swatchStyleCache = new Map<BuiltInBackgroundId, CSSProperties>();
+const SWATCH_SIZE = 128;
 
 export interface BuiltInBackgroundCache {
   renderedCanvasByKey: Map<string, HTMLCanvasElement>;
@@ -306,6 +308,8 @@ export function paintBuiltInBackgroundCanvas(
     fillPrismFoldBackgroundPixels(img.data, width, height, preset);
   } else if (preset.family === 'matte-collage') {
     fillMatteCollageBackgroundPixels(img.data, width, height, preset);
+  } else if (preset.family === 'melted-glass') {
+    fillMeltedGlassBackgroundPixels(img.data, width, height, preset);
   } else if (preset.family === 'orbital-arcs') {
     fillOrbitalArcsBackgroundPixels(img.data, width, height, preset);
   } else if (preset.family === 'windowlight-caustics') {
@@ -345,6 +349,29 @@ export function fillBuiltInBackground(
   ctx.drawImage(canvas, 0, 0, width, height);
 }
 
+function paintBuiltInBackgroundSwatchCanvas(
+  canvas: HTMLCanvasElement,
+  id: BuiltInBackgroundId
+): void {
+  const preset = getBuiltInBackgroundPreset(id);
+  if (preset.family !== 'melted-glass') {
+    paintBuiltInBackgroundCanvas(canvas, id, SWATCH_SIZE, SWATCH_SIZE);
+    return;
+  }
+
+  const renderWidth = Math.round(SWATCH_SIZE * (16 / 9));
+  const previewCanvas = document.createElement('canvas');
+  paintBuiltInBackgroundCanvas(previewCanvas, id, renderWidth, SWATCH_SIZE);
+
+  canvas.width = SWATCH_SIZE;
+  canvas.height = SWATCH_SIZE;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(previewCanvas, 0, 0, SWATCH_SIZE, SWATCH_SIZE);
+}
+
 export function getBuiltInBackgroundSwatchStyle(id: BuiltInBackgroundId): CSSProperties {
   const cached = swatchStyleCache.get(id);
   if (cached) return cached;
@@ -355,7 +382,7 @@ export function getBuiltInBackgroundSwatchStyle(id: BuiltInBackgroundId): CSSPro
   }
 
   const swatch = document.createElement('canvas');
-  paintBuiltInBackgroundCanvas(swatch, id, 128, 128);
+  paintBuiltInBackgroundSwatchCanvas(swatch, id);
   if (!swatch.getContext('2d')) {
     const fallback = { background: '#000000' };
     swatchStyleCache.set(id, fallback);

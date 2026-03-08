@@ -216,6 +216,35 @@ export interface OrbitalArcsBackgroundPreset {
   noiseIntensity: number;
 }
 
+export interface MeltedGlassBackgroundPreset {
+  family: 'melted-glass';
+  colors: {
+    baseStart: string;
+    baseEnd: string;
+    poolA: string;
+    poolB: string;
+    poolC: string;
+  };
+  poolACenter: [number, number];
+  poolARadius: number;
+  poolAWeight: number;
+  poolBCenter: [number, number];
+  poolBRadius: number;
+  poolBWeight: number;
+  poolCCenter: [number, number];
+  poolCRadius: number;
+  poolCWeight: number;
+  threshold: number;
+  softness: number;
+  rimStrength: number;
+  highlightStrength: number;
+  centerCalm: number;
+  vignetteStart: number;
+  vignetteEnd: number;
+  vignetteStrength: number;
+  noiseIntensity: number;
+}
+
 export type BuiltInBackgroundPreset =
   | LinearBackgroundPreset
   | StackedRadialBackgroundPreset
@@ -225,7 +254,8 @@ export type BuiltInBackgroundPreset =
   | TopographicFlowBackgroundPreset
   | WindowlightCausticsBackgroundPreset
   | MatteCollageBackgroundPreset
-  | OrbitalArcsBackgroundPreset;
+  | OrbitalArcsBackgroundPreset
+  | MeltedGlassBackgroundPreset;
 
 interface SharedBackgroundCatalog {
   defaultId: BuiltInBackgroundId;
