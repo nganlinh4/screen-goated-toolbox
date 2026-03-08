@@ -156,21 +156,30 @@ pub struct CompositorUniforms {
     pub shadow_opacity: f32,         // 44-48
     pub gradient_color1: [f32; 4],   // 48-64
     pub gradient_color2: [f32; 4],   // 64-80
-    pub time: f32,                   // 80-84
-    pub render_mode: f32,            // 84-88: 0=all, 1=scene-only, 2=cursor-only
-    pub cursor_pos: [f32; 2],        // 88-96
-    pub cursor_scale: f32,           // 96-100
-    pub cursor_opacity: f32, // 100-104 - cursor visibility (0.0 = hidden, 1.0 = fully visible)
-    pub cursor_type_id: f32, // 104-108
-    pub cursor_rotation: f32, // 108-112 (radians, tip anchored)
-    pub cursor_shadow: f32,  // 112-116 (0-1)
-    pub use_background_texture: f32, // 116-120 (0.0=gradient, 1.0=custom texture)
-    pub bg_zoom: f32,        // 120-124
-    pub bg_anchor_x: f32,    // 124-128
-    pub bg_anchor_y: f32,    // 128-132
-    pub bg_style: f32,       // 132-136 (gradient variant: 0=none,1=g4,2=g5,3=g6,4=g7)
-    pub bg_tex_w: f32,       // 136-140 (native texture width for cover UV)
-    pub bg_tex_h: f32,       // 140-144 (native texture height for cover UV)
+    pub gradient_color3: [f32; 4],   // 80-96
+    pub gradient_color4: [f32; 4],   // 96-112
+    pub gradient_color5: [f32; 4],   // 112-128
+    pub time: f32,                   // 128-132
+    pub render_mode: f32,            // 132-136: 0=all, 1=scene-only, 2=cursor-only
+    pub cursor_pos: [f32; 2],        // 136-144
+    pub cursor_scale: f32,           // 144-148
+    pub cursor_opacity: f32, // 148-152 - cursor visibility (0.0 = hidden, 1.0 = fully visible)
+    pub cursor_type_id: f32, // 152-156
+    pub cursor_rotation: f32, // 156-160 (radians, tip anchored)
+    pub cursor_shadow: f32,  // 160-164 (0-1)
+    pub use_background_texture: f32, // 164-168 (0.0=gradient, 1.0=custom texture)
+    pub bg_zoom: f32,        // 168-172
+    pub bg_anchor_x: f32,    // 172-176
+    pub bg_anchor_y: f32,    // 176-180
+    pub bg_style: f32, // 180-184 (background family: 0=linear,1=diagonal-glow,2=edge-ribbons,3=stacked-radial)
+    pub bg_tex_w: f32, // 184-188 (native texture width for cover UV)
+    pub bg_tex_h: f32, // 188-192 (native texture height for cover UV)
+    pub bg_params1: [f32; 4], // 192-208
+    pub bg_params2: [f32; 4], // 208-224
+    pub bg_params3: [f32; 4], // 224-240
+    pub bg_params4: [f32; 4], // 240-256
+    pub bg_params5: [f32; 4], // 256-272
+    pub bg_params6: [f32; 4], // 272-288
 }
 
 pub struct GpuCompositor {
@@ -234,12 +243,16 @@ impl GpuCompositor {
         let accumulate_pipeline = shared.accumulate_pipeline.clone();
         let vertex_buffer = shared.vertex_buffer.clone();
 
-        // Align to device requirement for dynamic uniform buffer offsets.
+        // Dynamic offsets must be aligned to the device minimum, and each slot
+        // also has to be large enough to fit the full uniform struct.
+        let min_uniform_alignment = device.limits().min_uniform_buffer_offset_alignment as usize;
+        let uniform_size = std::mem::size_of::<CompositorUniforms>();
+        let uniform_alignment =
+            uniform_size.div_ceil(min_uniform_alignment) * min_uniform_alignment;
         // Allocate 16 slots (safely covers max 8 blur samples with headroom).
-        let uniform_alignment = device.limits().min_uniform_buffer_offset_alignment;
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Uniform Buffer"),
-            size: (uniform_alignment as usize * 16) as u64,
+            size: (uniform_alignment * 16) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -519,7 +532,7 @@ impl GpuCompositor {
             vertex_buffer,
             uniform_buffer,
             uniform_bind_group,
-            uniform_alignment,
+            uniform_alignment: uniform_alignment as u32,
             video_texture,
             video_bind_group,
             cursor_texture,

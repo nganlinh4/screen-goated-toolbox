@@ -15,6 +15,7 @@ import {
   useZoomKeyframes, useTextOverlays, useAutoZoom, useCursorHiding,
   getSavedKeystrokeLanguage, saveKeystrokeLanguage, getSavedCropPref, saveCropPref,
 } from '@/hooks/useVideoState';
+import { DEFAULT_BUILT_IN_BACKGROUND_ID } from '@/lib/backgroundPresets';
 
 import { Header } from '@/components/Header';
 import { Placeholder, CropOverlay, PlaybackControls, CanvasResizeOverlay, SeekIndicator } from '@/components/VideoPreview';
@@ -52,7 +53,7 @@ const sv = (v: number, min: number, max: number): CSSProperties =>
 const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
   scale: 90,
   borderRadius: 32,
-  backgroundType: 'gradient2',
+  backgroundType: DEFAULT_BUILT_IN_BACKGROUND_ID,
   shadow: 100,
   volume: 1,
   cursorScale: 5,
@@ -565,7 +566,7 @@ function App() {
     setRecentUploads(prev => prev.filter(v => v !== imageUrl));
     setBackgroundConfig(prev => {
       if (prev.backgroundType === 'custom' && prev.customBackground === imageUrl) {
-        return { ...prev, backgroundType: 'gradient2', customBackground: undefined };
+        return { ...prev, backgroundType: DEFAULT_BUILT_IN_BACKGROUND_ID, customBackground: undefined };
       }
       return prev;
     });

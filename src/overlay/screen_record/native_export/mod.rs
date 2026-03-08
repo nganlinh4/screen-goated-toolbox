@@ -1,6 +1,6 @@
 pub mod anim_cache;
+mod background_presets;
 mod camera_path;
-mod color;
 pub mod config;
 mod cursor;
 mod cursor_path;
@@ -192,6 +192,15 @@ pub fn warm_up_export_pipeline() {
                 shadow_opacity: 0.0,
                 gradient_color1: [0.0, 0.0, 0.0, 1.0],
                 gradient_color2: [0.0, 0.0, 0.0, 1.0],
+                gradient_color3: [0.0, 0.0, 0.0, 0.0],
+                gradient_color4: [0.0, 0.0, 0.0, 0.0],
+                gradient_color5: [0.0, 0.0, 0.0, 0.0],
+                bg_params1: [0.0, 0.0, 0.0, 0.0],
+                bg_params2: [0.0, 0.0, 0.0, 0.0],
+                bg_params3: [0.0, 0.0, 0.0, 0.0],
+                bg_params4: [0.0, 0.0, 0.0, 0.0],
+                bg_params5: [0.0, 0.0, 0.0, 0.0],
+                bg_params6: [0.0, 0.0, 0.0, 0.0],
                 time: 0.0,
                 render_mode: 0.0,
                 cursor_pos: (-1.0, -1.0),
@@ -565,14 +574,10 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     // Build zero-copy pipeline config
     let bg = &config.background_config.background_type;
-    let (grad1, grad2) = color::get_gradient_colors(bg);
-    let bg_style = match bg.as_str() {
-        "gradient4" => 1.0,
-        "gradient5" => 2.0,
-        "gradient6" => 3.0,
-        "gradient7" => 4.0,
-        _ => 0.0,
-    };
+    let background_preset = background_presets::get_builtin_background(bg)
+        .copied()
+        .unwrap_or_default();
+    let bg_style = background_preset.family_code;
 
     let shadow_opacity = if config.background_config.shadow > 0.0 {
         0.5_f32
@@ -674,8 +679,17 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             shadow_offset,
             shadow_blur,
             shadow_opacity,
-            gradient_color1: grad1,
-            gradient_color2: grad2,
+            gradient_color1: background_preset.gradient_color1,
+            gradient_color2: background_preset.gradient_color2,
+            gradient_color3: background_preset.gradient_color3,
+            gradient_color4: background_preset.gradient_color4,
+            gradient_color5: background_preset.gradient_color5,
+            bg_params1: background_preset.bg_params1,
+            bg_params2: background_preset.bg_params2,
+            bg_params3: background_preset.bg_params3,
+            bg_params4: background_preset.bg_params4,
+            bg_params5: background_preset.bg_params5,
+            bg_params6: background_preset.bg_params6,
             time: base_time as f32,
             render_mode: 0.0,
             cursor_pos: (cp_x, cp_y),
