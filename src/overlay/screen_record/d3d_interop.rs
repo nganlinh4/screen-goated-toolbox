@@ -370,6 +370,40 @@ impl VideoProcessor {
             input_w, input_h, output_w, output_h
         );
 
+        let full_input_rect = RECT {
+            left: 0,
+            top: 0,
+            right: input_w as i32,
+            bottom: input_h as i32,
+        };
+        let full_output_rect = RECT {
+            left: 0,
+            top: 0,
+            right: output_w as i32,
+            bottom: output_h as i32,
+        };
+        unsafe {
+            // Make scaling deterministic across drivers instead of relying on
+            // implementation-defined default rectangles.
+            video_context.VideoProcessorSetOutputTargetRect(
+                &processor,
+                true,
+                Some(&full_output_rect),
+            );
+            video_context.VideoProcessorSetStreamSourceRect(
+                &processor,
+                0,
+                true,
+                Some(&full_input_rect),
+            );
+            video_context.VideoProcessorSetStreamDestRect(
+                &processor,
+                0,
+                true,
+                Some(&full_output_rect),
+            );
+        }
+
         Ok(Self {
             processor,
             enumerator,

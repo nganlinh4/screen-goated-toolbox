@@ -437,6 +437,26 @@ struct MfEncoderCreateConfig<'a> {
     prefer_hw: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct EncoderCanvas {
+    width: u32,
+    height: u32,
+}
+
+fn exact_encoder_canvas(width: u32, height: u32) -> EncoderCanvas {
+    EncoderCanvas {
+        width: width.max(128) & !1,
+        height: height.max(128) & !1,
+    }
+}
+
+fn aligned_encoder_canvas(width: u32, height: u32) -> EncoderCanvas {
+    EncoderCanvas {
+        width: (width.max(128) + 15) & !15,
+        height: (height.max(128) + 15) & !15,
+    }
+}
+
 fn create_video_encoder_with_mf_mode(
     config: MfEncoderCreateConfig<'_>,
 ) -> Result<VideoEncoder, Box<dyn std::error::Error + Send + Sync>> {
@@ -455,6 +475,59 @@ fn create_video_encoder_with_mf_mode(
         config.video_path,
     )?;
     Ok(encoder)
+}
+
+fn create_video_encoder_with_canvas_fallback(
+    config: MfEncoderCreateConfig<'_>,
+    capture_width: u32,
+    capture_height: u32,
+) -> Result<(VideoEncoder, EncoderCanvas), Box<dyn std::error::Error + Send + Sync>> {
+    let exact_canvas = exact_encoder_canvas(capture_width, capture_height);
+    let aligned_canvas = aligned_encoder_canvas(capture_width, capture_height);
+    let canvases = if exact_canvas == aligned_canvas {
+        [Some(exact_canvas), None]
+    } else {
+        [Some(exact_canvas), Some(aligned_canvas)]
+    };
+    let mut last_error = None;
+
+    for canvas in canvases.into_iter().flatten() {
+        match create_video_encoder_with_mf_mode(MfEncoderCreateConfig {
+            enc_w: canvas.width,
+            enc_h: canvas.height,
+            target_fps: config.target_fps,
+            final_bitrate: config.final_bitrate,
+            sample_rate: config.sample_rate,
+            channels: config.channels,
+            video_path: config.video_path,
+            prefer_hw: config.prefer_hw,
+        }) {
+            Ok(encoder) => {
+                if canvas != exact_canvas {
+                    eprintln!(
+                        "[CaptureBackend] Exact encoder canvas {}x{} rejected; using 16-aligned fallback {}x{}",
+                        exact_canvas.width, exact_canvas.height, canvas.width, canvas.height
+                    );
+                }
+                return Ok((encoder, canvas));
+            }
+            Err(error) => {
+                if canvas == exact_canvas && aligned_canvas != exact_canvas {
+                    eprintln!(
+                        "[CaptureBackend] Exact encoder canvas {}x{} init failed; retrying 16-aligned {}x{}: {}",
+                        canvas.width,
+                        canvas.height,
+                        aligned_canvas.width,
+                        aligned_canvas.height,
+                        error
+                    );
+                }
+                last_error = Some(error);
+            }
+        }
+    }
+
+    Err(last_error.expect("encoder canvas attempts must include at least one candidate"))
 }
 
 fn get_cursor_type(is_clicked: bool) -> String {
@@ -996,11 +1069,9 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             (w, h, hz, monitor_index)
         };
 
-        // Align to 16 for universal H.264 hardware encoder compatibility (prevents 0xC00DA412)
-        let mut enc_w = width.max(128);
-        let mut enc_h = height.max(128);
-        enc_w = (enc_w + 15) & !15;
-        enc_h = (enc_h + 15) & !15;
+        // Prefer the exact even capture size. Some MF encoder/device combinations only
+        // accept 16-aligned canvases, so we retry with that fallback on init failure.
+        let preferred_canvas = exact_encoder_canvas(width, height);
 
         let app_data_dir = dirs::data_local_dir()
             .unwrap_or_else(std::env::temp_dir)
@@ -1032,44 +1103,59 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         // 1920x1080 @ 60fps = ~27 Mbps
         // 2560x1440 @ 60fps = ~48 Mbps
         // 3840x2160 @ 60fps = ~109 Mbps
-        let pixel_count = enc_w as u64 * enc_h as u64;
+        let pixel_count = preferred_canvas.width as u64 * preferred_canvas.height as u64;
         let target_bitrate = (pixel_count as f64 * target_fps as f64 * 0.22) as u32;
 
         // Keep a quality floor while capping peak encoder pressure.
         let final_bitrate = target_bitrate.clamp(8_000_000, 80_000_000);
 
         let (sample_rate, channels) = audio_engine::get_default_audio_config();
-        let mf_hw_preferred =
-            should_prefer_mf_hw_accel(&flags.target_type, target_fps, enc_w, enc_h);
-        let encoder = match create_video_encoder_with_mf_mode(MfEncoderCreateConfig {
-            enc_w,
-            enc_h,
+        let mf_hw_preferred = should_prefer_mf_hw_accel(
+            &flags.target_type,
             target_fps,
-            final_bitrate,
-            sample_rate,
-            channels,
-            video_path: &video_path,
-            prefer_hw: mf_hw_preferred,
-        }) {
-            Ok(encoder) => encoder,
+            preferred_canvas.width,
+            preferred_canvas.height,
+        );
+        let (encoder, canvas, encoder_uses_hw) = match create_video_encoder_with_canvas_fallback(
+            MfEncoderCreateConfig {
+                enc_w: preferred_canvas.width,
+                enc_h: preferred_canvas.height,
+                target_fps,
+                final_bitrate,
+                sample_rate,
+                channels,
+                video_path: &video_path,
+                prefer_hw: mf_hw_preferred,
+            },
+            width,
+            height,
+        ) {
+            Ok((encoder, canvas)) => (encoder, canvas, mf_hw_preferred),
             Err(error) if mf_hw_preferred && mf_hw_accel_override().is_none() => {
                 eprintln!(
                     "[CaptureBackend] HW encoder init failed, retrying software path: {}",
                     error
                 );
-                create_video_encoder_with_mf_mode(MfEncoderCreateConfig {
-                    enc_w,
-                    enc_h,
-                    target_fps,
-                    final_bitrate,
-                    sample_rate,
-                    channels,
-                    video_path: &video_path,
-                    prefer_hw: false,
-                })?
+                let (encoder, canvas) = create_video_encoder_with_canvas_fallback(
+                    MfEncoderCreateConfig {
+                        enc_w: preferred_canvas.width,
+                        enc_h: preferred_canvas.height,
+                        target_fps,
+                        final_bitrate,
+                        sample_rate,
+                        channels,
+                        video_path: &video_path,
+                        prefer_hw: false,
+                    },
+                    width,
+                    height,
+                )?;
+                (encoder, canvas, false)
             }
             Err(error) => return Err(error),
         };
+        let enc_w = canvas.width;
+        let enc_h = canvas.height;
         let audio_handle = encoder.create_audio_handle();
         println!(
             "Initializing VideoEncoder: {}x{} @ {}fps (Hz={}), Codec: H264 (MediaFoundation {}), Bitrate: {} Mbps, TargetType: {}, TargetID: {}",
@@ -1077,7 +1163,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             enc_h,
             target_fps,
             monitor_hz,
-            if mf_hw_preferred { "HW" } else { "SW" },
+            if encoder_uses_hw { "HW" } else { "SW" },
             final_bitrate / 1_000_000,
             flags.target_type,
             target_id_print
