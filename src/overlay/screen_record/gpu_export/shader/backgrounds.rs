@@ -485,4 +485,61 @@ fn orbital_arcs_color(uv_raw: vec2<f32>, pixel_pos: vec2<f32>) -> vec4<f32> {
     let noise = (hash12(pixel_pos) - 0.5) * (u.bg_params6.x / 255.0);
     return vec4<f32>(clamp(lit + vec3<f32>(noise), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }
+
+fn melted_glass_pool_field(point: vec2<f32>, center: vec2<f32>, radius: f32, weight: f32) -> vec3<f32> {
+    let delta = point - center;
+    let radius_sq = max(radius * radius, 0.00001);
+    let exponent = -dot(delta, delta) / radius_sq;
+    let value = exp(exponent) * weight;
+    let gradient_scale = (-2.0 / radius_sq) * value;
+    return vec3<f32>(value, delta.x * gradient_scale, delta.y * gradient_scale);
+}
+
+fn melted_glass_color(uv_raw: vec2<f32>, pixel_pos: vec2<f32>) -> vec4<f32> {
+    let uv = clamp(uv_raw, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
+    let aspect = max(u.output_size.x / max(u.output_size.y, 1.0), 0.0001);
+    let point = vec2<f32>(uv.x * aspect, uv.y);
+    let centered = vec2<f32>((uv.x - 0.5) * aspect, uv.y - 0.5);
+    let base_mix = clamp((uv.x * 0.64) + ((1.0 - uv.y) * 0.36), 0.0, 1.0);
+    let ambient = clamp(((1.0 - uv.y) * 0.26) + ((1.0 - uv.x) * 0.12) + 0.18, 0.0, 1.0);
+    let edge_bias = mix(
+        u.bg_params5.x,
+        1.0,
+        smoothstep(0.16, 0.88, length(centered))
+    );
+    var lit = mix(u.gradient_color1.rgb, u.gradient_color2.rgb, base_mix) * mix(0.84, 0.98, ambient);
+
+    let pool_a = melted_glass_pool_field(point, vec2<f32>(u.bg_params1.x * aspect, u.bg_params1.y), u.bg_params1.z, u.bg_params1.w);
+    let pool_b = melted_glass_pool_field(point, vec2<f32>(u.bg_params2.x * aspect, u.bg_params2.y), u.bg_params2.z, u.bg_params2.w);
+    let pool_c = melted_glass_pool_field(point, vec2<f32>(u.bg_params3.x * aspect, u.bg_params3.y), u.bg_params3.z, u.bg_params3.w);
+    let field = pool_a.x + pool_b.x + pool_c.x;
+    let mask = smoothstep(u.bg_params4.x - u.bg_params4.y, u.bg_params4.x + u.bg_params4.y, field) * edge_bias;
+    let inner = smoothstep(u.bg_params4.x, u.bg_params4.x + (u.bg_params4.y * 2.2), field) * edge_bias;
+    let rim =
+        (
+            smoothstep(u.bg_params4.x - u.bg_params4.y * 0.9, u.bg_params4.x, field) -
+            smoothstep(u.bg_params4.x + u.bg_params4.y * 0.4, u.bg_params4.x + u.bg_params4.y * 1.8, field)
+        ) *
+        edge_bias;
+
+    let color_weight = max(pool_a.x + pool_b.x + pool_c.x, 0.00001);
+    let liquid_color =
+        ((u.gradient_color3.rgb * pool_a.x) + (u.gradient_color4.rgb * pool_b.x) + (u.gradient_color5.rgb * pool_c.x)) /
+        color_weight;
+
+    let gradient = vec2<f32>(pool_a.y + pool_b.y + pool_c.y, pool_a.z + pool_b.z + pool_c.z);
+    let gradient_len = max(length(gradient), 0.00001);
+    let normal = -gradient / gradient_len;
+    let light_dir = vec2<f32>(-0.58, -0.81);
+    let highlight = pow(clamp(dot(normal, light_dir), 0.0, 1.0), 2.2) * inner * u.bg_params4.w;
+    let rim_light = rim * u.bg_params4.z;
+    let liquid_shade = mix(0.88, 1.06, clamp((normal.x * -0.34) + (normal.y * -0.66) + 0.5, 0.0, 1.0));
+    let final_liquid = (liquid_color * liquid_shade) + (mix(liquid_color, vec3<f32>(1.0, 1.0, 1.0), 0.18) * (rim_light + highlight));
+    lit = mix(lit, final_liquid, mask);
+
+    let vignette = smoothstep(u.bg_params5.y, u.bg_params5.z, length(centered)) * u.bg_params5.w;
+    lit = mix(lit, lit * 0.84, vignette);
+    let noise = (hash12(pixel_pos) - 0.5) * (u.bg_params6.x / 255.0);
+    return vec4<f32>(clamp(lit + vec3<f32>(noise), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+}
 "#;

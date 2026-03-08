@@ -16,7 +16,8 @@
     "gradient11",
     "gradient12",
     "gradient13",
-    "gradient14"
+    "gradient14",
+    "gradient15"
   ],
   "backgrounds": {
     "solid": {
@@ -344,6 +345,34 @@
       "vignetteStart": 0.8,
       "vignetteEnd": 1.24,
       "vignetteStrength": 0.06,
+      "noiseIntensity": 0.08
+    },
+    "gradient15": {
+      "family": "melted-glass",
+      "colors": {
+        "baseStart": "#0d2430",
+        "baseEnd": "#241843",
+        "poolA": "#26b8ff",
+        "poolB": "#ffb53d",
+        "poolC": "#ff5e97"
+      },
+      "poolACenter": [-0.12, 0.82],
+      "poolARadius": 0.74,
+      "poolAWeight": 1.04,
+      "poolBCenter": [0.42, -0.16],
+      "poolBRadius": 0.7,
+      "poolBWeight": 0.96,
+      "poolCCenter": [1.14, 0.58],
+      "poolCRadius": 0.76,
+      "poolCWeight": 1.02,
+      "threshold": 0.34,
+      "softness": 0.09,
+      "rimStrength": 0.24,
+      "highlightStrength": 0.22,
+      "centerCalm": 0.16,
+      "vignetteStart": 0.78,
+      "vignetteEnd": 1.22,
+      "vignetteStrength": 0.08,
       "noiseIntensity": 0.08
     }
   }

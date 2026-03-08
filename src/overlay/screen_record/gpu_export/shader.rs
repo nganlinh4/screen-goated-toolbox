@@ -178,6 +178,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
                 cover_uv.x = (bg_uv.x - 0.5) * scale + 0.5;
             }
             col = textureSample(bg_tex, bg_samp, cover_uv);
+        } else if (u.bg_style > 8.5) {
+            col = melted_glass_color(bg_uv, in.pixel_pos);
         } else if (u.bg_style > 7.5) {
             col = orbital_arcs_color(bg_uv, in.pixel_pos);
         } else if (u.bg_style > 6.5) {

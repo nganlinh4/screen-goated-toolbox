@@ -238,6 +238,43 @@ pub(super) enum BackgroundPresetFile {
         #[serde(rename = "noiseIntensity")]
         noise_intensity: f32,
     },
+    MeltedGlass {
+        colors: MeltedGlassColorsFile,
+        #[serde(rename = "poolACenter")]
+        pool_a_center: [f32; 2],
+        #[serde(rename = "poolARadius")]
+        pool_a_radius: f32,
+        #[serde(rename = "poolAWeight")]
+        pool_a_weight: f32,
+        #[serde(rename = "poolBCenter")]
+        pool_b_center: [f32; 2],
+        #[serde(rename = "poolBRadius")]
+        pool_b_radius: f32,
+        #[serde(rename = "poolBWeight")]
+        pool_b_weight: f32,
+        #[serde(rename = "poolCCenter")]
+        pool_c_center: [f32; 2],
+        #[serde(rename = "poolCRadius")]
+        pool_c_radius: f32,
+        #[serde(rename = "poolCWeight")]
+        pool_c_weight: f32,
+        threshold: f32,
+        softness: f32,
+        #[serde(rename = "rimStrength")]
+        rim_strength: f32,
+        #[serde(rename = "highlightStrength")]
+        highlight_strength: f32,
+        #[serde(rename = "centerCalm")]
+        center_calm: f32,
+        #[serde(rename = "vignetteStart")]
+        vignette_start: f32,
+        #[serde(rename = "vignetteEnd")]
+        vignette_end: f32,
+        #[serde(rename = "vignetteStrength")]
+        vignette_strength: f32,
+        #[serde(rename = "noiseIntensity")]
+        noise_intensity: f32,
+    },
     MatteCollage {
         colors: MatteCollageColorsFile,
         #[serde(rename = "layerACenter")]
@@ -358,6 +395,20 @@ pub(super) struct OrbitalArcsColorsFile {
     pub(super) arc_b: String,
     #[serde(rename = "arcC")]
     pub(super) arc_c: String,
+}
+
+#[derive(Deserialize)]
+pub(super) struct MeltedGlassColorsFile {
+    #[serde(rename = "baseStart")]
+    pub(super) base_start: String,
+    #[serde(rename = "baseEnd")]
+    pub(super) base_end: String,
+    #[serde(rename = "poolA")]
+    pub(super) pool_a: String,
+    #[serde(rename = "poolB")]
+    pub(super) pool_b: String,
+    #[serde(rename = "poolC")]
+    pub(super) pool_c: String,
 }
 
 #[derive(Deserialize)]
