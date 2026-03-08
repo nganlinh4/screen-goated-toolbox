@@ -128,13 +128,104 @@ export interface TopographicFlowBackgroundPreset {
   noiseIntensity: number;
 }
 
+export interface WindowlightCausticsBackgroundPreset {
+  family: 'windowlight-caustics';
+  colors: {
+    base: string;
+    beamA: string;
+    beamB: string;
+    highlight: string;
+    ink: string;
+  };
+  beamACenter: [number, number];
+  beamAAngle: number;
+  beamAWidth: number;
+  beamALength: number;
+  beamAIntensity: number;
+  beamBCenter: [number, number];
+  beamBAngle: number;
+  beamBWidth: number;
+  beamBLength: number;
+  beamBIntensity: number;
+  highlightCenter: [number, number];
+  highlightRadius: number;
+  highlightIntensity: number;
+  causticFreq: number;
+  causticWarp: number;
+  causticStrength: number;
+  centerCalm: number;
+  vignetteStart: number;
+  vignetteEnd: number;
+  vignetteStrength: number;
+  noiseIntensity: number;
+}
+
+export interface MatteCollageBackgroundPreset {
+  family: 'matte-collage';
+  colors: {
+    base: string;
+    layerA: string;
+    layerB: string;
+    layerC: string;
+    shadow: string;
+  };
+  layerACenter: [number, number];
+  layerARadii: [number, number];
+  layerAAngle: number;
+  layerBCenter: [number, number];
+  layerBRadii: [number, number];
+  layerBAngle: number;
+  layerCCenter: [number, number];
+  layerCRadii: [number, number];
+  layerCAngle: number;
+  shadowOffset: [number, number];
+  shadowBlur: number;
+  shadowStrength: number;
+  noiseIntensity: number;
+  vignetteStart: number;
+  vignetteEnd: number;
+  vignetteStrength: number;
+}
+
+export interface OrbitalArcsBackgroundPreset {
+  family: 'orbital-arcs';
+  colors: {
+    baseStart: string;
+    baseEnd: string;
+    arcA: string;
+    arcB: string;
+    arcC: string;
+  };
+  arcACenter: [number, number];
+  arcARadius: number;
+  arcAThickness: number;
+  arcAIntensity: number;
+  arcBCenter: [number, number];
+  arcBRadius: number;
+  arcBThickness: number;
+  arcBIntensity: number;
+  arcCCenter: [number, number];
+  arcCRadius: number;
+  arcCThickness: number;
+  arcCIntensity: number;
+  overlapGlow: number;
+  centerCalm: number;
+  vignetteStart: number;
+  vignetteEnd: number;
+  vignetteStrength: number;
+  noiseIntensity: number;
+}
+
 export type BuiltInBackgroundPreset =
   | LinearBackgroundPreset
   | StackedRadialBackgroundPreset
   | DiagonalGlowBackgroundPreset
   | EdgeRibbonBackgroundPreset
   | PrismFoldBackgroundPreset
-  | TopographicFlowBackgroundPreset;
+  | TopographicFlowBackgroundPreset
+  | WindowlightCausticsBackgroundPreset
+  | MatteCollageBackgroundPreset
+  | OrbitalArcsBackgroundPreset;
 
 interface SharedBackgroundCatalog {
   defaultId: BuiltInBackgroundId;

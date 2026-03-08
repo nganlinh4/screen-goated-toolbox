@@ -171,7 +171,7 @@ pub struct CompositorUniforms {
     pub bg_zoom: f32,        // 168-172
     pub bg_anchor_x: f32,    // 172-176
     pub bg_anchor_y: f32,    // 176-180
-    pub bg_style: f32, // 180-184 (background family: 0=linear,1=diagonal-glow,2=edge-ribbons,3=stacked-radial,4=prism-fold,5=topographic-flow)
+    pub bg_style: f32, // 180-184 (background family: 0=linear,1=diagonal-glow,2=edge-ribbons,3=stacked-radial,4=prism-fold,5=topographic-flow,6=windowlight-caustics,7=matte-collage,8=orbital-arcs)
     pub bg_tex_w: f32, // 184-188 (native texture width for cover UV)
     pub bg_tex_h: f32, // 188-192 (native texture height for cover UV)
     pub bg_params1: [f32; 4], // 192-208

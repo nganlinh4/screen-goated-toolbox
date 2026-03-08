@@ -1,221 +1,7 @@
-use serde::Deserialize;
+mod schema;
+use self::schema::*;
 use std::collections::HashMap;
 use std::sync::OnceLock;
-
-#[derive(Deserialize)]
-struct SharedBackgroundCatalogFile {
-    #[serde(rename = "defaultId")]
-    _default_id: String,
-    #[serde(rename = "panelOrder")]
-    _panel_order: Vec<String>,
-    backgrounds: HashMap<String, BackgroundPresetFile>,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "family", rename_all = "kebab-case")]
-enum BackgroundPresetFile {
-    Linear {
-        axis: String,
-        colors: LinearColorsFile,
-    },
-    StackedRadial {
-        #[serde(rename = "gradientAxis")]
-        gradient_axis: String,
-        colors: StackedRadialColorsFile,
-        #[serde(rename = "overlayCenter")]
-        overlay_center: [f32; 2],
-        #[serde(rename = "overlayRadius")]
-        overlay_radius: f32,
-        #[serde(rename = "overlayOpacity")]
-        overlay_opacity: f32,
-    },
-    DiagonalGlow {
-        colors: DiagonalGlowColorsFile,
-        #[serde(rename = "diagWeights")]
-        diag_weights: [f32; 2],
-        split: f32,
-        #[serde(rename = "glowACenter")]
-        glow_a_center: [f32; 2],
-        #[serde(rename = "glowAOuterRadius")]
-        glow_a_outer_radius: f32,
-        #[serde(rename = "glowAInnerRadius")]
-        glow_a_inner_radius: f32,
-        #[serde(rename = "glowAStrength")]
-        glow_a_strength: f32,
-        #[serde(rename = "glowBCenter")]
-        glow_b_center: [f32; 2],
-        #[serde(rename = "glowBOuterRadius")]
-        glow_b_outer_radius: f32,
-        #[serde(rename = "glowBInnerRadius")]
-        glow_b_inner_radius: f32,
-        #[serde(rename = "glowBStrength")]
-        glow_b_strength: f32,
-        #[serde(rename = "vignetteStart")]
-        vignette_start: f32,
-        #[serde(rename = "vignetteEnd")]
-        vignette_end: f32,
-        #[serde(rename = "vignetteStrength")]
-        vignette_strength: f32,
-        #[serde(rename = "noiseIntensity")]
-        noise_intensity: f32,
-    },
-    EdgeRibbons {
-        colors: EdgeRibbonColorsFile,
-        #[serde(rename = "ribbonAStart")]
-        ribbon_a_start: [f32; 2],
-        #[serde(rename = "ribbonAEnd")]
-        ribbon_a_end: [f32; 2],
-        #[serde(rename = "ribbonAWidth")]
-        ribbon_a_width: f32,
-        #[serde(rename = "ribbonACurveAmp")]
-        ribbon_a_curve_amp: f32,
-        #[serde(rename = "ribbonACurveFreq")]
-        ribbon_a_curve_freq: f32,
-        #[serde(rename = "ribbonAIntensity")]
-        ribbon_a_intensity: f32,
-        #[serde(rename = "ribbonBStart")]
-        ribbon_b_start: [f32; 2],
-        #[serde(rename = "ribbonBEnd")]
-        ribbon_b_end: [f32; 2],
-        #[serde(rename = "ribbonBWidth")]
-        ribbon_b_width: f32,
-        #[serde(rename = "ribbonBCurveAmp")]
-        ribbon_b_curve_amp: f32,
-        #[serde(rename = "ribbonBCurveFreq")]
-        ribbon_b_curve_freq: f32,
-        #[serde(rename = "ribbonBIntensity")]
-        ribbon_b_intensity: f32,
-        #[serde(rename = "glowCenter")]
-        glow_center: [f32; 2],
-        #[serde(rename = "glowRadius")]
-        glow_radius: f32,
-        #[serde(rename = "glowIntensity")]
-        glow_intensity: f32,
-        #[serde(rename = "vignetteStart")]
-        vignette_start: f32,
-        #[serde(rename = "vignetteEnd")]
-        vignette_end: f32,
-        #[serde(rename = "vignetteStrength")]
-        vignette_strength: f32,
-        #[serde(rename = "noiseIntensity")]
-        noise_intensity: f32,
-    },
-    PrismFold {
-        colors: PrismFoldColorsFile,
-        #[serde(rename = "paneALine")]
-        pane_a_line: [f32; 4],
-        #[serde(rename = "paneBLine")]
-        pane_b_line: [f32; 4],
-        #[serde(rename = "paneCLine")]
-        pane_c_line: [f32; 4],
-        #[serde(rename = "paneDLine")]
-        pane_d_line: [f32; 4],
-        #[serde(rename = "paneStrength")]
-        pane_strength: f32,
-        #[serde(rename = "foldStrength")]
-        fold_strength: f32,
-        #[serde(rename = "overlapGain")]
-        overlap_gain: f32,
-        softness: f32,
-        #[serde(rename = "vignetteStart")]
-        vignette_start: f32,
-        #[serde(rename = "vignetteEnd")]
-        vignette_end: f32,
-        #[serde(rename = "vignetteStrength")]
-        vignette_strength: f32,
-        #[serde(rename = "noiseIntensity")]
-        noise_intensity: f32,
-    },
-    TopographicFlow {
-        colors: TopographicFlowColorsFile,
-        #[serde(rename = "sourceA")]
-        source_a: [f32; 2],
-        #[serde(rename = "sourceB")]
-        source_b: [f32; 2],
-        #[serde(rename = "lineScale")]
-        line_scale: f32,
-        #[serde(rename = "warpFreq")]
-        warp_freq: f32,
-        #[serde(rename = "warpAmp")]
-        warp_amp: f32,
-        #[serde(rename = "lineWidth")]
-        line_width: f32,
-        #[serde(rename = "lineStrength")]
-        line_strength: f32,
-        #[serde(rename = "glowStrength")]
-        glow_strength: f32,
-        #[serde(rename = "centerCalm")]
-        center_calm: f32,
-        #[serde(rename = "vignetteStart")]
-        vignette_start: f32,
-        #[serde(rename = "vignetteEnd")]
-        vignette_end: f32,
-        #[serde(rename = "vignetteStrength")]
-        vignette_strength: f32,
-        #[serde(rename = "noiseIntensity")]
-        noise_intensity: f32,
-    },
-}
-
-#[derive(Deserialize)]
-struct LinearColorsFile {
-    start: String,
-    end: String,
-}
-
-#[derive(Deserialize)]
-struct StackedRadialColorsFile {
-    start: String,
-    mid: String,
-    end: String,
-    overlay: String,
-}
-
-#[derive(Deserialize)]
-struct DiagonalGlowColorsFile {
-    start: String,
-    mid: String,
-    end: String,
-    #[serde(rename = "glowAColorLinear")]
-    glow_a_color_linear: [f32; 3],
-    #[serde(rename = "glowBColorLinear")]
-    glow_b_color_linear: [f32; 3],
-}
-
-#[derive(Deserialize)]
-struct EdgeRibbonColorsFile {
-    base: String,
-    depth: String,
-    #[serde(rename = "ribbonA")]
-    ribbon_a: String,
-    #[serde(rename = "ribbonB")]
-    ribbon_b: String,
-    glow: String,
-}
-
-#[derive(Deserialize)]
-struct PrismFoldColorsFile {
-    base: String,
-    #[serde(rename = "paneA")]
-    pane_a: String,
-    #[serde(rename = "paneB")]
-    pane_b: String,
-    #[serde(rename = "paneC")]
-    pane_c: String,
-    #[serde(rename = "paneD")]
-    pane_d: String,
-}
-
-#[derive(Deserialize)]
-struct TopographicFlowColorsFile {
-    base: String,
-    #[serde(rename = "lineA")]
-    line_a: String,
-    #[serde(rename = "lineB")]
-    line_b: String,
-    glow: String,
-    ink: String,
-}
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct BuiltInBackgroundPreset {
@@ -464,6 +250,169 @@ fn to_builtin_background_preset(raw: BackgroundPresetFile) -> BuiltInBackgroundP
                 noise_intensity,
             ],
             ..BuiltInBackgroundPreset::default()
+        },
+        BackgroundPresetFile::WindowlightCaustics {
+            colors,
+            beam_a_center,
+            beam_a_angle,
+            beam_a_width,
+            beam_a_length,
+            beam_a_intensity,
+            beam_b_center,
+            beam_b_angle,
+            beam_b_width,
+            beam_b_length,
+            beam_b_intensity,
+            highlight_center,
+            highlight_radius,
+            highlight_intensity,
+            caustic_freq,
+            caustic_warp,
+            caustic_strength,
+            center_calm,
+            vignette_start,
+            vignette_end,
+            vignette_strength,
+            noise_intensity,
+        } => BuiltInBackgroundPreset {
+            family_code: 6.0,
+            gradient_color1: hex_string_to_linear(&colors.base),
+            gradient_color2: hex_string_to_linear(&colors.beam_a),
+            gradient_color3: hex_string_to_linear(&colors.beam_b),
+            gradient_color4: hex_string_to_linear(&colors.highlight),
+            gradient_color5: hex_string_to_linear(&colors.ink),
+            bg_params1: [
+                beam_a_center[0],
+                beam_a_center[1],
+                beam_a_angle,
+                beam_a_width,
+            ],
+            bg_params2: [
+                beam_a_length,
+                beam_a_intensity,
+                beam_b_center[0],
+                beam_b_center[1],
+            ],
+            bg_params3: [beam_b_angle, beam_b_width, beam_b_length, beam_b_intensity],
+            bg_params4: [
+                highlight_center[0],
+                highlight_center[1],
+                highlight_radius,
+                highlight_intensity,
+            ],
+            bg_params5: [caustic_freq, caustic_warp, caustic_strength, center_calm],
+            bg_params6: [
+                vignette_start,
+                vignette_end,
+                vignette_strength,
+                noise_intensity,
+            ],
+        },
+        BackgroundPresetFile::OrbitalArcs {
+            colors,
+            arc_a_center,
+            arc_a_radius,
+            arc_a_thickness,
+            arc_a_intensity,
+            arc_b_center,
+            arc_b_radius,
+            arc_b_thickness,
+            arc_b_intensity,
+            arc_c_center,
+            arc_c_radius,
+            arc_c_thickness,
+            arc_c_intensity,
+            overlap_glow,
+            center_calm,
+            vignette_start,
+            vignette_end,
+            vignette_strength,
+            noise_intensity,
+        } => BuiltInBackgroundPreset {
+            family_code: 8.0,
+            gradient_color1: hex_string_to_linear(&colors.base_start),
+            gradient_color2: hex_string_to_linear(&colors.base_end),
+            gradient_color3: hex_string_to_linear(&colors.arc_a),
+            gradient_color4: hex_string_to_linear(&colors.arc_b),
+            gradient_color5: hex_string_to_linear(&colors.arc_c),
+            bg_params1: [
+                arc_a_center[0],
+                arc_a_center[1],
+                arc_a_radius,
+                arc_a_thickness,
+            ],
+            bg_params2: [
+                arc_a_intensity,
+                arc_b_center[0],
+                arc_b_center[1],
+                arc_b_radius,
+            ],
+            bg_params3: [
+                arc_b_thickness,
+                arc_b_intensity,
+                arc_c_center[0],
+                arc_c_center[1],
+            ],
+            bg_params4: [arc_c_radius, arc_c_thickness, arc_c_intensity, overlap_glow],
+            bg_params5: [center_calm, vignette_start, vignette_end, vignette_strength],
+            bg_params6: [noise_intensity, 0.0, 0.0, 0.0],
+        },
+        BackgroundPresetFile::MatteCollage {
+            colors,
+            layer_a_center,
+            layer_a_radii,
+            layer_a_angle,
+            layer_b_center,
+            layer_b_radii,
+            layer_b_angle,
+            layer_c_center,
+            layer_c_radii,
+            layer_c_angle,
+            shadow_offset,
+            shadow_blur,
+            shadow_strength,
+            noise_intensity,
+            vignette_start,
+            vignette_end,
+            vignette_strength,
+        } => BuiltInBackgroundPreset {
+            family_code: 7.0,
+            gradient_color1: hex_string_to_linear(&colors.base),
+            gradient_color2: hex_string_to_linear(&colors.layer_a),
+            gradient_color3: hex_string_to_linear(&colors.layer_b),
+            gradient_color4: hex_string_to_linear(&colors.layer_c),
+            gradient_color5: hex_string_to_linear(&colors.shadow),
+            bg_params1: [
+                layer_a_center[0],
+                layer_a_center[1],
+                layer_a_radii[0],
+                layer_a_radii[1],
+            ],
+            bg_params2: [
+                layer_a_angle,
+                layer_b_center[0],
+                layer_b_center[1],
+                layer_b_radii[0],
+            ],
+            bg_params3: [
+                layer_b_radii[1],
+                layer_b_angle,
+                layer_c_center[0],
+                layer_c_center[1],
+            ],
+            bg_params4: [
+                layer_c_radii[0],
+                layer_c_radii[1],
+                layer_c_angle,
+                shadow_offset[0],
+            ],
+            bg_params5: [
+                shadow_offset[1],
+                shadow_blur,
+                shadow_strength,
+                noise_intensity,
+            ],
+            bg_params6: [vignette_start, vignette_end, vignette_strength, 0.0],
         },
     }
 }

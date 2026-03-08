@@ -7,12 +7,17 @@ import {
   type DiagonalGlowBackgroundPreset,
   type EdgeRibbonBackgroundPreset,
   type LinearBackgroundPreset,
-  type PrismFoldBackgroundPreset,
   type StackedRadialBackgroundPreset,
-  type TopographicFlowBackgroundPreset,
 } from '@/lib/backgroundPresets';
 import { clamp01, hexToLinear, linearToSrgb, mix, smoothstep } from './gradientMath';
 import { getBuiltInBackgroundRenderSize, setCachedBuiltInBackground } from './builtInBackgroundPreview';
+import {
+  fillMatteCollageBackgroundPixels,
+  fillPrismFoldBackgroundPixels,
+  fillTopographicFlowBackgroundPixels,
+  fillWindowlightCausticsBackgroundPixels,
+} from './complexBuiltInBackgrounds';
+import { fillOrbitalArcsBackgroundPixels } from './orbitalArcsBackground';
 
 const BUILT_IN_BACKGROUND_TOKEN_PREFIX = '__builtin_background__:';
 const swatchStyleCache = new Map<BuiltInBackgroundId, CSSProperties>();
@@ -270,225 +275,6 @@ function fillEdgeRibbonBackgroundPixels(
   }
 }
 
-const PRISM_FOLD_ROLE_POINTS: ReadonlyArray<[number, number]> = [
-  [0.02, 0.02],
-  [0.98, 0.02],
-  [0.98, 0.48],
-  [0.38, 0.98],
-];
-
-const PRISM_FOLD_ROLE_WEIGHTS = [1.0, 0.92, 0.84, 0.96] as const;
-
-function scaleLineForAspect(
-  line: [number, number, number, number],
-  aspect: number
-): [number, number, number, number] {
-  return [line[0] * aspect, line[1], line[2] * aspect, line[3]];
-}
-
-function signedDistanceToLine(
-  point: [number, number],
-  line: [number, number, number, number]
-): number {
-  const dx = line[2] - line[0];
-  const dy = line[3] - line[1];
-  const invLen = 1 / Math.max(Math.hypot(dx, dy), 1e-6);
-  return (((point[0] - line[0]) * -dy) + ((point[1] - line[1]) * dx)) * invLen;
-}
-
-function samplePrismPane(
-  point: [number, number],
-  line: [number, number, number, number],
-  referencePoint: [number, number],
-  softness: number
-): { mask: number; glow: number } {
-  const signedDistance = signedDistanceToLine(point, line);
-  const referenceSide = signedDistanceToLine(referencePoint, line) >= 0 ? 1 : -1;
-  const inside = signedDistance * referenceSide;
-  const mask = smoothstep(-softness * 1.2, softness * 3.2, inside);
-  const body = smoothstep(softness * 1.4, softness * 7.5, inside);
-  const glow = body * (1 - smoothstep(softness * 7.5, softness * 15.0, inside));
-  return { mask, glow };
-}
-
-function fillPrismFoldBackgroundPixels(
-  data: Uint8ClampedArray,
-  width: number,
-  height: number,
-  preset: PrismFoldBackgroundPreset
-): void {
-  const baseColor = hexToLinear(preset.colors.base);
-  const paneColors = [
-    hexToLinear(preset.colors.paneA),
-    hexToLinear(preset.colors.paneB),
-    hexToLinear(preset.colors.paneC),
-    hexToLinear(preset.colors.paneD),
-  ] as const;
-  const aspect = width / Math.max(1, height);
-  const paneLines = [
-    scaleLineForAspect(preset.paneALine, aspect),
-    scaleLineForAspect(preset.paneBLine, aspect),
-    scaleLineForAspect(preset.paneCLine, aspect),
-    scaleLineForAspect(preset.paneDLine, aspect),
-  ] as const;
-  const referencePoints = PRISM_FOLD_ROLE_POINTS.map(([x, y]) => [x * aspect, y] as [number, number]);
-
-  let idx = 0;
-  for (let y = 0; y < height; y++) {
-    const uy = (y + 0.5) / height;
-    for (let x = 0; x < width; x++) {
-      const ux = (x + 0.5) / width;
-      const point: [number, number] = [ux * aspect, uy];
-      const ambient = clamp01(((1 - ux) * 0.52) + ((1 - uy) * 0.48));
-
-      let litR = baseColor[0] * mix(0.84, 1.12, ambient);
-      let litG = baseColor[1] * mix(0.84, 1.12, ambient);
-      let litB = baseColor[2] * mix(0.84, 1.12, ambient);
-      let paneAccumR = 0;
-      let paneAccumG = 0;
-      let paneAccumB = 0;
-      let paneMaskSum = 0;
-
-      for (let paneIndex = 0; paneIndex < paneLines.length; paneIndex++) {
-        const { mask, glow } = samplePrismPane(
-          point,
-          paneLines[paneIndex],
-          referencePoints[paneIndex],
-          preset.softness
-        );
-        const roleWeight = PRISM_FOLD_ROLE_WEIGHTS[paneIndex];
-        const paneMask = mask * roleWeight;
-        const paneColor = paneColors[paneIndex];
-        const paneContribution = (paneMask * preset.paneStrength) + (glow * preset.foldStrength * roleWeight);
-
-        litR += paneColor[0] * paneContribution;
-        litG += paneColor[1] * paneContribution;
-        litB += paneColor[2] * paneContribution;
-
-        paneAccumR += paneColor[0] * paneMask;
-        paneAccumG += paneColor[1] * paneMask;
-        paneAccumB += paneColor[2] * paneMask;
-        paneMaskSum += paneMask;
-      }
-
-      const overlap = Math.max(paneMaskSum - 1, 0) * preset.overlapGain;
-      if (overlap > 0) {
-        const denom = Math.max(paneMaskSum, 1e-4);
-        const avgR = paneAccumR / denom;
-        const avgG = paneAccumG / denom;
-        const avgB = paneAccumB / denom;
-        litR += mix(avgR, 1, 0.35) * overlap;
-        litG += mix(avgG, 1, 0.35) * overlap;
-        litB += mix(avgB, 1, 0.35) * overlap;
-      }
-
-      const vignette = smoothstep(
-        preset.vignetteStart,
-        preset.vignetteEnd,
-        Math.hypot((ux - 0.5) * aspect, uy - 0.5)
-      ) * preset.vignetteStrength;
-      litR = mix(litR, litR * 0.82, vignette);
-      litG = mix(litG, litG * 0.82, vignette);
-      litB = mix(litB, litB * 0.82, vignette);
-
-      if (preset.noiseIntensity > 0) {
-        const noiseSeed = Math.sin((x * 12.9898) + (y * 78.233)) * 43758.5453;
-        const noiseUnit = noiseSeed - Math.floor(noiseSeed);
-        const noise = (noiseUnit - 0.5) * (preset.noiseIntensity / 255.0);
-        litR += noise;
-        litG += noise;
-        litB += noise;
-      }
-
-      data[idx++] = Math.round(clamp01(linearToSrgb(litR)) * 255);
-      data[idx++] = Math.round(clamp01(linearToSrgb(litG)) * 255);
-      data[idx++] = Math.round(clamp01(linearToSrgb(litB)) * 255);
-      data[idx++] = 255;
-    }
-  }
-}
-
-function fillTopographicFlowBackgroundPixels(
-  data: Uint8ClampedArray,
-  width: number,
-  height: number,
-  preset: TopographicFlowBackgroundPreset
-): void {
-  const baseColor = hexToLinear(preset.colors.base);
-  const lineAColor = hexToLinear(preset.colors.lineA);
-  const lineBColor = hexToLinear(preset.colors.lineB);
-  const glowColor = hexToLinear(preset.colors.glow);
-  const ink = hexToLinear(preset.colors.ink);
-  const aspect = width / Math.max(1, height);
-  const sourceA: [number, number] = [preset.sourceA[0] * aspect, preset.sourceA[1]];
-  const sourceB: [number, number] = [preset.sourceB[0] * aspect, preset.sourceB[1]];
-
-  let idx = 0;
-  for (let y = 0; y < height; y++) {
-    const uy = (y + 0.5) / height;
-    for (let x = 0; x < width; x++) {
-      const ux = (x + 0.5) / width;
-      const centeredX = (ux - 0.5) * aspect;
-      const centeredY = uy - 0.5;
-      const point: [number, number] = [ux * aspect, uy];
-      const distA = Math.hypot(point[0] - sourceA[0], point[1] - sourceA[1]);
-      const distB = Math.hypot(point[0] - sourceB[0], point[1] - sourceB[1]);
-      const warp =
-        (Math.sin(((point[0] * 0.82) + (point[1] * 1.14)) * Math.PI * 2 * preset.warpFreq) * preset.warpAmp) +
-        (Math.sin(((point[0] * -0.58) + (point[1] * 0.92)) * Math.PI * 2 * preset.warpFreq * 0.72) * preset.warpAmp * 0.6);
-      const field = ((distA * 0.92) + (distB * 0.78) + warp) * preset.lineScale;
-      const line = 1 - smoothstep(preset.lineWidth, preset.lineWidth + 0.22, Math.abs(Math.sin(field * Math.PI)));
-      const glow = 1 - smoothstep(
-        preset.lineWidth * 2.6,
-        (preset.lineWidth * 2.6) + 0.24,
-        Math.abs(Math.sin((field + 0.32) * Math.PI))
-      );
-      const edgeBias = mix(
-        preset.centerCalm,
-        1,
-        smoothstep(0.18, 0.84, Math.hypot(centeredX, centeredY))
-      );
-      const phaseMix = clamp01((Math.sin((distA - distB) * 4.6) * 0.5) + 0.5);
-      const lineR = mix(lineAColor[0], lineBColor[0], phaseMix);
-      const lineG = mix(lineAColor[1], lineBColor[1], phaseMix);
-      const lineB = mix(lineAColor[2], lineBColor[2], phaseMix);
-
-      let litR = baseColor[0];
-      let litG = baseColor[1];
-      let litB = baseColor[2];
-      litR += lineR * line * preset.lineStrength * edgeBias;
-      litG += lineG * line * preset.lineStrength * edgeBias;
-      litB += lineB * line * preset.lineStrength * edgeBias;
-      litR += glowColor[0] * glow * preset.glowStrength * edgeBias;
-      litG += glowColor[1] * glow * preset.glowStrength * edgeBias;
-      litB += glowColor[2] * glow * preset.glowStrength * edgeBias;
-
-      const vignette = smoothstep(
-        preset.vignetteStart,
-        preset.vignetteEnd,
-        Math.hypot(centeredX, centeredY)
-      ) * preset.vignetteStrength;
-      litR = mix(litR, ink[0], vignette);
-      litG = mix(litG, ink[1], vignette);
-      litB = mix(litB, ink[2], vignette);
-
-      if (preset.noiseIntensity > 0) {
-        const noiseSeed = Math.sin((x * 12.9898) + (y * 78.233)) * 43758.5453;
-        const noiseUnit = noiseSeed - Math.floor(noiseSeed);
-        const noise = (noiseUnit - 0.5) * (preset.noiseIntensity / 255.0);
-        litR += noise;
-        litG += noise;
-        litB += noise;
-      }
-
-      data[idx++] = Math.round(clamp01(linearToSrgb(litR)) * 255);
-      data[idx++] = Math.round(clamp01(linearToSrgb(litG)) * 255);
-      data[idx++] = Math.round(clamp01(linearToSrgb(litB)) * 255);
-      data[idx++] = 255;
-    }
-  }
-}
-
 export function paintBuiltInBackgroundCanvas(
   canvas: HTMLCanvasElement,
   id: BuiltInBackgroundId,
@@ -518,6 +304,12 @@ export function paintBuiltInBackgroundCanvas(
     fillEdgeRibbonBackgroundPixels(img.data, width, height, preset);
   } else if (preset.family === 'prism-fold') {
     fillPrismFoldBackgroundPixels(img.data, width, height, preset);
+  } else if (preset.family === 'matte-collage') {
+    fillMatteCollageBackgroundPixels(img.data, width, height, preset);
+  } else if (preset.family === 'orbital-arcs') {
+    fillOrbitalArcsBackgroundPixels(img.data, width, height, preset);
+  } else if (preset.family === 'windowlight-caustics') {
+    fillWindowlightCausticsBackgroundPixels(img.data, width, height, preset);
   } else {
     fillTopographicFlowBackgroundPixels(img.data, width, height, preset);
   }
