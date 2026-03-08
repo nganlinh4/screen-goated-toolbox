@@ -81,11 +81,35 @@ export interface EdgeRibbonBackgroundPreset {
   noiseIntensity: number;
 }
 
+export interface PrismFoldBackgroundPreset {
+  family: 'prism-fold';
+  colors: {
+    base: string;
+    paneA: string;
+    paneB: string;
+    paneC: string;
+    paneD: string;
+  };
+  paneALine: [number, number, number, number];
+  paneBLine: [number, number, number, number];
+  paneCLine: [number, number, number, number];
+  paneDLine: [number, number, number, number];
+  paneStrength: number;
+  foldStrength: number;
+  overlapGain: number;
+  softness: number;
+  vignetteStart: number;
+  vignetteEnd: number;
+  vignetteStrength: number;
+  noiseIntensity: number;
+}
+
 export type BuiltInBackgroundPreset =
   | LinearBackgroundPreset
   | StackedRadialBackgroundPreset
   | DiagonalGlowBackgroundPreset
-  | EdgeRibbonBackgroundPreset;
+  | EdgeRibbonBackgroundPreset
+  | PrismFoldBackgroundPreset;
 
 interface SharedBackgroundCatalog {
   defaultId: BuiltInBackgroundId;

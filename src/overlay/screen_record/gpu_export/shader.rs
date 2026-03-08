@@ -247,6 +247,93 @@ fn edge_ribbons_color(uv_raw: vec2<f32>, pixel_pos: vec2<f32>) -> vec4<f32> {
     return vec4<f32>(clamp(lit + vec3<f32>(noise), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }
 
+fn prism_fold_signed_distance(point: vec2<f32>, line: vec4<f32>) -> f32 {
+    let p0 = vec2<f32>(line.x, line.y);
+    let p1 = vec2<f32>(line.z, line.w);
+    let dir = p1 - p0;
+    let inv_len = 1.0 / max(length(dir), 0.0001);
+    return dot(point - p0, vec2<f32>(-dir.y, dir.x)) * inv_len;
+}
+
+fn prism_fold_mask(
+    point: vec2<f32>,
+    line: vec4<f32>,
+    reference: vec2<f32>,
+    softness: f32
+) -> vec2<f32> {
+    let signed_distance = prism_fold_signed_distance(point, line);
+    let reference_side = select(-1.0, 1.0, prism_fold_signed_distance(reference, line) >= 0.0);
+    let inside = signed_distance * reference_side;
+    let mask = smoothstep(-softness * 1.2, softness * 3.2, inside);
+    let body = smoothstep(softness * 1.4, softness * 7.5, inside);
+    let glow = body * (1.0 - smoothstep(softness * 7.5, softness * 15.0, inside));
+    return vec2<f32>(mask, glow);
+}
+
+fn prism_fold_color(uv_raw: vec2<f32>, pixel_pos: vec2<f32>) -> vec4<f32> {
+    let uv = clamp(uv_raw, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
+    let aspect = max(u.output_size.x / max(u.output_size.y, 1.0), 0.0001);
+    let point = vec2<f32>(uv.x * aspect, uv.y);
+    let softness = max(u.bg_params5.w, 0.0001);
+
+    let pane_a = prism_fold_mask(
+        point,
+        vec4<f32>(u.bg_params1.x * aspect, u.bg_params1.y, u.bg_params1.z * aspect, u.bg_params1.w),
+        vec2<f32>(0.02 * aspect, 0.02),
+        softness
+    );
+    let pane_b = prism_fold_mask(
+        point,
+        vec4<f32>(u.bg_params2.x * aspect, u.bg_params2.y, u.bg_params2.z * aspect, u.bg_params2.w),
+        vec2<f32>(0.98 * aspect, 0.02),
+        softness
+    );
+    let pane_c = prism_fold_mask(
+        point,
+        vec4<f32>(u.bg_params3.x * aspect, u.bg_params3.y, u.bg_params3.z * aspect, u.bg_params3.w),
+        vec2<f32>(0.98 * aspect, 0.48),
+        softness
+    );
+    let pane_d = prism_fold_mask(
+        point,
+        vec4<f32>(u.bg_params4.x * aspect, u.bg_params4.y, u.bg_params4.z * aspect, u.bg_params4.w),
+        vec2<f32>(0.38 * aspect, 0.98),
+        softness
+    );
+
+    let pane_a_mask = pane_a.x * 1.0;
+    let pane_b_mask = pane_b.x * 0.92;
+    let pane_c_mask = pane_c.x * 0.84;
+    let pane_d_mask = pane_d.x * 0.96;
+    let ambient = clamp(((1.0 - uv.x) * 0.52) + ((1.0 - uv.y) * 0.48), 0.0, 1.0);
+    var lit = u.gradient_color1.rgb * mix(0.84, 1.12, ambient);
+
+    lit += u.gradient_color2.rgb * ((pane_a_mask * u.bg_params5.x) + (pane_a.y * u.bg_params5.y));
+    lit += u.gradient_color3.rgb * ((pane_b_mask * u.bg_params5.x) + (pane_b.y * u.bg_params5.y * 0.92));
+    lit += u.gradient_color4.rgb * ((pane_c_mask * u.bg_params5.x) + (pane_c.y * u.bg_params5.y * 0.84));
+    lit += u.gradient_color5.rgb * ((pane_d_mask * u.bg_params5.x) + (pane_d.y * u.bg_params5.y * 0.96));
+
+    let pane_accum =
+        (u.gradient_color2.rgb * pane_a_mask) +
+        (u.gradient_color3.rgb * pane_b_mask) +
+        (u.gradient_color4.rgb * pane_c_mask) +
+        (u.gradient_color5.rgb * pane_d_mask);
+    let pane_mask_sum = pane_a_mask + pane_b_mask + pane_c_mask + pane_d_mask;
+    let overlap = max(pane_mask_sum - 1.0, 0.0) * u.bg_params5.z;
+    if (overlap > 0.0001) {
+        let avg = pane_accum / max(pane_mask_sum, 0.0001);
+        lit += mix(avg, vec3<f32>(1.0, 1.0, 1.0), 0.35) * overlap;
+    }
+
+    let vignette =
+        smoothstep(u.bg_params6.x, u.bg_params6.y, distance(vec2<f32>((uv.x - 0.5) * aspect, uv.y - 0.5), vec2<f32>(0.0, 0.0))) *
+        u.bg_params6.z;
+    lit = mix(lit, lit * 0.82, vignette);
+
+    let noise = (hash12(pixel_pos) - 0.5) * (u.bg_params6.w / 255.0);
+    return vec4<f32>(clamp(lit + vec3<f32>(noise), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+}
+
 fn stacked_radial_color(uv_raw: vec2<f32>) -> vec4<f32> {
     let uv = clamp(uv_raw, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
     let axis_t = select(uv.y, uv.x, u.bg_params1.x > 0.5);
@@ -296,6 +383,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
                 cover_uv.x = (bg_uv.x - 0.5) * scale + 0.5;
             }
             col = textureSample(bg_tex, bg_samp, cover_uv);
+        } else if (u.bg_style > 3.5) {
+            col = prism_fold_color(bg_uv, in.pixel_pos);
         } else if (u.bg_style > 2.5) {
             col = stacked_radial_color(bg_uv);
         } else if (u.bg_style > 1.5) {

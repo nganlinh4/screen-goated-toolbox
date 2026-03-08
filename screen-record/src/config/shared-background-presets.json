@@ -10,7 +10,9 @@
     "gradient5",
     "gradient6",
     "gradient7",
-    "gradient8"
+    "gradient8",
+    "gradient9",
+    "gradient10"
   ],
   "backgrounds": {
     "solid": {
@@ -186,6 +188,50 @@
       "vignetteStart": 0.26,
       "vignetteEnd": 1.06,
       "vignetteStrength": 0.18,
+      "noiseIntensity": 1
+    },
+    "gradient9": {
+      "family": "prism-fold",
+      "colors": {
+        "base": "#09111f",
+        "paneA": "#9ce9ff",
+        "paneB": "#c8b5ff",
+        "paneC": "#ffc4a3",
+        "paneD": "#fff1c4"
+      },
+      "paneALine": [-0.1, 0.78, 0.34, 0.04],
+      "paneBLine": [0.56, -0.04, 1.08, 0.18],
+      "paneCLine": [0.88, 0.02, 1.08, 0.98],
+      "paneDLine": [-0.08, 1.08, 0.76, 0.76],
+      "paneStrength": 0.085,
+      "foldStrength": 0.16,
+      "overlapGain": 0.09,
+      "softness": 0.045,
+      "vignetteStart": 0.36,
+      "vignetteEnd": 1.12,
+      "vignetteStrength": 0.11,
+      "noiseIntensity": 0.8
+    },
+    "gradient10": {
+      "family": "prism-fold",
+      "colors": {
+        "base": "#16092e",
+        "paneA": "#33efff",
+        "paneB": "#ff4fb8",
+        "paneC": "#ff9e1f",
+        "paneD": "#6a6dff"
+      },
+      "paneALine": [-0.16, 0.86, 0.44, -0.12],
+      "paneBLine": [0.14, -0.12, 0.98, 0.24],
+      "paneCLine": [0.74, -0.02, 1.12, 0.92],
+      "paneDLine": [-0.06, 1.08, 0.96, 0.6],
+      "paneStrength": 0.16,
+      "foldStrength": 0.3,
+      "overlapGain": 0.18,
+      "softness": 0.055,
+      "vignetteStart": 0.34,
+      "vignetteEnd": 1.08,
+      "vignetteStrength": 0.1,
       "noiseIntensity": 1
     }
   }

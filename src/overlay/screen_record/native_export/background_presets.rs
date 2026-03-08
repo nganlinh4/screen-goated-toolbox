@@ -100,6 +100,32 @@ enum BackgroundPresetFile {
         #[serde(rename = "noiseIntensity")]
         noise_intensity: f32,
     },
+    PrismFold {
+        colors: PrismFoldColorsFile,
+        #[serde(rename = "paneALine")]
+        pane_a_line: [f32; 4],
+        #[serde(rename = "paneBLine")]
+        pane_b_line: [f32; 4],
+        #[serde(rename = "paneCLine")]
+        pane_c_line: [f32; 4],
+        #[serde(rename = "paneDLine")]
+        pane_d_line: [f32; 4],
+        #[serde(rename = "paneStrength")]
+        pane_strength: f32,
+        #[serde(rename = "foldStrength")]
+        fold_strength: f32,
+        #[serde(rename = "overlapGain")]
+        overlap_gain: f32,
+        softness: f32,
+        #[serde(rename = "vignetteStart")]
+        vignette_start: f32,
+        #[serde(rename = "vignetteEnd")]
+        vignette_end: f32,
+        #[serde(rename = "vignetteStrength")]
+        vignette_strength: f32,
+        #[serde(rename = "noiseIntensity")]
+        noise_intensity: f32,
+    },
 }
 
 #[derive(Deserialize)]
@@ -136,6 +162,19 @@ struct EdgeRibbonColorsFile {
     #[serde(rename = "ribbonB")]
     ribbon_b: String,
     glow: String,
+}
+
+#[derive(Deserialize)]
+struct PrismFoldColorsFile {
+    base: String,
+    #[serde(rename = "paneA")]
+    pane_a: String,
+    #[serde(rename = "paneB")]
+    pane_b: String,
+    #[serde(rename = "paneC")]
+    pane_c: String,
+    #[serde(rename = "paneD")]
+    pane_d: String,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -313,6 +352,39 @@ fn to_builtin_background_preset(raw: BackgroundPresetFile) -> BuiltInBackgroundP
                 ribbon_b_intensity,
             ],
             bg_params5: [glow_center[0], glow_center[1], glow_radius, glow_intensity],
+            bg_params6: [
+                vignette_start,
+                vignette_end,
+                vignette_strength,
+                noise_intensity,
+            ],
+        },
+        BackgroundPresetFile::PrismFold {
+            colors,
+            pane_a_line,
+            pane_b_line,
+            pane_c_line,
+            pane_d_line,
+            pane_strength,
+            fold_strength,
+            overlap_gain,
+            softness,
+            vignette_start,
+            vignette_end,
+            vignette_strength,
+            noise_intensity,
+        } => BuiltInBackgroundPreset {
+            family_code: 4.0,
+            gradient_color1: hex_string_to_linear(&colors.base),
+            gradient_color2: hex_string_to_linear(&colors.pane_a),
+            gradient_color3: hex_string_to_linear(&colors.pane_b),
+            gradient_color4: hex_string_to_linear(&colors.pane_c),
+            gradient_color5: hex_string_to_linear(&colors.pane_d),
+            bg_params1: pane_a_line,
+            bg_params2: pane_b_line,
+            bg_params3: pane_c_line,
+            bg_params4: pane_d_line,
+            bg_params5: [pane_strength, fold_strength, overlap_gain, softness],
             bg_params6: [
                 vignette_start,
                 vignette_end,
