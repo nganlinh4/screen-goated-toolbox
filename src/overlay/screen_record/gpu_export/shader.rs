@@ -1,6 +1,8 @@
 use super::cursors::{CURSOR_ATLAS_COLS, CURSOR_ATLAS_ROWS};
+mod backgrounds;
+use self::backgrounds::COMPOSITOR_SHADER_BACKGROUND_FUNCTIONS;
 
-const COMPOSITOR_SHADER_BODY: &str = r#"
+const COMPOSITOR_SHADER_HEAD: &str = r#"
 struct Uniforms {
     video_offset: vec2<f32>,
     video_scale: vec2<f32>,
@@ -141,251 +143,9 @@ fn sample_cursor_color(sample_pos: vec2<f32>, type_id: f32, tile_idx: f32, curso
     }
     return c;
 }
+"#;
 
-fn diagonal_glow_color(uv_raw: vec2<f32>, pixel_pos: vec2<f32>) -> vec4<f32> {
-    let uv = clamp(uv_raw, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
-    let diag = clamp((uv.x * u.bg_params1.x) + ((1.0 - uv.y) * u.bg_params1.y), 0.0, 1.0);
-    var base: vec4<f32>;
-    if (diag < u.bg_params1.z) {
-        base = mix(u.gradient_color1, u.gradient_color2, diag / max(u.bg_params1.z, 0.0001));
-    } else {
-        base = mix(
-            u.gradient_color2,
-            u.gradient_color3,
-            (diag - u.bg_params1.z) / max(1.0 - u.bg_params1.z, 0.0001)
-        );
-    }
-
-    let glow_a = smoothstep(
-        u.bg_params2.z,
-        u.bg_params2.w,
-        distance(uv, vec2<f32>(u.bg_params2.x, u.bg_params2.y))
-    ) * u.bg_params1.w;
-    let glow_b = smoothstep(
-        u.bg_params3.z,
-        u.bg_params3.w,
-        distance(uv, vec2<f32>(u.bg_params3.x, u.bg_params3.y))
-    ) * u.bg_params4.x;
-
-    let lit = base.rgb + (u.gradient_color4.rgb * glow_a) + (u.gradient_color5.rgb * glow_b);
-    let shaded = mix(
-        lit,
-        lit * 0.82,
-        smoothstep(u.bg_params4.y, u.bg_params4.z, distance(uv, vec2<f32>(0.5, 0.5))) * u.bg_params4.w
-    );
-    let noise = (hash12(pixel_pos) - 0.5) * (u.bg_params5.x / 255.0);
-    return vec4<f32>(clamp(shaded + vec3<f32>(noise), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
-}
-
-fn hash12(p: vec2<f32>) -> f32 {
-    let h = dot(p, vec2<f32>(127.1, 311.7));
-    return fract(sin(h) * 43758.5453);
-}
-
-fn gradient8_ribbon(
-    point: vec2<f32>,
-    start: vec2<f32>,
-    end: vec2<f32>,
-    width: f32,
-    curve_amp: f32,
-    curve_freq: f32,
-    intensity: f32
-) -> vec2<f32> {
-    let seg = end - start;
-    let seg_len_sq = max(dot(seg, seg), 1e-6);
-    let t = clamp(dot(point - start, seg) / seg_len_sq, 0.0, 1.0);
-    let seg_len = sqrt(seg_len_sq);
-    let normal = vec2<f32>(-seg.y, seg.x) / seg_len;
-    let curve = sin(t * 3.14159265 * curve_freq) * curve_amp;
-    let curve_point = start + (seg * t) + (normal * curve);
-    let distance_to_curve = distance(point, curve_point);
-    let edge_fade = smoothstep(0.01, 0.14, t) * (1.0 - smoothstep(0.84, 0.99, t));
-    let band = (1.0 - smoothstep(width * 0.55, width * 2.25, distance_to_curve)) * edge_fade * intensity;
-    let core = (1.0 - smoothstep(width * 0.10, width * 0.72, distance_to_curve)) * edge_fade * intensity;
-    return vec2<f32>(band, core);
-}
-
-fn edge_ribbons_color(uv_raw: vec2<f32>, pixel_pos: vec2<f32>) -> vec4<f32> {
-    let uv = clamp(uv_raw, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
-    let aspect = max(u.output_size.x / max(u.output_size.y, 1.0), 0.0001);
-    let point = vec2<f32>(uv.x * aspect, uv.y);
-    let ribbon_a = gradient8_ribbon(
-        point,
-        vec2<f32>(u.bg_params1.x * aspect, u.bg_params1.y),
-        vec2<f32>(u.bg_params1.z * aspect, u.bg_params1.w),
-        u.bg_params2.x,
-        u.bg_params2.y,
-        u.bg_params2.z,
-        u.bg_params2.w
-    );
-    let ribbon_b = gradient8_ribbon(
-        point,
-        vec2<f32>(u.bg_params3.x * aspect, u.bg_params3.y),
-        vec2<f32>(u.bg_params3.z * aspect, u.bg_params3.w),
-        u.bg_params4.x,
-        u.bg_params4.y,
-        u.bg_params4.z,
-        u.bg_params4.w
-    );
-
-    let depth_mix = clamp((uv.y * 0.86) + ((1.0 - uv.x) * 0.14), 0.0, 1.0);
-    var lit = mix(u.gradient_color1.rgb, u.gradient_color2.rgb, depth_mix);
-    lit += (u.gradient_color3.rgb * ribbon_a.x) + (u.gradient_color4.rgb * ribbon_b.x);
-
-    let core_glow = (ribbon_a.y * 0.42) + (ribbon_b.y * 0.28);
-    lit += u.gradient_color5.rgb * core_glow;
-
-    let glow_center = vec2<f32>(u.bg_params5.x * aspect, u.bg_params5.y);
-    let glow_distance = distance(point, glow_center);
-    let glow_strength = (1.0 - smoothstep(0.0, u.bg_params5.z, glow_distance)) * u.bg_params5.w;
-    lit += u.gradient_color5.rgb * glow_strength;
-
-    let vignette = smoothstep(u.bg_params6.x, u.bg_params6.y, distance(vec2<f32>((uv.x - 0.5) * aspect, uv.y - 0.5), vec2<f32>(0.0, 0.0))) * u.bg_params6.z;
-    lit = mix(lit, lit * 0.82, vignette);
-
-    let noise = (hash12(pixel_pos) - 0.5) * (u.bg_params6.w / 255.0);
-    return vec4<f32>(clamp(lit + vec3<f32>(noise), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
-}
-
-fn prism_fold_signed_distance(point: vec2<f32>, line: vec4<f32>) -> f32 {
-    let p0 = vec2<f32>(line.x, line.y);
-    let p1 = vec2<f32>(line.z, line.w);
-    let dir = p1 - p0;
-    let inv_len = 1.0 / max(length(dir), 0.0001);
-    return dot(point - p0, vec2<f32>(-dir.y, dir.x)) * inv_len;
-}
-
-fn prism_fold_mask(
-    point: vec2<f32>,
-    line: vec4<f32>,
-    reference: vec2<f32>,
-    softness: f32
-) -> vec2<f32> {
-    let signed_distance = prism_fold_signed_distance(point, line);
-    let reference_side = select(-1.0, 1.0, prism_fold_signed_distance(reference, line) >= 0.0);
-    let inside = signed_distance * reference_side;
-    let mask = smoothstep(-softness * 1.2, softness * 3.2, inside);
-    let body = smoothstep(softness * 1.4, softness * 7.5, inside);
-    let glow = body * (1.0 - smoothstep(softness * 7.5, softness * 15.0, inside));
-    return vec2<f32>(mask, glow);
-}
-
-fn prism_fold_color(uv_raw: vec2<f32>, pixel_pos: vec2<f32>) -> vec4<f32> {
-    let uv = clamp(uv_raw, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
-    let aspect = max(u.output_size.x / max(u.output_size.y, 1.0), 0.0001);
-    let point = vec2<f32>(uv.x * aspect, uv.y);
-    let softness = max(u.bg_params5.w, 0.0001);
-
-    let pane_a = prism_fold_mask(
-        point,
-        vec4<f32>(u.bg_params1.x * aspect, u.bg_params1.y, u.bg_params1.z * aspect, u.bg_params1.w),
-        vec2<f32>(0.02 * aspect, 0.02),
-        softness
-    );
-    let pane_b = prism_fold_mask(
-        point,
-        vec4<f32>(u.bg_params2.x * aspect, u.bg_params2.y, u.bg_params2.z * aspect, u.bg_params2.w),
-        vec2<f32>(0.98 * aspect, 0.02),
-        softness
-    );
-    let pane_c = prism_fold_mask(
-        point,
-        vec4<f32>(u.bg_params3.x * aspect, u.bg_params3.y, u.bg_params3.z * aspect, u.bg_params3.w),
-        vec2<f32>(0.98 * aspect, 0.48),
-        softness
-    );
-    let pane_d = prism_fold_mask(
-        point,
-        vec4<f32>(u.bg_params4.x * aspect, u.bg_params4.y, u.bg_params4.z * aspect, u.bg_params4.w),
-        vec2<f32>(0.38 * aspect, 0.98),
-        softness
-    );
-
-    let pane_a_mask = pane_a.x * 1.0;
-    let pane_b_mask = pane_b.x * 0.92;
-    let pane_c_mask = pane_c.x * 0.84;
-    let pane_d_mask = pane_d.x * 0.96;
-    let ambient = clamp(((1.0 - uv.x) * 0.52) + ((1.0 - uv.y) * 0.48), 0.0, 1.0);
-    var lit = u.gradient_color1.rgb * mix(0.84, 1.12, ambient);
-
-    lit += u.gradient_color2.rgb * ((pane_a_mask * u.bg_params5.x) + (pane_a.y * u.bg_params5.y));
-    lit += u.gradient_color3.rgb * ((pane_b_mask * u.bg_params5.x) + (pane_b.y * u.bg_params5.y * 0.92));
-    lit += u.gradient_color4.rgb * ((pane_c_mask * u.bg_params5.x) + (pane_c.y * u.bg_params5.y * 0.84));
-    lit += u.gradient_color5.rgb * ((pane_d_mask * u.bg_params5.x) + (pane_d.y * u.bg_params5.y * 0.96));
-
-    let pane_accum =
-        (u.gradient_color2.rgb * pane_a_mask) +
-        (u.gradient_color3.rgb * pane_b_mask) +
-        (u.gradient_color4.rgb * pane_c_mask) +
-        (u.gradient_color5.rgb * pane_d_mask);
-    let pane_mask_sum = pane_a_mask + pane_b_mask + pane_c_mask + pane_d_mask;
-    let overlap = max(pane_mask_sum - 1.0, 0.0) * u.bg_params5.z;
-    if (overlap > 0.0001) {
-        let avg = pane_accum / max(pane_mask_sum, 0.0001);
-        lit += mix(avg, vec3<f32>(1.0, 1.0, 1.0), 0.35) * overlap;
-    }
-
-    let vignette =
-        smoothstep(u.bg_params6.x, u.bg_params6.y, distance(vec2<f32>((uv.x - 0.5) * aspect, uv.y - 0.5), vec2<f32>(0.0, 0.0))) *
-        u.bg_params6.z;
-    lit = mix(lit, lit * 0.82, vignette);
-
-    let noise = (hash12(pixel_pos) - 0.5) * (u.bg_params6.w / 255.0);
-    return vec4<f32>(clamp(lit + vec3<f32>(noise), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
-}
-
-fn topographic_flow_color(uv_raw: vec2<f32>, pixel_pos: vec2<f32>) -> vec4<f32> {
-    let uv = clamp(uv_raw, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
-    let aspect = max(u.output_size.x / max(u.output_size.y, 1.0), 0.0001);
-    let centered = vec2<f32>((uv.x - 0.5) * aspect, uv.y - 0.5);
-    let point = vec2<f32>(uv.x * aspect, uv.y);
-    let source_a = vec2<f32>(u.bg_params1.x * aspect, u.bg_params1.y);
-    let source_b = vec2<f32>(u.bg_params1.z * aspect, u.bg_params1.w);
-    let dist_a = distance(point, source_a);
-    let dist_b = distance(point, source_b);
-    let warp =
-        (sin(((point.x * 0.82) + (point.y * 1.14)) * 6.2831853 * u.bg_params2.y) * u.bg_params2.z) +
-        (sin(((point.x * -0.58) + (point.y * 0.92)) * 6.2831853 * u.bg_params2.y * 0.72) * u.bg_params2.z * 0.6);
-    let field = ((dist_a * 0.92) + (dist_b * 0.78) + warp) * u.bg_params2.x;
-    let line = 1.0 - smoothstep(u.bg_params2.w, u.bg_params2.w + 0.22, abs(sin(field * 3.14159265)));
-    let glow = 1.0 - smoothstep(
-        u.bg_params2.w * 2.6,
-        (u.bg_params2.w * 2.6) + 0.24,
-        abs(sin((field + 0.32) * 3.14159265))
-    );
-    let edge_bias = mix(
-        u.bg_params3.z,
-        1.0,
-        smoothstep(0.18, 0.84, length(centered))
-    );
-    let phase_mix = clamp((sin((dist_a - dist_b) * 4.6) * 0.5) + 0.5, 0.0, 1.0);
-    let line_color = mix(u.gradient_color2.rgb, u.gradient_color3.rgb, phase_mix);
-    var lit = u.gradient_color1.rgb;
-    lit += line_color * line * u.bg_params3.x * edge_bias;
-    lit += u.gradient_color4.rgb * glow * u.bg_params3.y * edge_bias;
-    let vignette = smoothstep(u.bg_params4.x, u.bg_params4.y, length(centered)) * u.bg_params4.z;
-    lit = mix(lit, u.gradient_color5.rgb, vignette);
-    let noise = (hash12(pixel_pos) - 0.5) * (u.bg_params4.w / 255.0);
-    return vec4<f32>(clamp(lit + vec3<f32>(noise), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
-}
-
-fn stacked_radial_color(uv_raw: vec2<f32>) -> vec4<f32> {
-    let uv = clamp(uv_raw, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
-    let axis_t = select(uv.y, uv.x, u.bg_params1.x > 0.5);
-    var base: vec3<f32>;
-    if (axis_t < 0.5) {
-        base = mix(u.gradient_color1.rgb, u.gradient_color2.rgb, axis_t / 0.5);
-    } else {
-        base = mix(u.gradient_color2.rgb, u.gradient_color3.rgb, (axis_t - 0.5) / 0.5);
-    }
-
-    let aspect = max(u.output_size.x / max(u.output_size.y, 1.0), 0.0001);
-    let center = vec2<f32>(u.bg_params2.x, u.bg_params2.y);
-    let radial_distance = length(vec2<f32>(uv.x - center.x, (uv.y - center.y) / aspect));
-    let overlay_strength = (1.0 - smoothstep(0.0, u.bg_params2.z, radial_distance)) * u.bg_params2.w;
-    let shaded = mix(base, u.gradient_color4.rgb, overlay_strength);
-    return vec4<f32>(clamp(shaded, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
-}
+const COMPOSITOR_SHADER_TAIL: &str = r#"
 
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
@@ -418,6 +178,12 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
                 cover_uv.x = (bg_uv.x - 0.5) * scale + 0.5;
             }
             col = textureSample(bg_tex, bg_samp, cover_uv);
+        } else if (u.bg_style > 7.5) {
+            col = orbital_arcs_color(bg_uv, in.pixel_pos);
+        } else if (u.bg_style > 6.5) {
+            col = matte_collage_color(bg_uv, in.pixel_pos);
+        } else if (u.bg_style > 5.5) {
+            col = windowlight_caustics_color(bg_uv, in.pixel_pos);
         } else if (u.bg_style > 4.5) {
             col = topographic_flow_color(bg_uv, in.pixel_pos);
         } else if (u.bg_style > 3.5) {
@@ -549,8 +315,12 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
 pub(super) fn compositor_shader() -> String {
     format!(
-        "const ATLAS_COLS: f32 = {}.0;\nconst ATLAS_ROWS: f32 = {}.0;\n{}",
-        CURSOR_ATLAS_COLS, CURSOR_ATLAS_ROWS, COMPOSITOR_SHADER_BODY
+        "const ATLAS_COLS: f32 = {}.0;\nconst ATLAS_ROWS: f32 = {}.0;\n{}{}{}",
+        CURSOR_ATLAS_COLS,
+        CURSOR_ATLAS_ROWS,
+        COMPOSITOR_SHADER_HEAD,
+        COMPOSITOR_SHADER_BACKGROUND_FUNCTIONS,
+        COMPOSITOR_SHADER_TAIL
     )
 }
 

@@ -13,7 +13,10 @@
     "gradient8",
     "gradient9",
     "gradient10",
-    "gradient11"
+    "gradient11",
+    "gradient12",
+    "gradient13",
+    "gradient14"
   ],
   "backgrounds": {
     "solid": {
@@ -257,6 +260,91 @@
       "vignetteEnd": 1.08,
       "vignetteStrength": 0.07,
       "noiseIntensity": 0.45
+    },
+    "gradient12": {
+      "family": "windowlight-caustics",
+      "colors": {
+        "base": "#240617",
+        "beamA": "#ff4f86",
+        "beamB": "#ffb11f",
+        "highlight": "#ff47cf",
+        "ink": "#05010a"
+      },
+      "beamACenter": [-0.08, 0.56],
+      "beamAAngle": -0.42,
+      "beamAWidth": 0.52,
+      "beamALength": 1.38,
+      "beamAIntensity": 0.44,
+      "beamBCenter": [0.96, 0.18],
+      "beamBAngle": 0.2,
+      "beamBWidth": 0.42,
+      "beamBLength": 1.16,
+      "beamBIntensity": 0.37,
+      "highlightCenter": [0.82, 0.16],
+      "highlightRadius": 0.58,
+      "highlightIntensity": 0.24,
+      "causticFreq": 2.7,
+      "causticWarp": 0.54,
+      "causticStrength": 0.38,
+      "centerCalm": 0.34,
+      "vignetteStart": 0.48,
+      "vignetteEnd": 1.16,
+      "vignetteStrength": 0.14,
+      "noiseIntensity": 0.5
+    },
+    "gradient13": {
+      "family": "matte-collage",
+      "colors": {
+        "base": "#0b1120",
+        "layerA": "#ff7a59",
+        "layerB": "#ffd76a",
+        "layerC": "#5b78ff",
+        "shadow": "#04070d"
+      },
+      "layerACenter": [-0.1, 0.58],
+      "layerARadii": [0.5, 0.34],
+      "layerAAngle": -0.46,
+      "layerBCenter": [0.88, 0.14],
+      "layerBRadii": [0.3, 0.2],
+      "layerBAngle": 0.18,
+      "layerCCenter": [0.72, 0.86],
+      "layerCRadii": [0.56, 0.3],
+      "layerCAngle": -0.08,
+      "shadowOffset": [0.04, 0.045],
+      "shadowBlur": 0.18,
+      "shadowStrength": 0.2,
+      "noiseIntensity": 0.55,
+      "vignetteStart": 0.6,
+      "vignetteEnd": 1.18,
+      "vignetteStrength": 0.06
+    },
+    "gradient14": {
+      "family": "orbital-arcs",
+      "colors": {
+        "baseStart": "#205d6f",
+        "baseEnd": "#4e438f",
+        "arcA": "#2e8bff",
+        "arcB": "#ffbf36",
+        "arcC": "#ff5f93"
+      },
+      "arcACenter": [-0.2, 1.08],
+      "arcARadius": 1.02,
+      "arcAThickness": 0.096,
+      "arcAIntensity": 0.52,
+      "arcBCenter": [0.46, -0.42],
+      "arcBRadius": 1,
+      "arcBThickness": 0.108,
+      "arcBIntensity": 0.48,
+      "arcCCenter": [1.16, 0.5],
+      "arcCRadius": 0.96,
+      "arcCThickness": 0.094,
+      "arcCIntensity": 0.44,
+      "overlapGlow": 0.24,
+      "centerCalm": 0.12,
+      "vignetteStart": 0.8,
+      "vignetteEnd": 1.24,
+      "vignetteStrength": 0.06,
+      "noiseIntensity": 0.08
     }
   }
 }
