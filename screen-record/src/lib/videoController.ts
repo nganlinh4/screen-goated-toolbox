@@ -29,6 +29,7 @@ interface RenderOptions {
   segment: VideoSegment;
   backgroundConfig: BackgroundConfig;
   mousePositions: MousePosition[];
+  interactiveBackgroundPreview?: boolean;
 }
 
 
@@ -113,7 +114,8 @@ export class VideoController {
         segment: this.renderOptions.segment,
         backgroundConfig: this.renderOptions.backgroundConfig,
         mousePositions: this.renderOptions.mousePositions,
-        currentTime: this.video.currentTime
+        currentTime: this.video.currentTime,
+        interactiveBackgroundPreview: this.renderOptions.interactiveBackgroundPreview
       });
     }
 
@@ -415,7 +417,8 @@ export class VideoController {
       segment: this.renderOptions.segment,
       backgroundConfig: this.renderOptions.backgroundConfig,
       mousePositions: this.renderOptions.mousePositions,
-      currentTime: this.getAdjustedTime(this.video.currentTime)
+      currentTime: this.getAdjustedTime(this.video.currentTime),
+      interactiveBackgroundPreview: this.renderOptions.interactiveBackgroundPreview
     };
 
 
@@ -460,7 +463,9 @@ export class VideoController {
       videoRenderer.drawFrame({
         video: this.video, canvas: thumbCanvas, tempCanvas: thumbTemp,
         segment: options.segment, backgroundConfig: options.backgroundConfig,
-        mousePositions: options.mousePositions, currentTime: options.segment.trimStart
+        mousePositions: options.mousePositions,
+        currentTime: options.segment.trimStart,
+        interactiveBackgroundPreview: false
       });
 
       return thumbCanvas.toDataURL('image/jpeg', 0.7);
@@ -486,7 +491,8 @@ export class VideoController {
       video: this.video, canvas: this.canvas, tempCanvas: this.tempCanvas,
       segment: options.segment, backgroundConfig: options.backgroundConfig,
       mousePositions: options.mousePositions,
-      currentTime: options.segment.trimStart
+      currentTime: options.segment.trimStart,
+      interactiveBackgroundPreview: options.interactiveBackgroundPreview
     };
     videoRenderer.updateRenderContext(ctx);
     videoRenderer.drawFrame(ctx);

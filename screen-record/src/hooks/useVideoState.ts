@@ -234,13 +234,15 @@ interface UseVideoPlaybackProps {
   backgroundConfig: BackgroundConfig;
   mousePositionsRef: { current: MousePosition[] };
   isCropping: boolean;
+  interactiveBackgroundPreview?: boolean;
 }
 
 export function useVideoPlayback({
   segment,
   backgroundConfig,
   mousePositionsRef,
-  isCropping
+  isCropping,
+  interactiveBackgroundPreview = false
 }: UseVideoPlaybackProps) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -297,9 +299,10 @@ export function useVideoPlayback({
     videoRenderer.drawFrame({
       video: videoRef.current, canvas: canvasRef.current, tempCanvas: tempCanvasRef.current,
       segment: renderSegment, backgroundConfig: renderBackground, mousePositions: mousePositionsRef.current,
-      currentTime: videoRef.current.currentTime
+      currentTime: videoRef.current.currentTime,
+      interactiveBackgroundPreview
     });
-  }, [segment, backgroundConfig, isCropping]);
+  }, [segment, backgroundConfig, interactiveBackgroundPreview, isCropping]);
 
   const togglePlayPause = useCallback(() => {
     videoControllerRef.current?.togglePlayPause();
@@ -351,9 +354,12 @@ export function useVideoPlayback({
     } : backgroundConfig;
 
     videoControllerRef.current.updateRenderOptions({
-      segment: renderSegment, backgroundConfig: renderBackground, mousePositions: mousePositionsRef.current
+      segment: renderSegment,
+      backgroundConfig: renderBackground,
+      mousePositions: mousePositionsRef.current,
+      interactiveBackgroundPreview
     });
-  }, [segment, backgroundConfig, isCropping]);
+  }, [segment, backgroundConfig, interactiveBackgroundPreview, isCropping]);
 
   // Render context sync — update the running animation loop's context when
   // segment/backgroundConfig/isCropping change, WITHOUT restarting the loop.
@@ -378,13 +384,14 @@ export function useVideoPlayback({
       video, canvas: canvasRef.current!, tempCanvas: tempCanvasRef.current,
       segment: loopSegment, backgroundConfig: loopBackground,
       mousePositions: mousePositionsRef.current,
-      currentTime: video.currentTime
+      currentTime: video.currentTime,
+      interactiveBackgroundPreview
     });
 
     if (video.paused) {
       renderFrame();
     }
-  }, [segment, backgroundConfig, isCropping]);
+  }, [segment, backgroundConfig, interactiveBackgroundPreview, isCropping]);
 
   // Generate thumbnails when ready
   useEffect(() => {
