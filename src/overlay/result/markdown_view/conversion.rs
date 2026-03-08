@@ -7,6 +7,25 @@ use super::html_utils::{
     escape_html_text, inject_gridjs, inject_scrollbar_css, inject_storage_polyfill, is_html_content,
 };
 
+const INTERACTIVE_WORD_WRAP_CHAR_LIMIT: usize = 6000;
+const INTERACTIVE_WORD_WRAP_WORD_LIMIT: usize = 900;
+
+fn should_enable_interactive_word_wrap(markdown: &str) -> bool {
+    if markdown.len() > INTERACTIVE_WORD_WRAP_CHAR_LIMIT {
+        return false;
+    }
+
+    let mut word_count = 0usize;
+    for _ in markdown.split_whitespace() {
+        word_count += 1;
+        if word_count > INTERACTIVE_WORD_WRAP_WORD_LIMIT {
+            return false;
+        }
+    }
+
+    true
+}
+
 /// Convert markdown text to styled HTML, or pass through raw HTML
 pub fn markdown_to_html(
     markdown: &str,
@@ -81,6 +100,7 @@ pub fn markdown_to_html(
     options.insert(Options::ENABLE_TASKLISTS);
 
     let parser = Parser::new_ext(markdown, options);
+    let enable_interactive_word_wrap = should_enable_interactive_word_wrap(markdown);
 
     // Custom wrapper to enable word-level interaction
     // We map text events to HTML events containing wrapped words
@@ -109,7 +129,7 @@ pub fn markdown_to_html(
             event
         }
         Event::Text(text) => {
-            if !in_code_block && !in_table {
+            if enable_interactive_word_wrap && !in_code_block && !in_table {
                 // Split text into words and wrap
                 let mut output = String::with_capacity(text.len() * 2);
                 let escaped = escape_html_text(&text);

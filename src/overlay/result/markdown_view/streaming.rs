@@ -171,6 +171,7 @@ fn update_stream_markdown_content_ex(
                 r#"(function() {{
     const newContent = `{}`;
     const prevWordCount = window._streamWordCount || 0;
+    const prevRenderCount = window._streamRenderCount || 0;
     const shouldRunInlineSizing = {};
     const shouldAnimateNewWords = {};
     const scrollBehavior = '{}';
@@ -187,7 +188,7 @@ fn update_stream_markdown_content_ex(
 
     // Detect new session
     var textLen = (body.innerText || body.textContent || '').trim().length;
-    var isNewSession = (!window._streamWordCount || window._streamWordCount < 5 || textLen < 50);
+    var isNewSession = (prevRenderCount === 0 || (prevWordCount < 5 && textLen < 50));
     var isConstrainedShortContent = isConstrainedWindow && textLen < 450;
     function fitsVertically() {{
         void body.offsetHeight;
@@ -312,6 +313,7 @@ fn update_stream_markdown_content_ex(
     }}
 
     window._streamWordCount = newWordCount;
+    window._streamRenderCount = prevRenderCount + 1;
     window.scrollTo({{ top: document.body.scrollHeight, behavior: scrollBehavior }});
 }})()"#,
                 escaped_content,
@@ -335,7 +337,7 @@ pub fn reset_stream_counter(parent_hwnd: HWND) {
         if let Some(webview) = webviews.borrow().get(&hwnd_key) {
             // Reset stream counters only - font will be reset at start of next session
             let _ = webview.evaluate_script(
-                "window._streamPrevLen = 0; window._streamPrevContent = ''; window._streamWordCount = 0;",
+                "window._streamPrevLen = 0; window._streamPrevContent = ''; window._streamWordCount = 0; window._streamRenderCount = 0;",
             );
         }
     });
