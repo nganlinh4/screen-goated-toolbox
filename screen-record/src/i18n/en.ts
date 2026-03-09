@@ -148,6 +148,7 @@ const en = {
   exportFormat: 'Format',
   exportFormatGif: 'GIF',
   exportFormatMp4: 'MP4',
+  exportFormatBoth: 'MP4 + GIF',
   exportBackendSoftwareGif: 'Software GIF Encoder',
   exportSizeVaries: 'Varies',
   standard: 'Standard',
@@ -167,6 +168,11 @@ const en = {
   autoCopyAfterRecording: 'Auto copy after recording for future recordings',
   autoCopyVideoAfterExport: 'Auto copy video after export',
   autoCopyGifAfterExport: 'Auto copy GIF after export',
+  exportChainSummary: '{count} clips · {duration}s total',
+  exportArtifactsSaved: 'Saved outputs',
+  exportPhaseRenderClip: 'Rendering clip {index}/{count}',
+  exportPhaseMergingClips: 'Merging clips',
+  exportPhaseCreatingGif: 'Creating GIF',
 
   // Dialogs - Projects
   noProjectsYet: 'No projects yet',

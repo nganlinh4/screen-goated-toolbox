@@ -262,9 +262,17 @@ export async function drawFrame(
   const srcW = vidW * crop.width;
   const srcH = vidH * crop.height;
 
-  const useCustomCanvas = backgroundConfig.canvasMode === 'custom' && backgroundConfig.canvasWidth && backgroundConfig.canvasHeight;
-  const canvasW = useCustomCanvas ? backgroundConfig.canvasWidth! : Math.round(srcW);
-  const canvasH = useCustomCanvas ? backgroundConfig.canvasHeight! : Math.round(srcH);
+  const hasLockedAutoCanvas =
+    backgroundConfig.canvasMode === 'auto' &&
+    !!backgroundConfig.autoCanvasSourceId &&
+    !!backgroundConfig.canvasWidth &&
+    !!backgroundConfig.canvasHeight;
+  const useExplicitCanvas =
+    (backgroundConfig.canvasMode === 'custom' || hasLockedAutoCanvas) &&
+    backgroundConfig.canvasWidth &&
+    backgroundConfig.canvasHeight;
+  const canvasW = useExplicitCanvas ? backgroundConfig.canvasWidth! : Math.round(srcW);
+  const canvasH = useExplicitCanvas ? backgroundConfig.canvasHeight! : Math.round(srcH);
 
   if (canvas.width !== canvasW || canvas.height !== canvasH) {
     canvas.width = canvasW;

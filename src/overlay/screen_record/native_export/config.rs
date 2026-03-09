@@ -36,6 +36,48 @@ pub struct ExportConfig {
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct CompositionExportClipJob {
+    pub job_id: String,
+    pub clip_id: String,
+    pub clip_name: String,
+    pub source_video_path: String,
+    #[serde(default)]
+    pub audio_path: String,
+    #[serde(default)]
+    pub source_width: u32,
+    #[serde(default)]
+    pub source_height: u32,
+    pub trim_start: f64,
+    pub duration: f64,
+    pub segment: VideoSegment,
+    pub background_config: BackgroundConfig,
+    #[serde(default)]
+    pub mouse_positions: Vec<MousePosition>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CompositionExportConfig {
+    pub session_id: String,
+    pub width: u32,
+    pub height: u32,
+    pub framerate: u32,
+    #[serde(default)]
+    pub target_video_bitrate_kbps: u32,
+    #[serde(default = "default_quality_gate_percent")]
+    pub quality_gate_percent: f64,
+    #[serde(default = "default_pre_render_policy")]
+    pub pre_render_policy: String,
+    #[serde(default)]
+    pub output_dir: String,
+    #[serde(default = "default_format")]
+    pub format: String,
+    #[serde(default)]
+    pub clips: Vec<CompositionExportClipJob>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ZoomKeyframe {
     pub time: f64,
     #[serde(default)]

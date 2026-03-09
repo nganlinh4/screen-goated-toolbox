@@ -136,6 +136,7 @@ export interface ProjectCanvasConfig {
   canvasMode?: "auto" | "custom";
   canvasWidth?: number;
   canvasHeight?: number;
+  autoSourceClipId?: string | null;
 }
 
 export interface ProjectCompositionClip {
@@ -210,6 +211,7 @@ export interface BackgroundConfig {
   canvasMode?: "auto" | "custom"; // default 'auto'
   canvasWidth?: number; // pixels, used when canvasMode === 'custom'
   canvasHeight?: number; // pixels, used when canvasMode === 'custom'
+  autoCanvasSourceId?: string | null;
 }
 
 export interface MousePosition {
@@ -307,7 +309,7 @@ export interface ExportOptions {
   preRenderPolicy?: "off" | "idle_only" | "aggressive";
   exportDiagnostics?: boolean;
   outputDir?: string;
-  format?: "mp4" | "gif";
+  format?: "mp4" | "gif" | "both";
   video?: HTMLVideoElement;
   canvas?: HTMLCanvasElement;
   tempCanvas?: HTMLCanvasElement;
@@ -319,6 +321,15 @@ export interface ExportOptions {
   bakedPath?: BakedCameraFrame[];
   bakedCursorPath?: BakedCursorFrame[];
   bakedKeystrokeOverlays?: BakedKeystrokeOverlay[];
+}
+
+export type ExportArtifactFormat = "mp4" | "gif";
+
+export interface ExportArtifact {
+  format: ExportArtifactFormat;
+  path: string;
+  bytes?: number;
+  primary?: boolean;
 }
 
 export interface Project {

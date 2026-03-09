@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::SR_HWND;
+use serde::Serialize;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -111,13 +112,34 @@ pub fn persist_replay_args(args: &serde_json::Value) {
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportProgressUpdate {
+    pub percent: f64,
+    pub eta: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clip_index: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clip_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clip_name: Option<String>,
+}
+
 /// Push a progress update directly to the WebView via PostMessageW.
 /// This avoids IPC round-trips and works even while another invoke is pending.
-pub fn push_export_progress(percent: f64, eta: f64) {
-    let script = format!(
-        "window.postMessage({{type:'sr-export-progress',percent:{:.1},eta:{:.1}}},'*')",
-        percent, eta
-    );
+pub fn push_export_progress_update(update: ExportProgressUpdate) {
+    let payload = serde_json::json!({
+        "type": "sr-export-progress",
+        "percent": update.percent,
+        "eta": update.eta,
+        "phase": update.phase,
+        "clipIndex": update.clip_index,
+        "clipCount": update.clip_count,
+        "clipName": update.clip_name,
+    });
+    let script = format!("window.postMessage({},'*')", payload);
     let script_ptr = Box::into_raw(Box::new(script));
     let hwnd = unsafe { std::ptr::addr_of!(SR_HWND).read() };
     if !hwnd.0.is_invalid() {
@@ -134,4 +156,15 @@ pub fn push_export_progress(percent: f64, eta: f64) {
             drop(Box::from_raw(script_ptr));
         }
     }
+}
+
+pub fn push_export_progress(percent: f64, eta: f64) {
+    push_export_progress_update(ExportProgressUpdate {
+        percent,
+        eta,
+        phase: None,
+        clip_index: None,
+        clip_count: None,
+        clip_name: None,
+    });
 }

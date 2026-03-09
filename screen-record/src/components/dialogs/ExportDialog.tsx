@@ -29,6 +29,8 @@ interface ExportDialogProps {
   backgroundConfig: BackgroundConfig;
   hasAudio: boolean;
   sourceVideoFps?: number | null;
+  trimmedDurationSec?: number;
+  clipCount?: number;
   autoCopyEnabled: boolean;
   onToggleAutoCopy: (enabled: boolean) => void;
 }
@@ -63,6 +65,8 @@ export function ExportDialog({
   backgroundConfig,
   hasAudio,
   sourceVideoFps,
+  trimmedDurationSec,
+  clipCount = 1,
   autoCopyEnabled,
   onToggleAutoCopy
 }: ExportDialogProps) {
@@ -134,7 +138,9 @@ export function ExportDialog({
     ? Math.round(nativeSourceFps)
     : 60;
   const sourceResLabel = `${sourceResOptionW}×${sourceResOptionH}`;
-  const isGif = (exportOptions.format || 'mp4') === 'gif';
+  const selectedFormat = exportOptions.format || 'mp4';
+  const isGif = selectedFormat === 'gif';
+  const isBoth = selectedFormat === 'both';
   const fpsChoiceValues = isGif
     ? [10, 15, 24]
     : Array.from(new Set([sourceFpsValue, 24, 30, 60, 90, 120])).sort((a, b) => a - b);
@@ -152,18 +158,41 @@ export function ExportDialog({
     ? ((bitrateBounds.recommendedKbps - bitrateBounds.minKbps) / (bitrateBounds.maxKbps - bitrateBounds.minKbps)) * 100
     : 0;
   const sourceDuration = videoRef.current?.duration || segment?.trimEnd || 0;
-  const trimmedDurationSec = segment ? getTotalTrimDuration(segment, sourceDuration) : 0;
-  const sizeEstimate = estimateExportSize({
+  const resolvedTrimmedDurationSec =
+    typeof trimmedDurationSec === 'number'
+      ? trimmedDurationSec
+      : segment
+        ? getTotalTrimDuration(segment, sourceDuration)
+        : 0;
+  const primaryEstimate = estimateExportSize({
     width: outW,
     height: outH,
     fps: exportOptions.fps,
-    format: exportOptions.format || 'mp4',
+    format: isGif ? 'gif' : 'mp4',
     targetVideoBitrateKbps,
-    trimmedDurationSec,
+    trimmedDurationSec: resolvedTrimmedDurationSec,
     hasAudio,
     backgroundConfig,
     segment
   });
+  const sizeEstimate = isBoth
+    ? {
+        ...primaryEstimate,
+        estimatedBytes:
+          primaryEstimate.estimatedBytes +
+          estimateExportSize({
+            width: outW,
+            height: outH,
+            fps: exportOptions.fps,
+            format: 'gif',
+            targetVideoBitrateKbps,
+            trimmedDurationSec: resolvedTrimmedDurationSec,
+            hasAudio: false,
+            backgroundConfig,
+            segment,
+          }).estimatedBytes,
+      }
+    : primaryEstimate;
   const wantsTurbo = exportOptions.exportProfile === 'turbo_nv' || exportOptions.preferNvTurbo;
   const turboCodecLabel = (exportOptions.turboCodec || 'hevc').toUpperCase();
   const backendStatus = (() => {
@@ -290,6 +319,11 @@ export function ExportDialog({
         </div>
 
         <div className="export-options-form space-y-4 mb-6">
+          {clipCount > 1 && (
+            <div className="export-chain-summary rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-xs text-[var(--on-surface-variant)]">
+              {t.exportChainSummary.replace('{count}', String(clipCount)).replace('{duration}', resolvedTrimmedDurationSec.toFixed(1))}
+            </div>
+          )}
           <div className="export-resolution-field">
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-medium text-[var(--on-surface-variant)]">{t.resolution}</label>
@@ -337,7 +371,7 @@ export function ExportDialog({
               <label className="text-xs font-medium text-[var(--on-surface-variant)]">{t.exportFormat}</label>
             </div>
             <div className="format-options flex flex-wrap gap-2">
-              {(['mp4', 'gif'] as const).map(fmt => (
+              {(['mp4', 'gif', 'both'] as const).map(fmt => (
                 <button
                   key={fmt}
                   onClick={() => setExportOptions(prev => {
@@ -347,15 +381,22 @@ export function ExportDialog({
                       const def = gifOptions[0];
                       return { ...prev, format: fmt, fps, width: def?.width ?? GIF_MAX_WIDTH, height: def?.height ?? 540 };
                     }
+                    if (fmt === 'both') {
+                      return { ...prev, format: fmt, width: 0, height: 0 };
+                    }
                     return { ...prev, format: fmt, width: 0, height: 0 };
                   })}
                   className={`format-option flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
-                    (exportOptions.format || 'mp4') === fmt
+                    selectedFormat === fmt
                       ? 'bg-[var(--primary-color)] text-white border-transparent shadow-sm'
                       : 'bg-[var(--glass-bg)] text-[var(--on-surface)] border-[var(--glass-border)] hover:bg-[var(--glass-bg-hover)]'
                   }`}
                 >
-                  {fmt === 'mp4' ? t.exportFormatMp4 : t.exportFormatGif}
+                  {fmt === 'mp4'
+                    ? t.exportFormatMp4
+                    : fmt === 'gif'
+                      ? t.exportFormatGif
+                      : t.exportFormatBoth}
                 </button>
               ))}
             </div>

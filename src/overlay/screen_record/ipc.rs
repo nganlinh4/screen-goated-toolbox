@@ -582,23 +582,41 @@ pub fn handle_ipc_command(
             Ok(serde_json::Value::Null)
         }
         "clear_export_staging" => {
-            native_export::staging::clear_staged();
+            if let Some(session_id) = args["sessionId"].as_str() {
+                native_export::staging::clear_session(session_id);
+            } else {
+                native_export::staging::clear_staged();
+            }
             Ok(serde_json::Value::Null)
         }
         "stage_export_data" => {
             let data_type = args["dataType"].as_str().ok_or("missing dataType")?;
+            let session_id = args["sessionId"].as_str();
+            let job_id = args["jobId"].as_str();
             match data_type {
                 "camera" => {
                     let frames: Vec<native_export::config::BakedCameraFrame> =
                         serde_json::from_value(args["data"].clone())
                             .map_err(|e| format!("bad camera chunk: {e}"))?;
-                    native_export::staging::append_camera_frames(frames);
+                    if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
+                        native_export::staging::append_camera_frames_for(
+                            session_id, job_id, frames,
+                        );
+                    } else {
+                        native_export::staging::append_camera_frames(frames);
+                    }
                 }
                 "cursor" => {
                     let frames: Vec<native_export::config::BakedCursorFrame> =
                         serde_json::from_value(args["data"].clone())
                             .map_err(|e| format!("bad cursor chunk: {e}"))?;
-                    native_export::staging::append_cursor_frames(frames);
+                    if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
+                        native_export::staging::append_cursor_frames_for(
+                            session_id, job_id, frames,
+                        );
+                    } else {
+                        native_export::staging::append_cursor_frames(frames);
+                    }
                 }
                 "atlas" => {
                     let b64 = args["base64"].as_str().ok_or("missing base64")?;
@@ -610,13 +628,29 @@ pub fn handle_ipc_command(
                     let img = image::load_from_memory(&raw)
                         .map_err(|e| e.to_string())?
                         .to_rgba8();
-                    native_export::staging::set_atlas(img.into_raw(), w, h);
+                    if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
+                        native_export::staging::set_atlas_for(
+                            session_id,
+                            job_id,
+                            img.into_raw(),
+                            w,
+                            h,
+                        );
+                    } else {
+                        native_export::staging::set_atlas(img.into_raw(), w, h);
+                    }
                 }
                 "overlay_frames_chunk" => {
                     let frames: Vec<native_export::config::OverlayFrame> =
                         serde_json::from_value(args["data"].clone())
                             .map_err(|e| format!("bad overlay chunk: {e}"))?;
-                    native_export::staging::append_overlay_frames(frames);
+                    if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
+                        native_export::staging::append_overlay_frames_for(
+                            session_id, job_id, frames,
+                        );
+                    } else {
+                        native_export::staging::append_overlay_frames(frames);
+                    }
                 }
                 "cursor_slots_png" => {
                     #[derive(serde::Deserialize)]
@@ -657,7 +691,13 @@ pub fn handle_ipc_command(
                             rgba: img.into_raw(),
                         });
                     }
-                    native_export::staging::set_cursor_slot_overrides(overrides);
+                    if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
+                        native_export::staging::set_cursor_slot_overrides_for(
+                            session_id, job_id, overrides,
+                        );
+                    } else {
+                        native_export::staging::set_cursor_slot_overrides(overrides);
+                    }
                 }
                 _ => return Err(format!("unknown stage dataType: {data_type}")),
             }
@@ -730,6 +770,11 @@ pub fn handle_ipc_command(
         }
         "start_export_server" => {
             let result = native_export::start_native_export(args);
+            native_export::persist_export_result(&result);
+            result
+        }
+        "start_composition_export_server" => {
+            let result = native_export::start_composition_export(args);
             native_export::persist_export_result(&result);
             result
         }

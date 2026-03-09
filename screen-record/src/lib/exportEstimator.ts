@@ -594,9 +594,17 @@ export function getCanvasBaseDimensions(
   const crop = segment?.crop || { x: 0, y: 0, width: 1, height: 1 };
   const croppedW = Math.round(videoWidth * crop.width);
   const croppedH = Math.round(videoHeight * crop.height);
-  const useCustom = backgroundConfig?.canvasMode === 'custom' && backgroundConfig.canvasWidth && backgroundConfig.canvasHeight;
+  const hasLockedAutoCanvas =
+    backgroundConfig?.canvasMode === 'auto' &&
+    !!backgroundConfig.autoCanvasSourceId &&
+    !!backgroundConfig.canvasWidth &&
+    !!backgroundConfig.canvasHeight;
+  const useExplicitCanvas =
+    (backgroundConfig?.canvasMode === 'custom' || hasLockedAutoCanvas) &&
+    backgroundConfig.canvasWidth &&
+    backgroundConfig.canvasHeight;
   return {
-    baseW: useCustom ? backgroundConfig!.canvasWidth! : croppedW,
-    baseH: useCustom ? backgroundConfig!.canvasHeight! : croppedH,
+    baseW: useExplicitCanvas ? backgroundConfig!.canvasWidth! : croppedW,
+    baseH: useExplicitCanvas ? backgroundConfig!.canvasHeight! : croppedH,
   };
 }
