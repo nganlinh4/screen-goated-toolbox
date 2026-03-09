@@ -1,19 +1,19 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { VideoSegment, TrimSegment } from '@/types/video';
-import { getTotalTrimDuration, getTrimSegments } from '@/lib/trimSegments';
-import { Scissors, Plus } from 'lucide-react';
+import React, { useMemo, useRef, useState } from "react";
+import { VideoSegment, TrimSegment } from "@/types/video";
+import { getTotalTrimDuration, getTrimSegments } from "@/lib/trimSegments";
+import { Scissors, Plus } from "lucide-react";
 
 function formatTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.floor(seconds % 60);
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 }
 
 interface TrimTrackProps {
   segment: VideoSegment;
   duration: number;
   thumbnails: string[];
-  onTrimDragStart: (id: string, type: 'start' | 'end') => void;
+  onTrimDragStart: (id: string, type: "start" | "end") => void;
   onTrimSplit: (id: string, splitTime: number) => void;
   onTrimAddSegment: (atTime: number) => void;
   isDraggingTrim?: boolean;
@@ -29,33 +29,45 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
   isDraggingTrim,
 }) => {
   const [hoverState, setHoverState] = useState<
-    { type: 'split'; x: number; time: number; segment: TrimSegment } |
-    { type: 'add'; x: number; time: number } |
-    null
+    | { type: "split"; x: number; time: number; segment: TrimSegment }
+    | { type: "add"; x: number; time: number }
+    | null
   >(null);
   const trackRef = useRef<HTMLDivElement>(null);
-  const trimSegments = useMemo(() => getTrimSegments(segment, duration), [segment, duration]);
-  const totalTrimDuration = useMemo(() => getTotalTrimDuration(segment, duration), [segment, duration]);
+  const trimSegments = useMemo(
+    () => getTrimSegments(segment, duration),
+    [segment, duration],
+  );
+  const totalTrimDuration = useMemo(
+    () => getTotalTrimDuration(segment, duration),
+    [segment, duration],
+  );
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!trackRef.current) return;
     const rect = trackRef.current.getBoundingClientRect();
     const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
     const time = (x / rect.width) * duration;
-    const containing = trimSegments.find(seg => time >= seg.startTime && time <= seg.endTime);
+    const containing = trimSegments.find(
+      (seg) => time >= seg.startTime && time <= seg.endTime,
+    );
     if (containing) {
-      const canSplit = time > containing.startTime + 0.2 && time < containing.endTime - 0.2;
-      setHoverState(canSplit ? { type: 'split', x, time, segment: containing } : null);
+      const canSplit =
+        time > containing.startTime + 0.2 && time < containing.endTime - 0.2;
+      setHoverState(
+        canSplit ? { type: "split", x, time, segment: containing } : null,
+      );
       return;
     }
-    setHoverState({ type: 'add', x, time });
+    setHoverState({ type: "add", x, time });
   };
 
   const excludedRanges = (() => {
     const gaps: Array<{ start: number; end: number }> = [];
     let cursor = 0;
     for (const seg of trimSegments) {
-      if (seg.startTime > cursor) gaps.push({ start: cursor, end: seg.startTime });
+      if (seg.startTime > cursor)
+        gaps.push({ start: cursor, end: seg.startTime });
       cursor = seg.endTime;
     }
     if (cursor < duration) gaps.push({ start: cursor, end: duration });
@@ -80,8 +92,8 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
               style={{
                 width: `calc(${100 / thumbnails.length}% - 1px)`,
                 backgroundImage: `url(${thumbnail})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
+                backgroundSize: "cover",
+                backgroundPosition: "center",
                 opacity: 1,
               }}
             />
@@ -95,19 +107,19 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
             style={{
               left: `${(gap.start / duration) * 100}%`,
               width: `${((gap.end - gap.start) / duration) * 100}%`,
-              backgroundColor: 'var(--timeline-gap-overlay)',
+              backgroundColor: "var(--timeline-gap-overlay)",
             }}
           />
         ))}
 
-        {trimSegments.map(seg => (
+        {trimSegments.map((seg) => (
           <div
             key={seg.id}
             className="trim-active-region absolute inset-y-0 border pointer-events-none"
             style={{
               left: `${(seg.startTime / duration) * 100}%`,
               width: `${((seg.endTime - seg.startTime) / duration) * 100}%`,
-              borderColor: 'var(--timeline-active-border)',
+              borderColor: "var(--timeline-active-border)",
             }}
           />
         ))}
@@ -116,26 +128,37 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
           <div className="trim-duration-label absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
             <span
               className="text-[10px] font-bold backdrop-blur-sm px-1.5 py-0.5 rounded"
-              style={{ color: 'var(--timeline-label-fg)', backgroundColor: 'var(--timeline-label-bg)' }}
+              style={{
+                color: "var(--timeline-label-fg)",
+                backgroundColor: "var(--timeline-label-bg)",
+              }}
             >
               {formatTime(totalTrimDuration)} / {formatTime(duration)}
             </span>
           </div>
         )}
 
-        {trimSegments.map(seg => (
+        {trimSegments.map((seg) => (
           <React.Fragment key={`handles-${seg.id}`}>
             <div
               className="trim-handle-start absolute inset-y-0 w-3 cursor-col-resize z-10 group"
-              style={{ left: `calc(${(seg.startTime / duration) * 100}% - 6px)` }}
-              onMouseDown={(e) => { e.stopPropagation(); onTrimDragStart(seg.id, 'start'); }}
+              style={{
+                left: `calc(${(seg.startTime / duration) * 100}% - 6px)`,
+              }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                onTrimDragStart(seg.id, "start");
+              }}
             >
               <div className="trim-handle-bar absolute inset-y-[1px] w-1.5 bg-white/95 shadow-[0_0_3px_rgba(0,0,0,0.35)] group-hover:bg-[var(--primary-color)] transition-colors rounded-full left-1/2 -translate-x-1/2" />
             </div>
             <div
               className="trim-handle-end absolute inset-y-0 w-3 cursor-col-resize z-10 group"
               style={{ left: `calc(${(seg.endTime / duration) * 100}% - 6px)` }}
-              onMouseDown={(e) => { e.stopPropagation(); onTrimDragStart(seg.id, 'end'); }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                onTrimDragStart(seg.id, "end");
+              }}
             >
               <div className="trim-handle-bar absolute inset-y-[1px] w-1.5 bg-white/95 shadow-[0_0_3px_rgba(0,0,0,0.35)] group-hover:bg-[var(--primary-color)] transition-colors rounded-full left-1/2 -translate-x-1/2" />
             </div>
@@ -148,25 +171,31 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
           className="trim-floating-btn absolute w-5 h-5 rounded-full leading-none flex items-center justify-center z-20 hover:brightness-110"
           style={{
             left: hoverState.x - 8,
-            top: hoverState.type === 'split' ? 44 : 20,
-            transform: hoverState.type === 'split' ? undefined : 'translateY(-50%)',
-            color: 'var(--timeline-float-fg)',
-            backgroundColor: hoverState.type === 'split' ? 'var(--primary-color)' : '#22c55e',
-            boxShadow: `0 1px 4px ${'var(--timeline-float-ring)'}`,
-            border: `1px solid ${'var(--timeline-float-ring)'}`,
+            top: hoverState.type === "split" ? 44 : 20,
+            transform:
+              hoverState.type === "split" ? undefined : "translateY(-50%)",
+            color: "var(--timeline-float-fg)",
+            backgroundColor:
+              hoverState.type === "split" ? "var(--primary-color)" : "#22c55e",
+            boxShadow: `0 1px 4px ${"var(--timeline-float-ring)"}`,
+            border: `1px solid ${"var(--timeline-float-ring)"}`,
           }}
           onMouseDown={(e) => {
             e.stopPropagation();
-            if (hoverState.type === 'split') {
+            if (hoverState.type === "split") {
               onTrimSplit(hoverState.segment.id, hoverState.time);
             } else {
               onTrimAddSegment(hoverState.time);
             }
             setHoverState(null);
           }}
-          title={hoverState.type === 'split' ? 'Split segment' : 'Add segment'}
+          title={hoverState.type === "split" ? "Split segment" : "Add segment"}
         >
-          {hoverState.type === 'split' ? <Scissors className="w-3.5 h-3.5" /> : <Plus className="w-3 h-3" />}
+          {hoverState.type === "split" ? (
+            <Scissors className="w-3.5 h-3.5" />
+          ) : (
+            <Plus className="w-3 h-3" />
+          )}
         </button>
       )}
     </div>

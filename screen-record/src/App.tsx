@@ -19,6 +19,9 @@ import {
 import {
   BackgroundConfig,
   MousePosition,
+  Project,
+  ProjectComposition,
+  ProjectCompositionMode,
   VideoSegment,
   KeystrokeMode,
   RecordingMode,
@@ -51,6 +54,7 @@ import {
   CanvasResizeOverlay,
   SeekIndicator,
 } from "@/components/VideoPreview";
+import { SequencePillChain } from "@/components/SequencePillChain";
 import { SidePanel, type ActivePanel } from "@/components/sidepanel/index";
 import {
   ProcessingOverlay,
@@ -72,6 +76,26 @@ import { ResizeBorders } from "@/components/layout/ResizeBorders";
 import { useAppShortcuts } from "@/hooks/useAppShortcuts";
 import { useRawVideoHandler } from "@/hooks/useRawVideoHandler";
 import { useKeystrokeDrag } from "@/hooks/useKeystrokeDrag";
+import {
+  applyCanvasConfig,
+  createCompositionSnapshotClip,
+  ensureProjectComposition,
+  extractCanvasConfig,
+  getCompositionAdjacentClipIds,
+  getCompositionClip,
+  getCompositionResolvedBackgroundConfig,
+  insertCompositionClip,
+  normalizeCompositionClipToCanvas,
+  removeCompositionClip,
+  setCompositionMode,
+  syncCompositionCanvasConfig,
+  updateCompositionClip,
+  withCompositionSelection,
+} from "@/lib/projectComposition";
+import {
+  getMediaServerUrl,
+  isManagedCompositionSnapshotPath,
+} from "@/lib/mediaServer";
 
 const LAST_BG_CONFIG_KEY = "screen-record-last-background-config-v1";
 const RECENT_UPLOADS_KEY = "screen-record-recent-uploads-v1";
@@ -84,6 +108,14 @@ const PROJECT_SAVE_DEBUG = true;
 const DEFAULT_KEYSTROKE_DELAY_SEC = 0;
 const sv = (v: number, min: number, max: number): CSSProperties =>
   ({ "--value-pct": `${((v - min) / (max - min)) * 100}%` }) as CSSProperties;
+
+type PreloadSlotKey = "previous" | "next";
+
+interface ClipMediaAssets {
+  videoBlob: Blob | null;
+  audioBlob: Blob | null;
+  customBackground: string | null;
+}
 
 const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
   scale: 90,
@@ -231,6 +263,18 @@ function App() {
   const captureFpsRef = useRef<number | null>(captureFps);
   const [currentRecordingMode, setCurrentRecordingMode] =
     useState<RecordingMode>("withoutCursor");
+  const [currentProjectData, setCurrentProjectData] = useState<Project | null>(
+    null,
+  );
+  const [composition, setComposition] = useState<ProjectComposition | null>(
+    null,
+  );
+  const [projectPickerMode, setProjectPickerMode] = useState<
+    "insertBefore" | "insertAfter" | null
+  >(null);
+  const [sequenceTargetClipId, setSequenceTargetClipId] = useState<
+    string | null
+  >(null);
   const rawVideo = useRawVideoHandler();
   const {
     currentRawVideoPath,
@@ -284,7 +328,27 @@ function App() {
     "right",
   );
   const [isCanvasResizeDragging, setIsCanvasResizeDragging] = useState(false);
+  const [spreadFromClipId, setSpreadFromClipId] = useState<string | null>(null);
   const pendingWindowRecordingRef = useRef(false);
+  const isSwitchingCompositionClipRef = useRef(false);
+  const spreadAnimationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const previousPreloadVideoRef = useRef<HTMLVideoElement | null>(null);
+  const previousPreloadAudioRef = useRef<HTMLAudioElement | null>(null);
+  const nextPreloadVideoRef = useRef<HTMLVideoElement | null>(null);
+  const nextPreloadAudioRef = useRef<HTMLAudioElement | null>(null);
+  const clipAssetCacheRef = useRef<Map<string, ClipMediaAssets>>(new Map());
+  const clipUrlCacheRef = useRef<
+    Map<string, { videoUrl: string; audioUrl: string | null }>
+  >(new Map());
+  const preloadedSlotClipIdsRef = useRef<Record<PreloadSlotKey, string | null>>(
+    {
+      previous: null,
+      next: null,
+    },
+  );
+  const clipLoadRequestSeqRef = useRef(0);
   // Stable ref for persist callback — avoids cascading useEffect re-triggers
   const persistRef = useRef<typeof persistCurrentProjectNow>(null!);
   const debugProject = useCallback(
@@ -317,11 +381,11 @@ function App() {
     interactiveBackgroundPreview: isCanvasResizeDragging,
   });
   const {
-    currentTime,
-    setCurrentTime,
-    duration,
-    setDuration,
-    isPlaying,
+    currentTime: previewCurrentTime,
+    setCurrentTime: setPreviewCurrentTime,
+    duration: previewDuration,
+    setDuration: setPreviewDuration,
+    isPlaying: isPreviewPlaying,
     isVideoReady,
     setIsVideoReady,
     thumbnails,
@@ -336,11 +400,13 @@ function App() {
     tempCanvasRef,
     videoControllerRef,
     renderFrame,
-    togglePlayPause,
+    togglePlayPause: togglePlayback,
     seek,
     flushSeek,
     generateThumbnail,
     generateThumbnails,
+    generateThumbnailsForSource,
+    invalidateThumbnails,
   } = playback;
 
   // Recording
@@ -355,8 +421,8 @@ function App() {
     setCurrentAudio,
     setIsVideoReady,
     setThumbnails,
-    setDuration,
-    setCurrentTime,
+    setDuration: setPreviewDuration,
+    setCurrentTime: setPreviewCurrentTime,
     generateThumbnails,
     generateThumbnail,
     renderFrame,
@@ -390,6 +456,350 @@ function App() {
     setCurrentRawVideoPath(path);
     setLastRawSavedPath("");
   }, []);
+  const getPreloadRefs = useCallback((slot: PreloadSlotKey) => {
+    return slot === "previous"
+      ? {
+          videoRef: previousPreloadVideoRef,
+          audioRef: previousPreloadAudioRef,
+        }
+      : {
+          videoRef: nextPreloadVideoRef,
+          audioRef: nextPreloadAudioRef,
+        };
+  }, []);
+  const clearClipMediaCaches = useCallback(
+    (options?: {
+      preserveVideoUrl?: string | null;
+      preserveAudioUrl?: string | null;
+    }) => {
+      const preservedVideoUrl = options?.preserveVideoUrl ?? null;
+      const preservedAudioUrl = options?.preserveAudioUrl ?? null;
+
+      for (const { videoUrl, audioUrl } of clipUrlCacheRef.current.values()) {
+        if (videoUrl?.startsWith("blob:") && videoUrl !== preservedVideoUrl) {
+          URL.revokeObjectURL(videoUrl);
+        }
+        if (audioUrl?.startsWith("blob:") && audioUrl !== preservedAudioUrl) {
+          URL.revokeObjectURL(audioUrl);
+        }
+      }
+      clipAssetCacheRef.current.clear();
+      clipUrlCacheRef.current.clear();
+      (["previous", "next"] as const).forEach((slot) => {
+        preloadedSlotClipIdsRef.current[slot] = null;
+        const { videoRef: preloadVideoRef, audioRef: preloadAudioRef } =
+          getPreloadRefs(slot);
+        if (preloadVideoRef.current) {
+          preloadVideoRef.current.pause();
+          preloadVideoRef.current.removeAttribute("src");
+          preloadVideoRef.current.load();
+        }
+        if (preloadAudioRef.current) {
+          preloadAudioRef.current.pause();
+          preloadAudioRef.current.removeAttribute("src");
+          preloadAudioRef.current.load();
+        }
+      });
+    },
+    [getPreloadRefs],
+  );
+  const loadClipAssets = useCallback(
+    async (
+      projectId: string,
+      clipId: string,
+      projectOverride?: Project | null,
+      compositionOverride?: ProjectComposition | null,
+    ): Promise<ClipMediaAssets | null> => {
+      const project = projectOverride ?? currentProjectData;
+      const nextComposition = compositionOverride ?? composition;
+      if (!project || !nextComposition) return null;
+      const cachedAssets = clipAssetCacheRef.current.get(clipId);
+      if (cachedAssets) return cachedAssets;
+      const clip = getCompositionClip(nextComposition, clipId);
+      if (!clip) return null;
+      const loadedAssets =
+        clip.role === "root"
+          ? {
+              videoBlob: project.videoBlob ?? null,
+              audioBlob: project.audioBlob ?? null,
+              customBackground:
+                project.backgroundConfig.customBackground ?? null,
+            }
+          : await projectManager.loadCompositionClipAssets(projectId, clip.id);
+      clipAssetCacheRef.current.set(clipId, loadedAssets);
+      return loadedAssets;
+    },
+    [composition, currentProjectData],
+  );
+  const getClipMediaUrls = useCallback(
+    async (
+      projectId: string,
+      clipId: string,
+      projectOverride?: Project | null,
+      compositionOverride?: ProjectComposition | null,
+    ) => {
+      const nextComposition = compositionOverride ?? composition;
+      const clip = getCompositionClip(nextComposition, clipId);
+      if (!clip) return null;
+      const cachedUrls = clipUrlCacheRef.current.get(clipId);
+      if (cachedUrls) return cachedUrls;
+      if (clip.rawVideoPath) {
+        const videoUrl = await getMediaServerUrl(clip.rawVideoPath);
+        const loadedAssets = await loadClipAssets(
+          projectId,
+          clipId,
+          projectOverride,
+          compositionOverride,
+        );
+        const nextUrls = {
+          videoUrl,
+          audioUrl: loadedAssets?.audioBlob ? videoUrl : null,
+        };
+        clipUrlCacheRef.current.set(clipId, nextUrls);
+        return nextUrls;
+      }
+      const loadedAssets = await loadClipAssets(
+        projectId,
+        clipId,
+        projectOverride,
+        compositionOverride,
+      );
+      if (!loadedAssets?.videoBlob) return null;
+      const nextUrls = {
+        videoUrl: URL.createObjectURL(loadedAssets.videoBlob),
+        audioUrl: loadedAssets.audioBlob
+          ? URL.createObjectURL(loadedAssets.audioBlob)
+          : null,
+      };
+      clipUrlCacheRef.current.set(clipId, nextUrls);
+      return nextUrls;
+    },
+    [composition, loadClipAssets],
+  );
+  const drawPreloadedClipFrame = useCallback(
+    (
+      clipId: string,
+      nextBackground: BackgroundConfig,
+      nextComposition: ProjectComposition,
+    ) => {
+      const slot = (["previous", "next"] as const).find(
+        (slotKey) => preloadedSlotClipIdsRef.current[slotKey] === clipId,
+      );
+      if (!slot || !canvasRef.current) return;
+      const clip = getCompositionClip(nextComposition, clipId);
+      const preloadVideoRef = getPreloadRefs(slot).videoRef;
+      const preloadedVideo = preloadVideoRef.current;
+      if (!clip || !preloadedVideo || preloadedVideo.readyState < 2) return;
+      videoRenderer.drawFrame({
+        video: preloadedVideo,
+        canvas: canvasRef.current,
+        tempCanvas: tempCanvasRef.current,
+        segment: clip.segment,
+        backgroundConfig: nextBackground,
+        mousePositions: clip.mousePositions,
+        currentTime: preloadedVideo.currentTime || clip.segment.trimStart,
+      });
+    },
+    [canvasRef, getPreloadRefs, tempCanvasRef],
+  );
+  const primePreloadSlot = useCallback(
+    async (
+      slot: PreloadSlotKey,
+      clipId: string | null,
+      projectOverride?: Project | null,
+      compositionOverride?: ProjectComposition | null,
+    ) => {
+      const project = projectOverride ?? currentProjectData;
+      const nextComposition = compositionOverride ?? composition;
+      const { videoRef: preloadVideoRef, audioRef: preloadAudioRef } =
+        getPreloadRefs(slot);
+      const preloadVideo = preloadVideoRef.current;
+      if (!project || !nextComposition || !preloadVideo) return;
+      if (!clipId) {
+        preloadedSlotClipIdsRef.current[slot] = null;
+        preloadVideo.pause();
+        preloadVideo.removeAttribute("src");
+        preloadVideo.load();
+        if (preloadAudioRef.current) {
+          preloadAudioRef.current.pause();
+          preloadAudioRef.current.removeAttribute("src");
+          preloadAudioRef.current.load();
+        }
+        return;
+      }
+      const clip = getCompositionClip(nextComposition, clipId);
+      if (!clip) return;
+      const clipUrls = await getClipMediaUrls(
+        project.id,
+        clipId,
+        project,
+        nextComposition,
+      );
+      if (!clipUrls) return;
+      preloadedSlotClipIdsRef.current[slot] = clipId;
+      if (preloadVideo.src !== clipUrls.videoUrl) {
+        preloadVideo.src = clipUrls.videoUrl;
+        preloadVideo.preload = "auto";
+        preloadVideo.load();
+      }
+      if (preloadVideo.readyState < 2) {
+        await new Promise<void>((resolve) =>
+          preloadVideo.addEventListener("loadeddata", () => resolve(), {
+            once: true,
+          }),
+        );
+      }
+      const startTime = clip.segment.trimStart;
+      if (Math.abs(preloadVideo.currentTime - startTime) > 0.02) {
+        await new Promise<void>((resolve) => {
+          const onSeeked = () => resolve();
+          preloadVideo.addEventListener("seeked", onSeeked, { once: true });
+          preloadVideo.currentTime = startTime;
+        });
+      }
+      if (!preloadAudioRef.current) return;
+      if (!clipUrls.audioUrl) {
+        preloadAudioRef.current.removeAttribute("src");
+        preloadAudioRef.current.load();
+        return;
+      }
+      if (preloadAudioRef.current.src !== clipUrls.audioUrl) {
+        preloadAudioRef.current.src = clipUrls.audioUrl;
+        preloadAudioRef.current.preload = "auto";
+        preloadAudioRef.current.load();
+      }
+    },
+    [composition, currentProjectData, getClipMediaUrls, getPreloadRefs],
+  );
+  const loadClipMediaIntoEditor = useCallback(
+    async (
+      projectId: string,
+      clipId: string,
+      projectOverride?: Project | null,
+      compositionOverride?: ProjectComposition | null,
+      options?: {
+        preferPreloadedFrame?: boolean;
+        requestId?: number;
+        deferThumbnailsMs?: number;
+      },
+    ) => {
+      const project = projectOverride ?? currentProjectData;
+      const nextComposition = compositionOverride ?? composition;
+      if (!project || !nextComposition) return;
+      const clip = getCompositionClip(nextComposition, clipId);
+      if (!clip) return;
+      const requestId = options?.requestId ?? clipLoadRequestSeqRef.current + 1;
+      clipLoadRequestSeqRef.current = requestId;
+      const isLatestRequest = () => clipLoadRequestSeqRef.current === requestId;
+      isSwitchingCompositionClipRef.current = true;
+      try {
+        const cachedVideoUrls = new Set(
+          Array.from(clipUrlCacheRef.current.values()).map(
+            (urls) => urls.videoUrl,
+          ),
+        );
+        const cachedAudioUrls = new Set(
+          Array.from(clipUrlCacheRef.current.values())
+            .map((urls) => urls.audioUrl)
+            .filter((url): url is string => Boolean(url)),
+        );
+        if (
+          currentVideo?.startsWith("blob:") &&
+          !cachedVideoUrls.has(currentVideo)
+        ) {
+          URL.revokeObjectURL(currentVideo);
+        }
+        if (
+          currentAudio?.startsWith("blob:") &&
+          !cachedAudioUrls.has(currentAudio)
+        ) {
+          URL.revokeObjectURL(currentAudio);
+        }
+        invalidateThumbnails();
+        const loadedAssets = await loadClipAssets(
+          projectId,
+          clip.id,
+          project,
+          nextComposition,
+        );
+        if (!isLatestRequest()) return;
+        if (!loadedAssets?.videoBlob && !clip.rawVideoPath) return;
+        const clipUrls = await getClipMediaUrls(
+          projectId,
+          clip.id,
+          project,
+          nextComposition,
+        );
+        if (!isLatestRequest()) return;
+        const nextBackground =
+          getCompositionResolvedBackgroundConfig(nextComposition, clip.id) ??
+          clip.backgroundConfig;
+        const customBackground = loadedAssets?.customBackground ?? undefined;
+        const resolvedBackground = {
+          ...nextBackground,
+          customBackground: nextBackground.customBackground ?? customBackground,
+        };
+        if (options?.preferPreloadedFrame) {
+          drawPreloadedClipFrame(clip.id, resolvedBackground, nextComposition);
+        }
+        const videoObjectUrl = await videoControllerRef.current?.loadVideo(
+          clipUrls
+            ? { videoUrl: clipUrls.videoUrl }
+            : { videoBlob: loadedAssets?.videoBlob ?? undefined },
+        );
+        if (!isLatestRequest()) return;
+        if (videoObjectUrl) {
+          setCurrentVideo(videoObjectUrl);
+        }
+        if (clipUrls?.audioUrl || loadedAssets?.audioBlob) {
+          const audioObjectUrl = await videoControllerRef.current?.loadAudio(
+            clipUrls?.audioUrl
+              ? { audioUrl: clipUrls.audioUrl }
+              : { audioBlob: loadedAssets?.audioBlob ?? undefined },
+          );
+          if (!isLatestRequest()) return;
+          setCurrentAudio(audioObjectUrl || null);
+        } else {
+          setCurrentAudio(null);
+        }
+        if (!isLatestRequest()) return;
+        setSegment(clip.segment);
+        setBackgroundConfig(resolvedBackground);
+        setMousePositions(clip.mousePositions);
+        setCurrentRecordingMode(clip.recordingMode ?? "withoutCursor");
+        handleProjectRawVideoPathChange(clip.rawVideoPath ?? "");
+        void generateThumbnailsForSource({
+          videoUrl: clipUrls?.videoUrl ?? videoObjectUrl ?? null,
+          filePath: clip.rawVideoPath,
+          segment: clip.segment,
+          deferMs: options?.deferThumbnailsMs ?? 120,
+        });
+      } finally {
+        queueMicrotask(() => {
+          if (isLatestRequest()) {
+            isSwitchingCompositionClipRef.current = false;
+          }
+        });
+      }
+    },
+    [
+      composition,
+      currentAudio,
+      currentProjectData,
+      currentVideo,
+      drawPreloadedClipFrame,
+      getClipMediaUrls,
+      handleProjectRawVideoPathChange,
+      loadClipAssets,
+      setCurrentAudio,
+      setCurrentVideo,
+      generateThumbnailsForSource,
+      setMousePositions,
+      invalidateThumbnails,
+      setSegment,
+      videoControllerRef,
+    ],
+  );
   const projects = useProjects({
     videoControllerRef,
     setCurrentVideo,
@@ -400,9 +810,46 @@ function App() {
     setThumbnails,
     setCurrentRecordingMode,
     setCurrentRawVideoPath: handleProjectRawVideoPathChange,
+    onProjectLoaded: (project) => {
+      clearClipMediaCaches({
+        preserveVideoUrl: currentVideo,
+        preserveAudioUrl: currentAudio,
+      });
+      setCurrentProjectData(project);
+      const nextComposition = ensureProjectComposition(project);
+      setComposition(nextComposition);
+      if (spreadAnimationTimerRef.current) {
+        clearTimeout(spreadAnimationTimerRef.current);
+      }
+      setSpreadFromClipId(null);
+      const nextClipId =
+        nextComposition.focusedClipId ?? nextComposition.selectedClipId;
+      if (nextClipId) {
+        void loadClipMediaIntoEditor(
+          project.id,
+          nextClipId,
+          project,
+          nextComposition,
+        );
+      }
+    },
     currentVideo,
     currentAudio,
   });
+  const activeClipId =
+    composition?.focusedClipId ?? composition?.selectedClipId ?? null;
+  const activeCompositionClip = useMemo(
+    () => getCompositionClip(composition, activeClipId),
+    [activeClipId, composition],
+  );
+  const { previousClipId, nextClipId } = useMemo(
+    () => getCompositionAdjacentClipIds(composition, activeClipId),
+    [activeClipId, composition],
+  );
+  const currentTime = previewCurrentTime;
+  const setCurrentTime = setPreviewCurrentTime;
+  const duration = previewDuration;
+  const isPlaying = isPreviewPlaying;
 
   // FPS of the most-recent recording (set on stop, cleared when a different project loads).
   const [lastCaptureFps, setLastCaptureFps] = useState<number | null>(null);
@@ -522,6 +969,89 @@ function App() {
     segmentRef.current = segment;
   }, [segment]);
 
+  useEffect(() => {
+    return () => {
+      if (spreadAnimationTimerRef.current) {
+        clearTimeout(spreadAnimationTimerRef.current);
+      }
+      clearClipMediaCaches();
+    };
+  }, [clearClipMediaCaches]);
+
+  useEffect(() => {
+    if (!projects.currentProjectId || !currentProjectData || !composition)
+      return;
+    void primePreloadSlot(
+      "previous",
+      previousClipId,
+      currentProjectData,
+      composition,
+    );
+    void primePreloadSlot("next", nextClipId, currentProjectData, composition);
+  }, [
+    composition,
+    currentProjectData,
+    nextClipId,
+    previousClipId,
+    primePreloadSlot,
+    projects.currentProjectId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !composition ||
+      !segment ||
+      !activeClipId ||
+      isSwitchingCompositionClipRef.current
+    )
+      return;
+    setComposition((prev) => {
+      if (!prev) return prev;
+      const canvasConfig = extractCanvasConfig(backgroundConfig);
+      let next = syncCompositionCanvasConfig(prev, canvasConfig);
+      const currentClipBackground =
+        getCompositionClip(next, activeClipId)?.backgroundConfig ??
+        applyCanvasConfig(backgroundConfig, canvasConfig);
+      next = updateCompositionClip(next, activeClipId, {
+        segment,
+        backgroundConfig:
+          prev.mode === "separate"
+            ? applyCanvasConfig(backgroundConfig, canvasConfig)
+            : currentClipBackground,
+        mousePositions,
+        duration: Math.max(duration, segment.trimEnd),
+        recordingMode: currentRecordingMode,
+        rawVideoPath: currentRawVideoPath || undefined,
+      });
+      if (prev.mode === "unified") {
+        next = {
+          ...next,
+          unifiedSourceClipId: prev.unifiedSourceClipId ?? activeClipId,
+          globalPresentationConfig: applyCanvasConfig(
+            backgroundConfig,
+            canvasConfig,
+          ),
+          globalBackgroundConfig: applyCanvasConfig(
+            backgroundConfig,
+            canvasConfig,
+          ),
+        };
+      }
+      return next;
+    });
+  }, [
+    backgroundConfig,
+    composition?.focusedClipId,
+    composition?.selectedClipId,
+    composition?.mode,
+    currentRawVideoPath,
+    currentRecordingMode,
+    duration,
+    mousePositions,
+    segment,
+    activeClipId,
+  ]);
+
   // Persist last-used background config so new projects inherit previous project settings.
   useEffect(() => {
     try {
@@ -533,6 +1063,109 @@ function App() {
       // ignore persistence failures
     }
   }, [backgroundConfig]);
+
+  const focusCompositionClip = useCallback(
+    async (
+      clipId: string,
+      options?: { seekTime?: number; playAfterLoad?: boolean },
+    ) => {
+      if (!projects.currentProjectId || !composition) return;
+      const requestId = clipLoadRequestSeqRef.current + 1;
+      const nextComposition = withCompositionSelection(composition, clipId);
+      const targetClip = getCompositionClip(nextComposition, clipId);
+      if (!targetClip) return;
+      setComposition(nextComposition);
+      await loadClipMediaIntoEditor(
+        projects.currentProjectId,
+        clipId,
+        currentProjectData,
+        nextComposition,
+        {
+          preferPreloadedFrame: true,
+          requestId,
+        },
+      );
+      if (clipLoadRequestSeqRef.current !== requestId) return;
+      const targetSeekTime =
+        typeof options?.seekTime === "number"
+          ? options.seekTime
+          : targetClip.segment.trimStart;
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+      if (clipLoadRequestSeqRef.current !== requestId) return;
+      seek(targetSeekTime);
+      if (options?.playAfterLoad) {
+        videoControllerRef.current?.play();
+      }
+    },
+    [
+      composition,
+      currentProjectData,
+      loadClipMediaIntoEditor,
+      projects.currentProjectId,
+      seek,
+      videoControllerRef,
+    ],
+  );
+
+  const handleTogglePlayPause = useCallback(() => {
+    if (
+      !isPlaying &&
+      composition &&
+      activeCompositionClip &&
+      currentTime >= activeCompositionClip.segment.trimEnd - 0.04
+    ) {
+      const targetClipId = nextClipId ?? composition.clips[0]?.id ?? null;
+      if (targetClipId && targetClipId !== activeClipId) {
+        const targetClip = getCompositionClip(composition, targetClipId);
+        void focusCompositionClip(targetClipId, {
+          seekTime: targetClip?.segment.trimStart,
+          playAfterLoad: true,
+        });
+        return;
+      }
+      if (targetClipId && activeCompositionClip) {
+        seek(activeCompositionClip.segment.trimStart);
+        requestAnimationFrame(() => {
+          videoControllerRef.current?.play();
+        });
+        return;
+      }
+    }
+
+    togglePlayback();
+  }, [
+    activeClipId,
+    activeCompositionClip,
+    composition,
+    currentTime,
+    focusCompositionClip,
+    isPlaying,
+    nextClipId,
+    togglePlayback,
+  ]);
+
+  useEffect(() => {
+    if (!activeCompositionClip || !nextClipId || !isPlaying) return;
+    const activeEndTime = activeCompositionClip.segment.trimEnd;
+    const remaining = activeEndTime - currentTime;
+    if (remaining > 0.04) return;
+    if (isSwitchingCompositionClipRef.current) return;
+    const upcomingClip = getCompositionClip(composition, nextClipId);
+    if (!upcomingClip) return;
+    void focusCompositionClip(nextClipId, {
+      seekTime: upcomingClip.segment.trimStart,
+      playAfterLoad: true,
+    });
+  }, [
+    activeCompositionClip,
+    composition,
+    currentTime,
+    focusCompositionClip,
+    isPlaying,
+    nextClipId,
+  ]);
 
   useEffect(() => {
     try {
@@ -622,12 +1255,12 @@ function App() {
       setEditingKeyframeId(null);
     } else {
       setIsCropping(true);
-      if (isPlaying) togglePlayPause();
+      if (isPlaying) handleTogglePlayPause();
     }
   }, [
     isCropping,
     isPlaying,
-    togglePlayPause,
+    handleTogglePlayPause,
     setZoomFactor,
     setEditingKeyframeId,
   ]);
@@ -646,7 +1279,7 @@ function App() {
       if (!currentVideo || isCropping || activePanel === "text") return;
       e.preventDefault();
       e.stopPropagation();
-      if (isPlaying) togglePlayPause();
+      if (isPlaying) handleTogglePlayPause();
 
       const startX = e.clientX;
       const startY = e.clientY;
@@ -708,7 +1341,7 @@ function App() {
       isCropping,
       activePanel,
       isPlaying,
-      togglePlayPause,
+      handleTogglePlayPause,
       handleAddKeyframe,
       beginBatch,
       commitBatch,
@@ -1067,11 +1700,30 @@ function App() {
   ]);
 
   const persistCurrentProjectNow = useCallback(
-    async (options?: { refreshList?: boolean; includeMedia?: boolean }) => {
-      if (!projects.currentProjectId || !currentVideo || !segment) return;
+    async (options?: {
+      refreshList?: boolean;
+      includeMedia?: boolean;
+      compositionOverride?: ProjectComposition;
+      skipLiveCompositionSync?: boolean;
+    }) => {
+      const compositionState = options?.compositionOverride ?? composition;
+      const shouldSyncLiveComposition = !options?.skipLiveCompositionSync;
+      if (
+        !projects.currentProjectId ||
+        !compositionState ||
+        (shouldSyncLiveComposition && !segment)
+      ) {
+        return;
+      }
       const projectId = projects.currentProjectId;
       const saveSeq = ++projectSaveSeqRef.current;
       const includeMedia = options?.includeMedia !== false;
+      const activeClipId =
+        compositionState.focusedClipId ?? compositionState.selectedClipId;
+      const activeClip = activeClipId
+        ? getCompositionClip(compositionState, activeClipId)
+        : null;
+      if (!activeClip) return;
       debugProject("persist:start", {
         saveSeq,
         projectId,
@@ -1082,9 +1734,15 @@ function App() {
         canvasHeight: backgroundConfig.canvasHeight,
       });
       try {
+        const loadedAssets = await loadClipAssets(
+          projectId,
+          activeClip.id,
+          currentProjectData,
+          compositionState,
+        );
         let videoBlob: Blob | undefined;
         let thumbnail: string | undefined;
-        if (includeMedia) {
+        if (includeMedia && activeClip.role === "root") {
           // Use the currently rendered preview frame whenever possible so the
           // project card thumbnail matches exactly what the user just saw.
           const canvasSnapshot = (() => {
@@ -1095,16 +1753,86 @@ function App() {
             }
           })();
 
-          const response = await fetch(currentVideo);
-          videoBlob = await response.blob();
+          videoBlob = loadedAssets?.videoBlob ?? currentProjectData?.videoBlob;
+          if (!videoBlob && currentVideo && !currentRawVideoPath) {
+            const response = await fetch(currentVideo);
+            videoBlob = await response.blob();
+          }
           const generated = await videoControllerRef.current?.generateThumbnail(
             {
-              segment,
+              segment: segment!,
               backgroundConfig,
               mousePositions,
             },
           );
           thumbnail = canvasSnapshot || generated || generateThumbnail();
+        }
+        const canvasConfig = extractCanvasConfig(backgroundConfig);
+        let nextComposition = compositionState;
+        if (shouldSyncLiveComposition) {
+          nextComposition = syncCompositionCanvasConfig(
+            nextComposition,
+            canvasConfig,
+          );
+          nextComposition = updateCompositionClip(
+            nextComposition,
+            activeClip.id,
+            {
+              segment: segment!,
+              backgroundConfig:
+                nextComposition.mode === "separate"
+                  ? applyCanvasConfig(backgroundConfig, canvasConfig)
+                  : (getCompositionClip(nextComposition, activeClip.id)
+                      ?.backgroundConfig ?? activeClip.backgroundConfig),
+              mousePositions,
+              duration: Math.max(duration, segment!.trimEnd),
+              thumbnail:
+                activeClip.role === "root"
+                  ? (thumbnail ?? activeClip.thumbnail)
+                  : activeClip.thumbnail,
+              recordingMode: currentRecordingMode,
+              rawVideoPath: currentRawVideoPath || undefined,
+            },
+          );
+          if (nextComposition.mode === "unified") {
+            nextComposition = {
+              ...nextComposition,
+              globalPresentationConfig: applyCanvasConfig(
+                backgroundConfig,
+                canvasConfig,
+              ),
+              globalBackgroundConfig: applyCanvasConfig(
+                backgroundConfig,
+                canvasConfig,
+              ),
+            };
+          }
+        }
+        if (
+          includeMedia &&
+          activeClip.role === "snapshot" &&
+          !currentRawVideoPath
+        ) {
+          let snapshotVideoBlob = loadedAssets?.videoBlob ?? undefined;
+          if (!snapshotVideoBlob && currentVideo) {
+            const response = await fetch(currentVideo);
+            snapshotVideoBlob = await response.blob();
+          }
+          if (!snapshotVideoBlob) return;
+          let snapshotAudioBlob = loadedAssets?.audioBlob ?? undefined;
+          if (!snapshotAudioBlob && currentAudio) {
+            const audioResponse = await fetch(currentAudio);
+            snapshotAudioBlob = await audioResponse.blob();
+          }
+          await projectManager.saveCompositionClipAssets(
+            projectId,
+            activeClip.id,
+            {
+              videoBlob: snapshotVideoBlob,
+              audioBlob: snapshotAudioBlob,
+              customBackground: backgroundConfig.customBackground,
+            },
+          );
         }
         // Drop stale in-flight saves so older state never overwrites newer edits.
         if (saveSeq !== projectSaveSeqRef.current) {
@@ -1115,19 +1843,26 @@ function App() {
           });
           return;
         }
+        const rootClip = getCompositionClip(nextComposition, "root");
+        if (!rootClip) return;
         await projectManager.updateProject(projectId, {
           name:
             projects.projects.find((p) => p.id === projectId)?.name ||
             "Auto Saved",
           videoBlob,
-          segment,
-          backgroundConfig,
-          mousePositions,
-          thumbnail,
-          duration: videoControllerRef.current?.duration || duration,
-          recordingMode: currentRecordingMode,
-          rawVideoPath: currentRawVideoPath || undefined,
+          segment: rootClip.segment,
+          backgroundConfig: rootClip.backgroundConfig,
+          mousePositions: rootClip.mousePositions,
+          thumbnail:
+            activeClip.role === "root"
+              ? thumbnail
+              : currentProjectData?.thumbnail,
+          duration: rootClip.duration,
+          recordingMode: rootClip.recordingMode ?? currentRecordingMode,
+          rawVideoPath: rootClip.rawVideoPath,
+          composition: nextComposition,
         });
+        setComposition(nextComposition);
         if (saveSeq !== projectSaveSeqRef.current) {
           debugProject("persist:stale-after-write", {
             saveSeq,
@@ -1160,7 +1895,10 @@ function App() {
       projects.projects,
       projects.loadProjects,
       currentVideo,
+      currentAudio,
+      currentProjectData,
       segment,
+      composition,
       backgroundConfig,
       mousePositions,
       generateThumbnail,
@@ -1168,6 +1906,7 @@ function App() {
       debugProject,
       currentRecordingMode,
       currentRawVideoPath,
+      loadClipAssets,
     ],
   );
   persistRef.current = persistCurrentProjectNow;
@@ -1247,6 +1986,245 @@ function App() {
     requestCloseProjects,
   ]);
 
+  const handleOpenInsertProjectPicker = useCallback(
+    (clipId: string | null, placement: "before" | "after") => {
+      setSequenceTargetClipId(clipId);
+      setProjectPickerMode(
+        placement === "before" ? "insertBefore" : "insertAfter",
+      );
+      projects.setShowProjectsDialog(true);
+    },
+    [projects],
+  );
+
+  const handlePickProjectForSequence = useCallback(
+    async (projectId: string) => {
+      if (!projects.currentProjectId || !composition) return;
+      const pickedProject = await projectManager.loadProject(projectId);
+      if (!pickedProject) return;
+      let snapshotRawVideoPath: string | undefined;
+      if (pickedProject.rawVideoPath) {
+        try {
+          const saved = await invoke<{ savedPath: string }>(
+            "save_composition_snapshot_copy",
+            {
+              sourcePath: pickedProject.rawVideoPath,
+            },
+          );
+          snapshotRawVideoPath = saved?.savedPath || undefined;
+        } catch (error) {
+          console.error(
+            "[Composition] Failed to create native snapshot copy:",
+            error,
+          );
+        }
+      }
+      const snapshotClip = normalizeCompositionClipToCanvas(
+        createCompositionSnapshotClip({
+          ...pickedProject,
+          rawVideoPath: snapshotRawVideoPath,
+        }),
+        composition.globalCanvasConfig ?? extractCanvasConfig(backgroundConfig),
+      );
+      if (!snapshotRawVideoPath && !pickedProject.videoBlob) {
+        console.error(
+          "[Composition] Insert failed: project has neither raw video path nor stored video blob",
+        );
+        return;
+      }
+      if (!snapshotRawVideoPath) {
+        await projectManager.saveCompositionClipAssets(
+          projects.currentProjectId,
+          snapshotClip.id,
+          {
+            videoBlob: pickedProject.videoBlob,
+            audioBlob: pickedProject.audioBlob,
+            customBackground: pickedProject.backgroundConfig.customBackground,
+          },
+        );
+      }
+      const nextComposition = insertCompositionClip(
+        composition,
+        sequenceTargetClipId,
+        projectPickerMode === "insertBefore" ? "before" : "after",
+        snapshotClip,
+      );
+      setComposition(nextComposition);
+      setProjectPickerMode(null);
+      projects.setShowProjectsDialog(false);
+      await loadClipMediaIntoEditor(
+        projects.currentProjectId,
+        snapshotClip.id,
+        currentProjectData,
+        nextComposition,
+      );
+      void persistCurrentProjectNow({
+        refreshList: true,
+        includeMedia: false,
+        compositionOverride: nextComposition,
+        skipLiveCompositionSync: true,
+      });
+    },
+    [
+      composition,
+      currentProjectData,
+      loadClipMediaIntoEditor,
+      persistCurrentProjectNow,
+      projectPickerMode,
+      projects,
+      sequenceTargetClipId,
+    ],
+  );
+
+  const handleSelectSequenceClip = useCallback(
+    async (clipId: string) => {
+      const targetClip = getCompositionClip(composition, clipId);
+      if (!targetClip) return;
+      if (clipId === activeClipId) {
+        seek(targetClip.segment.trimStart);
+        if (isPlaying) {
+          videoControllerRef.current?.play();
+        }
+        return;
+      }
+      await focusCompositionClip(clipId, {
+        seekTime: targetClip.segment.trimStart,
+        playAfterLoad: isPlaying,
+      });
+    },
+    [
+      activeClipId,
+      composition,
+      focusCompositionClip,
+      isPlaying,
+      seek,
+      videoControllerRef,
+    ],
+  );
+
+  const handleRemoveSequenceClip = useCallback(
+    async (clipId: string) => {
+      if (!projects.currentProjectId || !composition) return;
+      const clip = getCompositionClip(composition, clipId);
+      if (!clip || clip.role === "root" || composition.clips.length <= 1)
+        return;
+      const nextComposition = removeCompositionClip(composition, clipId);
+      setComposition(nextComposition);
+      await projectManager.deleteCompositionClipAssets(
+        projects.currentProjectId,
+        clipId,
+      );
+      if (
+        clip.rawVideoPath &&
+        isManagedCompositionSnapshotPath(clip.rawVideoPath)
+      ) {
+        try {
+          await invoke("delete_file", { path: clip.rawVideoPath });
+        } catch {
+          // ignore cleanup failures for snapshot media copies
+        }
+      }
+      clipAssetCacheRef.current.delete(clipId);
+      const removedUrls = clipUrlCacheRef.current.get(clipId);
+      if (removedUrls) {
+        if (removedUrls.videoUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(removedUrls.videoUrl);
+        }
+        if (removedUrls.audioUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(removedUrls.audioUrl);
+        }
+        clipUrlCacheRef.current.delete(clipId);
+      }
+      if (preloadedSlotClipIdsRef.current.previous === clipId) {
+        preloadedSlotClipIdsRef.current.previous = null;
+      }
+      if (preloadedSlotClipIdsRef.current.next === clipId) {
+        preloadedSlotClipIdsRef.current.next = null;
+      }
+      const nextClipId =
+        nextComposition.focusedClipId ?? nextComposition.selectedClipId;
+      if (nextClipId) {
+        await loadClipMediaIntoEditor(
+          projects.currentProjectId,
+          nextClipId,
+          currentProjectData,
+          nextComposition,
+        );
+      }
+      void persistCurrentProjectNow({
+        refreshList: true,
+        includeMedia: false,
+        compositionOverride: nextComposition,
+        skipLiveCompositionSync: true,
+      });
+    },
+    [
+      composition,
+      currentProjectData,
+      loadClipMediaIntoEditor,
+      persistCurrentProjectNow,
+      projects.currentProjectId,
+    ],
+  );
+
+  const handleSequenceModeChange = useCallback(
+    async (mode: ProjectCompositionMode) => {
+      if (!composition || !projects.currentProjectId) return;
+      const activeEditableClipId =
+        composition.focusedClipId ?? composition.selectedClipId;
+      if (!activeEditableClipId) return;
+      const canvasConfig = extractCanvasConfig(backgroundConfig);
+      let nextComposition = syncCompositionCanvasConfig(
+        setCompositionMode(composition, mode),
+        canvasConfig,
+      );
+      if (mode === "unified") {
+        if (spreadAnimationTimerRef.current) {
+          clearTimeout(spreadAnimationTimerRef.current);
+        }
+        setSpreadFromClipId(activeEditableClipId);
+        spreadAnimationTimerRef.current = setTimeout(() => {
+          setSpreadFromClipId(null);
+        }, 900);
+        nextComposition = {
+          ...nextComposition,
+          unifiedSourceClipId: activeEditableClipId,
+          globalPresentationConfig: applyCanvasConfig(
+            backgroundConfig,
+            canvasConfig,
+          ),
+          globalBackgroundConfig: applyCanvasConfig(
+            backgroundConfig,
+            canvasConfig,
+          ),
+        };
+      } else {
+        if (spreadAnimationTimerRef.current) {
+          clearTimeout(spreadAnimationTimerRef.current);
+        }
+        setSpreadFromClipId(null);
+      }
+      setComposition(nextComposition);
+      const targetClipId =
+        nextComposition.focusedClipId ?? nextComposition.selectedClipId;
+      if (targetClipId) {
+        await loadClipMediaIntoEditor(
+          projects.currentProjectId,
+          targetClipId,
+          currentProjectData,
+          nextComposition,
+        );
+      }
+    },
+    [
+      backgroundConfig,
+      composition,
+      currentProjectData,
+      loadClipMediaIntoEditor,
+      projects.currentProjectId,
+    ],
+  );
+
   // Persist canvas mode/size changes quickly so reopening projects can't
   // resurrect stale custom-canvas settings from an older autosave.
   useEffect(() => {
@@ -1318,6 +2296,8 @@ function App() {
         });
       }
       projects.setCurrentProjectId(null);
+      setCurrentProjectData(null);
+      setComposition(null);
       setCurrentRecordingMode(selectedRecordingMode);
       setCurrentRawVideoPath("");
       setLastRawSavedPath("");
@@ -1432,8 +2412,11 @@ function App() {
         }
       }
 
-      const response = await fetch(videoUrl);
-      const videoBlob = await response.blob();
+      let videoBlob: Blob | undefined;
+      if (!rawVideoPath) {
+        const response = await fetch(videoUrl);
+        videoBlob = await response.blob();
+      }
       const thumbnail =
         (await videoControllerRef.current?.generateThumbnail({
           segment: initialSegment,
@@ -1452,6 +2435,8 @@ function App() {
         rawVideoPath: rawVideoPath || undefined,
       });
       projects.setCurrentProjectId(project.id);
+      setCurrentProjectData(project);
+      setComposition(ensureProjectComposition(project));
       await projects.loadProjects();
     }
   }, [
@@ -1465,6 +2450,8 @@ function App() {
     setShowRawVideoDialog,
     exportHook,
     requestCloseProjects,
+    setComposition,
+    setCurrentProjectData,
   ]);
 
   // Effects
@@ -1480,7 +2467,7 @@ function App() {
 
   // Keyboard shortcuts
   useAppShortcuts({
-    togglePlayPause,
+    togglePlayPause: handleTogglePlayPause,
     currentTime,
     duration,
     seek,
@@ -1708,10 +2695,29 @@ function App() {
                     <video
                       ref={videoRef}
                       className="hidden"
+                      crossOrigin="anonymous"
                       playsInline
                       preload="auto"
                     />
                     <audio ref={audioRef} className="hidden" />
+                    <video
+                      ref={previousPreloadVideoRef}
+                      className="hidden"
+                      crossOrigin="anonymous"
+                      playsInline
+                      preload="auto"
+                      muted
+                    />
+                    <audio ref={previousPreloadAudioRef} className="hidden" />
+                    <video
+                      ref={nextPreloadVideoRef}
+                      className="hidden"
+                      crossOrigin="anonymous"
+                      playsInline
+                      preload="auto"
+                      muted
+                    />
+                    <audio ref={nextPreloadAudioRef} className="hidden" />
                     {keystrokeOverlayEditFrame &&
                       (isKeystrokeOverlaySelected ||
                         isDraggingKeystrokeOverlayRef.current ||
@@ -1801,7 +2807,7 @@ function App() {
                     duration={duration}
                     wallClockCurrentTime={wallClockCurrentTime}
                     wallClockDuration={wallClockDuration}
-                    onTogglePlayPause={togglePlayPause}
+                    onTogglePlayPause={handleTogglePlayPause}
                     onToggleCrop={handleToggleCrop}
                     canvasModeToggle={
                       <div className="playback-canvas-mode-toggle flex rounded-lg border border-[var(--overlay-divider)] overflow-hidden">
@@ -2028,6 +3034,24 @@ function App() {
                   />
                 )}
               </div>
+
+              {composition && (
+                <SequencePillChain
+                  composition={composition}
+                  activeClipId={activeClipId}
+                  spreadFromClipId={spreadFromClipId}
+                  onSelectClip={(clipId) => {
+                    void handleSelectSequenceClip(clipId);
+                  }}
+                  onInsertClip={handleOpenInsertProjectPicker}
+                  onRemoveClip={(clipId) => {
+                    void handleRemoveSequenceClip(clipId);
+                  }}
+                  onModeChange={(mode) => {
+                    void handleSequenceModeChange(mode);
+                  }}
+                />
+              )}
             </div>
 
             {/* Side Panel */}
@@ -2101,9 +3125,14 @@ function App() {
               projects={projects.projects}
               onLoadProject={handleLoadProjectFromGrid}
               onProjectsChange={projects.loadProjects}
-              onClose={() => projects.setShowProjectsDialog(false)}
+              onClose={() => {
+                setProjectPickerMode(null);
+                projects.setShowProjectsDialog(false);
+              }}
               currentProjectId={projects.currentProjectId}
               restoreImage={restoreImageRef.current}
+              pickerMode={projectPickerMode ?? "load"}
+              onPickProject={handlePickProjectForSequence}
             />
           </div>
         )}

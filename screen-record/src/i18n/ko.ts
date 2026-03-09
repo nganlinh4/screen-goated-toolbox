@@ -186,6 +186,15 @@ const ko: Translations = {
   exportSuccessful: '내보내기 성공',
   autoCopyAfterExport: '내보내기 후 자동 복사',
   original: '원본',
+  sequenceInsertAtStart: '처음에 클립 삽입',
+  sequenceInsertAtEnd: '끝에 클립 삽입',
+  sequenceInsertHere: '여기에 클립 삽입',
+  sequenceRemoveClip: '클립 제거',
+  sequenceModePerClip: '클립별',
+  sequenceModeSharedLook: '룩 공유',
+  sequenceOriginalTitle: '원본 클립',
+  sequenceSharedLookSourceTitle: '공유 룩 기준 클립',
+  sequenceSource: '기준',
 
   // Dialogs - Monitor Select
   selectMonitor: '모니터 선택',

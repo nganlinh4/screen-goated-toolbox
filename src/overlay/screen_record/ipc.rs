@@ -796,6 +796,11 @@ pub fn handle_ipc_command(
             let saved_path = raw_video::save_raw_video_copy(source_path, target_dir)?;
             Ok(serde_json::json!({ "savedPath": saved_path }))
         }
+        "save_composition_snapshot_copy" => {
+            let source_path = args["sourcePath"].as_str().ok_or("Missing sourcePath")?;
+            let saved_path = raw_video::save_composition_snapshot_copy(source_path)?;
+            Ok(serde_json::json!({ "savedPath": saved_path }))
+        }
         "move_saved_raw_video" => {
             let current_path = args["currentPath"].as_str().ok_or("Missing currentPath")?;
             let target_dir = args["targetDir"].as_str().ok_or("Missing targetDir")?;

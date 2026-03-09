@@ -186,6 +186,15 @@ const vi: Translations = {
   exportSuccessful: 'Xuất Thành Công',
   autoCopyAfterExport: 'Tự động copy sau khi xuất',
   original: 'Gốc',
+  sequenceInsertAtStart: 'Chèn clip vào đầu',
+  sequenceInsertAtEnd: 'Chèn clip vào cuối',
+  sequenceInsertHere: 'Chèn clip vào đây',
+  sequenceRemoveClip: 'Xóa clip',
+  sequenceModePerClip: 'Từng Clip',
+  sequenceModeSharedLook: 'Chung Giao Diện',
+  sequenceOriginalTitle: 'Clip gốc',
+  sequenceSharedLookSourceTitle: 'Clip nguồn giao diện chung',
+  sequenceSource: 'Nguồn',
 
   // Dialogs - Monitor Select
   selectMonitor: 'Chọn Màn Hình',
