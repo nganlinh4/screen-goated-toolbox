@@ -1,10 +1,18 @@
-import { CursorVisibilitySegment, KeystrokeEvent, KeystrokeMode, VideoSegment } from '@/types/video';
-import { clampVisibilitySegmentsToDuration, mergePointerSegments } from '@/lib/cursorHiding';
+import {
+  CursorVisibilitySegment,
+  KeystrokeEvent,
+  KeystrokeMode,
+  VideoSegment,
+} from "@/types/video";
+import {
+  clampVisibilitySegmentsToDuration,
+  mergePointerSegments,
+} from "@/lib/cursorHiding";
 
 export const KEYSTROKE_VISIBILITY_MARGIN_BEFORE = 0.04;
 export const KEYSTROKE_VISIBILITY_MARGIN_AFTER = 0.08;
 const MIN_GAP_TO_MERGE = 0.2;
-type ActiveKeystrokeMode = Exclude<KeystrokeMode, 'off'>;
+type ActiveKeystrokeMode = Exclude<KeystrokeMode, "off">;
 
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
@@ -15,9 +23,13 @@ interface KeystrokeVisibilityBuildOptions {
   delaySec?: number;
 }
 
+interface KeystrokeVisibilityWriteOptions {
+  merge?: boolean;
+}
+
 function areVisibilitySegmentsEquivalent(
   a: CursorVisibilitySegment[] | undefined,
-  b: CursorVisibilitySegment[] | undefined
+  b: CursorVisibilitySegment[] | undefined,
 ): boolean {
   const left = a ?? [];
   const right = b ?? [];
@@ -31,12 +43,12 @@ function areVisibilitySegmentsEquivalent(
 
 export function filterKeystrokeEventsByMode(
   events: KeystrokeEvent[],
-  mode: KeystrokeMode
+  mode: KeystrokeMode,
 ): KeystrokeEvent[] {
-  if (mode === 'keyboard') {
-    return events.filter((event) => event.type === 'keyboard');
+  if (mode === "keyboard") {
+    return events.filter((event) => event.type === "keyboard");
   }
-  if (mode === 'keyboardMouse') {
+  if (mode === "keyboardMouse") {
     return events;
   }
   return [];
@@ -45,25 +57,34 @@ export function filterKeystrokeEventsByMode(
 function withVisibilitySegmentsForExactMode(
   segment: VideoSegment,
   mode: ActiveKeystrokeMode,
-  segments: CursorVisibilitySegment[]
+  segments: CursorVisibilitySegment[],
+  options?: KeystrokeVisibilityWriteOptions,
 ): VideoSegment {
-  if (mode === 'keyboard') {
-    return { ...segment, keyboardVisibilitySegments: mergePointerSegments(segments) };
+  const nextSegments =
+    options?.merge === false
+      ? [...segments]
+          .map((entry) => ({ ...entry }))
+          .sort((a, b) => a.startTime - b.startTime)
+      : mergePointerSegments(segments);
+  if (mode === "keyboard") {
+    return { ...segment, keyboardVisibilitySegments: nextSegments };
   }
-  return { ...segment, keyboardMouseVisibilitySegments: mergePointerSegments(segments) };
+  return { ...segment, keyboardMouseVisibilitySegments: nextSegments };
 }
 
 export function generateKeystrokeVisibilitySegments(
   events: KeystrokeEvent[],
   duration: number,
-  options?: KeystrokeVisibilityBuildOptions
+  options?: KeystrokeVisibilityBuildOptions,
 ): CursorVisibilitySegment[] {
   const safeDuration = Math.max(duration, 0);
   if (!events.length || safeDuration <= 0) return [];
 
   const delaySec = clamp(options?.delaySec ?? 0, -1, 1);
   const sorted = [...events].sort((a, b) => a.startTime - b.startTime);
-  const effectiveEnds = sorted.map((event) => Math.min(event.endTime, safeDuration));
+  const effectiveEnds = sorted.map((event) =>
+    Math.min(event.endTime, safeDuration),
+  );
 
   const raw: CursorVisibilitySegment[] = [];
   for (let i = 0; i < sorted.length; i++) {
@@ -71,8 +92,16 @@ export function generateKeystrokeVisibilitySegments(
     const shiftedStart = clamp(event.startTime + delaySec, 0, safeDuration);
     const shiftedEnd = clamp(effectiveEnds[i] + delaySec, 0, safeDuration);
     if (shiftedEnd - shiftedStart <= 0.001) continue;
-    const startTime = clamp(shiftedStart - KEYSTROKE_VISIBILITY_MARGIN_BEFORE, 0, safeDuration);
-    const endTime = clamp(shiftedEnd + KEYSTROKE_VISIBILITY_MARGIN_AFTER, 0, safeDuration);
+    const startTime = clamp(
+      shiftedStart - KEYSTROKE_VISIBILITY_MARGIN_BEFORE,
+      0,
+      safeDuration,
+    );
+    const endTime = clamp(
+      shiftedEnd + KEYSTROKE_VISIBILITY_MARGIN_AFTER,
+      0,
+      safeDuration,
+    );
     if (endTime - startTime <= 0.001) continue;
     raw.push({
       id: crypto.randomUUID(),
@@ -99,21 +128,23 @@ export function generateKeystrokeVisibilitySegments(
 }
 
 export function getKeystrokeVisibilitySegmentsForMode(
-  segment: VideoSegment
+  segment: VideoSegment,
 ): CursorVisibilitySegment[] {
-  const mode = segment.keystrokeMode ?? 'off';
-  if (mode === 'keyboard') return segment.keyboardVisibilitySegments ?? [];
-  if (mode === 'keyboardMouse') return segment.keyboardMouseVisibilitySegments ?? [];
+  const mode = segment.keystrokeMode ?? "off";
+  if (mode === "keyboard") return segment.keyboardVisibilitySegments ?? [];
+  if (mode === "keyboardMouse")
+    return segment.keyboardMouseVisibilitySegments ?? [];
   return [];
 }
 
 export function withKeystrokeVisibilitySegmentsForMode(
   segment: VideoSegment,
-  segments: CursorVisibilitySegment[]
+  segments: CursorVisibilitySegment[],
+  options?: KeystrokeVisibilityWriteOptions,
 ): VideoSegment {
-  const mode = segment.keystrokeMode ?? 'off';
-  if (mode === 'keyboard' || mode === 'keyboardMouse') {
-    return withVisibilitySegmentsForExactMode(segment, mode, segments);
+  const mode = segment.keystrokeMode ?? "off";
+  if (mode === "keyboard" || mode === "keyboardMouse") {
+    return withVisibilitySegmentsForExactMode(segment, mode, segments, options);
   }
   return segment;
 }
@@ -121,42 +152,51 @@ export function withKeystrokeVisibilitySegmentsForMode(
 export function rebuildKeystrokeVisibilitySegmentsForMode(
   segment: VideoSegment,
   mode: ActiveKeystrokeMode,
-  duration: number
+  duration: number,
 ): VideoSegment {
-  const events = filterKeystrokeEventsByMode(segment.keystrokeEvents ?? [], mode);
+  const events = filterKeystrokeEventsByMode(
+    segment.keystrokeEvents ?? [],
+    mode,
+  );
   const delaySec = clamp(segment.keystrokeDelaySec ?? 0, -1, 1);
-  const rebuilt = generateKeystrokeVisibilitySegments(events, duration, { mode, delaySec });
+  const rebuilt = generateKeystrokeVisibilitySegments(events, duration, {
+    mode,
+    delaySec,
+  });
   return withVisibilitySegmentsForExactMode(segment, mode, rebuilt);
 }
 
 export function ensureKeystrokeVisibilitySegments(
   segment: VideoSegment,
-  duration: number
+  duration: number,
 ): VideoSegment {
   const safeDuration = Math.max(0, duration);
   const allEvents = segment.keystrokeEvents ?? [];
-  const keyboardEvents = filterKeystrokeEventsByMode(allEvents, 'keyboard');
-  const keyboardMouseEvents = filterKeystrokeEventsByMode(allEvents, 'keyboardMouse');
+  const keyboardEvents = filterKeystrokeEventsByMode(allEvents, "keyboard");
+  const keyboardMouseEvents = filterKeystrokeEventsByMode(
+    allEvents,
+    "keyboardMouse",
+  );
   const delaySec = clamp(segment.keystrokeDelaySec ?? 0, -1, 1);
   const keyboardAutoWithDelay = generateKeystrokeVisibilitySegments(
     keyboardEvents,
     duration,
-    { mode: 'keyboard', delaySec }
+    { mode: "keyboard", delaySec },
   );
   const keyboardMouseAutoWithDelay = generateKeystrokeVisibilitySegments(
     keyboardMouseEvents,
     duration,
-    { mode: 'keyboardMouse', delaySec }
+    { mode: "keyboardMouse", delaySec },
   );
   const keyboardAutoNoDelay = generateKeystrokeVisibilitySegments(
     keyboardEvents,
     duration,
-    { mode: 'keyboard', delaySec: 0 }
+    { mode: "keyboard", delaySec: 0 },
   );
   const keyboardMouseAutoNoDelay = generateKeystrokeVisibilitySegments(
     keyboardMouseEvents,
     duration,
-    { mode: 'keyboardMouse', delaySec: 0 }
+    { mode: "keyboardMouse", delaySec: 0 },
   );
 
   return {
@@ -164,20 +204,30 @@ export function ensureKeystrokeVisibilitySegments(
     keyboardVisibilitySegments: (() => {
       const existingRaw = segment.keyboardVisibilitySegments;
       if (!existingRaw) return keyboardAutoWithDelay;
-      const existing = clampVisibilitySegmentsToDuration(existingRaw, safeDuration);
-      const shouldMigrateAutoFromNoDelay = delaySec !== 0
-        && areVisibilitySegmentsEquivalent(existing, keyboardAutoNoDelay)
-        && !areVisibilitySegmentsEquivalent(existing, keyboardAutoWithDelay);
+      const existing = clampVisibilitySegmentsToDuration(
+        existingRaw,
+        safeDuration,
+      );
+      const shouldMigrateAutoFromNoDelay =
+        delaySec !== 0 &&
+        areVisibilitySegmentsEquivalent(existing, keyboardAutoNoDelay) &&
+        !areVisibilitySegmentsEquivalent(existing, keyboardAutoWithDelay);
       return shouldMigrateAutoFromNoDelay ? keyboardAutoWithDelay : existing;
     })(),
     keyboardMouseVisibilitySegments: (() => {
       const existingRaw = segment.keyboardMouseVisibilitySegments;
       if (!existingRaw) return keyboardMouseAutoWithDelay;
-      const existing = clampVisibilitySegmentsToDuration(existingRaw, safeDuration);
-      const shouldMigrateAutoFromNoDelay = delaySec !== 0
-        && areVisibilitySegmentsEquivalent(existing, keyboardMouseAutoNoDelay)
-        && !areVisibilitySegmentsEquivalent(existing, keyboardMouseAutoWithDelay);
-      return shouldMigrateAutoFromNoDelay ? keyboardMouseAutoWithDelay : existing;
+      const existing = clampVisibilitySegmentsToDuration(
+        existingRaw,
+        safeDuration,
+      );
+      const shouldMigrateAutoFromNoDelay =
+        delaySec !== 0 &&
+        areVisibilitySegmentsEquivalent(existing, keyboardMouseAutoNoDelay) &&
+        !areVisibilitySegmentsEquivalent(existing, keyboardMouseAutoWithDelay);
+      return shouldMigrateAutoFromNoDelay
+        ? keyboardMouseAutoWithDelay
+        : existing;
     })(),
   };
 }
