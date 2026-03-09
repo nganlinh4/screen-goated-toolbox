@@ -150,6 +150,7 @@ const ko: Translations = {
   exportFormat: '형식',
   exportFormatGif: 'GIF',
   exportFormatMp4: 'MP4',
+  exportFormatBoth: 'MP4 + GIF',
   exportBackendSoftwareGif: '소프트웨어 GIF 인코더',
   exportSizeVaries: '가변',
   standard: '표준',
@@ -169,6 +170,11 @@ const ko: Translations = {
   autoCopyAfterRecording: '다음 녹화부터 자동 복사',
   autoCopyVideoAfterExport: '내보내기 후 비디오 자동 복사',
   autoCopyGifAfterExport: '내보내기 후 GIF 자동 복사',
+  exportChainSummary: '{count}개 클립 · 총 {duration}초',
+  exportArtifactsSaved: '저장된 출력',
+  exportPhaseRenderClip: '클립 {index}/{count} 렌더링 중',
+  exportPhaseMergingClips: '클립 병합 중',
+  exportPhaseCreatingGif: 'GIF 생성 중',
 
   // Dialogs - Projects
   noProjectsYet: '프로젝트가 없습니다',

@@ -150,6 +150,7 @@ const vi: Translations = {
   exportFormat: 'Định dạng',
   exportFormatGif: 'GIF',
   exportFormatMp4: 'MP4',
+  exportFormatBoth: 'MP4 + GIF',
   exportBackendSoftwareGif: 'Bộ mã hóa GIF phần mềm',
   exportSizeVaries: 'Thay đổi',
   standard: 'Chuẩn',
@@ -169,6 +170,11 @@ const vi: Translations = {
   autoCopyAfterRecording: 'Tự copy sau khi quay cho lần sau',
   autoCopyVideoAfterExport: 'Tự động copy video sau khi xuất',
   autoCopyGifAfterExport: 'Tự động copy GIF sau khi xuất',
+  exportChainSummary: '{count} clip · tổng {duration}s',
+  exportArtifactsSaved: 'Đầu ra đã lưu',
+  exportPhaseRenderClip: 'Đang render clip {index}/{count}',
+  exportPhaseMergingClips: 'Đang ghép clip',
+  exportPhaseCreatingGif: 'Đang tạo GIF',
 
   // Dialogs - Projects
   noProjectsYet: 'Chưa có dự án nào',

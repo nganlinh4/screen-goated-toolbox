@@ -1,6 +1,7 @@
 pub mod anim_cache;
 mod background_presets;
 mod camera_path;
+mod composition;
 pub mod config;
 mod cursor;
 mod cursor_path;
@@ -29,6 +30,7 @@ use super::mf_decode;
 use super::mf_encode;
 use crate::overlay::screen_record::engine::{ENCODER_ACTIVE, IS_RECORDING, VIDEO_PATH};
 
+pub use composition::start_composition_export;
 pub use progress::{export_replay_args_path, persist_export_result, push_export_progress};
 
 pub fn prewarm_custom_background(url: &str) -> Result<(), String> {
@@ -304,21 +306,30 @@ fn probe_mf_h264_hardware() -> bool {
 }
 
 pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value, String> {
-    let export_total_start = Instant::now();
     let _active_export_guard = ExportActiveGuard::activate();
     EXPORT_CANCELLED.store(false, Ordering::SeqCst);
 
     progress::persist_replay_args(&args);
 
     let parse_start = Instant::now();
-    let mut config: ExportConfig = serde_json::from_value(args).map_err(|e| e.to_string())?;
+    let config: ExportConfig = serde_json::from_value(args).map_err(|e| e.to_string())?;
     let parse_secs = parse_start.elapsed().as_secs_f64();
-
-    println!("[Export] Starting zero-copy GPU export...");
-
-    // Merge staged baked data (sent via chunked IPC) with inline config data.
-    // Staged data takes priority when config arrays are empty.
     let staged = staging::take_staged();
+    let progress_cb: gpu_pipeline::ProgressCallback = Box::new(|pct, eta| {
+        push_export_progress(pct, eta);
+    });
+
+    run_native_export_with_staged(config, staged, parse_secs, Some(progress_cb))
+}
+
+pub(crate) fn run_native_export_with_staged(
+    mut config: ExportConfig,
+    staged: staging::StagedExportData,
+    parse_secs: f64,
+    progress_cb: Option<gpu_pipeline::ProgressCallback>,
+) -> Result<serde_json::Value, String> {
+    let export_total_start = Instant::now();
+    println!("[Export] Starting zero-copy GPU export...");
 
     let mut baked_path = match config.baked_path.take() {
         Some(v) if !v.is_empty() => v,
@@ -762,10 +773,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let total_frames = source_times.len() as u32;
     let planned_output_duration_sec = total_frames as f64 / config.framerate as f64;
 
-    let progress_cb: gpu_pipeline::ProgressCallback = Box::new(|pct, eta| {
-        push_export_progress(pct, eta);
-    });
-
     println!(
         "[Export] Pipeline config: {}x{} @ {} fps, bitrate={}k, trim_start={:.3}, dur={:.3}, output_dur={:.3}",
         out_w,
@@ -781,7 +788,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         &pipeline_config,
         &mut compositor,
         &build_uniforms,
-        Some(progress_cb),
+        progress_cb,
         &EXPORT_CANCELLED,
         &source_times,
     );

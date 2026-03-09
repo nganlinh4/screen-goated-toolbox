@@ -21,6 +21,7 @@ import {
   MousePosition,
   Project,
   ProjectComposition,
+  ProjectCompositionClip,
   ProjectCompositionMode,
   VideoSegment,
   KeystrokeMode,
@@ -81,6 +82,7 @@ import {
   createCompositionSnapshotClip,
   ensureProjectComposition,
   extractCanvasConfig,
+  getCompositionAutoSourceClipId,
   getCompositionAdjacentClipIds,
   getCompositionClip,
   getCompositionResolvedBackgroundConfig,
@@ -95,6 +97,7 @@ import {
 import {
   getMediaServerUrl,
   isManagedCompositionSnapshotPath,
+  writeBlobToTempMediaFile,
 } from "@/lib/mediaServer";
 
 const LAST_BG_CONFIG_KEY = "screen-record-last-background-config-v1";
@@ -342,6 +345,7 @@ function App() {
   const clipUrlCacheRef = useRef<
     Map<string, { videoUrl: string; audioUrl: string | null }>
   >(new Map());
+  const clipExportSourcePathCacheRef = useRef<Map<string, string>>(new Map());
   const preloadedSlotClipIdsRef = useRef<Record<PreloadSlotKey, string | null>>(
     {
       previous: null,
@@ -405,7 +409,6 @@ function App() {
     seek,
     flushSeek,
     generateThumbnail,
-    generateThumbnails,
     generateThumbnailsForSource,
     invalidateThumbnails,
   } = playback;
@@ -422,9 +425,10 @@ function App() {
     setCurrentAudio,
     setIsVideoReady,
     setThumbnails,
+    invalidateThumbnails,
     setDuration: setPreviewDuration,
     setCurrentTime: setPreviewCurrentTime,
-    generateThumbnails,
+    generateThumbnailsForSource,
     generateThumbnail,
     renderFrame,
     currentVideo,
@@ -829,6 +833,7 @@ function App() {
         preserveVideoUrl: currentVideo,
         preserveAudioUrl: currentAudio,
       });
+      clipExportSourcePathCacheRef.current.clear();
       setCurrentProjectData(project);
       const nextComposition = ensureProjectComposition(project);
       setComposition(nextComposition);
@@ -851,6 +856,31 @@ function App() {
     currentVideo,
     currentAudio,
   });
+  const resolveClipExportSourcePath = useCallback(
+    async (clip: ProjectCompositionClip): Promise<string> => {
+      const projectId = projects.currentProjectId;
+      if (!projectId) {
+        throw new Error("Project not loaded");
+      }
+      const cacheKey = `${projectId}:${clip.id}`;
+      const cached = clipExportSourcePathCacheRef.current.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
+      if (clip.rawVideoPath) {
+        clipExportSourcePathCacheRef.current.set(cacheKey, clip.rawVideoPath);
+        return clip.rawVideoPath;
+      }
+      const assets = await loadClipAssets(projectId, clip.id);
+      if (!assets?.videoBlob) {
+        throw new Error(`Clip "${clip.name}" is missing source media`);
+      }
+      const tempPath = await writeBlobToTempMediaFile(assets.videoBlob);
+      clipExportSourcePathCacheRef.current.set(cacheKey, tempPath);
+      return tempPath;
+    },
+    [loadClipAssets, projects.currentProjectId],
+  );
   const selectedClipId =
     composition?.focusedClipId ?? composition?.selectedClipId ?? null;
   const activeClipId = loadedClipId ?? selectedClipId;
@@ -858,6 +888,7 @@ function App() {
     () => getCompositionClip(composition, activeClipId),
     [activeClipId, composition],
   );
+  const hasSequenceChain = (composition?.clips.length ?? 0) > 1;
   const { previousClipId, nextClipId } = useMemo(
     () => getCompositionAdjacentClipIds(composition, activeClipId),
     [activeClipId, composition],
@@ -887,6 +918,9 @@ function App() {
     savedRawVideoPath: lastRawSavedPath,
     currentVideo,
     lastCaptureFps,
+    composition,
+    currentProjectId: projects.currentProjectId,
+    resolveClipExportSourcePath,
   });
 
   const handleExportSuccessPathChange = useCallback(
@@ -980,6 +1014,37 @@ function App() {
     if (!pts?.length) return currentTime;
     return videoTimeToWallClock(currentTime, pts);
   }, [currentTime, segment?.speedPoints]);
+
+  const getAutoCanvasSelectionConfig = useCallback(() => {
+    const crop = segment?.crop ?? { x: 0, y: 0, width: 1, height: 1 };
+    const sourceWidth =
+      videoRef.current?.videoWidth || canvasRef.current?.width || 0;
+    const sourceHeight =
+      videoRef.current?.videoHeight || canvasRef.current?.height || 0;
+    const derivedWidth =
+      sourceWidth > 0 ? Math.max(2, Math.round(sourceWidth * crop.width)) : undefined;
+    const derivedHeight =
+      sourceHeight > 0
+        ? Math.max(2, Math.round(sourceHeight * crop.height))
+        : undefined;
+    return {
+      canvasMode: "auto" as const,
+      canvasWidth: derivedWidth,
+      canvasHeight: derivedHeight,
+      autoSourceClipId:
+        activeClipId ??
+        getCompositionAutoSourceClipId(composition) ??
+        composition?.focusedClipId ??
+        composition?.selectedClipId ??
+        "root",
+    };
+  }, [
+    activeClipId,
+    canvasRef,
+    composition,
+    segment?.crop,
+    videoRef,
+  ]);
 
   useEffect(() => {
     segmentRef.current = segment;
@@ -1127,6 +1192,7 @@ function App() {
 
   const handleTogglePlayPause = useCallback(() => {
     if (
+      hasSequenceChain &&
       !isPlaying &&
       composition &&
       activeCompositionClip &&
@@ -1157,13 +1223,15 @@ function App() {
     composition,
     currentTime,
     focusCompositionClip,
+    hasSequenceChain,
     isPlaying,
     nextClipId,
     togglePlayback,
   ]);
 
   useEffect(() => {
-    if (!activeCompositionClip || !nextClipId || !isPlaying) return;
+    if (!hasSequenceChain || !activeCompositionClip || !nextClipId || !isPlaying)
+      return;
     const activeEndTime = activeCompositionClip.segment.trimEnd;
     const remaining = activeEndTime - currentTime;
     if (remaining > 0.04) return;
@@ -1179,6 +1247,7 @@ function App() {
     composition,
     currentTime,
     focusCompositionClip,
+    hasSequenceChain,
     isPlaying,
     nextClipId,
   ]);
@@ -1778,14 +1847,10 @@ function App() {
             const response = await fetch(currentVideo);
             videoBlob = await response.blob();
           }
-          const generated = await videoControllerRef.current?.generateThumbnail(
-            {
-              segment: segment!,
-              backgroundConfig,
-              mousePositions,
-            },
-          );
-          thumbnail = canvasSnapshot || generated || generateThumbnail();
+          thumbnail =
+            canvasSnapshot ||
+            generateThumbnail() ||
+            activeClip.thumbnail;
         }
         const canvasConfig = extractCanvasConfig(backgroundConfig);
         let nextComposition = compositionState;
@@ -2393,6 +2458,10 @@ function App() {
     exportHook.setShowExportSuccessDialog(false);
     const result = await handleStopRecording();
     if (result) {
+      setComposition(null);
+      setLoadedClipId(null);
+      setCurrentProjectData(null);
+      projects.setCurrentProjectId(null);
       requestCloseProjects();
       const {
         mouseData,
@@ -2438,19 +2507,14 @@ function App() {
         const response = await fetch(videoUrl);
         videoBlob = await response.blob();
       }
-      const thumbnail =
-        (await videoControllerRef.current?.generateThumbnail({
-          segment: initialSegment,
-          backgroundConfig,
-          mousePositions: mouseData,
-        })) || generateThumbnail();
+      const thumbnail = generateThumbnail();
       const project = await projectManager.saveProject({
         name: `Recording ${new Date().toLocaleString()}`,
         videoBlob,
         segment: initialSegment,
         backgroundConfig,
         mousePositions: mouseData,
-        thumbnail,
+        thumbnail: thumbnail || undefined,
         duration: initialSegment.trimEnd,
         recordingMode,
         rawVideoPath: rawVideoPath || undefined,
@@ -2858,12 +2922,19 @@ function App() {
                                       canvasMode: "custom",
                                       canvasWidth: w,
                                       canvasHeight: h,
+                                      autoCanvasSourceId: null,
                                     };
                                   });
                                 } else {
+                                  const autoCanvasConfig =
+                                    getAutoCanvasSelectionConfig();
                                   setBackgroundConfig((prev) => ({
                                     ...prev,
                                     canvasMode: "auto",
+                                    canvasWidth: autoCanvasConfig.canvasWidth,
+                                    canvasHeight: autoCanvasConfig.canvasHeight,
+                                    autoCanvasSourceId:
+                                      autoCanvasConfig.autoSourceClipId,
                                   }));
                                 }
                               }}
@@ -3184,11 +3255,13 @@ function App() {
           onExport={exportHook.startExport}
           exportOptions={exportHook.exportOptions}
           setExportOptions={exportHook.setExportOptions}
-          segment={segment}
+          segment={exportHook.dialogSegment}
           videoRef={videoRef}
-          backgroundConfig={backgroundConfig}
+          backgroundConfig={exportHook.dialogBackgroundConfig}
           hasAudio={exportHook.hasAudio}
           sourceVideoFps={exportHook.sourceVideoFps}
+          trimmedDurationSec={exportHook.dialogTrimmedDurationSec}
+          clipCount={exportHook.dialogClipCount}
           autoCopyEnabled={exportHook.exportAutoCopyEnabled}
           onToggleAutoCopy={exportHook.setExportAutoCopyEnabled}
         />
@@ -3205,6 +3278,7 @@ function App() {
           show={exportHook.showExportSuccessDialog}
           onClose={() => exportHook.setShowExportSuccessDialog(false)}
           filePath={exportHook.lastExportedPath}
+          artifacts={exportHook.lastExportArtifacts}
           onFilePathChange={handleExportSuccessPathChange}
           autoCopyEnabled={exportHook.exportAutoCopyEnabled}
           onToggleAutoCopy={exportHook.setExportAutoCopyEnabled}

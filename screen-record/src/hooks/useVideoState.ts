@@ -4,15 +4,22 @@ import { videoRenderer } from "@/lib/videoRenderer";
 import { createVideoController } from "@/lib/videoController";
 import { projectManager } from "@/lib/projectManager";
 import { thumbnailGenerator } from "@/lib/thumbnailGenerator";
+import {
+  buildCompositionExportDialogState,
+  exportCompositionAndDownload,
+} from "@/lib/compositionExport";
 import { videoExporter } from "@/lib/videoExporter";
 import { autoZoomGenerator } from "@/lib/autoZoom";
 import {
   BackgroundConfig,
+  ExportArtifact,
   VideoSegment,
   ZoomKeyframe,
   MousePosition,
   ExportOptions,
   Project,
+  ProjectComposition,
+  ProjectCompositionClip,
   TextSegment,
   CursorVisibilitySegment,
   RawInputEvent,
@@ -24,7 +31,7 @@ import {
   generateCursorVisibility,
   mergePointerSegments,
 } from "@/lib/cursorHiding";
-import { normalizeSegmentTrimData } from "@/lib/trimSegments";
+import { getTotalTrimDuration, normalizeSegmentTrimData } from "@/lib/trimSegments";
 import { getKeyframeRange } from "@/utils/helpers";
 import { useThrottle } from "./useAppHooks";
 import { buildKeystrokeEvents } from "@/lib/keystrokeProcessor";
@@ -325,6 +332,21 @@ export function useVideoPlayback({
   const thumbnailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thumbnailCacheRef = useRef<Map<string, string[]>>(new Map());
 
+  const getRequestedThumbnailCount = useCallback(
+    (thumbnailSegment: VideoSegment | null | undefined) => {
+      if (!thumbnailSegment) return 6;
+      const trimDuration = Math.max(
+        0,
+        getTotalTrimDuration(
+          thumbnailSegment,
+          Math.max(thumbnailSegment.trimEnd, 0.001),
+        ),
+      );
+      return Math.max(6, Math.min(10, Math.ceil(trimDuration / 3)));
+    },
+    [],
+  );
+
   // Initialize controller
   useEffect(() => {
     if (!videoRef.current || !canvasRef.current) return;
@@ -451,6 +473,7 @@ export function useVideoPlayback({
       const videoUrl = options?.videoUrl ?? currentVideo;
       const thumbnailSegment = options?.segment ?? segment;
       if (!videoUrl || !thumbnailSegment) return;
+      const requestedCount = getRequestedThumbnailCount(thumbnailSegment);
       const requestId = ++thumbnailRequestIdRef.current;
       const cacheKey = getThumbnailCacheKey(options);
       const cachedThumbnails = cacheKey
@@ -468,7 +491,7 @@ export function useVideoPlayback({
         try {
           const newThumbnails = await thumbnailGenerator.generateThumbnails(
             videoUrl,
-            20,
+            requestedCount,
             {
               trimStart: thumbnailSegment.trimStart,
               trimEnd: thumbnailSegment.trimEnd,
@@ -518,7 +541,13 @@ export function useVideoPlayback({
 
       await run();
     },
-    [currentVideo, generateThumbnail, getThumbnailCacheKey, segment],
+    [
+      currentVideo,
+      generateThumbnail,
+      getRequestedThumbnailCount,
+      getThumbnailCacheKey,
+      segment,
+    ],
   );
 
   const generateThumbnails = useCallback(
@@ -709,9 +738,15 @@ interface UseRecordingProps {
   setCurrentAudio: (url: string | null) => void;
   setIsVideoReady: (ready: boolean) => void;
   setThumbnails: (thumbnails: string[]) => void;
+  invalidateThumbnails: () => void;
   setDuration: (duration: number) => void;
   setCurrentTime: (time: number) => void;
-  generateThumbnails: (filePathOverride?: string) => void;
+  generateThumbnailsForSource: (options?: {
+    videoUrl?: string | null;
+    filePath?: string;
+    segment?: VideoSegment | null;
+    deferMs?: number;
+  }) => Promise<void>;
   generateThumbnail: () => string | undefined;
   renderFrame: () => void;
   currentVideo: string | null;
@@ -799,11 +834,11 @@ export function useRecording(props: UseRecordingProps) {
       setIsRecording(false);
       setIsLoadingVideo(true);
       props.setIsVideoReady(false);
+      props.invalidateThumbnails();
       props.setSegment(null);
       props.setCurrentTime(0);
       props.setDuration(0);
       setLoadingProgress(0);
-      props.setThumbnails([]);
 
       const [
         videoUrl,
@@ -848,28 +883,6 @@ export function useRecording(props: UseRecordingProps) {
       });
 
       if (objectUrl) {
-        // Revoke the old video/audio URLs that were preserved during recording.
-        if (props.currentVideo && props.currentVideo !== objectUrl)
-          URL.revokeObjectURL(props.currentVideo);
-        if (props.currentAudio) URL.revokeObjectURL(props.currentAudio);
-
-        props.setCurrentVideo(objectUrl);
-        setVideoFilePathOwnerUrl(objectUrl);
-
-        if (audioUrl && audioUrl !== videoUrl) {
-          audioObjectUrl = await props.videoControllerRef.current?.loadAudio({
-            audioUrl,
-          });
-          if (audioObjectUrl) props.setCurrentAudio(audioObjectUrl);
-        } else {
-          props.setCurrentAudio(null);
-        }
-
-        props.setIsVideoReady(true);
-        // Restore the SR window so the user can review the new recording.
-        invoke("restore_window").catch(() => {});
-        props.generateThumbnails(videoPath || undefined);
-
         const videoDuration = props.videoRef.current?.duration || 0;
         const maxMouseTimestamp = rawMouseData.reduce((max, entry) => {
           const ts = typeof entry?.timestamp === "number" ? entry.timestamp : 0;
@@ -989,8 +1002,6 @@ export function useRecording(props: UseRecordingProps) {
           keystrokeOverlay: getSavedKeystrokeOverlayPref(),
           useCustomCursor: activeRecordingMode !== "withCursor",
         };
-        props.setSegment(initialSegment);
-
         if (
           props.videoRef.current &&
           props.canvasRef.current &&
@@ -1006,6 +1017,40 @@ export function useRecording(props: UseRecordingProps) {
             currentTime: 0,
           });
         }
+        const placeholder = props.generateThumbnail();
+        const placeholderStrip = placeholder
+          ? Array.from({ length: 6 }, () => placeholder)
+          : null;
+
+        // Revoke the old video/audio URLs only once the new preview state is ready.
+        if (props.currentVideo && props.currentVideo !== objectUrl)
+          URL.revokeObjectURL(props.currentVideo);
+        if (props.currentAudio) URL.revokeObjectURL(props.currentAudio);
+
+        if (audioUrl && audioUrl !== videoUrl) {
+          audioObjectUrl = await props.videoControllerRef.current?.loadAudio({
+            audioUrl,
+          });
+        }
+
+        props.setCurrentVideo(objectUrl);
+        setVideoFilePathOwnerUrl(objectUrl);
+        props.setCurrentAudio(audioObjectUrl || null);
+        props.setDuration(timelineDuration);
+        props.setCurrentTime(initialSegment.trimStart);
+        props.setSegment(initialSegment);
+        if (placeholderStrip) {
+          props.setThumbnails(placeholderStrip);
+        }
+        props.setIsVideoReady(true);
+        // Restore the SR window so the user can review the new recording.
+        invoke("restore_window").catch(() => {});
+        void props.generateThumbnailsForSource({
+          videoUrl: objectUrl,
+          filePath: videoPath || undefined,
+          segment: initialSegment,
+          deferMs: 180,
+        });
 
         return {
           mouseData: stabilizedMouseData,
@@ -1376,6 +1421,11 @@ interface UseExportProps {
   currentVideo: string | null;
   /** Actual FPS the most-recent recording was encoded at (from backend). Overrides probe. */
   lastCaptureFps: number | null;
+  composition: ProjectComposition | null;
+  currentProjectId: string | null;
+  resolveClipExportSourcePath: (
+    clip: ProjectCompositionClip,
+  ) => Promise<string>;
 }
 
 interface NativeVideoMetadataProbe {
@@ -1392,7 +1442,17 @@ export function useExport(props: UseExportProps) {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showExportSuccessDialog, setShowExportSuccessDialog] = useState(false);
   const [lastExportedPath, setLastExportedPath] = useState("");
+  const [lastExportArtifacts, setLastExportArtifacts] = useState<
+    ExportArtifact[]
+  >([]);
   const [sourceVideoFps, setSourceVideoFps] = useState<number | null>(null);
+  const [compositionDialogState, setCompositionDialogState] = useState<{
+    segment: VideoSegment | null;
+    backgroundConfig: BackgroundConfig | null;
+    trimmedDurationSec: number;
+    clipCount: number;
+    hasAudio: boolean;
+  } | null>(null);
   const [exportAutoCopyEnabled, setExportAutoCopyEnabled] = useState(() => {
     try {
       return localStorage.getItem("screen-record-export-auto-copy-v1") === "1";
@@ -1431,6 +1491,7 @@ export function useExport(props: UseExportProps) {
   }, [exportAutoCopyEnabled]);
 
   const handleExport = useCallback(() => setShowExportDialog(true), []);
+  const isCompositionExport = (props.composition?.clips.length ?? 0) > 1;
 
   const resolveSourceVideoPath = useCallback((): string => {
     const directRecordingPath =
@@ -1454,7 +1515,36 @@ export function useExport(props: UseExportProps) {
   useEffect(() => {
     if (!showExportDialog) return;
 
+    if (isCompositionExport && props.composition) {
+      let cancelled = false;
+      void buildCompositionExportDialogState(
+        props.composition,
+        props.resolveClipExportSourcePath,
+      )
+        .then((state) => {
+          if (cancelled) return;
+          setCompositionDialogState({
+            segment: state.segment,
+            backgroundConfig: state.backgroundConfig,
+            trimmedDurationSec: state.trimmedDurationSec,
+            clipCount: state.clipCount,
+            hasAudio: state.hasAudio,
+          });
+          setSourceVideoFps(props.lastCaptureFps ?? state.sourceFps);
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          console.warn("[Export] Composition export summary failed:", error);
+          setCompositionDialogState(null);
+          setSourceVideoFps(props.lastCaptureFps ?? null);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const sourceVideoPath = resolveSourceVideoPath();
+    setCompositionDialogState(null);
     if (!sourceVideoPath) {
       setSourceVideoFps(null);
       return;
@@ -1485,7 +1575,14 @@ export function useExport(props: UseExportProps) {
     return () => {
       cancelled = true;
     };
-  }, [showExportDialog, resolveSourceVideoPath, props.lastCaptureFps]);
+  }, [
+    isCompositionExport,
+    props.composition,
+    props.lastCaptureFps,
+    props.resolveClipExportSourcePath,
+    resolveSourceVideoPath,
+    showExportDialog,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1551,6 +1648,7 @@ export function useExport(props: UseExportProps) {
       props.isRecording ||
       isProcessing ||
       showExportDialog ||
+      isCompositionExport ||
       !hasCheckedExportCapabilities
     )
       return;
@@ -1626,6 +1724,7 @@ export function useExport(props: UseExportProps) {
     props.isRecording,
     isProcessing,
     showExportDialog,
+    isCompositionExport,
     hasCheckedExportCapabilities,
     props.currentVideo,
     props.segment,
@@ -1655,6 +1754,7 @@ export function useExport(props: UseExportProps) {
       props.isRecording ||
       isProcessing ||
       !showExportDialog ||
+      isCompositionExport ||
       !hasCheckedExportCapabilities
     )
       return;
@@ -1703,6 +1803,7 @@ export function useExport(props: UseExportProps) {
     props.isRecording,
     isProcessing,
     showExportDialog,
+    isCompositionExport,
     hasCheckedExportCapabilities,
     exportOptions.width,
     exportOptions.height,
@@ -1727,12 +1828,43 @@ export function useExport(props: UseExportProps) {
     resolveSourceVideoPath,
   ]);
 
+  const resolveExportArtifacts = useCallback(
+    (
+      result:
+        | {
+            status?: string;
+            path?: string;
+            artifacts?: ExportArtifact[];
+          }
+        | undefined,
+    ): ExportArtifact[] => {
+      if (Array.isArray(result?.artifacts) && result.artifacts.length > 0) {
+        return result.artifacts;
+      }
+      if (typeof result?.path === "string" && result.path) {
+        return [
+          {
+            format: result.path.toLowerCase().endsWith(".gif") ? "gif" : "mp4",
+            path: result.path,
+            primary: true,
+          },
+        ];
+      }
+      return [];
+    },
+    [],
+  );
+
   const startExport = useCallback(async () => {
+    const useBatchExport =
+      !!props.composition &&
+      (isCompositionExport || (exportOptions.format || "mp4") === "both");
     if (
-      !props.currentVideo ||
-      !props.segment ||
-      !props.videoRef.current ||
-      !props.canvasRef.current
+      !useBatchExport &&
+      (!props.currentVideo ||
+        !props.segment ||
+        !props.videoRef.current ||
+        !props.canvasRef.current)
     )
       return;
     const sourceVideoPath = resolveSourceVideoPath();
@@ -1740,45 +1872,55 @@ export function useExport(props: UseExportProps) {
     try {
       setShowExportDialog(false);
       setIsProcessing(true);
+      setLastExportArtifacts([]);
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => resolve()),
       );
 
-      const res = await videoExporter.exportAndDownload({
-        width: exportOptions.width,
-        height: exportOptions.height,
-        fps: exportOptions.fps,
-        targetVideoBitrateKbps: exportOptions.targetVideoBitrateKbps,
-        speed: exportOptions.speed,
-        exportProfile: exportOptions.exportProfile || "turbo_nv",
-        preferNvTurbo: exportOptions.preferNvTurbo ?? true,
-        qualityGatePercent: exportOptions.qualityGatePercent ?? 3,
-        turboCodec: exportOptions.turboCodec || "hevc",
-        preRenderPolicy: exportOptions.preRenderPolicy || "idle_only",
-        outputDir: exportOptions.outputDir || "",
-        format: exportOptions.format || "mp4",
-        video: props.videoRef.current,
-        canvas: props.canvasRef.current,
-        tempCanvas: props.tempCanvasRef.current!,
-        segment: props.segment,
-        backgroundConfig: props.backgroundConfig,
-        mousePositions: props.mousePositions,
-        audio: props.audioRef.current || undefined,
-        audioFilePath: props.audioFilePath || sourceVideoPath,
-        videoFilePath: sourceVideoPath,
-        onProgress: setExportProgress,
-      });
+      const res = useBatchExport && props.composition
+        ? await exportCompositionAndDownload({
+            composition: props.composition,
+            exportOptions,
+            resolveClipSourcePath: props.resolveClipExportSourcePath,
+          })
+        : await videoExporter.exportAndDownload({
+            width: exportOptions.width,
+            height: exportOptions.height,
+            fps: exportOptions.fps,
+            targetVideoBitrateKbps: exportOptions.targetVideoBitrateKbps,
+            speed: exportOptions.speed,
+            exportProfile: exportOptions.exportProfile || "turbo_nv",
+            preferNvTurbo: exportOptions.preferNvTurbo ?? true,
+            qualityGatePercent: exportOptions.qualityGatePercent ?? 3,
+            turboCodec: exportOptions.turboCodec || "hevc",
+            preRenderPolicy: exportOptions.preRenderPolicy || "idle_only",
+            outputDir: exportOptions.outputDir || "",
+            format: exportOptions.format || "mp4",
+            video: props.videoRef.current!,
+            canvas: props.canvasRef.current!,
+            tempCanvas: props.tempCanvasRef.current!,
+            segment: props.segment!,
+            backgroundConfig: props.backgroundConfig,
+            mousePositions: props.mousePositions,
+            audio: props.audioRef.current || undefined,
+            audioFilePath: props.audioFilePath || sourceVideoPath,
+            videoFilePath: sourceVideoPath,
+            onProgress: setExportProgress,
+          });
+      const artifacts = resolveExportArtifacts(res);
+      const primaryArtifact =
+        artifacts.find((artifact) => artifact.primary) ?? artifacts[0];
       if (
         res?.status === "success" &&
-        typeof res.path === "string" &&
-        res.path
+        primaryArtifact?.path
       ) {
-        setLastExportedPath(res.path);
+        setLastExportArtifacts(artifacts);
+        setLastExportedPath(primaryArtifact.path);
         setShowExportSuccessDialog(true);
         if (exportAutoCopyEnabled) {
-          invoke("copy_video_file_to_clipboard", { filePath: res.path }).catch(
-            console.error,
-          );
+          invoke("copy_video_file_to_clipboard", {
+            filePath: primaryArtifact.path,
+          }).catch(console.error);
         }
       }
     } catch (error) {
@@ -1787,7 +1929,14 @@ export function useExport(props: UseExportProps) {
       setIsProcessing(false);
       setExportProgress(0);
     }
-  }, [props, exportOptions, resolveSourceVideoPath, exportAutoCopyEnabled]);
+  }, [
+    exportAutoCopyEnabled,
+    exportOptions,
+    isCompositionExport,
+    props,
+    resolveExportArtifacts,
+    resolveSourceVideoPath,
+  ]);
 
   const cancelExport = useCallback(() => {
     videoExporter.cancel();
@@ -1795,7 +1944,31 @@ export function useExport(props: UseExportProps) {
     setExportProgress(0);
   }, []);
 
-  const hasAudio = Boolean(resolveSourceVideoPath());
+  const dialogSegment =
+    isCompositionExport && compositionDialogState
+      ? compositionDialogState.segment
+      : props.segment;
+  const dialogBackgroundConfig =
+    isCompositionExport && compositionDialogState?.backgroundConfig
+      ? compositionDialogState.backgroundConfig
+      : props.backgroundConfig;
+  const dialogTrimmedDurationSec =
+    isCompositionExport && compositionDialogState
+      ? compositionDialogState.trimmedDurationSec
+      : props.segment
+        ? getTotalTrimDuration(
+            props.segment,
+            props.videoRef.current?.duration || props.segment.trimEnd,
+          )
+        : 0;
+  const dialogClipCount =
+    isCompositionExport && compositionDialogState
+      ? compositionDialogState.clipCount
+      : 1;
+  const hasAudio =
+    isCompositionExport && compositionDialogState
+      ? compositionDialogState.hasAudio
+      : Boolean(resolveSourceVideoPath());
 
   return {
     isProcessing,
@@ -1812,9 +1985,14 @@ export function useExport(props: UseExportProps) {
     setShowExportSuccessDialog,
     lastExportedPath,
     setLastExportedPath,
+    lastExportArtifacts,
     exportAutoCopyEnabled,
     setExportAutoCopyEnabled,
     sourceVideoFps,
+    dialogSegment,
+    dialogBackgroundConfig,
+    dialogTrimmedDurationSec,
+    dialogClipCount,
   };
 }
 

@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { X, FolderOpen, Copy, CheckCircle2, Maximize2, Minimize2, Play, Pause, Volume2, VolumeX } from 'lucide-react';
 import { invoke } from '@/lib/ipc';
 import { useSettings } from '@/hooks/useSettings';
+import type { ExportArtifact } from '@/types/video';
 
 // ============================================================================
 // CustomVideoPlayer — replaces native <video controls>
@@ -433,14 +434,28 @@ interface ExportSuccessDialogProps {
   show: boolean;
   onClose: () => void;
   filePath: string;
+  artifacts?: ExportArtifact[];
   onFilePathChange: (newPath: string) => void;
   autoCopyEnabled: boolean;
   onToggleAutoCopy: (enabled: boolean) => void;
 }
 
-export function ExportSuccessDialog({ show, onClose, filePath, onFilePathChange, autoCopyEnabled, onToggleAutoCopy }: ExportSuccessDialogProps) {
+export function ExportSuccessDialog({
+  show,
+  onClose,
+  filePath,
+  artifacts = [],
+  onFilePathChange,
+  autoCopyEnabled,
+  onToggleAutoCopy,
+}: ExportSuccessDialogProps) {
   const { t } = useSettings();
   const isGif = filePath.toLowerCase().endsWith('.gif');
+  const extraArtifactSummary = artifacts.length > 1
+    ? artifacts
+        .map((artifact) => artifact.path.split(/[/\\]/).pop() || artifact.path)
+        .join(' • ')
+    : '';
   return (
     <MediaResultDialog
       show={show}
@@ -449,10 +464,17 @@ export function ExportSuccessDialog({ show, onClose, filePath, onFilePathChange,
       filePath={filePath}
       onFilePathChange={onFilePathChange}
       extraControls={
-        <label className="media-auto-copy-toggle flex items-center gap-2 text-xs text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] cursor-pointer transition-colors">
-          <input type="checkbox" className="rounded border-[var(--outline)]" checked={autoCopyEnabled} onChange={(e) => onToggleAutoCopy(e.target.checked)} />
-          <span>{isGif ? t.autoCopyGifAfterExport : t.autoCopyVideoAfterExport}</span>
-        </label>
+        <div className="media-export-extra flex flex-col items-end gap-1">
+          {extraArtifactSummary ? (
+            <div className="media-export-artifact-summary text-[10px] text-[var(--on-surface-variant)] text-right">
+              {t.exportArtifactsSaved}: {extraArtifactSummary}
+            </div>
+          ) : null}
+          <label className="media-auto-copy-toggle flex items-center gap-2 text-xs text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] cursor-pointer transition-colors">
+            <input type="checkbox" className="rounded border-[var(--outline)]" checked={autoCopyEnabled} onChange={(e) => onToggleAutoCopy(e.target.checked)} />
+            <span>{isGif ? t.autoCopyGifAfterExport : t.autoCopyVideoAfterExport}</span>
+          </label>
+        </div>
       }
     />
   );

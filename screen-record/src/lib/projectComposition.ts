@@ -30,6 +30,7 @@ function cloneCanvasConfig(
     canvasMode: canvasConfig?.canvasMode ?? "auto",
     canvasWidth: canvasConfig?.canvasWidth,
     canvasHeight: canvasConfig?.canvasHeight,
+    autoSourceClipId: canvasConfig?.autoSourceClipId ?? null,
   };
 }
 
@@ -40,6 +41,7 @@ export function extractCanvasConfig(
     canvasMode: backgroundConfig.canvasMode ?? "auto",
     canvasWidth: backgroundConfig.canvasWidth,
     canvasHeight: backgroundConfig.canvasHeight,
+    autoSourceClipId: backgroundConfig.autoCanvasSourceId ?? null,
   };
 }
 
@@ -52,6 +54,7 @@ export function applyCanvasConfig(
     canvasMode: canvasConfig?.canvasMode ?? "auto",
     canvasWidth: canvasConfig?.canvasWidth,
     canvasHeight: canvasConfig?.canvasHeight,
+    autoCanvasSourceId: canvasConfig?.autoSourceClipId ?? null,
   };
 }
 
@@ -192,6 +195,15 @@ export function ensureProjectComposition(
     existing?.globalCanvasConfig ??
       extractCanvasConfig(project.backgroundConfig),
   );
+  const hasValidAutoSource =
+    !!canvasConfig.autoSourceClipId &&
+    normalizedClips.some((clip) => clip.id === canvasConfig.autoSourceClipId);
+  const autoSourceClipId =
+    canvasConfig.canvasMode === "auto"
+      ? hasValidAutoSource
+        ? canvasConfig.autoSourceClipId
+        : rootClip.id
+      : null;
   return syncCompositionCanvasConfig(
     {
       mode: existing?.mode ?? "separate",
@@ -216,7 +228,10 @@ export function ensureProjectComposition(
         ? cloneBackgroundConfig(existing.globalBackgroundConfig)
         : cloneBackgroundConfig(project.backgroundConfig),
     },
-    canvasConfig,
+    {
+      ...canvasConfig,
+      autoSourceClipId,
+    },
   );
 }
 
@@ -246,6 +261,27 @@ export function getCompositionClipIndex(
 ): number {
   if (!composition || !clipId) return -1;
   return composition.clips.findIndex((clip) => clip.id === clipId);
+}
+
+export function getCompositionRootClipId(
+  composition: ProjectComposition | null | undefined,
+): string | null {
+  if (!composition) return null;
+  return composition.clips.find((clip) => clip.role === "root")?.id ?? null;
+}
+
+export function getCompositionAutoSourceClipId(
+  composition: ProjectComposition | null | undefined,
+): string | null {
+  if (!composition) return null;
+  const configuredClipId = composition.globalCanvasConfig?.autoSourceClipId;
+  if (
+    configuredClipId &&
+    composition.clips.some((clip) => clip.id === configuredClipId)
+  ) {
+    return configuredClipId;
+  }
+  return getCompositionRootClipId(composition);
 }
 
 export function getCompositionAdjacentClipIds(

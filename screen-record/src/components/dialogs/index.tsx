@@ -36,6 +36,7 @@ export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
   const [eta, setEta] = useState(0);
   const [active, setActive] = useState(false);
   const [diagnosticsLine, setDiagnosticsLine] = useState('');
+  const [phaseLine, setPhaseLine] = useState('');
 
   useEffect(() => {
     if (!show) {
@@ -43,6 +44,7 @@ export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
       setEta(0);
       setActive(false);
       setDiagnosticsLine('');
+      setPhaseLine('');
       return;
     }
     // Listen for push progress updates from Rust via PostMessageW -> evaluate_script
@@ -51,6 +53,23 @@ export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
         setActive(true);
         setPercent(e.data.percent);
         setEta(e.data.eta);
+        const clipIndex = typeof e.data.clipIndex === 'number' ? e.data.clipIndex : null;
+        const clipCount = typeof e.data.clipCount === 'number' ? e.data.clipCount : null;
+        if (e.data.phase === 'render' && clipIndex && clipCount) {
+          setPhaseLine(
+            t.exportPhaseRenderClip
+              .replace('{index}', String(clipIndex))
+              .replace('{count}', String(clipCount))
+          );
+        } else if (e.data.phase === 'concat') {
+          setPhaseLine(t.exportPhaseMergingClips);
+        } else if (e.data.phase === 'gif') {
+          setPhaseLine(t.exportPhaseCreatingGif);
+        } else if (e.data.phase === 'prepare') {
+          setPhaseLine(t.preparingExport);
+        } else {
+          setPhaseLine('');
+        }
       } else if (e.data?.type === 'sr-export-diagnostics') {
         const d = e.data.diagnostics || {};
         const mode = d.turbo ? 'Turbo' : 'Standard';
@@ -66,7 +85,7 @@ export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [show]);
+  }, [show, t]);
 
   if (!show) return null;
 
@@ -89,6 +108,11 @@ export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
           <span className="progress-percent text-[var(--on-surface-variant)] tabular-nums">{active ? `${pct}%` : ''}</span>
           <span className="progress-eta text-[var(--on-surface-variant)] tabular-nums">{etaStr ? `${etaStr} ${t.timeRemaining}` : ''}</span>
         </div>
+        {phaseLine && (
+          <div className="processing-phase mt-2 text-[10px] text-[var(--on-surface-variant)]">
+            {phaseLine}
+          </div>
+        )}
         {diagnosticsLine && (
           <div className="processing-diagnostics mt-2 text-[10px] text-[var(--on-surface-variant)] tabular-nums">
             {diagnosticsLine}
