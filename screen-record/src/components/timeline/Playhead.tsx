@@ -1,6 +1,6 @@
-import React, { useRef, useEffect } from 'react';
-import { VideoSegment } from '@/types/video';
-import { clampToTrimSegments } from '@/lib/trimSegments';
+import React, { useRef, useEffect } from "react";
+import { VideoSegment } from "@/types/video";
+import { clampToTrimSegments } from "@/lib/trimSegments";
 
 interface PlayheadProps {
   currentTime: number;
@@ -8,16 +8,26 @@ interface PlayheadProps {
   isPlaying: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   segment: VideoSegment;
+  disableVideoSync?: boolean;
 }
 
-export const Playhead: React.FC<PlayheadProps> = ({ currentTime, duration, isPlaying, videoRef, segment }) => {
+export const Playhead: React.FC<PlayheadProps> = ({
+  currentTime,
+  duration,
+  isPlaying,
+  videoRef,
+  segment,
+  disableVideoSync = false,
+}) => {
   const ref = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number>(0);
+  const useVideoSync = isPlaying && !disableVideoSync;
 
   // During playback: RAF loop reads video.currentTime directly for 60fps movement.
   // During pause/seek: React prop `currentTime` drives position (lower frequency is fine).
   useEffect(() => {
-    if (!isPlaying || !videoRef.current || !ref.current || duration <= 0) return;
+    if (!useVideoSync || !videoRef.current || !ref.current || duration <= 0)
+      return;
 
     const video = videoRef.current;
     const el = ref.current;
@@ -31,29 +41,30 @@ export const Playhead: React.FC<PlayheadProps> = ({ currentTime, duration, isPla
     rafRef.current = requestAnimationFrame(tick);
 
     return () => cancelAnimationFrame(rafRef.current);
-  }, [isPlaying, duration, videoRef, segment]);
+  }, [duration, segment, useVideoSync, videoRef]);
 
   // When not playing, sync from React state
   const safeTime = clampToTrimSegments(currentTime, segment, duration);
-  const left = duration > 0
-    ? `${Math.max(0, Math.min(100, (safeTime / duration) * 100))}%`
-    : '0%';
+  const left =
+    duration > 0
+      ? `${Math.max(0, Math.min(100, (safeTime / duration) * 100))}%`
+      : "0%";
 
   return (
     <div
       ref={ref}
       className="playhead absolute top-0 bottom-0 flex flex-col items-center pointer-events-none z-40"
       style={{
-        left: isPlaying ? undefined : left,
-        transform: 'translateX(-50%)',
+        left: useVideoSync ? undefined : left,
+        transform: "translateX(-50%)",
       }}
     >
       <div
         className="playhead-arrow w-0 h-0 flex-shrink-0"
         style={{
-          borderLeft: '5px solid transparent',
-          borderRight: '5px solid transparent',
-          borderTop: '6px solid #ef4444',
+          borderLeft: "5px solid transparent",
+          borderRight: "5px solid transparent",
+          borderTop: "6px solid #ef4444",
         }}
       />
       <div className="playhead-line w-0.5 flex-1 bg-red-500" />

@@ -184,6 +184,15 @@ const en = {
   exportSuccessful: 'Export Successful',
   autoCopyAfterExport: 'Auto copy after export',
   original: 'Original',
+  sequenceInsertAtStart: 'Insert clip at start',
+  sequenceInsertAtEnd: 'Insert clip at end',
+  sequenceInsertHere: 'Insert clip here',
+  sequenceRemoveClip: 'Remove clip',
+  sequenceModePerClip: 'Per Clip',
+  sequenceModeSharedLook: 'Shared Look',
+  sequenceOriginalTitle: 'Original clip',
+  sequenceSharedLookSourceTitle: 'Shared look source',
+  sequenceSource: 'Source',
 
   // Dialogs - Monitor Select
   selectMonitor: 'Select Monitor',

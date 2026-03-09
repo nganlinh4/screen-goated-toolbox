@@ -105,6 +105,32 @@ pub fn save_raw_video_copy(source_path: &str, target_dir: &str) -> Result<String
     Ok(destination.to_string_lossy().to_string())
 }
 
+pub fn save_composition_snapshot_copy(source_path: &str) -> Result<String, String> {
+    let source = ensure_source_video(source_path)?;
+    let dir = dirs::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("screen-goated-toolbox")
+        .join("composition-snapshots");
+    fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create composition snapshot dir: {}", e))?;
+    let source_name = source
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("snapshot.mp4");
+    let destination = unique_destination(&dir, source_name);
+
+    fs::copy(&source, &destination).map_err(|e| {
+        format!(
+            "Failed to copy composition snapshot {} -> {}: {}",
+            source.display(),
+            destination.display(),
+            e
+        )
+    })?;
+
+    Ok(destination.to_string_lossy().to_string())
+}
+
 pub fn move_saved_raw_video(current_path: &str, target_dir: &str) -> Result<String, String> {
     let current = ensure_source_video(current_path)?;
     let dir = sanitize_dir_path(target_dir)?;

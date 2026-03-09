@@ -1,11 +1,11 @@
 import { useEffect } from "react";
-import { VideoSegment } from '@/types/video';
+import { VideoSegment } from "@/types/video";
 
 export interface UseAppShortcutsParams {
   togglePlayPause: () => void;
   currentTime: number;
   duration: number;
-  seek: (time: number) => void;
+  seek: (time: number) => void | Promise<void>;
   flushSeek?: () => void;
   isCropping: boolean;
   /** When true (a modal dialog is open), suppress play/seek shortcuts so the dialog video controls work normally */
@@ -25,7 +25,7 @@ export interface UseAppShortcutsParams {
   undo: () => void;
   redo: () => void;
   setSeekIndicatorKey: (key: number) => void;
-  setSeekIndicatorDir: (dir: 'left' | 'right') => void;
+  setSeekIndicatorDir: (dir: "left" | "right") => void;
 }
 
 export function useAppShortcuts({
@@ -56,11 +56,15 @@ export function useAppShortcuts({
     const handleKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       const targetType = (e.target as HTMLInputElement).type;
-      const isTextInput = (tag === 'INPUT' && ['text', 'number', 'password', 'search', 'email'].includes(targetType))
-                          || tag === 'TEXTAREA'
-                          || (e.target as HTMLElement).isContentEditable;
+      const isTextInput =
+        (tag === "INPUT" &&
+          ["text", "number", "password", "search", "email"].includes(
+            targetType,
+          )) ||
+        tag === "TEXTAREA" ||
+        (e.target as HTMLElement).isContentEditable;
 
-      if (e.code === 'Space' && !isTextInput) {
+      if (e.code === "Space" && !isTextInput) {
         if (isModalOpen) return; // Let the dialog's native video controls handle Space
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -68,41 +72,75 @@ export function useAppShortcuts({
         if (e.target instanceof HTMLElement) e.target.blur(); // Unfocus anything so Space keyup doesn't activate it
         togglePlayPause();
       }
-      if (e.code === 'ArrowLeft' && !isTextInput) {
+      if (e.code === "ArrowLeft" && !isTextInput) {
         if (isModalOpen) return; // Let the dialog's native video controls handle arrow keys
         e.preventDefault();
         const next = Math.max(0, currentTime - 5);
         seek(next);
-        setSeekIndicatorDir('left');
+        setSeekIndicatorDir("left");
         setSeekIndicatorKey(Date.now());
       }
-      if (e.code === 'ArrowRight' && !isTextInput) {
+      if (e.code === "ArrowRight" && !isTextInput) {
         if (isModalOpen) return; // Let the dialog's native video controls handle arrow keys
         e.preventDefault();
         const next = Math.min(duration, currentTime + 5);
         seek(next);
-        setSeekIndicatorDir('right');
+        setSeekIndicatorDir("right");
         setSeekIndicatorKey(Date.now());
       }
-      if ((e.code === 'Delete' || e.code === 'Backspace') && !isTextInput) {
+      if ((e.code === "Delete" || e.code === "Backspace") && !isTextInput) {
         if (editingKeystrokeSegmentId) {
           handleDeleteKeystrokeSegment();
         } else if (editingPointerId) {
           handleDeletePointerSegment();
         } else if (editingTextId && !editingKeyframeId) {
           handleDeleteText();
-        } else if (editingKeyframeId !== null && segment?.zoomKeyframes[editingKeyframeId]) {
-          setSegment({ ...segment, zoomKeyframes: segment.zoomKeyframes.filter((_, i) => i !== editingKeyframeId) });
+        } else if (
+          editingKeyframeId !== null &&
+          segment?.zoomKeyframes[editingKeyframeId]
+        ) {
+          setSegment({
+            ...segment,
+            zoomKeyframes: segment.zoomKeyframes.filter(
+              (_, i) => i !== editingKeyframeId,
+            ),
+          });
           setEditingKeyframeId(null);
         }
       }
-      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
+      if ((e.ctrlKey || e.metaKey) && e.code === "KeyZ") {
         e.preventDefault();
-        e.shiftKey ? (canRedo && redo()) : (canUndo && undo());
+        e.shiftKey ? canRedo && redo() : canUndo && undo();
       }
-      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyY') { e.preventDefault(); canRedo && redo(); }
+      if ((e.ctrlKey || e.metaKey) && e.code === "KeyY") {
+        e.preventDefault();
+        canRedo && redo();
+      }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editingKeyframeId, editingTextId, editingPointerId, editingKeystrokeSegmentId, handleDeleteText, handleDeletePointerSegment, handleDeleteKeystrokeSegment, segment, canUndo, canRedo, undo, redo, setSegment, setEditingKeyframeId, togglePlayPause, isCropping, isModalOpen, currentTime, duration, seek, setSeekIndicatorKey, setSeekIndicatorDir]);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    editingKeyframeId,
+    editingTextId,
+    editingPointerId,
+    editingKeystrokeSegmentId,
+    handleDeleteText,
+    handleDeletePointerSegment,
+    handleDeleteKeystrokeSegment,
+    segment,
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+    setSegment,
+    setEditingKeyframeId,
+    togglePlayPause,
+    isCropping,
+    isModalOpen,
+    currentTime,
+    duration,
+    seek,
+    setSeekIndicatorKey,
+    setSeekIndicatorDir,
+  ]);
 }

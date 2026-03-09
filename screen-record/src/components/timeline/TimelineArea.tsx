@@ -1,21 +1,21 @@
-import React, { useState } from 'react';
-import { VideoSegment } from '@/types/video';
-import { ZoomTrack } from './ZoomTrack';
-import { TextTrack } from './TextTrack';
-import { KeystrokeTrack } from './KeystrokeTrack';
-import { PointerTrack } from './PointerTrack';
-import { SpeedTrack } from './SpeedTrack';
-import { TrimTrack } from './TrimTrack';
-import { Playhead } from './Playhead';
-import { useTimelineDrag } from './useTimelineDrag';
-import { useSettings } from '@/hooks/useSettings';
-import { ZoomDebugOverlay } from './ZoomDebugOverlay';
-import { videoTimeToWallClock } from '@/lib/exportEstimator';
+import React, { useState } from "react";
+import { VideoSegment } from "@/types/video";
+import { ZoomTrack } from "./ZoomTrack";
+import { TextTrack } from "./TextTrack";
+import { KeystrokeTrack } from "./KeystrokeTrack";
+import { PointerTrack } from "./PointerTrack";
+import { SpeedTrack } from "./SpeedTrack";
+import { TrimTrack } from "./TrimTrack";
+import { Playhead } from "./Playhead";
+import { useTimelineDrag } from "./useTimelineDrag";
+import { useSettings } from "@/hooks/useSettings";
+import { ZoomDebugOverlay } from "./ZoomDebugOverlay";
+import { videoTimeToWallClock } from "@/lib/exportEstimator";
 
 function formatTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.floor(seconds % 60);
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 }
 
 interface TimelineAreaProps {
@@ -33,7 +33,7 @@ interface TimelineAreaProps {
   setEditingTextId: (id: string | null) => void;
   setEditingKeystrokeSegmentId: (id: string | null) => void;
   setEditingPointerId: (id: string | null) => void;
-  setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text') => void;
+  setActivePanel: (panel: "zoom" | "background" | "cursor" | "text") => void;
   setSegment: (segment: VideoSegment | null) => void;
   onSeek?: (time: number) => void;
   onSeekEnd?: () => void;
@@ -73,11 +73,12 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
-  const keystrokeTrackLabel = segment?.keystrokeMode === 'keyboard'
-    ? t.trackKeyboard
-    : segment?.keystrokeMode === 'keyboardMouse'
-      ? t.trackKeyboardMouse
-      : t.trackKeystrokesOff;
+  const keystrokeTrackLabel =
+    segment?.keystrokeMode === "keyboard"
+      ? t.trackKeyboard
+      : segment?.keystrokeMode === "keyboardMouse"
+        ? t.trackKeyboardMouse
+        : t.trackKeystrokesOff;
   const {
     dragState,
     handleTrimDragStart,
@@ -119,11 +120,15 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
         {/* Label gutter */}
         <div className="timeline-label-gutter w-[4rem] flex-shrink-0 flex flex-col gap-[2px] border-r border-[var(--glass-border)] pr-2">
           <div className="timeline-label-zoom h-10 flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">{t.trackZoom}</span>
+            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+              {t.trackZoom}
+            </span>
             <button
-              onClick={() => setShowDebug(v => !v)}
+              onClick={() => setShowDebug((v) => !v)}
               className={`timeline-debug-btn w-3 h-3 rounded-sm text-[7px] font-bold leading-none flex items-center justify-center transition-colors ${
-                showDebug ? 'bg-blue-500 text-white' : 'bg-[var(--surface-container)] text-[var(--outline)] hover:text-[var(--on-surface)]'
+                showDebug
+                  ? "bg-blue-500 text-white"
+                  : "bg-[var(--surface-container)] text-[var(--outline)] hover:text-[var(--on-surface)]"
               }`}
               title="Debug zoom curve"
             >
@@ -132,36 +137,54 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
           </div>
           {showDebug && (
             <div className="timeline-label-debug h-10 flex items-center">
-              <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none opacity-50">dbg</span>
+              <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none opacity-50">
+                dbg
+              </span>
             </div>
           )}
           <div className="timeline-label-speed h-10 flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">{t.trackSpeed || 'Speed'}</span>
+            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+              {t.trackSpeed || "Speed"}
+            </span>
             <button
               onClick={() => {
                 if (!segment) return;
                 beginBatch();
-                setSegment({ ...segment, speedPoints: [{ time: 0, speed: 1 }, { time: duration, speed: 1 }] });
+                setSegment({
+                  ...segment,
+                  speedPoints: [
+                    { time: 0, speed: 1 },
+                    { time: duration, speed: 1 },
+                  ],
+                });
                 commitBatch();
               }}
               disabled={!segment}
               className="timeline-speed-reset-btn p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] disabled:opacity-40 disabled:hover:text-[var(--outline)] disabled:hover:bg-transparent transition-colors text-[9px] font-mono leading-none"
-              title={t.resetSpeed || 'Reset'}
+              title={t.resetSpeed || "Reset"}
             >
               R
             </button>
           </div>
           <div className="timeline-label-text h-7 flex items-center">
-            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">{t.trackText}</span>
+            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+              {t.trackText}
+            </span>
           </div>
           <div className="timeline-label-keystrokes h-7 flex items-center">
-            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">{keystrokeTrackLabel}</span>
+            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+              {keystrokeTrackLabel}
+            </span>
           </div>
           <div className="timeline-label-pointer h-7 flex items-center">
-            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">{t.trackPointer}</span>
+            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+              {t.trackPointer}
+            </span>
           </div>
           <div className="timeline-label-video h-10 flex items-center">
-            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">{t.trackVideo}</span>
+            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+              {t.trackVideo}
+            </span>
           </div>
         </div>
 
@@ -184,7 +207,10 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 onKeyframeClick={handleKeyframeClick}
                 onKeyframeDragStart={handleZoomDragStart}
                 onUpdateInfluencePoints={(points) => {
-                  const newSegment = { ...segment, zoomInfluencePoints: points };
+                  const newSegment = {
+                    ...segment,
+                    zoomInfluencePoints: points,
+                  };
                   if (points.length === 0) newSegment.smoothMotionPath = [];
                   setSegment(newSegment);
                 }}
@@ -208,7 +234,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               <SpeedTrack
                 segment={segment}
                 duration={duration}
-                onUpdateSpeedPoints={(points) => { setSegment({ ...segment, speedPoints: points }); }}
+                onUpdateSpeedPoints={(points) => {
+                  setSegment({ ...segment, speedPoints: points });
+                }}
                 beginBatch={beginBatch}
                 commitBatch={commitBatch}
               />
@@ -268,7 +296,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 onTrimDragStart={handleTrimDragStart}
                 onTrimSplit={handleTrimSplit}
                 onTrimAddSegment={handleTrimAddSegment}
-                isDraggingTrim={dragState.isDraggingTrimStart || dragState.isDraggingTrimEnd}
+                isDraggingTrim={
+                  dragState.isDraggingTrimStart || dragState.isDraggingTrimEnd
+                }
               />
             ) : (
               <div className="trim-track-empty h-10 rounded bg-[var(--surface-container)]/60" />
@@ -277,7 +307,13 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
 
           {/* Playhead spanning all tracks */}
           {segment && (
-            <Playhead currentTime={currentTime} duration={duration} isPlaying={!!isPlaying} videoRef={videoRef} segment={segment} />
+            <Playhead
+              currentTime={currentTime}
+              duration={duration}
+              isPlaying={!!isPlaying}
+              videoRef={videoRef}
+              segment={segment}
+            />
           )}
         </div>
       </div>
@@ -286,32 +322,49 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
       <div className="timeline-ruler-row flex gap-4 mt-0.5">
         <div className="timeline-ruler-gutter w-[4rem] flex-shrink-0" />
         <div className="timeline-ruler flex-1 relative h-4 select-none">
-          {duration > 0 && (() => {
-            const speedPoints = segment?.speedPoints;
-            const tickCount = duration <= 5 ? 5 : duration <= 15 ? 8 : duration <= 30 ? 10 : 12;
-            return Array.from({ length: tickCount + 1 }).map((_, i) => {
-              const videoTime = (duration * i) / tickCount;
-              const left = (i / tickCount) * 100;
-              const isMajor = i === 0 || i === tickCount || i % Math.ceil(tickCount / 4) === 0;
-              const displayTime = speedPoints?.length
-                ? videoTimeToWallClock(videoTime, speedPoints)
-                : videoTime;
-              return (
-                <div
-                  key={i}
-                  className="timeline-tick absolute flex flex-col items-center"
-                  style={{ left: `${left}%`, transform: 'translateX(-50%)', top: 0 }}
-                >
-                  <div className={`w-px ${isMajor ? 'h-1.5 bg-[var(--outline)]/40' : 'h-1 bg-[var(--outline)]/20'}`} />
-                  {isMajor && (
-                    <span className="text-[9px] font-mono text-[var(--outline)] leading-none mt-0.5">
-                      {formatTime(displayTime)}
-                    </span>
-                  )}
-                </div>
-              );
-            });
-          })()}
+          {duration > 0 &&
+            (() => {
+              const speedPoints = segment?.speedPoints;
+              const tickCount =
+                duration <= 5
+                  ? 5
+                  : duration <= 15
+                    ? 8
+                    : duration <= 30
+                      ? 10
+                      : 12;
+              return Array.from({ length: tickCount + 1 }).map((_, i) => {
+                const videoTime = (duration * i) / tickCount;
+                const left = (i / tickCount) * 100;
+                const isMajor =
+                  i === 0 ||
+                  i === tickCount ||
+                  i % Math.ceil(tickCount / 4) === 0;
+                const displayTime = speedPoints?.length
+                  ? videoTimeToWallClock(videoTime, speedPoints)
+                  : videoTime;
+                return (
+                  <div
+                    key={i}
+                    className="timeline-tick absolute flex flex-col items-center"
+                    style={{
+                      left: `${left}%`,
+                      transform: "translateX(-50%)",
+                      top: 0,
+                    }}
+                  >
+                    <div
+                      className={`w-px ${isMajor ? "h-1.5 bg-[var(--outline)]/40" : "h-1 bg-[var(--outline)]/20"}`}
+                    />
+                    {isMajor && (
+                      <span className="text-[9px] font-mono text-[var(--outline)] leading-none mt-0.5">
+                        {formatTime(displayTime)}
+                      </span>
+                    )}
+                  </div>
+                );
+              });
+            })()}
         </div>
       </div>
     </div>

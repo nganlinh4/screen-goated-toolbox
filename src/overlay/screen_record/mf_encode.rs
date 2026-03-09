@@ -1,9 +1,9 @@
 // Media Foundation hardware-accelerated video encoder.
 // Encodes BGRA frames to H.264 MP4 via SinkWriter.
 
-use windows::core::Interface;
 use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
 use windows::Win32::Media::MediaFoundation::*;
+use windows::core::Interface;
 
 use super::mf_audio::{AudioConfig, AudioStream};
 use super::mf_decode::DxgiDeviceManager;

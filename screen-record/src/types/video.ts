@@ -1,4 +1,4 @@
-import type { CursorPack } from '@/lib/renderer/cursorModel';
+import type { CursorPack } from "@/lib/renderer/cursorModel";
 
 // Resolution/FPS options are computed dynamically from canvas dimensions
 
@@ -8,13 +8,13 @@ export interface ZoomKeyframe {
   zoomFactor: number;
   positionX: number;
   positionY: number;
-  easingType: 'linear' | 'easeOut' | 'easeInOut';
+  easingType: "linear" | "easeOut" | "easeInOut";
 }
 
 export interface TextBackground {
   enabled: boolean;
   color: string;
-  opacity: number;  // 0-1, background pill opacity
+  opacity: number; // 0-1, background pill opacity
   paddingX: number;
   paddingY: number;
   borderRadius: number;
@@ -28,17 +28,17 @@ export interface TextSegment {
   style: {
     fontSize: number;
     color: string;
-    x: number;  // 0-100 percentage
-    y: number;  // 0-100 percentage
-    fontWeight?: 'normal' | 'bold';
+    x: number; // 0-100 percentage
+    y: number; // 0-100 percentage
+    fontWeight?: "normal" | "bold";
     fontVariations?: {
-      wght?: number;  // 100-900, default 400
-      wdth?: number;  // 75-125, default 100
-      slnt?: number;  // -12 to 0, default 0
-      ROND?: number;  // 0-100, default 0
+      wght?: number; // 100-900, default 400
+      wdth?: number; // 75-125, default 100
+      slnt?: number; // -12 to 0, default 0
+      ROND?: number; // 0-100, default 0
     };
-    textAlign?: 'left' | 'center' | 'right';
-    opacity?: number;       // 0-1, default 1
+    textAlign?: "left" | "center" | "right";
+    opacity?: number; // 0-1, default 1
     letterSpacing?: number; // px, default 0
     background?: TextBackground;
   };
@@ -50,7 +50,7 @@ export interface CursorVisibilitySegment {
   endTime: number;
 }
 
-export type KeystrokeMode = 'off' | 'keyboard' | 'keyboardMouse';
+export type KeystrokeMode = "off" | "keyboard" | "keyboardMouse";
 
 export interface InputModifiers {
   ctrl?: boolean;
@@ -60,18 +60,18 @@ export interface InputModifiers {
 }
 
 export interface RawInputEvent {
-  type: 'keyboard' | 'mousedown' | 'wheel';
+  type: "keyboard" | "mousedown" | "wheel";
   timestamp: number;
   vk?: number;
   key?: string;
-  btn?: 'left' | 'right' | 'middle';
-  direction?: 'up' | 'down' | 'none';
+  btn?: "left" | "right" | "middle";
+  direction?: "up" | "down" | "none";
   modifiers?: InputModifiers;
 }
 
 export interface KeystrokeEvent {
   id: string;
-  type: 'keyboard' | 'mousedown' | 'wheel';
+  type: "keyboard" | "mousedown" | "wheel";
   startTime: number;
   endTime: number;
   label: string;
@@ -79,8 +79,8 @@ export interface KeystrokeEvent {
   isHold?: boolean;
   modifiers: InputModifiers;
   key?: string;
-  btn?: 'left' | 'right' | 'middle';
-  direction?: 'up' | 'down' | 'none';
+  btn?: "left" | "right" | "middle";
+  direction?: "up" | "down" | "none";
 }
 
 export interface KeystrokeOverlayConfig {
@@ -107,7 +107,7 @@ export interface SpeedPoint {
   speed: number;
 }
 
-export type RecordingMode = 'withoutCursor' | 'withCursor';
+export type RecordingMode = "withoutCursor" | "withCursor";
 
 export interface VideoSegment {
   trimStart: number;
@@ -119,7 +119,7 @@ export interface VideoSegment {
   textSegments: TextSegment[];
   cursorVisibilitySegments?: CursorVisibilitySegment[];
   keystrokeMode?: KeystrokeMode;
-  keystrokeLanguage?: 'en' | 'ko' | 'vi' | 'es' | 'ja' | 'zh';
+  keystrokeLanguage?: "en" | "ko" | "vi" | "es" | "ja" | "zh";
   keystrokeDelaySec?: number;
   keystrokeEvents?: KeystrokeEvent[];
   keyboardVisibilitySegments?: CursorVisibilitySegment[];
@@ -130,10 +130,63 @@ export interface VideoSegment {
   crop?: CropRect;
 }
 
+export type ProjectCompositionMode = "separate" | "unified";
+
+export interface ProjectCanvasConfig {
+  canvasMode?: "auto" | "custom";
+  canvasWidth?: number;
+  canvasHeight?: number;
+}
+
+export interface ProjectCompositionClip {
+  id: string;
+  role: "root" | "snapshot";
+  name: string;
+  duration: number;
+  sourceProjectId?: string;
+  sourceProjectName?: string;
+  thumbnail?: string;
+  segment: VideoSegment;
+  backgroundConfig: BackgroundConfig;
+  mousePositions: MousePosition[];
+  recordingMode?: RecordingMode;
+  rawVideoPath?: string;
+}
+
+export interface ProjectComposition {
+  mode: ProjectCompositionMode;
+  selectedClipId: string | null;
+  focusedClipId: string | null;
+  clips: ProjectCompositionClip[];
+  unifiedSourceClipId?: string | null;
+  globalCanvasConfig?: ProjectCanvasConfig;
+  globalPresentationConfig?: BackgroundConfig;
+  globalSegment?: VideoSegment;
+  globalBackgroundConfig?: BackgroundConfig;
+}
+
 export interface BackgroundConfig {
   scale: number;
   borderRadius: number;
-  backgroundType: 'solid' | 'white' | 'gradient1' | 'gradient2' | 'gradient3' | 'gradient4' | 'gradient5' | 'gradient6' | 'gradient7' | 'gradient8' | 'gradient9' | 'gradient10' | 'gradient11' | 'gradient12' | 'gradient13' | 'gradient14' | 'gradient15' | 'custom';
+  backgroundType:
+    | "solid"
+    | "white"
+    | "gradient1"
+    | "gradient2"
+    | "gradient3"
+    | "gradient4"
+    | "gradient5"
+    | "gradient6"
+    | "gradient7"
+    | "gradient8"
+    | "gradient9"
+    | "gradient10"
+    | "gradient11"
+    | "gradient12"
+    | "gradient13"
+    | "gradient14"
+    | "gradient15"
+    | "custom";
   shadow?: number;
   cursorScale?: number;
   cursorShadow?: number; // 0-200
@@ -144,8 +197,8 @@ export interface BackgroundConfig {
   cursorWiggleResponse?: number; // Hz-ish response speed of spring
   cursorTiltAngle?: number; // degrees, static resting tilt offset (CCW positive)
   motionBlurCursor?: number; // 0-100 intensity (default 25, 0=off, 100=extreme)
-  motionBlurZoom?: number;   // 0-100 intensity
-  motionBlurPan?: number;    // 0-100 intensity
+  motionBlurZoom?: number; // 0-100 intensity
+  motionBlurPan?: number; // 0-100 intensity
   cursorPack?: CursorPack;
   cursorDefaultVariant?: CursorPack;
   cursorTextVariant?: CursorPack;
@@ -154,8 +207,8 @@ export interface BackgroundConfig {
   customBackground?: string;
   cropBottom?: number; // 0-100 percentage
   volume?: number; // 0-1
-  canvasMode?: 'auto' | 'custom'; // default 'auto'
-  canvasWidth?: number;  // pixels, used when canvasMode === 'custom'
+  canvasMode?: "auto" | "custom"; // default 'auto'
+  canvasWidth?: number; // pixels, used when canvasMode === 'custom'
   canvasHeight?: number; // pixels, used when canvasMode === 'custom'
 }
 
@@ -200,9 +253,9 @@ export interface BakedCursorFrame {
 export interface BakedTextOverlay {
   startTime: number;
   endTime: number;
-  x: number;      // pixel x of bitmap top-left in output canvas
-  y: number;      // pixel y of bitmap top-left in output canvas
-  width: number;  // bitmap width
+  x: number; // pixel x of bitmap top-left in output canvas
+  y: number; // pixel y of bitmap top-left in output canvas
+  width: number; // bitmap width
   height: number; // bitmap height
   data: number[] | string; // raw RGBA bytes or base64-encoded RGBA
 }
@@ -218,8 +271,14 @@ export interface BakedKeystrokeOverlay {
 }
 
 export interface OverlayQuad {
-  x: number; y: number; w: number; h: number; // screen coords (pixels)
-  u: number; v: number; uw: number; vh: number; // atlas UVs (0..1)
+  x: number;
+  y: number;
+  w: number;
+  h: number; // screen coords (pixels)
+  u: number;
+  v: number;
+  uw: number;
+  vh: number; // atlas UVs (0..1)
   alpha: number;
 }
 
@@ -236,19 +295,19 @@ export interface BakedOverlayPayload {
 }
 
 export interface ExportOptions {
-  width: number;   // 0 = use original canvas dimensions
-  height: number;  // 0 = use original canvas dimensions
-  fps: number;     // export framerate (common presets + source framerate)
+  width: number; // 0 = use original canvas dimensions
+  height: number; // 0 = use original canvas dimensions
+  fps: number; // export framerate (common presets + source framerate)
   targetVideoBitrateKbps: number;
   speed?: number; // Deprecated, kept for backward compatibility if needed
-  exportProfile?: 'balanced' | 'max_speed' | 'quality_strict' | 'turbo_nv';
+  exportProfile?: "balanced" | "max_speed" | "quality_strict" | "turbo_nv";
   preferNvTurbo?: boolean;
   qualityGatePercent?: number;
-  turboCodec?: 'hevc' | 'h264';
-  preRenderPolicy?: 'off' | 'idle_only' | 'aggressive';
+  turboCodec?: "hevc" | "h264";
+  preRenderPolicy?: "off" | "idle_only" | "aggressive";
   exportDiagnostics?: boolean;
   outputDir?: string;
-  format?: 'mp4' | 'gif';
+  format?: "mp4" | "gif";
   video?: HTMLVideoElement;
   canvas?: HTMLCanvasElement;
   tempCanvas?: HTMLCanvasElement;
@@ -268,7 +327,7 @@ export interface Project {
   createdAt: number;
   lastModified: number;
   duration?: number;
-  videoBlob: Blob;
+  videoBlob?: Blob;
   audioBlob?: Blob;
   segment: VideoSegment;
   backgroundConfig: BackgroundConfig;
@@ -276,4 +335,5 @@ export interface Project {
   thumbnail?: string;
   recordingMode?: RecordingMode;
   rawVideoPath?: string;
+  composition?: ProjectComposition;
 }

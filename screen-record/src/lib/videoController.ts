@@ -1,8 +1,17 @@
-import { videoRenderer } from './videoRenderer';
-import type { VideoSegment, BackgroundConfig, MousePosition } from '@/types/video';
-import { clampToTrimSegments, getNextPlayableTime, getTrimSegments } from './trimSegments';
-import { getSpeedAtTime } from './videoExporter';
-import { DEFAULT_BUILT_IN_BACKGROUND_ID } from '@/lib/backgroundPresets';
+import { videoRenderer } from "./videoRenderer";
+import type {
+  VideoSegment,
+  BackgroundConfig,
+  MousePosition,
+} from "@/types/video";
+import {
+  clampToTrimSegments,
+  getNextPlayableTime,
+  getTrimSegments,
+} from "./trimSegments";
+import { getSpeedAtTime } from "./videoExporter";
+import { DEFAULT_BUILT_IN_BACKGROUND_ID } from "@/lib/backgroundPresets";
+import { isNativeMediaUrl } from "@/lib/mediaServer";
 
 interface VideoControllerOptions {
   videoRef: HTMLVideoElement;
@@ -14,7 +23,11 @@ interface VideoControllerOptions {
   onVideoReady?: (ready: boolean) => void;
   onError?: (error: string) => void;
   onDurationChange?: (duration: number) => void;
-  onMetadataLoaded?: (metadata: { duration: number, width: number, height: number }) => void;
+  onMetadataLoaded?: (metadata: {
+    duration: number;
+    width: number;
+    height: number;
+  }) => void;
 }
 
 interface VideoState {
@@ -31,7 +44,6 @@ interface RenderOptions {
   mousePositions: MousePosition[];
   interactiveBackgroundPreview?: boolean;
 }
-
 
 export class VideoController {
   private video: HTMLVideoElement;
@@ -62,26 +74,26 @@ export class VideoController {
       isReady: false,
       isSeeking: false,
       currentTime: 0,
-      duration: 0
+      duration: 0,
     };
 
     this.initializeEventListeners();
   }
 
   private initializeEventListeners() {
-    console.log('[VideoController] Initializing listeners (v2-no-waiting)');
-    this.video.addEventListener('loadeddata', this.handleLoadedData);
-    this.video.addEventListener('play', this.handlePlay);
-    this.video.addEventListener('pause', this.handlePause);
-    this.video.addEventListener('timeupdate', this.handleTimeUpdate);
-    this.video.addEventListener('seeked', this.handleSeeked);
-    this.video.addEventListener('loadedmetadata', this.handleLoadedMetadata);
-    this.video.addEventListener('durationchange', this.handleDurationChange);
-    this.video.addEventListener('error', this.handleError);
+    console.log("[VideoController] Initializing listeners (v2-no-waiting)");
+    this.video.addEventListener("loadeddata", this.handleLoadedData);
+    this.video.addEventListener("play", this.handlePlay);
+    this.video.addEventListener("pause", this.handlePause);
+    this.video.addEventListener("timeupdate", this.handleTimeUpdate);
+    this.video.addEventListener("seeked", this.handleSeeked);
+    this.video.addEventListener("loadedmetadata", this.handleLoadedMetadata);
+    this.video.addEventListener("durationchange", this.handleDurationChange);
+    this.video.addEventListener("error", this.handleError);
   }
 
   private handleLoadedData = () => {
-    console.log('[VideoController] Video loaded data');
+    console.log("[VideoController] Video loaded data");
     // During source changes, canplaythrough handler manages ready state & rendering
     if (this.isChangingSource) return;
     this.renderFrame();
@@ -89,11 +101,16 @@ export class VideoController {
   };
 
   private get hasValidAudio(): boolean {
-    return !!(this.audio && this.audio.src && this.audio.src !== '' && this.audio.src !== window.location.href);
+    return !!(
+      this.audio &&
+      this.audio.src &&
+      this.audio.src !== "" &&
+      this.audio.src !== window.location.href
+    );
   }
 
   private handlePlay = () => {
-    console.log('[VideoController] Play event');
+    console.log("[VideoController] Play event");
     if (this.hasValidAudio && this.audio) {
       // Hard sync before playing to prevent initial harsh audio glitch
       if (Math.abs(this.video.currentTime - this.audio.currentTime) > 0.05) {
@@ -115,7 +132,8 @@ export class VideoController {
         backgroundConfig: this.renderOptions.backgroundConfig,
         mousePositions: this.renderOptions.mousePositions,
         currentTime: this.video.currentTime,
-        interactiveBackgroundPreview: this.renderOptions.interactiveBackgroundPreview
+        interactiveBackgroundPreview:
+          this.renderOptions.interactiveBackgroundPreview,
       });
     }
 
@@ -124,7 +142,7 @@ export class VideoController {
   };
 
   private handlePause = () => {
-    console.log('[VideoController] Pause event');
+    console.log("[VideoController] Pause event");
     if (this.hasValidAudio && this.audio) {
       // Wait for pending play() promise before pausing to avoid AbortError
       const promise = this.audioPlayPromise;
@@ -174,7 +192,8 @@ export class VideoController {
         const safeRate = Math.max(0.0625, Math.min(16.0, currentSpeed));
         if (Math.abs(this.video.playbackRate - safeRate) > 0.05) {
           this.video.playbackRate = safeRate;
-          if (this.hasValidAudio && this.audio) this.audio.playbackRate = safeRate;
+          if (this.hasValidAudio && this.audio)
+            this.audio.playbackRate = safeRate;
         }
       }
 
@@ -199,18 +218,38 @@ export class VideoController {
       this.pendingSeekTime = null;
       this.setSeeking(true);
       const clamped = this.renderOptions?.segment
-        ? (getNextPlayableTime(t, this.renderOptions.segment, this.video.duration || this.state.duration || t)
-            ?? clampToTrimSegments(t, this.renderOptions.segment, this.video.duration || this.state.duration || t))
+        ? (getNextPlayableTime(
+            t,
+            this.renderOptions.segment,
+            this.video.duration || this.state.duration || t,
+          ) ??
+          clampToTrimSegments(
+            t,
+            this.renderOptions.segment,
+            this.video.duration || this.state.duration || t,
+          ))
         : t;
       this.setCurrentTime(clamped);
       this.video.currentTime = clamped;
       if (this.hasValidAudio && this.audio) this.audio.currentTime = clamped;
     } else {
       const clamped = this.renderOptions?.segment
-        ? (getNextPlayableTime(this.video.currentTime, this.renderOptions.segment, this.video.duration || this.state.duration || this.video.currentTime)
-            ?? clampToTrimSegments(this.video.currentTime, this.renderOptions.segment, this.video.duration || this.state.duration || this.video.currentTime))
+        ? (getNextPlayableTime(
+            this.video.currentTime,
+            this.renderOptions.segment,
+            this.video.duration ||
+              this.state.duration ||
+              this.video.currentTime,
+          ) ??
+          clampToTrimSegments(
+            this.video.currentTime,
+            this.renderOptions.segment,
+            this.video.duration ||
+              this.state.duration ||
+              this.video.currentTime,
+          ))
         : this.video.currentTime;
-        
+
       if (Math.abs(clamped - this.video.currentTime) > 0.001) {
         this.video.currentTime = clamped;
         if (this.hasValidAudio && this.audio) this.audio.currentTime = clamped;
@@ -219,40 +258,59 @@ export class VideoController {
       let displayTime = clamped;
       // Prevent UI playhead stutter: if decoder snapped near the requested target,
       // keep the user's dragged target as the visual playhead position.
-      if (this.lastRequestedSeekTime !== null && Math.abs(clamped - this.lastRequestedSeekTime) < 0.1) {
+      if (
+        this.lastRequestedSeekTime !== null &&
+        Math.abs(clamped - this.lastRequestedSeekTime) < 0.1
+      ) {
         displayTime = this.lastRequestedSeekTime;
       }
       this.setCurrentTime(displayTime);
     }
   };
 
-  private enforceSegmentPlaybackBounds(currentTime: number, forceTransitionAtEnd: boolean): number | null {
+  private enforceSegmentPlaybackBounds(
+    currentTime: number,
+    forceTransitionAtEnd: boolean,
+  ): number | null {
     if (!this.renderOptions?.segment) return null;
 
-    const segs = getTrimSegments(this.renderOptions.segment, this.video.duration || this.state.duration || currentTime);
+    const segs = getTrimSegments(
+      this.renderOptions.segment,
+      this.video.duration || this.state.duration || currentTime,
+    );
     const last = segs[segs.length - 1];
     const TRANSITION_EPS = forceTransitionAtEnd ? 0.003 : this.SEGMENT_EPS;
 
     const currentSegIndex = segs.findIndex(
-      s => currentTime >= s.startTime - this.SEGMENT_EPS && currentTime <= s.endTime + this.SEGMENT_EPS
+      (s) =>
+        currentTime >= s.startTime - this.SEGMENT_EPS &&
+        currentTime <= s.endTime + this.SEGMENT_EPS,
     );
     const isInside = currentSegIndex >= 0;
 
     if (!isInside) {
-      const nextTime = getNextPlayableTime(currentTime, this.renderOptions.segment, this.video.duration || this.state.duration || currentTime);
+      const nextTime = getNextPlayableTime(
+        currentTime,
+        this.renderOptions.segment,
+        this.video.duration || this.state.duration || currentTime,
+      );
       if (nextTime !== null && nextTime - currentTime > this.SEGMENT_EPS) {
         this.video.currentTime = nextTime;
         if (this.hasValidAudio && this.audio) this.audio.currentTime = nextTime;
         this.setCurrentTime(nextTime);
         return nextTime;
       }
-      if (nextTime !== null && Math.abs(nextTime - currentTime) <= this.SEGMENT_EPS) {
+      if (
+        nextTime !== null &&
+        Math.abs(nextTime - currentTime) <= this.SEGMENT_EPS
+      ) {
         this.setCurrentTime(nextTime);
         return nextTime;
       }
       if (currentTime >= last.endTime - TRANSITION_EPS && !this.video.paused) {
         this.video.currentTime = last.endTime;
-        if (this.hasValidAudio && this.audio) this.audio.currentTime = last.endTime;
+        if (this.hasValidAudio && this.audio)
+          this.audio.currentTime = last.endTime;
         this.setCurrentTime(last.endTime);
         this.video.pause();
         return last.endTime;
@@ -261,11 +319,16 @@ export class VideoController {
     }
 
     const currentSeg = segs[currentSegIndex];
-    if (currentSeg && currentTime >= currentSeg.endTime - TRANSITION_EPS && !this.video.paused) {
+    if (
+      currentSeg &&
+      currentTime >= currentSeg.endTime - TRANSITION_EPS &&
+      !this.video.paused
+    ) {
       const next = segs[currentSegIndex + 1];
       if (next && next.startTime - currentTime > this.SEGMENT_EPS) {
         this.video.currentTime = next.startTime;
-        if (this.hasValidAudio && this.audio) this.audio.currentTime = next.startTime;
+        if (this.hasValidAudio && this.audio)
+          this.audio.currentTime = next.startTime;
         this.setCurrentTime(next.startTime);
         return next.startTime;
       }
@@ -274,7 +337,8 @@ export class VideoController {
         return next.startTime;
       }
       this.video.currentTime = currentSeg.endTime;
-      if (this.hasValidAudio && this.audio) this.audio.currentTime = currentSeg.endTime;
+      if (this.hasValidAudio && this.audio)
+        this.audio.currentTime = currentSeg.endTime;
       this.setCurrentTime(currentSeg.endTime);
       this.video.pause();
       return currentSeg.endTime;
@@ -306,16 +370,16 @@ export class VideoController {
   }
 
   private handleLoadedMetadata = () => {
-    console.log('Video metadata loaded:', {
+    console.log("Video metadata loaded:", {
       duration: this.video.duration,
       width: this.video.videoWidth,
-      height: this.video.videoHeight
+      height: this.video.videoHeight,
     });
 
     this.options.onMetadataLoaded?.({
       duration: this.video.duration,
       width: this.video.videoWidth,
-      height: this.video.videoHeight
+      height: this.video.videoHeight,
     });
 
     if (this.video.duration !== Infinity) {
@@ -327,23 +391,29 @@ export class VideoController {
           backgroundConfig: {
             scale: 100,
             borderRadius: 8,
-            backgroundType: DEFAULT_BUILT_IN_BACKGROUND_ID
+            backgroundType: DEFAULT_BUILT_IN_BACKGROUND_ID,
           },
-          mousePositions: []
+          mousePositions: [],
         };
       }
     }
   };
 
   private handleDurationChange = () => {
-    console.log('[VideoController] Duration changed:', this.video.duration);
+    console.log("[VideoController] Duration changed:", this.video.duration);
     if (this.video.duration !== Infinity) {
       this.setDuration(this.video.duration);
 
       // Update trimEnd if it was not set correctly or is 0
       if (this.renderOptions?.segment) {
-        if (this.renderOptions.segment.trimEnd === 0 || this.renderOptions.segment.trimEnd > this.video.duration) {
-          console.log('[VideoController] Updating segment trimEnd to duration:', this.video.duration);
+        if (
+          this.renderOptions.segment.trimEnd === 0 ||
+          this.renderOptions.segment.trimEnd > this.video.duration
+        ) {
+          console.log(
+            "[VideoController] Updating segment trimEnd to duration:",
+            this.video.duration,
+          );
           this.renderOptions.segment.trimEnd = this.video.duration;
         }
       }
@@ -353,7 +423,7 @@ export class VideoController {
   private handleError = (e: Event) => {
     const video = e.target as HTMLVideoElement;
     const mediaError = video.error;
-    const srcAttr = video.getAttribute('src');
+    const srcAttr = video.getAttribute("src");
     const isIntentionalResetError =
       mediaError?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED &&
       (!srcAttr || srcAttr.length === 0) &&
@@ -361,13 +431,17 @@ export class VideoController {
     if (isIntentionalResetError) {
       return;
     }
-    console.error('Video error:', mediaError?.message || 'Unknown error', `(code: ${mediaError?.code})`);
-    this.options.onError?.(mediaError?.message || 'Unknown video error');
+    console.error(
+      "Video error:",
+      mediaError?.message || "Unknown error",
+      `(code: ${mediaError?.code})`,
+    );
+    this.options.onError?.(mediaError?.message || "Unknown video error");
   };
 
   private clearMediaElementSource(element: HTMLMediaElement) {
     element.pause();
-    element.removeAttribute('src');
+    element.removeAttribute("src");
     element.load();
   }
 
@@ -418,15 +492,18 @@ export class VideoController {
       backgroundConfig: this.renderOptions.backgroundConfig,
       mousePositions: this.renderOptions.mousePositions,
       currentTime: this.getAdjustedTime(this.video.currentTime),
-      interactiveBackgroundPreview: this.renderOptions.interactiveBackgroundPreview
+      interactiveBackgroundPreview:
+        this.renderOptions.interactiveBackgroundPreview,
     };
-
 
     // Only draw if video is ready
     if (this.video.readyState >= 2) {
       // Draw even if paused to support live preview when editing
       // but we can skip if the video is at the end and paused
-      if (renderContext.video.paused && renderContext.video.currentTime >= renderContext.video.duration) {
+      if (
+        renderContext.video.paused &&
+        renderContext.video.currentTime >= renderContext.video.duration
+      ) {
         // No animationFrame here, as renderFrame is called manually or by event listeners
         return;
       }
@@ -439,7 +516,9 @@ export class VideoController {
   }
 
   /** Render the first frame to an offscreen canvas with full pipeline, return as data URL. */
-  public async generateThumbnail(options: RenderOptions): Promise<string | undefined> {
+  public async generateThumbnail(
+    options: RenderOptions,
+  ): Promise<string | undefined> {
     if (this.video.readyState < 2) return undefined;
 
     this.isGeneratingThumbnail = true;
@@ -449,34 +528,51 @@ export class VideoController {
       // Seek to first visible frame
       this.video.currentTime = options.segment.trimStart;
       // Safety timeout so thumbnail generation never hangs at 100% processing
-      await new Promise<void>(r => {
+      await new Promise<void>((r) => {
         const timeout = setTimeout(() => r(), 600);
-        this.video.addEventListener('seeked', () => { clearTimeout(timeout); r(); }, { once: true });
+        this.video.addEventListener(
+          "seeked",
+          () => {
+            clearTimeout(timeout);
+            r();
+          },
+          { once: true },
+        );
       });
 
       // Render to offscreen canvas (doesn't disturb the main display)
-      const thumbCanvas = document.createElement('canvas');
+      const thumbCanvas = document.createElement("canvas");
       thumbCanvas.width = this.canvas.width;
       thumbCanvas.height = this.canvas.height;
-      const thumbTemp = document.createElement('canvas');
+      const thumbTemp = document.createElement("canvas");
 
       videoRenderer.drawFrame({
-        video: this.video, canvas: thumbCanvas, tempCanvas: thumbTemp,
-        segment: options.segment, backgroundConfig: options.backgroundConfig,
+        video: this.video,
+        canvas: thumbCanvas,
+        tempCanvas: thumbTemp,
+        segment: options.segment,
+        backgroundConfig: options.backgroundConfig,
         mousePositions: options.mousePositions,
         currentTime: options.segment.trimStart,
-        interactiveBackgroundPreview: false
+        interactiveBackgroundPreview: false,
       });
 
-      return thumbCanvas.toDataURL('image/jpeg', 0.7);
+      return thumbCanvas.toDataURL("image/jpeg", 0.7);
     } catch {
       return undefined;
     } finally {
       // Restore position and re-render main canvas
       this.video.currentTime = savedTime;
-      await new Promise<void>(r => {
+      await new Promise<void>((r) => {
         const timeout = setTimeout(() => r(), 600);
-        this.video.addEventListener('seeked', () => { clearTimeout(timeout); r(); }, { once: true });
+        this.video.addEventListener(
+          "seeked",
+          () => {
+            clearTimeout(timeout);
+            r();
+          },
+          { once: true },
+        );
       }).catch(() => {});
       this.isGeneratingThumbnail = false;
       this.renderFrame();
@@ -488,11 +584,14 @@ export class VideoController {
     if (this.video.readyState < 2) return;
     this.renderOptions = options;
     const ctx = {
-      video: this.video, canvas: this.canvas, tempCanvas: this.tempCanvas,
-      segment: options.segment, backgroundConfig: options.backgroundConfig,
+      video: this.video,
+      canvas: this.canvas,
+      tempCanvas: this.tempCanvas,
+      segment: options.segment,
+      backgroundConfig: options.backgroundConfig,
       mousePositions: options.mousePositions,
       currentTime: options.segment.trimStart,
-      interactiveBackgroundPreview: options.interactiveBackgroundPreview
+      interactiveBackgroundPreview: options.interactiveBackgroundPreview,
     };
     videoRenderer.updateRenderContext(ctx);
     videoRenderer.drawFrame(ctx);
@@ -515,21 +614,29 @@ export class VideoController {
     this.setSeeking(false);
 
     if (!this.state.isReady) {
-      console.warn('[VideoController] Play ignored: not ready');
+      console.warn("[VideoController] Play ignored: not ready");
       return;
     }
 
     if (this.renderOptions?.segment) {
-      const duration = this.video.duration || this.state.duration || this.video.currentTime;
+      const duration =
+        this.video.duration || this.state.duration || this.video.currentTime;
       const segs = getTrimSegments(this.renderOptions.segment, duration);
-      const nextTime = getNextPlayableTime(this.video.currentTime, this.renderOptions.segment, duration);
+      const nextTime = getNextPlayableTime(
+        this.video.currentTime,
+        this.renderOptions.segment,
+        duration,
+      );
       if (nextTime !== null) this.video.currentTime = nextTime;
       else if (segs.length > 0) this.video.currentTime = segs[0].startTime;
-      if (this.hasValidAudio && this.audio) this.audio.currentTime = this.video.currentTime;
+      if (this.hasValidAudio && this.audio)
+        this.audio.currentTime = this.video.currentTime;
       this.setCurrentTime(this.video.currentTime);
     }
 
-    this.video.play().catch(e => console.warn('[VideoController] Play attempt failed:', e));
+    this.video
+      .play()
+      .catch((e) => console.warn("[VideoController] Play attempt failed:", e));
   }
 
   public pause() {
@@ -541,8 +648,9 @@ export class VideoController {
 
     if (this.renderOptions?.segment) {
       const duration = this.video.duration || this.state.duration || time;
-      time = getNextPlayableTime(time, this.renderOptions.segment, duration)
-        ?? clampToTrimSegments(time, this.renderOptions.segment, duration);
+      time =
+        getNextPlayableTime(time, this.renderOptions.segment, duration) ??
+        clampToTrimSegments(time, this.renderOptions.segment, duration);
     }
 
     this.lastRequestedSeekTime = time;
@@ -570,8 +678,16 @@ export class VideoController {
       const t = this.pendingSeekTime;
       this.pendingSeekTime = null;
       const clamped = this.renderOptions?.segment
-        ? (getNextPlayableTime(t, this.renderOptions.segment, this.video.duration || this.state.duration || t)
-            ?? clampToTrimSegments(t, this.renderOptions.segment, this.video.duration || this.state.duration || t))
+        ? (getNextPlayableTime(
+            t,
+            this.renderOptions.segment,
+            this.video.duration || this.state.duration || t,
+          ) ??
+          clampToTrimSegments(
+            t,
+            this.renderOptions.segment,
+            this.video.duration || this.state.duration || t,
+          ))
         : t;
       this.setSeeking(true);
       this.video.currentTime = clamped;
@@ -605,25 +721,43 @@ export class VideoController {
     }
     this.stopPlaybackMonitor();
     videoRenderer.stopAnimation();
-    this.video.removeEventListener('loadeddata', this.handleLoadedData);
-    this.video.removeEventListener('play', this.handlePlay);
-    this.video.removeEventListener('pause', this.handlePause);
-    this.video.removeEventListener('timeupdate', this.handleTimeUpdate);
-    this.video.removeEventListener('seeked', this.handleSeeked);
-    this.video.removeEventListener('loadedmetadata', this.handleLoadedMetadata);
-    this.video.removeEventListener('durationchange', this.handleDurationChange);
-    this.video.removeEventListener('error', this.handleError);
+    this.video.removeEventListener("loadeddata", this.handleLoadedData);
+    this.video.removeEventListener("play", this.handlePlay);
+    this.video.removeEventListener("pause", this.handlePause);
+    this.video.removeEventListener("timeupdate", this.handleTimeUpdate);
+    this.video.removeEventListener("seeked", this.handleSeeked);
+    this.video.removeEventListener("loadedmetadata", this.handleLoadedMetadata);
+    this.video.removeEventListener("durationchange", this.handleDurationChange);
+    this.video.removeEventListener("error", this.handleError);
   }
 
   // Getters
-  public get isPlaying() { return this.state.isPlaying; }
-  public get isReady() { return this.state.isReady; }
-  public get isSeeking() { return this.state.isSeeking; }
-  public get currentTime() { return this.state.currentTime; }
-  public get duration() { return this.state.duration; }
+  public get isPlaying() {
+    return this.state.isPlaying;
+  }
+  public get isReady() {
+    return this.state.isReady;
+  }
+  public get isSeeking() {
+    return this.state.isSeeking;
+  }
+  public get currentTime() {
+    return this.state.currentTime;
+  }
+  public get duration() {
+    return this.state.duration;
+  }
 
   // Add this new method
-  public async loadVideo({ videoBlob, videoUrl, onLoadingProgress }: { videoBlob?: Blob, videoUrl?: string, onLoadingProgress?: (p: number) => void }): Promise<string> {
+  public async loadVideo({
+    videoBlob,
+    videoUrl,
+    onLoadingProgress,
+  }: {
+    videoBlob?: Blob;
+    videoUrl?: string;
+    onLoadingProgress?: (p: number) => void;
+  }): Promise<string> {
     try {
       // Clear previous audio
       if (this.audio) {
@@ -634,13 +768,18 @@ export class VideoController {
 
       if (videoBlob) {
         blob = videoBlob;
+      } else if (videoUrl?.startsWith("blob:") || isNativeMediaUrl(videoUrl)) {
+        const directVideoUrl = videoUrl!;
+        await this.handleVideoSourceChange(directVideoUrl);
+        onLoadingProgress?.(100);
+        return directVideoUrl;
       } else if (videoUrl) {
-        console.log('[VideoController] Fetching video data from:', videoUrl);
+        console.log("[VideoController] Fetching video data from:", videoUrl);
         const response = await fetch(videoUrl);
-        if (!response.ok) throw new Error('Failed to fetch video');
+        if (!response.ok) throw new Error("Failed to fetch video");
 
         const reader = response.body!.getReader();
-        const contentLength = +(response.headers.get('Content-Length') ?? 0);
+        const contentLength = +(response.headers.get("Content-Length") ?? 0);
         let receivedLength = 0;
         const chunks = [];
 
@@ -649,30 +788,41 @@ export class VideoController {
           if (done) break;
           chunks.push(value);
           receivedLength += value.length;
-          const progress = Math.min(((receivedLength / contentLength) * 100), 100);
+          const progress = Math.min(
+            (receivedLength / contentLength) * 100,
+            100,
+          );
           onLoadingProgress?.(progress);
         }
 
-        blob = new Blob(chunks, { type: 'video/mp4' });
+        blob = new Blob(chunks, { type: "video/mp4" });
         if (blob.size === 0) {
           throw new Error(
-            'Recording failed: 0 frames captured. If you used Window Capture, ensure the window was visible and updating on screen.'
+            "Recording failed: 0 frames captured. If you used Window Capture, ensure the window was visible and updating on screen.",
           );
         }
       } else {
-        throw new Error('No video data provided');
+        throw new Error("No video data provided");
       }
 
       const objectUrl = URL.createObjectURL(blob);
       await this.handleVideoSourceChange(objectUrl);
       return objectUrl;
     } catch (error) {
-      console.error('[VideoController] Failed to load video:', error);
+      console.error("[VideoController] Failed to load video:", error);
       throw error;
     }
   }
 
-  public async loadAudio({ audioBlob, audioUrl, onLoadingProgress }: { audioBlob?: Blob, audioUrl?: string, onLoadingProgress?: (p: number) => void }): Promise<string> {
+  public async loadAudio({
+    audioBlob,
+    audioUrl,
+    onLoadingProgress,
+  }: {
+    audioBlob?: Blob;
+    audioUrl?: string;
+    onLoadingProgress?: (p: number) => void;
+  }): Promise<string> {
     try {
       if (!this.audio) return "";
 
@@ -680,13 +830,18 @@ export class VideoController {
 
       if (audioBlob) {
         blob = audioBlob;
+      } else if (audioUrl?.startsWith("blob:") || isNativeMediaUrl(audioUrl)) {
+        const directAudioUrl = audioUrl!;
+        this.audio.src = directAudioUrl;
+        this.audio.load();
+        return directAudioUrl;
       } else if (audioUrl) {
-        console.log('[VideoController] Fetching audio data from:', audioUrl);
+        console.log("[VideoController] Fetching audio data from:", audioUrl);
         const response = await fetch(audioUrl);
-        if (!response.ok) throw new Error('Failed to fetch audio');
+        if (!response.ok) throw new Error("Failed to fetch audio");
 
         const reader = response.body!.getReader();
-        const contentLength = +(response.headers.get('Content-Length') ?? 0);
+        const contentLength = +(response.headers.get("Content-Length") ?? 0);
         let receivedLength = 0;
         const chunks = [];
 
@@ -695,11 +850,14 @@ export class VideoController {
           if (done) break;
           chunks.push(value);
           receivedLength += value.length;
-          const progress = Math.min(((receivedLength / contentLength) * 100), 100);
+          const progress = Math.min(
+            (receivedLength / contentLength) * 100,
+            100,
+          );
           onLoadingProgress?.(progress);
         }
 
-        blob = new Blob(chunks, { type: 'audio/wav' });
+        blob = new Blob(chunks, { type: "audio/wav" });
       } else {
         return "";
       }
@@ -710,7 +868,7 @@ export class VideoController {
 
       return objectUrl;
     } catch (error) {
-      console.error('[VideoController] Failed to load audio:', error);
+      console.error("[VideoController] Failed to load audio:", error);
       return "";
     }
   }
@@ -731,17 +889,17 @@ export class VideoController {
 
     return new Promise<void>((resolve) => {
       const handleCanPlayThrough = () => {
-        console.log('[VideoController] Video can play through');
-        this.video.removeEventListener('canplaythrough', handleCanPlayThrough);
+        console.log("[VideoController] Video can play through");
+        this.video.removeEventListener("canplaythrough", handleCanPlayThrough);
 
         // Set up canvas
         this.canvas.width = this.video.videoWidth;
         this.canvas.height = this.video.videoHeight;
 
-        const ctx = this.canvas.getContext('2d');
+        const ctx = this.canvas.getContext("2d");
         if (ctx) {
           ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
+          ctx.imageSmoothingQuality = "high";
         }
 
         this.isChangingSource = false;
@@ -750,8 +908,8 @@ export class VideoController {
       };
 
       // Set up video
-      this.video.addEventListener('canplaythrough', handleCanPlayThrough);
-      this.video.preload = 'auto';
+      this.video.addEventListener("canplaythrough", handleCanPlayThrough);
+      this.video.preload = "auto";
       this.video.src = videoUrl;
       this.video.load();
     });
@@ -760,27 +918,36 @@ export class VideoController {
   // Add this new method to handle time adjustment
   private getAdjustedTime(time: number): number {
     if (!this.renderOptions?.segment) return time;
-    return clampToTrimSegments(time, this.renderOptions.segment, this.video.duration || this.state.duration || time);
+    return clampToTrimSegments(
+      time,
+      this.renderOptions.segment,
+      this.video.duration || this.state.duration || time,
+    );
   }
 
   // Add new method
   public initializeSegment(): VideoSegment {
     // If duration is available, use it, otherwise use a default safe large number
     // It will be corrected by handleDurationChange later
-    const duration = (this.video && this.video.duration !== Infinity && !isNaN(this.video.duration))
-      ? this.video.duration
-      : 3600;
+    const duration =
+      this.video &&
+      this.video.duration !== Infinity &&
+      !isNaN(this.video.duration)
+        ? this.video.duration
+        : 3600;
 
     const initialSegment: VideoSegment = {
       trimStart: 0,
       trimEnd: duration,
-      trimSegments: [{
-        id: crypto.randomUUID(),
-        startTime: 0,
-        endTime: duration,
-      }],
+      trimSegments: [
+        {
+          id: crypto.randomUUID(),
+          startTime: 0,
+          endTime: duration,
+        },
+      ],
       zoomKeyframes: [],
-      textSegments: []
+      textSegments: [],
     };
     return initialSegment;
   }
@@ -788,7 +955,10 @@ export class VideoController {
   // Add this new method
   public isAtEnd(): boolean {
     if (!this.renderOptions?.segment) return false;
-    const segs = getTrimSegments(this.renderOptions.segment, this.video.duration || this.state.duration || this.video.currentTime);
+    const segs = getTrimSegments(
+      this.renderOptions.segment,
+      this.video.duration || this.state.duration || this.video.currentTime,
+    );
     const trimEnd = segs[segs.length - 1].endTime;
     return Math.abs(this.video.currentTime - trimEnd) < 0.1; // Allow 0.1s tolerance
   }
