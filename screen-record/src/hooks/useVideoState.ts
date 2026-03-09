@@ -58,6 +58,7 @@ const MIN_EXPORT_FPS = 1;
 const MAX_EXPORT_FPS = 240;
 const MIN_CROP_SIZE = 0.05;
 const TRAILING_MOUSE_SAMPLE_EPSILON_SEC = 1 / 240;
+const PROJECT_LOAD_DEBUG = false;
 
 function getSavedKeystrokeDelaySec(): number {
   try {
@@ -361,9 +362,8 @@ export function useVideoPlayback({
       onVideoReady: setIsVideoReady,
       onDurationChange: setDuration,
       onError: console.error,
-      onMetadataLoaded: (metadata) => {
+      onMetadataLoaded: () => {
         // Segment update handled in App.tsx via useUndoRedo
-        console.log("[useVideoPlayback] Metadata loaded:", metadata.duration);
       },
     });
 
@@ -489,13 +489,16 @@ export function useVideoPlayback({
 
       const run = async (attempt: number = 0): Promise<void> => {
         try {
-          const newThumbnails = await thumbnailGenerator.generateThumbnails(
+          const sourceDuration = Math.max(duration, thumbnailSegment.trimEnd, 0.001);
+          const newThumbnails = await thumbnailGenerator.generateSegmentThumbnails(
             videoUrl,
+            thumbnailSegment,
+            sourceDuration,
             requestedCount,
             {
-              trimStart: thumbnailSegment.trimStart,
-              trimEnd: thumbnailSegment.trimEnd,
-              filePath: options?.filePath,
+              width: 240,
+              height: 135,
+              quality: 0.72,
             },
           );
           if (thumbnailRequestIdRef.current !== requestId) return;
@@ -543,6 +546,7 @@ export function useVideoPlayback({
     },
     [
       currentVideo,
+      duration,
       generateThumbnail,
       getRequestedThumbnailCount,
       getThumbnailCacheKey,
@@ -880,6 +884,7 @@ export function useRecording(props: UseRecordingProps) {
       objectUrl = await props.videoControllerRef.current?.loadVideo({
         videoUrl,
         onLoadingProgress: setLoadingProgress,
+        debugLabel: "recording-stop",
       });
 
       if (objectUrl) {
@@ -1131,6 +1136,7 @@ export function useProjects(props: UseProjectsProps) {
   const [showProjectsDialog, setShowProjectsDialog] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const logProjectLoad = (event: string, data?: Record<string, unknown>) => {
+    if (!PROJECT_LOAD_DEBUG) return;
     const ts = new Date().toISOString();
     console.log(`[ProjectLoad][${ts}] ${event}`, data || {});
   };
@@ -1184,10 +1190,12 @@ export function useProjects(props: UseProjectsProps) {
         const mediaUrl = await getMediaServerUrl(rawVideoPath);
         videoObjectUrl = await props.videoControllerRef.current?.loadVideo({
           videoUrl: mediaUrl,
+          debugLabel: "project-load",
         });
       } else if (project.videoBlob) {
         videoObjectUrl = await props.videoControllerRef.current?.loadVideo({
           videoBlob: project.videoBlob,
+          debugLabel: "project-load",
         });
       }
       if (videoObjectUrl) {

@@ -492,8 +492,8 @@ export function ProjectsView({
             <h3 className="text-lg font-semibold text-[var(--on-surface)]">
               {isPickerMode
                 ? pickerMode === "insertBefore"
-                  ? "Insert Project Before"
-                  : "Insert Project After"
+                  ? t.insertProjectBefore
+                  : t.insertProjectAfter
                 : t.projects}
             </h3>
             {!isPickerMode && projects.length > 0 && (

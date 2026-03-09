@@ -120,7 +120,7 @@ export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
         )}
         {onCancel && (
           <button
-            onClick={() => { console.log('[Cancel] Button clicked'); onCancel(); }}
+            onClick={onCancel}
             className="cancel-export-btn mt-3 w-full py-1.5 rounded-lg text-xs font-medium text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] border border-[var(--glass-border)] transition-colors"
           >
             {t.cancel}

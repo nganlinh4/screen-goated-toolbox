@@ -187,6 +187,8 @@ const en = {
   showInFolder: 'Show in Folder',
   rename: 'Rename',
   save: 'Save',
+  insertProjectBefore: 'Insert Project Before',
+  insertProjectAfter: 'Insert Project After',
   exportSuccessful: 'Export Successful',
   autoCopyAfterExport: 'Auto copy after export',
   original: 'Original',

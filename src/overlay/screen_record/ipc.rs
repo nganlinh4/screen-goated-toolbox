@@ -1856,33 +1856,75 @@ pub fn start_global_media_server() -> Result<u16, String> {
                 }
                 let mut start = 0;
                 let mut end = file_size.saturating_sub(1);
+                let mut is_partial = false;
 
                 if let Some(range) = request
                     .headers()
                     .iter()
-                    .find(|h| h.field.as_str() == "Range")
+                    .find(|h| h.field.to_string().eq_ignore_ascii_case("range"))
                     && let Some(r) = range.value.as_str().strip_prefix("bytes=")
                 {
                     let parts: Vec<&str> = r.split('-').collect();
                     if parts.len() == 2 {
-                        if let Ok(s) = parts[0].parse::<u64>() {
-                            start = s;
-                        }
-                        if let Ok(e) = parts[1].parse::<u64>()
-                            && !parts[1].is_empty()
+                        let start_part = parts[0].trim();
+                        let end_part = parts[1].trim();
+
+                        if !start_part.is_empty() {
+                            if let Ok(s) = start_part.parse::<u64>() {
+                                start = s.min(file_size.saturating_sub(1));
+                                if !end_part.is_empty() {
+                                    if let Ok(e) = end_part.parse::<u64>() {
+                                        end = e.min(file_size.saturating_sub(1));
+                                    }
+                                }
+                                is_partial = true;
+                            }
+                        } else if !end_part.is_empty()
+                            && let Ok(suffix_len) = end_part.parse::<u64>()
                         {
-                            end = e;
+                            let clamped_suffix = suffix_len.min(file_size);
+                            start = file_size.saturating_sub(clamped_suffix);
+                            end = file_size.saturating_sub(1);
+                            is_partial = true;
                         }
                     }
                 }
 
+                if start > end || start >= file_size {
+                    let mut res = Response::from_string("Requested range not satisfiable")
+                        .with_status_code(416);
+                    res.add_header(
+                        tiny_http::Header::from_bytes(
+                            &b"Access-Control-Allow-Origin"[..],
+                            &b"*"[..],
+                        )
+                        .unwrap(),
+                    );
+                    res.add_header(
+                        tiny_http::Header::from_bytes(&b"Accept-Ranges"[..], &b"bytes"[..])
+                            .unwrap(),
+                    );
+                    res.add_header(
+                        tiny_http::Header::from_bytes(
+                            &b"Content-Range"[..],
+                            format!("bytes */{}", file_size).as_bytes(),
+                        )
+                        .unwrap(),
+                    );
+                    let _ = request.respond(res);
+                    continue;
+                }
+
+                end = end.min(file_size.saturating_sub(1));
+                let content_len = end.saturating_sub(start).saturating_add(1);
+
                 if let Ok(mut f) = File::open(media_path) {
                     let _ = f.seek(std::io::SeekFrom::Start(start));
                     let mut res = Response::new(
-                        if start == 0 && end == file_size.saturating_sub(1) {
-                            StatusCode(200)
-                        } else {
+                        if is_partial {
                             StatusCode(206)
+                        } else {
+                            StatusCode(200)
                         },
                         vec![
                             tiny_http::Header::from_bytes(
@@ -1897,12 +1939,17 @@ pub fn start_global_media_server() -> Result<u16, String> {
                             .unwrap(),
                             tiny_http::Header::from_bytes(&b"Accept-Ranges"[..], &b"bytes"[..])
                                 .unwrap(),
+                            tiny_http::Header::from_bytes(
+                                &b"Content-Length"[..],
+                                content_len.to_string().as_bytes(),
+                            )
+                            .unwrap(),
                         ],
-                        Box::new(f.take(end - start + 1)) as Box<dyn Read + Send>,
-                        Some((end - start + 1) as usize),
+                        Box::new(f.take(content_len)) as Box<dyn Read + Send>,
+                        Some(content_len as usize),
                         None,
                     );
-                    if start != 0 || end != file_size.saturating_sub(1) {
+                    if is_partial {
                         res.add_header(
                             tiny_http::Header::from_bytes(
                                 &b"Content-Range"[..],

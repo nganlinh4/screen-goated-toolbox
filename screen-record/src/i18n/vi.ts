@@ -189,6 +189,8 @@ const vi: Translations = {
   showInFolder: 'Mở Thư Mục',
   rename: 'Đổi Tên',
   save: 'Lưu',
+  insertProjectBefore: 'Chèn dự án ở trước',
+  insertProjectAfter: 'Chèn dự án ở sau',
   exportSuccessful: 'Xuất Thành Công',
   autoCopyAfterExport: 'Tự động copy sau khi xuất',
   original: 'Gốc',
