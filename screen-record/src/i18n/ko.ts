@@ -189,6 +189,8 @@ const ko: Translations = {
   showInFolder: '폴더에서 보기',
   rename: '이름 변경',
   save: '저장',
+  insertProjectBefore: '앞에 프로젝트 삽입',
+  insertProjectAfter: '뒤에 프로젝트 삽입',
   exportSuccessful: '내보내기 성공',
   autoCopyAfterExport: '내보내기 후 자동 복사',
   original: '원본',

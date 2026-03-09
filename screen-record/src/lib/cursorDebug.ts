@@ -9,7 +9,7 @@ function getCursorDebugPreference(): string | null {
 }
 
 export function isCursorDebugEnabled(): boolean {
-  return getCursorDebugPreference() !== '0';
+  return getCursorDebugPreference() === '1';
 }
 
 type SmartPointerDebugTransition = {

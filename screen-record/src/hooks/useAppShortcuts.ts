@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { VideoSegment } from "@/types/video";
 
 export interface UseAppShortcutsParams {
@@ -33,6 +33,7 @@ export function useAppShortcuts({
   currentTime,
   duration,
   seek,
+  flushSeek,
   isCropping,
   isModalOpen = false,
   editingKeyframeId,
@@ -52,24 +53,104 @@ export function useAppShortcuts({
   setSeekIndicatorKey,
   setSeekIndicatorDir,
 }: UseAppShortcutsParams) {
+  const latestRef = useRef<UseAppShortcutsParams>({
+    togglePlayPause,
+    currentTime,
+    duration,
+    seek,
+    flushSeek: undefined,
+    isCropping,
+    isModalOpen,
+    editingKeyframeId,
+    editingTextId,
+    editingKeystrokeSegmentId,
+    editingPointerId,
+    segment,
+    setSegment,
+    setEditingKeyframeId,
+    handleDeleteText,
+    handleDeleteKeystrokeSegment,
+    handleDeletePointerSegment,
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+    setSeekIndicatorKey,
+    setSeekIndicatorDir,
+  });
+  latestRef.current = {
+    togglePlayPause,
+    currentTime,
+    duration,
+    seek,
+    flushSeek,
+    isCropping,
+    isModalOpen,
+    editingKeyframeId,
+    editingTextId,
+    editingKeystrokeSegmentId,
+    editingPointerId,
+    segment,
+    setSegment,
+    setEditingKeyframeId,
+    handleDeleteText,
+    handleDeleteKeystrokeSegment,
+    handleDeletePointerSegment,
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+    setSeekIndicatorKey,
+    setSeekIndicatorDir,
+  };
+
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      const targetType = (e.target as HTMLInputElement).type;
-      const isTextInput =
+    const isTextInputTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName;
+      const targetType = (target as HTMLInputElement).type;
+      return (
         (tag === "INPUT" &&
           ["text", "number", "password", "search", "email"].includes(
             targetType,
           )) ||
         tag === "TEXTAREA" ||
-        (e.target as HTMLElement).isContentEditable;
+        target.isContentEditable
+      );
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const {
+        togglePlayPause,
+        currentTime,
+        duration,
+        seek,
+        isCropping,
+        isModalOpen = false,
+        editingKeyframeId,
+        editingTextId,
+        editingKeystrokeSegmentId,
+        editingPointerId,
+        segment,
+        setSegment,
+        setEditingKeyframeId,
+        handleDeleteText,
+        handleDeleteKeystrokeSegment,
+        handleDeletePointerSegment,
+        canUndo,
+        canRedo,
+        undo,
+        redo,
+        setSeekIndicatorKey,
+        setSeekIndicatorDir,
+      } = latestRef.current;
+      const isTextInput = isTextInputTarget(e.target);
 
       if (e.code === "Space" && !isTextInput) {
         if (isModalOpen) return; // Let the dialog's native video controls handle Space
         e.preventDefault();
-        e.stopImmediatePropagation();
+        e.stopPropagation();
         if (isCropping) return; // Block play/pause during crop mode
-        if (e.target instanceof HTMLElement) e.target.blur(); // Unfocus anything so Space keyup doesn't activate it
         togglePlayPause();
       }
       if (e.code === "ArrowLeft" && !isTextInput) {
@@ -117,30 +198,19 @@ export function useAppShortcuts({
         canRedo && redo();
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    editingKeyframeId,
-    editingTextId,
-    editingPointerId,
-    editingKeystrokeSegmentId,
-    handleDeleteText,
-    handleDeletePointerSegment,
-    handleDeleteKeystrokeSegment,
-    segment,
-    canUndo,
-    canRedo,
-    undo,
-    redo,
-    setSegment,
-    setEditingKeyframeId,
-    togglePlayPause,
-    isCropping,
-    isModalOpen,
-    currentTime,
-    duration,
-    seek,
-    setSeekIndicatorKey,
-    setSeekIndicatorDir,
-  ]);
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const { isModalOpen = false } = latestRef.current;
+      if (e.code !== "Space") return;
+      if (isModalOpen) return;
+      if (isTextInputTarget(e.target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
+    };
+  }, []);
 }

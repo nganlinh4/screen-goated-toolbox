@@ -125,22 +125,10 @@ export function drawCursorShape(
   const mappingKey = `${cursorType}=>${effectiveType}`;
   if (!state.loggedCursorMappings.has(mappingKey)) {
     state.loggedCursorMappings.add(mappingKey);
-    console.log('[CursorDebug] map', {
-      rawType: cursorType,
-      effectiveType,
-    });
   }
 
   if (!state.loggedCursorTypes.has(effectiveType)) {
     state.loggedCursorTypes.add(effectiveType);
-    const debugImg = getCursorImage(images, effectiveType);
-    console.log('[CursorDebug] loaded', {
-      effectiveType,
-      src: debugImg?.src,
-      naturalWidth: debugImg?.naturalWidth,
-      naturalHeight: debugImg?.naturalHeight,
-      complete: debugImg?.complete,
-    });
   }
 
   const imageToDraw = getCursorImage(images, effectiveType) ?? images.defaultScreenStudioImage;

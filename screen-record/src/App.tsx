@@ -107,7 +107,8 @@ const CAPTURE_SOURCE_KEY = "screen-record-capture-source-v1";
 const KEYSTROKE_DELAY_KEY = "screen-record-keystroke-delay-v1";
 const KEYSTROKE_MODE_PREF_KEY = "screen-record-keystroke-mode-pref-v1";
 const KEYSTROKE_OVERLAY_PREF_KEY = "screen-record-keystroke-overlay-pref-v1";
-const PROJECT_SAVE_DEBUG = true;
+const PROJECT_SAVE_DEBUG = false;
+const PLAYBACK_RESET_DEBUG = false;
 const DEFAULT_KEYSTROKE_DELAY_SEC = 0;
 const sv = (v: number, min: number, max: number): CSSProperties =>
   ({ "--value-pct": `${((v - min) / (max - min)) * 100}%` }) as CSSProperties;
@@ -354,6 +355,9 @@ function App() {
   );
   const clipLoadRequestSeqRef = useRef(0);
   const [loadedClipId, setLoadedClipId] = useState<string | null>(null);
+  const playbackResetPrevTimeRef = useRef(0);
+  const playbackResetLastSignatureRef = useRef<string | null>(null);
+  const playbackResetLastAtRef = useRef(0);
   // Stable ref for persist callback — avoids cascading useEffect re-triggers
   const persistRef = useRef<typeof persistCurrentProjectNow>(null!);
   const debugProject = useCallback(
@@ -753,8 +757,14 @@ function App() {
         }
         const videoObjectUrl = await videoControllerRef.current?.loadVideo(
           clipUrls
-            ? { videoUrl: clipUrls.videoUrl }
-            : { videoBlob: loadedAssets?.videoBlob ?? undefined },
+            ? {
+                videoUrl: clipUrls.videoUrl,
+                debugLabel: `clip-focus:${clip.id}`,
+              }
+            : {
+                videoBlob: loadedAssets?.videoBlob ?? undefined,
+                debugLabel: `clip-focus:${clip.id}`,
+              },
         );
         if (!isLatestRequest()) return;
         if (videoObjectUrl) {
@@ -881,22 +891,83 @@ function App() {
     },
     [loadClipAssets, projects.currentProjectId],
   );
-  const selectedClipId =
-    composition?.focusedClipId ?? composition?.selectedClipId ?? null;
-  const activeClipId = loadedClipId ?? selectedClipId;
-  const activeCompositionClip = useMemo(
-    () => getCompositionClip(composition, activeClipId),
-    [activeClipId, composition],
-  );
   const hasSequenceChain = (composition?.clips.length ?? 0) > 1;
+  const selectedClipId = hasSequenceChain
+    ? (composition?.focusedClipId ?? composition?.selectedClipId ?? null)
+    : null;
+  const activeClipId = hasSequenceChain
+    ? (loadedClipId ?? selectedClipId)
+    : null;
+  const compositionSyncClipId = composition
+    ? hasSequenceChain
+      ? activeClipId
+      : "root"
+    : null;
+  const activeCompositionClip = useMemo(
+    () => (hasSequenceChain ? getCompositionClip(composition, activeClipId) : null),
+    [activeClipId, composition, hasSequenceChain],
+  );
   const { previousClipId, nextClipId } = useMemo(
-    () => getCompositionAdjacentClipIds(composition, activeClipId),
-    [activeClipId, composition],
+    () =>
+      hasSequenceChain
+        ? getCompositionAdjacentClipIds(composition, activeClipId)
+        : { previousClipId: null, nextClipId: null },
+    [activeClipId, composition, hasSequenceChain],
   );
   const currentTime = previewCurrentTime;
   const setCurrentTime = setPreviewCurrentTime;
   const duration = previewDuration;
   const isPlaying = isPreviewPlaying;
+
+  useEffect(() => {
+    if (!PLAYBACK_RESET_DEBUG) return;
+    const previousTime = playbackResetPrevTimeRef.current;
+    playbackResetPrevTimeRef.current = currentTime;
+    if (!currentVideo || isRecording || isLoadingVideo) return;
+    if (previousTime <= 0.5 || currentTime > 0.05 || previousTime - currentTime <= 0.5)
+      return;
+    const payload = {
+      reason: "app-state-regressed-to-start",
+      previousTime,
+      currentTime,
+      isPlaying,
+      isVideoReady,
+      currentProjectId: projects.currentProjectId,
+      hasSequenceChain,
+      loadedClipId,
+      selectedClipId,
+      switchingClip: isSwitchingCompositionClipRef.current,
+    };
+    const signature = JSON.stringify({
+      previousTime: Number(previousTime.toFixed(3)),
+      currentTime: Number(currentTime.toFixed(3)),
+      isPlaying,
+      currentProjectId: projects.currentProjectId,
+      loadedClipId,
+      selectedClipId,
+    });
+    const now = Date.now();
+    if (
+      playbackResetLastSignatureRef.current === signature &&
+      now - playbackResetLastAtRef.current < 800
+    ) {
+      return;
+    }
+    playbackResetLastSignatureRef.current = signature;
+    playbackResetLastAtRef.current = now;
+    console.warn("[PlaybackReset]", payload);
+  }, [
+    currentTime,
+    currentVideo,
+    hasSequenceChain,
+    isLoadingVideo,
+    isPlaying,
+    isRecording,
+    isVideoReady,
+    loadedClipId,
+    projects.currentProjectId,
+    selectedClipId,
+  ]);
 
   // FPS of the most-recent recording (set on stop, cleared when a different project loads).
   const [lastCaptureFps, setLastCaptureFps] = useState<number | null>(null);
@@ -1060,7 +1131,12 @@ function App() {
   }, [clearClipMediaCaches]);
 
   useEffect(() => {
-    if (!projects.currentProjectId || !currentProjectData || !composition)
+    if (
+      !hasSequenceChain ||
+      !projects.currentProjectId ||
+      !currentProjectData ||
+      !composition
+    )
       return;
     void primePreloadSlot(
       "previous",
@@ -1072,6 +1148,7 @@ function App() {
   }, [
     composition,
     currentProjectData,
+    hasSequenceChain,
     nextClipId,
     previousClipId,
     primePreloadSlot,
@@ -1082,7 +1159,7 @@ function App() {
     if (
       !composition ||
       !segment ||
-      !activeClipId ||
+      !compositionSyncClipId ||
       isSwitchingCompositionClipRef.current
     )
       return;
@@ -1091,9 +1168,9 @@ function App() {
       const canvasConfig = extractCanvasConfig(backgroundConfig);
       let next = syncCompositionCanvasConfig(prev, canvasConfig);
       const currentClipBackground =
-        getCompositionClip(next, activeClipId)?.backgroundConfig ??
+        getCompositionClip(next, compositionSyncClipId)?.backgroundConfig ??
         applyCanvasConfig(backgroundConfig, canvasConfig);
-      next = updateCompositionClip(next, activeClipId, {
+      next = updateCompositionClip(next, compositionSyncClipId, {
         segment,
         backgroundConfig:
           prev.mode === "separate"
@@ -1107,7 +1184,8 @@ function App() {
       if (prev.mode === "unified") {
         next = {
           ...next,
-          unifiedSourceClipId: prev.unifiedSourceClipId ?? activeClipId,
+          unifiedSourceClipId:
+            prev.unifiedSourceClipId ?? compositionSyncClipId,
           globalPresentationConfig: applyCanvasConfig(
             backgroundConfig,
             canvasConfig,
@@ -1125,12 +1203,12 @@ function App() {
     composition?.focusedClipId,
     composition?.selectedClipId,
     composition?.mode,
+    compositionSyncClipId,
     currentRawVideoPath,
     currentRecordingMode,
     duration,
     mousePositions,
     segment,
-    activeClipId,
   ]);
 
   // Persist last-used background config so new projects inherit previous project settings.
@@ -3128,7 +3206,7 @@ function App() {
                 )}
               </div>
 
-              {composition && (
+              {!isCropping && composition && (
                 <SequencePillChain
                   composition={composition}
                   activeClipId={activeClipId}

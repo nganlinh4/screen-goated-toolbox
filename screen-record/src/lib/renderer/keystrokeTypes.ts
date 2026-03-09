@@ -137,20 +137,9 @@ export function computePercentile(values: number[], percentile: number): number 
 }
 
 export function debugKeystrokeDurations(tag: string, durations: number[], extras: Record<string, unknown> = {}) {
-  const min = durations.length ? Math.min(...durations) : 0;
-  const max = durations.length ? Math.max(...durations) : 0;
-  const p50 = computePercentile(durations, 0.5);
-  const p90 = computePercentile(durations, 0.9);
-  const short = durations.filter((d) => d <= 0.12).length;
-  console.info(`[KeystrokeDebug][${tag}]`, {
-    count: durations.length,
-    min,
-    p50,
-    p90,
-    max,
-    shortLE120ms: short,
-    ...extras,
-  });
+  void tag;
+  void durations;
+  void extras;
 }
 
 export function lerpRgba(
