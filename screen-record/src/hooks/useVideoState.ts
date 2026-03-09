@@ -323,6 +323,7 @@ export function useVideoPlayback({
   const currentAudioRef = useRef<string | null>(null);
   const thumbnailRequestIdRef = useRef(0);
   const thumbnailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const thumbnailCacheRef = useRef<Map<string, string[]>>(new Map());
 
   // Initialize controller
   useEffect(() => {
@@ -412,6 +413,34 @@ export function useVideoPlayback({
     }
   }, []);
 
+  const getThumbnailCacheKey = useCallback(
+    (options?: {
+      videoUrl?: string | null;
+      filePath?: string;
+      segment?: VideoSegment | null;
+    }) => {
+      const sourceKey =
+        options?.filePath?.trim() ||
+        options?.videoUrl?.trim() ||
+        currentVideo?.trim() ||
+        "";
+      const thumbnailSegment = options?.segment ?? segment;
+      if (!sourceKey || !thumbnailSegment) return null;
+      return JSON.stringify({
+        sourceKey,
+        trimStart: thumbnailSegment.trimStart,
+        trimEnd: thumbnailSegment.trimEnd,
+        trimSegments: (thumbnailSegment.trimSegments ?? []).map(
+          (trimSegment) => ({
+            startTime: trimSegment.startTime,
+            endTime: trimSegment.endTime,
+          }),
+        ),
+      });
+    },
+    [currentVideo, segment],
+  );
+
   const generateThumbnailsForSource = useCallback(
     async (options?: {
       videoUrl?: string | null;
@@ -423,23 +452,60 @@ export function useVideoPlayback({
       const thumbnailSegment = options?.segment ?? segment;
       if (!videoUrl || !thumbnailSegment) return;
       const requestId = ++thumbnailRequestIdRef.current;
+      const cacheKey = getThumbnailCacheKey(options);
+      const cachedThumbnails = cacheKey
+        ? thumbnailCacheRef.current.get(cacheKey)
+        : undefined;
       if (thumbnailTimerRef.current) {
         clearTimeout(thumbnailTimerRef.current);
         thumbnailTimerRef.current = null;
       }
+      if (cachedThumbnails && cachedThumbnails.length > 0) {
+        setThumbnails(cachedThumbnails);
+      }
 
-      const run = async () => {
-        const newThumbnails = await thumbnailGenerator.generateThumbnails(
-          videoUrl,
-          20,
-          {
-            trimStart: thumbnailSegment.trimStart,
-            trimEnd: thumbnailSegment.trimEnd,
-            filePath: options?.filePath,
-          },
-        );
-        if (thumbnailRequestIdRef.current !== requestId) return;
-        setThumbnails(newThumbnails);
+      const run = async (attempt: number = 0): Promise<void> => {
+        try {
+          const newThumbnails = await thumbnailGenerator.generateThumbnails(
+            videoUrl,
+            20,
+            {
+              trimStart: thumbnailSegment.trimStart,
+              trimEnd: thumbnailSegment.trimEnd,
+              filePath: options?.filePath,
+            },
+          );
+          if (thumbnailRequestIdRef.current !== requestId) return;
+          if (newThumbnails.length === 0) {
+            throw new Error("No thumbnails were generated");
+          }
+          if (cacheKey) {
+            thumbnailCacheRef.current.set(cacheKey, newThumbnails);
+          }
+          setThumbnails(newThumbnails);
+        } catch (error) {
+          if (thumbnailRequestIdRef.current !== requestId) return;
+          if (cachedThumbnails && cachedThumbnails.length > 0) {
+            setThumbnails(cachedThumbnails);
+            return;
+          }
+          if (attempt < 1) {
+            await new Promise((resolve) => window.setTimeout(resolve, 120));
+            if (thumbnailRequestIdRef.current !== requestId) return;
+            await run(attempt + 1);
+            return;
+          }
+          const fallbackThumbnail = generateThumbnail();
+          if (fallbackThumbnail) {
+            const fallbackStrip = Array.from({ length: 6 }, () => fallbackThumbnail);
+            if (cacheKey) {
+              thumbnailCacheRef.current.set(cacheKey, fallbackStrip);
+            }
+            setThumbnails(fallbackStrip);
+            return;
+          }
+          console.error("[Thumbnail] Failed to generate thumbnails", error);
+        }
       };
 
       if ((options?.deferMs ?? 0) > 0) {
@@ -452,7 +518,7 @@ export function useVideoPlayback({
 
       await run();
     },
-    [currentVideo, segment],
+    [currentVideo, generateThumbnail, getThumbnailCacheKey, segment],
   );
 
   const generateThumbnails = useCallback(
@@ -476,6 +542,7 @@ export function useVideoPlayback({
       if (thumbnailTimerRef.current) {
         clearTimeout(thumbnailTimerRef.current);
       }
+      thumbnailCacheRef.current.clear();
     };
   }, []);
 
@@ -575,12 +642,6 @@ export function useVideoPlayback({
       renderFrame();
     }
   }, [segment, backgroundConfig, interactiveBackgroundPreview, isCropping]);
-
-  // Generate thumbnails when ready
-  useEffect(() => {
-    if (isVideoReady && duration > 0 && thumbnails.length === 0)
-      generateThumbnails();
-  }, [isVideoReady, duration, thumbnails.length, generateThumbnails]);
 
   // Cleanup URLs
   useEffect(() => {
@@ -1091,16 +1152,6 @@ export function useProjects(props: UseProjectsProps) {
           previousVideoUrl !== videoObjectUrl
         ) {
           URL.revokeObjectURL(previousVideoUrl);
-        }
-        if (rawVideoPath) {
-          thumbnailGenerator
-            .generateThumbnails(videoObjectUrl, 20, {
-              trimStart: project.segment.trimStart,
-              trimEnd: project.segment.trimEnd,
-              filePath: rawVideoPath,
-            })
-            .then(props.setThumbnails)
-            .catch(() => {});
         }
       }
 
