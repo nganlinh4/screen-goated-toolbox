@@ -349,6 +349,7 @@ function App() {
     },
   );
   const clipLoadRequestSeqRef = useRef(0);
+  const [loadedClipId, setLoadedClipId] = useState<string | null>(null);
   // Stable ref for persist callback — avoids cascading useEffect re-triggers
   const persistRef = useRef<typeof persistCurrentProjectNow>(null!);
   const debugProject = useCallback(
@@ -688,6 +689,10 @@ function App() {
       if (!project || !nextComposition) return;
       const clip = getCompositionClip(nextComposition, clipId);
       if (!clip) return;
+      const clipPreviewDuration = Math.max(clip.duration || 0, clip.segment.trimEnd);
+      const clipThumbnailPlaceholder = clip.thumbnail
+        ? Array.from({ length: 6 }, () => clip.thumbnail!)
+        : null;
       const requestId = options?.requestId ?? clipLoadRequestSeqRef.current + 1;
       clipLoadRequestSeqRef.current = requestId;
       const isLatestRequest = () => clipLoadRequestSeqRef.current === requestId;
@@ -763,11 +768,18 @@ function App() {
           setCurrentAudio(null);
         }
         if (!isLatestRequest()) return;
+        setPreviewDuration(
+          Math.max(videoControllerRef.current?.duration ?? 0, clipPreviewDuration),
+        );
         setSegment(clip.segment);
+        if (clipThumbnailPlaceholder) {
+          setThumbnails(clipThumbnailPlaceholder);
+        }
         setBackgroundConfig(resolvedBackground);
         setMousePositions(clip.mousePositions);
         setCurrentRecordingMode(clip.recordingMode ?? "withoutCursor");
         handleProjectRawVideoPathChange(clip.rawVideoPath ?? "");
+        setLoadedClipId(clip.id);
         void generateThumbnailsForSource({
           videoUrl: clipUrls?.videoUrl ?? videoObjectUrl ?? null,
           filePath: clip.rawVideoPath,
@@ -793,6 +805,8 @@ function App() {
       loadClipAssets,
       setCurrentAudio,
       setCurrentVideo,
+      setPreviewDuration,
+      setThumbnails,
       generateThumbnailsForSource,
       setMousePositions,
       invalidateThumbnails,
@@ -818,6 +832,7 @@ function App() {
       setCurrentProjectData(project);
       const nextComposition = ensureProjectComposition(project);
       setComposition(nextComposition);
+      setLoadedClipId(null);
       if (spreadAnimationTimerRef.current) {
         clearTimeout(spreadAnimationTimerRef.current);
       }
@@ -836,8 +851,9 @@ function App() {
     currentVideo,
     currentAudio,
   });
-  const activeClipId =
+  const selectedClipId =
     composition?.focusedClipId ?? composition?.selectedClipId ?? null;
+  const activeClipId = loadedClipId ?? selectedClipId;
   const activeCompositionClip = useMemo(
     () => getCompositionClip(composition, activeClipId),
     [activeClipId, composition],
@@ -1711,6 +1727,7 @@ function App() {
       if (
         !projects.currentProjectId ||
         !compositionState ||
+        (shouldSyncLiveComposition && isSwitchingCompositionClipRef.current) ||
         (shouldSyncLiveComposition && !segment)
       ) {
         return;
@@ -1718,8 +1735,11 @@ function App() {
       const projectId = projects.currentProjectId;
       const saveSeq = ++projectSaveSeqRef.current;
       const includeMedia = options?.includeMedia !== false;
-      const activeClipId =
-        compositionState.focusedClipId ?? compositionState.selectedClipId;
+      const activeClipId = shouldSyncLiveComposition
+        ? loadedClipId ??
+          compositionState.focusedClipId ??
+          compositionState.selectedClipId
+        : compositionState.focusedClipId ?? compositionState.selectedClipId;
       const activeClip = activeClipId
         ? getCompositionClip(compositionState, activeClipId)
         : null;
@@ -1896,6 +1916,7 @@ function App() {
       projects.loadProjects,
       currentVideo,
       currentAudio,
+      loadedClipId,
       currentProjectData,
       segment,
       composition,
@@ -2080,7 +2101,7 @@ function App() {
     async (clipId: string) => {
       const targetClip = getCompositionClip(composition, clipId);
       if (!targetClip) return;
-      if (clipId === activeClipId) {
+      if (clipId === loadedClipId && !isSwitchingCompositionClipRef.current) {
         seek(targetClip.segment.trimStart);
         if (isPlaying) {
           videoControllerRef.current?.play();
@@ -2093,10 +2114,10 @@ function App() {
       });
     },
     [
-      activeClipId,
       composition,
       focusCompositionClip,
       isPlaying,
+      loadedClipId,
       seek,
       videoControllerRef,
     ],
@@ -2437,6 +2458,7 @@ function App() {
       projects.setCurrentProjectId(project.id);
       setCurrentProjectData(project);
       setComposition(ensureProjectComposition(project));
+      setLoadedClipId("root");
       await projects.loadProjects();
     }
   }, [
