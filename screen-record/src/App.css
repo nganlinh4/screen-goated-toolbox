@@ -411,6 +411,21 @@ body.dragging-seek * {
     box-shadow: 0 0 0 9999px var(--ui-surface-1);
 }
 
+.crop-workspace-selection[data-resizing="true"] {
+    background: transparent;
+    border-color: transparent;
+}
+
+.crop-workspace-selection[data-resizing="true"] .crop-workspace-grid-rows,
+.crop-workspace-selection[data-resizing="true"] .crop-workspace-grid-cols,
+.crop-workspace-selection[data-resizing="true"] .crop-workspace-crosshair {
+    opacity: 0;
+}
+
+.crop-workspace-selection[data-resizing="true"] .crop-workspace-handle[data-active="false"] {
+    opacity: 0;
+}
+
 /* Legacy highlight hook kept inert to avoid glossy/glass sheen */
 .glass-highlight::before {
     content: '';
