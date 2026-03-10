@@ -107,13 +107,18 @@ fn migrate_config(config: &mut Config) {
     // -------------------------------------------------------------------------
     // 3. MIGRATE RETIRED MODEL IDS IN SAVED PRESETS
     // -------------------------------------------------------------------------
-    // `cerebras_zai_glm_4_7` historically mapped to `llama3.1-8b`.
-    // Migrate any saved blocks (including user-custom presets) to the supported
-    // Cerebras model without overwriting prompts or other block settings.
+    // Migrate any saved blocks (including user-custom presets) away from retired
+    // model IDs without overwriting prompts or other block settings.
     for preset in &mut config.presets {
         for block in &mut preset.blocks {
-            if block.model == "cerebras_zai_glm_4_7" {
-                block.model = "cerebras_gpt_oss".to_string();
+            match block.model.as_str() {
+                "cerebras_zai_glm_4_7" => {
+                    block.model = "cerebras_gpt_oss".to_string();
+                }
+                "maverick" => {
+                    block.model = "scout".to_string();
+                }
+                _ => {}
             }
         }
     }
@@ -128,6 +133,45 @@ fn migrate_config(config: &mut Config) {
                 ..Default::default()
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::migrate_config;
+    use crate::config::{Config, Preset, ProcessingBlock};
+
+    #[test]
+    fn migrate_config_rewrites_retired_model_ids() {
+        let builtin = Preset {
+            id: "preset_translate".to_string(),
+            blocks: vec![ProcessingBlock {
+                block_type: "image".to_string(),
+                model: "maverick".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let custom = Preset {
+            id: "custom_image_preset".to_string(),
+            blocks: vec![ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "cerebras_zai_glm_4_7".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let mut config = Config {
+            presets: vec![builtin, custom],
+            ..Default::default()
+        };
+
+        migrate_config(&mut config);
+
+        assert_eq!(config.presets[0].blocks[0].model, "scout");
+        assert_eq!(config.presets[1].blocks[0].model, "cerebras_gpt_oss");
     }
 }
 

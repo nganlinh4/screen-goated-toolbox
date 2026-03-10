@@ -936,8 +936,8 @@ pub fn is_retryable_error(error: &str) -> bool {
 
     // 2. Check HTTP status if present
     if let Some(code) = extract_http_status_code(error) {
-        // 429: Rate Limit (Retry!)
-        if code == 429 || code == 400 {
+        // Retry recoverable request/model failures and transient capacity issues.
+        if matches!(code, 400 | 404 | 429) {
             return true;
         }
         // 5xx: Server Errors (Retry!)
@@ -963,4 +963,23 @@ pub fn is_retryable_error(error: &str) -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_retryable_error;
+
+    #[test]
+    fn retries_expected_http_statuses() {
+        assert!(is_retryable_error("request failed with status code 400"));
+        assert!(is_retryable_error("request failed with status code 404"));
+        assert!(is_retryable_error("request failed with status code 429"));
+        assert!(is_retryable_error("request failed with status code 503"));
+    }
+
+    #[test]
+    fn does_not_retry_auth_failures() {
+        assert!(!is_retryable_error("request failed with status code 401"));
+        assert!(!is_retryable_error("INVALID_API_KEY"));
+    }
 }

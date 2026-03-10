@@ -453,6 +453,11 @@ pub fn render_sidebar(
             }
         } else {
             new_preset.name = format!("Image {}", config.presets.len() + 1);
+            if let Some(block) = new_preset.blocks.first_mut() {
+                block.block_type = "image".to_string();
+                block.model = "scout".to_string();
+                block.prompt = "Extract text from this image.".to_string();
+            }
         }
         config.presets.push(new_preset);
         *view_mode = ViewMode::Preset(config.presets.len() - 1);

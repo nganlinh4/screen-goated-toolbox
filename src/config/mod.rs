@@ -20,7 +20,7 @@
 //! let preset = PresetBuilder::new("my_preset", "My Preset")
 //!     .image()
 //!     .blocks(vec![
-//!         BlockBuilder::image("maverick")
+//!         BlockBuilder::image("scout")
 //!             .prompt("Extract text.")
 //!             .language("Vietnamese")
 //!             .build()

@@ -114,19 +114,6 @@ lazy_static::lazy_static! {
             "1000 requests/day"
         ),
         ModelConfig::new(
-            "maverick",
-            "groq",
-            "Chính xác",
-            "정확함",
-            "Accurate",
-            "meta-llama/llama-4-maverick-17b-128e-instruct",
-            ModelType::Vision,
-            true,
-            "1000 lượt/ngày",
-            "1000 요청/일",
-            "1000 requests/day"
-        ),
-        ModelConfig::new(
             "gemini-live-vision",
             "gemini-live",
             "Thử nghiệm",
