@@ -32,6 +32,7 @@ export function CropWorkspace({
   const [draftCrop, setDraftCrop] = useState<CropRect>(initialCrop ?? DEFAULT_CROP);
   const [previewTime, setPreviewTime] = useState(initialTime);
   const [duration, setDuration] = useState(0);
+  const [activeResizeHandle, setActiveResizeHandle] = useState<string | null>(null);
   const [videoBounds, setVideoBounds] = useState<{
     left: number;
     top: number;
@@ -182,6 +183,7 @@ export function CropWorkspace({
     if (!bounds) return;
     event.preventDefault();
     event.stopPropagation();
+    setActiveResizeHandle(type);
     const startX = event.clientX;
     const startY = event.clientY;
     const startCrop = { ...draftCrop };
@@ -225,6 +227,7 @@ export function CropWorkspace({
     };
 
     const handleUp = () => {
+      setActiveResizeHandle(null);
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
     };
@@ -384,6 +387,7 @@ export function CropWorkspace({
                 >
                   <div
                     className="crop-workspace-selection absolute border-2 border-[var(--primary-color)] bg-[var(--primary-color)]/10 pointer-events-auto"
+                    data-resizing={activeResizeHandle ? "true" : "false"}
                     style={{
                       left: `${draftCrop.x * 100}%`,
                       top: `${draftCrop.y * 100}%`,
@@ -407,6 +411,7 @@ export function CropWorkspace({
                       <div
                         key={handle.key}
                         className={`crop-workspace-handle absolute z-30 h-3 w-3 rounded-full border border-[var(--primary-color)] bg-white transition-transform hover:scale-125 ${handle.cursor} ${handle.position}`}
+                        data-active={activeResizeHandle === handle.key ? "true" : "false"}
                         onMouseDown={(event) => handleResizeStart(event, handle.key)}
                       />
                     ))}
