@@ -186,14 +186,9 @@ where
             }]
         });
 
-        let supports_thinking = (model.contains("gemini-2.5-flash") && !model.contains("lite"))
-            || model.contains("gemini-3-flash-preview")
-            || model.contains("gemini-robotics");
-        if supports_thinking {
+        if let Some(thinking_config) = crate::api::gemini_thinking_config(&model) {
             payload["generationConfig"] = serde_json::json!({
-                "thinkingConfig": {
-                    "includeThoughts": true
-                }
+                "thinkingConfig": thinking_config
             });
         }
 

@@ -1,6 +1,6 @@
 [package]
 name = "screen-goated-toolbox"
-version = "4.8.1"
+version = "4.8.2"
 edition = "2024"
 
 [build-dependencies]
