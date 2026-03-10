@@ -12,6 +12,17 @@ import { useSettings } from "@/hooks/useSettings";
 import { ZoomDebugOverlay } from "./ZoomDebugOverlay";
 import { videoTimeToWallClock } from "@/lib/exportEstimator";
 
+const TIMELINE_TRACK_GAP_PX = 2;
+const TIMELINE_TRACK_HEIGHTS = {
+  zoom: 40,
+  debug: 40,
+  speed: 40,
+  text: 28,
+  keystroke: 28,
+  pointer: 28,
+  trimLane: 40,
+} as const;
+
 function formatTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.floor(seconds % 60);
@@ -79,6 +90,19 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
       : segment?.keystrokeMode === "keyboardMouse"
         ? t.trackKeyboardMouse
         : t.trackKeystrokesOff;
+  const trackHeightsBeforeTrim = [
+    TIMELINE_TRACK_HEIGHTS.zoom,
+    ...(showDebug ? [TIMELINE_TRACK_HEIGHTS.debug] : []),
+    TIMELINE_TRACK_HEIGHTS.speed,
+    TIMELINE_TRACK_HEIGHTS.text,
+    TIMELINE_TRACK_HEIGHTS.keystroke,
+    TIMELINE_TRACK_HEIGHTS.pointer,
+  ];
+  const trimHeadCenterY =
+    trackHeightsBeforeTrim.reduce((sum, height) => sum + height, 0) +
+    trackHeightsBeforeTrim.length * TIMELINE_TRACK_GAP_PX +
+    TIMELINE_TRACK_HEIGHTS.trimLane / 2;
+  const trimLaneBottomY = trimHeadCenterY + TIMELINE_TRACK_HEIGHTS.trimLane / 2;
   const {
     dragState,
     handleTrimDragStart,
@@ -118,7 +142,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
       {/* Track container with label gutter + content area */}
       <div className="timeline-tracks-row flex gap-4">
         {/* Label gutter */}
-        <div className="timeline-label-gutter w-[4rem] flex-shrink-0 flex flex-col gap-[2px] border-r border-[var(--glass-border)] pr-2">
+        <div className="timeline-label-gutter w-[4rem] flex-shrink-0 flex flex-col gap-[2px] border-r border-[var(--ui-border)] pr-2">
           <div className="timeline-label-zoom h-10 flex items-center justify-between">
             <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
               {t.trackZoom}
@@ -128,7 +152,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               className={`timeline-debug-btn w-3 h-3 rounded-sm text-[7px] font-bold leading-none flex items-center justify-center transition-colors ${
                 showDebug
                   ? "bg-blue-500 text-white"
-                  : "bg-[var(--surface-container)] text-[var(--outline)] hover:text-[var(--on-surface)]"
+                  : "ui-surface text-[var(--outline)] hover:text-[var(--on-surface)]"
               }`}
               title="Debug zoom curve"
             >
@@ -160,7 +184,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 commitBatch();
               }}
               disabled={!segment}
-              className="timeline-speed-reset-btn p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] disabled:opacity-40 disabled:hover:text-[var(--outline)] disabled:hover:bg-transparent transition-colors text-[9px] font-mono leading-none"
+              className="timeline-speed-reset-btn ui-icon-button p-1 text-[9px] font-mono leading-none disabled:opacity-40 disabled:hover:text-[var(--outline)] disabled:hover:bg-transparent"
               title={t.resetSpeed || "Reset"}
             >
               R
@@ -191,7 +215,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
         {/* Content area - timelineRef only covers this, so seek math is correct */}
         <div
           ref={timelineRef}
-          className="timeline-content flex-1 relative cursor-pointer touch-none"
+          className={`timeline-content flex-1 relative touch-none ${
+            dragState.isDraggingSeek ? "cursor-grabbing" : "cursor-grab"
+          }`}
           onPointerDown={handleMouseDown}
           onPointerMove={handleMouseMove}
           onPointerUp={handleMouseUp}
@@ -221,7 +247,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 commitBatch={commitBatch}
               />
             ) : (
-              <div className="zoom-track-empty h-10 rounded bg-[var(--surface-container)]/60" />
+              <div className="zoom-track-empty timeline-track-empty h-10" />
             )}
 
             {/* Debug Overlay */}
@@ -241,7 +267,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 commitBatch={commitBatch}
               />
             ) : (
-              <div className="speed-track-empty h-10 rounded bg-[var(--surface-container)]/60" />
+              <div className="speed-track-empty timeline-track-empty h-10" />
             )}
 
             {/* Text Track */}
@@ -255,7 +281,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 onAddText={onAddText}
               />
             ) : (
-              <div className="text-track-empty h-7 rounded bg-[var(--surface)]/80" />
+              <div className="text-track-empty timeline-track-empty h-7" />
             )}
 
             {/* Keystroke Track */}
@@ -270,7 +296,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 onKeystrokeHover={setEditingKeystrokeSegmentId}
               />
             ) : (
-              <div className="keystroke-track-empty h-7 rounded bg-[var(--surface)]/80" />
+              <div className="keystroke-track-empty timeline-track-empty h-7" />
             )}
 
             {/* Pointer Track */}
@@ -284,7 +310,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 onPointerHover={setEditingPointerId}
               />
             ) : (
-              <div className="pointer-track-empty h-7 rounded bg-[var(--surface)]/80" />
+              <div className="pointer-track-empty timeline-track-empty h-7" />
             )}
 
             {/* Video/Trim Track */}
@@ -299,9 +325,10 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 isDraggingTrim={
                   dragState.isDraggingTrimStart || dragState.isDraggingTrimEnd
                 }
+                isSeeking={dragState.isDraggingSeek}
               />
             ) : (
-              <div className="trim-track-empty h-10 rounded bg-[var(--surface-container)]/60" />
+              <div className="trim-track-empty timeline-track-empty h-10" />
             )}
           </div>
 
@@ -313,6 +340,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               isPlaying={!!isPlaying}
               videoRef={videoRef}
               segment={segment}
+              headCenterY={trimHeadCenterY}
+              lineBottomY={trimLaneBottomY}
             />
           )}
         </div>

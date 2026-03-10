@@ -67,10 +67,10 @@ function CursorVariantButton({ isSelected, onClick, label, children }: CursorVar
       onClick={onClick}
       title={label}
       aria-label={label}
-      className={`cursor-variant-button w-full min-w-0 h-10 rounded-[10px] border transition-all duration-150 flex items-center justify-center overflow-hidden ${
+      className={`cursor-variant-button ui-choice-tile w-full min-w-0 h-10 rounded-[10px] flex items-center justify-center overflow-hidden ${
         isSelected
-          ? 'border-[var(--primary-color)] bg-[var(--primary-color)]/14 shadow-[0_0_0_1px_var(--primary-color)_inset,0_0_0_3px_rgba(59,130,246,0.16),0_6px_16px_rgba(59,130,246,0.2)]'
-          : 'border-[var(--glass-border)] bg-[var(--glass-bg)] hover:border-[var(--primary-color)]/65 hover:bg-[var(--glass-bg-hover)]'
+          ? 'ui-choice-tile-active bg-[var(--ui-accent-soft)]'
+          : ''
       }`}
     >
       {children}
@@ -260,7 +260,7 @@ export function CursorPanel({
         </SettingRow>
         <div className="cursor-variants-section space-y-3.5">
           <div
-            className="cursor-variant-virtualized-list border border-glass-border rounded-lg overflow-hidden"
+            className="cursor-variant-virtualized-list ui-list-shell rounded-lg overflow-hidden"
             style={{ height: `${viewportHeight}px` }}
           >
             <div
@@ -272,7 +272,7 @@ export function CursorPanel({
               style={{ touchAction: 'none' }}
             >
               <div
-                className="cursor-variant-column-header sticky top-0 z-10 min-h-8 py-1 px-1.5 border-b border-glass-border grid items-start bg-surface"
+                className="cursor-variant-column-header ui-list-header sticky top-0 z-10 min-h-8 py-1 px-1.5 grid items-start"
                 style={{
                   width: `${variantCanvasWidth}px`,
                   gridTemplateColumns: `repeat(${CURSOR_PACKS.length}, ${CURSOR_VARIANT_COLUMN_WIDTH}px)`,

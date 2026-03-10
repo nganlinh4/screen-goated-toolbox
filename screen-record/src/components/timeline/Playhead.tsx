@@ -9,6 +9,8 @@ interface PlayheadProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   segment: VideoSegment;
   disableVideoSync?: boolean;
+  headCenterY?: number;
+  lineBottomY?: number;
 }
 
 export const Playhead: React.FC<PlayheadProps> = ({
@@ -18,6 +20,8 @@ export const Playhead: React.FC<PlayheadProps> = ({
   videoRef,
   segment,
   disableVideoSync = false,
+  headCenterY = 0,
+  lineBottomY,
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number>(0);
@@ -53,21 +57,41 @@ export const Playhead: React.FC<PlayheadProps> = ({
   return (
     <div
       ref={ref}
-      className="playhead absolute top-0 bottom-0 flex flex-col items-center pointer-events-none z-40"
+      className="playhead absolute top-0 bottom-0 w-4 pointer-events-none z-40"
       style={{
         left: useVideoSync ? undefined : left,
         transform: "translateX(-50%)",
       }}
     >
       <div
-        className="playhead-arrow w-0 h-0 flex-shrink-0"
+        className="playhead-line absolute left-1/2 w-0.5 -translate-x-1/2 rounded-full"
         style={{
-          borderLeft: "5px solid transparent",
-          borderRight: "5px solid transparent",
-          borderTop: "6px solid #ef4444",
+          top: 0,
+          height: `${Math.max(lineBottomY ?? headCenterY + 8, 1)}px`,
+          backgroundColor: "var(--timeline-playhead-color)",
+          boxShadow: "0 0 10px color-mix(in srgb, var(--timeline-playhead-color) 35%, transparent)",
         }}
       />
-      <div className="playhead-line w-0.5 flex-1 bg-red-500" />
+      <div
+        className="playhead-head absolute left-1/2 flex h-4 w-4 -translate-x-1/2 items-center justify-center"
+        style={{ top: `${Math.max(headCenterY - 8, 0)}px` }}
+      >
+        <div
+          className="playhead-head-shell absolute inset-0 rounded-full border"
+          style={{
+            backgroundColor: "var(--ui-surface-3)",
+            borderColor: "color-mix(in srgb, var(--timeline-playhead-color) 55%, var(--ui-border))",
+            boxShadow: "var(--shadow-elevation-2)",
+          }}
+        />
+        <div
+          className="playhead-head-core h-1.5 w-1.5 rounded-full"
+          style={{
+            backgroundColor: "var(--timeline-playhead-color)",
+            boxShadow: "0 0 8px color-mix(in srgb, var(--timeline-playhead-color) 50%, transparent)",
+          }}
+        />
+      </div>
     </div>
   );
 };

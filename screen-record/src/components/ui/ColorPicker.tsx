@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { createPortal } from 'react-dom';
+import * as Popover from '@radix-ui/react-popover';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const PRESETS = [
   '#ffffff', '#e0e0e0', '#9e9e9e', '#616161', '#212121', '#000000',
@@ -52,9 +53,6 @@ export function ColorPicker({ value, onChange, onOpen, onClose }: ColorPickerPro
   const [hsv, setHsv] = useState<[number, number, number]>(() => {
     try { return hexToHsv(value); } catch { return [0, 0, 1]; }
   });
-  const [pos, setPos] = useState({ top: 0, left: 0 });
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
   const svRef = useRef<HTMLDivElement>(null);
   const hueRef = useRef<HTMLDivElement>(null);
   const hsvRef = useRef(hsv);
@@ -73,35 +71,6 @@ export function ColorPicker({ value, onChange, onOpen, onClose }: ColorPickerPro
     setHexInput(hex);
     onChange(hex);
   }, [onChange]);
-
-  const open = useCallback(() => {
-    const rect = triggerRef.current?.getBoundingClientRect();
-    if (rect) {
-      const popW = 200, popH = 280;
-      let top = rect.bottom + 4;
-      let left = rect.left;
-      if (top + popH > window.innerHeight) top = rect.top - popH - 4;
-      if (left + popW > window.innerWidth) left = window.innerWidth - popW - 8;
-      setPos({ top, left });
-    }
-    setIsOpen(true);
-    onOpen?.();
-  }, [onOpen]);
-
-  const close = useCallback(() => {
-    setIsOpen(false);
-    onClose?.();
-  }, [onClose]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handle = (e: MouseEvent) => {
-      if (triggerRef.current?.contains(e.target as Node) || popoverRef.current?.contains(e.target as Node)) return;
-      close();
-    };
-    document.addEventListener('mousedown', handle);
-    return () => document.removeEventListener('mousedown', handle);
-  }, [isOpen, close]);
 
   const handleSVDrag = useCallback((startE: React.MouseEvent) => {
     startE.preventDefault();
@@ -133,86 +102,105 @@ export function ColorPicker({ value, onChange, onOpen, onClose }: ColorPickerPro
   }, [emitColor]);
 
   return (
-    <>
-      <button
-        ref={triggerRef}
-        onClick={() => isOpen ? close() : open()}
-        className="color-picker-trigger w-7 h-6 rounded border border-[var(--glass-border)] cursor-pointer transition-shadow hover:shadow-[0_0_0_2px_var(--primary-color)/30]"
-        style={{ backgroundColor: value }}
-      />
-      {isOpen && createPortal(
-        <div
-          ref={popoverRef}
-          className="color-picker-popover fixed z-[9999] bg-[var(--surface-dim)] backdrop-blur-xl border border-[var(--glass-border)] rounded-xl p-2.5 shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
-          style={{ top: pos.top, left: pos.left, width: 200 }}
-        >
-          {/* SV square */}
-          <div
-            ref={svRef}
-            className="color-sv-square w-full h-[120px] rounded-lg cursor-crosshair relative mb-2 border border-[var(--glass-border)]"
-            style={{
-              background: `linear-gradient(to bottom, transparent, #000), linear-gradient(to right, #fff, ${hsvToHex(hsv[0], 1, 1)})`,
-            }}
-            onMouseDown={handleSVDrag}
-          >
-            <div
-              className="sv-cursor absolute w-3 h-3 rounded-full border-2 border-white shadow-[0_0_4px_rgba(0,0,0,0.5)] -translate-x-1/2 -translate-y-1/2 pointer-events-none"
-              style={{ left: `${hsv[1] * 100}%`, top: `${(1 - hsv[2]) * 100}%` }}
-            />
-          </div>
+    <Popover.Root
+      open={isOpen}
+      onOpenChange={(open) => {
+        setIsOpen(open);
+        if (open) onOpen?.();
+        else onClose?.();
+      }}
+    >
+      <Popover.Trigger asChild>
+        <button
+          className="color-picker-trigger ui-chip-button w-7 h-6 rounded cursor-pointer active:scale-95"
+          style={{ backgroundColor: value }}
+        />
+      </Popover.Trigger>
+      <AnimatePresence>
+        {isOpen && (
+          <Popover.Portal forceMount>
+            <Popover.Content
+              sideOffset={4}
+              collisionPadding={8}
+              asChild
+              onOpenAutoFocus={(e) => e.preventDefault()}
+            >
+              <motion.div
+                className="color-picker-popover material-surface-elevated relative z-[9999] w-[200px] rounded-xl p-2.5"
+                initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+              >
+                {/* SV square */}
+                <div
+                  ref={svRef}
+                  className="color-sv-square ui-surface w-full h-[120px] rounded-lg cursor-crosshair relative mb-2"
+                  style={{
+                    background: `linear-gradient(to bottom, transparent, #000), linear-gradient(to right, #fff, ${hsvToHex(hsv[0], 1, 1)})`,
+                  }}
+                  onMouseDown={handleSVDrag}
+                >
+                  <div
+                    className="sv-cursor absolute w-3 h-3 rounded-full border-2 border-white shadow-[0_0_4px_rgba(0,0,0,0.5)] -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+                    style={{ left: `${hsv[1] * 100}%`, top: `${(1 - hsv[2]) * 100}%` }}
+                  />
+                </div>
 
-          {/* Hue bar */}
-          <div
-            ref={hueRef}
-            className="color-hue-bar w-full h-3 rounded-full cursor-pointer relative mb-2.5 border border-[var(--glass-border)]"
-            style={{ background: 'linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)' }}
-            onMouseDown={handleHueDrag}
-          >
-            <div
-              className="hue-cursor absolute w-3.5 h-3.5 rounded-full border-2 border-white shadow-[0_0_4px_rgba(0,0,0,0.5)] -translate-x-1/2 -translate-y-1/2 pointer-events-none"
-              style={{ left: `${(hsv[0] / 360) * 100}%`, top: '50%' }}
-            />
-          </div>
+                {/* Hue bar */}
+                <div
+                  ref={hueRef}
+                  className="color-hue-bar ui-surface w-full h-3 rounded-full cursor-pointer relative mb-2.5"
+                  style={{ background: 'linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)' }}
+                  onMouseDown={handleHueDrag}
+                >
+                  <div
+                    className="hue-cursor absolute w-3.5 h-3.5 rounded-full border-2 border-white shadow-[0_0_4px_rgba(0,0,0,0.5)] -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+                    style={{ left: `${(hsv[0] / 360) * 100}%`, top: '50%' }}
+                  />
+                </div>
 
-          {/* Presets */}
-          <div className="color-presets-grid grid grid-cols-6 gap-1.5 mb-2">
-            {PRESETS.map(color => (
-              <button
-                key={color}
-                onClick={() => {
-                  onChange(color);
-                  setHexInput(color);
-                  try { setHsv(hexToHsv(color)); } catch {}
-                }}
-                className={`w-6 h-6 rounded-md transition-all hover:scale-110 ${
-                  value.toLowerCase() === color.toLowerCase()
-                    ? 'ring-2 ring-[var(--primary-color)] ring-offset-1 ring-offset-[var(--surface-dim)]'
-                    : 'ring-1 ring-white/10 hover:ring-white/30'
-                }`}
-                style={{ backgroundColor: color }}
-              />
-            ))}
-          </div>
+                {/* Presets */}
+                <div className="color-presets-grid grid grid-cols-6 gap-1.5 mb-2">
+                  {PRESETS.map(color => (
+                    <button
+                      key={color}
+                      onClick={() => {
+                        onChange(color);
+                        setHexInput(color);
+                        try { setHsv(hexToHsv(color)); } catch {}
+                      }}
+                      className={`w-6 h-6 rounded-md transition-all hover:scale-110 ${
+                        value.toLowerCase() === color.toLowerCase()
+                          ? 'ring-2 ring-[var(--primary-color)] ring-offset-1 ring-offset-[var(--surface-dim)]'
+                          : 'ring-1 ring-white/10 hover:ring-white/30'
+                      }`}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
 
-          {/* Hex input */}
-          <input
-            type="text"
-            value={hexInput}
-            onChange={(e) => {
-              const v = e.target.value;
-              setHexInput(v);
-              if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-                onChange(v);
-                try { setHsv(hexToHsv(v)); } catch {}
-              }
-            }}
-            onKeyDown={(e) => { if (e.key === 'Enter') close(); }}
-            className="hex-input w-full bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--on-surface)] font-mono focus:border-[var(--primary-color)]/50 focus:ring-1 focus:ring-[var(--primary-color)]/30 transition-colors"
-            placeholder="#000000"
-          />
-        </div>,
-        document.body
-      )}
-    </>
+                {/* Hex input */}
+                <input
+                  type="text"
+                  value={hexInput}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setHexInput(v);
+                    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+                      onChange(v);
+                      try { setHsv(hexToHsv(v)); } catch {}
+                    }
+                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') setIsOpen(false); }}
+                  className="hex-input ui-input w-full rounded-lg px-2.5 py-1.5 text-xs text-[var(--on-surface)] font-mono"
+                  placeholder="#000000"
+                />
+              </motion.div>
+            </Popover.Content>
+          </Popover.Portal>
+        )}
+      </AnimatePresence>
+    </Popover.Root>
   );
 }

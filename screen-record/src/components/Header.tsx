@@ -3,7 +3,7 @@ import { invoke } from '@/lib/ipc';
 import { Button } from '@/components/ui/button';
 import {
   Video, Keyboard, X, Minus, Square, Copy, Download, FolderOpen,
-  ChevronDown, ChevronLeft, ChevronRight, Check, Monitor, AppWindow,
+  ChevronDown, ChevronLeft, ChevronRight, Monitor, AppWindow,
   Loader2, CircleCheck,
 } from 'lucide-react';
 import { Hotkey, MonitorInfo } from '@/hooks/useAppHooks';
@@ -11,6 +11,15 @@ import { formatMonitorSummary, formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';
 import { RecordingMode } from '@/types/video';
 import { useHeaderStatus } from '@/lib/headerStatus';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from '@/components/ui/DropdownMenu';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 /** Returns exact integer divisors of Hz that are ≥ 30 (Hz/n for n ∈ {1,2,3,4}). */
 function getPerfectFpsOptions(hz: number): number[] {
@@ -33,6 +42,8 @@ function getCombinedFpsOptions(monitors: MonitorInfo[]): number[] {
 }
 
 type CaptureMenuStep = 'root' | 'display-monitors' | 'display-fps' | 'window-fps';
+type HeaderDropdown = 'recordingMode' | 'captureSource' | null;
+const HEADER_DROPDOWN_DEBUG = true;
 
 interface HeaderProps {
   isRecording: boolean;
@@ -88,12 +99,12 @@ export function Header({
   const { t } = useSettings();
   const headerStatus = useHeaderStatus();
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
-  const [isRecordingModeMenuOpen, setIsRecordingModeMenuOpen] = useState(false);
-  const [isCaptureSourceMenuOpen, setIsCaptureSourceMenuOpen] = useState(false);
+  const [activeDropdown, setActiveDropdown] = useState<HeaderDropdown>(null);
   const [menuStep, setMenuStep] = useState<CaptureMenuStep>('root');
   const [pickedMonitorId, setPickedMonitorId] = useState<string | null>(null);
-  const recordingModeMenuRef = useRef<HTMLDivElement | null>(null);
-  const captureSourceMenuRef = useRef<HTMLDivElement | null>(null);
+  const pendingDropdownRef = useRef<Exclude<HeaderDropdown, null> | null>(null);
+  const handoffTimerRef = useRef<number | null>(null);
+  const suppressedCloseRef = useRef<HeaderDropdown>(null);
 
   const selectedRecordingModeLabel = useMemo(
     () => recordingMode === 'withCursor' ? t.recordingModeWithCursor : t.recordingModeNoCursor,
@@ -112,10 +123,72 @@ export function Header({
     [monitors, pickedMonitorId]
   );
 
-  const closeMenu = () => {
-    setIsCaptureSourceMenuOpen(false);
+  const isRecordingModeMenuOpen = activeDropdown === 'recordingMode';
+  const isCaptureSourceMenuOpen = activeDropdown === 'captureSource';
+
+  const resetCaptureMenu = () => {
     setMenuStep('root');
     setPickedMonitorId(null);
+  };
+
+  const closeMenu = () => {
+    resetCaptureMenu();
+    setActiveDropdown((prev) => (prev === 'captureSource' ? null : prev));
+  };
+
+  const logHeaderDropdown = (
+    event: string,
+    details: Record<string, unknown> = {},
+  ) => {
+    if (!HEADER_DROPDOWN_DEBUG) return;
+    console.log('[HeaderDropdown]', {
+      event,
+      activeDropdown,
+      pendingDropdown: pendingDropdownRef.current,
+      menuStep,
+      ...details,
+    });
+  };
+
+  const clearPendingHandoff = () => {
+    if (handoffTimerRef.current !== null) {
+      window.clearTimeout(handoffTimerRef.current);
+      handoffTimerRef.current = null;
+    }
+  };
+
+  const handleDropdownTriggerPointerDown = (
+    target: Exclude<HeaderDropdown, null>,
+  ) => (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    logHeaderDropdown('trigger-pointerdown', { target });
+    if (activeDropdown === target) return;
+    if (activeDropdown && activeDropdown !== target) {
+      pendingDropdownRef.current = target;
+      clearPendingHandoff();
+      setActiveDropdown(null);
+      handoffTimerRef.current = window.setTimeout(() => {
+        handoffTimerRef.current = null;
+        const pendingTarget = pendingDropdownRef.current;
+        if (!pendingTarget) {
+          logHeaderDropdown('handoff-cancelled', { target });
+          return;
+        }
+        pendingDropdownRef.current = null;
+        if (pendingTarget === 'captureSource') {
+          resetCaptureMenu();
+        }
+        suppressedCloseRef.current = pendingTarget;
+        window.setTimeout(() => {
+          if (suppressedCloseRef.current === pendingTarget) {
+            suppressedCloseRef.current = null;
+          }
+        }, 0);
+        logHeaderDropdown('handoff-open', { target: pendingTarget });
+        setActiveDropdown(pendingTarget);
+      }, 0);
+      e.preventDefault();
+    }
   };
 
   useEffect(() => {
@@ -123,21 +196,16 @@ export function Header({
   }, []);
 
   useEffect(() => {
-    const onMouseDown = (event: MouseEvent) => {
-      if (!recordingModeMenuRef.current?.contains(event.target as Node)) {
-        setIsRecordingModeMenuOpen(false);
-      }
-      if (!captureSourceMenuRef.current?.contains(event.target as Node)) {
-        closeMenu();
-      }
-    };
-    window.addEventListener('mousedown', onMouseDown);
-    return () => window.removeEventListener('mousedown', onMouseDown);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    logHeaderDropdown('state-change');
+  }, [activeDropdown, menuStep]);
+
+  useEffect(() => () => clearPendingHandoff(), []);
+
+  // Click-outside handled by Radix DropdownMenu
 
   return (
     <header
-      className="app-header bg-[var(--surface)] border-b border-[var(--outline-variant)] select-none h-11 flex items-center justify-between cursor-default relative z-[100]"
+      className="app-header bg-[var(--surface)] border-b border-[var(--outline-variant)] select-none h-11 flex items-center justify-between cursor-default relative z-[20]"
       onMouseDown={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
         const y = e.clientY - rect.top;
@@ -173,7 +241,7 @@ export function Header({
 
         {isRecording && (
           <div className="recording-status-area h-full flex items-center">
-            <div className="recording-indicator flex items-center gap-2 border border-red-500/20 bg-red-500/10 px-3 py-1 rounded-lg backdrop-blur-md animate-in fade-in slide-in-from-left-2 duration-300">
+            <div className="recording-indicator flex items-center gap-2 border border-red-500/25 bg-red-500/14 px-3 py-1 rounded-lg animate-in fade-in slide-in-from-left-2 duration-300">
               <div className="recording-dot w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
               <span className="text-red-500 text-xs font-bold drop-shadow-sm">{formatTime(recordingDuration)}</span>
             </div>
@@ -205,7 +273,7 @@ export function Header({
               key={i}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={() => onRemoveHotkey(i)}
-              className="bg-[var(--surface-container)] hover:bg-[var(--surface-container-high)] text-[var(--on-surface)] px-2 h-6 text-[11px] border border-transparent hover:border-[var(--outline-variant)] flex-shrink-0 transition-colors"
+              className="hotkey-chip ui-chip-button px-2 h-6 text-[11px] flex-shrink-0"
               title={t.clickToRemove}
             >
               <span className="truncate max-w-[80px]">{h.name}</span>
@@ -215,113 +283,114 @@ export function Header({
           <Button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={onOpenHotkeyDialog}
-            className="bg-transparent border border-[var(--outline-variant)] hover:bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] px-2 h-6 text-[11px] flex-shrink-0 transition-colors whitespace-nowrap"
+            className="add-hotkey-btn ui-toolbar-button px-2 h-6 text-[11px] flex-shrink-0 whitespace-nowrap"
             title={t.addHotkey}
           >
             <Keyboard className="w-3 h-3 mr-1" />
             {t.addHotkey}
           </Button>
-          <div
-            ref={recordingModeMenuRef}
-            className="recording-mode-dropdown relative flex-shrink-0"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <Button
-              onClick={() => setIsRecordingModeMenuOpen((open) => {
-                if (!open) closeMenu();
-                return !open;
-              })}
-              className="recording-mode-toggle-btn bg-transparent border border-[var(--outline-variant)] hover:bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] px-2 h-6 text-[11px] transition-colors whitespace-nowrap flex items-center"
-              title={selectedRecordingModeLabel}
-            >
-              <span className="recording-mode-toggle-label">{selectedRecordingModeLabel}</span>
-              <ChevronDown className="w-3 h-3 ml-1.5" />
-            </Button>
-            {isRecordingModeMenuOpen && (
-              <div className="recording-mode-menu absolute top-[calc(100%+4px)] left-0 min-w-[360px] z-50 rounded-lg border border-[var(--glass-border)] bg-[var(--surface)] shadow-[0_8px_24px_rgba(0,0,0,0.32)] p-1.5">
+          <div className="recording-mode-dropdown relative flex-shrink-0" onMouseDown={(e) => e.stopPropagation()}>
+            <DropdownMenu open={isRecordingModeMenuOpen} onOpenChange={(open) => {
+              logHeaderDropdown('recording-mode-open-change', { open });
+              if (open) {
+                pendingDropdownRef.current = null;
+                clearPendingHandoff();
+                resetCaptureMenu();
+                setActiveDropdown('recordingMode');
+                return;
+              }
+              if (suppressedCloseRef.current === 'recordingMode') {
+                logHeaderDropdown('recording-mode-close-suppressed');
+                suppressedCloseRef.current = null;
+                return;
+              }
+              if (pendingDropdownRef.current) return;
+              setActiveDropdown((prev) => (prev === 'recordingMode' ? null : prev));
+            }}>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  onPointerDown={handleDropdownTriggerPointerDown('recordingMode')}
+                  className="recording-mode-toggle-btn ui-toolbar-button px-2 h-6 text-[11px] whitespace-nowrap flex items-center"
+                  title={selectedRecordingModeLabel}
+                >
+                  <span className="recording-mode-toggle-label">{selectedRecordingModeLabel}</span>
+                  <ChevronDown className="w-3 h-3 ml-1.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[360px]">
                 {([
                   { mode: 'withoutCursor' as const, label: t.recordingModeNoCursorDetail },
                   { mode: 'withCursor' as const, label: t.recordingModeWithCursorDetail },
-                ]).map((option) => {
-                  const selected = recordingMode === option.mode;
-                  return (
-                    <button
-                      key={option.mode}
-                      type="button"
-                      onClick={() => {
-                        onRecordingModeChange(option.mode);
-                        setIsRecordingModeMenuOpen(false);
-                      }}
-                      className={`recording-mode-option w-full text-left rounded-md px-2 py-1.5 text-[11px] leading-tight transition-colors flex items-start gap-2 ${
-                        selected
-                          ? 'bg-[var(--primary-color)]/16 text-[var(--on-surface)]'
-                          : 'text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]'
-                      }`}
-                    >
-                      <span className="recording-mode-option-check w-3.5 h-3.5 mt-0.5 flex items-center justify-center">
-                        {selected ? <Check className="w-3.5 h-3.5 text-[var(--primary-color)]" /> : null}
-                      </span>
-                      <span className="recording-mode-option-label">{option.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+                ]).map((option) => (
+                  <DropdownMenuItem
+                    key={option.mode}
+                    selected={recordingMode === option.mode}
+                    onSelect={() => {
+                      onRecordingModeChange(option.mode);
+                      setActiveDropdown(null);
+                    }}
+                    className="recording-mode-option items-start"
+                  >
+                    <span className="recording-mode-option-label">{option.label}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
         <div className="header-actions flex items-center gap-2">
           {/* ── Capture-source dropdown (multi-step) ── */}
-          <div
-            ref={captureSourceMenuRef}
-            className="capture-source-dropdown relative flex-shrink-0"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <Button
-              disabled={isRecording}
-              onClick={() => setIsCaptureSourceMenuOpen((open) => {
-                if (!open) { setIsRecordingModeMenuOpen(false); setMenuStep('root'); }
-                else closeMenu();
-                return !open;
-              })}
-              className="capture-source-toggle-btn bg-transparent border border-[var(--outline-variant)] hover:bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] px-2 h-6 text-[11px] transition-colors whitespace-nowrap flex items-center disabled:opacity-40 disabled:pointer-events-none"
-            >
-              <span className="capture-source-toggle-label">{captureSourceLabel}</span>
-              <ChevronDown className="w-3 h-3 ml-1.5" />
-            </Button>
-
-            {isCaptureSourceMenuOpen && (
-              <div className="capture-source-menu absolute top-[calc(100%+4px)] right-0 min-w-[220px] z-50 rounded-lg border border-[var(--glass-border)] bg-[var(--surface)] shadow-[0_8px_24px_rgba(0,0,0,0.32)] p-1.5 overflow-hidden">
-
+          <div className="capture-source-dropdown relative flex-shrink-0" onMouseDown={(e) => e.stopPropagation()}>
+            <DropdownMenu open={isCaptureSourceMenuOpen} onOpenChange={(open) => {
+              logHeaderDropdown('capture-source-open-change', { open });
+              if (open) {
+                pendingDropdownRef.current = null;
+                clearPendingHandoff();
+                resetCaptureMenu();
+                setActiveDropdown('captureSource');
+                return;
+              }
+              if (suppressedCloseRef.current === 'captureSource') {
+                logHeaderDropdown('capture-source-close-suppressed');
+                suppressedCloseRef.current = null;
+                return;
+              }
+              if (pendingDropdownRef.current) return;
+              closeMenu();
+            }}>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  disabled={isRecording}
+                  onPointerDown={handleDropdownTriggerPointerDown('captureSource')}
+                  className="capture-source-toggle-btn ui-toolbar-button px-2 h-6 text-[11px] whitespace-nowrap flex items-center disabled:pointer-events-none"
+                >
+                  <span className="capture-source-toggle-label">{captureSourceLabel}</span>
+                  <ChevronDown className="w-3 h-3 ml-1.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[220px]" onCloseAutoFocus={(e) => e.preventDefault()}>
                 {/* ── Step: root ── */}
                 {menuStep === 'root' && (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => setMenuStep('display-monitors')}
-                      className={`capture-source-option-display w-full text-left rounded-md px-2 py-2 text-[11px] transition-colors flex items-center gap-2 ${
-                        captureSource === 'monitor'
-                          ? 'bg-[var(--primary-color)]/16 text-[var(--on-surface)]'
-                          : 'text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]'
-                      }`}
+                    <DropdownMenuItem
+                      selected={captureSource === 'monitor'}
+                      onSelect={(e) => { e.preventDefault(); setMenuStep('display-monitors'); }}
+                      className="capture-source-option-display py-2"
                     >
-                      <Monitor className="w-3.5 h-3.5 flex-shrink-0" />
+                      <Monitor className="w-3.5 h-3.5 flex-shrink-0 mr-2" />
                       <span className="flex-1">{t.displayCapture}</span>
                       <ChevronRight className="w-3 h-3 opacity-50" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMenuStep('window-fps')}
-                      className={`capture-source-option-window w-full text-left rounded-md px-2 py-2 text-[11px] transition-colors flex items-center gap-2 mt-0.5 ${
-                        captureSource === 'window'
-                          ? 'bg-[var(--primary-color)]/16 text-[var(--on-surface)]'
-                          : 'text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]'
-                      }`}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      selected={captureSource === 'window'}
+                      onSelect={(e) => { e.preventDefault(); setMenuStep('window-fps'); }}
+                      className="capture-source-option-window py-2 mt-0.5"
                     >
-                      <AppWindow className="w-3.5 h-3.5 flex-shrink-0" />
+                      <AppWindow className="w-3.5 h-3.5 flex-shrink-0 mr-2" />
                       <span className="flex-1">{t.windowCapture}</span>
                       <ChevronRight className="w-3 h-3 opacity-50" />
-                    </button>
+                    </DropdownMenuItem>
                   </>
                 )}
 
@@ -331,12 +400,12 @@ export function Header({
                     <button
                       type="button"
                       onClick={() => setMenuStep('root')}
-                      className="capture-back-btn w-full text-left rounded-md px-2 py-1.5 text-[11px] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] transition-colors flex items-center gap-1.5 mb-1"
+                      className="capture-back-btn ui-toolbar-button w-full text-left rounded-md px-2 py-1.5 text-[11px] flex items-center gap-1.5 mb-1"
                     >
                       <ChevronLeft className="w-3.5 h-3.5" />
                       <span>{t.displayCapture}</span>
                     </button>
-                    <div className="border-t border-[var(--outline-variant)]/50 mb-1.5" />
+                    <DropdownMenuSeparator />
                     <div className="capture-monitor-list flex flex-col gap-1.5 max-h-[320px] overflow-y-auto">
                       {monitors.length === 0 ? (
                         <div className="px-2 py-3 text-[11px] text-[var(--on-surface-variant)] text-center opacity-60">
@@ -347,21 +416,16 @@ export function Header({
                           key={m.id}
                           type="button"
                           onClick={() => { setPickedMonitorId(m.id); setMenuStep('display-fps'); }}
-                          className="capture-monitor-card w-full rounded-md overflow-hidden border border-[var(--outline-variant)]/40 hover:border-[var(--primary-color)]/60 transition-all text-left group"
+                          className="capture-monitor-card ui-choice-tile w-full rounded-md overflow-hidden text-left group"
                         >
                           {m.thumbnail ? (
-                            <img
-                              src={m.thumbnail}
-                              alt={m.name}
-                              className="w-full h-[90px] object-cover"
-                              draggable={false}
-                            />
+                            <img src={m.thumbnail} alt={m.name} className="w-full h-[90px] object-cover" draggable={false} />
                           ) : (
-                            <div className="capture-monitor-thumb-placeholder w-full h-[90px] bg-[var(--surface-container)] flex items-center justify-center">
+                            <div className="capture-monitor-thumb-placeholder w-full h-[90px] bg-[var(--ui-surface-1)] flex items-center justify-center">
                               <Monitor className="w-7 h-7 text-[var(--on-surface-variant)]/30" />
                             </div>
                           )}
-                          <div className="capture-monitor-info px-2 py-1.5 bg-[var(--surface-container)]/40 group-hover:bg-[var(--surface-container)] transition-colors">
+                          <div className="capture-monitor-info px-2 py-1.5 bg-[var(--ui-surface-2)]/80 group-hover:bg-[var(--ui-hover)] transition-colors">
                             <div className="text-[11px] font-medium text-[var(--on-surface)] leading-tight">{m.name}</div>
                             <div className="text-[10px] text-[var(--on-surface-variant)] opacity-70 mt-0.5">
                               {formatMonitorSummary(m, t)}
@@ -379,77 +443,68 @@ export function Header({
                     <button
                       type="button"
                       onClick={() => setMenuStep('display-monitors')}
-                      className="capture-back-btn w-full text-left rounded-md px-2 py-1.5 text-[11px] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] transition-colors flex items-center gap-1.5 mb-1"
+                      className="capture-back-btn ui-toolbar-button w-full text-left rounded-md px-2 py-1.5 text-[11px] flex items-center gap-1.5 mb-1"
                     >
                       <ChevronLeft className="w-3.5 h-3.5" />
                       <span className="truncate">{pickedMonitor.name}</span>
                     </button>
-                    <div className="border-t border-[var(--outline-variant)]/50 mb-1" />
-                    <div className="capture-fps-section-label px-2 pb-1 text-[10px] uppercase tracking-wide text-[var(--on-surface-variant)] opacity-60">
-                      FPS · {pickedMonitor.hz}Hz
-                    </div>
-                    {/* Auto */}
-                    <button
-                      type="button"
-                      onClick={() => { onSelectMonitorCapture(pickedMonitor.id, null); closeMenu(); }}
-                      className="capture-fps-option capture-fps-auto w-full text-left rounded-md px-2 py-1.5 text-[11px] transition-colors flex items-center gap-2 text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]"
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>FPS · {pickedMonitor.hz}Hz</DropdownMenuLabel>
+                    <DropdownMenuItem
+                      onSelect={() => { onSelectMonitorCapture(pickedMonitor.id, null); closeMenu(); }}
+                      className="capture-fps-option capture-fps-auto"
                     >
-                      <span className="w-3.5 h-3.5" />
+                      <span className="w-3.5 h-3.5 mr-2" />
                       <span className="flex-1">{t.autoOption}</span>
-                    </button>
+                    </DropdownMenuItem>
                     {getPerfectFpsOptions(pickedMonitor.hz).map((fps) => (
-                      <button
+                      <DropdownMenuItem
                         key={fps}
-                        type="button"
-                        onClick={() => { onSelectMonitorCapture(pickedMonitor.id, fps); closeMenu(); }}
-                        className="capture-fps-option mt-0.5 w-full text-left rounded-md px-2 py-1.5 text-[11px] transition-colors flex items-center gap-2 text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]"
+                        onSelect={() => { onSelectMonitorCapture(pickedMonitor.id, fps); closeMenu(); }}
+                        className="capture-fps-option mt-0.5"
                       >
-                        <span className="w-3.5 h-3.5" />
+                        <span className="w-3.5 h-3.5 mr-2" />
                         <span className="flex-1 font-medium">{fps}fps</span>
                         <span className="text-[10px] opacity-40">÷{pickedMonitor.hz / fps}</span>
-                      </button>
+                      </DropdownMenuItem>
                     ))}
                   </>
                 )}
 
-                {/* ── Step: window → pick FPS (combined from all monitors) ── */}
+                {/* ── Step: window → pick FPS ── */}
                 {menuStep === 'window-fps' && (
                   <>
                     <button
                       type="button"
                       onClick={() => setMenuStep('root')}
-                      className="capture-back-btn w-full text-left rounded-md px-2 py-1.5 text-[11px] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] transition-colors flex items-center gap-1.5 mb-1"
+                      className="capture-back-btn ui-toolbar-button w-full text-left rounded-md px-2 py-1.5 text-[11px] flex items-center gap-1.5 mb-1"
                     >
                       <ChevronLeft className="w-3.5 h-3.5" />
                       <span>{t.windowCapture}</span>
                     </button>
-                    <div className="border-t border-[var(--outline-variant)]/50 mb-1" />
-                    <div className="capture-fps-section-label px-2 pb-1 text-[10px] uppercase tracking-wide text-[var(--on-surface-variant)] opacity-60">
-                      FPS
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => { onSelectWindowCapture(null); closeMenu(); }}
-                      className="capture-fps-option capture-fps-auto w-full text-left rounded-md px-2 py-1.5 text-[11px] transition-colors flex items-center gap-2 text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]"
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>FPS</DropdownMenuLabel>
+                    <DropdownMenuItem
+                      onSelect={() => { onSelectWindowCapture(null); closeMenu(); }}
+                      className="capture-fps-option capture-fps-auto"
                     >
-                      <span className="w-3.5 h-3.5" />
+                      <span className="w-3.5 h-3.5 mr-2" />
                       <span>{t.autoOption}</span>
-                    </button>
+                    </DropdownMenuItem>
                     {combinedFpsOptions.map((fps) => (
-                      <button
+                      <DropdownMenuItem
                         key={fps}
-                        type="button"
-                        onClick={() => { onSelectWindowCapture(fps); closeMenu(); }}
-                        className="capture-fps-option mt-0.5 w-full text-left rounded-md px-2 py-1.5 text-[11px] transition-colors flex items-center gap-2 text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]"
+                        onSelect={() => { onSelectWindowCapture(fps); closeMenu(); }}
+                        className="capture-fps-option mt-0.5"
                       >
-                        <span className="w-3.5 h-3.5" />
+                        <span className="w-3.5 h-3.5 mr-2" />
                         <span className="font-medium">{fps}fps</span>
-                      </button>
+                      </DropdownMenuItem>
                     ))}
                   </>
                 )}
-              </div>
-            )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           {currentVideo && !hideRawVideo && (
@@ -457,11 +512,14 @@ export function Header({
               onMouseDown={(e) => e.stopPropagation()}
               onClick={onOpenRawVideoDialog}
               disabled={rawButtonDisabled}
-              className={`raw-video-button h-7 text-[11px] font-medium transition-colors ${
-                rawButtonDisabled
-                  ? 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed'
-                  : 'bg-emerald-500 hover:bg-emerald-500/85 text-white'
+                className={`raw-video-button ui-action-button h-7 text-[11px] font-medium transition-colors ${
+                  rawButtonDisabled
+                  ? 'ui-toolbar-button text-[var(--on-surface)]/35 cursor-not-allowed'
+                  : ''
               } ${rawButtonPulse && !rawButtonDisabled ? 'animate-pulse' : ''}`}
+              data-tone="success"
+              data-active={rawButtonDisabled ? "false" : "true"}
+              data-emphasis={rawButtonDisabled ? undefined : "strong"}
             >
               {rawButtonLabel}
             </Button>
@@ -472,31 +530,36 @@ export function Header({
             size="sm"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={onOpenCursorLab}
-            className="cursor-lab-button h-7 text-[11px] text-[var(--on-surface)] hover:bg-[var(--surface-container)] transition-colors"
+            className="cursor-lab-button ui-toolbar-button h-7 text-[11px]"
           >
             Cursor Lab
           </Button>
           */}
           {currentVideo && !hideExport && (
-            <Button
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={onExport}
-              disabled={isProcessing}
-              className={`flex items-center px-3 py-1.5 h-7 text-[11px] font-medium transition-colors ${
-                isProcessing
-                  ? 'bg-[var(--outline-variant)] text-[var(--outline)] cursor-not-allowed'
-                  : 'bg-[var(--primary-color)] hover:bg-[var(--primary-color)]/85 text-white'
-              }`}
-            >
-              <Download className="w-3.5 h-3.5 mr-1.5" />{t.export}
-            </Button>
+            <Tooltip content={t.export} side="bottom">
+              <Button
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={onExport}
+                disabled={isProcessing}
+                className={`header-export-button ui-action-button flex items-center px-3 py-1.5 h-7 text-[11px] font-medium transition-all ${
+                  isProcessing
+                    ? 'bg-[var(--outline-variant)] text-[var(--outline)] cursor-not-allowed'
+                    : ''
+                }`}
+                data-tone="primary"
+                data-active={isProcessing ? "false" : "true"}
+                data-emphasis={isProcessing ? undefined : "strong"}
+              >
+                <Download className="w-3.5 h-3.5 mr-1.5" />{t.export}
+              </Button>
+            </Tooltip>
           )}
           <Button
             variant="ghost"
             size="sm"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={onOpenProjects}
-            className="h-7 text-[11px] text-[var(--on-surface)] hover:bg-[var(--surface-container)] transition-colors"
+            className="projects-button ui-toolbar-button h-7 text-[11px]"
           >
             <FolderOpen className="w-3.5 h-3.5 mr-1.5" />{t.projects}
           </Button>
@@ -509,7 +572,7 @@ export function Header({
               e.stopPropagation();
               (window as any).ipc.postMessage('minimize_window');
             }}
-            className="window-btn-minimize px-3 h-full text-[var(--on-surface)] hover:bg-[var(--surface-container)] transition-colors flex items-center"
+            className="window-btn-minimize ui-icon-button px-3 h-full text-[var(--on-surface)] flex items-center rounded-none"
             title={t.minimize}
           >
             <Minus className="w-4 h-4" />
@@ -524,7 +587,7 @@ export function Header({
                 setIsWindowMaximized(maximized);
               }, 50);
             }}
-            className="window-btn-maximize px-3 h-full text-[var(--on-surface)] hover:bg-[var(--surface-container)] transition-colors flex items-center"
+            className="window-btn-maximize ui-icon-button px-3 h-full text-[var(--on-surface)] flex items-center rounded-none"
             title={isWindowMaximized ? t.restore : t.maximize}
           >
             {isWindowMaximized ? <Copy className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}

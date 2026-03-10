@@ -149,7 +149,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
     return d;
   };
 
-  const handleInfluenceMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleInfluencePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
@@ -228,7 +228,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
     window.addEventListener('mouseup', mu);
   };
 
-  const handlePointMouseDown = (e: React.MouseEvent, i: number) => {
+  const handlePointPointerDown = (e: React.PointerEvent, i: number) => {
     e.stopPropagation();
     beginBatch();
     draggingIdxRef.current = i;
@@ -281,40 +281,49 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
 
   return (
     <div
-      className="zoom-track relative h-10 rounded bg-[var(--surface-container)]/60"
+      className="zoom-track timeline-lane timeline-lane-strong relative h-10"
       onMouseMove={handleTrackMouseMove}
       onMouseLeave={() => setHoveredRangeIdx(null)}
     >
       {/* Influence curve layer */}
       {hasInfluenceCurve && (
-        <div
-          className="zoom-influence-layer absolute inset-0 z-10 pointer-events-auto"
-          onMouseDown={handleInfluenceMouseDown}
-        >
-          <svg className="w-full h-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 100 40">
-            <line x1="0" y1="4" x2="100" y2="4" stroke="rgba(255,255,255,0.06)" vectorEffect="non-scaling-stroke" />
-            <line x1="0" y1="36" x2="100" y2="36" stroke="rgba(255,255,255,0.06)" vectorEffect="non-scaling-stroke" />
-            {points.length > 0 && (
-              <path d={generateFillPath()} fill="rgba(74, 222, 128, 0.08)" />
-            )}
-            <path d={generatePath()} fill="none" stroke="#4ade80" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-          </svg>
-          {points.map((p, i) => (
-            <div
-              key={i}
-              className={`zoom-influence-point absolute w-2.5 h-2.5 bg-white border-2 border-[#4ade80] rounded-full -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-transform shadow-sm ${
-                hoveredIdx === i ? 'scale-125 ring-2 ring-red-500/50' : 'hover:scale-125'
-              }`}
-              style={{
-                left: `${(p.time / duration) * 100}%`,
-                top: `${4 + (1 - p.value) * 32}px`,
-              }}
-              onMouseEnter={() => setHoveredIdx(i)}
-              onMouseLeave={() => setHoveredIdx(null)}
-              onMouseDown={(e) => handlePointMouseDown(e, i)}
-            />
-          ))}
-        </div>
+        <>
+          <div
+            className="zoom-influence-curve-clip absolute inset-0 z-10 overflow-hidden pointer-events-none"
+            style={{ borderRadius: "inherit" }}
+          >
+            <svg className="zoom-influence-curve h-full w-full overflow-hidden" preserveAspectRatio="none" viewBox="0 0 100 40">
+              <line x1="0" y1="4" x2="100" y2="4" stroke="color-mix(in srgb, var(--timeline-success-color) 18%, transparent)" vectorEffect="non-scaling-stroke" />
+              <line x1="0" y1="36" x2="100" y2="36" stroke="color-mix(in srgb, var(--timeline-success-color) 18%, transparent)" vectorEffect="non-scaling-stroke" />
+              {points.length > 0 && (
+                <path d={generateFillPath()} fill="color-mix(in srgb, var(--timeline-success-color) 12%, transparent)" />
+              )}
+              <path d={generatePath()} fill="none" stroke="var(--timeline-success-color)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+            </svg>
+          </div>
+          <div
+            className="zoom-influence-layer absolute inset-0 z-20 pointer-events-auto"
+            onPointerDown={handleInfluencePointerDown}
+          >
+            {points.map((p, i) => (
+              <div
+                key={i}
+                className={`zoom-influence-point timeline-control-point absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer ${
+                  hoveredIdx === i ? 'ring-2 ring-[var(--timeline-success-color)]/40' : 'hover:scale-110'
+                }`}
+                data-tone="zoom"
+                data-state={hoveredIdx === i ? "active" : "idle"}
+                style={{
+                  left: `${(p.time / duration) * 100}%`,
+                  top: `${4 + (1 - p.value) * 32}px`,
+                }}
+                onMouseEnter={() => setHoveredIdx(i)}
+                onMouseLeave={() => setHoveredIdx(null)}
+                onPointerDown={(e) => handlePointPointerDown(e, i)}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {/* Keyframe markers layer */}
@@ -334,7 +343,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
               <div
                 className="zoom-range-handle absolute inset-y-0 w-3 cursor-col-resize z-30 pointer-events-auto group/handle"
                 style={{ left: `calc(${(rangeStart / duration) * 100}% - 6px)` }}
-                onMouseDown={(e) => {
+                onPointerDown={(e) => {
                   e.stopPropagation();
                   beginBatch();
                   const rect = e.currentTarget.parentElement!.getBoundingClientRect();
@@ -359,8 +368,8 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                 <div
                   className={`range-handle-bar absolute inset-y-1 w-0.5 transition-colors left-1/2 -translate-x-1/2 ${
                     hoveredRangeIdx === index
-                      ? 'bg-[var(--primary-color)]'
-                      : 'bg-[var(--primary-color)]/40 group-hover/handle:bg-[var(--primary-color)]'
+                      ? 'bg-[var(--timeline-zoom-color)]'
+                      : 'bg-[var(--timeline-zoom-color)]/40 group-hover/handle:bg-[var(--timeline-zoom-color)]'
                   }`}
                 />
               </div>
@@ -386,7 +395,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                   height: '100%',
                 }}
                 onClick={(e) => { e.stopPropagation(); onKeyframeClick(keyframe.time, index); }}
-                onMouseDown={(e) => { e.stopPropagation(); onKeyframeDragStart(index); }}
+                onPointerDown={(e) => { e.stopPropagation(); onKeyframeDragStart(index); }}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   handleDuplicateKeyframe(index);
@@ -395,18 +404,18 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                 <div className="keyframe-marker-content relative flex flex-col items-center h-full justify-center">
                   {/* Zoom % pill */}
                   <div
-                    className={`zoom-percentage-pill px-1.5 py-0.5 rounded text-[9px] font-medium whitespace-nowrap mb-0.5 ${
-                      active
-                        ? 'bg-[var(--primary-color)] text-white'
-                        : 'bg-[var(--primary-color)]/20 text-[var(--primary-color)]'
-                    }`}
+                    className="zoom-percentage-pill timeline-chip px-1.5 py-0.5 text-[9px] font-medium whitespace-nowrap mb-0.5"
+                    data-tone="accent"
+                    data-active={active ? "true" : "false"}
                   >
                     {Math.round((keyframe.zoomFactor - 1) * 100)}%
                   </div>
                   {/* Diamond marker */}
                   <div
-                    className={`keyframe-diamond w-2.5 h-2.5 rotate-45 rounded-[2px] bg-[var(--primary-color)] group-hover:scale-125 transition-transform shadow-sm ${
-                      active ? 'ring-1 ring-white shadow-[0_0_6px_rgba(59,130,246,0.4)]' : ''
+                    className={`keyframe-diamond w-2.5 h-2.5 rotate-45 rounded-[2px] bg-[var(--primary-color)] group-hover:scale-125 transition-all duration-200 ease-spring ${
+                      active
+                        ? 'ring-1 ring-white shadow-[0_0_8px_rgba(59,130,246,0.5),0_0_16px_rgba(59,130,246,0.2)]'
+                        : 'shadow-sm group-hover:shadow-[0_0_8px_rgba(59,130,246,0.35)]'
                     }`}
                   />
                 </div>

@@ -9,6 +9,17 @@ module.exports = {
   			md: 'calc(var(--radius) - 2px)',
   			sm: 'calc(var(--radius) - 4px)'
   		},
+  		boxShadow: {
+  			'elevation-1': 'var(--shadow-elevation-1)',
+  			'elevation-2': 'var(--shadow-elevation-2)',
+  			'elevation-3': 'var(--shadow-elevation-3)',
+  			'elevation-4': 'var(--shadow-elevation-4)',
+  			'glow': 'var(--glow-primary)',
+  			'glow-strong': 'var(--glow-primary-strong)',
+  		},
+  		transitionTimingFunction: {
+  			'spring': 'cubic-bezier(0.22, 1, 0.36, 1)',
+  		},
   		colors: {
   			// shadcn/ui semantic colors
   			background: 'hsl(var(--background))',

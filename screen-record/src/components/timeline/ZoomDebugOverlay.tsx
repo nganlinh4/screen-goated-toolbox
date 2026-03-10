@@ -69,7 +69,7 @@ export const ZoomDebugOverlay: React.FC<ZoomDebugOverlayProps> = ({ segment, dur
     if (!zoomPath) return null;
 
     return (
-        <div className="zoom-debug-overlay relative h-10 rounded bg-[var(--surface-container)]/60 overflow-hidden">
+        <div className="zoom-debug-overlay timeline-lane relative h-10 overflow-hidden">
             <svg
                 className="w-full h-full"
                 preserveAspectRatio="none"
@@ -84,11 +84,11 @@ export const ZoomDebugOverlay: React.FC<ZoomDebugOverlayProps> = ({ segment, dur
             </svg>
 
             <div className="debug-legend absolute top-0.5 left-1 flex gap-2 items-center">
-                <span className="text-[8px] font-mono text-blue-400 pointer-events-none">zoom {maxZoom.toFixed(1)}x</span>
-                <span className="text-[8px] font-mono text-amber-400 pointer-events-none">speed</span>
+                <span className="text-[8px] font-mono text-[var(--timeline-zoom-color)] pointer-events-none">zoom {maxZoom.toFixed(1)}x</span>
+                <span className="text-[8px] font-mono text-[var(--timeline-warning-color)] pointer-events-none">speed</span>
                 <button
                     onClick={handleCopy}
-                    className="text-[7px] font-mono px-1 rounded bg-white/10 hover:bg-white/20 text-white/60 hover:text-white transition-colors"
+                    className="ui-chip-button text-[7px] font-mono px-1 rounded text-[var(--on-surface-variant)] hover:text-[var(--on-surface)]"
                 >
                     {copied ? 'copied!' : 'copy'}
                 </button>

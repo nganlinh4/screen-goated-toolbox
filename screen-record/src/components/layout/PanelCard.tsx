@@ -6,14 +6,14 @@ export interface PanelCardProps {
 }
 
 /**
- * Glassmorphism card used as the outer wrapper for every side panel.
- * Centralises the glass-bg / glass-border / backdrop-blur pattern.
+ * Material-style card used as the outer wrapper for every side panel.
+ * Centralizes the shared elevated surface treatment.
  */
 export function PanelCard({ children, className }: PanelCardProps) {
   return (
     <div
       className={cn(
-        'panel-card bg-glass-bg backdrop-blur-xl rounded-xl border border-glass-border p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]',
+        'panel-card material-surface relative rounded-xl p-3',
         className
       )}
     >

@@ -250,12 +250,12 @@ export default function CursorSvgLab() {
 
   return (
     <div className="cursor-lab-page h-screen overflow-hidden bg-[var(--surface-dim)] text-[var(--on-surface)] p-4">
-      <div className="cursor-lab-toolbar sticky top-0 z-20 bg-[var(--surface-dim)] py-2 mb-3 border-b border-[var(--glass-border)]">
+      <div className="cursor-lab-toolbar sticky top-0 z-20 bg-[var(--surface-dim)] py-2 mb-3 border-b border-[var(--ui-border)]">
         <div className="cursor-lab-toolbar-row flex items-center gap-2 flex-wrap">
-          <a href="#" className="cursor-lab-back-link text-xs px-2 py-1 rounded border border-[var(--glass-border)] hover:bg-[var(--glass-bg)]">Back</a>
+          <a href="#" className="cursor-lab-back-link ui-chip-button rounded px-2 py-1 text-xs">Back</a>
           <button
             onClick={copyJson}
-            className="cursor-lab-copy-button text-xs px-2 py-1 rounded border border-[var(--primary-color)] text-[var(--primary-color)]"
+            className="cursor-lab-copy-button ui-chip-button rounded px-2 py-1 text-xs text-[var(--primary-color)]"
           >
             Copy JSON
           </button>
@@ -290,10 +290,10 @@ export default function CursorSvgLab() {
           return (
             <div
               key={item.key}
-              className={`cursor-lab-card rounded-lg border bg-[var(--surface)] p-2 ${
+              className={`cursor-lab-card ui-surface rounded-lg p-2 ${
                 selectedSet.has(item.key)
                   ? 'border-[var(--primary-color)] ring-1 ring-[var(--primary-color)]/50'
-                  : 'border-[var(--glass-border)]'
+                  : ''
               }`}
             >
               <div className="cursor-lab-title text-[10px] text-[var(--on-surface-variant)] truncate mb-1">{item.label}</div>
@@ -302,7 +302,7 @@ export default function CursorSvgLab() {
                 className={`cursor-lab-stage relative overflow-hidden rounded-md border cursor-grab ${
                   focusedKey === item.key
                     ? 'border-[var(--primary-color)] ring-1 ring-[var(--primary-color)]/60'
-                    : 'border-[var(--glass-border)]'
+                    : 'border-[var(--ui-border)]'
                 }`}
                 tabIndex={0}
                 style={{
@@ -435,13 +435,13 @@ export default function CursorSvgLab() {
                     <button
                       onClick={() => applyOne(item)}
                       disabled={Boolean(applying[item.key]) || !hasChanges}
-                      className="cursor-lab-apply-button text-[10px] px-2 py-0.5 rounded border border-[var(--primary-color)] text-[var(--primary-color)] hover:bg-[var(--glass-bg)] disabled:opacity-50"
+                      className="cursor-lab-apply-button ui-chip-button px-2 py-0.5 rounded text-[10px] text-[var(--primary-color)] disabled:opacity-50"
                     >
                       {applying[item.key] ? 'Applying...' : 'Apply'}
                     </button>
                     <button
                       onClick={() => resetOne(item.key)}
-                      className="cursor-lab-reset-button text-[10px] px-2 py-0.5 rounded border border-[var(--glass-border)] hover:bg-[var(--glass-bg)]"
+                      className="cursor-lab-reset-button ui-chip-button px-2 py-0.5 rounded text-[10px]"
                     >
                       Reset
                     </button>
