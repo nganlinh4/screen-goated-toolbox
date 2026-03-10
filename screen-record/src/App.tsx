@@ -2476,12 +2476,11 @@ function App() {
           includeMedia: false,
         });
       }
-      projects.setCurrentProjectId(null);
-      setCurrentProjectData(null);
-      setComposition(null);
       setCurrentRecordingMode(selectedRecordingMode);
-      setCurrentRawVideoPath("");
-      setLastRawSavedPath("");
+      if (!currentVideo) {
+        setCurrentRawVideoPath("");
+        setLastRawSavedPath("");
+      }
       setRawButtonSavedFlash(false);
 
       let finalTargetId = captureTargetId;
