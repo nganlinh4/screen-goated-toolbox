@@ -361,9 +361,8 @@ export function Header({
             }}>
               <DropdownMenuTrigger asChild>
                 <Button
-                  disabled={isRecording}
                   onPointerDown={handleDropdownTriggerPointerDown('captureSource')}
-                  className="capture-source-toggle-btn ui-toolbar-button px-2 h-6 text-[11px] whitespace-nowrap flex items-center disabled:pointer-events-none"
+                  className="capture-source-toggle-btn ui-toolbar-button px-2 h-6 text-[11px] whitespace-nowrap flex items-center"
                 >
                   <span className="capture-source-toggle-label">{captureSourceLabel}</span>
                   <ChevronDown className="w-3 h-3 ml-1.5" />

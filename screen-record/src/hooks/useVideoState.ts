@@ -777,17 +777,16 @@ export function useRecording(props: UseRecordingProps) {
     targetFps?: number,
   ) => {
     try {
-      setAudioFilePath("");
-      setVideoFilePath("");
-      setVideoFilePathOwnerUrl("");
-      setMousePositions([]);
-
       if (props.currentVideo) {
         // User is editing a video — don't touch the preview at all. The canvas,
         // segment, playback state, and video URL all stay intact so editing can
         // continue uninterrupted. Old URLs are revoked in handleStopRecording
         // once the new video is ready to replace them.
       } else {
+        setAudioFilePath("");
+        setVideoFilePath("");
+        setVideoFilePathOwnerUrl("");
+        setMousePositions([]);
         // No existing video — safe to clear everything for a clean slate.
         props.setIsVideoReady(false);
         props.setCurrentTime(0);

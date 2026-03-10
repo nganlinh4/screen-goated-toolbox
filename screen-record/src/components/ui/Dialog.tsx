@@ -42,7 +42,12 @@ const DialogContent = React.forwardRef<
   <DialogPortal>
     <DialogOverlay />
     <div className="dialog-shell fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
-      <DialogPrimitive.Content ref={ref} asChild {...props}>
+      <DialogPrimitive.Content
+        ref={ref}
+        asChild
+        aria-describedby={props["aria-describedby"] ?? undefined}
+        {...props}
+      >
         <motion.div
           className={cn(
             'dialog-content material-surface-elevated relative z-[101]',
