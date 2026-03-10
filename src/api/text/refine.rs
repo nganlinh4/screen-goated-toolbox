@@ -301,14 +301,9 @@ where
         "contents": [{ "role": "user", "parts": [{ "text": final_prompt }] }]
     });
 
-    let supports_thinking = (p_model.contains("gemini-2.5-flash") && !p_model.contains("lite"))
-        || p_model.contains("gemini-3-flash-preview")
-        || p_model.contains("gemini-robotics");
-    if supports_thinking {
+    if let Some(thinking_config) = crate::api::gemini_thinking_config(p_model) {
         payload["generationConfig"] = serde_json::json!({
-            "thinkingConfig": {
-                "includeThoughts": true
-            }
+            "thinkingConfig": thinking_config
         });
     }
 

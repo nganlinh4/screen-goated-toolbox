@@ -43,6 +43,46 @@ function containRect(
   return { left: (cw - w) / 2, top: (ch - h) / 2, width: w, height: h };
 }
 
+function getProjectPreviewTargetRect(
+  cw: number,
+  ch: number,
+  project: Omit<Project, "videoBlob"> | undefined,
+  fallbackWidth: number,
+  fallbackHeight: number,
+): { left: number; top: number; width: number; height: number } {
+  const canvasWidth = project?.backgroundConfig?.canvasWidth;
+  const canvasHeight = project?.backgroundConfig?.canvasHeight;
+  if (
+    typeof canvasWidth === "number" &&
+    canvasWidth > 0 &&
+    typeof canvasHeight === "number" &&
+    canvasHeight > 0
+  ) {
+    return containRect(cw, ch, canvasWidth, canvasHeight);
+  }
+  return containRect(cw, ch, fallbackWidth, fallbackHeight);
+}
+
+function getPreviewStageRect(): DOMRect | null {
+  const previewStage = document.querySelector(
+    ".preview-canvas",
+  ) as HTMLElement | null;
+  if (!previewStage) return null;
+  const rect = previewStage.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  return rect;
+}
+
+function getLiveCanvasRect(): DOMRect | null {
+  const canvas = document.querySelector(
+    ".preview-canvas-element",
+  ) as HTMLCanvasElement | null;
+  if (!canvas) return null;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  return rect;
+}
+
 /** Resolve the rendered preview canvas rect relative to a parent, if present. */
 function getPreviewCanvasRect(
   parent: HTMLElement,
@@ -265,23 +305,18 @@ export function ProjectsView({
       "img",
     ) as HTMLImageElement | null;
     const container = containerRef.current;
-    const portalTarget = document.querySelector(
-      ".video-preview-container",
-    ) as HTMLElement | null;
+    const portalRect = getPreviewStageRect();
 
-    if (!thumbnailImg || !container || !portalTarget) {
+    if (!thumbnailImg || !container || !portalRect) {
       onLoadProject(projectId);
       return;
     }
 
-    const portalRect = portalTarget.getBoundingClientRect();
     const thumbRect = thumbnailImg.getBoundingClientRect();
-    const canvasEl = document.querySelector(
-      ".preview-canvas-element",
-    ) as HTMLCanvasElement | null;
-    const canvasRect = canvasEl?.getBoundingClientRect();
+    const canvasRect = getLiveCanvasRect();
     const natW = thumbnailImg.naturalWidth || 16;
     const natH = thumbnailImg.naturalHeight || 9;
+    const targetProject = projects.find((project) => project.id === projectId);
     const target =
       projectId === currentProjectId && canvasRect && canvasRect.width > 0
         ? {
@@ -290,7 +325,13 @@ export function ProjectsView({
             width: canvasRect.width,
             height: canvasRect.height,
           }
-        : containRect(portalRect.width, portalRect.height, natW, natH);
+        : getProjectPreviewTargetRect(
+            portalRect.width,
+            portalRect.height,
+            targetProject,
+            natW,
+            natH,
+          );
     const targetGlobal =
       projectId === currentProjectId && canvasRect && canvasRect.width > 0
         ? target
@@ -325,6 +366,55 @@ export function ProjectsView({
       }).onfinish = () => clone.remove();
     };
 
+    const settleCloneToLiveCanvas = () => {
+      const liveCanvasRect = getLiveCanvasRect();
+      if (!liveCanvasRect) {
+        fadeOut();
+        return;
+      }
+      const cloneRect = clone.getBoundingClientRect();
+      const deltaLeft = liveCanvasRect.left - cloneRect.left;
+      const deltaTop = liveCanvasRect.top - cloneRect.top;
+      const widthDelta = Math.abs(liveCanvasRect.width - cloneRect.width);
+      const heightDelta = Math.abs(liveCanvasRect.height - cloneRect.height);
+      if (
+        Math.abs(deltaLeft) < 0.5 &&
+        Math.abs(deltaTop) < 0.5 &&
+        widthDelta < 0.5 &&
+        heightDelta < 0.5
+      ) {
+        fadeOut();
+        return;
+      }
+      clone.animate(
+        [
+          {
+            left: `${cloneRect.left}px`,
+            top: `${cloneRect.top}px`,
+            width: `${cloneRect.width}px`,
+            height: `${cloneRect.height}px`,
+          },
+          {
+            left: `${liveCanvasRect.left}px`,
+            top: `${liveCanvasRect.top}px`,
+            width: `${liveCanvasRect.width}px`,
+            height: `${liveCanvasRect.height}px`,
+          },
+        ],
+        {
+          duration: 140,
+          easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+          fill: "forwards",
+        },
+      ).onfinish = () => {
+        clone.style.left = `${liveCanvasRect.left}px`;
+        clone.style.top = `${liveCanvasRect.top}px`;
+        clone.style.width = `${liveCanvasRect.width}px`;
+        clone.style.height = `${liveCanvasRect.height}px`;
+        fadeOut();
+      };
+    };
+
     const dx = thumbRect.left - targetGlobal.left;
     const dy = thumbRect.top - targetGlobal.top;
     const sx = thumbRect.width / targetGlobal.width;
@@ -347,9 +437,12 @@ export function ProjectsView({
     ).onfinish = () => {
       animatingRef.current = false;
 
-      // Wait for project load and allow React lifecycle to completely stabilize canvas dimensions
       Promise.resolve(onLoadProject(projectId)).then(() => {
-        setTimeout(() => requestAnimationFrame(fadeOut), 250);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            settleCloneToLiveCanvas();
+          });
+        });
       });
     };
   };
@@ -359,11 +452,9 @@ export function ProjectsView({
     if (animatingRef.current) return;
 
     const container = containerRef.current;
-    const portalTarget = document.querySelector(
-      ".video-preview-container",
-    ) as HTMLElement | null;
+    const portalRect = getPreviewStageRect();
 
-    if (!currentProjectId || !container || !portalTarget) {
+    if (!currentProjectId || !container || !portalRect) {
       onClose();
       return;
     }
@@ -385,17 +476,15 @@ export function ProjectsView({
       behavior: "instant" as ScrollBehavior,
     });
 
-    const portalRect = portalTarget.getBoundingClientRect();
     const thumbRect = thumbnailImg.getBoundingClientRect();
-    const canvasEl = document.querySelector(
-      ".preview-canvas-element",
-    ) as HTMLCanvasElement | null;
-    const canvasRect = canvasEl?.getBoundingClientRect();
+    const canvasRect = getLiveCanvasRect();
     const natW = thumbnailImg.naturalWidth || 16;
     const natH = thumbnailImg.naturalHeight || 9;
-    const fallbackTarget = containRect(
+    const currentProject = projects.find((project) => project.id === currentProjectId);
+    const fallbackTarget = getProjectPreviewTargetRect(
       portalRect.width,
       portalRect.height,
+      currentProject,
       natW,
       natH,
     );
