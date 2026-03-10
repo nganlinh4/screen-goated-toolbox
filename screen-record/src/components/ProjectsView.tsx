@@ -487,7 +487,7 @@ export function ProjectsView({
         }`}
       >
         {/* Header */}
-        <div className="projects-header flex justify-between items-center px-6 py-4 flex-shrink-0 border-b border-[var(--glass-border)]">
+        <div className="projects-header flex justify-between items-center px-6 py-4 flex-shrink-0 border-[var(--ui-border)] ">
           <div className="flex items-center gap-4">
             <h3 className="text-lg font-semibold text-[var(--on-surface)]">
               {isPickerMode
@@ -499,7 +499,7 @@ export function ProjectsView({
             {!isPickerMode && projects.length > 0 && (
               <button
                 onClick={() => setShowClearConfirm(true)}
-                className="text-xs font-medium text-red-500 hover:text-red-400 bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1 rounded transition-colors"
+                className="projects-clear-btn ui-chip-button rounded-lg px-2.5 py-1 text-xs font-medium text-red-500 hover:text-red-400"
               >
                 {t.clearAll}
               </button>
@@ -529,7 +529,7 @@ export function ProjectsView({
             )}
             <button
               onClick={handleAnimatedClose}
-              className="p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] transition-colors"
+              className="projects-close-btn ui-icon-button p-1"
             >
               <X className="w-4 h-4" />
             </button>
@@ -539,7 +539,7 @@ export function ProjectsView({
         {/* Grid */}
         <div className="projects-grid-scroll flex-1 min-h-0 overflow-y-auto thin-scrollbar px-6 py-5">
           {projects.length === 0 ? (
-            <div className="projects-empty-state flex items-center justify-center h-full text-xs text-[var(--outline)]">
+            <div className="projects-empty-state ui-empty-state flex items-center justify-center h-full rounded-2xl text-xs">
               {t.noProjectsYet}
             </div>
           ) : (
@@ -552,7 +552,7 @@ export function ProjectsView({
                   <div
                     key={project.id}
                     data-project-id={project.id}
-                    className="project-card group relative bg-[var(--surface-container)] border border-[var(--glass-border)] rounded-lg overflow-hidden hover:border-[var(--outline)] transition-colors"
+                    className="project-card ui-surface group relative rounded-xl overflow-hidden"
                   >
                     <div
                       className="project-thumbnail bg-[var(--surface-container-high)] relative cursor-pointer overflow-hidden"
@@ -597,7 +597,7 @@ export function ProjectsView({
                         {editingNameId === project.id ? (
                           <input
                             autoFocus
-                            className="bg-transparent border-b border-[var(--primary-color)] text-[var(--on-surface)] text-xs w-full outline-none py-0.5"
+                            className="project-rename-input ui-input w-full rounded-md border-b border-[var(--primary-color)] text-[var(--on-surface)] text-xs outline-none py-1 px-1.5"
                             value={renameValue}
                             onChange={(e) => setRenameValue(e.target.value)}
                             onBlur={() => handleRename(project.id)}
@@ -634,7 +634,7 @@ export function ProjectsView({
                             }
                             onProjectsChange();
                           }}
-                          className="project-delete-btn text-[var(--outline)] hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 p-0.5 flex-shrink-0"
+                          className="project-delete-btn ui-icon-button text-[var(--outline)] hover:text-red-400 opacity-0 group-hover:opacity-100 p-0.5 flex-shrink-0"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>

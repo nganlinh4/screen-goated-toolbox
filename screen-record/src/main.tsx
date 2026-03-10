@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import CursorSvgLab from "@/components/CursorSvgLab";
+import { TooltipProvider } from "@/components/ui/Tooltip";
 import "./App.css";
 
 function RootRouter() {
@@ -19,6 +20,8 @@ function RootRouter() {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <RootRouter />
+    <TooltipProvider>
+      <RootRouter />
+    </TooltipProvider>
   </React.StrictMode>,
 );

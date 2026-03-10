@@ -16,7 +16,6 @@ pub(in crate::overlay::screen_record) const INDEX_HTML: &[u8] =
 const WEB_ASSETS: &[EmbeddedAsset] = &[
     asset!("assets/index.js", "application/javascript"),
     asset!("assets/index.css", "text/css"),
-    asset!("assets/react-vendor.js", "application/javascript"),
     asset!("assets/vendor.js", "application/javascript"),
     asset!("bg-warm-abstract.jpg", "image/jpeg"),
     asset!("bg-cool-abstract.jpg", "image/jpeg"),

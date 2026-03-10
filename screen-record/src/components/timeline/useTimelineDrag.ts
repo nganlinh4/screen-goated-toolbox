@@ -653,9 +653,13 @@ export function useTimelineDrag({
     if (isMove) document.body.classList.add('dragging-move');
     else document.body.classList.remove('dragging-move');
 
+    if (isDraggingSeek) document.body.classList.add('dragging-seek');
+    else document.body.classList.remove('dragging-seek');
+
     return () => {
       document.body.classList.remove('dragging-ew');
       document.body.classList.remove('dragging-move');
+      document.body.classList.remove('dragging-seek');
     };
   }, [
     isDraggingTrimStart,
@@ -670,6 +674,7 @@ export function useTimelineDrag({
     isDraggingPointerEnd,
     isDraggingPointerBody,
     isDraggingZoom,
+    isDraggingSeek,
   ]);
 
   const dragState: TimelineDragState = {

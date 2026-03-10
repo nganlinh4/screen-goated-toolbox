@@ -5,6 +5,7 @@ import { BackgroundPanel } from './BackgroundPanel';
 import { CursorPanel } from './CursorPanel';
 import { TextPanel } from './TextPanel';
 import { BlurPanel } from './BlurPanel';
+import { motion } from 'framer-motion';
 
 // ============================================================================
 // Types
@@ -30,21 +31,32 @@ function PanelTabs({ activePanel, onPanelChange }: PanelTabsProps) {
   ];
 
   return (
-    <div className="panel-tabs flex flex-nowrap border-b border-[var(--glass-border)]">
+    <div className="panel-tabs ui-segmented relative flex flex-nowrap overflow-hidden">
       {tabs.map(tab => (
         <button
           key={tab.id}
           onClick={() => onPanelChange(tab.id)}
-          className={`panel-tab-button flex-1 px-2 py-2 text-[11px] font-medium whitespace-nowrap transition-colors relative ${
+          className={`panel-tab-button ui-segmented-button relative flex-1 px-2 py-2 text-[11px] font-medium whitespace-nowrap ${
             activePanel === tab.id
               ? 'text-[var(--primary-color)]'
-              : 'text-[var(--on-surface-variant)] hover:text-[var(--on-surface)]'
+              : ''
           }`}
         >
-          {tab.label}
           {activePanel === tab.id && (
-            <div className="tab-indicator absolute bottom-0 left-1/4 right-1/4 h-[2px] bg-[var(--primary-color)] rounded-full" />
+            <motion.span
+              layoutId="side-panel-tab-pill"
+              className="panel-tab-pill absolute inset-0 rounded-[10px] border"
+              style={{
+                background:
+                  "color-mix(in srgb, var(--primary-color) 12%, var(--ui-surface-3))",
+                borderColor:
+                  "color-mix(in srgb, var(--primary-color) 36%, var(--ui-border))",
+                boxShadow: "var(--shadow-elevation-1)",
+              }}
+              transition={{ type: "spring", stiffness: 420, damping: 36, mass: 0.9 }}
+            />
           )}
+          <span className="panel-tab-label relative z-10">{tab.label}</span>
         </button>
       ))}
     </div>
@@ -95,24 +107,27 @@ export function SidePanel({
   beginBatch,
   commitBatch
 }: SidePanelProps) {
-  return (
-    <div className="side-panel h-full min-h-0 flex flex-col">
-      <PanelTabs activePanel={activePanel} onPanelChange={setActivePanel} />
-      <div className="side-panel-content mt-3 flex-1 min-h-0 overflow-y-auto thin-scrollbar px-2 pb-2">
-        {activePanel === 'zoom' && (
-          <ZoomPanel
-            segment={segment}
-            editingKeyframeId={editingKeyframeId}
-            zoomFactor={zoomFactor}
-            setZoomFactor={setZoomFactor}
-            onDeleteKeyframe={onDeleteKeyframe}
-            onUpdateZoom={onUpdateZoom}
-            beginBatch={beginBatch}
-            commitBatch={commitBatch}
-          />
-        )}
+  const panelOrder: ActivePanel[] = ['background', 'zoom', 'cursor', 'blur', 'text'];
+  const activePanelIndex = panelOrder.indexOf(activePanel);
 
-        {activePanel === 'background' && (
+  const renderPanel = (panelId: ActivePanel) => {
+    if (panelId === 'zoom') {
+      return (
+        <ZoomPanel
+          segment={segment}
+          editingKeyframeId={editingKeyframeId}
+          zoomFactor={zoomFactor}
+          setZoomFactor={setZoomFactor}
+          onDeleteKeyframe={onDeleteKeyframe}
+          onUpdateZoom={onUpdateZoom}
+          beginBatch={beginBatch}
+          commitBatch={commitBatch}
+        />
+      );
+    }
+
+    if (panelId === 'background') {
+      return (
         <BackgroundPanel
           backgroundConfig={backgroundConfig}
           setBackgroundConfig={setBackgroundConfig}
@@ -121,35 +136,80 @@ export function SidePanel({
           onBackgroundUpload={onBackgroundUpload}
           isBackgroundUploadProcessing={isBackgroundUploadProcessing}
         />
-        )}
+      );
+    }
 
-        {activePanel === 'cursor' && (
-          <CursorPanel
-            segment={segment}
-            onUpdateSegment={onUpdateSegment}
-            backgroundConfig={backgroundConfig}
-            setBackgroundConfig={setBackgroundConfig}
-          />
-        )}
+    if (panelId === 'cursor') {
+      return (
+        <CursorPanel
+          segment={segment}
+          onUpdateSegment={onUpdateSegment}
+          backgroundConfig={backgroundConfig}
+          setBackgroundConfig={setBackgroundConfig}
+        />
+      );
+    }
 
-        {activePanel === 'blur' && (
-          <BlurPanel
-            backgroundConfig={backgroundConfig}
-            setBackgroundConfig={setBackgroundConfig}
-            beginBatch={beginBatch}
-            commitBatch={commitBatch}
-          />
-        )}
+    if (panelId === 'blur') {
+      return (
+        <BlurPanel
+          backgroundConfig={backgroundConfig}
+          setBackgroundConfig={setBackgroundConfig}
+          beginBatch={beginBatch}
+          commitBatch={commitBatch}
+        />
+      );
+    }
 
-        {activePanel === 'text' && (
-          <TextPanel
-            segment={segment}
-            editingTextId={editingTextId}
-            onUpdateSegment={onUpdateSegment}
-            beginBatch={beginBatch}
-            commitBatch={commitBatch}
-          />
-        )}
+    return (
+      <TextPanel
+        segment={segment}
+        editingTextId={editingTextId}
+        onUpdateSegment={onUpdateSegment}
+        beginBatch={beginBatch}
+        commitBatch={commitBatch}
+      />
+    );
+  };
+
+  return (
+    <div className="side-panel h-full min-h-0 flex flex-col">
+      <PanelTabs activePanel={activePanel} onPanelChange={setActivePanel} />
+      <div className="side-panel-content mt-3 flex-1 min-h-0 overflow-hidden px-2 pb-2">
+        <div className="side-panel-panels relative h-full">
+          {panelOrder.map((panelId, index) => {
+            const relativeIndex = index - activePanelIndex;
+            const isActive = relativeIndex === 0;
+
+            return (
+              <motion.div
+                key={panelId}
+                className="side-panel-pane absolute inset-0 overflow-y-auto thin-scrollbar pr-1 pb-2"
+                initial={false}
+                animate={{
+                  x:
+                    relativeIndex === 0
+                      ? "0%"
+                      : relativeIndex < 0
+                        ? "-108%"
+                        : "108%",
+                  opacity: isActive ? 1 : 0.72,
+                  scale: isActive ? 1 : 0.985,
+                }}
+                transition={{
+                  x: { type: "spring", stiffness: 360, damping: 34, mass: 0.9 },
+                  opacity: { duration: 0.24, ease: [0.22, 1, 0.36, 1] },
+                  scale: { duration: 0.24, ease: [0.22, 1, 0.36, 1] },
+                }}
+                style={{
+                  pointerEvents: isActive ? "auto" : "none",
+                }}
+              >
+                {renderPanel(panelId)}
+              </motion.div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

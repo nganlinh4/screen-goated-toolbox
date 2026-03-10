@@ -279,10 +279,10 @@ function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
         : state.status === 'error' ? `Error: ${(state as { status: 'error'; message: string }).message}. Click to retry.`
         : 'Click to download'
       }
-      className={`downloadable-bg-btn aspect-square h-10 rounded-lg transition-all duration-150 relative overflow-hidden group ${
+      className={`downloadable-bg-btn ui-choice-tile aspect-square h-10 rounded-lg relative overflow-hidden group ${
         isSelected
-          ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
-          : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
+          ? 'ui-choice-tile-active'
+          : ''
       }`}
     >
       <img
@@ -305,7 +305,6 @@ function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
           className="downloadable-bg-overlay absolute inset-0 flex items-center justify-center transition-opacity duration-200"
           style={{
             backgroundColor: `rgba(0, 0, 0, ${0.18 * overlayOpacity})`,
-            backdropFilter: overlayOpacity > 0.3 ? 'blur(1px)' : 'none',
           }}
         >
           {isDownloading ? (
@@ -382,10 +381,10 @@ export function BackgroundPanel({
           <label className="text-xs font-medium uppercase tracking-wide text-on-surface-variant mb-2 block">{t.backgroundStyle}</label>
           <div className="background-presets-grid grid grid-cols-7 gap-2">
             {/* Upload button */}
-            <label className={`background-upload-btn aspect-square h-10 rounded-lg transition-all duration-150 cursor-pointer ring-1 ring-[var(--glass-border)] relative overflow-hidden group bg-glass-bg ${
+            <label className={`background-upload-btn ui-choice-tile aspect-square h-10 rounded-lg cursor-pointer relative overflow-hidden group ${
               isBackgroundUploadProcessing
                 ? 'opacity-80 cursor-wait'
-                : 'hover:ring-[var(--primary-color)]/40 hover:scale-105'
+                : ''
             }`}>
               <input type="file" accept="image/*" onChange={onBackgroundUpload} className="hidden" disabled={isBackgroundUploadProcessing} />
               <div className="upload-icon absolute inset-0 flex items-center justify-center">
@@ -405,10 +404,10 @@ export function BackgroundPanel({
                 key={key}
                 onClick={() => applyPreset(key, { backgroundType: key as BackgroundConfig['backgroundType'] })}
                 style={preset.style}
-                className={`bg-preset-${key} aspect-square h-10 rounded-lg transition-all duration-150 relative overflow-hidden ${
+                className={`bg-preset-${key} ui-choice-tile aspect-square h-10 rounded-lg relative overflow-hidden ${
                   backgroundConfig.backgroundType === key
-                    ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
-                    : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
+                    ? 'ui-choice-tile-active'
+                    : ''
                 }`}
               >
                 {applyingKey === key && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className={`w-3.5 h-3.5 ${spinnerClass} animate-spin drop-shadow-sm`} /></div>}
@@ -429,10 +428,10 @@ export function BackgroundPanel({
               <button
                 key={index}
                 onClick={() => applyPreset(imageUrl, { backgroundType: 'custom', customBackground: imageUrl })}
-                className={`uploaded-bg-btn aspect-square h-10 rounded-lg transition-all duration-150 relative overflow-hidden group ${
+                className={`uploaded-bg-btn ui-choice-tile aspect-square h-10 rounded-lg relative overflow-hidden group ${
                   backgroundConfig.backgroundType === 'custom' && backgroundConfig.customBackground === imageUrl
-                    ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
-                    : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
+                    ? 'ui-choice-tile-active'
+                    : ''
                 }`}
               >
                 <img src={imageUrl} alt={`Upload ${index + 1}`} className="absolute inset-0 w-full h-full object-cover" />

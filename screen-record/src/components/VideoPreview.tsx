@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useState } from 'react';
+import { forwardRef, useEffect, useLayoutEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Video, Loader2, Play, Pause, Crop } from 'lucide-react';
 import { VideoSegment, BackgroundConfig, MousePosition } from '@/types/video';
@@ -86,7 +86,7 @@ export function SeekIndicator({ dir, showKey }: { dir: 'left' | 'right'; showKey
 
   return (
     <div className="seek-indicator absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] pointer-events-none">
-      <div className="seek-indicator-badge bg-black/60 backdrop-blur-md text-white px-4 py-3 rounded-2xl flex items-center gap-2 shadow-2xl animate-in fade-in zoom-in slide-out-to-top-4 duration-500">
+      <div className="seek-indicator-badge bg-black/80 text-white px-4 py-3 rounded-2xl flex items-center gap-2 shadow-2xl animate-in fade-in zoom-in slide-out-to-top-4 duration-500">
         {dir === 'left' ? (
           <><span className="text-xl">⏪</span><span className="font-bold">5s</span></>
         ) : (
@@ -148,7 +148,10 @@ export function PlaybackControls({
           onClick={onToggleCrop}
           variant="ghost"
           size="icon"
-          className="playback-crop-apply-btn w-8 h-8 rounded-lg transition-colors bg-green-500/80 text-white hover:bg-green-600"
+          className="playback-crop-apply-btn ui-action-button w-8 h-8 rounded-lg transition-colors"
+          data-tone="success"
+          data-active="true"
+          data-emphasis="strong"
           title={t.applyCrop}
           aria-label={t.applyCrop}
         >
@@ -162,12 +165,12 @@ export function PlaybackControls({
 
   return (
     <div
-      className="playback-controls relative flex items-center gap-1.5 backdrop-blur-2xl rounded-2xl px-3.5 py-2.5 border whitespace-nowrap"
+      className="playback-controls relative flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border whitespace-nowrap shadow-[var(--shadow-elevation-2)]"
       style={{
         backgroundColor: 'var(--overlay-panel-bg)',
         borderColor: 'var(--overlay-panel-border)',
         color: 'var(--overlay-panel-fg)',
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04)',
+        boxShadow: 'var(--shadow-elevation-2)',
       }}
     >
       {canvasModeToggle && (
@@ -180,11 +183,13 @@ export function PlaybackControls({
         onClick={onToggleCrop}
         variant="ghost"
         size="icon"
-        className={`playback-crop-toggle-btn w-8 h-8 rounded-lg transition-colors ${
+        className={`playback-crop-toggle-btn ui-action-button w-8 h-8 rounded-lg transition-colors ${
           hasAppliedCrop
-            ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white hover:text-white shadow-sm'
-            : 'text-[var(--overlay-panel-fg)]/80 hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--glass-bg)]'
+            ? ''
+            : 'text-[var(--overlay-panel-fg)]/80 hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--ui-hover)]'
         }`}
+        data-tone="success"
+        data-active={hasAppliedCrop ? "true" : "false"}
         title={t.cropVideo}
       >
         <Crop className="w-3.5 h-3.5" />
@@ -195,7 +200,7 @@ export function PlaybackControls({
         disabled={isProcessing || !isVideoReady}
         variant="ghost"
         size="icon"
-        className={`w-8 h-8 rounded-lg transition-colors text-[var(--overlay-panel-fg)] bg-transparent hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--glass-bg)] ${
+        className={`w-8 h-8 rounded-lg transition-colors text-[var(--overlay-panel-fg)] bg-transparent hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--ui-hover)] ${
           isProcessing || !isVideoReady ? 'opacity-50 cursor-not-allowed' : ''
         }`}
       >
@@ -239,49 +244,140 @@ export function PlaybackControls({
 // ============================================================================
 interface CropOverlayProps {
   segment: VideoSegment;
-  mousePositions?: MousePosition[];
-  currentTime?: number;
+  mousePositions: MousePosition[];
+  currentTime: number;
   previewContainerRef: React.RefObject<HTMLDivElement>;
+  canvasRef: React.RefObject<HTMLCanvasElement>;
   videoRef: React.RefObject<HTMLVideoElement>;
+  backgroundConfig: BackgroundConfig;
   onUpdateSegment: (segment: VideoSegment) => void;
   beginBatch: () => void;
   commitBatch: () => void;
-  seekIndicatorDir?: 'left' | 'right';
-  seekIndicatorKey?: number;
 }
 
 export function CropOverlay({
   segment,
-  mousePositions = [],
-  currentTime = 0,
+  mousePositions,
+  currentTime,
   previewContainerRef,
+  canvasRef,
   videoRef,
+  backgroundConfig,
   onUpdateSegment,
   beginBatch,
   commitBatch
 }: CropOverlayProps) {
-  const container = previewContainerRef.current;
-  const video = videoRef.current;
+  const [canvasBounds, setCanvasBounds] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
 
-  if (!container || !video) return null;
+  useLayoutEffect(() => {
+    const container = previewContainerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) {
+      setCanvasBounds(null);
+      return;
+    }
 
-  const containerRect = container.getBoundingClientRect();
-  const vidW = video.videoWidth;
-  const vidH = video.videoHeight;
+    let rafId: number | null = null;
 
-  if (!vidW || !vidH) return null;
+    const updateBounds = () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const nextContainer = previewContainerRef.current;
+        const nextCanvas = canvasRef.current;
+        const nextVideo = videoRef.current;
+        if (!nextContainer || !nextCanvas) {
+          setCanvasBounds(null);
+          return;
+        }
+        const containerRect = nextContainer.getBoundingClientRect();
+        const canvasRect = nextCanvas.getBoundingClientRect();
+        if (canvasRect.width <= 0 || canvasRect.height <= 0) {
+          setCanvasBounds(null);
+          return;
+        }
+        const videoWidth = nextVideo?.videoWidth || nextCanvas.width;
+        const videoHeight = nextVideo?.videoHeight || nextCanvas.height;
+        const canvasLeft = canvasRect.left - containerRect.left;
+        const canvasTop = canvasRect.top - containerRect.top;
+        const contentScale = Math.max(0.01, (backgroundConfig.scale ?? 100) / 100);
+        let nextBounds = {
+          left: canvasLeft,
+          top: canvasTop,
+          width: canvasRect.width,
+          height: canvasRect.height,
+        };
+
+        if (videoWidth > 0 && videoHeight > 0) {
+          const captureDims = sampleCaptureDimensionsAtTime(
+            currentTime,
+            mousePositions,
+            videoWidth,
+            videoHeight,
+          );
+          const contained = getContainedRect(
+            canvasRect.width,
+            canvasRect.height,
+            captureDims.width,
+            captureDims.height,
+            contentScale,
+          );
+          nextBounds = {
+            left: canvasLeft + contained.left,
+            top: canvasTop + contained.top,
+            width: contained.width,
+            height: contained.height,
+          };
+        }
+
+        setCanvasBounds((prev) => {
+          if (
+            prev &&
+            Math.abs(prev.left - nextBounds.left) < 0.5 &&
+            Math.abs(prev.top - nextBounds.top) < 0.5 &&
+            Math.abs(prev.width - nextBounds.width) < 0.5 &&
+            Math.abs(prev.height - nextBounds.height) < 0.5
+          ) {
+            return prev;
+          }
+          return nextBounds;
+        });
+      });
+    };
+
+    updateBounds();
+
+    const resizeObserver = new ResizeObserver(() => updateBounds());
+    resizeObserver.observe(container);
+    resizeObserver.observe(canvas);
+    window.addEventListener('resize', updateBounds);
+    window.addEventListener('scroll', updateBounds, true);
+
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateBounds);
+      window.removeEventListener('scroll', updateBounds, true);
+    };
+  }, [
+    previewContainerRef,
+    canvasRef,
+    videoRef,
+    currentTime,
+    mousePositions,
+    backgroundConfig.scale,
+  ]);
+
+  if (!canvasBounds) return null;
   const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
-  const captureDims = sampleCaptureDimensionsAtTime(currentTime, mousePositions, vidW, vidH);
-  const contained = getContainedRect(
-    containerRect.width,
-    containerRect.height,
-    captureDims.width,
-    captureDims.height
-  );
-  const renderW = contained.width;
-  const renderH = contained.height;
-  const renderLeft = contained.left;
-  const renderTop = contained.top;
+  const renderW = canvasBounds.width;
+  const renderH = canvasBounds.height;
+  const renderLeft = canvasBounds.left;
+  const renderTop = canvasBounds.top;
 
   const handleResizeStart = (e: React.MouseEvent, type: string) => {
     e.preventDefault();
@@ -568,7 +664,9 @@ interface VideoPreviewProps {
   isCropping: boolean;
   currentTime: number;
   duration: number;
+  mousePositions: MousePosition[];
   segment: VideoSegment | null;
+  backgroundConfig: BackgroundConfig;
   onPreviewMouseDown: (e: React.MouseEvent) => void;
   onTogglePlayPause: () => void;
   onToggleCrop: () => void;
@@ -596,7 +694,9 @@ export const VideoPreview = forwardRef<HTMLDivElement, VideoPreviewProps>(({
   isCropping,
   currentTime,
   duration,
+  mousePositions,
   segment,
+  backgroundConfig,
   onPreviewMouseDown,
   onTogglePlayPause,
   onToggleCrop,
@@ -607,7 +707,7 @@ export const VideoPreview = forwardRef<HTMLDivElement, VideoPreviewProps>(({
   seekIndicatorKey = 0
 }, _ref) => {
   return (
-    <div className="col-span-3 rounded-xl overflow-hidden bg-[var(--surface-container)]/50 flex items-center justify-center">
+    <div className="video-preview-shell ui-surface col-span-3 rounded-xl overflow-hidden flex items-center justify-center">
       <div className="relative w-full flex justify-center max-h-[70vh]">
         <div
           ref={previewContainerRef}
@@ -631,8 +731,12 @@ export const VideoPreview = forwardRef<HTMLDivElement, VideoPreviewProps>(({
           {isCropping && currentVideo && segment && (
             <CropOverlay
               segment={segment}
+              mousePositions={mousePositions}
+              currentTime={currentTime}
               previewContainerRef={previewContainerRef as React.RefObject<HTMLDivElement>}
+              canvasRef={canvasRef as React.RefObject<HTMLCanvasElement>}
               videoRef={videoRef as React.RefObject<HTMLVideoElement>}
+              backgroundConfig={backgroundConfig}
               onUpdateSegment={onUpdateSegment}
               beginBatch={beginBatch}
               commitBatch={commitBatch}

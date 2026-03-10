@@ -1,6 +1,13 @@
-import { X, Lock } from 'lucide-react';
+import { Lock } from 'lucide-react';
 import { WindowInfo } from '@/hooks/useAppHooks';
 import { useSettings } from '@/hooks/useSettings';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogBody,
+} from '@/components/ui/Dialog';
 
 interface WindowSelectDialogProps {
   show: boolean;
@@ -16,24 +23,16 @@ export function WindowSelectDialog({
   onSelectWindow
 }: WindowSelectDialogProps) {
   const { t } = useSettings();
-  if (!show) return null;
 
   return (
-    <div className="window-select-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-[100] px-6 py-6">
-      <div className="window-select-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg w-full max-w-5xl h-full max-h-[80vh] flex flex-col">
-        <div className="window-select-header flex items-center justify-between mb-4 flex-shrink-0">
-          <h3 className="window-select-title text-sm font-medium text-[var(--on-surface)]">
-            {t.selectWindow}
-          </h3>
-          <button
-            onClick={onClose}
-            className="window-select-close-btn p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+    <Dialog open={show} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent size="max-w-5xl" className="max-h-[80vh]">
+        <DialogHeader>
+          <DialogTitle>{t.selectWindow}</DialogTitle>
+        </DialogHeader>
 
-        <div className="window-select-grid overflow-y-auto thin-scrollbar grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 p-1">
+        <DialogBody className="overflow-y-auto thin-scrollbar">
+          <div className="window-select-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 p-1">
           {windows.map((win) => {
             const initial = win.processName.charAt(0).toUpperCase() || 'W';
             return (
@@ -44,14 +43,14 @@ export function WindowSelectDialog({
                   onClose();
                   onSelectWindow(win.id, 'window');
                 }}
-                className={`window-select-card relative group border border-[var(--glass-border)] rounded-xl overflow-hidden flex flex-col h-36 shadow-sm ${
+                className={`window-select-card ui-choice-tile relative group rounded-xl overflow-hidden flex flex-col h-36 ${
                   win.isAdmin
-                    ? 'bg-[var(--surface-dim)] opacity-90 cursor-not-allowed'
-                    : 'bg-[var(--surface-container)] hover:border-[var(--primary-color)] transition-colors cursor-pointer'
+                    ? 'bg-[var(--ui-surface-1)] opacity-90 cursor-not-allowed'
+                    : 'cursor-pointer'
                 }`}
               >
                 {win.isAdmin && (
-                  <div className="window-select-card-admin-overlay absolute inset-0 bg-black/60 z-20 flex flex-col items-center justify-center text-white backdrop-blur-sm">
+                  <div className="window-select-card-admin-overlay absolute inset-0 bg-black/78 z-20 flex flex-col items-center justify-center text-white">
                     <Lock className="w-6 h-6 mb-2 text-amber-400" />
                     <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wide">{t.adminRequired}</span>
                     <span className="text-[9px] text-white/80 mt-1 px-4 text-center">{t.adminRequiredDesc}</span>
@@ -100,7 +99,7 @@ export function WindowSelectDialog({
                   )}
                 </div>
 
-                <div className="window-select-card-meta p-2.5 border-t border-[var(--glass-border)] bg-[var(--surface)]">
+                <div className="window-select-card-meta ui-list-header p-2.5">
                   <div className="window-select-card-title text-[11px] font-medium text-[var(--on-surface)] truncate" title={win.title}>
                     {win.title}
                   </div>
@@ -112,8 +111,9 @@ export function WindowSelectDialog({
               </div>
             );
           })}
-        </div>
-      </div>
-    </div>
+          </div>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -51,55 +51,86 @@
         --on-surface-variant: #475569;
         --outline: #94a3b8;
         --outline-variant: #e2e8f0;
-        --primary-color: #3b82f6;
-        --primary-light: #2563eb;
+        --primary-color: #2563eb;
+        --primary-light: #1d4ed8;
         --secondary-color: #3b82f6;
         --secondary-light: #2563eb;
         --tertiary-color: #ef4444;
         --tertiary-light: #dc2626;
-        --success-color: #16a34a;
-        --success-light: #22c55e;
+        --success-color: #0f9f8d;
+        --success-light: #14b8a6;
 
-        /* Glass-morphism layers */
-        --glass-bg: rgba(15, 23, 42, 0.03);
-        --glass-border: rgba(15, 23, 42, 0.08);
-        --glass-bg-hover: rgba(15, 23, 42, 0.06);
+        /* Shared elevated surfaces - opaque material, not frosted glass */
+        --glass-bg: #eef2f7;
+        --glass-border: rgba(148, 163, 184, 0.26);
+        --glass-bg-hover: #e4eaf2;
+        --glass-bg-elevated: #ffffff;
+        --glass-inner-border: none;
+
+        /* Elevation shadow system */
+        --shadow-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+        --shadow-elevation-2: 0 2px 4px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.08);
+        --shadow-elevation-3: 0 4px 8px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.12);
+        --shadow-elevation-4: 0 8px 16px rgba(0, 0, 0, 0.10), 0 16px 48px rgba(0, 0, 0, 0.18);
+
+        /* Glow tokens */
+        --glow-primary: 0 0 12px rgba(59, 130, 246, 0.12);
+        --glow-primary-strong: 0 0 20px rgba(59, 130, 246, 0.20), 0 0 40px rgba(59, 130, 246, 0.08);
 
         /* Timeline / overlay control tokens (light) */
-        --overlay-panel-bg: rgba(255, 255, 255, 0.85);
-        --overlay-panel-border: rgba(0, 0, 0, 0.08);
+        --overlay-panel-bg: #f7f9fc;
+        --overlay-panel-border: rgba(148, 163, 184, 0.24);
         --overlay-panel-fg: #0f172a;
         --overlay-divider: rgba(15, 23, 42, 0.18);
         --timeline-track-bg: #f1f5f9;
-        --timeline-gap-overlay: rgba(255, 255, 255, 0.62);
+        --timeline-gap-overlay: rgba(255, 255, 255, 0.04);
         --timeline-active-border: rgba(15, 23, 42, 0.22);
         --timeline-handle: rgba(15, 23, 42, 0.75);
         --timeline-label-bg: rgba(255, 255, 255, 0.9);
         --timeline-label-fg: #0f172a;
         --timeline-float-fg: #ffffff;
         --timeline-float-ring: rgba(15, 23, 42, 0.25);
+        --timeline-lane-bg: #eef3f8;
+        --timeline-lane-bg-strong: #e4eaf2;
+        --timeline-lane-border: rgba(148, 163, 184, 0.26);
+        --timeline-zoom-color: #2563eb;
+        --timeline-speed-color: #8b5cf6;
+        --timeline-success-color: #0f9f8d;
+        --timeline-warning-color: #d97706;
+        --timeline-neutral-color: #64748b;
+        --timeline-playhead-color: #ef4444;
+        --ui-surface-1: #eef2f7;
+        --ui-surface-2: #f7f9fc;
+        --ui-surface-3: #ffffff;
+        --ui-border: rgba(148, 163, 184, 0.24);
+        --ui-border-strong: rgba(100, 116, 139, 0.36);
+        --ui-hover: #e4eaf2;
+        --ui-hover-strong: #dbe3ec;
+        --ui-accent-soft: rgba(59, 130, 246, 0.12);
+        --ui-danger-soft: rgba(239, 68, 68, 0.12);
+        --ui-scrim: rgba(6, 8, 14, 0.56);
     }
 
     .dark {
-        /* Neutral Dark Theme */
-        --background: 0 0% 7%;
-        --foreground: 0 0% 88%;
-        --card: 0 0% 10%;
-        --card-foreground: 0 0% 88%;
-        --popover: 0 0% 13%;
-        --popover-foreground: 0 0% 88%;
+        /* Cool Blue-Gray Dark Theme */
+        --background: 228 15% 7%;
+        --foreground: 220 10% 88%;
+        --card: 228 12% 10%;
+        --card-foreground: 220 10% 88%;
+        --popover: 228 12% 13%;
+        --popover-foreground: 220 10% 88%;
         --primary: 217 91% 75%;          /* Light Blue */
         --primary-foreground: 217 91% 25%;
         --secondary: 217 91% 75%;        /* same as primary */
         --secondary-foreground: 217 91% 25%;
-        --muted: 0 0% 18%;
-        --muted-foreground: 0 0% 60%;
+        --muted: 228 10% 18%;
+        --muted-foreground: 220 8% 60%;
         --accent: 0 84% 65%;             /* Light Red */
         --accent-foreground: 0 84% 20%;
         --destructive: 0 62% 30%;
         --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 20%;
-        --input: 0 0% 20%;
+        --border: 228 8% 20%;
+        --input: 228 8% 20%;
         --ring: 217 91% 75%;
         --chart-1: 217 91% 75%;
         --chart-2: 217 91% 75%;
@@ -107,43 +138,74 @@
         --chart-4: 145 70% 55%;
         --chart-5: 25 100% 65%;
 
-        /* Custom semantic colors — dark theme */
-        --surface: #0f0f11;
-        --surface-dim: #09090b;
-        --surface-container: #18181b;
-        --surface-container-high: #27272a;
-        --surface-container-highest: #3f3f46;
-        --on-surface: #f4f4f5;
-        --on-surface-variant: #a1a1aa;
-        --outline: #52525b;
-        --outline-variant: #27272a;
-        --primary-color: #3b82f6;
-        --primary-light: #60a5fa;
+        /* Custom semantic colors — dark theme (blue-gray tinted) */
+        --surface: #10111a;
+        --surface-dim: #0a0b12;
+        --surface-container: #181924;
+        --surface-container-high: #262834;
+        --surface-container-highest: #3e4050;
+        --on-surface: #f0f1f5;
+        --on-surface-variant: #9fa1b2;
+        --outline: #52536b;
+        --outline-variant: #262834;
+        --primary-color: #7ab0ff;
+        --primary-light: #a8cfff;
         --secondary-color: #3b82f6;
         --secondary-light: #60a5fa;
         --tertiary-color: #ef4444;
         --tertiary-light: #f87171;
-        --success-color: #22c55e;
-        --success-light: #4ade80;
+        --success-color: #2dd4bf;
+        --success-light: #67e8f9;
 
-        /* Glass-morphism layers */
-        --glass-bg: rgba(255, 255, 255, 0.03);
-        --glass-border: rgba(255, 255, 255, 0.08);
-        --glass-bg-hover: rgba(255, 255, 255, 0.07);
+        /* Shared elevated surfaces - opaque material, not frosted glass */
+        --glass-bg: #1b1d28;
+        --glass-border: rgba(108, 112, 137, 0.34);
+        --glass-bg-hover: #252837;
+        --glass-bg-elevated: #212430;
+        --glass-inner-border: none;
+
+        /* Elevation shadow system */
+        --shadow-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.24), 0 1px 3px rgba(0, 0, 0, 0.18);
+        --shadow-elevation-2: 0 2px 4px rgba(0, 0, 0, 0.20), 0 4px 12px rgba(0, 0, 0, 0.28);
+        --shadow-elevation-3: 0 4px 8px rgba(0, 0, 0, 0.22), 0 8px 24px rgba(0, 0, 0, 0.32);
+        --shadow-elevation-4: 0 8px 16px rgba(0, 0, 0, 0.24), 0 16px 48px rgba(0, 0, 0, 0.40);
+
+        /* Glow tokens */
+        --glow-primary: 0 0 12px rgba(59, 130, 246, 0.20);
+        --glow-primary-strong: 0 0 20px rgba(59, 130, 246, 0.30), 0 0 40px rgba(59, 130, 246, 0.12);
 
         /* Timeline / overlay control tokens (dark) */
-        --overlay-panel-bg: rgba(24, 24, 27, 0.75);
-        --overlay-panel-border: rgba(255, 255, 255, 0.1);
-        --overlay-panel-fg: #f4f4f5;
+        --overlay-panel-bg: #171923;
+        --overlay-panel-border: rgba(108, 112, 137, 0.34);
+        --overlay-panel-fg: #f0f1f5;
         --overlay-divider: rgba(255, 255, 255, 0.12);
         --timeline-track-bg: rgba(255, 255, 255, 0.04);
-        --timeline-gap-overlay: rgba(255, 255, 255, 0.2);
+        --timeline-gap-overlay: rgba(0, 0, 0, 0.05);
         --timeline-active-border: rgba(255, 255, 255, 0.2);
         --timeline-handle: rgba(255, 255, 255, 0.85);
         --timeline-label-bg: rgba(0, 0, 0, 0.6);
         --timeline-label-fg: #ffffff;
         --timeline-float-fg: #ffffff;
         --timeline-float-ring: rgba(0, 0, 0, 0.35);
+        --timeline-lane-bg: #1c1f2a;
+        --timeline-lane-bg-strong: #232736;
+        --timeline-lane-border: rgba(108, 112, 137, 0.34);
+        --timeline-zoom-color: #7ab0ff;
+        --timeline-speed-color: #a78bfa;
+        --timeline-success-color: #2dd4bf;
+        --timeline-warning-color: #fbbf24;
+        --timeline-neutral-color: #94a3b8;
+        --timeline-playhead-color: #f87171;
+        --ui-surface-1: #1b1d28;
+        --ui-surface-2: #212430;
+        --ui-surface-3: #2a2d3b;
+        --ui-border: rgba(108, 112, 137, 0.34);
+        --ui-border-strong: rgba(143, 146, 170, 0.5);
+        --ui-hover: #252837;
+        --ui-hover-strong: #2f3345;
+        --ui-accent-soft: rgba(59, 130, 246, 0.2);
+        --ui-danger-soft: rgba(239, 68, 68, 0.18);
+        --ui-scrim: rgba(4, 5, 10, 0.7);
     }
 }
 
@@ -251,14 +313,8 @@ textarea.subtle-resize::-webkit-resizer {
 
 .playback-keystroke-delay-popover {
     border-color: color-mix(in srgb, var(--overlay-divider) 78%, white 10%);
-    background:
-        linear-gradient(165deg,
-            color-mix(in srgb, var(--overlay-panel-bg) 84%, white 10%) 0%,
-            color-mix(in srgb, var(--overlay-panel-bg) 92%, black 10%) 100%);
-    box-shadow:
-        0 14px 34px rgba(0, 0, 0, 0.34),
-        inset 0 1px 0 rgba(255, 255, 255, 0.14);
-    backdrop-filter: blur(16px) saturate(1.12);
+    background: var(--ui-surface-3);
+    box-shadow: var(--shadow-elevation-4);
 }
 
 .playback-keystroke-delay-popover::before {
@@ -267,11 +323,7 @@ textarea.subtle-resize::-webkit-resizer {
     inset: 1px;
     border-radius: inherit;
     pointer-events: none;
-    background: linear-gradient(
-        180deg,
-        rgba(255, 255, 255, 0.08) 0%,
-        rgba(255, 255, 255, 0) 56%
-    );
+    background: none;
 }
 
 body.dragging-speed-point * {
@@ -298,6 +350,10 @@ body.dragging-move .timeline-content > div {
     pointer-events: none !important;
 }
 
+body.dragging-seek * {
+    cursor: grabbing !important;
+}
+
 @keyframes recording-pill-breathe {
     0%, 100% {
         background-color: rgba(239, 68, 68, 0.08);
@@ -313,4 +369,557 @@ body.dragging-move .timeline-content > div {
 
 .recording-indicator {
     animation: recording-pill-breathe 1.8s ease-in-out infinite;
+}
+
+.crop-workspace-stage-backdrop {
+    background-color: color-mix(in srgb, var(--surface-dim) 78%, var(--ui-surface-1));
+    background-image:
+        linear-gradient(
+            0deg,
+            color-mix(in srgb, var(--ui-border) 24%, transparent) 1px,
+            transparent 1px
+        ),
+        linear-gradient(
+            90deg,
+            color-mix(in srgb, var(--ui-border) 24%, transparent) 1px,
+            transparent 1px
+        ),
+        radial-gradient(
+            circle at center,
+            color-mix(in srgb, var(--primary-color) 8%, transparent) 0%,
+            transparent 62%
+        );
+    background-size: 24px 24px, 24px 24px, 100% 100%;
+    border: 1px solid color-mix(in srgb, var(--ui-border-strong) 70%, transparent);
+}
+
+.crop-workspace-video-frame {
+    background: color-mix(in srgb, var(--surface-dim) 84%, black);
+    border: 1px solid color-mix(in srgb, var(--ui-border-strong) 82%, white 6%);
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--surface) 35%, transparent),
+        var(--shadow-elevation-2);
+}
+
+.crop-workspace-video {
+    background: var(--ui-surface-1);
+}
+
+.crop-workspace-selection-mask {
+    position: absolute;
+    border-radius: 0.2rem;
+    box-shadow: 0 0 0 9999px var(--ui-surface-1);
+}
+
+/* Legacy highlight hook kept inert to avoid glossy/glass sheen */
+.glass-highlight::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: none;
+}
+
+.material-surface {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-elevation-2);
+}
+
+.material-surface-elevated {
+    background: var(--glass-bg-elevated);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-elevation-4);
+}
+
+.ui-surface {
+    background: var(--ui-surface-1);
+    border: 1px solid var(--ui-border);
+    box-shadow: var(--shadow-elevation-1);
+}
+
+.ui-surface-raised {
+    background: var(--ui-surface-2);
+    border: 1px solid var(--ui-border);
+    box-shadow: var(--shadow-elevation-2);
+}
+
+.ui-surface-elevated {
+    background: var(--ui-surface-3);
+    border: 1px solid var(--ui-border);
+    box-shadow: var(--shadow-elevation-3);
+}
+
+.ui-input {
+    background: var(--ui-surface-2);
+    border: 1px solid var(--ui-border);
+    color: var(--on-surface);
+    transition:
+        border-color 140ms ease,
+        box-shadow 140ms ease,
+        background-color 140ms ease;
+}
+
+.ui-input:hover {
+    border-color: var(--ui-border-strong);
+}
+
+.ui-input:focus,
+.ui-input:focus-visible {
+    outline: none;
+    border-color: color-mix(in srgb, var(--primary-color) 54%, var(--ui-border));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent);
+}
+
+.ui-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.75rem;
+    color: var(--on-surface-variant);
+    transition:
+        background-color 140ms ease,
+        color 140ms ease,
+        border-color 140ms ease,
+        transform 140ms ease;
+}
+
+.ui-icon-button:hover {
+    background: color-mix(in srgb, var(--primary-color) 14%, var(--ui-surface-2));
+    color: var(--primary-color);
+}
+
+.ui-chip-button {
+    background: var(--ui-surface-2);
+    border: 1px solid var(--ui-border);
+    color: var(--on-surface);
+    box-shadow: var(--shadow-elevation-1);
+    transition:
+        background-color 140ms ease,
+        border-color 140ms ease,
+        color 140ms ease,
+        transform 140ms ease,
+        box-shadow 140ms ease;
+}
+
+.ui-chip-button:hover {
+    background: color-mix(in srgb, var(--primary-color) 14%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--primary-color) 34%, var(--ui-border));
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-elevation-2);
+}
+
+.ui-chip-button-active {
+    background: color-mix(in srgb, var(--primary-color) 14%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--primary-color) 46%, var(--ui-border));
+    color: var(--primary-color);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 42%, transparent), var(--shadow-elevation-2);
+}
+
+.ui-toolbar-button {
+    background: transparent;
+    border: 1px solid var(--ui-border);
+    color: var(--on-surface-variant);
+    box-shadow: none;
+}
+
+.ui-toolbar-button:hover {
+    background: color-mix(in srgb, var(--primary-color) 14%, var(--ui-surface-2));
+    border-color: color-mix(in srgb, var(--primary-color) 34%, var(--ui-border));
+    color: var(--primary-color);
+    transform: none;
+    box-shadow: var(--shadow-elevation-1);
+}
+
+.ui-toolbar-button:disabled,
+.ui-toolbar-button[data-disabled="true"] {
+    background: color-mix(in srgb, var(--ui-surface-1) 70%, transparent);
+    border-color: var(--ui-border);
+    color: color-mix(in srgb, var(--on-surface) 35%, transparent);
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.ui-segmented {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border-radius: 0.875rem;
+    background: var(--ui-surface-1);
+    border: 1px solid var(--ui-border);
+    box-shadow: var(--shadow-elevation-1);
+}
+
+.ui-segmented-button {
+    border-radius: 0.75rem;
+    color: var(--on-surface-variant);
+    transition:
+        background-color 140ms ease,
+        color 140ms ease,
+        box-shadow 140ms ease;
+}
+
+.ui-segmented-button:hover {
+    background: color-mix(in srgb, var(--primary-color) 14%, var(--ui-surface-2));
+    color: var(--primary-color);
+}
+
+.ui-segmented-button-active {
+    background: color-mix(in srgb, var(--primary-color) 12%, var(--ui-surface-3));
+    border: 1px solid color-mix(in srgb, var(--primary-color) 38%, var(--ui-border));
+    color: var(--primary-color);
+    box-shadow: var(--shadow-elevation-1);
+}
+
+.ui-choice-tile {
+    background: var(--ui-surface-2);
+    border: 1px solid var(--ui-border);
+    box-shadow: var(--shadow-elevation-1);
+    transition:
+        border-color 140ms ease,
+        background-color 140ms ease,
+        box-shadow 140ms ease,
+        transform 140ms ease;
+}
+
+.ui-choice-tile:hover {
+    background: color-mix(in srgb, var(--primary-color) 14%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--primary-color) 34%, var(--ui-border));
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-elevation-2);
+}
+
+.ui-choice-tile-active {
+    background: color-mix(in srgb, var(--primary-color) 12%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--primary-color) 48%, var(--ui-border));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 40%, transparent), var(--shadow-elevation-2);
+}
+
+.ui-action-button {
+    --ui-action-hover-bg: color-mix(in srgb, var(--primary-color) 14%, var(--ui-surface-3));
+    --ui-action-hover-border: color-mix(in srgb, var(--primary-color) 34%, var(--ui-border));
+    --ui-action-hover-fg: var(--primary-color);
+    background: var(--ui-surface-2);
+    border: 1px solid var(--ui-border);
+    color: var(--on-surface);
+    box-shadow: var(--shadow-elevation-1);
+    transition:
+        background-color 140ms ease,
+        border-color 140ms ease,
+        color 140ms ease,
+        transform 140ms ease,
+        box-shadow 140ms ease,
+        filter 140ms ease;
+}
+
+.ui-action-button:hover {
+    background: var(--ui-action-hover-bg);
+    border-color: var(--ui-action-hover-border);
+    color: var(--ui-action-hover-fg);
+    box-shadow: var(--shadow-elevation-2);
+}
+
+.ui-action-button:disabled,
+.ui-action-button[data-disabled="true"] {
+    background: color-mix(in srgb, var(--ui-surface-1) 72%, transparent);
+    border-color: var(--ui-border);
+    color: color-mix(in srgb, var(--on-surface) 34%, transparent);
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.ui-action-button[data-active="true"][data-tone="primary"] {
+    background: color-mix(in srgb, var(--primary-color) 16%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--primary-color) 50%, var(--ui-border));
+    color: var(--primary-color);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 38%, transparent), var(--shadow-elevation-2);
+}
+
+.ui-action-button[data-tone="success"] {
+    --ui-action-hover-bg: color-mix(in srgb, var(--success-color) 16%, var(--ui-surface-3));
+    --ui-action-hover-border: color-mix(in srgb, var(--success-color) 34%, var(--ui-border));
+    --ui-action-hover-fg: var(--success-color);
+}
+
+.ui-action-button[data-active="true"][data-tone="success"] {
+    background: color-mix(in srgb, var(--success-color) 18%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--success-color) 52%, var(--ui-border));
+    color: var(--success-color);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--success-color) 36%, transparent), var(--shadow-elevation-2);
+}
+
+.ui-action-button[data-tone="warning"] {
+    --ui-action-hover-bg: color-mix(in srgb, var(--timeline-warning-color) 16%, var(--ui-surface-3));
+    --ui-action-hover-border: color-mix(in srgb, var(--timeline-warning-color) 34%, var(--ui-border));
+    --ui-action-hover-fg: var(--on-surface);
+}
+
+.ui-action-button[data-active="true"][data-tone="warning"] {
+    background: color-mix(in srgb, var(--timeline-warning-color) 18%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--timeline-warning-color) 54%, var(--ui-border));
+    color: var(--timeline-warning-color);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--timeline-warning-color) 38%, transparent), var(--shadow-elevation-2);
+}
+
+.ui-action-button[data-tone="danger"] {
+    --ui-action-hover-bg: color-mix(in srgb, var(--tertiary-color) 16%, var(--ui-surface-3));
+    --ui-action-hover-border: color-mix(in srgb, var(--tertiary-color) 34%, var(--ui-border));
+    --ui-action-hover-fg: var(--tertiary-color);
+}
+
+.ui-action-button[data-active="true"][data-tone="danger"] {
+    background: color-mix(in srgb, var(--tertiary-color) 16%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--tertiary-color) 52%, var(--ui-border));
+    color: var(--tertiary-color);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--tertiary-color) 36%, transparent), var(--shadow-elevation-2);
+}
+
+.ui-action-button[data-emphasis="strong"][data-tone="primary"] {
+    background: color-mix(in srgb, var(--primary-color) 90%, black 6%);
+    border-color: color-mix(in srgb, var(--primary-color) 84%, black 10%);
+    color: #ffffff;
+    box-shadow: var(--shadow-elevation-2), var(--glow-primary);
+}
+
+.ui-action-button[data-emphasis="strong"][data-tone="primary"]:hover {
+    background: color-mix(in srgb, var(--primary-color) 94%, black 4%);
+    border-color: color-mix(in srgb, var(--primary-color) 88%, black 8%);
+    color: #ffffff;
+}
+
+.ui-action-button[data-emphasis="strong"][data-tone="success"] {
+    background: color-mix(in srgb, var(--success-color) 88%, black 8%);
+    border-color: color-mix(in srgb, var(--success-color) 82%, black 12%);
+    color: #ffffff;
+    box-shadow: var(--shadow-elevation-2);
+}
+
+.ui-action-button[data-emphasis="strong"][data-tone="success"]:hover {
+    background: color-mix(in srgb, var(--success-color) 92%, black 6%);
+    border-color: color-mix(in srgb, var(--success-color) 86%, black 10%);
+    color: #ffffff;
+}
+
+.ui-action-button[data-emphasis="strong"][data-tone="danger"] {
+    background: color-mix(in srgb, var(--tertiary-color) 88%, black 8%);
+    border-color: color-mix(in srgb, var(--tertiary-color) 82%, black 12%);
+    color: #ffffff;
+    box-shadow: var(--shadow-elevation-2);
+}
+
+.ui-action-button[data-emphasis="strong"][data-tone="danger"]:hover {
+    background: color-mix(in srgb, var(--tertiary-color) 92%, black 6%);
+    border-color: color-mix(in srgb, var(--tertiary-color) 86%, black 10%);
+    color: #ffffff;
+}
+
+.ui-list-shell {
+    background: var(--ui-surface-2);
+    border: 1px solid var(--ui-border);
+    box-shadow: var(--shadow-elevation-1);
+}
+
+.ui-list-header {
+    background: var(--ui-surface-3);
+    border-bottom: 1px solid var(--ui-border);
+}
+
+.ui-inline-note {
+    border: 1px solid var(--ui-border);
+    background: var(--ui-surface-2);
+    color: var(--on-surface-variant);
+    box-shadow: var(--shadow-elevation-1);
+}
+
+.ui-empty-state {
+    border: 1px dashed var(--ui-border-strong);
+    background: color-mix(in srgb, var(--ui-surface-2) 86%, transparent);
+    color: var(--on-surface-variant);
+}
+
+.timeline-lane {
+    background: var(--timeline-lane-bg);
+    border: 1px solid var(--timeline-lane-border);
+    border-radius: 0.875rem;
+    box-shadow: var(--shadow-elevation-1);
+}
+
+.timeline-lane-strong {
+    background: var(--timeline-lane-bg-strong);
+}
+
+.timeline-track-empty {
+    border: 1px dashed var(--timeline-lane-border);
+    border-radius: 0.875rem;
+    background: color-mix(in srgb, var(--timeline-lane-bg) 82%, transparent);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.timeline-badge {
+    border-radius: 999px;
+    border: 1px solid var(--timeline-lane-border);
+    background: var(--ui-surface-3);
+    color: var(--on-surface);
+    box-shadow: var(--shadow-elevation-1);
+}
+
+.timeline-chip {
+    border-radius: 999px;
+    border: 1px solid transparent;
+    box-shadow: var(--shadow-elevation-1);
+}
+
+.timeline-chip[data-tone="accent"] {
+    background: color-mix(in srgb, var(--timeline-zoom-color) 16%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--timeline-zoom-color) 36%, transparent);
+    color: var(--timeline-zoom-color);
+}
+
+.timeline-chip[data-tone="accent"][data-active="true"] {
+    background: var(--timeline-zoom-color);
+    border-color: var(--timeline-zoom-color);
+    color: #ffffff;
+}
+
+.timeline-chip[data-tone="speed"] {
+    background: color-mix(in srgb, var(--timeline-speed-color) 16%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--timeline-speed-color) 36%, transparent);
+    color: var(--timeline-speed-color);
+}
+
+.timeline-handle-pill {
+    width: 3px;
+    height: 12px;
+    border-radius: 999px;
+    background: var(--timeline-handle);
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.35);
+    transition:
+        background-color 140ms ease,
+        box-shadow 140ms ease,
+        transform 140ms ease;
+}
+
+.timeline-add-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    color: var(--timeline-float-fg);
+    border: 1px solid var(--timeline-float-ring);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+    transition:
+        transform 140ms ease,
+        filter 140ms ease,
+        box-shadow 140ms ease;
+}
+
+.timeline-add-button:hover {
+    scale: 1.05;
+    filter: brightness(1.06);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+}
+
+.timeline-add-button[data-tone="accent"] {
+    background: var(--timeline-zoom-color);
+}
+
+.timeline-add-button[data-tone="success"] {
+    background: var(--timeline-success-color);
+}
+
+.timeline-add-button[data-tone="warning"] {
+    background: var(--timeline-warning-color);
+}
+
+.timeline-block {
+    border-radius: 0.625rem;
+    border: 1px solid var(--timeline-lane-border);
+    box-shadow: var(--shadow-elevation-1);
+    transition:
+        transform 140ms ease,
+        background-color 140ms ease,
+        border-color 140ms ease,
+        box-shadow 140ms ease;
+}
+
+.timeline-block:hover {
+    box-shadow: var(--shadow-elevation-2);
+}
+
+.timeline-block[data-tone="accent"] {
+    background: color-mix(in srgb, var(--timeline-zoom-color) 18%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--timeline-zoom-color) 40%, var(--timeline-lane-border));
+}
+
+.timeline-block[data-tone="success"] {
+    background: color-mix(in srgb, var(--timeline-success-color) 18%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--timeline-success-color) 40%, var(--timeline-lane-border));
+}
+
+.timeline-block[data-tone="warning"] {
+    background: color-mix(in srgb, var(--timeline-warning-color) 20%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--timeline-warning-color) 42%, var(--timeline-lane-border));
+}
+
+.timeline-block[data-tone="neutral"] {
+    background: color-mix(in srgb, var(--timeline-neutral-color) 12%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--timeline-neutral-color) 35%, var(--timeline-lane-border));
+}
+
+.timeline-block[data-style="quiet"] {
+    border-style: dashed;
+}
+
+.timeline-block[data-active="true"][data-tone="accent"] {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--timeline-zoom-color) 75%, transparent), var(--shadow-elevation-2);
+}
+
+.timeline-block[data-active="true"][data-tone="success"] {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--timeline-success-color) 75%, transparent), var(--shadow-elevation-2);
+}
+
+.timeline-block[data-active="true"][data-tone="warning"] {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--timeline-warning-color) 75%, transparent), var(--shadow-elevation-2);
+}
+
+.timeline-block[data-active="true"][data-tone="neutral"] {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--timeline-neutral-color) 70%, transparent), var(--shadow-elevation-2);
+}
+
+.timeline-control-point {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--ui-surface-3);
+    box-shadow: var(--shadow-elevation-1);
+    transition:
+        transform 140ms ease,
+        box-shadow 140ms ease,
+        border-color 140ms ease;
+}
+
+.timeline-control-point[data-tone="zoom"] {
+    border: 2px solid var(--timeline-success-color);
+}
+
+.timeline-control-point[data-tone="speed"] {
+    border: 2px solid var(--timeline-speed-color);
+}
+
+.timeline-control-point[data-state="active"] {
+    scale: 1.2;
+    box-shadow: var(--shadow-elevation-2);
+}
+
+/* Enhanced slider thumb hover glow */
+input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.15), 0 0 12px rgba(59, 130, 246, 0.18), 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+    transform: scale(1.1);
+    background: var(--primary-color);
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.25), 0 0 16px rgba(59, 130, 246, 0.25);
 }

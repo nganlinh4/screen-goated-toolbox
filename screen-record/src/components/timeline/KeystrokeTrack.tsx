@@ -8,6 +8,10 @@ import {
   KEYSTROKE_VISIBILITY_MARGIN_AFTER,
   KEYSTROKE_VISIBILITY_MARGIN_BEFORE
 } from '@/lib/keystrokeVisibility';
+import {
+  getHandlePriorityThresholdTime,
+  isTimeNearRangeBoundary,
+} from "./trackHoverUtils";
 
 interface KeystrokeTrackProps {
   segment: VideoSegment;
@@ -177,16 +181,21 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const time = (x / rect.width) * safeDuration;
+    const thresholdTime = getHandlePriorityThresholdTime(safeDuration, rect.width);
     const isOverSegment = segments.some(
       (seg) => time >= seg.startTime && time <= seg.endTime
     );
-    setHoverX(isOverSegment ? null : x);
+    const isNearBoundary = isTimeNearRangeBoundary(
+      time,
+      segments,
+      thresholdTime,
+    );
+    setHoverX(isOverSegment || isNearBoundary ? null : x);
   };
 
   return (
     <div
-      className="keystroke-track relative h-7 rounded"
-      style={{ backgroundColor: 'var(--timeline-track-bg)' }}
+      className="keystroke-track timeline-lane relative h-7"
       title={t.trackKeystrokes}
       aria-label={t.trackKeystrokes}
       onMouseMove={handleMouseMove}
@@ -195,10 +204,11 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
       {mode !== 'off' && visualActivityRanges.map((range, idx) => (
         <div
           key={`keystroke-activity-${idx}`}
-          className="keystroke-activity-range absolute inset-y-0 rounded-sm bg-emerald-600/18 dark:bg-emerald-400/16 pointer-events-none"
+          className="keystroke-activity-range absolute inset-y-0 rounded-sm pointer-events-none"
           style={{
             left: `${(range.startTime / safeDuration) * 100}%`,
             width: `${((range.endTime - range.startTime) / safeDuration) * 100}%`,
+            backgroundColor: "color-mix(in srgb, var(--timeline-success-color) 18%, transparent)",
           }}
         />
       ))}
@@ -237,15 +247,10 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
               }}
               onMouseEnter={() => onKeystrokeHover?.(seg.id)}
               onMouseLeave={() => onKeystrokeHover?.(null)}
-              className={`keystroke-segment absolute h-full rounded cursor-move group border ${
-                editingKeystrokeSegmentId === seg.id
-                  ? 'ring-1 ring-emerald-400/70'
-                  : ''
-              } ${
-                hasIndicators
-                  ? 'border-emerald-700/25 dark:border-emerald-300/50 bg-emerald-600/10 dark:bg-emerald-500/9 hover:bg-emerald-600/14 dark:hover:bg-emerald-500/14'
-                  : 'border-slate-500/30 dark:border-slate-300/34 border-dashed bg-slate-400/10 dark:bg-slate-500/16 hover:bg-slate-400/16 dark:hover:bg-slate-500/24'
-              }`}
+              className="keystroke-segment timeline-block absolute h-full cursor-move group"
+              data-tone={hasIndicators ? "success" : "neutral"}
+              data-style={hasIndicators ? "filled" : "quiet"}
+              data-active={editingKeystrokeSegmentId === seg.id ? "true" : "false"}
               style={{
                 left: `${(seg.startTime / safeDuration) * 100}%`,
                 width: `${((seg.endTime - seg.startTime) / safeDuration) * 100}%`,
@@ -266,10 +271,11 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
               {hasIndicators && indicatorRanges.map((range, idx) => (
                 <div
                   key={`${seg.id}-indicator-${idx}`}
-                  className="keystroke-indicator-window absolute inset-y-0 rounded-sm bg-emerald-600/24 dark:bg-emerald-400/38 pointer-events-none"
+                  className="keystroke-indicator-window absolute inset-y-0 rounded-sm pointer-events-none"
                   style={{
                     left: `${((range.startTime - seg.startTime) / segmentDuration) * 100}%`,
                     width: `${((range.endTime - range.startTime) / segmentDuration) * 100}%`,
+                    backgroundColor: "color-mix(in srgb, var(--timeline-success-color) 24%, transparent)",
                   }}
                 />
               ))}
@@ -277,8 +283,8 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
                 <div
                   className={`keystroke-segment-icon keystroke-segment-icon-${segmentIcon} flex items-center gap-[2px] ${
                     hasIndicators
-                      ? 'text-emerald-700/80 dark:text-emerald-200/85'
-                      : 'text-slate-600/65 dark:text-slate-200/55'
+                      ? 'text-[var(--timeline-success-color)]'
+                      : 'text-[var(--timeline-neutral-color)]/80'
                   }`}
                 >
                   {segmentIcon === 'none' && (
@@ -297,8 +303,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
                 onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'start'); }}
               >
                 <div
-                  className="keystroke-handle-bar w-[3px] h-3 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.4)]"
-                  style={{ backgroundColor: 'var(--timeline-handle)' }}
+                  className="keystroke-handle-bar timeline-handle-pill"
                 />
               </div>
               <div
@@ -306,8 +311,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
                 onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'end'); }}
               >
                 <div
-                  className="keystroke-handle-bar w-[3px] h-3 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.4)]"
-                  style={{ backgroundColor: 'var(--timeline-handle)' }}
+                  className="keystroke-handle-bar timeline-handle-pill"
                 />
               </div>
             </div>
@@ -317,7 +321,8 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
 
       {mode !== 'off' && hoverX !== null && onAddKeystrokeSegment && (
         <button
-          className="keystroke-add-btn absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-emerald-600/75 hover:bg-emerald-600 dark:bg-emerald-500/50 dark:hover:bg-emerald-500 flex items-center justify-center text-white text-[10px] leading-none font-bold transition-colors z-10 pointer-events-auto shadow-sm"
+          className="keystroke-add-btn timeline-add-button absolute top-1/2 -translate-y-1/2 w-4 h-4 text-white text-[10px] leading-none font-bold z-10 pointer-events-auto"
+          data-tone="success"
           style={{ left: hoverX - 8 }}
           onPointerDown={(e) => {
             e.stopPropagation();

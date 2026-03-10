@@ -23,7 +23,7 @@ export function SequenceVideoTrack({
 
   return (
     <div className="sequence-video-track-container relative h-14">
-      <div className="sequence-video-track relative h-10 rounded overflow-hidden bg-[var(--surface-container)]">
+      <div className="sequence-video-track timeline-lane timeline-lane-strong relative h-10 overflow-hidden">
         {timeline.clips.map((timelineClip) => {
           const widthPct = (timelineClip.activeDuration / safeDuration) * 100;
           const leftPct = (timelineClip.sequenceStart / safeDuration) * 100;
@@ -42,13 +42,15 @@ export function SequenceVideoTrack({
               <button
                 type="button"
                 onClick={() => onSelectClip(timelineClip.clipId)}
-                className={`sequence-video-clip-btn group relative h-full w-full overflow-hidden rounded-md border text-left transition-colors ${
+                className={`sequence-video-clip-btn timeline-block group relative h-full w-full overflow-hidden text-left ${
                   isSelected
-                    ? "border-[var(--primary-color)] bg-[var(--primary-color)]/10"
-                    : "border-white/8 bg-black/10 hover:border-white/20 hover:bg-black/15"
+                    ? "bg-[var(--ui-accent-soft)]"
+                    : "bg-[color-mix(in_srgb,var(--ui-surface-3)_78%,transparent)]"
                 }`}
+                data-tone="accent"
+                data-active={isSelected ? "true" : "false"}
               >
-                <div className="sequence-video-thumb-strip absolute inset-0 flex gap-px bg-[var(--surface-container-high)]">
+                <div className="sequence-video-thumb-strip absolute inset-0 flex gap-px bg-[var(--ui-surface-2)]">
                   {thumbnails.length > 0 ? (
                     thumbnails.map((thumbnail, index) => (
                       <div
@@ -78,7 +80,7 @@ export function SequenceVideoTrack({
                       event.stopPropagation();
                       onRemoveClip(timelineClip.clipId);
                     }}
-                    className="sequence-video-remove-btn absolute left-1/2 top-1/2 z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-black/30 bg-black/55 text-white/90 shadow-[0_1px_4px_rgba(0,0,0,0.32)] transition-colors hover:bg-red-500/90"
+                    className="sequence-video-remove-btn ui-chip-button absolute left-1/2 top-1/2 z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white/90 hover:bg-red-500/90"
                     title="Remove clip"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -93,7 +95,8 @@ export function SequenceVideoTrack({
       <div className="sequence-video-boundary-controls pointer-events-none absolute inset-x-0 top-0 h-full">
         <button
           type="button"
-          className="sequence-video-insert-btn pointer-events-auto absolute flex h-5 w-5 items-center justify-center rounded-full border border-[var(--timeline-float-ring)] bg-[var(--primary-color)] text-[var(--timeline-float-fg)] shadow-[0_1px_4px_rgba(0,0,0,0.28)] transition-transform hover:scale-105 hover:brightness-110"
+          className="sequence-video-insert-btn timeline-add-button pointer-events-auto absolute flex h-5 w-5 items-center justify-center"
+          data-tone="accent"
           style={{ left: "-10px", top: 44 }}
           onMouseDown={(event) => {
             event.stopPropagation();
@@ -108,7 +111,8 @@ export function SequenceVideoTrack({
           <button
             key={`after-${timelineClip.clipId}`}
             type="button"
-            className="sequence-video-insert-btn pointer-events-auto absolute flex h-5 w-5 items-center justify-center rounded-full border border-[var(--timeline-float-ring)] bg-[var(--primary-color)] text-[var(--timeline-float-fg)] shadow-[0_1px_4px_rgba(0,0,0,0.28)] transition-transform hover:scale-105 hover:brightness-110"
+            className="sequence-video-insert-btn timeline-add-button pointer-events-auto absolute flex h-5 w-5 items-center justify-center"
+            data-tone="accent"
             style={{
               left: `calc(${(timelineClip.sequenceEnd / safeDuration) * 100}% - 10px)`,
               top: 44,

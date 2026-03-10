@@ -50,11 +50,11 @@ import { DEFAULT_BUILT_IN_BACKGROUND_ID } from "@/lib/backgroundPresets";
 import { Header } from "@/components/Header";
 import {
   Placeholder,
-  CropOverlay,
   PlaybackControls,
   CanvasResizeOverlay,
   SeekIndicator,
 } from "@/components/VideoPreview";
+import { CropWorkspace } from "@/components/CropWorkspace";
 import { SequencePillChain } from "@/components/SequencePillChain";
 import { SidePanel, type ActivePanel } from "@/components/sidepanel/index";
 import {
@@ -242,7 +242,7 @@ function App() {
     beginBatch,
     commitBatch,
   } = useUndoRedo<VideoSegment | null>(null);
-  const [activePanel, setActivePanel] = useState<ActivePanel>("zoom");
+  const [activePanel, setActivePanel] = useState<ActivePanel>("background");
   const [isCropping, setIsCropping] = useState(false);
   const [recentUploads, setRecentUploads] = useState<string[]>(
     getInitialRecentUploads,
@@ -1410,12 +1410,29 @@ function App() {
   }, [showWindowSelect, getWindows]);
 
   // Handlers
+  const handleCancelCrop = useCallback(() => {
+    setIsCropping(false);
+    setActivePanel("background");
+    setZoomFactor(1.0);
+    setEditingKeyframeId(null);
+  }, [setZoomFactor, setEditingKeyframeId]);
+
+  const handleApplyCrop = useCallback(
+    (crop: VideoSegment["crop"]) => {
+      if (segment && crop) {
+        setSegment({
+          ...segment,
+          crop,
+        });
+      }
+      handleCancelCrop();
+    },
+    [segment, setSegment, handleCancelCrop],
+  );
+
   const handleToggleCrop = useCallback(() => {
     if (isCropping) {
-      setIsCropping(false);
-      setActivePanel("zoom");
-      setZoomFactor(1.0);
-      setEditingKeyframeId(null);
+      handleCancelCrop();
     } else {
       setIsCropping(true);
       if (isPlaying) handleTogglePlayPause();
@@ -1424,8 +1441,7 @@ function App() {
     isCropping,
     isPlaying,
     handleTogglePlayPause,
-    setZoomFactor,
-    setEditingKeyframeId,
+    handleCancelCrop,
   ]);
 
   // Track active preview drag listeners for cleanup on unmount.
@@ -1779,7 +1795,8 @@ function App() {
   const handleKeystrokeDelayChange = useCallback(
     (value: number) => {
       if (!segment) return;
-      const clamped = Math.max(-1, Math.min(1, value));
+      const snapped = Math.abs(value) <= 0.03 ? 0 : value;
+      const clamped = Math.max(-1, Math.min(1, snapped));
       const prevDelay = Math.max(
         -1,
         Math.min(1, segment.keystrokeDelaySec ?? DEFAULT_KEYSTROKE_DELAY_SEC),
@@ -2844,7 +2861,7 @@ function App() {
           <div className="content-layout flex gap-4 flex-1 min-h-0 pb-1">
             <div className="preview-and-controls flex-1 flex flex-col min-w-0 gap-3 relative">
               {/* Video Preview */}
-              <div className="video-preview-container flex-1 min-h-0 overflow-hidden bg-[var(--surface-dim)]/80 backdrop-blur-2xl flex items-center justify-center shadow-[0_2px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_4px_18px_rgba(0,0,0,0.3)] border border-[var(--glass-border)]">
+              <div className="video-preview-container ui-surface flex-1 min-h-0 overflow-hidden flex items-center justify-center">
                 <div className="preview-inner relative w-full h-full flex justify-center items-center">
                   <div
                     ref={previewContainerRef}
@@ -2917,21 +2934,6 @@ function App() {
                       />
                     )}
 
-                    {isCropping && currentVideo && segment && (
-                      <CropOverlay
-                        segment={segment}
-                        mousePositions={mousePositions}
-                        currentTime={currentTime}
-                        previewContainerRef={
-                          previewContainerRef as React.RefObject<HTMLDivElement>
-                        }
-                        videoRef={videoRef as React.RefObject<HTMLVideoElement>}
-                        onUpdateSegment={setSegment}
-                        beginBatch={beginBatch}
-                        commitBatch={commitBatch}
-                      />
-                    )}
-
                     {!isCropping &&
                       currentVideo &&
                       backgroundConfig.canvasMode === "custom" &&
@@ -2958,7 +2960,7 @@ function App() {
               </div>
 
               <div
-                className={`playback-controls-row flex-shrink-0 flex justify-center pb-1 min-h-[56px] transition-opacity duration-200 ${currentVideo && !isLoadingVideo && !projects.showProjectsDialog ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+                className={`playback-controls-row flex-shrink-0 flex justify-center pb-1 min-h-[56px] transition-opacity duration-200 ${currentVideo && !isLoadingVideo && !projects.showProjectsDialog && !isCropping ? "opacity-100" : "opacity-0 pointer-events-none"}`}
               >
                 {currentVideo && !isLoadingVideo && (
                   <PlaybackControls
@@ -2974,7 +2976,7 @@ function App() {
                     onTogglePlayPause={handleTogglePlayPause}
                     onToggleCrop={handleToggleCrop}
                     canvasModeToggle={
-                      <div className="playback-canvas-mode-toggle flex rounded-lg border border-[var(--overlay-divider)] overflow-hidden">
+                      <div className="playback-canvas-mode-toggle ui-segmented">
                         {(["auto", "custom"] as const).map((mode) => {
                           const isActive =
                             (backgroundConfig.canvasMode ?? "auto") === mode;
@@ -3016,10 +3018,10 @@ function App() {
                                   }));
                                 }
                               }}
-                              className={`playback-canvas-mode-btn playback-canvas-mode-btn-${mode} ${isActive ? "playback-canvas-mode-btn-active" : "playback-canvas-mode-btn-inactive"} px-2 py-1 text-[10px] font-semibold transition-colors ${
+                              className={`playback-canvas-mode-btn playback-canvas-mode-btn-${mode} ui-segmented-button ${isActive ? "playback-canvas-mode-btn-active ui-segmented-button-active" : "playback-canvas-mode-btn-inactive"} px-2 py-1 text-[10px] font-semibold ${
                                 isActive
-                                  ? "bg-[var(--primary-color)] text-white ring-1 ring-white/45 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.26),0_0_0_1px_rgba(0,0,0,0.28)]"
-                                  : "bg-transparent text-[var(--overlay-panel-fg)]/70 hover:bg-[var(--glass-bg)]/70 hover:text-[var(--overlay-panel-fg)]"
+                                  ? ""
+                                  : "text-[var(--overlay-panel-fg)]/70 hover:text-[var(--overlay-panel-fg)]"
                               }`}
                             >
                               {mode === "auto" ? t.canvasAuto : t.canvasCustom}
@@ -3034,13 +3036,19 @@ function App() {
                         <Button
                           onClick={handleToggleKeystrokeMode}
                           disabled={!segment}
-                          className={`playback-keystroke-toggle-btn h-7 text-[11px] transition-colors ${
+                          className={`playback-keystroke-toggle-btn ui-action-button h-7 text-[11px] transition-colors ${
                             !segment
                               ? "text-[var(--overlay-panel-fg)]/40 cursor-not-allowed"
                               : (segment.keystrokeMode ?? "off") === "off"
-                                ? "text-[var(--overlay-panel-fg)]/85 bg-transparent hover:bg-[var(--glass-bg)]"
-                                : "text-white bg-[var(--primary-color)] hover:bg-[var(--primary-color)]/85"
+                                ? "ui-chip-button bg-transparent text-[var(--overlay-panel-fg)]/85 hover:text-[var(--overlay-panel-fg)]"
+                                : ""
                           }`}
+                          data-tone="success"
+                          data-active={
+                            !segment || (segment.keystrokeMode ?? "off") === "off"
+                              ? "false"
+                              : "true"
+                          }
                         >
                           <Keyboard className="playback-keystroke-toggle-icon w-3.5 h-3.5 mr-1.5" />
                           <span className="playback-keystroke-toggle-label">
@@ -3052,8 +3060,8 @@ function App() {
                                 : t.keystrokeModeOff}
                           </span>
                         </Button>
-                        <div className="playback-keystroke-delay-popover absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+4px)] min-w-[172px] px-2 py-1.5 rounded-lg border pointer-events-none opacity-0 translate-y-1 transition-all duration-150 group-hover/playback-keystroke:opacity-100 group-hover/playback-keystroke:translate-y-0 group-hover/playback-keystroke:pointer-events-auto group-focus-within/playback-keystroke:opacity-100 group-focus-within/playback-keystroke:translate-y-0 group-focus-within/playback-keystroke:pointer-events-auto">
-                          <div className="playback-keystroke-delay-row flex items-center gap-2">
+                        <div className="playback-keystroke-delay-popover absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+4px)] w-[308px] px-2.5 py-2 rounded-lg border pointer-events-none opacity-0 translate-y-1 transition-all duration-150 group-hover/playback-keystroke:opacity-100 group-hover/playback-keystroke:translate-y-0 group-hover/playback-keystroke:pointer-events-auto group-focus-within/playback-keystroke:opacity-100 group-focus-within/playback-keystroke:translate-y-0 group-focus-within/playback-keystroke:pointer-events-auto">
+                          <div className="playback-keystroke-delay-row flex items-center gap-3">
                             <div className="playback-keystroke-delay-slider-shell flex-1 rounded-full px-1 py-[3px]">
                               <input
                                 type="range"
@@ -3079,7 +3087,7 @@ function App() {
                                 className="playback-keystroke-delay-slider block w-full"
                               />
                             </div>
-                            <span className="playback-keystroke-delay-value text-[10px] tabular-nums text-[var(--overlay-panel-fg)]/86 w-11 text-right">
+                            <span className="playback-keystroke-delay-value text-[10px] tabular-nums text-[var(--overlay-panel-fg)]/86 w-12 text-right">
                               {(
                                 segment?.keystrokeDelaySec ??
                                 DEFAULT_KEYSTROKE_DELAY_SEC
@@ -3087,17 +3095,17 @@ function App() {
                               s
                             </span>
                           </div>
-                          <div className="playback-keystroke-language-row flex items-center gap-2 mt-1">
-                            <span className="playback-keystroke-language-label text-[10px] text-[var(--overlay-panel-fg)]/60 flex-1">
+                          <div className="playback-keystroke-language-row flex items-center gap-3 mt-2">
+                            <span className="playback-keystroke-language-label text-[10px] text-[var(--overlay-panel-fg)]/60 shrink-0">
                               {t.keystrokeLanguageLabel}
                             </span>
-                            <div className="playback-keystroke-language-toggle flex flex-wrap rounded-md overflow-hidden border border-[var(--glass-border)]">
+                            <div className="playback-keystroke-language-toggle ui-segmented ml-auto flex-nowrap rounded-md overflow-hidden">
                               {(
                                 ["en", "ko", "vi", "es", "ja", "zh"] as const
                               ).map((lang) => (
                                 <button
                                   key={lang}
-                                  className={`playback-keystroke-language-btn px-2 py-0.5 text-[10px] uppercase transition-colors ${(segment?.keystrokeLanguage ?? "en") === lang ? "bg-[var(--primary-color)] text-white" : "text-[var(--overlay-panel-fg)]/70 hover:bg-[var(--glass-bg)]"}`}
+                                  className={`playback-keystroke-language-btn ui-segmented-button px-2 py-0.5 text-[10px] uppercase ${(segment?.keystrokeLanguage ?? "en") === lang ? "ui-segmented-button-active" : "text-[var(--overlay-panel-fg)]/70"}`}
                                   onClick={() => {
                                     if (!segment) return;
                                     saveKeystrokeLanguage(lang);
@@ -3125,16 +3133,18 @@ function App() {
                           (!mousePositions.length &&
                             !segment?.smoothMotionPath?.length)
                         }
-                        className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
+                        className={`auto-zoom-button ui-action-button flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
                           !currentVideo ||
                           exportHook.isProcessing ||
                           (!mousePositions.length &&
                             !segment?.smoothMotionPath?.length)
-                            ? "bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed"
+                            ? "ui-toolbar-button text-[var(--on-surface)]/35 cursor-not-allowed"
                             : segment?.smoothMotionPath?.length
-                              ? "bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white"
-                              : "bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] text-[var(--on-surface)]"
+                              ? ""
+                              : "ui-chip-button text-[var(--on-surface)]"
                         }`}
+                        data-tone="primary"
+                        data-active={segment?.smoothMotionPath?.length ? "true" : "false"}
                       >
                         <Wand2 className="w-3 h-3 mr-1" />
                         {t.autoZoom}
@@ -3158,7 +3168,7 @@ function App() {
                             return !mousePositions.length && !isActive;
                           })()
                         }
-                        className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${(() => {
+                        className={`smart-pointer-button ui-action-button flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${(() => {
                           const segs = segment?.cursorVisibilitySegments;
                           const isActive =
                             !!segs?.length &&
@@ -3172,11 +3182,23 @@ function App() {
                             exportHook.isProcessing ||
                             (!mousePositions.length && !isActive)
                           )
-                            return "bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed";
+                            return "ui-toolbar-button text-[var(--on-surface)]/35 cursor-not-allowed";
                           return isActive
-                            ? "bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white"
-                            : "bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] text-[var(--on-surface)]";
+                            ? ""
+                            : "ui-chip-button text-[var(--on-surface)]";
                         })()}`}
+                        data-tone="warning"
+                        data-active={(() => {
+                          const segs = segment?.cursorVisibilitySegments;
+                          const isActive =
+                            !!segs?.length &&
+                            !(
+                              segs.length === 1 &&
+                              Math.abs(segs[0].startTime - 0) < 0.01 &&
+                              Math.abs(segs[0].endTime - duration) < 0.01
+                            );
+                          return isActive ? "true" : "false";
+                        })()}
                       >
                         <MousePointer2 className="w-3 h-3 mr-1" />
                         {t.smartPointer}
@@ -3308,6 +3330,19 @@ function App() {
           </div>
         )}
 
+        {isCropping && currentVideo && (
+          <div className="crop-workspace-overlay absolute inset-0 top-[44px] z-[120]">
+            <CropWorkspace
+              show={isCropping}
+              videoSrc={currentVideo}
+              initialCrop={segment?.crop}
+              initialTime={currentTime}
+              onCancel={handleCancelCrop}
+              onApply={handleApplyCrop}
+            />
+          </div>
+        )}
+
         {/* Dialogs */}
         <ProcessingOverlay
           show={exportHook.isProcessing}
@@ -3321,7 +3356,7 @@ function App() {
           onSelectWindow={handleSelectWindowForRecording}
         />
         {currentVideo && !isVideoReady && !projects.showProjectsDialog && (
-          <div className="video-loading-overlay absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="video-loading-overlay absolute inset-0 flex items-center justify-center bg-black/62">
             <div className="loading-message text-[var(--on-surface)]">
               {t.preparingVideoOverlay}
             </div>

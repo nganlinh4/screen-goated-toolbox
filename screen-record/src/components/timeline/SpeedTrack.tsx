@@ -159,7 +159,7 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
     window.addEventListener('mouseup', mu);
   };
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const time = (clickX / rect.width) * duration;
@@ -192,7 +192,7 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
     startDraggingPoint(activeIdx, e.clientY, rect);
   };
 
-  const handlePointMouseDown = (e: React.MouseEvent, i: number) => {
+  const handlePointPointerDown = (e: React.PointerEvent, i: number) => {
     e.stopPropagation();
     beginBatch();
     const rect = e.currentTarget.parentElement!.getBoundingClientRect();
@@ -201,38 +201,44 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
 
   return (
     <>
-      <div className="speed-track relative h-10 rounded bg-[var(--surface-container)]/60">
+      <div className="speed-track timeline-lane timeline-lane-strong relative h-10">
         <div
-          className="speed-influence-layer absolute inset-0 z-10 pointer-events-auto"
-          onMouseDown={handleMouseDown}
+          className="speed-track-curve-clip absolute inset-0 overflow-hidden"
+          style={{ borderRadius: "inherit" }}
         >
-          <svg className="speed-track-curve w-full h-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 100 40">
+          <svg className="speed-track-curve h-full w-full overflow-hidden" preserveAspectRatio="none" viewBox="0 0 100 40">
             <line
               x1="0"
               y1="20"
               x2="100"
               y2="20"
-              stroke="rgba(255,255,255,0.15)"
+              stroke="color-mix(in srgb, var(--timeline-speed-color) 24%, transparent)"
               strokeDasharray="2 2"
               vectorEffect="non-scaling-stroke"
             />
-            <path d={generateFillPath()} fill="rgba(168, 85, 247, 0.08)" />
-            <path d={generatePath()} fill="none" stroke="#a855f7" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+            <path d={generateFillPath()} fill="color-mix(in srgb, var(--timeline-speed-color) 12%, transparent)" />
+            <path d={generatePath()} fill="none" stroke="var(--timeline-speed-color)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
           </svg>
-
+        </div>
+        <div
+          className="speed-influence-layer absolute inset-0 z-10 pointer-events-auto"
+          onPointerDown={handlePointerDown}
+        >
           {points.map((p, i) => (
             <div
               key={i}
-              className={`speed-influence-point absolute w-2.5 h-2.5 bg-white border-2 border-[#a855f7] rounded-full -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-transform shadow-sm ${
-                hoveredIdx === i ? 'scale-125 ring-2 ring-[#a855f7]/50' : 'hover:scale-125'
+              className={`speed-influence-point timeline-control-point absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer ${
+                hoveredIdx === i ? 'ring-2 ring-[var(--timeline-speed-color)]/40' : 'hover:scale-110'
               }`}
+              data-tone="speed"
+              data-state={hoveredIdx === i ? "active" : "idle"}
               style={{
                 left: `${(p.time / duration) * 100}%`,
                 top: `${4 + speedToY(p.speed) * 32}px`,
               }}
               onMouseEnter={() => setHoveredIdx(i)}
               onMouseLeave={() => setHoveredIdx(null)}
-              onMouseDown={(e) => handlePointMouseDown(e, i)}
+              onPointerDown={(e) => handlePointPointerDown(e, i)}
             />
           ))}
         </div>
@@ -240,7 +246,9 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
 
       {dragBadge && (
         <div
-          className="speed-track-drag-badge fixed z-[100] px-3 py-1.5 bg-[#a855f7] text-white font-bold text-sm rounded-lg shadow-xl pointer-events-none -translate-x-1/2 -translate-y-full"
+          className="speed-track-drag-badge timeline-chip fixed z-[100] px-3 py-1.5 text-white font-bold text-sm pointer-events-none -translate-x-1/2 -translate-y-full"
+          data-tone="speed"
+          data-active="true"
           style={{ left: dragBadge.x, top: dragBadge.y }}
         >
           {dragBadge.speed.toFixed(2)}x

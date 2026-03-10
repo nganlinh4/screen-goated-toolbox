@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import { VideoSegment } from '@/types/video';
 import { clampVisibilitySegmentsToDuration } from '@/lib/cursorHiding';
+import {
+  getHandlePriorityThresholdTime,
+  isTimeNearRangeBoundary,
+} from "./trackHoverUtils";
 
 interface PointerTrackProps {
   segment: VideoSegment;
@@ -27,16 +31,21 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const time = (x / rect.width) * safeDuration;
+    const thresholdTime = getHandlePriorityThresholdTime(safeDuration, rect.width);
     const isOverSegment = segments.some(
       seg => time >= seg.startTime && time <= seg.endTime
     );
-    setHoverX(isOverSegment ? null : x);
+    const isNearBoundary = isTimeNearRangeBoundary(
+      time,
+      segments,
+      thresholdTime,
+    );
+    setHoverX(isOverSegment || isNearBoundary ? null : x);
   };
 
   return (
     <div
-      className="pointer-track relative h-7 rounded"
-      style={{ backgroundColor: 'var(--timeline-track-bg)' }}
+      className="pointer-track timeline-lane relative h-7"
       onMouseMove={handleMouseMove}
       onMouseLeave={() => setHoverX(null)}
     >
@@ -59,14 +68,15 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
           }}
           onMouseEnter={() => onPointerHover?.(seg.id)}
           onMouseLeave={() => onPointerHover?.(null)}
-          className="pointer-segment absolute h-full rounded bg-amber-500/20 hover:bg-amber-500/30 cursor-move group"
+          className="pointer-segment timeline-block absolute h-full cursor-move group"
+          data-tone="warning"
           style={{
             left: `${(seg.startTime / safeDuration) * 100}%`,
             width: `${((seg.endTime - seg.startTime) / safeDuration) * 100}%`,
           }}
         >
           <div className="pointer-segment-content absolute inset-0 flex items-center justify-center overflow-hidden px-1">
-            <span className="pointer-segment-icon text-[10px] text-amber-300/80 truncate">
+            <span className="pointer-segment-icon text-[10px] text-[var(--timeline-warning-color)] truncate">
               ●
             </span>
           </div>
@@ -76,8 +86,7 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
             onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'start'); }}
           >
             <div
-              className="pointer-handle-bar w-[3px] h-3 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.4)]"
-              style={{ backgroundColor: 'var(--timeline-handle)' }}
+              className="pointer-handle-bar timeline-handle-pill"
             />
           </div>
           <div
@@ -85,8 +94,7 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
             onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'end'); }}
           >
             <div
-              className="pointer-handle-bar w-[3px] h-3 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.4)]"
-              style={{ backgroundColor: 'var(--timeline-handle)' }}
+              className="pointer-handle-bar timeline-handle-pill"
             />
           </div>
         </div>
@@ -95,7 +103,8 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
       {/* Hover add button */}
       {hoverX !== null && onAddPointerSegment && (
         <button
-          className="pointer-add-btn absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-amber-500/50 hover:bg-amber-500 flex items-center justify-center text-white text-[10px] leading-none font-bold transition-colors z-10 pointer-events-auto"
+          className="pointer-add-btn timeline-add-button absolute top-1/2 -translate-y-1/2 w-4 h-4 text-white text-[10px] leading-none font-bold z-10 pointer-events-auto"
+          data-tone="warning"
           style={{ left: hoverX - 8 }}
           onPointerDown={(e) => {
             e.stopPropagation();

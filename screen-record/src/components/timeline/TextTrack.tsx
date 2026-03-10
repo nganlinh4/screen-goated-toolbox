@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
 import { VideoSegment, TextSegment } from '@/types/video';
+import {
+  getHandlePriorityThresholdTime,
+  isTimeNearRangeBoundary,
+} from "./trackHoverUtils";
 
 function buildFontVariationCSS(vars?: TextSegment['style']['fontVariations']): string | undefined {
   const parts: string[] = [];
@@ -32,16 +36,21 @@ export const TextTrack: React.FC<TextTrackProps> = ({
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const time = (x / rect.width) * duration;
+    const thresholdTime = getHandlePriorityThresholdTime(duration, rect.width);
     const isOverSegment = segment.textSegments?.some(
       text => time >= text.startTime && time <= text.endTime
     );
-    setHoverX(isOverSegment ? null : x);
+    const isNearBoundary = isTimeNearRangeBoundary(
+      time,
+      segment.textSegments ?? [],
+      thresholdTime,
+    );
+    setHoverX(isOverSegment || isNearBoundary ? null : x);
   };
 
   return (
     <div
-      className="text-track relative h-7 rounded"
-      style={{ backgroundColor: 'var(--timeline-track-bg)' }}
+      className="text-track timeline-lane relative h-7"
       onMouseMove={handleMouseMove}
       onMouseLeave={() => setHoverX(null)}
     >
@@ -59,11 +68,9 @@ export const TextTrack: React.FC<TextTrackProps> = ({
             e.stopPropagation();
             onTextClick(text.id);
           }}
-          className={`text-segment absolute h-full cursor-move group rounded ${
-            editingTextId === text.id
-              ? 'bg-[var(--primary-color)]/40 ring-1 ring-[var(--primary-color)]'
-              : 'bg-[var(--primary-color)]/20 hover:bg-[var(--primary-color)]/30'
-          }`}
+          className="text-segment timeline-block absolute h-full cursor-move group"
+          data-tone="accent"
+          data-active={editingTextId === text.id ? "true" : "false"}
           style={{
             left: `${(text.startTime / duration) * 100}%`,
             width: `${((text.endTime - text.startTime) / duration) * 100}%`,
@@ -87,8 +94,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
             onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(text.id, 'start'); }}
           >
             <div
-              className="text-handle-bar w-[3px] h-3 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.4)]"
-              style={{ backgroundColor: 'var(--timeline-handle)' }}
+              className="text-handle-bar timeline-handle-pill"
             />
           </div>
           <div
@@ -96,8 +102,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
             onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(text.id, 'end'); }}
           >
             <div
-              className="text-handle-bar w-[3px] h-3 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.4)]"
-              style={{ backgroundColor: 'var(--timeline-handle)' }}
+              className="text-handle-bar timeline-handle-pill"
             />
           </div>
         </div>
@@ -106,7 +111,8 @@ export const TextTrack: React.FC<TextTrackProps> = ({
       {/* Hover add button */}
       {hoverX !== null && onAddText && (
         <button
-          className="text-add-btn absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-[var(--primary-color)]/50 hover:bg-[var(--primary-color)] flex items-center justify-center text-white text-[10px] leading-none font-bold transition-colors z-10 pointer-events-auto"
+          className="text-add-btn timeline-add-button absolute top-1/2 -translate-y-1/2 w-4 h-4 text-[10px] leading-none font-bold z-10 pointer-events-auto"
+          data-tone="accent"
           style={{ left: hoverX - 8 }}
           onPointerDown={(e) => {
             e.stopPropagation();

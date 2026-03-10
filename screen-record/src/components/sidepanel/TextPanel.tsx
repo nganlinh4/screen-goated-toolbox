@@ -52,7 +52,7 @@ export function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch,
                 )
               });
             }}
-            className="w-full bg-glass-bg border border-glass-border rounded-lg px-3 py-2 text-on-surface text-sm focus:border-[var(--primary-color)]/50 focus:ring-1 focus:ring-[var(--primary-color)]/30 transition-colors thin-scrollbar subtle-resize"
+            className="text-editor-input ui-input w-full rounded-xl px-3 py-2 text-on-surface text-sm thin-scrollbar subtle-resize"
             style={{
               fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif",
               fontWeight: editingText.style.fontVariations?.wght ?? 400,
@@ -104,7 +104,7 @@ export function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch,
 
           <div className="text-align-field flex items-center gap-3">
             <span className="text-[11px] font-medium text-on-surface-variant w-20 flex-shrink-0">{t.textAlignment}</span>
-            <div className="alignment-button-group flex rounded-lg border border-glass-border overflow-hidden">
+            <div className="alignment-button-group ui-segmented overflow-hidden">
               {(['left', 'center', 'right'] as const).map(align => {
                 const Icon = align === 'left' ? AlignLeft : align === 'center' ? AlignCenter : AlignRight;
                 const isActive = (editingText.style.textAlign ?? 'center') === align;
@@ -112,10 +112,10 @@ export function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch,
                   <button
                     key={align}
                     onClick={() => updateStyle({ textAlign: align })}
-                    className={`flex items-center justify-center w-7 h-7 transition-colors ${
+                    className={`text-align-button ui-segmented-button flex items-center justify-center w-7 h-7 ${
                       isActive
-                        ? 'bg-[var(--primary-color)]/20 text-[var(--primary-color)]'
-                        : 'bg-glass-bg text-on-surface-variant hover:text-on-surface'
+                        ? 'ui-segmented-button-active'
+                        : ''
                     }`}
                     title={align}
                   >
