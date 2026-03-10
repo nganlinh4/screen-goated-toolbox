@@ -424,8 +424,19 @@ fn start_refinement(hwnd: HWND, user_prompt: &str) {
         if let Some(state) = states.get_mut(&(capture_hwnd.0 as isize)) {
             state.is_refining = false;
             state.is_streaming_active = false;
+            let accumulated_len = state.full_text.len();
             match result {
                 Ok(final_text) => {
+                    if final_text.trim().is_empty() {
+                        crate::log_info!(
+                            "[MarkdownDiag] blank_model_result hwnd={} provider={} model={} final_len={} accumulated_len={}",
+                            capture_hwnd.0 as isize,
+                            provider,
+                            model_id,
+                            final_text.len(),
+                            accumulated_len
+                        );
+                    }
                     state.full_text = final_text.clone();
                     state.pending_text = Some(final_text);
                 }

@@ -4,7 +4,8 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 
 use super::css::{MARKDOWN_CSS, get_font_style, get_theme_css};
 use super::html_utils::{
-    escape_html_text, inject_gridjs, inject_scrollbar_css, inject_storage_polyfill, is_html_content,
+    escape_html_text, inject_gridjs, inject_render_diagnostics, inject_scrollbar_css,
+    inject_storage_polyfill, is_html_content,
 };
 
 const INTERACTIVE_WORD_WRAP_CHAR_LIMIT: usize = 6000;
@@ -43,7 +44,7 @@ pub fn markdown_to_html(
             format!("{}\n\n{}", preset_prompt, input_text)
         };
         let quote = crate::overlay::utils::get_context_quote(&combined);
-        return format!(
+        let html = format!(
             r#"<!DOCTYPE html>
 <html>
 <head>
@@ -85,13 +86,26 @@ pub fn markdown_to_html(
             quote,
             "" // No extra script
         );
+
+        return inject_render_diagnostics(
+            &html,
+            combined.len(),
+            combined.trim().len(),
+            "refining_context",
+        );
     }
 
     // If input is already HTML, inject localStorage polyfill, Grid.js, and hidden scrollbar styles
     if is_html_content(markdown) {
         let with_storage = inject_storage_polyfill(markdown);
         let with_grid = inject_gridjs(&with_storage);
-        return inject_scrollbar_css(&with_grid);
+        let with_scrollbar = inject_scrollbar_css(&with_grid);
+        return inject_render_diagnostics(
+            &with_scrollbar,
+            markdown.len(),
+            markdown.trim().len(),
+            "raw_html",
+        );
     }
 
     let mut options = Options::empty();
@@ -183,7 +197,7 @@ pub fn markdown_to_html(
         String::new()
     };
 
-    format!(
+    let html = format!(
         r#"<!DOCTYPE html>
 <html>
 <head>
@@ -212,5 +226,7 @@ pub fn markdown_to_html(
         gridjs_head,
         html_output,
         gridjs_body
-    )
+    );
+
+    inject_render_diagnostics(&html, markdown.len(), markdown.trim().len(), "markdown")
 }
