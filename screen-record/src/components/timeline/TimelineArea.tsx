@@ -84,6 +84,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
+  const showEmptyRuler = duration <= 0;
   const keystrokeTrackLabel =
     segment?.keystrokeMode === "keyboard"
       ? t.trackKeyboard
@@ -328,7 +329,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 isSeeking={dragState.isDraggingSeek}
               />
             ) : (
-              <div className="trim-track-empty timeline-track-empty h-10" />
+              <div className="trim-track-empty-shell relative h-14">
+                <div className="trim-track-empty timeline-track-empty h-10" />
+              </div>
             )}
           </div>
 
@@ -394,6 +397,22 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 );
               });
             })()}
+          {showEmptyRuler && (
+            <div
+              className="timeline-ruler-empty absolute inset-0 flex items-start justify-between px-[2%] opacity-65"
+              aria-hidden="true"
+            >
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="timeline-ruler-empty-tick flex flex-col items-center"
+                >
+                  <div className="h-1.5 w-px bg-[var(--outline)]/18" />
+                  <div className="mt-0.5 h-2.5 w-7 rounded-full bg-[var(--ui-surface-2)]" />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

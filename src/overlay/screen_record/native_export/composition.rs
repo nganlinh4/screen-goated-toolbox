@@ -45,8 +45,8 @@ fn ffprobe_exe() -> PathBuf {
 fn media_has_audio(path: &Path) -> bool {
     let ffprobe = ffprobe_exe();
     let path_str = path.to_string_lossy().to_string();
-    if ffprobe.exists() {
-        if let Ok(output) = Command::new(&ffprobe)
+    if ffprobe.exists()
+        && let Ok(output) = Command::new(&ffprobe)
             .args([
                 "-v",
                 "error",
@@ -59,11 +59,9 @@ fn media_has_audio(path: &Path) -> bool {
                 &path_str,
             ])
             .output()
-        {
-            if output.status.success() {
-                return !String::from_utf8_lossy(&output.stdout).trim().is_empty();
-            }
-        }
+        && output.status.success()
+    {
+        return !String::from_utf8_lossy(&output.stdout).trim().is_empty();
     }
 
     let ffmpeg = ffmpeg_exe();

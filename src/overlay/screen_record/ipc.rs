@@ -1872,10 +1872,10 @@ pub fn start_global_media_server() -> Result<u16, String> {
                         if !start_part.is_empty() {
                             if let Ok(s) = start_part.parse::<u64>() {
                                 start = s.min(file_size.saturating_sub(1));
-                                if !end_part.is_empty() {
-                                    if let Ok(e) = end_part.parse::<u64>() {
-                                        end = e.min(file_size.saturating_sub(1));
-                                    }
+                                if !end_part.is_empty()
+                                    && let Ok(e) = end_part.parse::<u64>()
+                                {
+                                    end = e.min(file_size.saturating_sub(1));
                                 }
                                 is_partial = true;
                             }

@@ -166,7 +166,7 @@ pub fn render_preset_editor(
                         {
                             if let Some(first) = preset.blocks.first_mut() {
                                 first.block_type = "image".to_string();
-                                first.model = "maverick".to_string();
+                                first.model = "scout".to_string();
                             }
                             changed = true;
                         }
@@ -750,7 +750,7 @@ fn create_default_block_for_type(preset_type: &str) -> ProcessingBlock {
         },
         _ => ProcessingBlock {
             block_type: "image".to_string(),
-            model: "maverick".to_string(),
+            model: "scout".to_string(),
             prompt: "Extract text from this image.".to_string(),
             selected_language: "Vietnamese".to_string(),
             show_overlay: true,

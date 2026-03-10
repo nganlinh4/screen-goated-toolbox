@@ -1557,6 +1557,19 @@ function App() {
     segment?.crop?.height,
   ]);
 
+  const showPlaybackControls = Boolean(
+    currentVideo &&
+      !isLoadingVideo &&
+      !projects.showProjectsDialog &&
+      !isCropping,
+  );
+  const showPlaybackControlsGhost = Boolean(
+    !currentVideo && !isLoadingVideo && !isCropping,
+  );
+  const showSequencePillGhost = Boolean(
+    !composition && !isCropping && !currentVideo && !isLoadingVideo,
+  );
+
   const handleBackgroundUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const inputEl = e.currentTarget;
@@ -2959,9 +2972,9 @@ function App() {
               </div>
 
               <div
-                className={`playback-controls-row flex-shrink-0 flex justify-center pb-1 min-h-[56px] transition-opacity duration-200 ${currentVideo && !isLoadingVideo && !projects.showProjectsDialog && !isCropping ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+                className={`playback-controls-row flex-shrink-0 flex justify-center pb-1 min-h-[56px] transition-opacity duration-200 ${showPlaybackControls || showPlaybackControlsGhost ? "opacity-100" : "opacity-0 pointer-events-none"}`}
               >
-                {currentVideo && !isLoadingVideo && (
+                {showPlaybackControls && (
                   <PlaybackControls
                     isPlaying={isPlaying}
                     isProcessing={exportHook.isProcessing}
@@ -3225,6 +3238,21 @@ function App() {
                     }
                   />
                 )}
+                {showPlaybackControlsGhost && (
+                  <div
+                    className="editor-empty-playback-chrome ui-empty-state flex h-[44px] items-center gap-2 rounded-2xl px-3.5 py-2.5 opacity-65"
+                    aria-hidden="true"
+                  >
+                    <div className="editor-empty-playback-pill h-7 w-[76px] rounded-xl bg-[var(--ui-surface-2)]" />
+                    <div className="editor-empty-playback-divider h-5 w-px bg-[var(--ui-border)]" />
+                    <div className="editor-empty-playback-icon h-8 w-8 rounded-lg bg-[var(--ui-surface-2)]" />
+                    <div className="editor-empty-playback-time h-4 w-[88px] rounded-full bg-[var(--ui-surface-2)]" />
+                    <div className="editor-empty-playback-divider h-5 w-px bg-[var(--ui-border)]" />
+                    <div className="editor-empty-playback-pill h-7 w-[94px] rounded-xl bg-[var(--ui-surface-2)]" />
+                    <div className="editor-empty-playback-pill h-7 w-[92px] rounded-xl bg-[var(--ui-surface-2)]" />
+                    <div className="editor-empty-playback-pill h-7 w-[108px] rounded-xl bg-[var(--ui-surface-2)]" />
+                  </div>
+                )}
               </div>
 
               {!isCropping && composition && (
@@ -3243,6 +3271,22 @@ function App() {
                     void handleSequenceModeChange(mode);
                   }}
                 />
+              )}
+              {showSequencePillGhost && (
+                <div
+                  className="sequence-focus-breadcrumb sequence-focus-breadcrumb-empty flex items-center justify-center gap-3 px-1 -mt-1 text-[11px] text-[var(--on-surface-variant)]"
+                  aria-hidden="true"
+                >
+                  <div className="sequence-pill-chain sequence-pill-chain-empty flex min-w-0 flex-1 items-center justify-center overflow-x-auto py-2">
+                    <div className="flex min-w-max items-center gap-1.5 opacity-65">
+                      <div className="sequence-pill-add-btn sequence-pill-add-btn-empty ui-empty-state flex h-7 w-7 items-center justify-center rounded-full" />
+                      <div className="sequence-pill sequence-pill-empty ui-empty-state h-8 w-[134px] rounded-full" />
+                      <div className="sequence-pill-gap sequence-pill-gap-empty ui-empty-state h-7 w-7 rounded-full" />
+                      <div className="sequence-pill sequence-pill-empty ui-empty-state h-8 w-[108px] rounded-full" />
+                      <div className="sequence-pill-add-btn sequence-pill-add-btn-empty ui-empty-state flex h-7 w-7 items-center justify-center rounded-full" />
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
 
