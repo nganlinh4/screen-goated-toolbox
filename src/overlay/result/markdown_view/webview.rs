@@ -88,11 +88,14 @@ pub fn create_markdown_webview_ex(
         let _ = GetClientRect(parent_hwnd, &mut rect);
     }
     crate::log_info!(
-        "[Markdown] Creating WebView for Parent HWND: {:?}",
-        parent_hwnd
+        "[Markdown] Creating WebView for Parent HWND: {:?} source_len={} source_trimmed_len={}",
+        parent_hwnd,
+        markdown_text.len(),
+        markdown_text.trim().len()
     );
 
     let html_content = markdown_to_html(markdown_text, is_refining, preset_prompt, input_text);
+    let html_len = html_content.len();
 
     let wrapper = HwndWrapper(parent_hwnd);
 
@@ -120,7 +123,13 @@ pub fn create_markdown_webview_ex(
     }
 
     if page_url.is_empty() {
-        crate::log_info!("[Markdown] FAILED to store markdown page in font server!");
+        crate::log_info!(
+            "[Markdown] FAILED to store markdown page in font server! hwnd={:?} source_len={} source_trimmed_len={} html_len={}",
+            parent_hwnd,
+            markdown_text.len(),
+            markdown_text.trim().len(),
+            html_len
+        );
         let error_html = "<html><body style='color:white'>Error: Could not connect to internal font server.</body></html>";
         if let Some(url) =
             crate::overlay::html_components::font_manager::store_html_page(error_html.to_string())
@@ -198,8 +207,10 @@ pub fn create_markdown_webview_ex(
         }
         Err(e) => {
             crate::log_info!(
-                "[Markdown] WebView FAILED for Parent HWND: {:?}, Error: {:?}",
+                "[Markdown] WebView FAILED for Parent HWND: {:?}, source_len={}, source_trimmed_len={}, Error: {:?}",
                 parent_hwnd,
+                markdown_text.len(),
+                markdown_text.trim().len(),
                 e
             );
             // WebView creation failed - warmup may not have completed

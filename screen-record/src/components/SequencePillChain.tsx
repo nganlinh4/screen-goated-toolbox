@@ -33,7 +33,7 @@ export function SequencePillChain({
     <div
       className={`sequence-focus-breadcrumb flex items-center gap-3 px-1 -mt-1 text-[11px] text-[var(--on-surface-variant)] ${isSingleClip ? "justify-center" : "justify-between"}`}
     >
-      <div className="sequence-pill-chain flex min-w-0 flex-1 items-center justify-center overflow-x-auto py-1">
+      <div className="sequence-pill-chain flex min-w-0 flex-1 items-center justify-center overflow-x-auto py-2">
         <div className="flex min-w-max items-center gap-1.5">
           <button
             type="button"

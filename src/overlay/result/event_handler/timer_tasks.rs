@@ -250,14 +250,10 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                         markdown_view::resize_markdown_webview(hwnd, is_hovered);
                         if is_first_streaming_update {
                             // Hide body to prevent flash of unstyled content.
-                            // fit_font_to_window will reveal it after full fitting.
+                            // The first streaming update reveals it after inline sizing.
                             markdown_view::set_body_opacity(hwnd, false);
                         }
                         markdown_view::stream_markdown_content(hwnd, &md_text);
-                        if is_first_streaming_update {
-                            // Run full multi-phase fitting (delayed) — reveals body when done
-                            markdown_view::fit_font_to_window(hwnd);
-                        }
                         // Register with button canvas (may already be registered, that's fine)
                         crate::overlay::result::button_canvas::register_markdown_window(hwnd);
                     }

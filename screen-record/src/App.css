@@ -532,6 +532,10 @@ body.dragging-seek * {
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 42%, transparent), var(--shadow-elevation-2);
 }
 
+.sequence-pill-remove:hover {
+    transform: none;
+}
+
 .ui-toolbar-button {
     background: transparent;
     border: 1px solid var(--ui-border);

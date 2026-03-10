@@ -128,6 +128,8 @@ pub fn update_markdown_content_ex(
     input_text: &str,
 ) -> bool {
     let hwnd_key = parent_hwnd.0 as isize;
+    let source_len = markdown_text.len();
+    let source_trimmed_len = markdown_text.trim().len();
     let html = markdown_to_html(markdown_text, is_refining, preset_prompt, input_text);
 
     // Check if this content has scripts that need full browser capabilities
@@ -173,14 +175,41 @@ pub fn update_markdown_content_ex(
     }
 
     if page_url.is_empty() {
+        crate::log_info!(
+            "[MarkdownDiag] load_url_skipped_empty_page_url hwnd={:?} source_len={} source_trimmed_len={} html_len={}",
+            parent_hwnd,
+            source_len,
+            source_trimmed_len,
+            html.len()
+        );
         return false;
     }
 
     WEBVIEWS.with(|webviews| {
         if let Some(webview) = webviews.borrow().get(&hwnd_key) {
-            let _ = webview.load_url(&page_url);
-            return true;
+            match webview.load_url(&page_url) {
+                Ok(()) => true,
+                Err(err) => {
+                    crate::log_info!(
+                        "[MarkdownDiag] load_url_failed hwnd={:?} source_len={} source_trimmed_len={} html_len={} err={:?}",
+                        parent_hwnd,
+                        source_len,
+                        source_trimmed_len,
+                        html.len(),
+                        err
+                    );
+                    false
+                }
+            }
+        } else {
+            crate::log_info!(
+                "[MarkdownDiag] load_url_missing_webview hwnd={:?} source_len={} source_trimmed_len={} html_len={}",
+                parent_hwnd,
+                source_len,
+                source_trimmed_len,
+                html.len()
+            );
+            false
         }
-        false
     })
 }

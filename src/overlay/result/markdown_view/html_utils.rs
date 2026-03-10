@@ -202,10 +202,146 @@ pub fn inject_scrollbar_css(html: &str) -> String {
     result
 }
 
+/// Inject runtime diagnostics that report suspicious blank render states via IPC.
+pub fn inject_render_diagnostics(
+    html: &str,
+    source_len: usize,
+    source_trimmed_len: usize,
+    render_mode: &str,
+) -> String {
+    let render_mode_json =
+        serde_json::to_string(render_mode).unwrap_or_else(|_| "\"unknown\"".to_string());
+    let script = format!(
+        r#"<script data-sgt-render-diag="1">
+(function() {{
+    const defaultSourceTextLen = {source_len};
+    const defaultSourceTrimmedLen = {source_trimmed_len};
+    const renderMode = {render_mode_json};
+
+    function report(meta) {{
+        try {{
+            const body = document.body;
+            const renderedText = body ? ((body.innerText || body.textContent || '').trim()) : '';
+            const renderedTextLen = renderedText.length;
+            const bodyHtmlLen = body ? body.innerHTML.length : 0;
+            const bodyChildCount = body ? body.children.length : 0;
+            const hasRenderableMedia = !!document.querySelector('img, svg, canvas, video, audio, iframe, table');
+            const sourceTextLen = Number.isFinite(meta && meta.sourceTextLen)
+                ? meta.sourceTextLen
+                : defaultSourceTextLen;
+            const sourceTrimmedLen = Number.isFinite(meta && meta.sourceTrimmedLen)
+                ? meta.sourceTrimmedLen
+                : defaultSourceTrimmedLen;
+            const phase = (meta && meta.phase) ? meta.phase : 'page_load';
+            const reason = (meta && meta.reason)
+                ? meta.reason
+                : (sourceTrimmedLen === 0 ? 'blank_source' : 'blank_render');
+            const shouldReport = sourceTrimmedLen === 0
+                || (sourceTrimmedLen > 0 && renderedTextLen === 0 && !hasRenderableMedia);
+
+            if (!shouldReport || !window.ipc || typeof window.ipc.postMessage !== 'function') {{
+                return;
+            }}
+
+            const cacheKey = [
+                phase,
+                reason,
+                renderMode,
+                sourceTrimmedLen,
+                renderedTextLen,
+                bodyChildCount,
+                bodyHtmlLen
+            ].join(':');
+            window.__SGT_REPORTED_RENDER_DIAGNOSTICS__ =
+                window.__SGT_REPORTED_RENDER_DIAGNOSTICS__ || {{}};
+            if (window.__SGT_REPORTED_RENDER_DIAGNOSTICS__[cacheKey]) {{
+                return;
+            }}
+            window.__SGT_REPORTED_RENDER_DIAGNOSTICS__[cacheKey] = true;
+
+            window.ipc.postMessage(JSON.stringify({{
+                action: 'render_diagnostics',
+                phase,
+                reason,
+                renderMode,
+                sourceTextLen,
+                sourceTrimmedLen,
+                renderedTextLen,
+                bodyHtmlLen,
+                bodyChildCount,
+                hasRenderableMedia,
+                readyState: document.readyState,
+                url: location.href
+            }}));
+        }} catch (err) {{
+            if (window.ipc && typeof window.ipc.postMessage === 'function') {{
+                window.ipc.postMessage(JSON.stringify({{
+                    action: 'render_diagnostics',
+                    phase: (meta && meta.phase) ? meta.phase : 'page_load',
+                    reason: 'diagnostic_script_error',
+                    renderMode,
+                    sourceTextLen: defaultSourceTextLen,
+                    sourceTrimmedLen: defaultSourceTrimmedLen,
+                    error: err && err.message ? err.message : String(err)
+                }}));
+            }}
+        }}
+    }}
+
+    window.__SGT_REPORT_RENDER_DIAGNOSTICS__ = report;
+
+    document.addEventListener('DOMContentLoaded', function() {{
+        requestAnimationFrame(function() {{
+            report({{ phase: 'dom_content_loaded' }});
+        }});
+    }});
+
+    window.addEventListener('load', function() {{
+        setTimeout(function() {{
+            report({{ phase: 'window_load' }});
+        }}, 0);
+    }});
+}})();
+</script>"#
+    );
+    let lower = html.to_lowercase();
+    let mut result = html.to_string();
+
+    if let Some(pos) = lower.find("</head>") {
+        result.insert_str(pos, &script);
+    } else if let Some(pos) = lower.find("<body>") {
+        result.insert_str(pos, &script);
+    } else if let Some(pos) = lower.find("</body>") {
+        result.insert_str(pos, &script);
+    } else {
+        result.push_str(&script);
+    }
+
+    result
+}
+
+fn strip_known_helper_scripts(html: &str) -> String {
+    const MARKER: &str = r#"<script data-sgt-render-diag="1">"#;
+    let mut result = html.to_string();
+
+    while let Some(start) = result.find(MARKER) {
+        let after_start = &result[start..];
+        if let Some(end_rel) = after_start.find("</script>") {
+            let end = start + end_rel + "</script>".len();
+            result.replace_range(start..end, "");
+        } else {
+            result.replace_range(start..result.len(), "");
+            break;
+        }
+    }
+
+    result
+}
+
 /// Check if HTML content contains scripts that need full browser capabilities
 /// (localStorage, sessionStorage, IndexedDB, etc.)
 pub fn content_needs_recreation(html: &str) -> bool {
-    let lower = html.to_lowercase();
+    let lower = strip_known_helper_scripts(html).to_lowercase();
     // If content has <script> tags that might use storage APIs, it needs recreation
     // to get a proper origin instead of the sandboxed document.write context
     lower.contains("<script")
