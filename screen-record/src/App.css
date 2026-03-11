@@ -819,6 +819,22 @@ body.dragging-seek * {
         transform 140ms ease;
 }
 
+.trim-handle-pill {
+    width: 7px;
+    height: 16px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--timeline-handle) 45%, var(--ui-surface-3));
+    background: color-mix(in srgb, var(--ui-surface-3) 88%, var(--timeline-handle));
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--ui-surface-3) 24%, transparent),
+        0 1px 4px rgba(0, 0, 0, 0.28);
+    transition:
+        background-color 140ms ease,
+        border-color 140ms ease,
+        box-shadow 140ms ease,
+        transform 140ms ease;
+}
+
 .timeline-add-button {
     display: inline-flex;
     align-items: center;

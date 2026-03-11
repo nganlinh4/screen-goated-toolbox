@@ -150,6 +150,7 @@ export function useAppShortcuts({
         if (isModalOpen) return; // Let the dialog's native video controls handle Space
         e.preventDefault();
         e.stopPropagation();
+        if (e.repeat) return;
         if (isCropping) return; // Block play/pause during crop mode
         togglePlayPause();
       }

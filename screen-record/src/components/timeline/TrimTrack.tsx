@@ -206,7 +206,7 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
                 onTrimDragStart(seg.id, "start");
               }}
             >
-              <div className="trim-handle-bar timeline-handle-pill absolute left-1/2 top-1/2 h-[14px] w-[5px] -translate-x-1/2 -translate-y-1/2 group-hover:bg-[var(--timeline-zoom-color)] group-hover:shadow-[0_0_6px_rgba(59,130,246,0.3)] group-hover:scale-y-110" />
+              <div className="trim-handle-bar trim-handle-pill absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:bg-[var(--timeline-zoom-color)] group-hover:border-[var(--timeline-zoom-color)] group-hover:shadow-[0_0_6px_rgba(59,130,246,0.3)] group-hover:scale-y-110" />
             </div>
             <div
               className="trim-handle-end absolute inset-y-0 w-3 cursor-col-resize z-10 group"
@@ -216,7 +216,7 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
                 onTrimDragStart(seg.id, "end");
               }}
             >
-              <div className="trim-handle-bar timeline-handle-pill absolute left-1/2 top-1/2 h-[14px] w-[5px] -translate-x-1/2 -translate-y-1/2 group-hover:bg-[var(--timeline-zoom-color)] group-hover:shadow-[0_0_6px_rgba(59,130,246,0.3)] group-hover:scale-y-110" />
+              <div className="trim-handle-bar trim-handle-pill absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:bg-[var(--timeline-zoom-color)] group-hover:border-[var(--timeline-zoom-color)] group-hover:shadow-[0_0_6px_rgba(59,130,246,0.3)] group-hover:scale-y-110" />
             </div>
           </React.Fragment>
         ))}
