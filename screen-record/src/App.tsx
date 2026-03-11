@@ -89,6 +89,7 @@ import {
   getCompositionAutoSourceClipId,
   getCompositionAdjacentClipIds,
   getCompositionClip,
+  getEffectiveCompositionMode,
   getCompositionResolvedBackgroundConfig,
   insertCompositionClip,
   normalizeCompositionClipToCanvas,
@@ -98,6 +99,10 @@ import {
   updateCompositionClip,
   withCompositionSelection,
 } from "@/lib/projectComposition";
+import {
+  cloneBackgroundConfig,
+  equalBackgroundConfig,
+} from "@/lib/backgroundConfig";
 import {
   getMediaServerUrl,
   isManagedCompositionSnapshotPath,
@@ -112,12 +117,37 @@ const KEYSTROKE_DELAY_KEY = "screen-record-keystroke-delay-v1";
 const KEYSTROKE_MODE_PREF_KEY = "screen-record-keystroke-mode-pref-v1";
 const KEYSTROKE_OVERLAY_PREF_KEY = "screen-record-keystroke-overlay-pref-v1";
 const PROJECT_SAVE_DEBUG = false;
+const PROJECT_SWITCH_DEBUG = false;
+const BACKGROUND_MUTATION_DEBUG = false;
 const PLAYBACK_RESET_DEBUG = false;
 const DEFAULT_KEYSTROKE_DELAY_SEC = 0;
 const sv = (v: number, min: number, max: number): CSSProperties =>
   ({ "--value-pct": `${((v - min) / (max - min)) * 100}%` }) as CSSProperties;
 
 type PreloadSlotKey = "previous" | "next";
+
+function summarizeBackgroundConfig(backgroundConfig: BackgroundConfig | null | undefined) {
+  return backgroundConfig
+    ? {
+        backgroundType: backgroundConfig.backgroundType,
+        canvasMode: backgroundConfig.canvasMode ?? "auto",
+        canvasWidth: backgroundConfig.canvasWidth ?? null,
+        canvasHeight: backgroundConfig.canvasHeight ?? null,
+        autoCanvasSourceId: backgroundConfig.autoCanvasSourceId ?? null,
+        scale: backgroundConfig.scale,
+      }
+    : null;
+}
+
+function summarizeSegment(segment: VideoSegment | null | undefined) {
+  return segment
+    ? {
+        trimStart: segment.trimStart,
+        trimEnd: segment.trimEnd,
+        crop: segment.crop ?? null,
+      }
+    : null;
+}
 
 function toPreviewRectSnapshot(
   rect: DOMRect | null | undefined,
@@ -263,9 +293,11 @@ function App() {
   const [recentUploads, setRecentUploads] = useState<string[]>(
     getInitialRecentUploads,
   );
-  const [backgroundConfig, setBackgroundConfig] = useState<BackgroundConfig>(
-    getInitialBackgroundConfig,
-  );
+  const [backgroundConfigState, setBackgroundConfigState] =
+    useState<BackgroundConfig>(() =>
+      cloneBackgroundConfig(getInitialBackgroundConfig()),
+    );
+  const backgroundConfig = backgroundConfigState;
   const [selectedRecordingMode, setSelectedRecordingMode] =
     useState<RecordingMode>(getInitialRecordingMode);
   const [captureSource, setCaptureSource] = useState<"monitor" | "window">(
@@ -315,6 +347,8 @@ function App() {
   } = rawVideo;
   const [isBackgroundUploadProcessing, setIsBackgroundUploadProcessing] =
     useState(false);
+  const [isProjectInteractionShieldVisible, setIsProjectInteractionShieldVisible] =
+    useState(false);
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -324,6 +358,10 @@ function App() {
   const restoreImageRef = useRef<string | null>(null);
   const projectsPreviewTargetSnapshotRef =
     useRef<ProjectsPreviewTargetSnapshot | null>(null);
+  const projectInteractionShieldReleaseRef =
+    useRef<(() => void) | null>(null);
+  const projectInteractionBlockCleanupRef =
+    useRef<(() => void) | null>(null);
   const projectSaveSeqRef = useRef(0);
   const segmentRef = useRef<VideoSegment | null>(null);
   const isDraggingKeystrokeOverlayRef = useRef(false);
@@ -384,6 +422,53 @@ function App() {
       if (!PROJECT_SAVE_DEBUG) return;
       const ts = new Date().toISOString();
       console.log(`[ProjectSave][${ts}] ${event}`, data || {});
+    },
+    [],
+  );
+  const logProjectSwitch = useCallback(
+    (event: string, data?: Record<string, unknown>) => {
+      if (!PROJECT_SWITCH_DEBUG) return;
+      console.warn(
+        `[ProjectSwitch] ${JSON.stringify({
+          event,
+          ...data,
+        })}`,
+      );
+    },
+    [],
+  );
+  const backgroundMutationMetaRef = useRef<{
+    at: number;
+    stack: string[];
+  } | null>(null);
+  const previousBackgroundSummaryRef = useRef<string | null>(
+    JSON.stringify(summarizeBackgroundConfig(backgroundConfig)),
+  );
+  const setBackgroundConfig = useCallback(
+    (
+      update:
+        | BackgroundConfig
+        | ((value: BackgroundConfig) => BackgroundConfig),
+    ) => {
+      if (BACKGROUND_MUTATION_DEBUG) {
+        backgroundMutationMetaRef.current = {
+          at: Date.now(),
+          stack:
+            new Error()
+              .stack?.split("\n")
+              .slice(2, 6)
+              .map((line) => line.trim()) ?? [],
+        };
+      }
+      setBackgroundConfigState((prev) => {
+        const previous = cloneBackgroundConfig(prev);
+        const next =
+          typeof update === "function"
+            ? (update as (value: BackgroundConfig) => BackgroundConfig)(previous)
+            : update;
+        const normalizedNext = cloneBackgroundConfig(next);
+        return equalBackgroundConfig(prev, normalizedNext) ? prev : normalizedNext;
+      });
     },
     [],
   );
@@ -808,7 +893,7 @@ function App() {
         if (clipThumbnailPlaceholder) {
           setThumbnails(clipThumbnailPlaceholder);
         }
-        setBackgroundConfig(resolvedBackground);
+        setBackgroundConfig(cloneBackgroundConfig(resolvedBackground));
         setMousePositions(clip.mousePositions);
         setCurrentRecordingMode(clip.recordingMode ?? "withoutCursor");
         handleProjectRawVideoPathChange(clip.rawVideoPath ?? "");
@@ -865,7 +950,10 @@ function App() {
       clipExportSourcePathCacheRef.current.clear();
       isSwitchingCompositionClipRef.current = true;
       clipLoadRequestSeqRef.current += 1;
-      setCurrentProjectData(project);
+      setCurrentProjectData({
+        ...project,
+        backgroundConfig: cloneBackgroundConfig(project.backgroundConfig),
+      });
       const nextComposition = ensureProjectComposition(project);
       setComposition(nextComposition);
       if (spreadAnimationTimerRef.current) {
@@ -878,12 +966,11 @@ function App() {
         const resolvedRootBackground =
           getCompositionResolvedBackgroundConfig(nextComposition, "root") ??
           project.backgroundConfig;
-        setBackgroundConfig(resolvedRootBackground);
+        setBackgroundConfig(cloneBackgroundConfig(resolvedRootBackground));
         setLoadedClipId("root");
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             isSwitchingCompositionClipRef.current = false;
-            isProjectTransitionRef.current = false;
           });
         });
         return;
@@ -898,19 +985,52 @@ function App() {
         ).finally(() => {
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-              isProjectTransitionRef.current = false;
+              isSwitchingCompositionClipRef.current = false;
             });
           });
         });
       } else {
         requestAnimationFrame(() => {
-          isProjectTransitionRef.current = false;
+          isSwitchingCompositionClipRef.current = false;
         });
       }
     },
     currentVideo,
     currentAudio,
   });
+  useEffect(() => {
+    if (!BACKGROUND_MUTATION_DEBUG) return;
+    const nextSummary = summarizeBackgroundConfig(backgroundConfig);
+    const nextSerialized = JSON.stringify(nextSummary);
+    const prevSerialized = previousBackgroundSummaryRef.current;
+    if (!prevSerialized) {
+      previousBackgroundSummaryRef.current = nextSerialized;
+      return;
+    }
+    if (prevSerialized === nextSerialized) return;
+    const meta = backgroundMutationMetaRef.current;
+    const via =
+      meta && Date.now() - meta.at < 1500 ? "setter" : "outside-setter";
+    console.warn(
+      `[BackgroundMutation] ${JSON.stringify({
+        projectId: projects.currentProjectId ?? null,
+        via,
+        prev: JSON.parse(prevSerialized),
+        next: nextSummary,
+        stack: via === "setter" ? meta?.stack ?? [] : [],
+        isProjectTransition: isProjectTransitionRef.current,
+        isSwitchingClip: isSwitchingCompositionClipRef.current,
+        isCropping,
+        showProjectsDialog: projects.showProjectsDialog,
+      })}`,
+    );
+    previousBackgroundSummaryRef.current = nextSerialized;
+  }, [
+    backgroundConfig,
+    isCropping,
+    projects.currentProjectId,
+    projects.showProjectsDialog,
+  ]);
   const resolveClipExportSourcePath = useCallback(
     async (clip: ProjectCompositionClip): Promise<string> => {
       const projectId = projects.currentProjectId;
@@ -1213,13 +1333,20 @@ function App() {
       if (!prev) return prev;
       const canvasConfig = extractCanvasConfig(backgroundConfig);
       let next = syncCompositionCanvasConfig(prev, canvasConfig);
+      const effectiveMode = getEffectiveCompositionMode(prev);
+      if (next.mode !== effectiveMode) {
+        next = {
+          ...next,
+          mode: effectiveMode,
+        };
+      }
       const currentClipBackground =
         getCompositionClip(next, compositionSyncClipId)?.backgroundConfig ??
         applyCanvasConfig(backgroundConfig, canvasConfig);
       next = updateCompositionClip(next, compositionSyncClipId, {
         segment,
         backgroundConfig:
-          prev.mode === "separate"
+          effectiveMode === "separate"
             ? applyCanvasConfig(backgroundConfig, canvasConfig)
             : currentClipBackground,
         mousePositions,
@@ -1227,7 +1354,7 @@ function App() {
         recordingMode: currentRecordingMode,
         rawVideoPath: currentRawVideoPath || undefined,
       });
-      if (prev.mode === "unified") {
+      if (effectiveMode === "unified") {
         next = {
           ...next,
           unifiedSourceClipId:
@@ -1948,8 +2075,10 @@ function App() {
     }) => {
       const compositionState = options?.compositionOverride ?? composition;
       const shouldSyncLiveComposition = !options?.skipLiveCompositionSync;
+      const projectId = currentProjectData?.id ?? null;
       if (
-        !projects.currentProjectId ||
+        !projectId ||
+        projects.currentProjectId !== projectId ||
         !compositionState ||
         (!options?.allowDuringProjectTransition &&
           isProjectTransitionRef.current) ||
@@ -1958,7 +2087,6 @@ function App() {
       ) {
         return;
       }
-      const projectId = projects.currentProjectId;
       const saveSeq = ++projectSaveSeqRef.current;
       const includeMedia = options?.includeMedia !== false;
       const activeClipId = shouldSyncLiveComposition
@@ -2016,13 +2144,20 @@ function App() {
             nextComposition,
             canvasConfig,
           );
+          const effectiveMode = getEffectiveCompositionMode(nextComposition);
+          if (nextComposition.mode !== effectiveMode) {
+            nextComposition = {
+              ...nextComposition,
+              mode: effectiveMode,
+            };
+          }
           nextComposition = updateCompositionClip(
             nextComposition,
             activeClip.id,
             {
               segment: segment!,
               backgroundConfig:
-                nextComposition.mode === "separate"
+                effectiveMode === "separate"
                   ? applyCanvasConfig(backgroundConfig, canvasConfig)
                   : (getCompositionClip(nextComposition, activeClip.id)
                       ?.backgroundConfig ?? activeClip.backgroundConfig),
@@ -2036,7 +2171,7 @@ function App() {
               rawVideoPath: currentRawVideoPath || undefined,
             },
           );
-          if (nextComposition.mode === "unified") {
+          if (effectiveMode === "unified") {
             nextComposition = {
               ...nextComposition,
               globalPresentationConfig: applyCanvasConfig(
@@ -2087,6 +2222,16 @@ function App() {
         }
         const rootClip = getCompositionClip(nextComposition, "root");
         if (!rootClip) return;
+        logProjectSwitch("persist:write-root", {
+          targetProjectId: projectId,
+          currentProjectDataId: currentProjectData?.id ?? null,
+          saveSeq,
+          activeClipId,
+          rootBackground: summarizeBackgroundConfig(rootClip.backgroundConfig),
+          rootSegment: summarizeSegment(rootClip.segment),
+          editorBackground: summarizeBackgroundConfig(backgroundConfig),
+          editorSegment: summarizeSegment(segment),
+        });
         await projectManager.updateProject(projectId, {
           name:
             projects.projects.find((p) => p.id === projectId)?.name ||
@@ -2154,12 +2299,65 @@ function App() {
   );
   persistRef.current = persistCurrentProjectNow;
 
+  const beginProjectInteractionShield = useCallback(() => {
+    projectInteractionShieldReleaseRef.current?.();
+    projectInteractionBlockCleanupRef.current?.();
+    setIsProjectInteractionShieldVisible(true);
+
+    const eventNames = [
+      "pointerdown",
+      "pointerup",
+      "pointermove",
+      "mousedown",
+      "mouseup",
+      "mousemove",
+      "click",
+    ] as const;
+
+    const swallow = (event: Event) => {
+      const target = event.target as Element | null;
+      if (target?.closest(".projects-view")) {
+        return;
+      }
+      if ("cancelable" in event && event.cancelable) {
+        event.preventDefault();
+      }
+      event.stopPropagation();
+      (
+        event as Event & {
+          stopImmediatePropagation?: () => void;
+        }
+      ).stopImmediatePropagation?.();
+    };
+
+    const cleanup = () => {
+      eventNames.forEach((eventName) => {
+        window.removeEventListener(eventName, swallow, true);
+      });
+      if (projectInteractionBlockCleanupRef.current === cleanup) {
+        projectInteractionBlockCleanupRef.current = null;
+      }
+    };
+
+    eventNames.forEach((eventName) => {
+      window.addEventListener(eventName, swallow, true);
+    });
+    projectInteractionBlockCleanupRef.current = cleanup;
+  }, []);
+
   const handleLoadProjectFromGrid = useCallback(
     async (projectId: string) => {
       // Always persist the currently open project before loading another one.
       debugProject("grid-load:start", {
         targetProjectId: projectId,
         currentProjectId: projects.currentProjectId,
+      });
+      logProjectSwitch("grid-load:start", {
+        targetProjectId: projectId,
+        currentProjectId: projects.currentProjectId,
+        currentProjectDataId: currentProjectData?.id ?? null,
+        currentBackground: summarizeBackgroundConfig(backgroundConfig),
+        currentSegment: summarizeSegment(segment),
       });
       if (projectId === projects.currentProjectId) {
         projects.setShowProjectsDialog(false);
@@ -2168,7 +2366,9 @@ function App() {
         });
         return;
       }
-      void persistCurrentProjectNow({
+      beginProjectInteractionShield();
+      projectInteractionShieldReleaseRef.current?.();
+      await persistCurrentProjectNow({
         refreshList: false,
         includeMedia: false,
       });
@@ -2178,17 +2378,72 @@ function App() {
         await projects.handleLoadProject(projectId);
       } catch (error) {
         isProjectTransitionRef.current = false;
+        setIsProjectInteractionShieldVisible(false);
         throw error;
       }
       debugProject("grid-load:done", { targetProjectId: projectId });
     },
-    [persistCurrentProjectNow, projects, debugProject],
+    [
+      backgroundConfig,
+      beginProjectInteractionShield,
+      currentProjectData?.id,
+      debugProject,
+      logProjectSwitch,
+      persistCurrentProjectNow,
+      projects,
+      segment,
+    ],
   );
 
   const requestCloseProjects = useCallback(() => {
     if (!projects.showProjectsDialog) return;
     window.dispatchEvent(new CustomEvent("sr-close-projects"));
   }, [projects.showProjectsDialog]);
+
+  const armProjectInteractionShieldRelease = useCallback(() => {
+    projectInteractionShieldReleaseRef.current?.();
+
+    let released = false;
+    let timeoutId: number | null = null;
+
+    const cleanup = () => {
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("mouseup", release, true);
+      window.removeEventListener("click", release, true);
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+      if (projectInteractionShieldReleaseRef.current === cleanup) {
+        projectInteractionShieldReleaseRef.current = null;
+      }
+    };
+
+    const release = () => {
+      if (released) return;
+      released = true;
+      cleanup();
+      projectInteractionBlockCleanupRef.current?.();
+      isProjectTransitionRef.current = false;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setIsProjectInteractionShieldVisible(false);
+        });
+      });
+    };
+
+    timeoutId = window.setTimeout(release, 420);
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("mouseup", release, true);
+    window.addEventListener("click", release, true);
+    projectInteractionShieldReleaseRef.current = cleanup;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      projectInteractionShieldReleaseRef.current?.();
+      projectInteractionBlockCleanupRef.current?.();
+    };
+  }, []);
 
   const handleToggleProjects = useCallback(async () => {
     if (projects.showProjectsDialog) {
@@ -3414,11 +3669,15 @@ function App() {
           <div className="absolute inset-0 top-[44px] z-[90]">
             <ProjectsView
               projects={projects.projects}
+              onBeginProjectOpen={beginProjectInteractionShield}
               onLoadProject={handleLoadProjectFromGrid}
               onProjectsChange={projects.loadProjects}
               onClose={() => {
                 setProjectPickerMode(null);
                 projects.setShowProjectsDialog(false);
+                if ((projectPickerMode ?? "load") === "load") {
+                  armProjectInteractionShieldRelease();
+                }
               }}
               currentProjectId={projects.currentProjectId}
               restoreImage={restoreImageRef.current}
@@ -3427,6 +3686,10 @@ function App() {
               onPickProject={handlePickProjectForSequence}
             />
           </div>
+        )}
+
+        {isProjectInteractionShieldVisible && !projects.showProjectsDialog && (
+          <div className="project-interaction-shield absolute inset-0 top-[44px] z-[89]" />
         )}
 
         {isCropping && currentVideo && (

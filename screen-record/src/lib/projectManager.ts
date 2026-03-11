@@ -2,6 +2,76 @@ import { Project } from "@/types/video";
 import { invoke } from "@/lib/ipc";
 import { isManagedCompositionSnapshotPath } from "@/lib/mediaServer";
 
+const PROJECT_SWITCH_DEBUG = false;
+
+function summarizeProjectUpdate(
+  updates: Partial<Omit<Project, "id" | "createdAt" | "lastModified">>,
+) {
+  return {
+    name: updates.name ?? null,
+    backgroundConfig: updates.backgroundConfig
+      ? {
+          backgroundType: updates.backgroundConfig.backgroundType,
+          canvasMode: updates.backgroundConfig.canvasMode ?? "auto",
+          canvasWidth: updates.backgroundConfig.canvasWidth ?? null,
+          canvasHeight: updates.backgroundConfig.canvasHeight ?? null,
+          autoCanvasSourceId: updates.backgroundConfig.autoCanvasSourceId ?? null,
+          scale: updates.backgroundConfig.scale,
+        }
+      : null,
+    segment: updates.segment
+      ? {
+          trimStart: updates.segment.trimStart,
+          trimEnd: updates.segment.trimEnd,
+          crop: updates.segment.crop ?? null,
+        }
+      : null,
+    compositionRootBackground: updates.composition?.clips?.find(
+      (clip) => clip.id === "root",
+    )?.backgroundConfig
+      ? {
+          backgroundType:
+            updates.composition.clips.find((clip) => clip.id === "root")
+              ?.backgroundConfig.backgroundType ?? null,
+          canvasMode:
+            updates.composition.clips.find((clip) => clip.id === "root")
+              ?.backgroundConfig.canvasMode ?? "auto",
+          canvasWidth:
+            updates.composition.clips.find((clip) => clip.id === "root")
+              ?.backgroundConfig.canvasWidth ?? null,
+          canvasHeight:
+            updates.composition.clips.find((clip) => clip.id === "root")
+              ?.backgroundConfig.canvasHeight ?? null,
+        }
+      : null,
+  };
+}
+
+function summarizeStoredProject(project: any) {
+  if (!project) return null;
+  return {
+    id: project.id ?? null,
+    name: project.name ?? null,
+    backgroundConfig: project.backgroundConfig
+      ? {
+          backgroundType: project.backgroundConfig.backgroundType,
+          canvasMode: project.backgroundConfig.canvasMode ?? "auto",
+          canvasWidth: project.backgroundConfig.canvasWidth ?? null,
+          canvasHeight: project.backgroundConfig.canvasHeight ?? null,
+          autoCanvasSourceId: project.backgroundConfig.autoCanvasSourceId ?? null,
+          scale: project.backgroundConfig.scale ?? null,
+        }
+      : null,
+    segment: project.segment
+      ? {
+          trimStart: project.segment.trimStart,
+          trimEnd: project.segment.trimEnd,
+          crop: project.segment.crop ?? null,
+        }
+      : null,
+  };
+}
+
 function buildCompositionAssetKey(projectId: string, clipId: string): string {
   return `${projectId}:${clipId}`;
 }
@@ -189,6 +259,21 @@ class ProjectManager {
     const projectIndex = projects.findIndex((p) => p.id === id);
 
     if (projectIndex === -1) return;
+    const previousProject = projects[projectIndex];
+    if (PROJECT_SWITCH_DEBUG) {
+      console.warn(
+        `[ProjectSwitch] ${JSON.stringify({
+          event: "project-manager:update",
+          targetProjectId: id,
+          prev: summarizeStoredProject(previousProject),
+          updates: summarizeProjectUpdate(updates),
+          stack: new Error()
+            .stack?.split("\n")
+            .slice(2, 5)
+            .map((line) => line.trim()),
+        })}`,
+      );
+    }
 
     if (updates.videoBlob) {
       await this.saveVideoBlob(id, updates.videoBlob);

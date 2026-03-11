@@ -6,7 +6,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { invoke } from "@/lib/ipc";
 import { ConfirmDialog } from "./dialogs";
 
-const PROJECTS_FLIP_DEBUG = true;
+const PROJECTS_FLIP_DEBUG = false;
 
 export interface ProjectsPreviewRectSnapshot {
   left: number;
@@ -22,6 +22,7 @@ export interface ProjectsPreviewTargetSnapshot {
 
 interface ProjectsViewProps {
   projects: Omit<Project, "videoBlob">[];
+  onBeginProjectOpen?: () => void;
   onLoadProject: (projectId: string) => void | Promise<void>;
   onProjectsChange: () => void;
   onClose: () => void;
@@ -157,6 +158,7 @@ void getPreviewCanvasRect;
 
 export function ProjectsView({
   projects,
+  onBeginProjectOpen,
   onLoadProject,
   onProjectsChange,
   onClose,
@@ -436,10 +438,11 @@ export function ProjectsView({
     animatingRef.current = true;
     setAnimatingId(projectId);
 
-    const removeCloneAfterPaint = () => {
+    const finishProjectOpen = () => {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           clone.remove();
+          onClose();
         });
       });
     };
@@ -449,7 +452,7 @@ export function ProjectsView({
       const livePreviewStageRect = getPreviewStageRect();
       if (!liveCanvasRect) {
         logProjectsFlip("load-settle-missing-live-canvas", { projectId });
-        removeCloneAfterPaint();
+        finishProjectOpen();
         return;
       }
       const cloneRect = clone.getBoundingClientRect();
@@ -527,7 +530,7 @@ export function ProjectsView({
         widthDelta < 0.5 &&
         heightDelta < 0.5
       ) {
-        removeCloneAfterPaint();
+        finishProjectOpen();
         return;
       }
       clone.animate(
@@ -555,7 +558,7 @@ export function ProjectsView({
         clone.style.top = `${liveCanvasRect.top}px`;
         clone.style.width = `${liveCanvasRect.width}px`;
         clone.style.height = `${liveCanvasRect.height}px`;
-        removeCloneAfterPaint();
+        finishProjectOpen();
       };
     };
 
@@ -789,6 +792,11 @@ export function ProjectsView({
                   >
                     <div
                       className="project-thumbnail bg-[var(--surface-container-high)] relative cursor-pointer overflow-hidden"
+                      onMouseDownCapture={() => {
+                        if (!isPickerMode) {
+                          onBeginProjectOpen?.();
+                        }
+                      }}
                       onClick={(e) => handleProjectClick(project.id, e)}
                     >
                       {(project.id === currentProjectId && restoreImage) ||

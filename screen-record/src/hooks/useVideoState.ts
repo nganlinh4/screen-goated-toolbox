@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@/lib/ipc";
 import { videoRenderer } from "@/lib/videoRenderer";
 import { createVideoController } from "@/lib/videoController";
+import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
 import { projectManager } from "@/lib/projectManager";
 import { thumbnailGenerator } from "@/lib/thumbnailGenerator";
 import {
@@ -59,6 +60,20 @@ const MAX_EXPORT_FPS = 240;
 const MIN_CROP_SIZE = 0.05;
 const TRAILING_MOUSE_SAMPLE_EPSILON_SEC = 1 / 240;
 const PROJECT_LOAD_DEBUG = false;
+const PROJECT_SWITCH_DEBUG = false;
+
+function summarizeLoadedBackground(backgroundConfig: BackgroundConfig | null | undefined) {
+  return backgroundConfig
+    ? {
+        backgroundType: backgroundConfig.backgroundType,
+        canvasMode: backgroundConfig.canvasMode ?? "auto",
+        canvasWidth: backgroundConfig.canvasWidth ?? null,
+        canvasHeight: backgroundConfig.canvasHeight ?? null,
+        autoCanvasSourceId: backgroundConfig.autoCanvasSourceId ?? null,
+        scale: backgroundConfig.scale,
+      }
+    : null;
+}
 
 function getSavedKeystrokeDelaySec(): number {
   try {
@@ -400,7 +415,7 @@ export function useVideoPlayback({
           cropBottom: 0,
           canvasMode: "auto" as const,
         }
-      : backgroundConfig;
+      : cloneBackgroundConfig(backgroundConfig);
 
     videoRenderer.drawFrame({
       video: videoRef.current,
@@ -615,7 +630,7 @@ export function useVideoPlayback({
           cropBottom: 0,
           canvasMode: "auto" as const,
         }
-      : backgroundConfig;
+      : cloneBackgroundConfig(backgroundConfig);
 
     videoControllerRef.current.updateRenderOptions({
       segment: renderSegment,
@@ -657,7 +672,7 @@ export function useVideoPlayback({
           cropBottom: 0,
           canvasMode: "auto" as const,
         }
-      : backgroundConfig;
+      : cloneBackgroundConfig(backgroundConfig);
 
     // Update context for the animation loop (picked up on next RAF tick)
     videoRenderer.updateRenderContext({
@@ -1016,7 +1031,7 @@ export function useRecording(props: UseRecordingProps) {
             canvas: props.canvasRef.current,
             tempCanvas: props.tempCanvasRef.current!,
             segment: initialSegment,
-            backgroundConfig: props.backgroundConfig,
+            backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
             mousePositions: stabilizedMouseData,
             currentTime: 0,
           });
@@ -1134,10 +1149,15 @@ export function useProjects(props: UseProjectsProps) {
   const [projects, setProjects] = useState<Omit<Project, "videoBlob">[]>([]);
   const [showProjectsDialog, setShowProjectsDialog] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const loadRequestSeqRef = useRef(0);
   const logProjectLoad = (event: string, data?: Record<string, unknown>) => {
     if (!PROJECT_LOAD_DEBUG) return;
     const ts = new Date().toISOString();
     console.log(`[ProjectLoad][${ts}] ${event}`, data || {});
+  };
+  const logProjectSwitch = (event: string, data?: Record<string, unknown>) => {
+    if (!PROJECT_SWITCH_DEBUG) return;
+    console.warn(`[ProjectSwitch] ${JSON.stringify({ event, ...data })}`);
   };
 
   const loadProjects = useCallback(async () => {
@@ -1147,9 +1167,10 @@ export function useProjects(props: UseProjectsProps) {
 
   const handleLoadProject = useCallback(
     async (projectId: string) => {
+      const loadRequestSeq = ++loadRequestSeqRef.current;
       logProjectLoad("load:start", { projectId });
       const project = await projectManager.loadProject(projectId);
-      if (!project) {
+      if (!project || loadRequestSeq !== loadRequestSeqRef.current) {
         logProjectLoad("load:missing", { projectId });
         return;
       }
@@ -1159,12 +1180,15 @@ export function useProjects(props: UseProjectsProps) {
         canvasWidth: project.backgroundConfig?.canvasWidth,
         canvasHeight: project.backgroundConfig?.canvasHeight,
       });
+      logProjectSwitch("load:fetched", {
+        projectId,
+        currentProjectIdBefore: currentProjectId,
+        fetchedBackground: summarizeLoadedBackground(project.backgroundConfig),
+        trimEnd: project.segment?.trimEnd ?? null,
+      });
 
       const previousVideoUrl = props.currentVideo;
       const previousAudioUrl = props.currentAudio;
-
-      props.setThumbnails([]);
-      props.setCurrentAudio(null);
 
       // Restore rawVideoPath for old projects that only have a blob.
       // Writes the blob to disk via the media server POST endpoint (binary, no JSON overhead).
@@ -1183,6 +1207,7 @@ export function useProjects(props: UseProjectsProps) {
           console.error("[ProjectLoad] Failed to restore rawVideoPath:", e);
         }
       }
+      if (loadRequestSeq !== loadRequestSeqRef.current) return;
 
       let videoObjectUrl: string | undefined;
       if (rawVideoPath) {
@@ -1197,48 +1222,20 @@ export function useProjects(props: UseProjectsProps) {
           debugLabel: "project-load",
         });
       }
-      if (videoObjectUrl) {
-        props.setCurrentVideo(videoObjectUrl);
-        if (
-          previousVideoUrl?.startsWith("blob:") &&
-          previousVideoUrl !== videoObjectUrl
-        ) {
-          URL.revokeObjectURL(previousVideoUrl);
-        }
-      }
+      if (loadRequestSeq !== loadRequestSeqRef.current) return;
 
+      let audioObjectUrl: string | undefined;
       if (rawVideoPath && project.audioBlob) {
         const mediaUrl = await getMediaServerUrl(rawVideoPath);
-        const audioObjectUrl =
-          await props.videoControllerRef.current?.loadAudio({
-            audioUrl: mediaUrl,
-          });
-        if (audioObjectUrl) {
-          props.setCurrentAudio(audioObjectUrl);
-          if (
-            previousAudioUrl?.startsWith("blob:") &&
-            previousAudioUrl !== audioObjectUrl
-          ) {
-            URL.revokeObjectURL(previousAudioUrl);
-          }
-        }
+        audioObjectUrl = await props.videoControllerRef.current?.loadAudio({
+          audioUrl: mediaUrl,
+        });
       } else if (project.audioBlob) {
-        const audioObjectUrl =
-          await props.videoControllerRef.current?.loadAudio({
-            audioBlob: project.audioBlob,
-          });
-        if (audioObjectUrl) {
-          props.setCurrentAudio(audioObjectUrl);
-          if (
-            previousAudioUrl?.startsWith("blob:") &&
-            previousAudioUrl !== audioObjectUrl
-          ) {
-            URL.revokeObjectURL(previousAudioUrl);
-          }
-        }
-      } else if (previousAudioUrl?.startsWith("blob:")) {
-        URL.revokeObjectURL(previousAudioUrl);
+        audioObjectUrl = await props.videoControllerRef.current?.loadAudio({
+          audioBlob: project.audioBlob,
+        });
       }
+      if (loadRequestSeq !== loadRequestSeqRef.current) return;
 
       const videoDuration = props.videoControllerRef.current?.duration || 0;
       let correctedSegment = { ...project.segment };
@@ -1353,15 +1350,46 @@ export function useProjects(props: UseProjectsProps) {
       // so the canvas has content when the projects overlay fades out.
       props.videoControllerRef.current?.renderImmediate({
         segment: correctedSegment,
-        backgroundConfig: project.backgroundConfig,
+        backgroundConfig: cloneBackgroundConfig(project.backgroundConfig),
         mousePositions: project.mousePositions,
       });
 
+      setCurrentProjectId(projectId);
+      props.setThumbnails([]);
+      if (videoObjectUrl) {
+        props.setCurrentVideo(videoObjectUrl);
+        if (
+          previousVideoUrl?.startsWith("blob:") &&
+          previousVideoUrl !== videoObjectUrl
+        ) {
+          URL.revokeObjectURL(previousVideoUrl);
+        }
+      }
+      if (audioObjectUrl) {
+        props.setCurrentAudio(audioObjectUrl);
+        if (
+          previousAudioUrl?.startsWith("blob:") &&
+          previousAudioUrl !== audioObjectUrl
+        ) {
+          URL.revokeObjectURL(previousAudioUrl);
+        }
+      } else {
+        props.setCurrentAudio(null);
+        if (previousAudioUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(previousAudioUrl);
+        }
+      }
       props.setSegment(correctedSegment);
-      props.setBackgroundConfig(project.backgroundConfig);
+      props.setBackgroundConfig(cloneBackgroundConfig(project.backgroundConfig));
       props.setMousePositions(project.mousePositions);
       props.setCurrentRecordingMode?.(project.recordingMode ?? "withoutCursor");
       props.setCurrentRawVideoPath?.(rawVideoPath);
+      logProjectSwitch("load:apply-state", {
+        projectId,
+        currentProjectIdAfterSet: projectId,
+        appliedBackground: summarizeLoadedBackground(project.backgroundConfig),
+        appliedTrimEnd: correctedSegment.trimEnd,
+      });
       props.onProjectLoaded?.({
         ...project,
         rawVideoPath,
@@ -1382,9 +1410,6 @@ export function useProjects(props: UseProjectsProps) {
           project.backgroundConfig.volume,
         );
       }
-
-      setShowProjectsDialog(false);
-      setCurrentProjectId(projectId);
 
       // Ensure keyboard focus returns to the document after the Projects overlay
       // animates out (clone removal can leave focus in limbo → spacebar ignored).
@@ -1685,7 +1710,7 @@ export function useExport(props: UseExportProps) {
           canvas: canvasEl,
           tempCanvas: props.tempCanvasRef.current!,
           segment,
-          backgroundConfig: props.backgroundConfig,
+          backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
           mousePositions: props.mousePositions,
           audio: props.audioRef.current || undefined,
           audioFilePath: props.audioFilePath || sourceVideoPath,
@@ -1792,7 +1817,7 @@ export function useExport(props: UseExportProps) {
           canvas: canvasEl,
           tempCanvas: props.tempCanvasRef.current!,
           segment,
-          backgroundConfig: props.backgroundConfig,
+          backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
           mousePositions: props.mousePositions,
           audio: props.audioRef.current || undefined,
           audioFilePath: props.audioFilePath || sourceVideoPath,
@@ -1907,7 +1932,7 @@ export function useExport(props: UseExportProps) {
             canvas: props.canvasRef.current!,
             tempCanvas: props.tempCanvasRef.current!,
             segment: props.segment!,
-            backgroundConfig: props.backgroundConfig,
+            backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
             mousePositions: props.mousePositions,
             audio: props.audioRef.current || undefined,
             audioFilePath: props.audioFilePath || sourceVideoPath,
@@ -2284,7 +2309,7 @@ export function useAutoZoom(props: UseAutoZoomProps) {
         projectManager
           .updateProject(props.currentProjectId, {
             segment: newSegment,
-            backgroundConfig: props.backgroundConfig,
+            backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
             mousePositions: props.mousePositions,
           })
           .then(() => props.loadProjects());
@@ -2323,7 +2348,7 @@ export function useAutoZoom(props: UseAutoZoomProps) {
       projectManager
         .updateProject(props.currentProjectId, {
           segment: newSegment,
-          backgroundConfig: props.backgroundConfig,
+          backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
           mousePositions: props.mousePositions,
         })
         .then(() => props.loadProjects());
