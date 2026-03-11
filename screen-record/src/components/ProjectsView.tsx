@@ -7,6 +7,8 @@ import { invoke } from "@/lib/ipc";
 import { ConfirmDialog } from "./dialogs";
 
 const PROJECTS_FLIP_DEBUG = false;
+const PROJECTS_FLIP_EASING = "cubic-bezier(0.8, 0, 0.2, 1)";
+const PROJECTS_FLIP_SETTLE_EASING = "cubic-bezier(0.7, 0, 0.18, 1)";
 
 export interface ProjectsPreviewRectSnapshot {
   left: number;
@@ -281,13 +283,14 @@ export function ProjectsView({
             },
           ],
           {
-            duration: 400,
-            easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+            duration: 520,
+            easing: PROJECTS_FLIP_EASING,
             fill: "forwards",
           },
         ).onfinish = () => {
           clone.animate([{ opacity: 1 }, { opacity: 0 }], {
-            duration: 100,
+            duration: 120,
+            easing: PROJECTS_FLIP_SETTLE_EASING,
             fill: "forwards",
           }).onfinish = () => clone.remove();
         };
@@ -553,8 +556,8 @@ export function ProjectsView({
           },
         ],
         {
-          duration: 140,
-          easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+          duration: 210,
+          easing: PROJECTS_FLIP_SETTLE_EASING,
           fill: "forwards",
         },
       ).onfinish = () => {
@@ -581,8 +584,8 @@ export function ProjectsView({
         { transform: "none", borderRadius: "0px" },
       ],
       {
-        duration: 500,
-        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+        duration: 640,
+        easing: PROJECTS_FLIP_EASING,
         fill: "forwards",
       },
     ).onfinish = () => {
@@ -678,6 +681,7 @@ export function ProjectsView({
     const fadeOut = () => {
       clone.animate([{ opacity: 1 }, { opacity: 0 }], {
         duration: 200,
+        easing: PROJECTS_FLIP_SETTLE_EASING,
         fill: "forwards",
       }).onfinish = () => clone.remove();
     };
@@ -694,8 +698,8 @@ export function ProjectsView({
         { transform: "none", borderRadius: "0px" },
       ],
       {
-        duration: 500,
-        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+        duration: 620,
+        easing: PROJECTS_FLIP_EASING,
         fill: "forwards",
       },
     ).onfinish = () => {
