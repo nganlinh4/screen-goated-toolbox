@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { VideoSegment } from "@/types/video";
 import { useSettings } from "@/hooks/useSettings";
 import { KeystrokeTrack } from "./KeystrokeTrack";
@@ -47,6 +47,8 @@ interface TimelineAreaProps {
   onAddKeystrokeSegment?: (atTime?: number) => void;
   onAddPointerSegment?: (atTime?: number) => void;
   isPlaying?: boolean;
+  onViewportZoomChange?: (zoom: number) => void;
+  onViewportCanvasWidthChange?: (widthPx: number) => void;
   beginBatch: () => void;
   commitBatch: () => void;
 }
@@ -74,6 +76,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   onAddKeystrokeSegment,
   onAddPointerSegment,
   isPlaying,
+  onViewportZoomChange,
+  onViewportCanvasWidthChange,
   beginBatch,
   commitBatch,
 }) => {
@@ -172,6 +176,14 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     widthPx: canvasWidthPx,
     speedPoints: segment?.speedPoints,
   });
+
+  useEffect(() => {
+    onViewportZoomChange?.(zoom);
+  }, [onViewportZoomChange, zoom]);
+
+  useEffect(() => {
+    onViewportCanvasWidthChange?.(canvasWidthPx);
+  }, [canvasWidthPx, onViewportCanvasWidthChange]);
 
   return (
     <div className="timeline-area select-none mx-2">
