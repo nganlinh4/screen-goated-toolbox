@@ -12,6 +12,8 @@ import { motion } from 'framer-motion';
 // ============================================================================
 export type ActivePanel = 'zoom' | 'background' | 'cursor' | 'blur' | 'text';
 
+const PANEL_TAB_ORDER: ActivePanel[] = ['zoom', 'background', 'cursor', 'blur', 'text'];
+
 // ============================================================================
 // PanelTabs
 // ============================================================================
@@ -22,13 +24,19 @@ interface PanelTabsProps {
 
 function PanelTabs({ activePanel, onPanelChange }: PanelTabsProps) {
   const { t } = useSettings();
-  const tabs: { id: ActivePanel; label: string }[] = [
-    { id: 'zoom', label: t.tabZoom },
-    { id: 'background', label: t.tabBackground },
-    { id: 'cursor', label: t.tabCursor },
-    { id: 'blur', label: t.tabBlur },
-    { id: 'text', label: t.tabText }
-  ];
+  const tabs: { id: ActivePanel; label: string }[] = PANEL_TAB_ORDER.map((id) => ({
+    id,
+    label:
+      id === 'zoom'
+        ? t.tabZoom
+        : id === 'background'
+          ? t.tabBackground
+          : id === 'cursor'
+            ? t.tabCursor
+            : id === 'blur'
+              ? t.tabBlur
+              : t.tabText,
+  }));
 
   return (
     <div className="panel-tabs ui-segmented relative flex flex-nowrap overflow-hidden">
@@ -107,8 +115,7 @@ export function SidePanel({
   beginBatch,
   commitBatch
 }: SidePanelProps) {
-  const panelOrder: ActivePanel[] = ['background', 'zoom', 'cursor', 'blur', 'text'];
-  const activePanelIndex = panelOrder.indexOf(activePanel);
+  const activePanelIndex = PANEL_TAB_ORDER.indexOf(activePanel);
 
   const renderPanel = (panelId: ActivePanel) => {
     if (panelId === 'zoom') {
@@ -177,7 +184,7 @@ export function SidePanel({
       <PanelTabs activePanel={activePanel} onPanelChange={setActivePanel} />
       <div className="side-panel-content mt-3 flex-1 min-h-0 overflow-hidden px-2 pb-2">
         <div className="side-panel-panels relative h-full">
-          {panelOrder.map((panelId, index) => {
+          {PANEL_TAB_ORDER.map((panelId, index) => {
             const relativeIndex = index - activePanelIndex;
             const isActive = relativeIndex === 0;
 

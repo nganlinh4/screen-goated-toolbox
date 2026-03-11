@@ -61,6 +61,7 @@ interface HeaderProps {
   rawButtonDisabled: boolean;
   onOpenRawVideoDialog: () => void;
   onOpenProjects: () => void;
+  projectsButtonDisabled?: boolean;
   onOpenCursorLab: () => void;
   hideExport?: boolean;
   hideRawVideo?: boolean;
@@ -87,6 +88,7 @@ export function Header({
   rawButtonDisabled,
   onOpenRawVideoDialog,
   onOpenProjects,
+  projectsButtonDisabled = false,
   onOpenCursorLab: _onOpenCursorLab,
   hideExport = false,
   hideRawVideo = false,
@@ -558,7 +560,9 @@ export function Header({
             size="sm"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={onOpenProjects}
+            disabled={projectsButtonDisabled}
             className="projects-button ui-toolbar-button h-7 text-[11px]"
+            data-disabled={projectsButtonDisabled ? "true" : undefined}
           >
             <FolderOpen className="w-3.5 h-3.5 mr-1.5" />{t.projects}
           </Button>

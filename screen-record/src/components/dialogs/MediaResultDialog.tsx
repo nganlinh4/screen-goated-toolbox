@@ -115,7 +115,7 @@ function CustomVideoPlayer({
 
   return (
     <div
-      className="custom-video-player absolute inset-0 bg-black select-none"
+      className="custom-video-player absolute inset-0 bg-[var(--ui-surface-2)] select-none"
       onMouseMove={showCtrl}
       onMouseLeave={() => playing && setCtrlVisible(false)}
     >
@@ -296,7 +296,7 @@ export function MediaResultDialog({
         <div className="media-result-dialog fixed inset-0 bg-black flex flex-col">
           {filePath && streamUrl && !isGif && (
             <div className="flex-1 relative min-h-0">
-              <div className="absolute inset-0 overflow-hidden bg-black">
+              <div className="absolute inset-0 overflow-hidden bg-[var(--ui-surface-2)]">
                 <CustomVideoPlayer
                   src={streamUrl}
                   isFullscreen
@@ -338,7 +338,7 @@ export function MediaResultDialog({
 
           {filePath ? (
             <div className="media-result-content flex flex-col gap-4">
-              <div className="media-preview-box ui-surface relative aspect-video min-h-[220px] rounded-xl overflow-hidden bg-black">
+              <div className="media-preview-box relative aspect-video min-h-[220px] overflow-hidden bg-[var(--ui-surface-2)]">
                 {streamUrl ? (
                   isGif ? (
                     <img
