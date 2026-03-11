@@ -15,7 +15,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_translate", "Translate")
             .image()
             .blocks(vec![
-                BlockBuilder::image("scout")
+                BlockBuilder::image("gemini-3.1-flash-lite-preview")
                     .prompt("Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.")
                     .language("Vietnamese")
                     .markdown_stream() // Upgraded: Stream -> Đẹp+Str
@@ -28,7 +28,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             let mut p = PresetBuilder::new("preset_extract_retranslate", "Translate (High accuracy)")
                 .image()
                 .blocks(vec![
-                    BlockBuilder::image("scout")
+                    BlockBuilder::image("gemini-3.1-flash-lite-preview")
                         .prompt("Extract all text from this image exactly as it appears. Output ONLY the text.")
                         .language("English")
                         .show_overlay(false)
@@ -50,7 +50,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             .image()
             .auto_paste()
             .blocks(vec![
-                BlockBuilder::image("scout")
+                BlockBuilder::image("gemini-3.1-flash-lite-preview")
                     .prompt("Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.")
                     .language("Vietnamese")
                     .show_overlay(false)
@@ -64,7 +64,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_translate_retranslate", "Translate+Retranslate")
             .image()
             .blocks(vec![
-                BlockBuilder::image("scout")
+                BlockBuilder::image("gemini-3.1-flash-lite-preview")
                     .prompt("Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.")
                     .language("Korean")
                     .markdown() // Đẹp
@@ -82,7 +82,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_extract_retrans_retrans", "Translate (Accurate)+Retranslate")
             .image()
             .blocks(vec![
-                BlockBuilder::image("scout")
+                BlockBuilder::image("gemini-3.1-flash-lite-preview")
                     .prompt("Extract all text from this image exactly as it appears. Output ONLY the text.")
                     .language("English")
                     .show_overlay(false)
@@ -109,7 +109,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_ocr", "Extract text")
             .image()
             .blocks(vec![
-                BlockBuilder::image("scout")
+                BlockBuilder::image("gemini-3.1-flash-lite-preview")
                     .prompt("Extract all text from this image exactly as it appears. Output ONLY the text.")
                     .language("English")
                     .show_overlay(false)
@@ -123,7 +123,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_ocr_read", "Read this region")
             .image()
             .blocks(vec![
-                BlockBuilder::image("scout")
+                BlockBuilder::image("gemini-3.1-flash-lite-preview")
                     .prompt("Extract all text from this image exactly as it appears. Output ONLY the text.")
                     .language("English")
                     .show_overlay(false)
@@ -147,7 +147,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_extract_table", "Extract Table")
             .image()
             .blocks(vec![
-                BlockBuilder::image("scout")
+                BlockBuilder::image("gemini-3.1-flash-lite-preview")
                     .prompt("Extract all data from any tables, forms, or structured content in this image. Format the output as a markdown table. Output ONLY the table, no explanations.")
                     .language("Vietnamese")
                     .markdown()
@@ -190,7 +190,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_summarize", "Summarize content")
             .image()
             .blocks(vec![
-                BlockBuilder::image("scout")
+                BlockBuilder::image("gemini-3.1-flash-lite-preview")
                     .prompt("Analyze this image and summarize its content in {language1}. Only return the summary text, super concisely. Format the output as a markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.")
                     .language("Vietnamese")
                     .markdown_stream() // Upgraded: Đẹp -> Đẹp+Str
@@ -202,7 +202,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_desc", "Image description")
             .image()
             .blocks(vec![
-                BlockBuilder::image("scout")
+                BlockBuilder::image("gemini-3.1-flash-lite-preview")
                     .prompt("Describe this image in {language1}. Format the output as a markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.")
                     .language("Vietnamese")
                     .markdown_stream() // Upgraded: Đẹp -> Đẹp+Str
@@ -231,7 +231,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_fact_check", "Kiểm chứng thông tin")
             .image()
             .blocks(vec![
-                BlockBuilder::image("scout")
+                BlockBuilder::image("gemini-3.1-flash-lite-preview")
                     .prompt("Extract and describe all text, claims, statements, and information visible in this image. Include any context that might be relevant for fact-checking. Output the content clearly.")
                     .language("Vietnamese")
                     .show_overlay(false)
@@ -249,7 +249,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             .image()
             .blocks(vec![
                 // Node 0: Extract from image
-                BlockBuilder::image("scout")
+                BlockBuilder::image("gemini-3.1-flash-lite-preview")
                     .prompt("Analyze this image and extract all text, claims, and key information. Be detailed and comprehensive.")
                     .language("English")
                     .markdown()

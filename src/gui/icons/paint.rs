@@ -856,6 +856,28 @@ pub(super) fn paint_internal(
             painter.line_segment([center, center + egui::vec2(0.0, -5.0 * scale)], stroke);
         }
 
+        Icon::Priority => {
+            // Ranked list / priority chain icon
+            let row_offsets = [-5.0, 0.0, 5.0];
+            let dot_radii = [1.8, 1.4, 1.2];
+            let line_lengths = [9.0, 7.0, 5.5];
+
+            for ((y_offset, dot_radius), line_len) in
+                row_offsets.into_iter().zip(dot_radii).zip(line_lengths)
+            {
+                let y = center.y + y_offset * scale;
+                let dot_center = egui::pos2(center.x - 6.5 * scale, y);
+                painter.circle_filled(dot_center, dot_radius * scale, color);
+                painter.line_segment(
+                    [
+                        egui::pos2(center.x - 3.5 * scale, y),
+                        egui::pos2(center.x + line_len * scale, y),
+                    ],
+                    stroke,
+                );
+            }
+        }
+
         Icon::Parakeet => {
             // Bird Head (Parakeet) - Minimalist profile
             let r_head = 7.0 * scale;

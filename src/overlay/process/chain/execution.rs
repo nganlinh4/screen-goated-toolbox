@@ -8,7 +8,9 @@ use crate::api::{
 use crate::config::{Config, ProcessingBlock};
 use crate::gui::settings_ui::get_localized_preset_name;
 use crate::overlay::result::{ChainCancelToken, RefineContext, WINDOW_STATES, update_window_text};
+use crate::retry_model_chain::{RetryChainKind, preflight_skip_reason, resolve_next_retry_model};
 use crate::win_types::SendHwnd;
+use std::collections::HashSet;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -86,8 +88,9 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
     let mut current_provider = provider.to_string();
     let mut current_model_full_name = model_full_name.to_string();
     let mut failed_model_ids: Vec<String> = Vec::new();
-    let mut retry_count = 0;
-    const MAX_RETRIES: usize = 2;
+    let mut blocked_providers: HashSet<String> = HashSet::new();
+    let retry_chain_kind = RetryChainKind::from_block_type(&block.block_type)
+        .filter(|_| !crate::model_config::model_is_non_llm(model_id));
 
     let window_shown = Arc::new(Mutex::new(block.block_type != "image"));
     let processing_hwnd_arc = Arc::new(Mutex::new(processing_hwnd_shared));
@@ -98,10 +101,46 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
         let window_shown_clone = window_shown.clone();
         let processing_hwnd_clone = processing_hwnd_arc.clone();
 
-        if retry_count > 0
+        if !failed_model_ids.is_empty()
             && let Ok(mut lock) = acc_clone.lock()
         {
             lock.clear();
+        }
+
+        if let Some(chain_kind) = retry_chain_kind
+            && let Some(skip_reason) = preflight_skip_reason(
+                &current_model_id,
+                &current_provider,
+                config,
+                &blocked_providers,
+            )
+        {
+            if crate::overlay::utils::should_block_retry_provider(&skip_reason) {
+                blocked_providers.insert(current_provider.clone());
+            }
+
+            failed_model_ids.push(current_model_id.clone());
+
+            if let Some(next_model) = resolve_next_retry_model(
+                &current_model_id,
+                &failed_model_ids,
+                &blocked_providers,
+                chain_kind,
+                config,
+            ) {
+                current_model_id = next_model.id;
+                current_provider = next_model.provider;
+                current_model_full_name = next_model.full_name;
+
+                if let Some(h) = my_hwnd {
+                    let retry_msg =
+                        get_retry_message(&config.ui_language, &current_model_full_name);
+                    update_window_text(h, &retry_msg);
+                }
+                continue;
+            }
+
+            break Err(anyhow::anyhow!(skip_reason));
         }
 
         let res_inner = if is_first_processing_block
@@ -148,22 +187,20 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                     break Err(e);
                 }
 
-                if retry_count < MAX_RETRIES
-                    && crate::overlay::utils::is_retryable_error(&e.to_string())
+                if let Some(chain_kind) = retry_chain_kind
+                    && crate::overlay::utils::should_advance_retry_chain(&e.to_string())
                 {
-                    retry_count += 1;
+                    if crate::overlay::utils::should_block_retry_provider(&e.to_string()) {
+                        blocked_providers.insert(current_provider.clone());
+                    }
+
                     failed_model_ids.push(current_model_id.clone());
 
-                    let current_type = if block.block_type == "image" {
-                        crate::model_config::ModelType::Vision
-                    } else {
-                        crate::model_config::ModelType::Text
-                    };
-
-                    if let Some(next_model) = crate::model_config::resolve_fallback_model(
+                    if let Some(next_model) = resolve_next_retry_model(
                         &current_model_id,
                         &failed_model_ids,
-                        &current_type,
+                        &blocked_providers,
+                        chain_kind,
                         config,
                     ) {
                         current_model_id = next_model.id;

@@ -347,6 +347,7 @@ impl SettingsApp {
             show_tts_modal: false,
             // --- TOOLS MODAL INIT ---
             show_tools_modal: false,
+            show_model_priority_modal: false,
             // -----------------------
 
             // --- FAVORITE BUBBLE STATE INIT ---

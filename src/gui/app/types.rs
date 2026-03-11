@@ -94,6 +94,7 @@ pub struct SettingsApp {
     // --- TTS SETTINGS MODAL STATE ---
     pub(crate) show_tts_modal: bool,
     pub(crate) show_tools_modal: bool,
+    pub(crate) show_model_priority_modal: bool,
     // --------------------
 
     // --- FAVORITE BUBBLE STATE TRACKING ---

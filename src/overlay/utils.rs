@@ -928,26 +928,21 @@ fn format_http_error(
     }
 }
 
-pub fn is_retryable_error(error: &str) -> bool {
-    // 1. Check for explicit Auth errors (Never retry)
+pub fn should_advance_retry_chain(error: &str) -> bool {
     if error.contains("NO_API_KEY") || error.contains("INVALID_API_KEY") {
-        return false;
+        return true;
     }
 
-    // 2. Check HTTP status if present
     if let Some(code) = extract_http_status_code(error) {
-        // Retry recoverable request/model failures and transient capacity issues.
-        if matches!(code, 400 | 404 | 429) {
+        if matches!(code, 400 | 401 | 403 | 404 | 429) {
             return true;
         }
-        // 5xx: Server Errors (Retry!)
         if (500..=599).contains(&code) {
             return true;
         }
         return false;
     }
 
-    // 3. Fallback text checks for transient transport/provider failures
     let lower_err = error.to_lowercase();
     if lower_err.contains("rate limit")
         || lower_err.contains("too many requests")
@@ -958,6 +953,9 @@ pub fn is_retryable_error(error: &str) -> bool {
         || lower_err.contains("broken pipe")
         || lower_err.contains("timed out")
         || lower_err.contains("timeout")
+        || lower_err.contains("not found")
+        || lower_err.contains("unsupported")
+        || lower_err.contains("not support")
     {
         return true;
     }
@@ -965,21 +963,44 @@ pub fn is_retryable_error(error: &str) -> bool {
     false
 }
 
+pub fn should_block_retry_provider(error: &str) -> bool {
+    if error.contains("NO_API_KEY")
+        || error.contains("INVALID_API_KEY")
+        || error.contains("PROVIDER_DISABLED")
+    {
+        return true;
+    }
+
+    matches!(extract_http_status_code(error), Some(401 | 403))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::is_retryable_error;
+    use super::{should_advance_retry_chain, should_block_retry_provider};
 
     #[test]
-    fn retries_expected_http_statuses() {
-        assert!(is_retryable_error("request failed with status code 400"));
-        assert!(is_retryable_error("request failed with status code 404"));
-        assert!(is_retryable_error("request failed with status code 429"));
-        assert!(is_retryable_error("request failed with status code 503"));
+    fn advances_chain_for_auth_and_not_found_failures() {
+        assert!(should_advance_retry_chain("NO_API_KEY:google"));
+        assert!(should_advance_retry_chain("INVALID_API_KEY"));
+        assert!(should_advance_retry_chain(
+            "request failed with status code 401"
+        ));
+        assert!(should_advance_retry_chain(
+            "request failed with status code 404"
+        ));
+        assert!(should_advance_retry_chain("unsupported model"));
     }
 
     #[test]
-    fn does_not_retry_auth_failures() {
-        assert!(!is_retryable_error("request failed with status code 401"));
-        assert!(!is_retryable_error("INVALID_API_KEY"));
+    fn blocks_provider_for_auth_failures_only() {
+        assert!(should_block_retry_provider("NO_API_KEY:groq"));
+        assert!(should_block_retry_provider("INVALID_API_KEY"));
+        assert!(should_block_retry_provider("PROVIDER_DISABLED:google"));
+        assert!(should_block_retry_provider(
+            "request failed with status code 403"
+        ));
+        assert!(!should_block_retry_provider(
+            "request failed with status code 404"
+        ));
     }
 }
