@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useLayoutEffect, useState } from 'react';
+import { forwardRef, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Video, Loader2, Play, Pause, Crop } from 'lucide-react';
 import { VideoSegment, BackgroundConfig, MousePosition } from '@/types/video';
@@ -536,7 +536,39 @@ export function CanvasResizeOverlay({
   commitBatch,
   onDragStateChange
 }: CanvasResizeOverlayProps) {
-  useEffect(() => () => onDragStateChange?.(false), [onDragStateChange]);
+  const moveListenerRef = useRef<((event: MouseEvent) => void) | null>(null);
+  const upListenerRef = useRef<((event: MouseEvent) => void) | null>(null);
+  const dragActiveRef = useRef(false);
+
+  const clearWindowDragListeners = (
+    shouldCommitBatch: boolean,
+    pendingAnimationFrameId?: number | null,
+  ) => {
+    if (pendingAnimationFrameId !== null && pendingAnimationFrameId !== undefined) {
+      cancelAnimationFrame(pendingAnimationFrameId);
+    }
+    if (moveListenerRef.current) {
+      window.removeEventListener('mousemove', moveListenerRef.current);
+      moveListenerRef.current = null;
+    }
+    if (upListenerRef.current) {
+      window.removeEventListener('mouseup', upListenerRef.current);
+      upListenerRef.current = null;
+    }
+    if (dragActiveRef.current) {
+      dragActiveRef.current = false;
+      onDragStateChange?.(false);
+      if (shouldCommitBatch) {
+        commitBatch();
+      }
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      clearWindowDragListeners(true);
+    };
+  }, [commitBatch, onDragStateChange]);
 
   const container = previewContainerRef.current;
   if (!container) return null;
@@ -559,6 +591,8 @@ export function CanvasResizeOverlay({
   const handleDragStart = (e: React.MouseEvent, type: string) => {
     e.preventDefault();
     e.stopPropagation();
+    clearWindowDragListeners(false);
+    dragActiveRef.current = true;
     onDragStateChange?.(true);
     beginBatch();
 
@@ -600,12 +634,10 @@ export function CanvasResizeOverlay({
     };
 
     const handleUp = () => {
-      if (rafId !== null) cancelAnimationFrame(rafId);
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-      onDragStateChange?.(false);
-      commitBatch();
+      clearWindowDragListeners(true, rafId);
     };
+    moveListenerRef.current = handleMove;
+    upListenerRef.current = handleUp;
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
   };

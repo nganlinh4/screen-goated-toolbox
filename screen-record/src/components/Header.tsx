@@ -43,7 +43,7 @@ function getCombinedFpsOptions(monitors: MonitorInfo[]): number[] {
 
 type CaptureMenuStep = 'root' | 'display-monitors' | 'display-fps' | 'window-fps';
 type HeaderDropdown = 'recordingMode' | 'captureSource' | null;
-const HEADER_DROPDOWN_DEBUG = true;
+const HEADER_DROPDOWN_DEBUG = false;
 
 interface HeaderProps {
   isRecording: boolean;

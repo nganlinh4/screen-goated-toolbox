@@ -34,6 +34,13 @@ function cloneCanvasConfig(
   };
 }
 
+export function getEffectiveCompositionMode(
+  composition: Pick<ProjectComposition, "clips" | "mode"> | null | undefined,
+): ProjectCompositionMode {
+  if (!composition) return "separate";
+  return composition.clips.length <= 1 ? "separate" : composition.mode;
+}
+
 export function extractCanvasConfig(
   backgroundConfig: BackgroundConfig,
 ): ProjectCanvasConfig {
@@ -204,9 +211,11 @@ export function ensureProjectComposition(
         ? canvasConfig.autoSourceClipId
         : rootClip.id
       : null;
+  const mode: ProjectCompositionMode =
+    normalizedClips.length <= 1 ? "separate" : (existing?.mode ?? "separate");
   return syncCompositionCanvasConfig(
     {
-      mode: existing?.mode ?? "separate",
+      mode,
       selectedClipId,
       focusedClipId,
       clips: normalizedClips,
@@ -241,7 +250,7 @@ export function getCompositionResolvedBackgroundConfig(
 ): BackgroundConfig | null {
   const clip = getCompositionClip(composition, clipId);
   if (!clip) return null;
-  if (composition.mode === "unified") {
+  if (getEffectiveCompositionMode(composition) === "unified") {
     return applyUnifiedPresentationConfig(
       clip.backgroundConfig,
       composition.globalPresentationConfig ??
@@ -346,7 +355,10 @@ export function insertCompositionClip(
   clips.splice(insertIndex, 0, clip);
   return {
     ...composition,
-    mode: composition.clips.length === 1 ? "separate" : composition.mode,
+    mode:
+      composition.clips.length === 1
+        ? "separate"
+        : getEffectiveCompositionMode(composition),
     clips,
     selectedClipId: clip.id,
     focusedClipId: clip.id,
@@ -361,6 +373,7 @@ export function removeCompositionClip(
   const fallbackClipId = clips[0]?.id ?? null;
   return {
     ...composition,
+    mode: clips.length <= 1 ? "separate" : getEffectiveCompositionMode(composition),
     clips,
     selectedClipId:
       composition.selectedClipId === clipId
@@ -379,7 +392,7 @@ export function setCompositionMode(
 ): ProjectComposition {
   return {
     ...composition,
-    mode,
+    mode: composition.clips.length <= 1 ? "separate" : mode,
   };
 }
 
