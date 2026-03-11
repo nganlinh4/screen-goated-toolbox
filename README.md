@@ -82,10 +82,16 @@ cd screen-record; npm install; npm run build; cd ..; New-Item -ItemType Director
 
 ### Repomix (for "Ask anything about SGT")
 
-Use this command when generating `repomix-output.xml` so the "Ask anything about SGT" feature stays responsive/normal (it excludes token-heavy cursor SVG assets and raw cursor source files):
+The help assistant now uses two prebuilt repomix files so the prompt stays under the model limit:
+- `repomix-screen-recorder.xml` for `Hỏi về SGT Record (Quay màn hình)`
+- `repomix-rest.xml` for `Hỏi về mọi thứ còn lại`
+
+Regenerate them with these commands:
 
 ```powershell
-repomix --compress --remove-comments --remove-empty-lines --no-file-summary --no-directory-structure --truncate-base64 --top-files-len 20 --ignore 'repomix-output.xml,screen-record/public/cursor-*.svg,screen-record/public/cursors/**,docs/images/**'
+repomix . --compress --remove-comments --remove-empty-lines --no-file-summary --no-directory-structure --truncate-base64 --top-files-len 20 --include 'src/overlay/screen_record/**,screen-record/**,src/gui/settings_ui/download_manager/**,src/gui/settings_ui/pointer_gallery/**,src/gui/settings_ui/sidebar.rs' --ignore 'repomix-output.xml,repomix-screen-recorder.xml,repomix-rest.xml,docs/images/**,screen-record/public/**,screen-record/src/assets/**,assets/**,**/*.svg' -o repomix-screen-recorder.xml
+
+repomix . --compress --remove-comments --remove-empty-lines --no-file-summary --no-directory-structure --truncate-base64 --top-files-len 20 --ignore 'repomix-output.xml,repomix-screen-recorder.xml,repomix-rest.xml,docs/images/**,src/overlay/screen_record/**,screen-record/**,src/gui/settings_ui/download_manager/**,src/gui/settings_ui/pointer_gallery/**,src/gui/settings_ui/sidebar.rs,screen-record/public/**,screen-record/src/assets/**,assets/**,**/*.svg' -o repomix-rest.xml
 ```
 
 ## Getting Started
