@@ -99,6 +99,9 @@ export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
   return (
     <Dialog open={show}>
       <DialogContent hideClose size="max-w-[18rem]" onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
+        <DialogTitle className="sr-only">
+          {active ? t.exportingVideo : t.preparingExport}
+        </DialogTitle>
         <DialogBody>
           <p className="processing-title text-sm font-medium text-[var(--on-surface)] mb-3">
             {active ? t.exportingVideo : t.preparingExport}
@@ -150,6 +153,7 @@ export function ConfirmDialog({ show, title, message, onConfirm, onCancel }: Con
   return (
     <Dialog open={show} onOpenChange={(open) => { if (!open) onCancel(); }}>
       <DialogContent size="max-w-sm">
+        <DialogTitle className="sr-only">{title}</DialogTitle>
         <DialogBody>
           <h3 className="text-sm font-semibold text-[var(--on-surface)] mb-2">{title}</h3>
           <p className="text-xs text-[var(--on-surface-variant)] mb-5">{message}</p>

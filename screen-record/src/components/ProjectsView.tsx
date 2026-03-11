@@ -6,6 +6,20 @@ import { useSettings } from "@/hooks/useSettings";
 import { invoke } from "@/lib/ipc";
 import { ConfirmDialog } from "./dialogs";
 
+const PROJECTS_FLIP_DEBUG = true;
+
+export interface ProjectsPreviewRectSnapshot {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export interface ProjectsPreviewTargetSnapshot {
+  stageRect: ProjectsPreviewRectSnapshot | null;
+  canvasRect: ProjectsPreviewRectSnapshot | null;
+}
+
 interface ProjectsViewProps {
   projects: Omit<Project, "videoBlob">[];
   onLoadProject: (projectId: string) => void | Promise<void>;
@@ -13,6 +27,7 @@ interface ProjectsViewProps {
   onClose: () => void;
   currentProjectId?: string | null;
   restoreImage?: string | null;
+  previewTargetSnapshot?: ProjectsPreviewTargetSnapshot | null;
   pickerMode?: "load" | "insertBefore" | "insertAfter";
   onPickProject?: (projectId: string) => void | Promise<void>;
 }
@@ -63,7 +78,18 @@ function getProjectPreviewTargetRect(
   return containRect(cw, ch, fallbackWidth, fallbackHeight);
 }
 
-function getPreviewStageRect(): DOMRect | null {
+function rectSnapshotToDomRect(
+  rect: ProjectsPreviewRectSnapshot | null | undefined,
+): DOMRect | null {
+  if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+  return new DOMRect(rect.left, rect.top, rect.width, rect.height);
+}
+
+function getPreviewStageRect(
+  snapshot?: ProjectsPreviewTargetSnapshot | null,
+): DOMRect | null {
+  const snapshotRect = rectSnapshotToDomRect(snapshot?.stageRect);
+  if (snapshotRect) return snapshotRect;
   const previewStage = document.querySelector(
     ".preview-canvas",
   ) as HTMLElement | null;
@@ -81,6 +107,32 @@ function getLiveCanvasRect(): DOMRect | null {
   const rect = canvas.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return null;
   return rect;
+}
+
+function getOptionalElementRect(selector: string): DOMRect | null {
+  const element = document.querySelector(selector) as HTMLElement | null;
+  if (!element) return null;
+  const rect = element.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  return rect;
+}
+
+function toRectSnapshot(rect: DOMRect | null) {
+  if (!rect) return null;
+  return {
+    left: Number(rect.left.toFixed(2)),
+    top: Number(rect.top.toFixed(2)),
+    width: Number(rect.width.toFixed(2)),
+    height: Number(rect.height.toFixed(2)),
+  };
+}
+
+function logProjectsFlip(
+  event: string,
+  details: Record<string, unknown> = {},
+) {
+  if (!PROJECTS_FLIP_DEBUG) return;
+  console.log("[ProjectsFlip]", { event, ...details });
 }
 
 /** Resolve the rendered preview canvas rect relative to a parent, if present. */
@@ -110,6 +162,7 @@ export function ProjectsView({
   onClose,
   currentProjectId,
   restoreImage,
+  previewTargetSnapshot,
   pickerMode = "load",
   onPickProject,
 }: ProjectsViewProps) {
@@ -305,7 +358,7 @@ export function ProjectsView({
       "img",
     ) as HTMLImageElement | null;
     const container = containerRef.current;
-    const portalRect = getPreviewStageRect();
+    const portalRect = getPreviewStageRect(previewTargetSnapshot);
 
     if (!thumbnailImg || !container || !portalRect) {
       onLoadProject(projectId);
@@ -313,7 +366,9 @@ export function ProjectsView({
     }
 
     const thumbRect = thumbnailImg.getBoundingClientRect();
-    const canvasRect = getLiveCanvasRect();
+    const canvasRect =
+      rectSnapshotToDomRect(previewTargetSnapshot?.canvasRect) ??
+      getLiveCanvasRect();
     const natW = thumbnailImg.naturalWidth || 16;
     const natH = thumbnailImg.naturalHeight || 9;
     const targetProject = projects.find((project) => project.id === projectId);
@@ -342,6 +397,28 @@ export function ProjectsView({
             height: target.height,
           };
 
+    logProjectsFlip("load-estimate", {
+      projectId,
+      projectName: targetProject?.name,
+      thumbnailNaturalSize: { width: natW, height: natH },
+      previewStageRect: toRectSnapshot(portalRect),
+      stablePreviewStageRect: previewTargetSnapshot?.stageRect ?? null,
+      preLoadCanvasRect: toRectSnapshot(canvasRect),
+      stableCanvasRect: previewTargetSnapshot?.canvasRect ?? null,
+      estimatedTargetRect: {
+        left: Number(targetGlobal.left.toFixed(2)),
+        top: Number(targetGlobal.top.toFixed(2)),
+        width: Number(targetGlobal.width.toFixed(2)),
+        height: Number(targetGlobal.height.toFixed(2)),
+      },
+      canvasConfig: {
+        mode: targetProject?.backgroundConfig?.canvasMode ?? null,
+        width: targetProject?.backgroundConfig?.canvasWidth ?? null,
+        height: targetProject?.backgroundConfig?.canvasHeight ?? null,
+        scale: targetProject?.backgroundConfig?.scale ?? null,
+      },
+    });
+
     const clone = document.createElement("div");
     clone.style.cssText = `
       position: absolute; z-index: 9999; pointer-events: none;
@@ -359,17 +436,20 @@ export function ProjectsView({
     animatingRef.current = true;
     setAnimatingId(projectId);
 
-    const fadeOut = () => {
-      clone.animate([{ opacity: 1 }, { opacity: 0 }], {
-        duration: 200,
-        fill: "forwards",
-      }).onfinish = () => clone.remove();
+    const removeCloneAfterPaint = () => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          clone.remove();
+        });
+      });
     };
 
     const settleCloneToLiveCanvas = () => {
       const liveCanvasRect = getLiveCanvasRect();
+      const livePreviewStageRect = getPreviewStageRect();
       if (!liveCanvasRect) {
-        fadeOut();
+        logProjectsFlip("load-settle-missing-live-canvas", { projectId });
+        removeCloneAfterPaint();
         return;
       }
       const cloneRect = clone.getBoundingClientRect();
@@ -377,13 +457,77 @@ export function ProjectsView({
       const deltaTop = liveCanvasRect.top - cloneRect.top;
       const widthDelta = Math.abs(liveCanvasRect.width - cloneRect.width);
       const heightDelta = Math.abs(liveCanvasRect.height - cloneRect.height);
+      const liveCanvasEl = document.querySelector(
+        ".preview-canvas-element",
+      ) as HTMLCanvasElement | null;
+      logProjectsFlip("load-settle", {
+        projectId,
+        estimatedTargetRect: toRectSnapshot(
+          new DOMRect(
+            targetGlobal.left,
+            targetGlobal.top,
+            targetGlobal.width,
+            targetGlobal.height,
+          ),
+        ),
+        cloneRect: toRectSnapshot(cloneRect),
+        liveCanvasRect: toRectSnapshot(liveCanvasRect),
+        livePreviewStageRect: toRectSnapshot(livePreviewStageRect),
+        livePreviewSurfaceRect: toRectSnapshot(
+          getOptionalElementRect(".video-preview-container"),
+        ),
+        livePlaybackControlsRect: toRectSnapshot(
+          getOptionalElementRect(".playback-controls-row"),
+        ),
+        liveSequenceBreadcrumbRect: toRectSnapshot(
+          getOptionalElementRect(".sequence-focus-breadcrumb"),
+        ),
+        liveTimelineRect: toRectSnapshot(
+          getOptionalElementRect(".timeline-container"),
+        ),
+        delta: {
+          left: Number(deltaLeft.toFixed(2)),
+          top: Number(deltaTop.toFixed(2)),
+          width: Number(widthDelta.toFixed(2)),
+          height: Number(heightDelta.toFixed(2)),
+        },
+        previewStageDelta: livePreviewStageRect
+          ? {
+              width: Number(
+                (livePreviewStageRect.width - portalRect.width).toFixed(2),
+              ),
+              height: Number(
+                (livePreviewStageRect.height - portalRect.height).toFixed(2),
+              ),
+              left: Number(
+                (livePreviewStageRect.left - portalRect.left).toFixed(2),
+              ),
+              top: Number(
+                (livePreviewStageRect.top - portalRect.top).toFixed(2),
+              ),
+            }
+          : null,
+        liveCanvasIntrinsicSize: liveCanvasEl
+          ? {
+              width: liveCanvasEl.width,
+              height: liveCanvasEl.height,
+              aspectRatio: liveCanvasEl.style.aspectRatio || null,
+            }
+          : null,
+        canvasConfig: {
+          mode: targetProject?.backgroundConfig?.canvasMode ?? null,
+          width: targetProject?.backgroundConfig?.canvasWidth ?? null,
+          height: targetProject?.backgroundConfig?.canvasHeight ?? null,
+          scale: targetProject?.backgroundConfig?.scale ?? null,
+        },
+      });
       if (
         Math.abs(deltaLeft) < 0.5 &&
         Math.abs(deltaTop) < 0.5 &&
         widthDelta < 0.5 &&
         heightDelta < 0.5
       ) {
-        fadeOut();
+        removeCloneAfterPaint();
         return;
       }
       clone.animate(
@@ -411,7 +555,7 @@ export function ProjectsView({
         clone.style.top = `${liveCanvasRect.top}px`;
         clone.style.width = `${liveCanvasRect.width}px`;
         clone.style.height = `${liveCanvasRect.height}px`;
-        fadeOut();
+        removeCloneAfterPaint();
       };
     };
 
