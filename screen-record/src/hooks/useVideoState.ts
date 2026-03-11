@@ -33,6 +33,7 @@ import {
   mergePointerSegments,
 } from "@/lib/cursorHiding";
 import { getTotalTrimDuration, normalizeSegmentTrimData } from "@/lib/trimSegments";
+import { getBaseTimelineThumbnailCount } from "@/lib/timelineThumbnailCount";
 import { getKeyframeRange } from "@/utils/helpers";
 import { useThrottle } from "./useAppHooks";
 import { buildKeystrokeEvents } from "@/lib/keystrokeProcessor";
@@ -350,15 +351,7 @@ export function useVideoPlayback({
 
   const getRequestedThumbnailCount = useCallback(
     (thumbnailSegment: VideoSegment | null | undefined) => {
-      if (!thumbnailSegment) return 6;
-      const trimDuration = Math.max(
-        0,
-        getTotalTrimDuration(
-          thumbnailSegment,
-          Math.max(thumbnailSegment.trimEnd, 0.001),
-        ),
-      );
-      return Math.max(6, Math.min(10, Math.ceil(trimDuration / 3)));
+      return getBaseTimelineThumbnailCount(thumbnailSegment);
     },
     [],
   );
@@ -455,6 +448,7 @@ export function useVideoPlayback({
       videoUrl?: string | null;
       filePath?: string;
       segment?: VideoSegment | null;
+      thumbnailCount?: number;
     }) => {
       const sourceKey =
         options?.filePath?.trim() ||
@@ -465,6 +459,9 @@ export function useVideoPlayback({
       if (!sourceKey || !thumbnailSegment) return null;
       return JSON.stringify({
         sourceKey,
+        thumbnailCount:
+          options?.thumbnailCount ??
+          getRequestedThumbnailCount(thumbnailSegment),
         trimStart: thumbnailSegment.trimStart,
         trimEnd: thumbnailSegment.trimEnd,
         trimSegments: (thumbnailSegment.trimSegments ?? []).map(
@@ -484,11 +481,13 @@ export function useVideoPlayback({
       filePath?: string;
       segment?: VideoSegment | null;
       deferMs?: number;
+      thumbnailCount?: number;
     }) => {
       const videoUrl = options?.videoUrl ?? currentVideo;
       const thumbnailSegment = options?.segment ?? segment;
       if (!videoUrl || !thumbnailSegment) return;
-      const requestedCount = getRequestedThumbnailCount(thumbnailSegment);
+      const requestedCount =
+        options?.thumbnailCount ?? getRequestedThumbnailCount(thumbnailSegment);
       const requestId = ++thumbnailRequestIdRef.current;
       const cacheKey = getThumbnailCacheKey(options);
       const cachedThumbnails = cacheKey
@@ -538,7 +537,10 @@ export function useVideoPlayback({
           }
           const fallbackThumbnail = generateThumbnail();
           if (fallbackThumbnail) {
-            const fallbackStrip = Array.from({ length: 6 }, () => fallbackThumbnail);
+            const fallbackStrip = Array.from(
+              { length: Math.max(1, requestedCount) },
+              () => fallbackThumbnail,
+            );
             if (cacheKey) {
               thumbnailCacheRef.current.set(cacheKey, fallbackStrip);
             }
@@ -765,6 +767,7 @@ interface UseRecordingProps {
     filePath?: string;
     segment?: VideoSegment | null;
     deferMs?: number;
+    thumbnailCount?: number;
   }) => Promise<void>;
   generateThumbnail: () => string | undefined;
   renderFrame: () => void;

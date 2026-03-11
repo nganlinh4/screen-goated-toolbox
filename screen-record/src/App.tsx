@@ -81,6 +81,7 @@ import { ResizeBorders } from "@/components/layout/ResizeBorders";
 import { useAppShortcuts } from "@/hooks/useAppShortcuts";
 import { useRawVideoHandler } from "@/hooks/useRawVideoHandler";
 import { useKeystrokeDrag } from "@/hooks/useKeystrokeDrag";
+import { useTimelineAdaptiveThumbnails } from "@/hooks/useTimelineAdaptiveThumbnails";
 import {
   applyCanvasConfig,
   createCompositionSnapshotClip,
@@ -436,6 +437,8 @@ function App() {
     useState(false);
   const [isProjectInteractionShieldVisible, setIsProjectInteractionShieldVisible] =
     useState(false);
+  const [, setTimelineViewportZoom] = useState(1);
+  const [timelineCanvasWidthPx, setTimelineCanvasWidthPx] = useState(0);
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -1196,6 +1199,14 @@ function App() {
   const setCurrentTime = setPreviewCurrentTime;
   const duration = previewDuration;
   const isPlaying = isPreviewPlaying;
+
+  useTimelineAdaptiveThumbnails({
+    timelineCanvasWidthPx,
+    segment,
+    currentVideo,
+    isPlaying,
+    generateThumbnailsForSource,
+  });
 
   useEffect(() => {
     if (!PLAYBACK_RESET_DEBUG) return;
@@ -3948,6 +3959,8 @@ function App() {
               onAddKeystrokeSegment={handleAddKeystrokeSegment}
               onAddPointerSegment={handleAddPointerSegment}
               isPlaying={isPlaying}
+              onViewportZoomChange={setTimelineViewportZoom}
+              onViewportCanvasWidthChange={setTimelineCanvasWidthPx}
               beginBatch={beginBatch}
               commitBatch={commitBatch}
             />
