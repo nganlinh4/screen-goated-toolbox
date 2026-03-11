@@ -19,7 +19,7 @@ const vi: Translations = {
   toggleKeystrokeMode: 'Chuyển Chế Độ Phím',
   keystrokeModeOff: 'Phím: Tắt',
   keystrokeModeKeyboard: 'Phím: Bàn Phím',
-  keystrokeModeKeyboardMouse: 'Phím: Bàn Phím + Chuột',
+  keystrokeModeKeyboardMouse: 'Bàn Phím + Chuột',
   keystrokeLanguageLabel: 'Ngôn ngữ',
   export: 'Xuất',
   saveRawVideo: 'Lưu video gốc',

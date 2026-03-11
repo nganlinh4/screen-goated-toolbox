@@ -165,7 +165,7 @@ export function PlaybackControls({
 
   return (
     <div
-      className="playback-controls relative flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border whitespace-nowrap shadow-[var(--shadow-elevation-2)]"
+      className="playback-controls relative z-20 flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border whitespace-nowrap shadow-[var(--shadow-elevation-2)]"
       style={{
         backgroundColor: 'var(--overlay-panel-bg)',
         borderColor: 'var(--overlay-panel-border)',

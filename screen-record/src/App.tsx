@@ -126,6 +126,93 @@ const sv = (v: number, min: number, max: number): CSSProperties =>
 
 type PreloadSlotKey = "previous" | "next";
 
+const POPULAR_CANVAS_RATIO_PRESETS = [
+  { id: "landscape-16-9", label: "16:9", width: 16, height: 9 },
+  { id: "portrait-9-16", label: "9:16", width: 9, height: 16 },
+  { id: "square-1-1", label: "1:1", width: 1, height: 1 },
+  { id: "portrait-4-5", label: "4:5", width: 4, height: 5 },
+  { id: "cinema-21-9", label: "21:9", width: 21, height: 9 },
+] as const;
+
+function roundToEven(value: number): number {
+  const rounded = Math.max(2, Math.round(value));
+  return rounded % 2 === 0 ? rounded : rounded + 1;
+}
+
+function getCanvasRatioDimensions(
+  baseWidth: number,
+  baseHeight: number,
+  ratioWidth: number,
+  ratioHeight: number,
+) {
+  const safeBaseWidth = Math.max(2, baseWidth || 0);
+  const safeBaseHeight = Math.max(2, baseHeight || 0);
+  const area = safeBaseWidth * safeBaseHeight;
+  const ratio = ratioWidth / ratioHeight;
+
+  if (!Number.isFinite(area) || area <= 0 || !Number.isFinite(ratio) || ratio <= 0) {
+    return {
+      width: roundToEven(ratioWidth * 120),
+      height: roundToEven(ratioHeight * 120),
+    };
+  }
+
+  const width = Math.sqrt(area * ratio);
+  const height = width / ratio;
+
+  return {
+    width: roundToEven(width),
+    height: roundToEven(height),
+  };
+}
+
+function isCanvasRatioPresetActive(
+  canvasWidth: number | undefined,
+  canvasHeight: number | undefined,
+  ratioWidth: number,
+  ratioHeight: number,
+) {
+  if (!canvasWidth || !canvasHeight) return false;
+  const currentRatio = canvasWidth / canvasHeight;
+  const targetRatio = ratioWidth / ratioHeight;
+  return Math.abs(currentRatio - targetRatio) <= 0.018;
+}
+
+function CanvasRatioIcon({
+  ratioWidth,
+  ratioHeight,
+}: {
+  ratioWidth: number;
+  ratioHeight: number;
+}) {
+  const frameSize = 12;
+  const scale = Math.min(frameSize / ratioWidth, frameSize / ratioHeight);
+  const width = ratioWidth * scale;
+  const height = ratioHeight * scale;
+  const x = (18 - width) / 2;
+  const y = (18 - height) / 2;
+  const radius = Math.max(1.5, Math.min(width, height) * 0.14);
+
+  return (
+    <svg
+      className="canvas-ratio-icon h-4 w-4 flex-shrink-0"
+      viewBox="0 0 18 18"
+      fill="none"
+      aria-hidden="true"
+    >
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        rx={radius}
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
+}
+
 function summarizeBackgroundConfig(backgroundConfig: BackgroundConfig | null | undefined) {
   return backgroundConfig
     ? {
@@ -358,6 +445,7 @@ function App() {
   const restoreImageRef = useRef<string | null>(null);
   const projectsPreviewTargetSnapshotRef =
     useRef<ProjectsPreviewTargetSnapshot | null>(null);
+  const wasProjectsDialogOpenRef = useRef(false);
   const projectInteractionShieldReleaseRef =
     useRef<(() => void) | null>(null);
   const projectInteractionBlockCleanupRef =
@@ -1307,6 +1395,67 @@ function App() {
     videoRef,
   ]);
 
+  const customCanvasAutoConfig = getAutoCanvasSelectionConfig();
+  const customCanvasBaseDimensions = {
+    width: Math.max(
+      2,
+      backgroundConfig.canvasWidth ??
+        customCanvasAutoConfig.canvasWidth ??
+        videoRef.current?.videoWidth ??
+        canvasRef.current?.width ??
+        1920,
+    ),
+    height: Math.max(
+      2,
+      backgroundConfig.canvasHeight ??
+        customCanvasAutoConfig.canvasHeight ??
+        videoRef.current?.videoHeight ??
+        canvasRef.current?.height ??
+        1080,
+    ),
+  };
+
+  const applyCustomCanvasDimensions = useCallback(
+    (canvasWidth: number, canvasHeight: number) => {
+      setBackgroundConfig((prev) => ({
+        ...prev,
+        canvasMode: "custom",
+        canvasWidth,
+        canvasHeight,
+        autoCanvasSourceId: null,
+      }));
+    },
+    [],
+  );
+
+  const handleActivateCustomCanvas = useCallback(() => {
+    applyCustomCanvasDimensions(
+      customCanvasBaseDimensions.width,
+      customCanvasBaseDimensions.height,
+    );
+  }, [
+    applyCustomCanvasDimensions,
+    customCanvasBaseDimensions.height,
+    customCanvasBaseDimensions.width,
+  ]);
+
+  const handleApplyCanvasRatioPreset = useCallback(
+    (ratioWidth: number, ratioHeight: number) => {
+      const nextDimensions = getCanvasRatioDimensions(
+        customCanvasBaseDimensions.width,
+        customCanvasBaseDimensions.height,
+        ratioWidth,
+        ratioHeight,
+      );
+      applyCustomCanvasDimensions(nextDimensions.width, nextDimensions.height);
+    },
+    [
+      applyCustomCanvasDimensions,
+      customCanvasBaseDimensions.height,
+      customCanvasBaseDimensions.width,
+    ],
+  );
+
   useEffect(() => {
     segmentRef.current = segment;
   }, [segment]);
@@ -1467,6 +1616,10 @@ function App() {
   );
 
   const handleTogglePlayPause = useCallback(() => {
+    if (isSwitchingCompositionClipRef.current) {
+      return;
+    }
+
     if (
       hasSequenceChain &&
       !isPlaying &&
@@ -2496,6 +2649,22 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (projects.showProjectsDialog) {
+      wasProjectsDialogOpenRef.current = true;
+      return;
+    }
+    if (!wasProjectsDialogOpenRef.current) return;
+    wasProjectsDialogOpenRef.current = false;
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.focus();
+        previewContainerRef.current?.focus({ preventScroll: true });
+      });
+    });
+  }, [projects.showProjectsDialog]);
+
   const handleToggleProjects = useCallback(async () => {
     if (isProjectInteractionShieldVisible) {
       return;
@@ -3264,8 +3433,9 @@ function App() {
                 <div className="preview-inner relative w-full h-full flex justify-center items-center">
                   <div
                     ref={previewContainerRef}
-                    className={`preview-canvas relative flex items-center justify-center ${previewCursorClass} group w-full h-full`}
+                    className={`preview-canvas relative flex items-center justify-center ${previewCursorClass} group w-full h-full focus:outline-none`}
                     onMouseDown={handlePreviewMouseDown}
+                    tabIndex={-1}
                   >
                     <canvas
                       ref={canvasRef}
@@ -3376,57 +3546,112 @@ function App() {
                     onToggleCrop={handleToggleCrop}
                     canvasModeToggle={
                       <div className="playback-canvas-mode-toggle ui-segmented">
-                        {(["auto", "custom"] as const).map((mode) => {
-                          const isActive =
-                            (backgroundConfig.canvasMode ?? "auto") === mode;
-                          return (
-                            <button
-                              key={mode}
-                              type="button"
-                              aria-pressed={isActive}
-                              data-active={isActive ? "true" : "false"}
-                              onClick={() => {
-                                if (mode === "custom") {
-                                  setBackgroundConfig((prev) => {
-                                    const w =
-                                      prev.canvasWidth ??
-                                      canvasRef.current?.width ??
-                                      1920;
-                                    const h =
-                                      prev.canvasHeight ??
-                                      canvasRef.current?.height ??
-                                      1080;
-                                    return {
-                                      ...prev,
-                                      canvasMode: "custom",
-                                      canvasWidth: w,
-                                      canvasHeight: h,
-                                      autoCanvasSourceId: null,
-                                    };
-                                  });
-                                } else {
-                                  const autoCanvasConfig =
-                                    getAutoCanvasSelectionConfig();
-                                  setBackgroundConfig((prev) => ({
-                                    ...prev,
-                                    canvasMode: "auto",
-                                    canvasWidth: autoCanvasConfig.canvasWidth,
-                                    canvasHeight: autoCanvasConfig.canvasHeight,
-                                    autoCanvasSourceId:
-                                      autoCanvasConfig.autoSourceClipId,
-                                  }));
-                                }
-                              }}
-                              className={`playback-canvas-mode-btn playback-canvas-mode-btn-${mode} ui-segmented-button ${isActive ? "playback-canvas-mode-btn-active ui-segmented-button-active" : "playback-canvas-mode-btn-inactive"} px-2 py-1 text-[10px] font-semibold ${
-                                isActive
-                                  ? ""
-                                  : "text-[var(--overlay-panel-fg)]/70 hover:text-[var(--overlay-panel-fg)]"
-                              }`}
-                            >
-                              {mode === "auto" ? t.canvasAuto : t.canvasCustom}
-                            </button>
-                          );
-                        })}
+                        <button
+                          type="button"
+                          aria-pressed={
+                            (backgroundConfig.canvasMode ?? "auto") === "auto"
+                          }
+                          data-active={
+                            (backgroundConfig.canvasMode ?? "auto") === "auto"
+                              ? "true"
+                              : "false"
+                          }
+                          onClick={() => {
+                            const autoCanvasConfig =
+                              getAutoCanvasSelectionConfig();
+                            setBackgroundConfig((prev) => ({
+                              ...prev,
+                              canvasMode: "auto",
+                              canvasWidth: autoCanvasConfig.canvasWidth,
+                              canvasHeight: autoCanvasConfig.canvasHeight,
+                              autoCanvasSourceId:
+                                autoCanvasConfig.autoSourceClipId,
+                            }));
+                          }}
+                          className={`playback-canvas-mode-btn playback-canvas-mode-btn-auto ui-segmented-button ${
+                            (backgroundConfig.canvasMode ?? "auto") === "auto"
+                              ? "playback-canvas-mode-btn-active ui-segmented-button-active"
+                              : "playback-canvas-mode-btn-inactive text-[var(--overlay-panel-fg)]/70 hover:text-[var(--overlay-panel-fg)]"
+                          } px-2 py-1 text-[10px] font-semibold`}
+                        >
+                          {t.canvasAuto}
+                        </button>
+                        <div className="playback-canvas-custom-control relative group/playback-canvas-custom">
+                          <div className="playback-canvas-ratio-hover-bridge absolute left-0 right-0 bottom-full h-3" />
+                          <button
+                            type="button"
+                            aria-pressed={
+                              (backgroundConfig.canvasMode ?? "auto") === "custom"
+                            }
+                            data-active={
+                              (backgroundConfig.canvasMode ?? "auto") === "custom"
+                                ? "true"
+                                : "false"
+                            }
+                            onClick={handleActivateCustomCanvas}
+                            className={`playback-canvas-mode-btn playback-canvas-mode-btn-custom ui-segmented-button ${
+                              (backgroundConfig.canvasMode ?? "auto") === "custom"
+                                ? "playback-canvas-mode-btn-active ui-segmented-button-active"
+                                : "playback-canvas-mode-btn-inactive text-[var(--overlay-panel-fg)]/70 hover:text-[var(--overlay-panel-fg)]"
+                            } px-2 py-1 text-[10px] font-semibold`}
+                          >
+                            {t.canvasCustom}
+                          </button>
+                          <div className="playback-canvas-ratio-popover playback-keystroke-delay-popover absolute left-1/2 z-30 -translate-x-1/2 bottom-[calc(100%+4px)] w-[296px] px-2.5 py-2 rounded-lg border pointer-events-none opacity-0 translate-y-1 transition-all duration-150 group-hover/playback-canvas-custom:opacity-100 group-hover/playback-canvas-custom:translate-y-0 group-hover/playback-canvas-custom:pointer-events-auto group-focus-within/playback-canvas-custom:opacity-100 group-focus-within/playback-canvas-custom:translate-y-0 group-focus-within/playback-canvas-custom:pointer-events-auto">
+                            <div className="playback-canvas-ratio-grid grid grid-cols-3 gap-2">
+                              {POPULAR_CANVAS_RATIO_PRESETS.map((preset) => {
+                                const presetDimensions =
+                                  getCanvasRatioDimensions(
+                                    customCanvasBaseDimensions.width,
+                                    customCanvasBaseDimensions.height,
+                                    preset.width,
+                                    preset.height,
+                                  );
+                                const isActive =
+                                  (backgroundConfig.canvasMode ?? "auto") ===
+                                    "custom" &&
+                                  isCanvasRatioPresetActive(
+                                    backgroundConfig.canvasWidth,
+                                    backgroundConfig.canvasHeight,
+                                    preset.width,
+                                    preset.height,
+                                  );
+
+                                return (
+                                  <button
+                                    key={preset.id}
+                                    type="button"
+                                    onClick={() =>
+                                      handleApplyCanvasRatioPreset(
+                                        preset.width,
+                                        preset.height,
+                                      )
+                                    }
+                                    className={`playback-canvas-ratio-btn ui-choice-tile rounded-xl px-2.5 py-2 text-left ${
+                                      isActive
+                                        ? "ui-choice-tile-active"
+                                        : "text-[var(--overlay-panel-fg)]"
+                                    }`}
+                                  >
+                                    <div className="playback-canvas-ratio-header flex items-center gap-2">
+                                      <CanvasRatioIcon
+                                        ratioWidth={preset.width}
+                                        ratioHeight={preset.height}
+                                      />
+                                      <span className="playback-canvas-ratio-label text-[10px] font-semibold">
+                                        {preset.label}
+                                      </span>
+                                    </div>
+                                    <div className="playback-canvas-ratio-size mt-1 text-[9px] tabular-nums text-[var(--overlay-panel-fg)]/68">
+                                      {presetDimensions.width}×
+                                      {presetDimensions.height}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     }
                     keystrokeToggle={
@@ -3459,7 +3684,7 @@ function App() {
                                 : t.keystrokeModeOff}
                           </span>
                         </Button>
-                        <div className="playback-keystroke-delay-popover absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+4px)] w-[308px] px-2.5 py-2 rounded-lg border pointer-events-none opacity-0 translate-y-1 transition-all duration-150 group-hover/playback-keystroke:opacity-100 group-hover/playback-keystroke:translate-y-0 group-hover/playback-keystroke:pointer-events-auto group-focus-within/playback-keystroke:opacity-100 group-focus-within/playback-keystroke:translate-y-0 group-focus-within/playback-keystroke:pointer-events-auto">
+                        <div className="playback-keystroke-delay-popover absolute left-1/2 z-30 -translate-x-1/2 bottom-[calc(100%+4px)] w-[308px] px-2.5 py-2 rounded-lg border pointer-events-none opacity-0 translate-y-1 transition-all duration-150 group-hover/playback-keystroke:opacity-100 group-hover/playback-keystroke:translate-y-0 group-hover/playback-keystroke:pointer-events-auto group-focus-within/playback-keystroke:opacity-100 group-focus-within/playback-keystroke:translate-y-0 group-focus-within/playback-keystroke:pointer-events-auto">
                           <div className="playback-keystroke-delay-row flex items-center gap-3">
                             <div className="playback-keystroke-delay-slider-shell flex-1 rounded-full px-1 py-[3px]">
                               <input
