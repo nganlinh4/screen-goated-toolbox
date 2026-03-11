@@ -20,7 +20,7 @@
 //! let preset = PresetBuilder::new("my_preset", "My Preset")
 //!     .image()
 //!     .blocks(vec![
-//!         BlockBuilder::image("scout")
+//!         BlockBuilder::image("gemini-3.1-flash-lite-preview")
 //!             .prompt("Extract text.")
 //!             .language("Vietnamese")
 //!             .build()
@@ -56,6 +56,9 @@ pub use types::ThemeMode;
 
 // Hotkey
 pub use types::Hotkey;
+
+// Retry priority types
+pub use types::ModelPriorityChains;
 
 // TTS types
 pub use types::{EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod};

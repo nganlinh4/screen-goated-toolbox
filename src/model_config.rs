@@ -540,90 +540,12 @@ pub fn get_all_models() -> &'static [ModelConfig] {
 }
 
 pub fn get_model_by_id(id: &str) -> Option<ModelConfig> {
-    get_all_models().iter().find(|m| m.id == id).cloned()
-}
-
-/// Resolve a fallback model for retry logic
-/// Prioritizes:
-/// 1. Same provider, same type (Prioritize based on list order - treating list as priority queue)
-/// 2. Different provider, same type
-use crate::config::Config;
-
-/// Resolve a fallback model for retry logic
-/// Prioritizes:
-/// 1. Same provider, same type (Prioritize based on list order - treating list as priority queue)
-/// 2. Different provider, same type
-///
-/// Checks if the provider is actually configured (has API key) before suggesting it.
-pub fn resolve_fallback_model(
-    failed_model_id: &str,
-    failed_model_ids: &[String],
-    current_model_type: &ModelType,
-    config: &Config,
-) -> Option<ModelConfig> {
-    let all_models = get_all_models_with_ollama();
-    let current_model_opt = get_model_by_id(failed_model_id);
-    let current_provider = current_model_opt
-        .as_ref()
-        .map(|m| m.provider.as_str())
-        .unwrap_or("");
-
-    // Helper to check if a provider is enabled AND configured (has API key)
-    // Both the toggle must be on and the key must be present.
-    let is_provider_configured = |provider: &str| -> bool {
-        match provider {
-            "groq" => config.use_groq && !config.api_key.is_empty(),
-            "google" | "gemini-live" => config.use_gemini && !config.gemini_api_key.is_empty(),
-            "openrouter" => config.use_openrouter && !config.openrouter_api_key.is_empty(),
-            "cerebras" => config.use_cerebras && !config.cerebras_api_key.is_empty(),
-            "ollama" => config.use_ollama,
-            // Non-LLM providers (google-gtx, qrserver) - always available, no key needed
-            "google-gtx" | "qrserver" | "parakeet" => true,
-            _ => false,
-        }
-    };
-
-    // 1. Determine requirements from the failed model
-    // If the failed model supported search, the fallback MUST also support search
-    let must_support_search = model_supports_search_by_id(failed_model_id);
-
-    // 2. Try Same Provider
-    if !current_provider.is_empty() {
-        let same_provider_candidates: Vec<&ModelConfig> = all_models
-            .iter()
-            .filter(|m| {
-                m.provider == current_provider
-                    && m.model_type == *current_model_type
-                    && m.id != failed_model_id
-                    && !failed_model_ids.contains(&m.id)
-                    && (!must_support_search || model_supports_search_by_name(&m.full_name))
-            })
-            .collect();
-
-        // Prioritize the LAST model in the list (often the most capable/specific one)
-        if let Some(last) = same_provider_candidates.last() {
-            return Some((*last).clone());
-        }
+    if let Some(model) = get_all_models().iter().find(|m| m.id == id) {
+        return Some(model.clone());
     }
 
-    // 3. Try Different Provider
-    let diff_provider_candidates: Vec<&ModelConfig> = all_models
-        .iter()
-        .filter(|m| {
-            m.provider != current_provider
-                && m.model_type == *current_model_type
-                && !failed_model_ids.contains(&m.id)
-                && is_provider_configured(&m.provider)
-                && (!must_support_search || model_supports_search_by_name(&m.full_name))
-        })
-        .collect();
-
-    // Prioritize the LAST model in the list
-    if let Some(last) = diff_provider_candidates.last() {
-        return Some((*last).clone());
-    }
-
-    None
+    let cached = OLLAMA_MODEL_CACHE.lock().unwrap();
+    cached.iter().find(|model| model.id == id).cloned()
 }
 
 /// Get all models including dynamically fetched Ollama models

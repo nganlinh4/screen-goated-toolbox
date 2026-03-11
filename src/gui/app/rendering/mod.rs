@@ -100,6 +100,7 @@ impl SettingsApp {
                     &mut self.show_usage_modal,
                     &mut self.show_tts_modal,
                     &mut self.show_tools_modal,
+                    &mut self.show_model_priority_modal,
                     &mut self.download_manager,
                     &self.cached_audio_devices,
                     &mut self.recording_sr_hotkey,

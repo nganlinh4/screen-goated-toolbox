@@ -455,7 +455,7 @@ pub fn render_sidebar(
             new_preset.name = format!("Image {}", config.presets.len() + 1);
             if let Some(block) = new_preset.blocks.first_mut() {
                 block.block_type = "image".to_string();
-                block.model = "scout".to_string();
+                block.model = "gemini-3.1-flash-lite-preview".to_string();
                 block.prompt = "Extract text from this image.".to_string();
             }
         }

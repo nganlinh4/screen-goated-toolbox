@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
-    DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey, ThemeMode,
-    TtsLanguageCondition, TtsMethod, default_tts_language_conditions, get_system_ui_language,
+    DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey, ModelPriorityChains,
+    ThemeMode, TtsLanguageCondition, TtsMethod, default_tts_language_conditions,
+    get_system_ui_language,
 };
 
 // ============================================================================
@@ -46,6 +47,10 @@ fn default_tts_method() -> TtsMethod {
 
 fn default_edge_tts_settings() -> EdgeTtsSettings {
     EdgeTtsSettings::default()
+}
+
+fn default_model_priority_chains() -> ModelPriorityChains {
+    ModelPriorityChains::default()
 }
 
 fn default_realtime_translation_model() -> String {
@@ -171,6 +176,12 @@ pub struct Config {
     /// Enable local Ollama models
     #[serde(default)]
     pub use_ollama: bool,
+
+    // -------------------------------------------------------------------------
+    // Smart Retry Model Priority
+    // -------------------------------------------------------------------------
+    #[serde(default = "default_model_priority_chains")]
+    pub model_priority_chains: ModelPriorityChains,
 
     // -------------------------------------------------------------------------
     // Ollama Configuration
@@ -366,6 +377,7 @@ impl Default for Config {
             use_openrouter: false,
             use_cerebras: true,
             use_ollama: false,
+            model_priority_chains: ModelPriorityChains::default(),
 
             // Ollama
             ollama_base_url: "http://localhost:11434".to_string(),

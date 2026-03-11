@@ -37,6 +37,7 @@ pub enum Icon {
     Device,          // New: Monitor/Device icon for system theme
     DragHandle,      // New: Drag handle for reordering
     History,         // New: History icon (clock)
+    Priority,        // New: Priority chain icon
     Parakeet,        // New: Parakeet icon (Bird)
     Pointer,         // New: Mouse pointer/cursor icon
 

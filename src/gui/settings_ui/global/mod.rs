@@ -1,6 +1,6 @@
 use super::node_graph::request_node_graph_view_reset;
 use crate::config::Config;
-use crate::gui::icons::{Icon, icon_button};
+use crate::gui::icons::{Icon, icon_button, paint_icon};
 use crate::gui::locale::LocaleText;
 use crate::updater::{UpdateStatus, Updater};
 use auto_launch::AutoLaunch;
@@ -8,12 +8,14 @@ use eframe::egui;
 use std::collections::HashMap;
 
 mod downloaded_tools;
+mod model_priority;
 mod tts_settings;
 mod update_section;
 mod usage_stats;
 
 use crate::gui::settings_ui::download_manager::DownloadManager;
 use downloaded_tools::render_downloaded_tools_modal;
+use model_priority::render_model_priority_modal;
 use tts_settings::render_tts_settings_modal;
 use update_section::render_update_section_content;
 use usage_stats::render_usage_modal;
@@ -42,6 +44,7 @@ pub fn render_global_settings(
 
     show_tts_modal: &mut bool,
     show_tools_modal: &mut bool,
+    show_model_priority_modal: &mut bool,
     download_manager: &mut DownloadManager,
     _cached_audio_devices: &std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
     _recording_sr_hotkey: &mut bool,
@@ -339,6 +342,20 @@ pub fn render_global_settings(
         }
     });
 
+    ui.add_space(10.0);
+
+    let priority_bg = if is_dark {
+        egui::Color32::from_rgb(120, 88, 50)
+    } else {
+        egui::Color32::from_rgb(196, 142, 73)
+    };
+
+    if render_labeled_icon_button(ui, Icon::Priority, text.model_priority_button, priority_bg)
+        .clicked()
+    {
+        *show_model_priority_modal = true;
+    }
+
     // === USAGE STATISTICS MODAL ===
     render_usage_modal(
         ui,
@@ -358,6 +375,10 @@ pub fn render_global_settings(
 
     // === TTS SETTINGS MODAL ===
     if render_tts_settings_modal(ui, config, text, show_tts_modal) {
+        changed = true;
+    }
+
+    if render_model_priority_modal(&ctx, config, text, show_model_priority_modal) {
         changed = true;
     }
 
@@ -672,4 +693,65 @@ pub fn render_global_settings(
     ui.add_space(10.0);
 
     changed
+}
+
+fn render_labeled_icon_button(
+    ui: &mut egui::Ui,
+    icon: Icon,
+    label: &str,
+    background: egui::Color32,
+) -> egui::Response {
+    let text_color = egui::Color32::WHITE;
+    let text_style = egui::TextStyle::Button;
+    let label_galley = ui.painter().layout_no_wrap(
+        label.to_string(),
+        text_style.resolve(ui.style()),
+        text_color,
+    );
+    let icon_size = 12.0;
+    let icon_gap = 6.0;
+    let h_pad = ui.spacing().button_padding.x;
+    let v_pad = ui.spacing().button_padding.y;
+    let button_size = egui::vec2(
+        h_pad + icon_size + icon_gap + label_galley.rect.width() + h_pad,
+        ui.spacing()
+            .interact_size
+            .y
+            .max(label_galley.rect.height() + v_pad * 2.0),
+    );
+
+    let (button_rect, response) = ui.allocate_exact_size(button_size, egui::Sense::click());
+    let painter = ui.painter();
+    painter.rect_filled(
+        button_rect,
+        10.0,
+        if response.hovered() {
+            background.gamma_multiply(1.1)
+        } else {
+            background
+        },
+    );
+
+    let icon_rect = egui::Rect::from_min_size(
+        egui::pos2(
+            button_rect.left() + h_pad,
+            button_rect.center().y - icon_size / 2.0,
+        ),
+        egui::vec2(icon_size, icon_size),
+    );
+    paint_icon(painter, icon_rect, icon, text_color);
+    painter.galley(
+        egui::pos2(
+            icon_rect.right() + icon_gap,
+            button_rect.center().y - label_galley.rect.height() / 2.0,
+        ),
+        label_galley,
+        text_color,
+    );
+
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+
+    response
 }

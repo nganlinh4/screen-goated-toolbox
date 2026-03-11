@@ -3,10 +3,12 @@
 //! This module organizes all configuration-related types into logical groups:
 //! - `enums`: Core enums (ThemeMode, BlockType)
 //! - `hotkey`: Hotkey binding type
+//! - `model_priority`: Smart retry priority chains
 //! - `tts`: TTS-related types (TtsMethod, EdgeTtsSettings, etc.)
 
 mod enums;
 mod hotkey;
+mod model_priority;
 mod tts;
 
 // Re-export all types for easy access
@@ -15,6 +17,8 @@ pub use enums::{
 };
 
 pub use hotkey::Hotkey;
+
+pub use model_priority::ModelPriorityChains;
 
 pub use tts::{
     EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod,

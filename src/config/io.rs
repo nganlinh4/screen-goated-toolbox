@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use crate::config::config::Config;
 use crate::config::preset::{Preset, ProcessingBlock, get_default_presets};
+use crate::model_config::{ModelType, get_model_by_id, model_is_non_llm};
 
 // ============================================================================
 // CONFIG PATH
@@ -104,6 +105,15 @@ fn migrate_config(config: &mut Config) {
         }
     }
 
+    sanitize_model_priority_chain(
+        &mut config.model_priority_chains.image_to_text,
+        ModelType::Vision,
+    );
+    sanitize_model_priority_chain(
+        &mut config.model_priority_chains.text_to_text,
+        ModelType::Text,
+    );
+
     // -------------------------------------------------------------------------
     // 3. MIGRATE RETIRED MODEL IDS IN SAVED PRESETS
     // -------------------------------------------------------------------------
@@ -123,6 +133,18 @@ fn migrate_config(config: &mut Config) {
         }
     }
 
+    for preset in &mut config.presets {
+        if !preset.is_builtin() {
+            continue;
+        }
+
+        for block in &mut preset.blocks {
+            if block.block_type == "image" && block.model == "scout" {
+                block.model = "gemini-3.1-flash-lite-preview".to_string();
+            }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // 4. ENSURE EVERY PRESET HAS AT LEAST ONE BLOCK
     // -------------------------------------------------------------------------
@@ -134,6 +156,16 @@ fn migrate_config(config: &mut Config) {
             });
         }
     }
+}
+
+fn sanitize_model_priority_chain(chain: &mut Vec<String>, expected_type: ModelType) {
+    chain.retain(|model_id| {
+        let Some(model) = get_model_by_id(model_id) else {
+            return false;
+        };
+
+        model.model_type == expected_type && !model_is_non_llm(model_id)
+    });
 }
 
 #[cfg(test)]
@@ -170,8 +202,81 @@ mod tests {
 
         migrate_config(&mut config);
 
-        assert_eq!(config.presets[0].blocks[0].model, "scout");
+        assert_eq!(
+            config.presets[0].blocks[0].model,
+            "gemini-3.1-flash-lite-preview"
+        );
         assert_eq!(config.presets[1].blocks[0].model, "cerebras_gpt_oss");
+    }
+
+    #[test]
+    fn migrate_config_updates_builtin_scout_image_blocks_only() {
+        let builtin = Preset {
+            id: "preset_translate".to_string(),
+            blocks: vec![ProcessingBlock {
+                block_type: "image".to_string(),
+                model: "scout".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let custom = Preset {
+            id: "custom_image_preset".to_string(),
+            blocks: vec![ProcessingBlock {
+                block_type: "image".to_string(),
+                model: "scout".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let mut config = Config {
+            presets: vec![builtin, custom],
+            ..Default::default()
+        };
+
+        migrate_config(&mut config);
+
+        assert_eq!(
+            config.presets[0].blocks[0].model,
+            "gemini-3.1-flash-lite-preview"
+        );
+        assert_eq!(config.presets[1].blocks[0].model, "scout");
+    }
+
+    #[test]
+    fn migrate_config_sanitizes_model_priority_chains() {
+        let mut config = Config::default();
+        config.model_priority_chains.image_to_text = vec![
+            "gemini-3.1-flash-lite-preview".to_string(),
+            "google-gtx".to_string(),
+            "missing-model".to_string(),
+            "scout".to_string(),
+        ];
+        config.model_priority_chains.text_to_text = vec![
+            "cerebras_gpt_oss".to_string(),
+            "qr-scanner".to_string(),
+            "scout".to_string(),
+            "text_accurate_kimi".to_string(),
+        ];
+
+        migrate_config(&mut config);
+
+        assert_eq!(
+            config.model_priority_chains.image_to_text,
+            vec![
+                "gemini-3.1-flash-lite-preview".to_string(),
+                "scout".to_string()
+            ]
+        );
+        assert_eq!(
+            config.model_priority_chains.text_to_text,
+            vec![
+                "cerebras_gpt_oss".to_string(),
+                "text_accurate_kimi".to_string()
+            ]
+        );
     }
 }
 
