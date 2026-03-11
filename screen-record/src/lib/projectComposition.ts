@@ -38,6 +38,8 @@ export function getEffectiveCompositionMode(
   composition: Pick<ProjectComposition, "clips" | "mode"> | null | undefined,
 ): ProjectCompositionMode {
   if (!composition) return "separate";
+  // Single-clip projects must never behave as hidden "unified" compositions,
+  // otherwise live background/cursor edits can stop persisting to the root clip.
   return composition.clips.length <= 1 ? "separate" : composition.mode;
 }
 
