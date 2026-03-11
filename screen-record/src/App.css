@@ -757,6 +757,75 @@ body.dragging-seek * {
     color: var(--on-surface-variant);
 }
 
+.timeline-scroll-viewport {
+    box-sizing: border-box;
+    width: calc(100% + 32px);
+    margin: 0 -16px;
+    padding-inline: 16px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    overscroll-behavior-y: none;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.timeline-scroll-viewport::-webkit-scrollbar {
+    display: none;
+}
+
+.timeline-canvas {
+    min-width: 100%;
+}
+
+.timeline-scrollbar-shell {
+    height: 10px;
+    display: flex;
+    align-items: center;
+}
+
+.timeline-scrollbar-shell[data-visible="false"] {
+    pointer-events: none;
+}
+
+.timeline-scrollbar-track {
+    position: relative;
+    width: 100%;
+    height: 4px;
+    border-radius: 999px;
+    background: transparent;
+    opacity: 0;
+    transition: opacity 140ms ease, background-color 140ms ease;
+}
+
+.timeline-scrollbar-shell[data-visible="true"] .timeline-scrollbar-track {
+    opacity: 1;
+    background: color-mix(in srgb, var(--ui-border) 42%, transparent);
+}
+
+.timeline-scrollbar-thumb {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    min-width: 36px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--outline) 56%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-surface-3) 46%, transparent);
+    cursor: grab;
+    transition: background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.timeline-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--timeline-zoom-color) 52%, var(--outline));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--timeline-zoom-color) 28%, transparent);
+}
+
+.timeline-scrollbar-thumb:active {
+    cursor: grabbing;
+    background: color-mix(in srgb, var(--timeline-zoom-color) 66%, var(--outline));
+}
+
 .timeline-lane {
     background: var(--timeline-lane-bg);
     border: 1px solid var(--timeline-lane-border);
