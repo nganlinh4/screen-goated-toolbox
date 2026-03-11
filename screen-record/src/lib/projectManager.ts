@@ -3,6 +3,14 @@ import { invoke } from "@/lib/ipc";
 import { isManagedCompositionSnapshotPath } from "@/lib/mediaServer";
 
 const PROJECT_SWITCH_DEBUG = false;
+const DB_NAME = "ScreenDemoDB";
+const DB_VERSION = 7;
+const PROJECTS_STORE = "projects";
+const APP_META_STORE = "app_meta";
+const LEGACY_PROJECTS_KEY = "screen-demo-projects";
+const PROJECT_MIGRATION_KEY = "projects-storage-migrated-v1";
+
+type StoredProjectRecord = Omit<Project, "videoBlob" | "audioBlob">;
 
 function summarizeProjectUpdate(
   updates: Partial<Omit<Project, "id" | "createdAt" | "lastModified">>,
@@ -15,7 +23,8 @@ function summarizeProjectUpdate(
           canvasMode: updates.backgroundConfig.canvasMode ?? "auto",
           canvasWidth: updates.backgroundConfig.canvasWidth ?? null,
           canvasHeight: updates.backgroundConfig.canvasHeight ?? null,
-          autoCanvasSourceId: updates.backgroundConfig.autoCanvasSourceId ?? null,
+          autoCanvasSourceId:
+            updates.backgroundConfig.autoCanvasSourceId ?? null,
           scale: updates.backgroundConfig.scale,
         }
       : null,
@@ -47,7 +56,7 @@ function summarizeProjectUpdate(
   };
 }
 
-function summarizeStoredProject(project: any) {
+function summarizeStoredProject(project: StoredProjectRecord | null | undefined) {
   if (!project) return null;
   return {
     id: project.id ?? null,
@@ -76,57 +85,45 @@ function buildCompositionAssetKey(projectId: string, clipId: string): string {
   return `${projectId}:${clipId}`;
 }
 
-class ProjectManager {
-  private readonly STORAGE_KEY = "screen-demo-projects";
-  private limit = 50;
-  private compactionPromise: Promise<void> | null = null;
+function stripHeavyProjectFields(
+  project: Project | StoredProjectRecord,
+): StoredProjectRecord {
+  const record = { ...project } as Project;
+  delete (record as Partial<Project>).videoBlob;
+  delete (record as Partial<Project>).audioBlob;
+  return record as StoredProjectRecord;
+}
 
-  private getProjectsMetaSync(): any[] {
-    const projectsJson = localStorage.getItem(this.STORAGE_KEY);
-    if (!projectsJson) return [];
-    try {
-      const parsed = JSON.parse(projectsJson);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
+function sortProjectsByDisplayOrder<
+  T extends { lastModified: number; createdAt: number },
+>(projects: T[]): T[] {
+  return [...projects].sort((a, b) => {
+    // Keep project cards stable in the grid. The legacy localStorage-backed list
+    // preserved insertion order (newest created first) and did not reshuffle when
+    // a project was merely edited/opened. Sorting by lastModified breaks FLIP
+    // restore targeting because cards swap positions after normal saves.
+    return b.createdAt - a.createdAt;
+  });
+}
+
+class ProjectManager {
+  private limit = 50;
+  private dbPromise: Promise<IDBDatabase> | null = null;
+  private migrationPromise: Promise<void> | null = null;
 
   setLimit(newLimit: number) {
     this.limit = newLimit;
-    this.pruneProjects();
+    void this.pruneProjects();
   }
 
   getLimit(): number {
     return this.limit;
   }
 
-  private async pruneProjects() {
-    const projects = this.getProjectsMetaSync();
-    if (projects.length > this.limit) {
-      const projectsToDelete = projects.splice(this.limit);
-      for (const p of projectsToDelete) {
-        await this.deleteVideoBlob(p.id);
-        await this.deleteAudioBlob(p.id);
-        await this.deleteMouseData(p.id);
-        await this.deleteSegmentData(p.id);
-        await this.deleteThumbnailData(p.id);
-        await this.deleteCustomBackgroundData(p.id);
-        await this.deleteCompositionData(p.id, p.composition?.clips);
-        await this.deleteCompositionSnapshotFiles(
-          p.composition?.clips,
-          p.rawVideoPath,
-        );
-      }
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(projects));
-    }
-  }
-
   async saveProject(
     project: Omit<Project, "id" | "createdAt" | "lastModified">,
   ): Promise<Project> {
-    await this.ensureStorageCompacted();
-    const projects = this.getProjectsMetaSync();
+    await this.ensureProjectStoreReady();
 
     const newProject: Project = {
       ...project,
@@ -135,131 +132,54 @@ class ProjectManager {
       lastModified: Date.now(),
     };
 
-    // Store heavy data in IndexedDB
     if (newProject.videoBlob) {
       await this.saveVideoBlob(newProject.id, newProject.videoBlob);
     }
     if (newProject.audioBlob) {
       await this.saveAudioBlob(newProject.id, newProject.audioBlob);
     }
-    await this.saveMouseData(newProject.id, newProject.mousePositions);
-    await this.saveSegmentData(newProject.id, newProject.segment);
-    if (newProject.thumbnail) {
-      await this.saveThumbnailData(newProject.id, newProject.thumbnail);
-    }
-    const customBackground = newProject.backgroundConfig?.customBackground;
-    if (customBackground) {
-      await this.saveCustomBackgroundData(newProject.id, customBackground);
-    }
 
-    // Store project metadata in localStorage (exclude heavy blobs and arrays)
-    const projectMeta = { ...newProject };
-    delete (projectMeta as any).videoBlob;
-    delete (projectMeta as any).audioBlob;
-    (projectMeta as any).mousePositions = [];
-    delete (projectMeta as any).segment;
-    delete (projectMeta as any).thumbnail;
-    if ((projectMeta as any).backgroundConfig) {
-      (projectMeta as any).backgroundConfig = {
-        ...(projectMeta as any).backgroundConfig,
-        customBackground: undefined,
-      };
-    }
-
-    projects.unshift(projectMeta);
-
-    // Limit projects
-    if (projects.length > this.limit) {
-      const projectsToDelete = projects.splice(this.limit);
-      for (const p of projectsToDelete) {
-        await this.deleteVideoBlob(p.id);
-        await this.deleteAudioBlob(p.id);
-        await this.deleteMouseData(p.id);
-        await this.deleteSegmentData(p.id);
-        await this.deleteThumbnailData(p.id);
-        await this.deleteCustomBackgroundData(p.id);
-        await this.deleteCompositionData(p.id, p.composition?.clips);
-      }
-    }
-
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(projects));
+    await this.saveProjectRecord(stripHeavyProjectFields(newProject));
+    await this.pruneProjects();
     return newProject;
   }
 
   async getProjects(): Promise<Omit<Project, "videoBlob" | "audioBlob">[]> {
-    await this.ensureStorageCompacted();
-    const projects = this.getProjectsMetaSync();
-    const hydrated = await Promise.all(
-      projects.map(async (p: any) => ({
-        ...p,
-        thumbnail: (await this.loadThumbnailData(p.id)) || undefined,
-      })),
-    );
-    return hydrated;
+    await this.ensureProjectStoreReady();
+    return sortProjectsByDisplayOrder(await this.getProjectRecords());
   }
 
   async loadProject(id: string): Promise<Project | null> {
-    await this.ensureStorageCompacted();
-    const projects = this.getProjectsMetaSync();
-    const project = projects.find((p) => p.id === id);
-
+    await this.ensureProjectStoreReady();
+    const project = await this.loadProjectRecord(id);
     if (!project) return null;
 
-    // Load heavy data from IndexedDB
     const videoBlob = await this.loadVideoBlob(id);
     if (!videoBlob && !project.rawVideoPath) return null;
 
     const audioBlob = await this.loadAudioBlob(id);
-    const mousePositions = (await this.loadMouseData(id)) || [];
-    const segment = await this.loadSegmentData(id);
-    const thumbnail = (await this.loadThumbnailData(id)) || undefined;
-    const customBackground =
-      (await this.loadCustomBackgroundData(id)) || undefined;
-
     return {
       ...project,
       videoBlob: videoBlob || undefined,
       audioBlob: audioBlob || undefined,
-      mousePositions,
-      segment: segment || project.segment,
-      thumbnail,
-      backgroundConfig: {
-        ...project.backgroundConfig,
-        customBackground,
-      },
     };
   }
 
   async deleteProject(id: string): Promise<void> {
-    await this.ensureStorageCompacted();
-    const projects = this.getProjectsMetaSync();
-    const project = projects.find((p) => p.id === id);
-    const filteredProjects = projects.filter((p) => p.id !== id);
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(filteredProjects));
-
-    await this.deleteVideoBlob(id);
-    await this.deleteAudioBlob(id);
-    await this.deleteMouseData(id);
-    await this.deleteSegmentData(id);
-    await this.deleteThumbnailData(id);
-    await this.deleteCustomBackgroundData(id);
-    await this.deleteCompositionData(id, project?.composition?.clips);
-    await this.deleteCompositionSnapshotFiles(
-      project?.composition?.clips,
-      project?.rawVideoPath,
-    );
+    await this.ensureProjectStoreReady();
+    const project = await this.loadProjectRecord(id);
+    await this.deleteProjectRecord(id);
+    await this.deleteProjectData(id, project);
   }
 
   async updateProject(
     id: string,
     updates: Partial<Omit<Project, "id" | "createdAt" | "lastModified">>,
   ): Promise<void> {
-    await this.ensureStorageCompacted();
-    const projects = this.getProjectsMetaSync();
-    const projectIndex = projects.findIndex((p) => p.id === id);
+    await this.ensureProjectStoreReady();
+    const previousProject = await this.loadProjectRecord(id);
+    if (!previousProject) return;
 
-    if (projectIndex === -1) return;
-    const previousProject = projects[projectIndex];
     if (PROJECT_SWITCH_DEBUG) {
       console.warn(
         `[ProjectSwitch] ${JSON.stringify({
@@ -275,253 +195,27 @@ class ProjectManager {
       );
     }
 
-    if (updates.videoBlob) {
-      await this.saveVideoBlob(id, updates.videoBlob);
+    if ("videoBlob" in updates) {
+      if (updates.videoBlob) await this.saveVideoBlob(id, updates.videoBlob);
+      else await this.deleteVideoBlob(id);
     }
     if ("audioBlob" in updates) {
       if (updates.audioBlob) await this.saveAudioBlob(id, updates.audioBlob);
       else await this.deleteAudioBlob(id);
     }
-    if (Array.isArray(updates.mousePositions)) {
-      await this.saveMouseData(id, updates.mousePositions);
-    }
-    if (updates.segment) {
-      await this.saveSegmentData(id, updates.segment);
-    }
-    if (updates.thumbnail !== undefined) {
-      if (updates.thumbnail)
-        await this.saveThumbnailData(id, updates.thumbnail);
-      else await this.deleteThumbnailData(id);
-    }
-    if ("backgroundConfig" in updates) {
-      const customBackground = updates.backgroundConfig?.customBackground;
-      if (typeof customBackground === "string" && customBackground.length > 0) {
-        await this.saveCustomBackgroundData(id, customBackground);
-      } else {
-        await this.deleteCustomBackgroundData(id);
-      }
-    }
 
-    // Update metadata
-    const updatedProject = {
-      ...projects[projectIndex],
+    const nextProject: Project = {
+      ...previousProject,
       ...updates,
+      id,
+      createdAt: previousProject.createdAt,
       lastModified: Date.now(),
+      videoBlob: undefined,
+      audioBlob: undefined,
     };
 
-    delete (updatedProject as any).videoBlob;
-    delete (updatedProject as any).audioBlob;
-    (updatedProject as any).mousePositions = [];
-    delete (updatedProject as any).segment;
-    delete (updatedProject as any).thumbnail;
-    if ((updatedProject as any).backgroundConfig) {
-      (updatedProject as any).backgroundConfig = {
-        ...(updatedProject as any).backgroundConfig,
-        customBackground: undefined,
-      };
-    }
-
-    projects[projectIndex] = updatedProject;
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(projects));
-  }
-
-  private async openDB(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open("ScreenDemoDB", 6);
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result);
-
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains("videos"))
-          db.createObjectStore("videos");
-        if (!db.objectStoreNames.contains("audio"))
-          db.createObjectStore("audio");
-        if (!db.objectStoreNames.contains("mouse"))
-          db.createObjectStore("mouse");
-        if (!db.objectStoreNames.contains("thumbnails"))
-          db.createObjectStore("thumbnails");
-        if (!db.objectStoreNames.contains("custom_backgrounds"))
-          db.createObjectStore("custom_backgrounds");
-        if (!db.objectStoreNames.contains("segments"))
-          db.createObjectStore("segments");
-        if (!db.objectStoreNames.contains("composition_videos"))
-          db.createObjectStore("composition_videos");
-        if (!db.objectStoreNames.contains("composition_audio"))
-          db.createObjectStore("composition_audio");
-        if (!db.objectStoreNames.contains("composition_custom_backgrounds"))
-          db.createObjectStore("composition_custom_backgrounds");
-      };
-    });
-  }
-
-  private async ensureStorageCompacted(): Promise<void> {
-    if (!this.compactionPromise) {
-      this.compactionPromise = this.compactLegacyLocalStorage().finally(() => {
-        this.compactionPromise = null;
-      });
-    }
-    await this.compactionPromise;
-  }
-
-  private async compactLegacyLocalStorage(): Promise<void> {
-    const projectsJson = localStorage.getItem(this.STORAGE_KEY);
-    if (!projectsJson) return;
-
-    let projects: any[] = [];
-    try {
-      projects = JSON.parse(projectsJson);
-      if (!Array.isArray(projects)) return;
-    } catch {
-      return;
-    }
-
-    let changed = false;
-    for (const p of projects) {
-      if (!p || !p.id) continue;
-      if (typeof p.thumbnail === "string" && p.thumbnail.length > 0) {
-        await this.saveThumbnailData(p.id, p.thumbnail);
-        delete p.thumbnail;
-        changed = true;
-      }
-      const customBackground = p.backgroundConfig?.customBackground;
-      if (typeof customBackground === "string" && customBackground.length > 0) {
-        await this.saveCustomBackgroundData(p.id, customBackground);
-        p.backgroundConfig = {
-          ...p.backgroundConfig,
-          customBackground: undefined,
-        };
-        changed = true;
-      }
-      if (p.segment) {
-        await this.saveSegmentData(p.id, p.segment);
-        delete p.segment;
-        changed = true;
-      }
-      // Migrate mousePositions: older versions stored them inline in localStorage metadata.
-      // Only migrate if there's actual data (not the [] placeholder written by saveProject).
-      if (Array.isArray(p.mousePositions) && p.mousePositions.length > 0) {
-        const existing = await this.loadMouseData(p.id);
-        if (!existing || existing.length === 0) {
-          await this.saveMouseData(p.id, p.mousePositions);
-        }
-        p.mousePositions = [];
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(projects));
-    }
-  }
-
-  // --- LOW-LEVEL IDB HELPERS ---
-  // IDBRequest is NOT a Promise/thenable — `await store.put(...)` resolves immediately
-  // without waiting for the write to commit. These helpers wrap writes/deletes in real
-  // Promises that resolve only after onsuccess fires, making them properly awaitable.
-  private idbPut<T>(storeName: string, value: T, key: string): Promise<void> {
-    return this.openDB().then(
-      (db) =>
-        new Promise<void>((resolve, reject) => {
-          const tx = db.transaction(storeName, "readwrite");
-          const request = tx.objectStore(storeName).put(value, key);
-          request.onsuccess = () => resolve();
-          request.onerror = () => reject(request.error);
-        }),
-    );
-  }
-
-  private idbDelete(storeName: string, key: string): Promise<void> {
-    return this.openDB().then(
-      (db) =>
-        new Promise<void>((resolve, reject) => {
-          const tx = db.transaction(storeName, "readwrite");
-          const request = tx.objectStore(storeName).delete(key);
-          request.onsuccess = () => resolve();
-          request.onerror = () => reject(request.error);
-        }),
-    );
-  }
-
-  // --- SEGMENT DATA HELPERS ---
-  private saveSegmentData(id: string, data: any): Promise<void> {
-    return this.idbPut("segments", data, id);
-  }
-
-  private async loadSegmentData(id: string): Promise<any | null> {
-    const db = await this.openDB();
-    const tx = db.transaction("segments", "readonly");
-    const store = tx.objectStore("segments");
-    return new Promise((resolve) => {
-      const request = store.get(id);
-      request.onerror = () => resolve(null);
-      request.onsuccess = () => resolve(request.result ?? null);
-    });
-  }
-
-  private deleteSegmentData(id: string): Promise<void> {
-    return this.idbDelete("segments", id);
-  }
-
-  // --- MOUSE DATA HELPERS ---
-  private saveMouseData(id: string, data: any[]): Promise<void> {
-    return this.idbPut("mouse", data, id);
-  }
-
-  private async loadMouseData(id: string): Promise<any[] | null> {
-    const db = await this.openDB();
-    const tx = db.transaction("mouse", "readonly");
-    const store = tx.objectStore("mouse");
-    return new Promise((resolve) => {
-      const request = store.get(id);
-      request.onerror = () => resolve(null);
-      request.onsuccess = () => resolve(request.result as any[]);
-    });
-  }
-
-  private deleteMouseData(id: string): Promise<void> {
-    return this.idbDelete("mouse", id);
-  }
-
-  // --- THUMBNAIL DATA HELPERS ---
-  private saveThumbnailData(id: string, data: string): Promise<void> {
-    return this.idbPut("thumbnails", data, id);
-  }
-
-  private async loadThumbnailData(id: string): Promise<string | null> {
-    const db = await this.openDB();
-    const tx = db.transaction("thumbnails", "readonly");
-    const store = tx.objectStore("thumbnails");
-    return new Promise((resolve) => {
-      const request = store.get(id);
-      request.onerror = () => resolve(null);
-      request.onsuccess = () => resolve(request.result as string);
-    });
-  }
-
-  private deleteThumbnailData(id: string): Promise<void> {
-    return this.idbDelete("thumbnails", id);
-  }
-
-  // --- CUSTOM BACKGROUND DATA HELPERS ---
-  private saveCustomBackgroundData(id: string, data: string): Promise<void> {
-    return this.idbPut("custom_backgrounds", data, id);
-  }
-
-  private async loadCustomBackgroundData(id: string): Promise<string | null> {
-    const db = await this.openDB();
-    const tx = db.transaction("custom_backgrounds", "readonly");
-    const store = tx.objectStore("custom_backgrounds");
-    return new Promise((resolve) => {
-      const request = store.get(id);
-      request.onerror = () => resolve(null);
-      request.onsuccess = () => resolve(request.result as string);
-    });
-  }
-
-  private deleteCustomBackgroundData(id: string): Promise<void> {
-    return this.idbDelete("custom_backgrounds", id);
+    await this.saveProjectRecord(stripHeavyProjectFields(nextProject));
+    await this.pruneProjects();
   }
 
   async saveCompositionClipAssets(
@@ -535,16 +229,20 @@ class ProjectManager {
     } else {
       await this.idbDelete("composition_videos", key);
     }
-    if (data.audioBlob)
+    if (data.audioBlob) {
       await this.idbPut("composition_audio", data.audioBlob, key);
-    else await this.idbDelete("composition_audio", key);
-    if (data.customBackground)
+    } else {
+      await this.idbDelete("composition_audio", key);
+    }
+    if (data.customBackground) {
       await this.idbPut(
         "composition_custom_backgrounds",
         data.customBackground,
         key,
       );
-    else await this.idbDelete("composition_custom_backgrounds", key);
+    } else {
+      await this.idbDelete("composition_custom_backgrounds", key);
+    }
   }
 
   async loadCompositionClipAssets(
@@ -574,6 +272,300 @@ class ProjectManager {
     await this.idbDelete("composition_videos", key);
     await this.idbDelete("composition_audio", key);
     await this.idbDelete("composition_custom_backgrounds", key);
+  }
+
+  private async ensureProjectStoreReady(): Promise<void> {
+    if (!this.migrationPromise) {
+      this.migrationPromise = this.migrateLegacyProjectStorage().finally(() => {
+        this.migrationPromise = null;
+      });
+    }
+    await this.migrationPromise;
+  }
+
+  private async migrateLegacyProjectStorage(): Promise<void> {
+    const migrated = await this.getMetaValue<boolean>(PROJECT_MIGRATION_KEY);
+    if (migrated) return;
+
+    const existingRecords = await this.getProjectRecords();
+    if (existingRecords.length > 0) {
+      await this.setMetaValue(PROJECT_MIGRATION_KEY, true);
+      localStorage.removeItem(LEGACY_PROJECTS_KEY);
+      return;
+    }
+
+    const legacyProjects = this.getLegacyProjectsMeta();
+    if (legacyProjects.length === 0) {
+      await this.setMetaValue(PROJECT_MIGRATION_KEY, true);
+      localStorage.removeItem(LEGACY_PROJECTS_KEY);
+      return;
+    }
+
+    for (const legacyProject of legacyProjects) {
+      if (!legacyProject?.id) continue;
+      const record = await this.buildMigratedProjectRecord(legacyProject);
+      await this.saveProjectRecord(record);
+      await this.deleteLegacyInlineProjectData(legacyProject.id);
+    }
+
+    await this.pruneProjects();
+    localStorage.removeItem(LEGACY_PROJECTS_KEY);
+    await this.setMetaValue(PROJECT_MIGRATION_KEY, true);
+  }
+
+  private getLegacyProjectsMeta(): any[] {
+    const projectsJson = localStorage.getItem(LEGACY_PROJECTS_KEY);
+    if (!projectsJson) return [];
+    try {
+      const parsed = JSON.parse(projectsJson);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private async buildMigratedProjectRecord(
+    legacyProject: any,
+  ): Promise<StoredProjectRecord> {
+    const migratedSegment =
+      (await this.loadLegacySegmentData(legacyProject.id)) ?? legacyProject.segment;
+    const migratedMousePositions =
+      (await this.loadLegacyMouseData(legacyProject.id)) ??
+      (Array.isArray(legacyProject.mousePositions)
+        ? legacyProject.mousePositions
+        : []);
+    const migratedThumbnail =
+      (await this.loadLegacyThumbnailData(legacyProject.id)) ??
+      legacyProject.thumbnail ??
+      undefined;
+    const migratedCustomBackground =
+      (await this.loadLegacyCustomBackgroundData(legacyProject.id)) ??
+      legacyProject.backgroundConfig?.customBackground ??
+      undefined;
+
+    return {
+      ...legacyProject,
+      mousePositions: migratedMousePositions,
+      segment: migratedSegment,
+      thumbnail: migratedThumbnail,
+      backgroundConfig: legacyProject.backgroundConfig
+        ? {
+            ...legacyProject.backgroundConfig,
+            customBackground: migratedCustomBackground,
+          }
+        : legacyProject.backgroundConfig,
+    } as StoredProjectRecord;
+  }
+
+  private async pruneProjects(): Promise<void> {
+    const projects = sortProjectsByDisplayOrder(await this.getProjectRecords());
+    if (projects.length <= this.limit) return;
+
+    const projectsToDelete = projects.slice(this.limit);
+    for (const project of projectsToDelete) {
+      await this.deleteProjectRecord(project.id);
+      await this.deleteProjectData(project.id, project);
+    }
+  }
+
+  private async deleteProjectData(
+    id: string,
+    project: Pick<Project, "composition" | "rawVideoPath"> | null | undefined,
+  ): Promise<void> {
+    await this.deleteVideoBlob(id);
+    await this.deleteAudioBlob(id);
+    await this.deleteLegacyInlineProjectData(id);
+    await this.deleteCompositionData(id, project?.composition?.clips);
+    await this.deleteCompositionSnapshotFiles(
+      project?.composition?.clips,
+      project?.rawVideoPath,
+    );
+  }
+
+  private async deleteLegacyInlineProjectData(id: string): Promise<void> {
+    await Promise.all([
+      this.idbDelete("mouse", id),
+      this.idbDelete("segments", id),
+      this.idbDelete("thumbnails", id),
+      this.idbDelete("custom_backgrounds", id),
+    ]);
+  }
+
+  private async getProjectRecords(): Promise<StoredProjectRecord[]> {
+    return (await this.idbGetAll<StoredProjectRecord>(PROJECTS_STORE)).filter(
+      Boolean,
+    );
+  }
+
+  private async loadProjectRecord(
+    id: string,
+  ): Promise<StoredProjectRecord | null> {
+    return (await this.idbGet<StoredProjectRecord>(PROJECTS_STORE, id)) ?? null;
+  }
+
+  private async saveProjectRecord(project: StoredProjectRecord): Promise<void> {
+    await this.idbPut(PROJECTS_STORE, project);
+  }
+
+  private async deleteProjectRecord(id: string): Promise<void> {
+    await this.idbDelete(PROJECTS_STORE, id);
+  }
+
+  private async getMetaValue<T>(key: string): Promise<T | null> {
+    return (await this.idbGet<T>(APP_META_STORE, key)) ?? null;
+  }
+
+  private async setMetaValue<T>(key: string, value: T): Promise<void> {
+    await this.idbPut(APP_META_STORE, value, key);
+  }
+
+  private async openDB(): Promise<IDBDatabase> {
+    if (!this.dbPromise) {
+      this.dbPromise = new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+        request.onupgradeneeded = (event) => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          if (!db.objectStoreNames.contains(PROJECTS_STORE)) {
+            db.createObjectStore(PROJECTS_STORE, { keyPath: "id" });
+          }
+          if (!db.objectStoreNames.contains(APP_META_STORE)) {
+            db.createObjectStore(APP_META_STORE);
+          }
+          if (!db.objectStoreNames.contains("videos")) {
+            db.createObjectStore("videos");
+          }
+          if (!db.objectStoreNames.contains("audio")) {
+            db.createObjectStore("audio");
+          }
+          if (!db.objectStoreNames.contains("mouse")) {
+            db.createObjectStore("mouse");
+          }
+          if (!db.objectStoreNames.contains("thumbnails")) {
+            db.createObjectStore("thumbnails");
+          }
+          if (!db.objectStoreNames.contains("custom_backgrounds")) {
+            db.createObjectStore("custom_backgrounds");
+          }
+          if (!db.objectStoreNames.contains("segments")) {
+            db.createObjectStore("segments");
+          }
+          if (!db.objectStoreNames.contains("composition_videos")) {
+            db.createObjectStore("composition_videos");
+          }
+          if (!db.objectStoreNames.contains("composition_audio")) {
+            db.createObjectStore("composition_audio");
+          }
+          if (!db.objectStoreNames.contains("composition_custom_backgrounds")) {
+            db.createObjectStore("composition_custom_backgrounds");
+          }
+        };
+      });
+    }
+    return this.dbPromise;
+  }
+
+  private async idbPut<T>(
+    storeName: string,
+    value: T,
+    key?: IDBValidKey,
+  ): Promise<void> {
+    const db = await this.openDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(storeName, "readwrite");
+      const store = tx.objectStore(storeName);
+      const request = key === undefined ? store.put(value) : store.put(value, key);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  private async idbGet<T>(
+    storeName: string,
+    key: IDBValidKey,
+  ): Promise<T | null> {
+    const db = await this.openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readonly");
+      const request = tx.objectStore(storeName).get(key);
+      request.onsuccess = () => resolve((request.result as T) ?? null);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  private async idbGetAll<T>(storeName: string): Promise<T[]> {
+    const db = await this.openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readonly");
+      const request = tx.objectStore(storeName).getAll();
+      request.onsuccess = () => resolve((request.result as T[]) ?? []);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  private async idbDelete(storeName: string, key: IDBValidKey): Promise<void> {
+    const db = await this.openDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(storeName, "readwrite");
+      const request = tx.objectStore(storeName).delete(key);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  private async loadLegacySegmentData(id: string): Promise<any | null> {
+    return this.idbGet("segments", id);
+  }
+
+  private async loadLegacyMouseData(id: string): Promise<any[] | null> {
+    return this.idbGet("mouse", id);
+  }
+
+  private async loadLegacyThumbnailData(id: string): Promise<string | null> {
+    return this.idbGet("thumbnails", id);
+  }
+
+  private async loadLegacyCustomBackgroundData(
+    id: string,
+  ): Promise<string | null> {
+    return this.idbGet("custom_backgrounds", id);
+  }
+
+  private async loadBlobData(storeName: string, key: string): Promise<Blob | null> {
+    return this.idbGet(storeName, key);
+  }
+
+  private async loadStringData(
+    storeName: string,
+    key: string,
+  ): Promise<string | null> {
+    return this.idbGet(storeName, key);
+  }
+
+  private saveVideoBlob(id: string, blob: Blob): Promise<void> {
+    return this.idbPut("videos", blob, id);
+  }
+
+  private async loadVideoBlob(id: string): Promise<Blob | null> {
+    return this.idbGet("videos", id);
+  }
+
+  private deleteVideoBlob(id: string): Promise<void> {
+    return this.idbDelete("videos", id);
+  }
+
+  private saveAudioBlob(id: string, blob: Blob): Promise<void> {
+    return this.idbPut("audio", blob, id);
+  }
+
+  private async loadAudioBlob(id: string): Promise<Blob | null> {
+    return this.idbGet("audio", id);
+  }
+
+  private deleteAudioBlob(id: string): Promise<void> {
+    return this.idbDelete("audio", id);
   }
 
   private async deleteCompositionData(
@@ -610,73 +602,6 @@ class ProjectManager {
         // ignore cleanup failures for orphaned snapshot files
       }
     }
-  }
-
-  private async loadBlobData(
-    storeName: string,
-    key: string,
-  ): Promise<Blob | null> {
-    const db = await this.openDB();
-    const tx = db.transaction(storeName, "readonly");
-    const store = tx.objectStore(storeName);
-    return new Promise((resolve) => {
-      const request = store.get(key);
-      request.onerror = () => resolve(null);
-      request.onsuccess = () => resolve((request.result as Blob) ?? null);
-    });
-  }
-
-  private async loadStringData(
-    storeName: string,
-    key: string,
-  ): Promise<string | null> {
-    const db = await this.openDB();
-    const tx = db.transaction(storeName, "readonly");
-    const store = tx.objectStore(storeName);
-    return new Promise((resolve) => {
-      const request = store.get(key);
-      request.onerror = () => resolve(null);
-      request.onsuccess = () => resolve((request.result as string) ?? null);
-    });
-  }
-
-  // --- EXISTING HELPERS ---
-  private saveVideoBlob(id: string, blob: Blob): Promise<void> {
-    return this.idbPut("videos", blob, id);
-  }
-
-  private async loadVideoBlob(id: string): Promise<Blob | null> {
-    const db = await this.openDB();
-    const tx = db.transaction("videos", "readonly");
-    const store = tx.objectStore("videos");
-    return new Promise((resolve, reject) => {
-      const request = store.get(id);
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result as Blob);
-    });
-  }
-
-  private deleteVideoBlob(id: string): Promise<void> {
-    return this.idbDelete("videos", id);
-  }
-
-  private saveAudioBlob(id: string, blob: Blob): Promise<void> {
-    return this.idbPut("audio", blob, id);
-  }
-
-  private async loadAudioBlob(id: string): Promise<Blob | null> {
-    const db = await this.openDB();
-    const tx = db.transaction("audio", "readonly");
-    const store = tx.objectStore("audio");
-    return new Promise((resolve) => {
-      const request = store.get(id);
-      request.onerror = () => resolve(null);
-      request.onsuccess = () => resolve(request.result as Blob);
-    });
-  }
-
-  private deleteAudioBlob(id: string): Promise<void> {
-    return this.idbDelete("audio", id);
   }
 }
 

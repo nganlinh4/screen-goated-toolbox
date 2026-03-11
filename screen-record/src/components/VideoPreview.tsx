@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Video, Loader2, Play, Pause, Crop } from 'lucide-react';
 import { VideoSegment, BackgroundConfig, MousePosition } from '@/types/video';
@@ -539,8 +539,10 @@ export function CanvasResizeOverlay({
   const moveListenerRef = useRef<((event: MouseEvent) => void) | null>(null);
   const upListenerRef = useRef<((event: MouseEvent) => void) | null>(null);
   const dragActiveRef = useRef(false);
+  const labelHideTimeoutRef = useRef<number | null>(null);
+  const [isLabelVisible, setIsLabelVisible] = useState(false);
 
-  const clearWindowDragListeners = (
+  const clearWindowDragListeners = useCallback((
     shouldCommitBatch: boolean,
     pendingAnimationFrameId?: number | null,
   ) => {
@@ -561,14 +563,44 @@ export function CanvasResizeOverlay({
       if (shouldCommitBatch) {
         commitBatch();
       }
+      if (labelHideTimeoutRef.current !== null) {
+        window.clearTimeout(labelHideTimeoutRef.current);
+      }
+      labelHideTimeoutRef.current = window.setTimeout(() => {
+        setIsLabelVisible(false);
+        labelHideTimeoutRef.current = null;
+      }, 1000);
     }
-  };
+  }, [commitBatch, onDragStateChange]);
 
   useEffect(() => {
     return () => {
+      if (labelHideTimeoutRef.current !== null) {
+        window.clearTimeout(labelHideTimeoutRef.current);
+        labelHideTimeoutRef.current = null;
+      }
       clearWindowDragListeners(true);
     };
-  }, [commitBatch, onDragStateChange]);
+  }, [clearWindowDragListeners]);
+
+  useEffect(() => {
+    const handleAbortInteractions = () => {
+      clearWindowDragListeners(false);
+      if (labelHideTimeoutRef.current !== null) {
+        window.clearTimeout(labelHideTimeoutRef.current);
+        labelHideTimeoutRef.current = null;
+      }
+      setIsLabelVisible(false);
+    };
+
+    window.addEventListener("sr-abort-editor-interactions", handleAbortInteractions);
+    return () => {
+      window.removeEventListener(
+        "sr-abort-editor-interactions",
+        handleAbortInteractions,
+      );
+    };
+  }, [clearWindowDragListeners]);
 
   const container = previewContainerRef.current;
   if (!container) return null;
@@ -592,6 +624,11 @@ export function CanvasResizeOverlay({
     e.preventDefault();
     e.stopPropagation();
     clearWindowDragListeners(false);
+    if (labelHideTimeoutRef.current !== null) {
+      window.clearTimeout(labelHideTimeoutRef.current);
+      labelHideTimeoutRef.current = null;
+    }
+    setIsLabelVisible(true);
     dragActiveRef.current = true;
     onDragStateChange?.(true);
     beginBatch();
@@ -652,6 +689,7 @@ export function CanvasResizeOverlay({
     { t: 'sw', cursor: 'cursor-sw-resize', x: 0,         y: dispH },
     { t: 'se', cursor: 'cursor-se-resize', x: dispW,     y: dispH },
   ];
+  const showLabelBelowTopHandle = oTop < 28;
 
   return (
     <div className="canvas-resize-overlay absolute inset-0 z-10 pointer-events-none">
@@ -660,9 +698,15 @@ export function CanvasResizeOverlay({
         style={{ position: 'absolute', left: oLeft, top: oTop, width: dispW, height: dispH }}
       >
         <div className="canvas-resize-border absolute inset-0 border border-dashed border-white/30 pointer-events-none" />
-        <div className="canvas-resize-label absolute -top-5 left-1/2 -translate-x-1/2 bg-black/60 text-white/80 text-[9px] px-1.5 py-0.5 rounded whitespace-nowrap pointer-events-none tabular-nums">
-          {canvasW} x {canvasH}
-        </div>
+        {isLabelVisible && (
+          <div
+            className={`canvas-resize-label absolute left-1/2 -translate-x-1/2 bg-black/60 text-white/80 text-[9px] px-1.5 py-0.5 rounded whitespace-nowrap pointer-events-none tabular-nums ${
+              showLabelBelowTopHandle ? 'top-3' : '-top-5'
+            }`}
+          >
+            {canvasW} x {canvasH}
+          </div>
+        )}
         {handles.map(handle => (
           <div
             key={handle.t}
