@@ -65,7 +65,11 @@ import {
   RawVideoDialog,
   ExportSuccessDialog,
 } from "@/components/dialogs";
-import { ProjectsView } from "@/components/ProjectsView";
+import {
+  ProjectsView,
+  type ProjectsPreviewRectSnapshot,
+  type ProjectsPreviewTargetSnapshot,
+} from "@/components/ProjectsView";
 import { SettingsContext, useSettingsProvider } from "@/hooks/useSettings";
 import {
   ensureKeystrokeVisibilitySegments,
@@ -114,6 +118,18 @@ const sv = (v: number, min: number, max: number): CSSProperties =>
   ({ "--value-pct": `${((v - min) / (max - min)) * 100}%` }) as CSSProperties;
 
 type PreloadSlotKey = "previous" | "next";
+
+function toPreviewRectSnapshot(
+  rect: DOMRect | null | undefined,
+): ProjectsPreviewRectSnapshot | null {
+  if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+  return {
+    left: Number(rect.left.toFixed(2)),
+    top: Number(rect.top.toFixed(2)),
+    width: Number(rect.width.toFixed(2)),
+    height: Number(rect.height.toFixed(2)),
+  };
+}
 
 interface ClipMediaAssets {
   videoBlob: Blob | null;
@@ -306,6 +322,8 @@ function App() {
   const wheelBatchActiveRef = useRef(false);
   const wheelBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoreImageRef = useRef<string | null>(null);
+  const projectsPreviewTargetSnapshotRef =
+    useRef<ProjectsPreviewTargetSnapshot | null>(null);
   const projectSaveSeqRef = useRef(0);
   const segmentRef = useRef<VideoSegment | null>(null);
   const isDraggingKeystrokeOverlayRef = useRef(false);
@@ -335,6 +353,7 @@ function App() {
   const [spreadFromClipId, setSpreadFromClipId] = useState<string | null>(null);
   const pendingWindowRecordingRef = useRef(false);
   const isSwitchingCompositionClipRef = useRef(false);
+  const isProjectTransitionRef = useRef(false);
   const spreadAnimationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -844,23 +863,49 @@ function App() {
         preserveAudioUrl: currentAudio,
       });
       clipExportSourcePathCacheRef.current.clear();
+      isSwitchingCompositionClipRef.current = true;
+      clipLoadRequestSeqRef.current += 1;
       setCurrentProjectData(project);
       const nextComposition = ensureProjectComposition(project);
       setComposition(nextComposition);
-      setLoadedClipId(null);
       if (spreadAnimationTimerRef.current) {
         clearTimeout(spreadAnimationTimerRef.current);
       }
       setSpreadFromClipId(null);
       const nextClipId =
         nextComposition.focusedClipId ?? nextComposition.selectedClipId;
+      if (nextClipId === "root") {
+        const resolvedRootBackground =
+          getCompositionResolvedBackgroundConfig(nextComposition, "root") ??
+          project.backgroundConfig;
+        setBackgroundConfig(resolvedRootBackground);
+        setLoadedClipId("root");
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            isSwitchingCompositionClipRef.current = false;
+            isProjectTransitionRef.current = false;
+          });
+        });
+        return;
+      }
+      setLoadedClipId(null);
       if (nextClipId) {
         void loadClipMediaIntoEditor(
           project.id,
           nextClipId,
           project,
           nextComposition,
-        );
+        ).finally(() => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              isProjectTransitionRef.current = false;
+            });
+          });
+        });
+      } else {
+        requestAnimationFrame(() => {
+          isProjectTransitionRef.current = false;
+        });
       }
     },
     currentVideo,
@@ -1160,7 +1205,8 @@ function App() {
       !composition ||
       !segment ||
       !compositionSyncClipId ||
-      isSwitchingCompositionClipRef.current
+      isSwitchingCompositionClipRef.current ||
+      isProjectTransitionRef.current
     )
       return;
     setComposition((prev) => {
@@ -1898,12 +1944,15 @@ function App() {
       includeMedia?: boolean;
       compositionOverride?: ProjectComposition;
       skipLiveCompositionSync?: boolean;
+      allowDuringProjectTransition?: boolean;
     }) => {
       const compositionState = options?.compositionOverride ?? composition;
       const shouldSyncLiveComposition = !options?.skipLiveCompositionSync;
       if (
         !projects.currentProjectId ||
         !compositionState ||
+        (!options?.allowDuringProjectTransition &&
+          isProjectTransitionRef.current) ||
         (shouldSyncLiveComposition && isSwitchingCompositionClipRef.current) ||
         (shouldSyncLiveComposition && !segment)
       ) {
@@ -2123,8 +2172,14 @@ function App() {
         refreshList: false,
         includeMedia: false,
       });
+      isProjectTransitionRef.current = true;
       setLastCaptureFps(null); // loading a different project — probe should determine its FPS
-      await projects.handleLoadProject(projectId);
+      try {
+        await projects.handleLoadProject(projectId);
+      } catch (error) {
+        isProjectTransitionRef.current = false;
+        throw error;
+      }
       debugProject("grid-load:done", { targetProjectId: projectId });
     },
     [persistCurrentProjectNow, projects, debugProject],
@@ -2163,6 +2218,15 @@ function App() {
     } else {
       restoreImageRef.current = null;
     }
+
+    projectsPreviewTargetSnapshotRef.current = {
+      stageRect: toPreviewRectSnapshot(
+        previewContainerRef.current?.getBoundingClientRect() ?? null,
+      ),
+      canvasRect: toPreviewRectSnapshot(
+        canvasRef.current?.getBoundingClientRect() ?? null,
+      ),
+    };
     projects.setShowProjectsDialog(true);
     debugProject("projects-toggle:open:done", {
       currentProjectId: projects.currentProjectId,
@@ -2972,7 +3036,7 @@ function App() {
               </div>
 
               <div
-                className={`playback-controls-row flex-shrink-0 flex justify-center pb-1 min-h-[56px] transition-opacity duration-200 ${showPlaybackControls || showPlaybackControlsGhost ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+                className={`playback-controls-row flex-shrink-0 flex justify-center pb-1 min-h-[61px] transition-opacity duration-200 ${showPlaybackControls || showPlaybackControlsGhost ? "opacity-100" : "opacity-0 pointer-events-none"}`}
               >
                 {showPlaybackControls && (
                   <PlaybackControls
@@ -3165,21 +3229,7 @@ function App() {
                     smartPointerButton={
                       <Button
                         onClick={handleSmartPointerHiding}
-                        disabled={
-                          exportHook.isProcessing ||
-                          !currentVideo ||
-                          (() => {
-                            const segs = segment?.cursorVisibilitySegments;
-                            const isActive =
-                              !!segs?.length &&
-                              !(
-                                segs.length === 1 &&
-                                Math.abs(segs[0].startTime - 0) < 0.01 &&
-                                Math.abs(segs[0].endTime - duration) < 0.01
-                              );
-                            return !mousePositions.length && !isActive;
-                          })()
-                        }
+                        disabled={exportHook.isProcessing || !currentVideo}
                         className={`smart-pointer-button ui-action-button flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${(() => {
                           const segs = segment?.cursorVisibilitySegments;
                           const isActive =
@@ -3191,8 +3241,7 @@ function App() {
                             );
                           if (
                             !currentVideo ||
-                            exportHook.isProcessing ||
-                            (!mousePositions.length && !isActive)
+                            exportHook.isProcessing
                           )
                             return "ui-toolbar-button text-[var(--on-surface)]/35 cursor-not-allowed";
                           return isActive
@@ -3240,7 +3289,13 @@ function App() {
                 )}
                 {showPlaybackControlsGhost && (
                   <div
-                    className="editor-empty-playback-chrome ui-empty-state flex h-[44px] items-center gap-2 rounded-2xl px-3.5 py-2.5 opacity-65"
+                    className="editor-empty-playback-chrome relative flex items-center gap-1.5 rounded-2xl border px-3.5 py-2.5 whitespace-nowrap opacity-65 shadow-[var(--shadow-elevation-2)]"
+                    style={{
+                      backgroundColor: "var(--overlay-panel-bg)",
+                      borderColor: "var(--overlay-panel-border)",
+                      color: "var(--overlay-panel-fg)",
+                      boxShadow: "var(--shadow-elevation-2)",
+                    }}
                     aria-hidden="true"
                   >
                     <div className="editor-empty-playback-pill h-7 w-[76px] rounded-xl bg-[var(--ui-surface-2)]" />
@@ -3367,6 +3422,7 @@ function App() {
               }}
               currentProjectId={projects.currentProjectId}
               restoreImage={restoreImageRef.current}
+              previewTargetSnapshot={projectsPreviewTargetSnapshotRef.current}
               pickerMode={projectPickerMode ?? "load"}
               onPickProject={handlePickProjectForSequence}
             />

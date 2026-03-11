@@ -105,9 +105,9 @@ export function SequencePillChain({
                     <span className="truncate font-medium">{clip.name}</span>
                     {isRoot && (
                       <span
-                        className={`sequence-pill-root-badge rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] ${
+                        className={`sequence-pill-root-badge shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] ${
                           isSelected
-                            ? "bg-white/18 text-white"
+                            ? "bg-white/18 text-[var(--on-surface)] dark:text-white"
                             : "bg-[var(--surface)] text-[var(--on-surface-variant)]"
                         }`}
                       >
