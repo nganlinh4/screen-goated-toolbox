@@ -81,6 +81,12 @@ function getProjectPreviewTargetRect(
   return containRect(cw, ch, fallbackWidth, fallbackHeight);
 }
 
+function getProjectThumbnailRadius(scaleX: number, scaleY: number): string {
+  const safeScaleX = Math.max(scaleX, 0.0001);
+  const safeScaleY = Math.max(scaleY, 0.0001);
+  return `${12 / safeScaleX}px ${12 / safeScaleX}px 0 0 / ${12 / safeScaleY}px ${12 / safeScaleY}px 0 0`;
+}
+
 function rectSnapshotToDomRect(
   rect: ProjectsPreviewRectSnapshot | null | undefined,
 ): DOMRect | null {
@@ -176,6 +182,9 @@ export function ProjectsView({
   const [isRestoring, setIsRestoring] = useState(
     () => !!restoreImage && !!currentProjectId,
   );
+  const [hiddenProjectCardId, setHiddenProjectCardId] = useState<string | null>(
+    () => (restoreImage && currentProjectId ? currentProjectId : null),
+  );
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const animatingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -187,10 +196,12 @@ export function ProjectsView({
   useEffect(() => {
     if (!restoreImage || !currentProjectId || !containerRef.current) {
       setIsRestoring(false);
+      setHiddenProjectCardId(null);
       return;
     }
 
     const container = containerRef.current;
+    setHiddenProjectCardId(currentProjectId);
 
     requestAnimationFrame(() => {
       const img = new Image();
@@ -231,6 +242,7 @@ export function ProjectsView({
         ) as HTMLElement | null;
         if (!card) {
           setIsRestoring(false);
+          setHiddenProjectCardId(null);
           return;
         }
 
@@ -245,6 +257,7 @@ export function ProjectsView({
         ) as HTMLElement | null;
         if (!thumbArea) {
           setIsRestoring(false);
+          setHiddenProjectCardId(null);
           return;
         }
 
@@ -271,8 +284,8 @@ export function ProjectsView({
         const sx = thumbRect.width / source.width;
         const sy = thumbRect.height / source.height;
 
-        // Compensate border-radius for scale so it visually appears as 8px after transform
-        const thumbRadius = `${12 / sx}px / ${12 / sy}px`;
+        // Match the real project thumbnail shape: rounded top corners, square bottom edge.
+        const thumbRadius = getProjectThumbnailRadius(sx, sy);
 
         clone.animate(
           [
@@ -288,11 +301,16 @@ export function ProjectsView({
             fill: "forwards",
           },
         ).onfinish = () => {
-          clone.animate([{ opacity: 1 }, { opacity: 0 }], {
-            duration: 120,
-            easing: PROJECTS_FLIP_SETTLE_EASING,
-            fill: "forwards",
-          }).onfinish = () => clone.remove();
+          setHiddenProjectCardId(null);
+          requestAnimationFrame(() => {
+            clone.animate([{ opacity: 1 }, { opacity: 0 }], {
+              duration: 120,
+              easing: PROJECTS_FLIP_SETTLE_EASING,
+              fill: "forwards",
+            }).onfinish = () => {
+              clone.remove();
+            };
+          });
         };
 
         // Fade in grid content
@@ -302,7 +320,10 @@ export function ProjectsView({
       if (img.complete) runAnimation();
       else {
         img.onload = runAnimation;
-        img.onerror = () => setIsRestoring(false);
+        img.onerror = () => {
+          setIsRestoring(false);
+          setHiddenProjectCardId(null);
+        };
       }
     });
   }, []);
@@ -573,7 +594,7 @@ export function ProjectsView({
     const dy = thumbRect.top - targetGlobal.top;
     const sx = thumbRect.width / targetGlobal.width;
     const sy = thumbRect.height / targetGlobal.height;
-    const thumbRadius = `${12 / sx}px / ${12 / sy}px`;
+    const thumbRadius = getProjectThumbnailRadius(sx, sy);
 
     clone.animate(
       [
@@ -686,8 +707,7 @@ export function ProjectsView({
       }).onfinish = () => clone.remove();
     };
 
-    // Compensate border-radius for scale so it visually appears as 8px after transform
-    const thumbRadius = `${12 / sx}px / ${12 / sy}px`;
+    const thumbRadius = getProjectThumbnailRadius(sx, sy);
 
     clone.animate(
       [
@@ -792,11 +812,20 @@ export function ProjectsView({
                 .filter(
                   (project) => !isPickerMode || project.id !== currentProjectId,
                 )
-                .map((project) => (
+                .map((project) => {
+                  const isThumbnailMasked = project.id === hiddenProjectCardId;
+                  const thumbnailSrc =
+                    project.id === currentProjectId && restoreImage
+                      ? restoreImage
+                      : project.thumbnail;
+
+                  return (
                   <div
                     key={project.id}
                     data-project-id={project.id}
-                    className="project-card ui-surface group relative rounded-xl overflow-hidden"
+                    className={`project-card ui-surface group relative rounded-xl overflow-hidden ${
+                      isThumbnailMasked ? "pointer-events-none" : ""
+                    }`}
                   >
                     <div
                       className="project-thumbnail bg-[var(--surface-container-high)] relative cursor-pointer overflow-hidden"
@@ -807,15 +836,12 @@ export function ProjectsView({
                       }}
                       onClick={(e) => handleProjectClick(project.id, e)}
                     >
-                      {(project.id === currentProjectId && restoreImage) ||
-                      project.thumbnail ? (
+                      {thumbnailSrc ? (
                         <img
-                          src={
-                            project.id === currentProjectId && restoreImage
-                              ? restoreImage
-                              : project.thumbnail
-                          }
-                          className="w-full block"
+                          src={thumbnailSrc}
+                          className={`w-full block ${
+                            isThumbnailMasked ? "opacity-0" : "opacity-100"
+                          }`}
                           alt=""
                         />
                       ) : (
@@ -823,12 +849,20 @@ export function ProjectsView({
                           <Video className="w-6 h-6 text-[var(--outline-variant)]" />
                         </div>
                       )}
-                      <div className="thumbnail-hover-overlay absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                      <div
+                        className={`thumbnail-hover-overlay absolute inset-0 bg-black/0 transition-colors flex items-center justify-center ${
+                          isThumbnailMasked
+                            ? "opacity-0"
+                            : "group-hover:bg-black/30"
+                        }`}
+                      >
                         <Play className="w-7 h-7 text-white opacity-0 group-hover:opacity-90 transition-opacity" />
                       </div>
                       {project.duration != null && project.duration > 0 && (
                         <span
-                          className="project-duration absolute bottom-2 right-2.5 text-white tabular-nums pointer-events-none"
+                          className={`project-duration absolute bottom-2 right-2.5 text-white tabular-nums pointer-events-none ${
+                            isThumbnailMasked ? "opacity-0" : "opacity-100"
+                          }`}
                           style={{
                             fontSize: "1.35rem",
                             fontVariationSettings: "'wght' 700, 'ROND' 100",
@@ -890,7 +924,7 @@ export function ProjectsView({
                       )}
                     </div>
                   </div>
-                ))}
+                )})}
             </div>
           )}
         </div>
