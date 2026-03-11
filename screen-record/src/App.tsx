@@ -441,6 +441,7 @@ function App() {
     at: number;
     stack: string[];
   } | null>(null);
+  const backgroundConfigBypassRef = useRef(0);
   const previousBackgroundSummaryRef = useRef<string | null>(
     JSON.stringify(summarizeBackgroundConfig(backgroundConfig)),
   );
@@ -450,6 +451,12 @@ function App() {
         | BackgroundConfig
         | ((value: BackgroundConfig) => BackgroundConfig),
     ) => {
+      if (
+        isProjectTransitionRef.current &&
+        backgroundConfigBypassRef.current <= 0
+      ) {
+        return;
+      }
       if (BACKGROUND_MUTATION_DEBUG) {
         backgroundMutationMetaRef.current = {
           at: Date.now(),
@@ -471,6 +478,20 @@ function App() {
       });
     },
     [],
+  );
+  const applyLoadedBackgroundConfig = useCallback(
+    (backgroundConfig: BackgroundConfig) => {
+      backgroundConfigBypassRef.current += 1;
+      try {
+        setBackgroundConfig(backgroundConfig);
+      } finally {
+        backgroundConfigBypassRef.current = Math.max(
+          0,
+          backgroundConfigBypassRef.current - 1,
+        );
+      }
+    },
+    [setBackgroundConfig],
   );
 
   // Utility hooks
@@ -893,7 +914,7 @@ function App() {
         if (clipThumbnailPlaceholder) {
           setThumbnails(clipThumbnailPlaceholder);
         }
-        setBackgroundConfig(cloneBackgroundConfig(resolvedBackground));
+        applyLoadedBackgroundConfig(cloneBackgroundConfig(resolvedBackground));
         setMousePositions(clip.mousePositions);
         setCurrentRecordingMode(clip.recordingMode ?? "withoutCursor");
         handleProjectRawVideoPathChange(clip.rawVideoPath ?? "");
@@ -926,6 +947,7 @@ function App() {
       setPreviewDuration,
       setThumbnails,
       generateThumbnailsForSource,
+      applyLoadedBackgroundConfig,
       setMousePositions,
       invalidateThumbnails,
       setSegment,
@@ -938,6 +960,7 @@ function App() {
     setCurrentAudio,
     setSegment,
     setBackgroundConfig,
+    applyLoadedBackgroundConfig,
     setMousePositions,
     setThumbnails,
     setCurrentRecordingMode,
@@ -966,7 +989,9 @@ function App() {
         const resolvedRootBackground =
           getCompositionResolvedBackgroundConfig(nextComposition, "root") ??
           project.backgroundConfig;
-        setBackgroundConfig(cloneBackgroundConfig(resolvedRootBackground));
+        applyLoadedBackgroundConfig(
+          cloneBackgroundConfig(resolvedRootBackground),
+        );
         setLoadedClipId("root");
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
@@ -2116,9 +2141,9 @@ function App() {
         );
         let videoBlob: Blob | undefined;
         let thumbnail: string | undefined;
-        if (includeMedia && activeClip.role === "root") {
-          // Use the currently rendered preview frame whenever possible so the
-          // project card thumbnail matches exactly what the user just saw.
+        if (activeClip.role === "root") {
+          // Use the current preview frame for the project card even on light
+          // saves so switching projects does not leave stale thumbnails behind.
           const canvasSnapshot = (() => {
             try {
               return canvasRef.current?.toDataURL("image/jpeg", 0.8);
@@ -2126,16 +2151,17 @@ function App() {
               return undefined;
             }
           })();
-
+          thumbnail =
+            canvasSnapshot ||
+            generateThumbnail() ||
+            activeClip.thumbnail;
+        }
+        if (includeMedia && activeClip.role === "root") {
           videoBlob = loadedAssets?.videoBlob ?? currentProjectData?.videoBlob;
           if (!videoBlob && currentVideo && !currentRawVideoPath) {
             const response = await fetch(currentVideo);
             videoBlob = await response.blob();
           }
-          thumbnail =
-            canvasSnapshot ||
-            generateThumbnail() ||
-            activeClip.thumbnail;
         }
         const canvasConfig = extractCanvasConfig(backgroundConfig);
         let nextComposition = compositionState;
@@ -2302,6 +2328,7 @@ function App() {
   const beginProjectInteractionShield = useCallback(() => {
     projectInteractionShieldReleaseRef.current?.();
     projectInteractionBlockCleanupRef.current?.();
+    isProjectTransitionRef.current = true;
     setIsProjectInteractionShieldVisible(true);
 
     const eventNames = [
@@ -2345,6 +2372,25 @@ function App() {
     projectInteractionBlockCleanupRef.current = cleanup;
   }, []);
 
+  const abortEditorInteractions = useCallback(() => {
+    const activeElement = document.activeElement;
+    if (
+      activeElement instanceof HTMLElement &&
+      typeof activeElement.blur === "function" &&
+      !(activeElement instanceof Element && activeElement.closest(".projects-view"))
+    ) {
+      activeElement.blur();
+    }
+    window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    if (typeof PointerEvent !== "undefined") {
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+      window.dispatchEvent(
+        new PointerEvent("pointercancel", { bubbles: true }),
+      );
+    }
+    window.dispatchEvent(new CustomEvent("sr-abort-editor-interactions"));
+  }, []);
+
   const handleLoadProjectFromGrid = useCallback(
     async (projectId: string) => {
       // Always persist the currently open project before loading another one.
@@ -2360,6 +2406,10 @@ function App() {
         currentSegment: summarizeSegment(segment),
       });
       if (projectId === projects.currentProjectId) {
+        projectInteractionShieldReleaseRef.current?.();
+        isProjectTransitionRef.current = false;
+        setIsProjectInteractionShieldVisible(false);
+        projectInteractionBlockCleanupRef.current?.();
         projects.setShowProjectsDialog(false);
         debugProject("grid-load:same-project-close", {
           targetProjectId: projectId,
@@ -2367,12 +2417,12 @@ function App() {
         return;
       }
       beginProjectInteractionShield();
+      abortEditorInteractions();
       projectInteractionShieldReleaseRef.current?.();
       await persistCurrentProjectNow({
         refreshList: false,
         includeMedia: false,
       });
-      isProjectTransitionRef.current = true;
       setLastCaptureFps(null); // loading a different project — probe should determine its FPS
       try {
         await projects.handleLoadProject(projectId);
@@ -2384,6 +2434,7 @@ function App() {
       debugProject("grid-load:done", { targetProjectId: projectId });
     },
     [
+      abortEditorInteractions,
       backgroundConfig,
       beginProjectInteractionShield,
       currentProjectData?.id,
@@ -2728,12 +2779,19 @@ function App() {
           nextComposition,
         );
       }
+      void persistCurrentProjectNow({
+        refreshList: false,
+        includeMedia: false,
+        compositionOverride: nextComposition,
+        skipLiveCompositionSync: true,
+      });
     },
     [
       backgroundConfig,
       composition,
       currentProjectData,
       loadClipMediaIntoEditor,
+      persistCurrentProjectNow,
       projects.currentProjectId,
     ],
   );
@@ -3119,6 +3177,11 @@ function App() {
     segment,
     backgroundConfig,
     mousePositions,
+    // Composition-only edits like sequence mode/selection still need persistence.
+    composition,
+    currentRecordingMode,
+    currentRawVideoPath,
+    duration,
     projects.currentProjectId,
     currentVideo,
   ]);

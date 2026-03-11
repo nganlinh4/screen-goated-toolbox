@@ -1136,6 +1136,7 @@ interface UseProjectsProps {
   setCurrentAudio: (url: string | null) => void;
   setSegment: (segment: VideoSegment | null) => void;
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
+  applyLoadedBackgroundConfig?: (backgroundConfig: BackgroundConfig) => void;
   setMousePositions: (positions: MousePosition[]) => void;
   setThumbnails: (thumbnails: string[]) => void;
   setCurrentRecordingMode?: (mode: RecordingMode) => void;
@@ -1380,7 +1381,12 @@ export function useProjects(props: UseProjectsProps) {
         }
       }
       props.setSegment(correctedSegment);
-      props.setBackgroundConfig(cloneBackgroundConfig(project.backgroundConfig));
+      const loadedBackground = cloneBackgroundConfig(project.backgroundConfig);
+      if (props.applyLoadedBackgroundConfig) {
+        props.applyLoadedBackgroundConfig(loadedBackground);
+      } else {
+        props.setBackgroundConfig(loadedBackground);
+      }
       props.setMousePositions(project.mousePositions);
       props.setCurrentRecordingMode?.(project.recordingMode ?? "withoutCursor");
       props.setCurrentRawVideoPath?.(rawVideoPath);

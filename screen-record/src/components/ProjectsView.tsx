@@ -441,8 +441,12 @@ export function ProjectsView({
     const finishProjectOpen = () => {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          clone.remove();
           onClose();
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              clone.remove();
+            });
+          });
         });
       });
     };
