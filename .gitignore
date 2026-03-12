@@ -30,3 +30,8 @@ dist/
 src/overlay/screen_record/dist/
 target_replay
 target_bench
+
+# Android / KMP mobile app artifacts
+mobile/.gradle/
+mobile/local.properties
+mobile/**/build/

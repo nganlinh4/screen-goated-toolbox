@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "defaults": {
+    "audioSource": "device",
+    "targetLanguage": "Vietnamese",
+    "translationModel": "cerebras-oss",
+    "transcriptionModel": "gemini",
+    "fontSize": 16,
+    "ttsEnabled": false,
+    "ttsSpeed": 100,
+    "ttsAutoSpeed": true,
+    "ttsVolume": 100
+  },
+  "requiredControls": {
+    "transcriptionPane": [
+      "waveform-canvas",
+      "audio-source-toggle",
+      "transcription-model-toggle",
+      "copy",
+      "font-minus",
+      "font-plus",
+      "toggle-transcription",
+      "toggle-translation",
+      "collapse-chevron"
+    ],
+    "translationPane": [
+      "tts-read",
+      "translation-model-toggle",
+      "language-select",
+      "copy",
+      "font-minus",
+      "font-plus",
+      "toggle-transcription",
+      "toggle-translation",
+      "collapse-chevron"
+    ]
+  },
+  "requiredVisuals": {
+    "fontFamily": "Google Sans Flex",
+    "translationHeaderText": "absent",
+    "mobileResizeGesture": "pinch",
+    "mobileOverlayWindows": "detached",
+    "portraitLayout": "stacked-default-detached",
+    "landscapeLayout": "side-by-side-default-detached",
+    "chevronConsumesLayoutSpace": false,
+    "headerOverflowBehavior": "horizontal-swipe",
+    "roundedWindowMask": true,
+    "languagePicker": "native-overlay",
+    "androidDeviceTtsIsolation": "non-capturable-no-app-picker",
+    "androidTtsSettingsApplyToUnreadText": true,
+    "androidTtsRequestsTransientDuckFocus": true
+  }
+}
