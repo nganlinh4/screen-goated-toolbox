@@ -1,0 +1,203 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "finished sentence commits exact bytes",
+      "steps": [
+        {
+          "type": "appendTranscript",
+          "text": "hello. tail",
+          "atMs": 100
+        },
+        {
+          "type": "claimTranslationRequest",
+          "expectedRequest": {
+            "chunk": "hello.",
+            "hasFinishedDelimiter": true,
+            "bytesToCommit": 6
+          }
+        },
+        {
+          "type": "appendTranslation",
+          "text": "hola.",
+          "atMs": 140
+        },
+        {
+          "type": "finalizeTranslation",
+          "bytesToCommit": 6
+        }
+      ],
+      "expectedState": {
+        "fullTranscript": "hello. tail",
+        "displayTranscript": "hello. tail",
+        "lastCommittedPos": 6,
+        "lastProcessedLen": 11,
+        "committedTranslation": "hola.",
+        "uncommittedTranslation": "",
+        "displayTranslation": "hola.",
+        "translationHistory": []
+      }
+    },
+    {
+      "name": "unfinished tail stays uncommitted until force commit",
+      "steps": [
+        {
+          "type": "appendTranscript",
+          "text": "hello tail",
+          "atMs": 100
+        },
+        {
+          "type": "claimTranslationRequest",
+          "expectedRequest": {
+            "chunk": "hello tail",
+            "hasFinishedDelimiter": false,
+            "bytesToCommit": 0
+          }
+        },
+        {
+          "type": "appendTranslation",
+          "text": "hola cola",
+          "atMs": 150
+        },
+        {
+          "type": "forceCommitAll"
+        }
+      ],
+      "expectedState": {
+        "fullTranscript": "hello tail",
+        "displayTranscript": "hello tail",
+        "lastCommittedPos": 10,
+        "lastProcessedLen": 10,
+        "committedTranslation": "hola cola",
+        "uncommittedTranslation": "",
+        "displayTranslation": "hola cola",
+        "translationHistory": [
+          {
+            "source": "hello tail",
+            "translation": "hola cola"
+          }
+        ]
+      }
+    },
+    {
+      "name": "next request uses only untranslated tail after new transcript arrives",
+      "steps": [
+        {
+          "type": "appendTranscript",
+          "text": "one. two",
+          "atMs": 100
+        },
+        {
+          "type": "claimTranslationRequest",
+          "expectedRequest": {
+            "chunk": "one.",
+            "hasFinishedDelimiter": true,
+            "bytesToCommit": 4
+          }
+        },
+        {
+          "type": "appendTranslation",
+          "text": "uno.",
+          "atMs": 120
+        },
+        {
+          "type": "finalizeTranslation",
+          "bytesToCommit": 4
+        },
+        {
+          "type": "appendTranscript",
+          "text": "!",
+          "atMs": 180
+        },
+        {
+          "type": "claimTranslationRequest",
+          "expectedRequest": {
+            "chunk": " two!",
+            "hasFinishedDelimiter": true,
+            "bytesToCommit": 5
+          }
+        }
+      ],
+      "expectedState": {
+        "fullTranscript": "one. two!",
+        "displayTranscript": "one. two!",
+        "lastCommittedPos": 4,
+        "lastProcessedLen": 9,
+        "committedTranslation": "uno.",
+        "uncommittedTranslation": "",
+        "displayTranslation": "uno.",
+        "translationHistory": []
+      }
+    },
+    {
+      "name": "language change clears translation history only",
+      "steps": [
+        {
+          "type": "appendTranscript",
+          "text": "carry on",
+          "atMs": 100
+        },
+        {
+          "type": "claimTranslationRequest",
+          "expectedRequest": {
+            "chunk": "carry on",
+            "hasFinishedDelimiter": false,
+            "bytesToCommit": 0
+          }
+        },
+        {
+          "type": "appendTranslation",
+          "text": "sigue",
+          "atMs": 140
+        },
+        {
+          "type": "forceCommitAll"
+        },
+        {
+          "type": "clearTranslationHistory"
+        }
+      ],
+      "expectedState": {
+        "fullTranscript": "carry on",
+        "displayTranscript": "carry on",
+        "lastCommittedPos": 8,
+        "lastProcessedLen": 8,
+        "committedTranslation": "sigue",
+        "uncommittedTranslation": "",
+        "displayTranslation": "sigue",
+        "translationHistory": []
+      }
+    },
+    {
+      "name": "same transcript cannot open duplicate translation request",
+      "steps": [
+        {
+          "type": "appendTranscript",
+          "text": "steady stream",
+          "atMs": 100
+        },
+        {
+          "type": "claimTranslationRequest",
+          "expectedRequest": {
+            "chunk": "steady stream",
+            "hasFinishedDelimiter": false,
+            "bytesToCommit": 0
+          }
+        },
+        {
+          "type": "claimTranslationRequest"
+        }
+      ],
+      "expectedState": {
+        "fullTranscript": "steady stream",
+        "displayTranscript": "steady stream",
+        "lastCommittedPos": 0,
+        "lastProcessedLen": 13,
+        "committedTranslation": "",
+        "uncommittedTranslation": "",
+        "displayTranslation": "",
+        "translationHistory": []
+      }
+    }
+  ]
+}

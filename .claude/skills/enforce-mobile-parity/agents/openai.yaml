@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mobile Parity"
+  short_description: "Hard-gate Windows-to-mobile parity work"
+  default_prompt: "Use $enforce-mobile-parity to map a mobile change to the canonical Windows behavior before implementation."

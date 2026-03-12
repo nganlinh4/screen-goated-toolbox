@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SGT Mobile</string>
+    <string name="live_translate_channel_name">Live Translate</string>
+    <string name="live_translate_channel_description">Foreground session status for SGT mobile live translation.</string>
+    <string name="live_translate_notification_title">SGT Live Translate</string>
+    <string name="live_translate_notification_text">Listening for speech and translating in real time.</string>
+</resources>
+

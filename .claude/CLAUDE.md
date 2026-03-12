@@ -52,6 +52,12 @@ cargo test               # Run tests
 - Keep this `CLAUDE.md` updated whenever stable workflow/process knowledge changes.
 - Do not add volatile details that are likely to change often; update when needed, not routinely.
 
+## Windows-Mobile Parity
+- Windows behavior is the canonical source for any mobile feature that is meant to match an existing desktop feature.
+- For mobile parity work, use the repo-local skill at `.claude/skills/enforce-mobile-parity/SKILL.md`.
+- Before implementing or changing mobile parity behavior, update or create the matching spec under `.claude/parity/` and add or update shared fixtures under `parity-fixtures/`.
+- Mobile parity changes must not introduce undocumented behavioral deviations from Windows. If a deviation is unavoidable, document it in the feature parity spec before implementation.
+
 ## Model Catalog Workflow
 - **Adding/editing/removing a model** — use `/manage-model-catalog` (see `.claude/commands/manage-model-catalog.md`)
 - **Adding/editing/removing a built-in recorder background** — use `/manage-background-presets` (see `.claude/commands/manage-background-presets.md`)

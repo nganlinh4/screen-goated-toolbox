@@ -1,0 +1,346 @@
+package dev.screengoated.toolbox.mobile.ui
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Remove
+import androidx.compose.material.icons.outlined.Subtitles
+import androidx.compose.material.icons.outlined.Translate
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.window.PopupProperties
+import dev.screengoated.toolbox.mobile.model.LanguageCatalog
+import dev.screengoated.toolbox.mobile.shared.live.SourceMode
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun RealtimeOverlaySurface(
+    state: RealtimeOverlayUiState,
+    languages: List<String>,
+    onTargetLanguageSelected: (String) -> Unit,
+    onCopyTranscript: () -> Unit,
+    onCopyTranslation: () -> Unit,
+    onIncreaseFont: () -> Unit,
+    onDecreaseFont: () -> Unit,
+    onToggleListeningVisibility: () -> Unit,
+    onToggleTranslationVisibility: () -> Unit,
+    onToggleListeningHeader: () -> Unit,
+    onToggleTranslationHeader: () -> Unit,
+    onWindowDrag: (Int, Int) -> Unit,
+    onWindowResize: (Int, Int) -> Unit,
+) {
+    val panelsVisible = listOf(state.listeningVisible, state.translationVisible).count { it }
+    if (panelsVisible == 0) {
+        return
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        val stacked = maxHeight > maxWidth
+        val splitGap = 12.dp
+        val paneModifier = when {
+            panelsVisible == 1 -> Modifier.fillMaxSize()
+            stacked -> Modifier
+                .fillMaxWidth()
+                .height(((maxHeight - splitGap) / 2).coerceAtLeast(110.dp))
+            else -> Modifier
+                .width(((maxWidth - splitGap) / 2).coerceAtLeast(180.dp))
+                .fillMaxSize()
+        }
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (stacked) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OverlayPanels(
+                        paneModifier = paneModifier,
+                        state = state,
+                        languages = languages,
+                        onTargetLanguageSelected = onTargetLanguageSelected,
+                        onCopyTranscript = onCopyTranscript,
+                        onCopyTranslation = onCopyTranslation,
+                        onIncreaseFont = onIncreaseFont,
+                        onDecreaseFont = onDecreaseFont,
+                        onToggleListeningVisibility = onToggleListeningVisibility,
+                        onToggleTranslationVisibility = onToggleTranslationVisibility,
+                        onToggleListeningHeader = onToggleListeningHeader,
+                        onToggleTranslationHeader = onToggleTranslationHeader,
+                        onWindowDrag = onWindowDrag,
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OverlayPanels(
+                        paneModifier = paneModifier,
+                        state = state,
+                        languages = languages,
+                        onTargetLanguageSelected = onTargetLanguageSelected,
+                        onCopyTranscript = onCopyTranscript,
+                        onCopyTranslation = onCopyTranslation,
+                        onIncreaseFont = onIncreaseFont,
+                        onDecreaseFont = onDecreaseFont,
+                        onToggleListeningVisibility = onToggleListeningVisibility,
+                        onToggleTranslationVisibility = onToggleTranslationVisibility,
+                        onToggleListeningHeader = onToggleListeningHeader,
+                        onToggleTranslationHeader = onToggleTranslationHeader,
+                        onWindowDrag = onWindowDrag,
+                    )
+                }
+            }
+            OverlayResizeHandle(
+                modifier = Modifier.align(Alignment.BottomEnd),
+                onWindowResize = onWindowResize,
+            )
+        }
+    }
+}
+
+@Composable
+private fun OverlayPanels(
+    paneModifier: Modifier,
+    state: RealtimeOverlayUiState,
+    languages: List<String>,
+    onTargetLanguageSelected: (String) -> Unit,
+    onCopyTranscript: () -> Unit,
+    onCopyTranslation: () -> Unit,
+    onIncreaseFont: () -> Unit,
+    onDecreaseFont: () -> Unit,
+    onToggleListeningVisibility: () -> Unit,
+    onToggleTranslationVisibility: () -> Unit,
+    onToggleListeningHeader: () -> Unit,
+    onToggleTranslationHeader: () -> Unit,
+    onWindowDrag: (Int, Int) -> Unit,
+) {
+    if (state.listeningVisible) {
+        OverlayPane(
+            modifier = paneModifier,
+            accentColor = Color(0xFF00C8FF),
+            title = { ListeningTitle() },
+            headerCollapsed = state.listeningHeaderCollapsed,
+            onHeaderToggle = onToggleListeningHeader,
+            onWindowDrag = onWindowDrag,
+            controls = {
+                OverlayIconBadge(
+                    icon = if (state.sourceMode == SourceMode.MIC) {
+                        Icons.Outlined.Mic
+                    } else {
+                        Icons.Outlined.GraphicEq
+                    },
+                    tint = Color(0xFF2B78FF),
+                )
+                OverlayIconBadge(icon = Icons.Outlined.AutoAwesome, tint = Color(0xFF2B78FF))
+                OverlayLanguageChip(
+                    label = "EN",
+                    enabled = false,
+                    languages = emptyList(),
+                    selectedLanguage = "",
+                    onTargetLanguageSelected = {},
+                )
+                OverlayActionButton(
+                    icon = Icons.Outlined.ContentCopy,
+                    tint = Color(0xFF8B8A90),
+                    onClick = onCopyTranscript,
+                )
+                OverlayActionButton(
+                    icon = Icons.Outlined.Remove,
+                    tint = Color(0xFF8B8A90),
+                    onClick = onDecreaseFont,
+                )
+                OverlayActionButton(
+                    icon = Icons.Outlined.Add,
+                    tint = Color(0xFF8B8A90),
+                    onClick = onIncreaseFont,
+                )
+                OverlayVisibilityButton(
+                    icon = Icons.Outlined.Subtitles,
+                    tint = Color(0xFF2B78FF),
+                    active = state.listeningVisible,
+                    onClick = onToggleListeningVisibility,
+                )
+                OverlayVisibilityButton(
+                    icon = Icons.Outlined.Translate,
+                    tint = Color(0xFFE6005A),
+                    active = state.translationVisible,
+                    onClick = onToggleTranslationVisibility,
+                )
+            },
+        ) {
+            OverlayTextBody(
+                text = state.transcript,
+                placeholder = "Waiting for speech...",
+                fontSizeSp = state.fontSizeSp,
+            )
+        }
+    }
+
+    if (state.translationVisible) {
+        OverlayPane(
+            modifier = paneModifier,
+            accentColor = Color(0xFFFF9633),
+            title = {
+                Text(
+                    text = "Translation",
+                    color = Color(0xFF6B656E),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            },
+            headerCollapsed = state.translationHeaderCollapsed,
+            onHeaderToggle = onToggleTranslationHeader,
+            onWindowDrag = onWindowDrag,
+            controls = {
+                OverlayActionButton(
+                    icon = Icons.AutoMirrored.Outlined.VolumeUp,
+                    tint = Color(0xFF8B8A90),
+                    enabled = false,
+                    onClick = {},
+                )
+                OverlayIconBadge(icon = Icons.Outlined.AutoAwesome, tint = Color(0xFF8B8A90))
+                OverlayLanguageChip(
+                    label = LanguageCatalog.codeForName(state.targetLanguage),
+                    enabled = true,
+                    languages = languages,
+                    selectedLanguage = state.targetLanguage,
+                    onTargetLanguageSelected = onTargetLanguageSelected,
+                )
+                OverlayActionButton(
+                    icon = Icons.Outlined.ContentCopy,
+                    tint = Color(0xFF8B8A90),
+                    onClick = onCopyTranslation,
+                )
+                OverlayActionButton(
+                    icon = Icons.Outlined.Remove,
+                    tint = Color(0xFF8B8A90),
+                    onClick = onDecreaseFont,
+                )
+                OverlayActionButton(
+                    icon = Icons.Outlined.Add,
+                    tint = Color(0xFF8B8A90),
+                    onClick = onIncreaseFont,
+                )
+                OverlayVisibilityButton(
+                    icon = Icons.Outlined.Subtitles,
+                    tint = Color(0xFF2B78FF),
+                    active = state.listeningVisible,
+                    onClick = onToggleListeningVisibility,
+                )
+                OverlayVisibilityButton(
+                    icon = Icons.Outlined.Translate,
+                    tint = Color(0xFFE6005A),
+                    active = state.translationVisible,
+                    onClick = onToggleTranslationVisibility,
+                )
+            },
+        ) {
+            OverlayTranslationBody(
+                committedTranslation = state.committedTranslation,
+                liveTranslation = state.liveTranslation,
+                placeholder = "Waiting for speech...",
+                fontSizeSp = state.fontSizeSp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun OverlayLanguageChip(
+    label: String,
+    enabled: Boolean,
+    languages: List<String>,
+    selectedLanguage: String,
+    onTargetLanguageSelected: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        OverlayLanguageButton(
+            label = label,
+            enabled = enabled,
+            onClick = {
+                if (enabled && languages.isNotEmpty()) {
+                    expanded = true
+                }
+            },
+        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier
+                .heightIn(max = 280.dp)
+                .widthIn(min = 180.dp),
+            properties = PopupProperties(focusable = false),
+        ) {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                languages.forEach { language ->
+                    DropdownMenuItem(
+                        text = { Text(language) },
+                        onClick = {
+                            expanded = false
+                            onTargetLanguageSelected(language)
+                        },
+                        trailingIcon = {
+                            if (language == selectedLanguage) {
+                                Text(LanguageCatalog.codeForName(language))
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OverlayLanguageButton(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    androidx.compose.material3.Surface(
+        color = Color(0xFFF1EDF3),
+        shape = androidx.compose.foundation.shape.CircleShape,
+        enabled = enabled,
+        onClick = onClick,
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            color = if (enabled) Color(0xFF3D3940) else Color(0xFF9A949E),
+            style = MaterialTheme.typography.labelMedium,
+        )
+    }
+}

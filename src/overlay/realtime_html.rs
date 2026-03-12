@@ -29,16 +29,11 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
     } else {
         "graphic_eq"
     };
-    let title_text = if is_translation {
-        text.realtime_translation
-    } else {
-        text.realtime_listening
-    };
     let glow_color = if is_translation { "#ff9633" } else { "#00c8ff" };
 
     // Title content: volume bars for transcription, text for translation
     let title_content = if is_translation {
-        title_text.to_string()
+        String::new()
     } else {
         // Canvas-based volume visualizer for smooth 60fps animation
         r#"<canvas id="volume-canvas" width="90" height="24"></canvas>"#.to_string()
@@ -279,7 +274,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         subtitles_svg = crate::overlay::html_components::icons::get_icon_svg("subtitles"),
         translate_svg = crate::overlay::html_components::icons::get_icon_svg("translate"),
         expand_less_svg = crate::overlay::html_components::icons::get_icon_svg("expand_less"),
-        pip_svg = crate::overlay::html_components::icons::get_icon_svg("picture_in_picture_small"),
+        pip_svg = crate::overlay::html_components::icons::get_icon_svg("resize_corner"),
         volume_up_svg = crate::overlay::html_components::icons::get_icon_svg("volume_up"),
         apps_svg = crate::overlay::html_components::icons::get_icon_svg("apps"),
         download_svg = crate::overlay::html_components::icons::get_icon_svg("download"),

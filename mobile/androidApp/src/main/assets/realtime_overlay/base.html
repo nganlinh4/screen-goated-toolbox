@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>{{FONT_CSS}}</style>
+    <style id="main-style">
+        {{CSS_CONTENT}}
+    </style>
+</head>
+<body>
+    <div id="loading-overlay">{{LOADING_ICON}}</div>
+    <div id="container">
+        <div id="header">
+            <div id="title">{{TITLE_CONTENT}}</div>
+            <div id="controls">
+                {{AUDIO_SELECTOR}}
+                <span class="ctrl-btn" id="copy-btn" title="Copy text"><span class="material-symbols-rounded">{{CONTENT_COPY_SVG}}</span></span>
+                <div class="pill-group">
+                    <span class="ctrl-btn" id="font-decrease" title="Decrease font size"><span class="material-symbols-rounded">{{REMOVE_SVG}}</span></span>
+                    <span class="ctrl-btn" id="font-increase" title="Increase font size"><span class="material-symbols-rounded">{{ADD_SVG}}</span></span>
+                </div>
+                <div class="btn-group">
+                    <span class="vis-btn mic active" id="toggle-mic" title="Toggle Transcription"><span class="material-symbols-rounded">{{SUBTITLES_SVG}}</span></span>
+                    <span class="vis-btn trans active" id="toggle-trans" title="Toggle Translation"><span class="material-symbols-rounded">{{TRANSLATE_SVG}}</span></span>
+                </div>
+            </div>
+        </div>
+        <div id="header-toggle" title="Toggle header"><span class="material-symbols-rounded">{{EXPAND_LESS_SVG}}</span></div>
+        <div id="viewport">
+            <div id="content">
+                <span class="placeholder">{{PLACEHOLDER_TEXT}}</span>
+            </div>
+        </div>
+        <div id="resize-hint"><span class="material-symbols-rounded" style="font-size: 20px;">{{PIP_SVG}}</span></div>
+    </div>
+    <!-- Download Modal -->
+    <div id="download-modal-overlay"></div>
+    <div id="download-modal">
+        <div class="download-modal-title">
+            <span class="material-symbols-rounded">{{DOWNLOAD_SVG}}</span>
+            <span id="download-title">Downloading Model</span>
+        </div>
+        <div class="download-modal-msg" id="download-msg">Please wait...</div>
+        <div class="download-progress-bar">
+            <div class="download-progress-fill" id="download-fill" style="width: 0%;"></div>
+        </div>
+        <div class="download-modal-footnote">{{SUPPORTS_ENGLISH}}</div>
+        <button class="download-cancel-btn" id="download-cancel-btn" title="Cancel download and return to Gemini Live">
+            <span class="material-symbols-rounded">{{CLOSE_SVG}}</span>
+            {{CANCEL_TEXT}}
+        </button>
+    </div>
+    <!-- TTS Settings Modal -->
+    <div id="tts-modal-overlay"></div>
+    <div id="tts-modal">
+        <div class="tts-modal-title">
+            <span class="material-symbols-rounded">{{VOLUME_UP_SVG}}</span>
+            {{TTS_TITLE}}
+            <div class="toggle-switch" id="tts-toggle" style="margin-left: auto;"></div>
+        </div>
+        <div class="tts-modal-row">
+            <span class="tts-modal-label">{{TTS_SPEED}}</span>
+            <div class="speed-slider-container">
+                <input type="range" class="speed-slider" id="speed-slider" min="50" max="200" value="100" step="10">
+                <span class="speed-value" id="speed-value">1.0x</span>
+                <button class="auto-toggle on" id="auto-speed-toggle" title="Auto-adjust speed to catch up">{{TTS_AUTO}}</button>
+            </div>
+        </div>
+        <div class="tts-modal-row">
+            <span class="tts-modal-label">{{TTS_VOLUME}}</span>
+            <div class="speed-slider-container">
+                <input type="range" class="speed-slider" id="volume-slider" min="0" max="100" value="100" step="5">
+                <span class="speed-value" id="volume-value">100%</span>
+            </div>
+        </div>
+    </div>
+    <script>
+        {{JS_CONTENT}}
+    </script>
+</body>
+</html>

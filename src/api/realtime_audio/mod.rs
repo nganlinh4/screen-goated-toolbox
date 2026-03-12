@@ -10,6 +10,8 @@ mod capture;
 pub mod model_loader;
 pub mod parakeet;
 mod state;
+#[cfg(test)]
+mod state_tests;
 mod transcription;
 mod translation;
 mod utils;
