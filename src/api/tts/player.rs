@@ -151,21 +151,21 @@ struct AudioPlayer {
 }
 
 impl AudioPlayer {
+    fn current_default_render_endpoint_id() -> Option<String> {
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let enumerator: IMMDeviceEnumerator =
+                CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+            let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
+            device.GetId().ok()?.to_string().ok()
+        }
+    }
+
     fn new(sample_rate: u32, manager: Arc<TtsManager>) -> Self {
         let shared_buffer: Arc<Mutex<VecDeque<i16>>> = Arc::new(Mutex::new(VecDeque::new()));
         let buffer_clone = shared_buffer.clone();
         let shutdown = Arc::new(AtomicBool::new(false));
         let shutdown_clone = shutdown.clone();
-
-        // Read config for device ID
-        let target_device_id = {
-            if let Ok(app) = crate::APP.lock() {
-                let id = app.config.tts_output_device.clone();
-                if id.is_empty() { None } else { Some(id) }
-            } else {
-                None
-            }
-        };
 
         // Spawn a dedicated thread for WASAPI playback
         let thread = std::thread::spawn(move || {
@@ -176,19 +176,32 @@ impl AudioPlayer {
                 return;
             }
 
-            eprintln!("[TTS Player] COM initialized, creating audio stream...");
+            eprintln!("[TTS Player] COM initialized, entering audio stream loop...");
 
-            // Try to create an AudioClient with loopback exclusion
-            let result = Self::create_excluded_stream(
-                sample_rate,
-                buffer_clone.clone(),
-                shutdown_clone.clone(),
-                target_device_id,
-                manager,
-            );
+            while !shutdown_clone.load(Ordering::Relaxed) {
+                let target_device_id = Self::current_target_device_id();
 
-            if let Err(e) = result {
-                eprintln!("[TTS Player] ERROR: WASAPI stream creation failed: {}", e);
+                match unsafe {
+                    Self::run_wasapi_excluded(
+                        sample_rate,
+                        buffer_clone.clone(),
+                        shutdown_clone.clone(),
+                        target_device_id,
+                        manager.clone(),
+                    )
+                } {
+                    Ok(()) => break,
+                    Err(e) => {
+                        if shutdown_clone.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        eprintln!(
+                            "[TTS Player] WARNING: WASAPI stream failed: {}. Reinitializing...",
+                            e
+                        );
+                        std::thread::sleep(Duration::from_millis(750));
+                    }
+                }
             }
         });
 
@@ -201,35 +214,13 @@ impl AudioPlayer {
         }
     }
 
-    fn create_excluded_stream(
-        _sample_rate: u32,
-        shared_buffer: Arc<Mutex<VecDeque<i16>>>,
-        shutdown: Arc<AtomicBool>,
-        target_device_id: Option<String>,
-        manager: Arc<TtsManager>,
-    ) -> anyhow::Result<()> {
-        let buffer_clone = shared_buffer.clone();
-        let shutdown_clone = shutdown.clone();
-
-        // Attempt WASAPI with exclusion
-        std::thread::spawn(move || {
-            if let Err(e) = unsafe {
-                Self::run_wasapi_excluded(
-                    _sample_rate,
-                    buffer_clone.clone(),
-                    shutdown_clone.clone(),
-                    target_device_id,
-                    manager,
-                )
-            } {
-                eprintln!(
-                    "TTS: WASAPI exclusion FAILED with error: {:?}. Call ended.",
-                    e
-                );
-            }
-        });
-
-        Ok(())
+    fn current_target_device_id() -> Option<String> {
+        if let Ok(app) = crate::APP.lock() {
+            let id = app.config.tts_output_device.clone();
+            if id.is_empty() { None } else { Some(id) }
+        } else {
+            None
+        }
     }
 
     unsafe fn run_wasapi_excluded(
@@ -256,10 +247,12 @@ impl AudioPlayer {
                     Ok(d) => d,
                     Err(e) => {
                         eprintln!(
-                            "[TTS WASAPI] ERROR: Specified device not found: {:?}, falling back to default",
+                            "[TTS WASAPI] ERROR: Specified device not found: {:?}",
                             e
                         );
-                        enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?
+                        return Err(anyhow::anyhow!(
+                            "Configured TTS output device is unavailable; waiting for it to return"
+                        ));
                     }
                 }
             } else {
@@ -267,6 +260,9 @@ impl AudioPlayer {
                 // Use Console role for TTS (Default)
                 enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?
             };
+
+            let active_device_id = device.GetId()?.to_string().ok();
+            let follows_default_device = target_device_id.is_none();
 
             // Activate IAudioClient
             let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
@@ -312,6 +308,7 @@ impl AudioPlayer {
             let _frames_written = 0;
 
             let mut last_gen = manager.interrupt_generation.load(Ordering::SeqCst);
+            let mut last_default_device_check = Instant::now();
 
             while !shutdown.load(Ordering::Relaxed) {
                 let current_gen = manager.interrupt_generation.load(Ordering::SeqCst);
@@ -320,6 +317,17 @@ impl AudioPlayer {
                         deck.clear();
                     }
                     last_gen = current_gen;
+                }
+                if follows_default_device
+                    && last_default_device_check.elapsed() >= Duration::from_millis(750)
+                {
+                    let current_default_id = Self::current_default_render_endpoint_id();
+                    if current_default_id.is_some() && current_default_id != active_device_id {
+                        return Err(anyhow::anyhow!(
+                            "Windows default audio output changed; rebuilding TTS output"
+                        ));
+                    }
+                    last_default_device_check = Instant::now();
                 }
                 let padding = client.GetCurrentPadding()?;
                 let available = buffer_size.saturating_sub(padding);

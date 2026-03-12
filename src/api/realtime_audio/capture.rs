@@ -8,7 +8,33 @@ use std::sync::{
 };
 use std::time::Duration;
 
-use super::REALTIME_RMS;
+use super::{DEVICE_RECONNECT_REQUESTED, REALTIME_RMS};
+
+#[cfg(target_os = "windows")]
+use windows::Win32::Media::Audio::*;
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Com::*;
+
+fn request_device_reconnect(reason: &str) {
+    eprintln!("Device loopback capture needs reconnect: {reason}");
+    DEVICE_RECONNECT_REQUESTED.store(true, Ordering::SeqCst);
+}
+
+#[cfg(target_os = "windows")]
+fn current_default_render_endpoint_id() -> Option<String> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+        let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
+        device.GetId().ok()?.to_string().ok()
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn current_default_render_endpoint_id() -> Option<String> {
+    None
+}
 
 /// Start per-app audio capture using WASAPI process loopback (Windows 10 1903+)
 ///
@@ -185,8 +211,18 @@ pub fn start_device_loopback_capture(
     // Use default output device for loopback
     let device = host
         .default_output_device()
-        .ok_or_else(|| anyhow::anyhow!("No output device available"))?;
-    let config = device.default_output_config()?;
+        .ok_or_else(|| {
+            request_device_reconnect("no default output device available");
+            anyhow::anyhow!("No output device available")
+        })?;
+    let config = match device.default_output_config() {
+        Ok(config) => config,
+        Err(err) => {
+            request_device_reconnect(&format!("failed to query default output config: {err}"));
+            return Err(err.into());
+        }
+    };
+    let initial_default_output_id = current_default_render_endpoint_id();
 
     let sample_rate = config.sample_rate();
     let channels = config.channels() as usize;
@@ -199,7 +235,27 @@ pub fn start_device_loopback_capture(
 
     let stop_signal_audio = stop_signal.clone();
     let pause_signal_audio = pause_signal.clone();
-    let err_fn = |err| eprintln!("Audio stream error: {}", err);
+    let err_fn = |err| {
+        eprintln!("Audio stream error: {}", err);
+        request_device_reconnect(&format!("stream error: {err}"));
+    };
+
+    let stop_signal_monitor = stop_signal.clone();
+    std::thread::spawn(move || {
+        let Some(initial_id) = initial_default_output_id else {
+            return;
+        };
+        while !stop_signal_monitor.load(Ordering::Relaxed)
+            && !DEVICE_RECONNECT_REQUESTED.load(Ordering::SeqCst)
+        {
+            std::thread::sleep(Duration::from_millis(750));
+            let current_id = current_default_render_endpoint_id();
+            if current_id.is_some() && current_id != Some(initial_id.clone()) {
+                request_device_reconnect("default output device changed");
+                break;
+            }
+        }
+    });
 
     let stream = match config.sample_format() {
         cpal::SampleFormat::F32 => device.build_input_stream(
@@ -207,6 +263,7 @@ pub fn start_device_loopback_capture(
             move |data: &[f32], _: &_| {
                 if stop_signal_audio.load(Ordering::Relaxed)
                     || pause_signal_audio.load(Ordering::Relaxed)
+                    || crate::api::tts::TTS_MANAGER.is_playing.load(Ordering::SeqCst)
                 {
                     return;
                 }
@@ -255,12 +312,17 @@ pub fn start_device_loopback_capture(
             },
             err_fn,
             None,
-        )?,
+        )
+        .map_err(|err| {
+            request_device_reconnect(&format!("failed to build loopback stream: {err}"));
+            err
+        })?,
         cpal::SampleFormat::I16 => device.build_input_stream(
             &config.into(),
             move |data: &[i16], _: &_| {
                 if stop_signal_audio.load(Ordering::Relaxed)
                     || pause_signal_audio.load(Ordering::Relaxed)
+                    || crate::api::tts::TTS_MANAGER.is_playing.load(Ordering::SeqCst)
                 {
                     return;
                 }
@@ -308,11 +370,18 @@ pub fn start_device_loopback_capture(
             },
             err_fn,
             None,
-        )?,
+        )
+        .map_err(|err| {
+            request_device_reconnect(&format!("failed to build loopback stream: {err}"));
+            err
+        })?,
         _ => return Err(anyhow::anyhow!("Unsupported audio format")),
     };
 
-    stream.play()?;
+    if let Err(err) = stream.play() {
+        request_device_reconnect(&format!("failed to start loopback stream: {err}"));
+        return Err(err.into());
+    }
     Ok(stream)
 }
 

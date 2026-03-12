@@ -46,6 +46,8 @@ pub const WM_THEME_UPDATE: u32 = WM_APP + 212;
 
 // Shared RMS value for volume visualization
 pub static REALTIME_RMS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+pub static DEVICE_RECONNECT_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// Cancel Parakeet download and revert to Gemini Live mode
 pub fn cancel_download_and_revert_to_gemini() {

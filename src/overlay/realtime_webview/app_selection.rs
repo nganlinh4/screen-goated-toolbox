@@ -274,6 +274,36 @@ pub fn show_app_selection_popup() {
     use windows::Win32::UI::WindowsAndMessaging::*;
     use windows::core::*;
 
+    loop {
+        let existing_popup = APP_SELECTION_HWND.load(Ordering::SeqCst);
+        if existing_popup == -1 {
+            return;
+        }
+        if existing_popup > 0 {
+            unsafe {
+                let existing_hwnd = HWND(existing_popup as *mut std::ffi::c_void);
+                if IsWindow(Some(existing_hwnd)).as_bool() {
+                    let _ = ShowWindow(existing_hwnd, SW_SHOW);
+                    let _ = SetForegroundWindow(existing_hwnd);
+                    return;
+                }
+            }
+            let _ = APP_SELECTION_HWND.compare_exchange(
+                existing_popup,
+                0,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            );
+            continue;
+        }
+        if APP_SELECTION_HWND
+            .compare_exchange(0, -1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            break;
+        }
+    }
+
     // Get locale text
     let locale_text = {
         let app = APP.lock().unwrap();
@@ -285,6 +315,7 @@ pub fn show_app_selection_popup() {
     let apps = enumerate_audio_apps();
     if apps.is_empty() {
         eprintln!("No audio apps found for selection");
+        APP_SELECTION_HWND.store(0, Ordering::SeqCst);
         return;
     }
 
@@ -390,7 +421,9 @@ pub fn show_app_selection_popup() {
             use windows::Win32::Graphics::Dwm::{
                 DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
             };
-            use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow, WS_CLIPCHILDREN};
+            use windows::Win32::UI::WindowsAndMessaging::{
+                SW_HIDE, SW_SHOW, ShowWindow, WS_CLIPCHILDREN,
+            };
 
             // Register window class
             let class_name = w!("AppSelectPopup");
@@ -416,11 +449,11 @@ pub fn show_app_selection_popup() {
             let x = (screen_width - win_width) / 2;
             let y = (screen_height - win_height) / 2;
 
-            let hwnd = CreateWindowExW(
+            let hwnd = match CreateWindowExW(
                 WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
                 class_name,
                 w!("Select App"),
-                WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN,
+                WS_POPUP | WS_CLIPCHILDREN,
                 x,
                 y,
                 win_width,
@@ -429,8 +462,14 @@ pub fn show_app_selection_popup() {
                 None,
                 Some(h_instance.into()),
                 None,
-            )
-            .unwrap();
+            ) {
+                Ok(hwnd) => hwnd,
+                Err(err) => {
+                    eprintln!("Failed to create app selection window: {:?}", err);
+                    APP_SELECTION_HWND.store(0, Ordering::SeqCst);
+                    return;
+                }
+            };
 
             // Store handle for external closing
             APP_SELECTION_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
@@ -477,7 +516,7 @@ pub fn show_app_selection_popup() {
                             )),
                         })
                         .with_url(&page_url)
-                        .with_transparent(true)
+                        .with_transparent(false)
                         .with_ipc_handler(move |req| {
                             let body = req.body();
                             if let Some(rest) = body.strip_prefix("selectApp:")
@@ -544,6 +583,7 @@ pub fn show_app_selection_popup() {
 
             if result.is_err() {
                 eprintln!("Failed to create WebView for app selection");
+                APP_SELECTION_HWND.store(0, Ordering::SeqCst);
                 let _ = DestroyWindow(hwnd);
                 return;
             }
@@ -553,6 +593,9 @@ pub fn show_app_selection_popup() {
             APP_SELECT_WEBVIEW.with(|w| {
                 *w.borrow_mut() = Some(webview);
             });
+
+            let _ = ShowWindow(hwnd, SW_SHOW);
+            let _ = SetForegroundWindow(hwnd);
 
             // Message loop
             let mut msg = MSG::default();

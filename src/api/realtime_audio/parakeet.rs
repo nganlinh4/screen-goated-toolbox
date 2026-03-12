@@ -189,6 +189,9 @@ where
         {
             break;
         }
+        if super::DEVICE_RECONNECT_REQUESTED.load(Ordering::SeqCst) {
+            break;
+        }
         if pause_signal.load(Ordering::Relaxed) {
             std::thread::sleep(std::time::Duration::from_millis(50));
             continue;
@@ -272,6 +275,10 @@ where
         }
 
         std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+
+    if super::DEVICE_RECONNECT_REQUESTED.load(Ordering::SeqCst) {
+        return Ok(());
     }
 
     // Flush

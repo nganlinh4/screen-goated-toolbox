@@ -79,6 +79,7 @@ fn transcription_thread_entry(
     loop {
         AUDIO_SOURCE_CHANGE.store(false, Ordering::SeqCst);
         TRANSCRIPTION_MODEL_CHANGE.store(false, Ordering::SeqCst);
+        super::DEVICE_RECONNECT_REQUESTED.store(false, Ordering::SeqCst);
 
         // Reset volume indicator to ensure fresh state when switching methods
         REALTIME_RMS.store(0, Ordering::SeqCst);
@@ -120,10 +121,13 @@ fn transcription_thread_entry(
             )
         };
 
+        let reconnect_requested = super::DEVICE_RECONNECT_REQUESTED.load(Ordering::SeqCst);
+
         if let Err(e) = result {
             // Only show error if it's not a user-initiated action (model/source change, stop signal)
             let is_user_initiated = AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
                 || TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
+                || reconnect_requested
                 || stop_signal.load(Ordering::Relaxed);
 
             if !is_user_initiated {
@@ -174,6 +178,12 @@ fn transcription_thread_entry(
         // If a restart is triggered, reset stop signal to allow the new transcription to run
         if restart_source || restart_model {
             stop_signal.store(false, Ordering::SeqCst);
+        }
+
+        if reconnect_requested {
+            stop_signal.store(false, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(750));
+            continue;
         }
 
         if !restart_source && !restart_model && stop_signal.load(Ordering::Relaxed) {
@@ -374,6 +384,7 @@ fn run_main_loop(
             };
             if AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
                 || TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
+                || super::DEVICE_RECONNECT_REQUESTED.load(Ordering::SeqCst)
             {
                 break;
             }
