@@ -5,6 +5,8 @@ import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.PermissionSnapshotEvaluator
 import dev.screengoated.toolbox.mobile.service.GeminiLiveSocketClient
 import dev.screengoated.toolbox.mobile.service.RealtimeTranslationClient
+import dev.screengoated.toolbox.mobile.service.tts.AndroidTtsRuntimeService
+import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogService
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
 import dev.screengoated.toolbox.mobile.storage.SecureSettingsStore
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionStore
@@ -32,6 +34,7 @@ class AppContainer(
     private val settingsStore = SecureSettingsStore(appContext, json)
     private val permissionEvaluator = PermissionSnapshotEvaluator(projectionConsentStore)
     private val sessionStore = LiveSessionStore()
+    private val edgeVoiceCatalogService = EdgeVoiceCatalogService(httpClient, settingsStore, json)
 
     val repository = AndroidLiveSessionRepository(
         context = appContext,
@@ -44,4 +47,10 @@ class AppContainer(
 
     val geminiLiveSocketClient = GeminiLiveSocketClient(httpClient)
     val realtimeTranslationClient = RealtimeTranslationClient(httpClient)
+    val ttsRuntimeService = AndroidTtsRuntimeService(
+        context = appContext,
+        httpClient = httpClient,
+        settingsStore = settingsStore,
+        edgeVoiceCatalogService = edgeVoiceCatalogService,
+    )
 }

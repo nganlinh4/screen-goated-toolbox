@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -32,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsVoiceConfig
 import dev.screengoated.toolbox.mobile.model.MobileTtsCatalog
@@ -39,7 +41,10 @@ import dev.screengoated.toolbox.mobile.model.MobileTtsCatalog
 @Composable
 internal fun EdgeTtsSection(
     settings: MobileEdgeTtsSettings,
+    catalogState: EdgeVoiceCatalogState,
     onChanged: (MobileEdgeTtsSettings) -> Unit,
+    onRetryCatalog: () -> Unit,
+    onPreviewVoice: (String, String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Card {
@@ -83,7 +88,10 @@ internal fun EdgeTtsSection(
 
         EdgeVoiceRoutingCard(
             settings = settings,
+            catalogState = catalogState,
             onChanged = onChanged,
+            onRetryCatalog = onRetryCatalog,
+            onPreviewVoice = onPreviewVoice,
         )
     }
 }
@@ -91,7 +99,10 @@ internal fun EdgeTtsSection(
 @Composable
 private fun EdgeVoiceRoutingCard(
     settings: MobileEdgeTtsSettings,
+    catalogState: EdgeVoiceCatalogState,
     onChanged: (MobileEdgeTtsSettings) -> Unit,
+    onRetryCatalog: () -> Unit,
+    onPreviewVoice: (String, String) -> Unit,
 ) {
     var addMenuExpanded by remember { mutableStateOf(false) }
 
@@ -106,9 +117,34 @@ private fun EdgeVoiceRoutingCard(
                 fontWeight = FontWeight.SemiBold,
             )
 
+            when {
+                catalogState.loading -> Text(
+                    text = "Loading voice list...",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                catalogState.errorMessage != null -> Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Failed to load voices: ${catalogState.errorMessage}",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    OutlinedButton(onClick = onRetryCatalog) {
+                        Text("Retry")
+                    }
+                }
+            }
+
             settings.voiceConfigs.forEachIndexed { index, config ->
                 EdgeVoiceConfigRow(
                     config = config,
+                    availableVoices = catalogState.byLanguage[config.languageCode.lowercase()].orEmpty().map { it.shortName },
                     onConfigChanged = { nextConfig ->
                         onChanged(
                             settings.copy(
@@ -121,6 +157,7 @@ private fun EdgeVoiceRoutingCard(
                     onRemove = {
                         onChanged(settings.copy(voiceConfigs = settings.voiceConfigs.filterIndexed { current, _ -> current != index }))
                     },
+                    onPreview = { onPreviewVoice(config.languageCode, config.voiceName) },
                 )
             }
 
@@ -140,7 +177,10 @@ private fun EdgeVoiceRoutingCard(
                                 DropdownMenuItem(
                                     text = { Text(option.name) },
                                     onClick = {
-                                        val defaultVoice = MobileTtsCatalog.edgeVoiceSuggestions(option.code).firstOrNull()
+                                        val defaultVoice = catalogState.byLanguage[option.code.lowercase()]
+                                            ?.firstOrNull()
+                                            ?.shortName
+                                            ?: MobileTtsCatalog.edgeVoiceSuggestions(option.code).firstOrNull()
                                             ?: "${option.code}-Voice"
                                         onChanged(
                                             settings.copy(
@@ -169,11 +209,6 @@ private fun EdgeVoiceRoutingCard(
                 }
             }
 
-            Text(
-                text = "Android stores these Edge routing settings now, but playback still uses the current platform TTS runtime.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
@@ -181,11 +216,17 @@ private fun EdgeVoiceRoutingCard(
 @Composable
 private fun EdgeVoiceConfigRow(
     config: MobileEdgeTtsVoiceConfig,
+    availableVoices: List<String>,
     onConfigChanged: (MobileEdgeTtsVoiceConfig) -> Unit,
     onRemove: () -> Unit,
+    onPreview: () -> Unit,
 ) {
     var suggestionsExpanded by remember(config.languageCode, config.voiceName) { mutableStateOf(false) }
-    val suggestions = MobileTtsCatalog.edgeVoiceSuggestions(config.languageCode)
+    val suggestions = if (availableVoices.isNotEmpty()) {
+        availableVoices
+    } else {
+        MobileTtsCatalog.edgeVoiceSuggestions(config.languageCode)
+    }
 
     BoxWithConstraints {
         val stacked = maxWidth < 620.dp
@@ -224,6 +265,9 @@ private fun EdgeVoiceConfigRow(
                                 }
                             }
                         }
+                    }
+                    IconButton(onClick = onPreview) {
+                        Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = "Preview Edge voice")
                     }
                     IconButton(onClick = onRemove) {
                         Icon(Icons.Rounded.Close, contentDescription = "Remove voice config")
@@ -269,6 +313,9 @@ private fun EdgeVoiceConfigRow(
                             }
                         }
                     }
+                }
+                IconButton(onClick = onPreview) {
+                    Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = "Preview Edge voice")
                 }
                 IconButton(onClick = onRemove) {
                     Icon(Icons.Rounded.Close, contentDescription = "Remove voice config")

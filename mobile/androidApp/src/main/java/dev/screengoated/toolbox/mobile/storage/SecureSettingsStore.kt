@@ -9,6 +9,7 @@ import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.RealtimePaneFontSizes
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
+import dev.screengoated.toolbox.mobile.service.tts.CachedEdgeVoiceCatalog
 import kotlinx.serialization.json.Json
 
 class SecureSettingsStore(
@@ -103,6 +104,19 @@ class SecureSettingsStore(
             .apply()
     }
 
+    fun loadEdgeVoiceCatalog(): CachedEdgeVoiceCatalog? {
+        val payload = prefs.getString(KEY_EDGE_VOICE_CATALOG, null) ?: return null
+        return runCatching {
+            json.decodeFromString<CachedEdgeVoiceCatalog>(payload)
+        }.getOrNull()
+    }
+
+    fun saveEdgeVoiceCatalog(catalog: CachedEdgeVoiceCatalog) {
+        prefs.edit()
+            .putString(KEY_EDGE_VOICE_CATALOG, json.encodeToString(CachedEdgeVoiceCatalog.serializer(), catalog))
+            .apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "sgt_mobile_secure"
         private const val KEY_SESSION_CONFIG = "session_config"
@@ -115,5 +129,6 @@ class SecureSettingsStore(
         private const val KEY_TTS_AUTO_SPEED = "realtime_tts_auto_speed"
         private const val KEY_TTS_VOLUME = "realtime_tts_volume"
         private const val KEY_GLOBAL_TTS_SETTINGS = "global_tts_settings"
+        private const val KEY_EDGE_VOICE_CATALOG = "edge_voice_catalog"
     }
 }

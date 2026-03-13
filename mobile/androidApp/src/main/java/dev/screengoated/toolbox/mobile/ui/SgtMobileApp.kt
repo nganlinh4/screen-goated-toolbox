@@ -26,6 +26,7 @@ import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
+import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 
@@ -35,6 +36,7 @@ fun SgtMobileApp(
     apiKey: String,
     cerebrasApiKey: String,
     globalTtsSettings: MobileGlobalTtsSettings,
+    edgeVoiceCatalogState: EdgeVoiceCatalogState,
     onApiKeyChanged: (String) -> Unit,
     onCerebrasApiKeyChanged: (String) -> Unit,
     onGlobalTtsMethodChanged: (MobileTtsMethod) -> Unit,
@@ -42,6 +44,10 @@ fun SgtMobileApp(
     onGlobalTtsVoiceChanged: (String) -> Unit,
     onGlobalTtsConditionsChanged: (List<MobileTtsLanguageCondition>) -> Unit,
     onGlobalEdgeTtsSettingsChanged: (MobileEdgeTtsSettings) -> Unit,
+    onVoiceSettingsShown: () -> Unit,
+    onRetryEdgeVoiceCatalog: () -> Unit,
+    onPreviewGeminiVoice: (String) -> Unit,
+    onPreviewEdgeVoice: (String, String) -> Unit,
     onSessionToggle: () -> Unit,
 ) {
     val isActive = state.phase in setOf(
@@ -55,12 +61,16 @@ fun SgtMobileApp(
     if (showTtsSettings) {
         GlobalTtsSettingsDialog(
             settings = globalTtsSettings,
+            edgeVoiceCatalogState = edgeVoiceCatalogState,
             onDismiss = { showTtsSettings = false },
             onMethodChanged = onGlobalTtsMethodChanged,
             onSpeedPresetChanged = onGlobalTtsSpeedPresetChanged,
             onVoiceChanged = onGlobalTtsVoiceChanged,
             onConditionsChanged = onGlobalTtsConditionsChanged,
             onEdgeSettingsChanged = onGlobalEdgeTtsSettingsChanged,
+            onRetryEdgeVoiceCatalog = onRetryEdgeVoiceCatalog,
+            onPreviewGeminiVoice = onPreviewGeminiVoice,
+            onPreviewEdgeVoice = onPreviewEdgeVoice,
         )
     }
 
@@ -103,7 +113,10 @@ fun SgtMobileApp(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 12.dp),
-                    onClick = { showTtsSettings = true },
+                    onClick = {
+                        onVoiceSettingsShown()
+                        showTtsSettings = true
+                    },
                     shape = MaterialTheme.shapes.large,
                 ) {
                     Text("Voice Settings")

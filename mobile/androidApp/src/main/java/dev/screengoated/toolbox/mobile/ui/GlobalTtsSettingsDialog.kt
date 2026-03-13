@@ -6,25 +6,34 @@ import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
+import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
 import dev.screengoated.toolbox.mobile.ui.ttssettings.RenderGlobalTtsSettingsDialog
 
 @Composable
 fun GlobalTtsSettingsDialog(
     settings: MobileGlobalTtsSettings,
+    edgeVoiceCatalogState: EdgeVoiceCatalogState,
     onDismiss: () -> Unit,
     onMethodChanged: (MobileTtsMethod) -> Unit,
     onSpeedPresetChanged: (MobileTtsSpeedPreset) -> Unit,
     onVoiceChanged: (String) -> Unit,
     onConditionsChanged: (List<MobileTtsLanguageCondition>) -> Unit,
     onEdgeSettingsChanged: (MobileEdgeTtsSettings) -> Unit,
+    onRetryEdgeVoiceCatalog: () -> Unit,
+    onPreviewGeminiVoice: (String) -> Unit,
+    onPreviewEdgeVoice: (String, String) -> Unit,
 ) {
     RenderGlobalTtsSettingsDialog(
         settings = settings,
+        edgeVoiceCatalogState = edgeVoiceCatalogState,
         onDismiss = onDismiss,
         onMethodChanged = onMethodChanged,
         onSpeedPresetChanged = onSpeedPresetChanged,
         onVoiceChanged = onVoiceChanged,
         onConditionsChanged = onConditionsChanged,
         onEdgeSettingsChanged = onEdgeSettingsChanged,
+        onRetryEdgeVoiceCatalog = onRetryEdgeVoiceCatalog,
+        onPreviewGeminiVoice = onPreviewGeminiVoice,
+        onPreviewEdgeVoice = onPreviewEdgeVoice,
     )
 }

@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
             val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
             val cerebrasApiKey by viewModel.cerebrasApiKey.collectAsStateWithLifecycle()
             val globalTtsSettings by viewModel.globalTtsSettings.collectAsStateWithLifecycle()
+            val edgeVoiceCatalogState by viewModel.edgeVoiceCatalogState.collectAsStateWithLifecycle()
             val context = LocalContext.current
             val onSessionToggle by rememberUpdatedState {
                 if (state.phase == dev.screengoated.toolbox.mobile.shared.live.SessionPhase.LISTENING ||
@@ -112,11 +113,16 @@ class MainActivity : ComponentActivity() {
                     globalTtsSettings = globalTtsSettings,
                     onApiKeyChanged = viewModel::onApiKeyChanged,
                     onCerebrasApiKeyChanged = viewModel::onCerebrasApiKeyChanged,
+                    edgeVoiceCatalogState = edgeVoiceCatalogState,
                     onGlobalTtsMethodChanged = viewModel::onGlobalTtsMethodChanged,
                     onGlobalTtsSpeedPresetChanged = viewModel::onGlobalTtsSpeedPresetChanged,
                     onGlobalTtsVoiceChanged = viewModel::onGlobalTtsVoiceChanged,
                     onGlobalTtsConditionsChanged = viewModel::onGlobalTtsConditionsChanged,
                     onGlobalEdgeTtsSettingsChanged = viewModel::onGlobalEdgeTtsSettingsChanged,
+                    onVoiceSettingsShown = viewModel::onVoiceSettingsShown,
+                    onRetryEdgeVoiceCatalog = viewModel::retryEdgeVoiceCatalog,
+                    onPreviewGeminiVoice = viewModel::previewGeminiVoice,
+                    onPreviewEdgeVoice = viewModel::previewEdgeVoice,
                     onSessionToggle = onSessionToggle,
                 )
             }

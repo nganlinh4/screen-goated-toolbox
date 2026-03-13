@@ -46,6 +46,7 @@ internal fun GeminiLiveSection(
     onSpeedPresetChanged: (MobileTtsSpeedPreset) -> Unit,
     onConditionsChanged: (List<MobileTtsLanguageCondition>) -> Unit,
     onVoiceChanged: (String) -> Unit,
+    onPreviewVoice: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         BoxWithConstraints {
@@ -75,6 +76,7 @@ internal fun GeminiLiveSection(
         GeminiVoiceGrid(
             selectedVoice = settings.voice,
             onVoiceChanged = onVoiceChanged,
+            onPreviewVoice = onPreviewVoice,
         )
     }
 }
@@ -259,6 +261,7 @@ internal fun ConditionLanguageLabel(
 private fun GeminiVoiceGrid(
     selectedVoice: String,
     onVoiceChanged: (String) -> Unit,
+    onPreviewVoice: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
@@ -269,17 +272,11 @@ private fun GeminiVoiceGrid(
 
         BoxWithConstraints {
             when {
-                maxWidth >= 900.dp -> FourColumnVoiceGrid(selectedVoice, onVoiceChanged)
-                maxWidth >= 600.dp -> TwoColumnVoiceGrid(selectedVoice, onVoiceChanged)
-                else -> SingleColumnVoiceGrid(selectedVoice, onVoiceChanged)
+                maxWidth >= 900.dp -> FourColumnVoiceGrid(selectedVoice, onVoiceChanged, onPreviewVoice)
+                maxWidth >= 600.dp -> TwoColumnVoiceGrid(selectedVoice, onVoiceChanged, onPreviewVoice)
+                else -> SingleColumnVoiceGrid(selectedVoice, onVoiceChanged, onPreviewVoice)
             }
         }
-
-        Text(
-            text = "Preview buttons are shown for parity, but Android does not synthesize Gemini voice previews from this modal yet.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
@@ -287,6 +284,7 @@ private fun GeminiVoiceGrid(
 private fun FourColumnVoiceGrid(
     selectedVoice: String,
     onVoiceChanged: (String) -> Unit,
+    onPreviewVoice: (String) -> Unit,
 ) {
     val maleVoices = MobileTtsCatalog.maleVoices
     val femaleVoices = MobileTtsCatalog.femaleVoices
@@ -299,6 +297,7 @@ private fun FourColumnVoiceGrid(
             voices = maleVoices.take(maleMid),
             selectedVoice = selectedVoice,
             onVoiceChanged = onVoiceChanged,
+            onPreviewVoice = onPreviewVoice,
             modifier = Modifier.weight(1f),
         )
         VoiceColumnCard(
@@ -306,6 +305,7 @@ private fun FourColumnVoiceGrid(
             voices = maleVoices.drop(maleMid),
             selectedVoice = selectedVoice,
             onVoiceChanged = onVoiceChanged,
+            onPreviewVoice = onPreviewVoice,
             modifier = Modifier.weight(1f),
         )
         VoiceColumnCard(
@@ -313,6 +313,7 @@ private fun FourColumnVoiceGrid(
             voices = femaleVoices.take(femaleMid),
             selectedVoice = selectedVoice,
             onVoiceChanged = onVoiceChanged,
+            onPreviewVoice = onPreviewVoice,
             modifier = Modifier.weight(1f),
         )
         VoiceColumnCard(
@@ -320,6 +321,7 @@ private fun FourColumnVoiceGrid(
             voices = femaleVoices.drop(femaleMid),
             selectedVoice = selectedVoice,
             onVoiceChanged = onVoiceChanged,
+            onPreviewVoice = onPreviewVoice,
             modifier = Modifier.weight(1f),
         )
     }
@@ -329,6 +331,7 @@ private fun FourColumnVoiceGrid(
 private fun TwoColumnVoiceGrid(
     selectedVoice: String,
     onVoiceChanged: (String) -> Unit,
+    onPreviewVoice: (String) -> Unit,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         VoiceColumnCard(
@@ -336,6 +339,7 @@ private fun TwoColumnVoiceGrid(
             voices = MobileTtsCatalog.maleVoices,
             selectedVoice = selectedVoice,
             onVoiceChanged = onVoiceChanged,
+            onPreviewVoice = onPreviewVoice,
             modifier = Modifier.weight(1f),
         )
         VoiceColumnCard(
@@ -343,6 +347,7 @@ private fun TwoColumnVoiceGrid(
             voices = MobileTtsCatalog.femaleVoices,
             selectedVoice = selectedVoice,
             onVoiceChanged = onVoiceChanged,
+            onPreviewVoice = onPreviewVoice,
             modifier = Modifier.weight(1f),
         )
     }
@@ -352,6 +357,7 @@ private fun TwoColumnVoiceGrid(
 private fun SingleColumnVoiceGrid(
     selectedVoice: String,
     onVoiceChanged: (String) -> Unit,
+    onPreviewVoice: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         VoiceColumnCard(
@@ -359,12 +365,14 @@ private fun SingleColumnVoiceGrid(
             voices = MobileTtsCatalog.maleVoices,
             selectedVoice = selectedVoice,
             onVoiceChanged = onVoiceChanged,
+            onPreviewVoice = onPreviewVoice,
         )
         VoiceColumnCard(
             title = "Female",
             voices = MobileTtsCatalog.femaleVoices,
             selectedVoice = selectedVoice,
             onVoiceChanged = onVoiceChanged,
+            onPreviewVoice = onPreviewVoice,
         )
     }
 }
@@ -375,6 +383,7 @@ private fun VoiceColumnCard(
     voices: List<GeminiVoiceOption>,
     selectedVoice: String,
     onVoiceChanged: (String) -> Unit,
+    onPreviewVoice: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(modifier = modifier) {
@@ -399,10 +408,15 @@ private fun VoiceColumnCard(
                         selected = selectedVoice == voice.name,
                         onClick = { onVoiceChanged(voice.name) },
                     )
-                    IconButton(onClick = {}, enabled = false) {
+                    IconButton(
+                        onClick = {
+                            onVoiceChanged(voice.name)
+                            onPreviewVoice(voice.name)
+                        },
+                    ) {
                         Icon(
                             Icons.AutoMirrored.Rounded.VolumeUp,
-                            contentDescription = "Preview unavailable on Android",
+                            contentDescription = "Preview voice",
                         )
                     }
                     Text(
