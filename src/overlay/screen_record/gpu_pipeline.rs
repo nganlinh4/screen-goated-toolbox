@@ -39,7 +39,9 @@ use super::gpu_export::{CompositorUniforms, GpuCompositor};
 use super::mf_audio::{AudioConfig, MfAudioDecoder};
 use super::mf_decode::{DecodedFrame, DxgiDeviceManager, MfDecoder};
 use super::mf_encode::{EncoderConfig, MfEncoder, VideoCodec};
-use super::native_export::config::{AnimatedCursorSlotData, OverlayFrame, SpeedPoint, TrimSegment};
+use super::native_export::config::{
+    AnimatedCursorSlotData, DeviceAudioPoint, OverlayFrame, SpeedPoint, TrimSegment,
+};
 
 /// Result of a GPU export run.
 pub struct ZeroCopyExportResult {
@@ -56,8 +58,8 @@ pub struct PipelineConfig {
     pub source_video_path: String,
     pub output_path: String,
     pub audio_path: Option<String>,
-    /// Volume multiplier applied to every PCM sample (0.0 = silent, 1.0 = unchanged).
-    pub audio_volume: f64,
+    /// Device audio volume curve in source-video time (0.0 = silent, 1.0 = unchanged).
+    pub audio_volume_points: Vec<DeviceAudioPoint>,
     pub output_width: u32,
     pub output_height: u32,
     pub framerate: u32,
@@ -194,6 +196,88 @@ fn get_speed(time: f64, points: &[SpeedPoint]) -> f64 {
     let t = (time - p1.time) / (p2.time - p1.time).max(1e-9);
     let cos_t = (1.0 - (t * std::f64::consts::PI).cos()) / 2.0;
     p1.speed + (p2.speed - p1.speed) * cos_t
+}
+
+fn get_device_audio_volume(time: f64, points: &[DeviceAudioPoint]) -> f64 {
+    if points.is_empty() {
+        return 1.0;
+    }
+
+    let idx = points.partition_point(|p| p.time < time);
+    if idx == 0 {
+        return points[0].volume.clamp(0.0, 1.0);
+    }
+    if idx >= points.len() {
+        return points.last().unwrap().volume.clamp(0.0, 1.0);
+    }
+
+    let p1 = &points[idx - 1];
+    let p2 = &points[idx];
+    let t = (time - p1.time) / (p2.time - p1.time).max(1e-9);
+    let cos_t = (1.0 - (t * std::f64::consts::PI).cos()) / 2.0;
+    (p1.volume + (p2.volume - p1.volume) * cos_t).clamp(0.0, 1.0)
+}
+
+fn apply_audio_volume_envelope(
+    pcm: &mut [u8],
+    source_start_time: f64,
+    source_duration_sec: f64,
+    channels: usize,
+    points: &[DeviceAudioPoint],
+) {
+    if pcm.is_empty() || channels == 0 {
+        return;
+    }
+
+    let frames = pcm.len() / (channels * 4);
+    if frames == 0 {
+        return;
+    }
+
+    if points
+        .iter()
+        .all(|point| (point.volume.clamp(0.0, 1.0) - 1.0).abs() < 0.0001)
+    {
+        return;
+    }
+
+    if let Some(first_point) = points.first() {
+        let constant_volume = first_point.volume.clamp(0.0, 1.0) as f32;
+        if points
+            .iter()
+            .all(|point| (point.volume.clamp(0.0, 1.0) - constant_volume as f64).abs() < 0.0001)
+        {
+            for chunk in pcm.chunks_exact_mut(4) {
+                let sample = f32::from_le_bytes(chunk.try_into().unwrap());
+                chunk.copy_from_slice(&(sample * constant_volume).clamp(-1.0, 1.0).to_le_bytes());
+            }
+            return;
+        }
+    }
+
+    let frame_time_step = if source_duration_sec <= 0.0 {
+        0.0
+    } else {
+        source_duration_sec / frames as f64
+    };
+
+    for frame_idx in 0..frames {
+        let sample_time = source_start_time + ((frame_idx as f64) + 0.5) * frame_time_step;
+        let volume = get_device_audio_volume(sample_time, points) as f32;
+        if (volume - 1.0).abs() < 0.0001 {
+            continue;
+        }
+        for channel_idx in 0..channels {
+            let sample_idx = ((frame_idx * channels) + channel_idx) * 4;
+            let sample = f32::from_le_bytes(
+                pcm[sample_idx..sample_idx + 4]
+                    .try_into()
+                    .unwrap(),
+            );
+            pcm[sample_idx..sample_idx + 4]
+                .copy_from_slice(&(sample * volume).clamp(-1.0, 1.0).to_le_bytes());
+        }
+    }
 }
 
 pub fn build_frame_times(config: &PipelineConfig) -> Vec<f64> {
@@ -1976,16 +2060,24 @@ fn run_encode_thread(context: EncodeThreadContext<'_>) -> Result<ZeroCopyExportR
                             let channels = dec.channels() as usize;
                             let speed =
                                 get_speed(chunk_time, &config.speed_points).clamp(0.1, 16.0);
+                            let input_frames = if channels == 0 {
+                                0
+                            } else {
+                                pcm.len() / (channels * 4)
+                            };
+                            let source_duration_sec = if input_frames == 0 {
+                                0.0
+                            } else {
+                                input_frames as f64 / dec.sample_rate() as f64
+                            };
                             let mut resampled = resample_pcm_bytes(&pcm, speed, channels);
-                            // Apply volume scaling (config.audio_volume == 1.0 → no-op).
-                            if config.audio_volume < 0.999 {
-                                let vol = config.audio_volume as f32;
-                                for chunk in resampled.chunks_exact_mut(4) {
-                                    let s = f32::from_le_bytes(chunk.try_into().unwrap());
-                                    chunk
-                                        .copy_from_slice(&(s * vol).clamp(-1.0, 1.0).to_le_bytes());
-                                }
-                            }
+                            apply_audio_volume_envelope(
+                                &mut resampled,
+                                chunk_time,
+                                source_duration_sec,
+                                channels,
+                                &config.audio_volume_points,
+                            );
                             if channels == 0 || resampled.is_empty() {
                                 continue;
                             }

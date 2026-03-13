@@ -5,6 +5,7 @@ export function useUndoRedo<T>(initialState: T, maxHistory: number = 20) {
     const [present, setPresent] = useState<T>(initialState);
     const [past, setPast] = useState<T[]>([]);
     const [future, setFuture] = useState<T[]>([]);
+    const [isBatching, setIsBatching] = useState(false);
 
     // We need refs to access latest state in callbacks without re-creating them
     const presentRef = useRef(present);
@@ -42,6 +43,7 @@ export function useUndoRedo<T>(initialState: T, maxHistory: number = 20) {
     const beginBatch = useCallback(() => {
         if (batchSnapshotRef.current === null) {
             batchSnapshotRef.current = presentRef.current;
+            setIsBatching(true);
         }
     }, []);
 
@@ -49,6 +51,7 @@ export function useUndoRedo<T>(initialState: T, maxHistory: number = 20) {
         const snapshot = batchSnapshotRef.current;
         if (snapshot === null) return;
         batchSnapshotRef.current = null;
+        setIsBatching(false);
         // Only push if state actually changed during the batch
         if (snapshot === presentRef.current) return;
         setPast((prev) => {
@@ -88,6 +91,7 @@ export function useUndoRedo<T>(initialState: T, maxHistory: number = 20) {
         redo,
         canUndo: past.length > 0,
         canRedo: future.length > 0,
+        isBatching,
         beginBatch,
         commitBatch
     };

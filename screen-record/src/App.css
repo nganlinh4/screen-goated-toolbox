@@ -95,6 +95,7 @@
         --timeline-lane-border: rgba(148, 163, 184, 0.26);
         --timeline-zoom-color: #2563eb;
         --timeline-speed-color: #8b5cf6;
+        --timeline-device-audio-color: #e11d48;
         --timeline-success-color: #0f9f8d;
         --timeline-warning-color: #d97706;
         --timeline-neutral-color: #64748b;
@@ -192,6 +193,7 @@
         --timeline-lane-border: rgba(108, 112, 137, 0.34);
         --timeline-zoom-color: #7ab0ff;
         --timeline-speed-color: #a78bfa;
+        --timeline-device-audio-color: #fb7185;
         --timeline-success-color: #2dd4bf;
         --timeline-warning-color: #fbbf24;
         --timeline-neutral-color: #94a3b8;
@@ -326,12 +328,24 @@ textarea.subtle-resize::-webkit-resizer {
     background: none;
 }
 
-body.dragging-speed-point * {
-    cursor: ns-resize !important;
+body.dragging-adjustable-line .timeline-content > div > * {
+    pointer-events: none !important;
 }
 
-body.dragging-speed-point .timeline-content > div > *:not(.speed-track) {
-    pointer-events: none !important;
+body.dragging-adjustable-line-free * {
+    cursor: move !important;
+}
+
+body.dragging-adjustable-line-armed * {
+    cursor: all-scroll !important;
+}
+
+body.dragging-adjustable-line-axis-x * {
+    cursor: ew-resize !important;
+}
+
+body.dragging-adjustable-line-axis-y * {
+    cursor: ns-resize !important;
 }
 
 body.dragging-ew * {
@@ -876,6 +890,12 @@ body.dragging-seek * {
     color: var(--timeline-speed-color);
 }
 
+.timeline-chip[data-tone="device-audio"] {
+    background: color-mix(in srgb, var(--timeline-device-audio-color) 16%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--timeline-device-audio-color) 36%, transparent);
+    color: var(--timeline-device-audio-color);
+}
+
 .timeline-handle-pill {
     width: 3px;
     height: 12px;
@@ -1005,15 +1025,51 @@ body.dragging-seek * {
 
 .timeline-control-point[data-tone="zoom"] {
     border: 2px solid var(--timeline-success-color);
+    color: var(--timeline-success-color);
 }
 
 .timeline-control-point[data-tone="speed"] {
     border: 2px solid var(--timeline-speed-color);
+    color: var(--timeline-speed-color);
+}
+
+.timeline-control-point[data-tone="device-audio"] {
+    border: 2px solid var(--timeline-device-audio-color);
+    color: var(--timeline-device-audio-color);
 }
 
 .timeline-control-point[data-state="active"] {
     scale: 1.2;
     box-shadow: var(--shadow-elevation-2);
+}
+
+.timeline-control-point[data-lock-mode="armed"] {
+    scale: 1.22;
+    box-shadow:
+        0 0 0 4px color-mix(in srgb, currentColor 18%, transparent),
+        0 0 18px color-mix(in srgb, currentColor 22%, transparent);
+}
+
+.timeline-control-point[data-lock-mode="horizontal"] {
+    scale: 1.25;
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, currentColor 75%, transparent),
+        0 0 18px color-mix(in srgb, currentColor 24%, transparent);
+}
+
+.timeline-control-point[data-lock-mode="vertical"] {
+    scale: 1.25;
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, currentColor 75%, transparent),
+        0 0 22px color-mix(in srgb, currentColor 28%, transparent);
+}
+
+.timeline-segment-highlight-fill {
+    opacity: 0.18;
+}
+
+.timeline-segment-highlight-path {
+    opacity: 0.95;
 }
 
 /* Enhanced slider thumb hover glow */

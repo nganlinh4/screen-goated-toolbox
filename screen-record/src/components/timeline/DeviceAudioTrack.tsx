@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { VideoSegment, SpeedPoint } from '@/types/video';
+import React, { useEffect, useRef, useState } from "react";
+import { DeviceAudioPoint, VideoSegment } from "@/types/video";
+import { buildFlatDeviceAudioPoints, clampDeviceAudioVolume } from "@/lib/deviceAudio";
 import {
   type AdjacentSegmentIndices,
   type AdjustableLineDragVisualMode,
@@ -11,62 +12,56 @@ import {
   setAdjustableLineDragVisualMode,
   sortPointsByTime,
   subscribeToAdjustableLineDragVisualMode,
-} from './adjustableLineUtils';
+} from "./adjustableLineUtils";
 
-// Logarithmic vertical mapping for intuitive dragging:
-// 1x in the middle, 16x at top, 0.1x at bottom.
-const SPEED_TRACK_TOP_PX = 4;
-const SPEED_TRACK_RANGE_PX = 32;
-const SPEED_TRACK_VIEWBOX_HEIGHT = 40;
+const DEVICE_AUDIO_TRACK_TOP_PX = 5;
+const DEVICE_AUDIO_TRACK_BOTTOM_PX = 35;
+const DEVICE_AUDIO_TRACK_RANGE_PX =
+  DEVICE_AUDIO_TRACK_BOTTOM_PX - DEVICE_AUDIO_TRACK_TOP_PX;
+const DEVICE_AUDIO_TRACK_VIEWBOX_HEIGHT = 40;
 
-function speedToY(speed: number) {
-  if (speed >= 1) {
-    return 0.5 - 0.5 * (Math.log2(speed) / 4);
-  }
-  return 0.5 + 0.5 * Math.abs(Math.log10(speed));
+function volumeToY(volume: number) {
+  return 1 - clampDeviceAudioVolume(volume);
 }
 
-function yToSpeed(y: number) {
-  if (y <= 0.5) {
-    return Math.pow(2, 4 * ((0.5 - y) / 0.5));
-  }
-  return Math.pow(10, -((y - 0.5) / 0.5));
+function yToVolume(y: number) {
+  return clampDeviceAudioVolume(1 - y);
 }
 
-function speedToTrackY(speed: number) {
-  return SPEED_TRACK_TOP_PX + speedToY(speed) * SPEED_TRACK_RANGE_PX;
+function volumeToTrackY(volume: number) {
+  return DEVICE_AUDIO_TRACK_TOP_PX + volumeToY(volume) * DEVICE_AUDIO_TRACK_RANGE_PX;
 }
 
-function speedToTrackYPercent(speed: number) {
-  return `${(speedToTrackY(speed) / SPEED_TRACK_VIEWBOX_HEIGHT) * 100}%`;
+function volumeToTrackYPercent(volume: number) {
+  return `${(volumeToTrackY(volume) / DEVICE_AUDIO_TRACK_VIEWBOX_HEIGHT) * 100}%`;
 }
 
-interface SpeedTrackProps {
+interface DeviceAudioTrackProps {
   segment: VideoSegment;
   duration: number;
-  onUpdateSpeedPoints: (points: SpeedPoint[]) => void;
+  onUpdateDeviceAudioPoints: (points: DeviceAudioPoint[]) => void;
   beginBatch: () => void;
   commitBatch: () => void;
 }
 
-export const SpeedTrack: React.FC<SpeedTrackProps> = ({
+export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
   segment,
   duration,
-  onUpdateSpeedPoints,
+  onUpdateDeviceAudioPoints,
   beginBatch,
   commitBatch,
 }) => {
-  const points = segment.speedPoints?.length
-    ? segment.speedPoints
-    : [{ time: 0, speed: 1 }, { time: duration, speed: 1 }];
+  const points = segment.deviceAudioPoints?.length
+    ? segment.deviceAudioPoints
+    : buildFlatDeviceAudioPoints(duration);
   const draggingIdxRef = useRef<number | null>(null);
   const pointsRef = useRef(points);
   pointsRef.current = points;
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-  const [dragBadge, setDragBadge] = useState<{ x: number; y: number; speed: number } | null>(null);
+  const [dragBadge, setDragBadge] = useState<{ x: number; y: number; volume: number } | null>(null);
   const [isCtrlPressed, setIsCtrlPressed] = useState(false);
   const [activeDragIdx, setActiveDragIdx] = useState<number | null>(null);
-  const [axisLockMode, setAxisLockMode] = useState<'armed' | 'horizontal' | 'vertical' | null>(null);
+  const [axisLockMode, setAxisLockMode] = useState<"armed" | "horizontal" | "vertical" | null>(null);
   const [isSegmentDragActive, setIsSegmentDragActive] = useState(false);
   const [hoveredSegmentIndices, setHoveredSegmentIndices] =
     useState<AdjacentSegmentIndices | null>(null);
@@ -77,7 +72,7 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
       getAdjustableLineDragVisualMode(),
     );
   const dragVisualModeRef = useRef<AdjustableLineDragVisualMode | null>(null);
-  const pointAxisLockRef = useRef<'horizontal' | 'vertical' | null>(null);
+  const pointAxisLockRef = useRef<"horizontal" | "vertical" | null>(null);
 
   const applyDragVisualMode = (mode: AdjustableLineDragVisualMode | null) => {
     if (dragVisualModeRef.current === mode) return;
@@ -86,26 +81,25 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
   };
 
   const updateAxisLockMode = (
-    mode: 'armed' | 'horizontal' | 'vertical' | null,
+    mode: "armed" | "horizontal" | "vertical" | null,
   ) => {
     setAxisLockMode((current) => (current === mode ? current : mode));
   };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && hoveredIdx !== null) {
-        // Prevent deleting the anchor points
+      if ((e.key === "Delete" || e.key === "Backspace") && hoveredIdx !== null) {
         if (hoveredIdx === 0 || hoveredIdx === points.length - 1) return;
         const next = [...points];
         next.splice(hoveredIdx, 1);
-        onUpdateSpeedPoints(next);
+        onUpdateDeviceAudioPoints(next);
         setHoveredIdx(null);
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hoveredIdx, points, onUpdateSpeedPoints]);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [hoveredIdx, onUpdateDeviceAudioPoints, points]);
 
   useEffect(() => {
     return subscribeToAdjustableLineDragVisualMode(setGlobalDragVisualMode);
@@ -126,61 +120,63 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
       setIsCtrlPressed(false);
     };
 
-    window.addEventListener('keydown', syncCtrlKey);
-    window.addEventListener('keyup', syncCtrlKey);
-    window.addEventListener('blur', clearCtrlKey);
+    window.addEventListener("keydown", syncCtrlKey);
+    window.addEventListener("keyup", syncCtrlKey);
+    window.addEventListener("blur", clearCtrlKey);
 
     return () => {
-      window.removeEventListener('keydown', syncCtrlKey);
-      window.removeEventListener('keyup', syncCtrlKey);
-      window.removeEventListener('blur', clearCtrlKey);
+      window.removeEventListener("keydown", syncCtrlKey);
+      window.removeEventListener("keyup", syncCtrlKey);
+      window.removeEventListener("blur", clearCtrlKey);
       setAdjustableLineDragVisualMode(null);
     };
   }, []);
 
   const generatePath = () => {
-    if (points.length === 0) return 'M 0 20 L 100 20';
+    if (points.length === 0) {
+      return `M 0 ${DEVICE_AUDIO_TRACK_TOP_PX} L 100 ${DEVICE_AUDIO_TRACK_TOP_PX}`;
+    }
     const sorted = [...points].sort((a, b) => a.time - b.time);
     const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
-    const toY = (speed: number) => speedToTrackY(speed);
+    const toY = (volume: number) => volumeToTrackY(volume);
     const x0 = toX(sorted[0].time);
-    const y0 = toY(sorted[0].speed);
+    const y0 = toY(sorted[0].volume);
     let d = `M 0 ${y0} `;
     if (x0 > 0) d += `L ${x0} ${y0} `;
 
     for (let i = 1; i < sorted.length; i++) {
-      const p1 = sorted[i - 1];
-      const p2 = sorted[i];
-      const x1 = toX(p1.time);
-      const y1 = toY(p1.speed);
-      const x2 = toX(p2.time);
-      const y2 = toY(p2.speed);
+      const left = sorted[i - 1];
+      const right = sorted[i];
+      const x1 = toX(left.time);
+      const y1 = toY(left.volume);
+      const x2 = toX(right.time);
+      const y2 = toY(right.volume);
       const dx = x2 - x1;
       d += `C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2} `;
     }
 
     const xLast = toX(sorted[sorted.length - 1].time);
-    const yLast = toY(sorted[sorted.length - 1].speed);
+    const yLast = toY(sorted[sorted.length - 1].volume);
     if (xLast < 100) d += `L 100 ${yLast} `;
     return d;
   };
 
   const generateFillPath = () => {
-    if (points.length === 0) return '';
+    if (points.length === 0) return "";
     const sorted = [...points].sort((a, b) => a.time - b.time);
     const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
-    const toY = (speed: number) => speedToTrackY(speed);
+    const toY = (volume: number) => volumeToTrackY(volume);
     const x0 = toX(sorted[0].time);
-    const y0 = toY(sorted[0].speed);
+    const y0 = toY(sorted[0].volume);
     let d = `M 0 40 L ${x0} 40 L ${x0} ${y0} `;
 
     for (let i = 1; i < sorted.length; i++) {
-      const p1 = sorted[i - 1];
-      const p2 = sorted[i];
-      const x1 = toX(p1.time);
-      const y1 = toY(p1.speed);
-      const x2 = toX(p2.time);
-      const y2 = toY(p2.speed);
+      const left = sorted[i - 1];
+      const right = sorted[i];
+      const x1 = toX(left.time);
+      const y1 = toY(left.volume);
+      const x2 = toX(right.time);
+      const y2 = toY(right.volume);
       const dx = x2 - x1;
       d += `C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2} `;
     }
@@ -193,20 +189,20 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
   const getHighlightedSegmentPath = (
     segmentIndices: AdjacentSegmentIndices | null,
   ) => {
-    if (!segmentIndices) return '';
+    if (!segmentIndices) return "";
 
     const sorted = sortPointsByTime(points);
     const [leftIdx, rightIdx] = segmentIndices;
     const left = sorted[leftIdx];
     const right = sorted[rightIdx];
-    if (!left || !right || right.time <= left.time) return '';
+    if (!left || !right || right.time <= left.time) return "";
 
     const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
-    const toY = (speed: number) => speedToTrackY(speed);
+    const toY = (volume: number) => volumeToTrackY(volume);
     const x1 = toX(left.time);
-    const y1 = toY(left.speed);
+    const y1 = toY(left.volume);
     const x2 = toX(right.time);
-    const y2 = toY(right.speed);
+    const y2 = toY(right.volume);
     const dx = x2 - x1;
     return `M ${x1} ${y1} C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2}`;
   };
@@ -214,20 +210,20 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
   const getHighlightedSegmentFillPath = (
     segmentIndices: AdjacentSegmentIndices | null,
   ) => {
-    if (!segmentIndices) return '';
+    if (!segmentIndices) return "";
 
     const sorted = sortPointsByTime(points);
     const [leftIdx, rightIdx] = segmentIndices;
     const left = sorted[leftIdx];
     const right = sorted[rightIdx];
-    if (!left || !right || right.time <= left.time) return '';
+    if (!left || !right || right.time <= left.time) return "";
 
     const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
-    const toY = (speed: number) => speedToTrackY(speed);
+    const toY = (volume: number) => volumeToTrackY(volume);
     const x1 = toX(left.time);
-    const y1 = toY(left.speed);
+    const y1 = toY(left.volume);
     const x2 = toX(right.time);
-    const y2 = toY(right.speed);
+    const y2 = toY(right.volume);
     const dx = x2 - x1;
     return `M ${x1} 40 L ${x1} ${y1} C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2} L ${x2} 40 Z`;
   };
@@ -237,20 +233,21 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
     startClientX: number,
     startClientY: number,
     rect: DOMRect,
-    initialPoints: SpeedPoint[],
+    initialPoints: DeviceAudioPoint[],
   ) => {
     draggingIdxRef.current = activeIdx;
     pointsRef.current = initialPoints;
     const activePoint = initialPoints[activeIdx];
     if (!activePoint) return;
     const startTime = activePoint.time;
-    const startSpeedY = speedToY(activePoint.speed);
-    const startSpeed = activePoint.speed;
+    const startVolumeY = volumeToY(activePoint.volume);
+    const startVolume = activePoint.volume;
+    const valueRangePx = Math.max(1, DEVICE_AUDIO_TRACK_RANGE_PX);
     setActiveSegmentIndices(null);
     setActiveDragIdx(activeIdx);
     updateAxisLockMode(null);
     pointAxisLockRef.current = null;
-    applyDragVisualMode('free');
+    applyDragVisualMode("free");
 
     const mm = (me: MouseEvent) => {
       if (draggingIdxRef.current === null) return;
@@ -264,7 +261,7 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
               me.clientX - startClientX,
               me.clientY - startClientY,
             );
-            if (nextLockMode === 'horizontal' || nextLockMode === 'vertical') {
+            if (nextLockMode === "horizontal" || nextLockMode === "vertical") {
               pointAxisLockRef.current = nextLockMode;
             }
             return nextLockMode;
@@ -274,22 +271,19 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
       let t = (mx / rect.width) * duration;
       t = Math.max(0, Math.min(duration, t));
 
-      // Lower vertical sensitivity for fine-grained speed tuning.
-      let newY = startSpeedY + (dy * 0.15) / rect.height;
+      let newY = startVolumeY + dy / valueRangePx;
       newY = Math.max(0, Math.min(1, newY));
 
-      let v = yToSpeed(newY);
-      v = Math.max(0.1, Math.min(16, v));
-
-      if (lockMode === 'horizontal') v = startSpeed;
-      if (lockMode === 'vertical') t = startTime;
+      let volume = yToVolume(newY);
+      if (lockMode === "horizontal") volume = startVolume;
+      if (lockMode === "vertical") t = startTime;
 
       updateAxisLockMode(lockMode);
       applyDragVisualMode(
         lockMode === null
-          ? 'free'
-          : lockMode === 'armed'
-            ? 'armed'
+          ? "free"
+          : lockMode === "armed"
+            ? "armed"
             : lockMode,
       );
 
@@ -300,21 +294,23 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
       const next = [...pointsRef.current];
       if (next[draggingIdxRef.current]) {
         if (draggingIdxRef.current === 0) t = 0;
-        if (draggingIdxRef.current === next.length - 1 && next.length > 1) t = duration;
-        next[draggingIdxRef.current] = { time: t, speed: v };
+        if (draggingIdxRef.current === next.length - 1 && next.length > 1) {
+          t = duration;
+        }
+        next[draggingIdxRef.current] = { time: t, volume };
         pointsRef.current = next;
-        onUpdateSpeedPoints(next);
+        onUpdateDeviceAudioPoints(next);
         setDragBadge({
           x: me.clientX,
           y: me.clientY - 40,
-          speed: v,
+          volume,
         });
       }
     };
 
     const mu = () => {
-      window.removeEventListener('mousemove', mm);
-      window.removeEventListener('mouseup', mu);
+      window.removeEventListener("mousemove", mm);
+      window.removeEventListener("mouseup", mu);
       draggingIdxRef.current = null;
       setActiveDragIdx(null);
       updateAxisLockMode(null);
@@ -323,38 +319,36 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
       setDragBadge(null);
       const sorted = sortPointsByTime(pointsRef.current);
       pointsRef.current = sorted;
-      onUpdateSpeedPoints(sorted);
+      onUpdateDeviceAudioPoints(sorted);
       commitBatch();
     };
-    window.addEventListener('mousemove', mm);
-    window.addEventListener('mouseup', mu);
+
+    window.addEventListener("mousemove", mm);
+    window.addEventListener("mouseup", mu);
   };
 
   const startDraggingSegment = (
     activeIndices: number[],
     fixedTimes: number[],
     startClientY: number,
-    rect: DOMRect,
-    startSpeed: number,
-    initialPoints: SpeedPoint[],
+    startVolume: number,
+    initialPoints: DeviceAudioPoint[],
   ) => {
     pointsRef.current = initialPoints;
-    const startSpeedY = speedToY(startSpeed);
+    const valueRangePx = Math.max(1, DEVICE_AUDIO_TRACK_RANGE_PX);
+    const startVolumeY = volumeToY(startVolume);
     setIsSegmentDragActive(true);
     setActiveSegmentIndices([
       activeIndices[0],
       activeIndices[activeIndices.length - 1],
     ]);
-    applyDragVisualMode('vertical');
+    applyDragVisualMode("vertical");
 
     const mm = (me: MouseEvent) => {
       const dy = me.clientY - startClientY;
-
-      let newY = startSpeedY + (dy * 0.15) / rect.height;
+      let newY = startVolumeY + dy / valueRangePx;
       newY = Math.max(0, Math.min(1, newY));
-
-      let v = yToSpeed(newY);
-      v = Math.max(0.1, Math.min(16, v));
+      const volume = yToVolume(newY);
 
       const next = [...pointsRef.current];
       activeIndices.forEach((index, activeIndex) => {
@@ -362,32 +356,33 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
         if (!point) return;
         next[index] = {
           time: fixedTimes[activeIndex] ?? point.time,
-          speed: v,
+          volume,
         };
       });
       pointsRef.current = next;
-      onUpdateSpeedPoints(next);
+      onUpdateDeviceAudioPoints(next);
       setDragBadge({
         x: me.clientX,
         y: me.clientY - 40,
-        speed: v,
+        volume,
       });
     };
 
     const mu = () => {
-      window.removeEventListener('mousemove', mm);
-      window.removeEventListener('mouseup', mu);
+      window.removeEventListener("mousemove", mm);
+      window.removeEventListener("mouseup", mu);
       setIsSegmentDragActive(false);
       setActiveSegmentIndices(null);
       applyDragVisualMode(null);
       setDragBadge(null);
       const sorted = sortPointsByTime(pointsRef.current);
       pointsRef.current = sorted;
-      onUpdateSpeedPoints(sorted);
+      onUpdateDeviceAudioPoints(sorted);
       commitBatch();
     };
-    window.addEventListener('mousemove', mm);
-    window.addEventListener('mouseup', mu);
+
+    window.addEventListener("mousemove", mm);
+    window.addEventListener("mouseup", mu);
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -403,19 +398,18 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
         time,
         duration,
         trackWidth: rect.width,
-        getValue: (point) => point.speed,
-        createPoint: (pointTime, speed) => ({ time: pointTime, speed }),
+        getValue: (point) => point.volume,
+        createPoint: (pointTime, volume) => ({ time: pointTime, volume }),
       });
       if (!plan) return;
 
       beginBatch();
       pointsRef.current = plan.points;
-      onUpdateSpeedPoints(plan.points);
+      onUpdateDeviceAudioPoints(plan.points);
       startDraggingSegment(
         plan.activeIndices,
         plan.activeIndices.map((index) => plan.points[index]?.time ?? time),
         e.clientY,
-        rect,
         plan.startValue,
         plan.points,
       );
@@ -425,18 +419,18 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
     let nextPoints = [...points];
     beginBatch();
 
-    const expectedV = getCosineInterpolatedValueAtTime({
+    const expectedVolume = getCosineInterpolatedValueAtTime({
       points: nextPoints,
       time,
-      getValue: (point) => point.speed,
+      getValue: (point) => point.volume,
     });
 
-    const point = { time, speed: expectedV };
+    const point = { time, volume: clampDeviceAudioVolume(expectedVolume) };
     nextPoints.push(point);
     nextPoints = sortPointsByTime(nextPoints);
     const activeIdx = nextPoints.indexOf(point);
     pointsRef.current = nextPoints;
-    onUpdateSpeedPoints(nextPoints);
+    onUpdateDeviceAudioPoints(nextPoints);
 
     startDraggingPoint(activeIdx, e.clientX, e.clientY, rect, nextPoints);
   };
@@ -485,34 +479,44 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
 
   return (
     <>
-      <div
-        className="speed-track timeline-lane timeline-lane-strong relative h-10"
-      >
+      <div className="device-audio-track timeline-lane timeline-lane-strong relative h-10">
         <div
-          className="speed-track-curve-clip absolute inset-0 overflow-hidden"
+          className="device-audio-track-curve-clip absolute inset-0 overflow-hidden"
           style={{ borderRadius: "inherit" }}
         >
-          <svg className="speed-track-curve h-full w-full overflow-hidden" preserveAspectRatio="none" viewBox="0 0 100 40">
+          <svg
+            className="device-audio-track-curve h-full w-full overflow-hidden"
+            preserveAspectRatio="none"
+            viewBox="0 0 100 40"
+          >
             <line
-              className="speed-track-baseline"
+              className="device-audio-track-baseline device-audio-track-baseline-top"
               x1="0"
-              y1="20"
+              y1={DEVICE_AUDIO_TRACK_TOP_PX}
               x2="100"
-              y2="20"
-              stroke="color-mix(in srgb, var(--timeline-speed-color) 24%, transparent)"
-              strokeDasharray="2 2"
+              y2={DEVICE_AUDIO_TRACK_TOP_PX}
+              stroke="color-mix(in srgb, var(--timeline-device-audio-color) 24%, transparent)"
+              vectorEffect="non-scaling-stroke"
+            />
+            <line
+              className="device-audio-track-baseline device-audio-track-baseline-bottom"
+              x1="0"
+              y1={DEVICE_AUDIO_TRACK_BOTTOM_PX}
+              x2="100"
+              y2={DEVICE_AUDIO_TRACK_BOTTOM_PX}
+              stroke="color-mix(in srgb, var(--timeline-device-audio-color) 18%, transparent)"
               vectorEffect="non-scaling-stroke"
             />
             <path
-              className="speed-track-fill-path"
+              className="device-audio-track-fill-path"
               d={generateFillPath()}
-              fill="color-mix(in srgb, var(--timeline-speed-color) 12%, transparent)"
+              fill="color-mix(in srgb, var(--timeline-device-audio-color) 12%, transparent)"
             />
             <path
-              className="speed-track-main-path"
+              className="device-audio-track-main-path"
               d={generatePath()}
               fill="none"
-              stroke="var(--timeline-speed-color)"
+              stroke="var(--timeline-device-audio-color)"
               strokeWidth="1.5"
               vectorEffect="non-scaling-stroke"
             />
@@ -521,7 +525,7 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
                 className="timeline-segment-highlight-fill"
                 d={highlightedSegmentFillPath}
                 fill="currentColor"
-                style={{ color: 'var(--timeline-speed-color)' }}
+                style={{ color: "var(--timeline-device-audio-color)" }}
               />
             )}
             {highlightedSegmentPath && (
@@ -534,36 +538,38 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
                 strokeDasharray="3 4"
                 strokeLinecap="round"
                 vectorEffect="non-scaling-stroke"
-                style={{ color: 'var(--timeline-speed-color)' }}
+                style={{ color: "var(--timeline-device-audio-color)" }}
               />
             )}
           </svg>
         </div>
         <div
-          className="speed-influence-layer absolute inset-0 z-10 pointer-events-auto"
+          className="device-audio-layer absolute inset-0 z-10 pointer-events-auto"
           onPointerDown={handlePointerDown}
           onPointerMove={handleTrackPointerMove}
           onPointerLeave={() => {
             if (!isSegmentDragActive) setHoveredSegmentIndices(null);
           }}
         >
-          {points.map((p, i) => (
+          {points.map((point, i) => (
             <div
               key={i}
-              className={`speed-influence-point timeline-control-point absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer ${
-                hoveredIdx === i ? 'ring-2 ring-[var(--timeline-speed-color)]/40' : 'hover:scale-110'
+              className={`device-audio-point timeline-control-point absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer ${
+                hoveredIdx === i
+                  ? "ring-2 ring-[var(--timeline-device-audio-color)]/40"
+                  : "hover:scale-110"
               }`}
-              data-tone="speed"
+              data-tone="device-audio"
               data-state={
                 hoveredIdx === i || activeDragIdx === i ? "active" : "idle"
               }
-              data-lock-mode={
+                data-lock-mode={
                 activeDragIdx === i ? (axisLockMode ?? undefined) : undefined
               }
               style={{
-                left: `${(p.time / duration) * 100}%`,
-                top: speedToTrackYPercent(p.speed),
-                color: 'var(--timeline-speed-color)',
+                left: `${(point.time / duration) * 100}%`,
+                top: volumeToTrackYPercent(point.volume),
+                color: "var(--timeline-device-audio-color)",
               }}
               onMouseEnter={() => {
                 if (globalDragVisualMode !== null) return;
@@ -578,12 +584,12 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
 
       {dragBadge && (
         <div
-          className="speed-track-drag-badge timeline-chip fixed z-[100] px-3 py-1.5 text-white font-bold text-sm pointer-events-none -translate-x-1/2 -translate-y-full"
-          data-tone="speed"
+          className="device-audio-track-drag-badge timeline-chip fixed z-[100] px-3 py-1.5 text-white font-bold text-sm pointer-events-none -translate-x-1/2 -translate-y-full"
+          data-tone="device-audio"
           data-active="true"
           style={{ left: dragBadge.x, top: dragBadge.y }}
         >
-          {dragBadge.speed.toFixed(2)}x
+          {Math.round(dragBadge.volume * 100)}%
         </div>
       )}
     </>

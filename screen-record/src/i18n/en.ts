@@ -236,6 +236,7 @@ const en = {
   trackPointer: 'Pointer',
   trackVideo: 'Video',
   trackSpeed: 'Speed',
+  trackDeviceAudio: 'Device Audio',
   resetSpeed: 'Reset Speed',
 
   // App

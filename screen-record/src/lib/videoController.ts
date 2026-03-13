@@ -9,6 +9,7 @@ import {
   getNextPlayableTime,
   getTrimSegments,
 } from "./trimSegments";
+import { clampDeviceAudioVolume, getDeviceAudioVolumeAtTime } from "./deviceAudio";
 import { getSpeedAtTime } from "./videoExporter";
 import { DEFAULT_BUILT_IN_BACKGROUND_ID } from "@/lib/backgroundPresets";
 import { isNativeMediaUrl } from "@/lib/mediaServer";
@@ -103,6 +104,7 @@ export class VideoController {
   private handleLoadedData = () => {
     // During source changes, canplaythrough handler manages ready state & rendering
     if (this.isChangingSource) return;
+    this.applyDeviceAudioVolume(this.video.currentTime);
     this.renderFrame();
     this.setReady(true);
   };
@@ -117,6 +119,7 @@ export class VideoController {
   }
 
   private handlePlay = () => {
+    this.applyDeviceAudioVolume(this.video.currentTime);
     if (this.hasValidAudio && this.audio) {
       // Hard sync before playing to prevent initial harsh audio glitch
       if (Math.abs(this.video.currentTime - this.audio.currentTime) > 0.05) {
@@ -174,6 +177,27 @@ export class VideoController {
     return getSpeedAtTime(time, this.renderOptions.segment.speedPoints);
   }
 
+  private getDeviceAudioVolume(time: number): number {
+    return clampDeviceAudioVolume(
+      getDeviceAudioVolumeAtTime(
+        time,
+        this.renderOptions?.segment?.deviceAudioPoints,
+      ),
+    );
+  }
+
+  private applyDeviceAudioVolume(time: number = this.video.currentTime) {
+    const volume = this.getDeviceAudioVolume(time);
+    if (this.hasValidAudio && this.audio) {
+      this.audio.volume = volume;
+      this.video.muted = true;
+      return;
+    }
+
+    this.video.muted = false;
+    this.video.volume = volume;
+  }
+
   private handleTimeUpdate = () => {
     if (this.isGeneratingThumbnail) return;
     if (!this.state.isSeeking && this.pendingSeekTime === null) {
@@ -206,6 +230,7 @@ export class VideoController {
         }
       }
 
+      this.applyDeviceAudioVolume(currentTime);
       this.setCurrentTime(currentTime);
       this.maybeClearPlaybackRecoveryAnchor(currentTime);
       // Removed renderFrame here - allow animation loop to handle updates during playback
@@ -220,6 +245,7 @@ export class VideoController {
 
     // Render the just-decoded frame immediately
     this.renderFrame();
+    this.applyDeviceAudioVolume(this.video.currentTime);
 
     const requestedTime = this.lastRequestedSeekTime;
     const recoveryAnchorTime = this.playbackRecoveryAnchorTime;
@@ -404,6 +430,7 @@ export class VideoController {
       }
       if (!this.state.isSeeking) {
         this.enforceSegmentPlaybackBounds(this.video.currentTime, true);
+        this.applyDeviceAudioVolume(this.video.currentTime);
       }
       this.playbackMonitorRaf = requestAnimationFrame(loop);
     };
@@ -790,6 +817,7 @@ export class VideoController {
   public renderImmediate(options: RenderOptions) {
     if (this.video.readyState < 2) return;
     this.renderOptions = options;
+    this.applyDeviceAudioVolume(this.video.currentTime);
     const ctx = {
       video: this.video,
       canvas: this.canvas,
@@ -807,6 +835,7 @@ export class VideoController {
   // Public API
   public updateRenderOptions(options: RenderOptions) {
     this.renderOptions = options;
+    this.applyDeviceAudioVolume(this.video.currentTime);
     // Throttle heavy re-renders during rapid slider dragging (e.g. motion blur).
     if (this.renderTimeout === null) {
       this.renderTimeout = requestAnimationFrame(() => {
@@ -961,16 +990,6 @@ export class VideoController {
       this.play();
     } else {
       this.pause();
-    }
-  }
-
-  public setVolume(volume: number) {
-    if (this.hasValidAudio && this.audio) {
-      this.audio.volume = volume;
-      this.video.muted = true; // Mute video so it doesn't overlap external audio
-    } else {
-      this.video.muted = false; // Video is the sole audio provider
-      this.video.volume = volume;
     }
   }
 

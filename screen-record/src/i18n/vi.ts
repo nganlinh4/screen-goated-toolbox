@@ -238,6 +238,7 @@ const vi: Translations = {
   trackPointer: 'Con Trỏ',
   trackVideo: 'Video',
   trackSpeed: 'Tốc Độ',
+  trackDeviceAudio: 'Âm Thanh Thiết Bị',
   resetSpeed: 'Đặt lại tốc độ',
 
   // App

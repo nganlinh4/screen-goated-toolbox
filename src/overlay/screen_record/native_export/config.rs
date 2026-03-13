@@ -105,6 +105,13 @@ pub struct SpeedPoint {
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct DeviceAudioPoint {
+    pub time: f64,
+    pub volume: f64,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct SmoothCameraPoint {
     pub time: f64,
     pub x: f64,
@@ -190,6 +197,8 @@ pub struct VideoSegment {
     pub zoom_influence_points: Vec<ZoomInfluencePoint>,
     #[serde(default)]
     pub speed_points: Vec<SpeedPoint>,
+    #[serde(default)]
+    pub device_audio_points: Vec<DeviceAudioPoint>,
     #[serde(default)]
     pub smooth_motion_path: Vec<SmoothCameraPoint>,
     #[serde(default)]

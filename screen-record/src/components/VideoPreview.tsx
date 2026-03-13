@@ -118,7 +118,6 @@ interface PlaybackControlsProps {
   keystrokeToggle?: React.ReactNode;
   autoZoomButton?: React.ReactNode;
   smartPointerButton?: React.ReactNode;
-  volumeControl?: React.ReactNode;
 }
 
 export function PlaybackControls({
@@ -137,7 +136,6 @@ export function PlaybackControls({
   keystrokeToggle,
   autoZoomButton,
   smartPointerButton,
-  volumeControl,
 }: PlaybackControlsProps) {
   const { t } = useSettings();
 
@@ -227,12 +225,6 @@ export function PlaybackControls({
         <>
           <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
           {smartPointerButton}
-        </>
-      )}
-      {volumeControl && (
-        <>
-          <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
-          {volumeControl}
         </>
       )}
     </div>

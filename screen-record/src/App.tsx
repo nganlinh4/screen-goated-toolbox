@@ -8,7 +8,7 @@ import {
   type CSSProperties,
 } from "react";
 import { videoTimeToWallClock } from "@/lib/exportEstimator";
-import { Wand2, MousePointer2, Volume2, Keyboard } from "lucide-react";
+import { Wand2, MousePointer2, Keyboard } from "lucide-react";
 import { invoke } from "@/lib/ipc";
 import "./App.css";
 import { Button } from "@/components/ui/button";
@@ -104,6 +104,7 @@ import {
   cloneBackgroundConfig,
   equalBackgroundConfig,
 } from "@/lib/backgroundConfig";
+import { buildFlatDeviceAudioPoints } from "@/lib/deviceAudio";
 import {
   getMediaServerUrl,
   isManagedCompositionSnapshotPath,
@@ -260,7 +261,6 @@ const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
   borderRadius: 32,
   backgroundType: DEFAULT_BUILT_IN_BACKGROUND_ID,
   shadow: 100,
-  volume: 1,
   cursorScale: 5,
   cursorMovementDelay: 0,
   cursorShadow: 100,
@@ -373,6 +373,7 @@ function App() {
     redo,
     canUndo,
     canRedo,
+    isBatching,
     beginBatch,
     commitBatch,
   } = useUndoRedo<VideoSegment | null>(null);
@@ -1270,6 +1271,7 @@ function App() {
     segment,
     backgroundConfig,
     isRecording,
+    isBatchEditing: isBatching,
     mousePositions,
     audioFilePath,
     videoFilePath,
@@ -3305,6 +3307,7 @@ function App() {
           { time: 0, speed: 1 },
           { time: duration, speed: 1 },
         ],
+        deviceAudioPoints: buildFlatDeviceAudioPoints(duration),
         keystrokeMode: getSavedKeystrokeModePref(),
         keystrokeDelaySec: DEFAULT_KEYSTROKE_DELAY_SEC,
         keystrokeLanguage: getSavedKeystrokeLanguage(),
@@ -3823,26 +3826,6 @@ function App() {
                         <MousePointer2 className="w-3 h-3 mr-1" />
                         {t.smartPointer}
                       </Button>
-                    }
-                    volumeControl={
-                      <div className="playback-volume-control flex items-center gap-1.5">
-                        <Volume2 className="w-3.5 h-3.5 text-[var(--overlay-panel-fg)]/80 flex-shrink-0" />
-                        <input
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.01"
-                          value={backgroundConfig.volume ?? 1}
-                          style={sv(backgroundConfig.volume ?? 1, 0, 1)}
-                          onChange={(e) =>
-                            setBackgroundConfig((prev) => ({
-                              ...prev,
-                              volume: Number(e.target.value),
-                            }))
-                          }
-                          className="playback-volume-slider w-20"
-                        />
-                      </div>
                     }
                   />
                 )}

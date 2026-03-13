@@ -4,6 +4,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { KeystrokeTrack } from "./KeystrokeTrack";
 import { Playhead } from "./Playhead";
 import { PointerTrack } from "./PointerTrack";
+import { DeviceAudioTrack } from "./DeviceAudioTrack";
 import { SpeedTrack } from "./SpeedTrack";
 import { TextTrack } from "./TextTrack";
 import { TrimTrack } from "./TrimTrack";
@@ -18,6 +19,7 @@ const TIMELINE_TRACK_HEIGHTS = {
   zoom: 40,
   debug: 40,
   speed: 40,
+  deviceAudio: 40,
   text: 28,
   keystroke: 28,
   pointer: 28,
@@ -94,6 +96,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     TIMELINE_TRACK_HEIGHTS.zoom,
     ...(showDebug ? [TIMELINE_TRACK_HEIGHTS.debug] : []),
     TIMELINE_TRACK_HEIGHTS.speed,
+    TIMELINE_TRACK_HEIGHTS.deviceAudio,
     TIMELINE_TRACK_HEIGHTS.text,
     TIMELINE_TRACK_HEIGHTS.keystroke,
     TIMELINE_TRACK_HEIGHTS.pointer,
@@ -237,6 +240,11 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 R
               </button>
             </div>
+            <div className="timeline-label-device-audio h-10 flex items-center">
+              <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+                {t.trackDeviceAudio}
+              </span>
+            </div>
             <div className="timeline-label-text h-7 flex items-center">
               <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                 {t.trackText}
@@ -321,6 +329,20 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     />
                   ) : (
                     <div className="speed-track-empty timeline-track-empty h-10" />
+                  )}
+
+                  {segment ? (
+                    <DeviceAudioTrack
+                      segment={segment}
+                      duration={duration}
+                      onUpdateDeviceAudioPoints={(points) => {
+                        setSegment({ ...segment, deviceAudioPoints: points });
+                      }}
+                      beginBatch={beginBatch}
+                      commitBatch={commitBatch}
+                    />
+                  ) : (
+                    <div className="device-audio-track-empty timeline-track-empty h-10" />
                   )}
 
                   {segment ? (

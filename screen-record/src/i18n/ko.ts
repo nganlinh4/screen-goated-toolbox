@@ -238,6 +238,7 @@ const ko: Translations = {
   trackPointer: '포인터',
   trackVideo: '비디오',
   trackSpeed: '속도',
+  trackDeviceAudio: '기기 오디오',
   resetSpeed: '속도 초기화',
 
   // App
