@@ -10,6 +10,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.widget.FrameLayout
 import dev.screengoated.toolbox.mobile.model.LanguageCatalog
+import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
 import dev.screengoated.toolbox.mobile.model.RealtimePaneFontSizes
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
@@ -31,6 +32,17 @@ internal data class OverlaySnapshot(
     val state: LiveSessionState,
     val fontSizes: RealtimePaneFontSizes,
     val ttsSettings: RealtimeTtsSettings,
+    val uiPreferences: MobileUiPreferences,
+)
+
+internal data class OverlayPaneRuntimeSettings(
+    val audioSource: String,
+    val targetLanguage: String,
+    val targetLanguageCode: String,
+    val translationModel: String,
+    val transcriptionModel: String,
+    val fontSize: Int,
+    val isDark: Boolean,
 )
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -76,13 +88,13 @@ internal class OverlayPaneHolder(
     private var destroyed = false
     private var lastHtml: String? = null
     private var lastRenderAtMs: Long = 0L
-    private var lastSettingsJson: String? = null
+    private var lastSettings: OverlayPaneRuntimeSettings? = null
     private var lastOldText: String = ""
     private var lastNewText: String = ""
 
     fun render(
         html: String,
-        settings: JSONObject,
+        settings: OverlayPaneRuntimeSettings,
         oldText: String,
         newText: String,
     ): Boolean {
@@ -95,13 +107,13 @@ internal class OverlayPaneHolder(
             )
         }
         lastRenderAtMs = now
-        val settingsJson = settings.toString()
-        val settingsChanged = lastSettingsJson != settingsJson
+        val previousSettings = lastSettings
+        val settingsChanged = previousSettings != settings
         val textChanged = lastOldText != oldText || lastNewText != newText
         if (!loaded || lastHtml != html) {
             lastHtml = html
             loaded = true
-            lastSettingsJson = settingsJson
+            lastSettings = settings
             lastOldText = oldText
             lastNewText = newText
             Log.d(PERF_TAG, "reload-html pane=$paneId oldLen=${oldText.length} newLen=${newText.length}")
@@ -115,8 +127,8 @@ internal class OverlayPaneHolder(
             webView.postDelayed(
                 {
                     applyState(
-                        settingsJson = settingsJson,
-                        settingsChanged = true,
+                        previousSettings = null,
+                        settings = settings,
                         oldText = oldText,
                         newText = newText,
                         textChanged = true,
@@ -130,15 +142,15 @@ internal class OverlayPaneHolder(
             return false
         }
         if (settingsChanged) {
-            lastSettingsJson = settingsJson
+            lastSettings = settings
         }
         if (textChanged) {
             lastOldText = oldText
             lastNewText = newText
         }
         applyState(
-            settingsJson = settingsJson,
-            settingsChanged = settingsChanged,
+            previousSettings = previousSettings,
+            settings = settings,
             oldText = oldText,
             newText = newText,
             textChanged = textChanged,
@@ -165,16 +177,46 @@ internal class OverlayPaneHolder(
     }
 
     private fun applyState(
-        settingsJson: String,
-        settingsChanged: Boolean,
+        previousSettings: OverlayPaneRuntimeSettings?,
+        settings: OverlayPaneRuntimeSettings,
         oldText: String,
         newText: String,
         textChanged: Boolean,
     ) {
         val script = buildString {
-            if (settingsChanged) {
-                append("if(window.updateSettings) window.updateSettings(")
-                append(settingsJson)
+            if (previousSettings?.audioSource != settings.audioSource) {
+                append("if(window.setAudioSource) window.setAudioSource(")
+                append(JSONObject.quote(settings.audioSource))
+                append(");")
+            }
+            if (
+                previousSettings?.targetLanguage != settings.targetLanguage ||
+                previousSettings?.targetLanguageCode != settings.targetLanguageCode
+            ) {
+                append("if(window.setTargetLanguage) window.setTargetLanguage(")
+                append(JSONObject.quote(settings.targetLanguage))
+                append(", ")
+                append(JSONObject.quote(settings.targetLanguageCode))
+                append(");")
+            }
+            if (previousSettings?.translationModel != settings.translationModel) {
+                append("if(window.setTranslationModel) window.setTranslationModel(")
+                append(JSONObject.quote(settings.translationModel))
+                append(");")
+            }
+            if (previousSettings?.transcriptionModel != settings.transcriptionModel) {
+                append("if(window.setTranscriptionModel) window.setTranscriptionModel(")
+                append(JSONObject.quote(settings.transcriptionModel))
+                append(");")
+            }
+            if (previousSettings?.fontSize != settings.fontSize) {
+                append("if(window.setFontSize) window.setFontSize(")
+                append(settings.fontSize)
+                append(");")
+            }
+            if (previousSettings?.isDark != settings.isDark) {
+                append("if(window.setTheme) window.setTheme(")
+                append(if (settings.isDark) "true" else "false")
                 append(");")
             }
             if (textChanged) {
@@ -195,17 +237,24 @@ internal class OverlayPaneHolder(
     }
 }
 
-internal fun overlayPaneSettingsJson(
+internal fun overlayPaneRuntimeSettings(
     state: LiveSessionState,
     fontSize: Int,
-): JSONObject {
-    return JSONObject()
-        .put("audioSource", if (state.config.sourceMode == dev.screengoated.toolbox.mobile.shared.live.SourceMode.DEVICE) "device" else "mic")
-        .put("targetLanguage", state.config.targetLanguage)
-        .put("targetLanguageCode", LanguageCatalog.codeForName(state.config.targetLanguage))
-        .put("translationModel", state.config.translationProvider.id)
-        .put("transcriptionModel", state.config.transcriptionProvider.id)
-        .put("fontSize", fontSize)
+    isDark: Boolean,
+): OverlayPaneRuntimeSettings {
+    return OverlayPaneRuntimeSettings(
+        audioSource = if (state.config.sourceMode == dev.screengoated.toolbox.mobile.shared.live.SourceMode.DEVICE) {
+            "device"
+        } else {
+            "mic"
+        },
+        targetLanguage = state.config.targetLanguage,
+        targetLanguageCode = LanguageCatalog.codeForName(state.config.targetLanguage),
+        translationModel = state.config.translationProvider.id,
+        transcriptionModel = state.config.transcriptionProvider.id,
+        fontSize = fontSize,
+        isDark = isDark,
+    )
 }
 
 internal fun transcriptOldText(state: LiveSessionState): String {

@@ -40,9 +40,14 @@
   - translation pane exposes Read/TTS, translation model, and language controls
   - transcription pane exposes mic/device source and transcription model controls
   - `device` source remains visible even when Android fulfills it through MediaProjection playback capture internally
+  - when realtime Read auto-speed is enabled, the visible speed value reflects the current effective playback speed while realtime TTS is actively speaking, not only the saved base slider setting
   - on Android mobile, the transcription and translation panes are separate top-level overlay windows with independent drag and resize behavior
   - Android mobile keeps the portrait default of transcription on top and translation below, but the panes stay detached after launch
   - on Android mobile, header controls must remain horizontally swipeable when they overflow instead of being truncated
+  - runtime header actions (`+/-`, mic/device, language, translation model, transcription model, TTS toggle/modal) must preserve the current horizontal header scroll position instead of snapping back to the start
+  - runtime header actions must update the already-loaded WebView through discrete JS bridge calls; they must not trigger a full HTML reload just to reflect changed source/model/language/font settings
+  - overlay placeholder text, TTS labels, download modal labels, and overlay control tooltips must come from the active mobile UI language bundle rather than fixed English strings
+  - when the mobile UI language changes, the overlay chrome must refresh to the new locale on the current session instead of waiting for a full app restart
   - if the translation pane is hidden, mobile must skip opening new translation requests just like Windows skips work when translation visibility is off
 - Realtime control contract:
   - translation providers must expose `cerebras-oss`, `google-gemma`, and `google-gtx`

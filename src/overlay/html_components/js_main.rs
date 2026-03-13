@@ -54,6 +54,12 @@ pub fn get(font_size: u32) -> String {
             }});
         }}
 
+        window.setTtsEnabled = function(enabled) {{
+            ttsEnabled = !!enabled;
+            if (ttsToggle) ttsToggle.classList.toggle('on', ttsEnabled);
+            if (speakBtn) speakBtn.classList.toggle('active', ttsEnabled);
+        }};
+
         if (speedSlider && speedValue) {{
             const autoToggle = document.getElementById('auto-speed-toggle');
             let autoSpeed = true; // Default: auto is on

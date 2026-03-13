@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::num::NonZeroIsize;
 use std::sync::{Arc, Mutex, Once, atomic::AtomicBool};
 use windows::Win32::Foundation::*;
-pub const WM_UPDATE_TTS_SPEED: u32 = 0x0400 + 401; // WM_USER + 401
 pub const WM_APP_REALTIME_START: u32 = 0x0400 + 500; // WM_USER + 500
 pub const WM_APP_REALTIME_HIDE: u32 = 0x0400 + 501; // WM_USER + 501
 
@@ -54,8 +53,6 @@ lazy_static::lazy_static! {
     /// Queue of committed translation text segments to speak
     pub static ref COMMITTED_TRANSLATION_QUEUE: Mutex<std::collections::VecDeque<String>> = Mutex::new(std::collections::VecDeque::new());
 
-    // --- Window Handle for App Selection ---
-    pub static ref APP_SELECTION_HWND: Arc<std::sync::atomic::AtomicIsize> = Arc::new(std::sync::atomic::AtomicIsize::new(0));
     /// Track how much of the committed text has been sent to TTS
     pub static ref LAST_SPOKEN_LENGTH: Arc<std::sync::atomic::AtomicUsize> = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     /// Current effective TTS speed (including auto-speed boost) for UI display

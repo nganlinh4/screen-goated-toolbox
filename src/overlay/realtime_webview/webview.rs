@@ -7,6 +7,7 @@ use crate::api::realtime_audio::{WM_REALTIME_UPDATE, WM_TRANSLATION_UPDATE};
 use crate::config::get_all_languages;
 use crate::gui::locale::LocaleText;
 use crate::overlay::realtime_html::{RealtimeHtmlOptions, get_realtime_html};
+use crate::overlay::window_selector::{self, SelectorOwner};
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -287,7 +288,7 @@ pub fn create_realtime_webview(
                             let tts_enabled = REALTIME_TTS_ENABLED.load(Ordering::SeqCst);
                             if tts_enabled {
                                 // Show app selection popup for user to choose which app to capture
-                                show_app_selection_popup();
+                                show_audio_app_selector_overlay();
                             } else {
                                 // TTS is off, use normal device loopback (clear any app selection)
                                 SELECTED_APP_PID.store(0, Ordering::SeqCst);
@@ -375,22 +376,9 @@ pub fn create_realtime_webview(
                             // IMMEDIATELY stop TTS (cut off mid-sentence to prevent capture)
                             crate::api::tts::TTS_MANAGER.stop();
 
-                            // Close app selection popup if open
-                            let popup_hwnd_val = APP_SELECTION_HWND.load(Ordering::SeqCst);
-                            if popup_hwnd_val != 0 {
-                                let popup_hwnd = windows::Win32::Foundation::HWND(
-                                    popup_hwnd_val as *mut std::ffi::c_void,
-                                );
-                                let _ = unsafe {
-                                    windows::Win32::UI::WindowsAndMessaging::PostMessageW(
-                                        Some(popup_hwnd),
-                                        windows::Win32::UI::WindowsAndMessaging::WM_CLOSE,
-                                        windows::Win32::Foundation::WPARAM(0),
-                                        windows::Win32::Foundation::LPARAM(0),
-                                    )
-                                };
-                                APP_SELECTION_HWND.store(0, Ordering::SeqCst);
-                            }
+                            window_selector::close_selector_for_owner(
+                                SelectorOwner::RealtimeAppSelection,
+                            );
 
                             LAST_SPOKEN_LENGTH.store(0, Ordering::SeqCst);
                             // Clear any queued translations
@@ -413,7 +401,7 @@ pub fn create_realtime_webview(
                             };
                             if current_source == "device" {
                                 // Show app selection popup (no audio change yet - happens when app is selected)
-                                show_app_selection_popup();
+                                show_audio_app_selector_overlay();
                             }
                         }
                     } else if let Some(speed) = body.strip_prefix("ttsSpeed:") {
@@ -518,7 +506,7 @@ pub fn clear_webview_text(hwnd: HWND) {
     });
 }
 
-use super::app_selection::show_app_selection_popup;
+use super::app_selection::show_audio_app_selector_overlay;
 
 pub fn update_webview_theme(hwnd: HWND) {
     let hwnd_key = hwnd.0 as isize;

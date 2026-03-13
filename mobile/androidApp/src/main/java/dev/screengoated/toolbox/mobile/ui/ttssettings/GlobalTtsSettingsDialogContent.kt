@@ -1,8 +1,10 @@
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+
 package dev.screengoated.toolbox.mobile.ui.ttssettings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,15 +15,27 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SingleChoiceSegmentedButtonRowScope
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.WideNavigationRail
+import androidx.compose.material3.WideNavigationRailItem
+import androidx.compose.material3.WideNavigationRailValue
+import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,10 +49,12 @@ import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
+import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 @Composable
 internal fun RenderGlobalTtsSettingsDialog(
     settings: MobileGlobalTtsSettings,
+    locale: MobileLocaleText,
     edgeVoiceCatalogState: EdgeVoiceCatalogState,
     onDismiss: () -> Unit,
     onMethodChanged: (MobileTtsMethod) -> Unit,
@@ -63,97 +79,158 @@ internal fun RenderGlobalTtsSettingsDialog(
     ) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth(0.98f)
-                .widthIn(max = 940.dp),
+                .fillMaxWidth(0.985f)
+                .widthIn(max = 980.dp),
             shape = MaterialTheme.shapes.extraLarge,
-            tonalElevation = 6.dp,
+            tonalElevation = 8.dp,
         ) {
-            Column(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 760.dp)
+                    .fillMaxHeight(0.96f)
+                    .heightIn(max = 900.dp)
                     .padding(20.dp),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Voice Settings",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f),
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Close voice settings")
+                val railState = rememberWideNavigationRailState(
+                    if (maxWidth >= 760.dp) WideNavigationRailValue.Expanded else WideNavigationRailValue.Collapsed,
+                )
+                val railExpanded = maxWidth >= 760.dp
+                val compactLayout = maxWidth < 760.dp
+
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = locale.ttsSettingsTitle,
+                            style = MaterialTheme.typography.titleLargeEmphasized,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Rounded.Close, contentDescription = locale.closeLabel)
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(top = 8.dp, bottom = 16.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(),
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    ) {
+                        if (!compactLayout) {
+                            Card {
+                                WideNavigationRail(
+                                    state = railState,
+                                    modifier = Modifier.fillMaxHeight(),
+                                    header = {
+                                        Text(
+                                            text = locale.ttsMethodLabel,
+                                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                                            style = MaterialTheme.typography.labelLargeEmphasized,
+                                        )
+                                    },
+                                ) {
+                                    WideNavigationRailItem(
+                                        selected = settings.method == MobileTtsMethod.GEMINI_LIVE,
+                                        onClick = { selectMethod(MobileTtsMethod.GEMINI_LIVE) },
+                                        icon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
+                                        label = { Text(locale.ttsMethodStandard) },
+                                        railExpanded = railExpanded,
+                                    )
+                                    WideNavigationRailItem(
+                                        selected = settings.method == MobileTtsMethod.EDGE_TTS,
+                                        onClick = { selectMethod(MobileTtsMethod.EDGE_TTS) },
+                                        icon = { Icon(Icons.Rounded.GraphicEq, contentDescription = null) },
+                                        label = { Text(locale.ttsMethodEdge) },
+                                        railExpanded = railExpanded,
+                                    )
+                                    WideNavigationRailItem(
+                                        selected = settings.method == MobileTtsMethod.GOOGLE_TRANSLATE,
+                                        onClick = { selectMethod(MobileTtsMethod.GOOGLE_TRANSLATE) },
+                                        icon = { Icon(Icons.Rounded.Language, contentDescription = null) },
+                                        label = { Text(locale.ttsMethodFast) },
+                                        railExpanded = railExpanded,
+                                    )
+                                }
+                            }
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            if (compactLayout) {
+                                Card {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        Text(
+                                            text = locale.ttsMethodLabel,
+                                            style = MaterialTheme.typography.labelLargeEmphasized,
+                                        )
+                                        SingleChoiceSegmentedButtonRow(
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            TtsMethodSegment(
+                                                index = 0,
+                                                count = 3,
+                                                selected = settings.method == MobileTtsMethod.GEMINI_LIVE,
+                                                label = locale.ttsMethodStandard,
+                                            ) { selectMethod(MobileTtsMethod.GEMINI_LIVE) }
+                                            TtsMethodSegment(
+                                                index = 1,
+                                                count = 3,
+                                                selected = settings.method == MobileTtsMethod.EDGE_TTS,
+                                                label = locale.ttsMethodEdge,
+                                            ) { selectMethod(MobileTtsMethod.EDGE_TTS) }
+                                            TtsMethodSegment(
+                                                index = 2,
+                                                count = 3,
+                                                selected = settings.method == MobileTtsMethod.GOOGLE_TRANSLATE,
+                                                label = locale.ttsMethodFast,
+                                            ) { selectMethod(MobileTtsMethod.GOOGLE_TRANSLATE) }
+                                        }
+                                    }
+                                }
+                            }
+                            when (settings.method) {
+                                MobileTtsMethod.GEMINI_LIVE -> GeminiLiveSection(
+                                    settings = settings,
+                                    locale = locale,
+                                    onSpeedPresetChanged = onSpeedPresetChanged,
+                                    onConditionsChanged = onConditionsChanged,
+                                    onVoiceChanged = onVoiceChanged,
+                                    onPreviewVoice = onPreviewGeminiVoice,
+                                )
+
+                                MobileTtsMethod.GOOGLE_TRANSLATE -> GoogleTranslateSection(
+                                    selected = settings.speedPreset,
+                                    locale = locale,
+                                    onSpeedPresetChanged = onSpeedPresetChanged,
+                                )
+
+                                MobileTtsMethod.EDGE_TTS -> EdgeTtsSection(
+                                    settings = settings.edgeSettings,
+                                    locale = locale,
+                                    catalogState = edgeVoiceCatalogState,
+                                    onChanged = onEdgeSettingsChanged,
+                                    onRetryCatalog = onRetryEdgeVoiceCatalog,
+                                    onPreviewVoice = onPreviewEdgeVoice,
+                                )
+                            }
+                        }
+
                     }
                 }
-
-                HorizontalDivider(modifier = Modifier.padding(top = 8.dp, bottom = 16.dp))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .fillMaxHeight()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    MethodSelector(
-                        selected = settings.method,
-                        onChanged = selectMethod,
-                    )
-
-                    when (settings.method) {
-                        MobileTtsMethod.GEMINI_LIVE -> GeminiLiveSection(
-                            settings = settings,
-                            onSpeedPresetChanged = onSpeedPresetChanged,
-                            onConditionsChanged = onConditionsChanged,
-                            onVoiceChanged = onVoiceChanged,
-                            onPreviewVoice = onPreviewGeminiVoice,
-                        )
-
-                        MobileTtsMethod.GOOGLE_TRANSLATE -> GoogleTranslateSection(
-                            selected = settings.speedPreset,
-                            onSpeedPresetChanged = onSpeedPresetChanged,
-                        )
-
-                        MobileTtsMethod.EDGE_TTS -> EdgeTtsSection(
-                            settings = settings.edgeSettings,
-                            catalogState = edgeVoiceCatalogState,
-                            onChanged = onEdgeSettingsChanged,
-                            onRetryCatalog = onRetryEdgeVoiceCatalog,
-                            onPreviewVoice = onPreviewEdgeVoice,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MethodSelector(
-    selected: MobileTtsMethod,
-    onChanged: (MobileTtsMethod) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = "TTS Method:",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-        )
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            TtsRadioRow("Standard (Gemini Live)", selected == MobileTtsMethod.GEMINI_LIVE) {
-                onChanged(MobileTtsMethod.GEMINI_LIVE)
-            }
-            TtsRadioRow("Edge TTS", selected == MobileTtsMethod.EDGE_TTS) {
-                onChanged(MobileTtsMethod.EDGE_TTS)
-            }
-            TtsRadioRow("Fast (Google Translate)", selected == MobileTtsMethod.GOOGLE_TRANSLATE) {
-                onChanged(MobileTtsMethod.GOOGLE_TRANSLATE)
             }
         }
     }
@@ -162,6 +239,7 @@ private fun MethodSelector(
 @Composable
 private fun GoogleTranslateSection(
     selected: MobileTtsSpeedPreset,
+    locale: MobileLocaleText,
     onSpeedPresetChanged: (MobileTtsSpeedPreset) -> Unit,
 ) {
     Card {
@@ -173,23 +251,20 @@ private fun GoogleTranslateSection(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = "Google Translate TTS",
-                style = MaterialTheme.typography.titleMedium,
+                text = locale.ttsGoogleTranslateTitle,
+                style = MaterialTheme.typography.titleLargeEmphasized,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "This method is faster and does not require an API key.",
+                text = locale.ttsGoogleTranslateDesc,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                TtsRadioRow("Slow", selected == MobileTtsSpeedPreset.SLOW) {
+            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                TtsRadioRow(locale.ttsSpeedSlow, selected == MobileTtsSpeedPreset.SLOW) {
                     onSpeedPresetChanged(MobileTtsSpeedPreset.SLOW)
                 }
-                TtsRadioRow("Normal", selected == MobileTtsSpeedPreset.NORMAL) {
+                TtsRadioRow(locale.ttsSpeedNormal, selected == MobileTtsSpeedPreset.NORMAL) {
                     onSpeedPresetChanged(MobileTtsSpeedPreset.NORMAL)
                 }
             }
@@ -212,6 +287,28 @@ internal fun TtsRadioRow(
         RadioButton(selected = selected, onClick = onClick)
         Text(text = label, style = MaterialTheme.typography.bodyMedium)
     }
+}
+
+@Composable
+private fun SingleChoiceSegmentedButtonRowScope.TtsMethodSegment(
+    index: Int,
+    count: Int,
+    selected: Boolean,
+    label: String,
+    onClick: () -> Unit,
+) {
+    SegmentedButton(
+        shape = SegmentedButtonDefaults.itemShape(index = index, count = count),
+        selected = selected,
+        onClick = onClick,
+        label = {
+            Text(
+                text = label,
+                maxLines = 2,
+                style = MaterialTheme.typography.labelMediumEmphasized,
+            )
+        },
+    )
 }
 
 internal fun Int.divCeil(divisor: Int): Int {

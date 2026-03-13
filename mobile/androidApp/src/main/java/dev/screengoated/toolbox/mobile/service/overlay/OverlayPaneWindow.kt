@@ -14,8 +14,8 @@ import android.widget.FrameLayout
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
 import dev.screengoated.toolbox.mobile.service.OverlayPaneHolder
 import dev.screengoated.toolbox.mobile.service.OverlayPaneId
+import dev.screengoated.toolbox.mobile.service.OverlayPaneRuntimeSettings
 import dev.screengoated.toolbox.mobile.service.buildOverlayWebView
-import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -142,7 +142,7 @@ internal class OverlayPaneWindow(
 
     fun render(
         html: String,
-        settings: JSONObject,
+        settings: OverlayPaneRuntimeSettings,
         oldText: String,
         newText: String,
     ): Boolean {

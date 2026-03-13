@@ -67,6 +67,8 @@ internal fun overlayCss(
                 overflow-y: hidden;
                 flex-wrap: nowrap;
                 padding-bottom: 2px;
+                overflow-anchor: none;
+                scroll-behavior: auto;
                 scrollbar-width: none;
                 -ms-overflow-style: none;
                 -webkit-overflow-scrolling: touch;
@@ -82,6 +84,14 @@ internal fun overlayCss(
             .vis-btn,
             .language-btn {
                 flex-shrink: 0;
+            }
+            .ctrl-btn,
+            .vis-btn,
+            .audio-icon,
+            .model-icon,
+            .trans-model-icon,
+            .language-btn {
+                -webkit-tap-highlight-color: transparent;
             }
             .language-btn {
                 font-family: 'Google Sans Flex', sans-serif;

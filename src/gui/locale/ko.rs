@@ -235,7 +235,8 @@ pub fn get() -> LocaleText {
         realtime_tts_volume: "볼륨",
         // App selection modal
         app_select_title: "앱 선택",
-        app_select_hint: "녹음할 앱을 선택하세요 (TTS는 분리됨)",
+        app_select_hint: "녹음할 앱을 선택하세요 (이 단계가 있어야 TTS 소리가 컴퓨터 오디오로 다시 캡처되지 않습니다)",
+        app_select_count: "앱 {}개",
         // --- TRAY MENU KO ---
         tray_settings: "⚙️ 설정",
         tray_quit: "종료",

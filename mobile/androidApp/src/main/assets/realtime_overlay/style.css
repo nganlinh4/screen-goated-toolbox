@@ -4,6 +4,7 @@
             overflow: hidden;
             background: {{BG_COLOR}};
             font-family: 'Google Sans Flex', sans-serif;
+            font-variation-settings: 'ROND' 100, 'ROUN' 100, 'RNDS' 100;
             color: {{TEXT_COLOR}};
             border-radius: 12px;
             border: 1px solid {{BORDER_COLOR}};
@@ -73,6 +74,10 @@
             height: 100%;
             fill: currentColor;
             display: block;
+        }
+        button, input, textarea, select {
+            font-family: 'Google Sans Flex', sans-serif;
+            font-variation-settings: 'ROND' 100, 'ROUN' 100, 'RNDS' 100;
         }
         #container {
             display: flex;

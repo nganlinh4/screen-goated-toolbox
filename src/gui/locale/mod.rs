@@ -193,6 +193,7 @@ pub struct LocaleText {
     // App selection modal
     pub app_select_title: &'static str,
     pub app_select_hint: &'static str,
+    pub app_select_count: &'static str,
     // --- TRAY MENU ---
     pub tray_settings: &'static str,
     pub tray_quit: &'static str,

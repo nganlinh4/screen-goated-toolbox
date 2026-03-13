@@ -34,6 +34,7 @@ pub mod realtime_egui; // Minimal mode (native egui)
 pub mod realtime_html; // HTML generation for realtime overlay
 pub mod realtime_webview; // New WebView2-based with smooth scrolling
 pub mod tray_popup; // Custom non-blocking tray popup menu
+pub mod window_selector;
 
 pub use recording::{
     is_recording_overlay_active, show_recording_overlay, stop_recording_and_submit,

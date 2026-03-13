@@ -92,13 +92,7 @@ impl SettingsApp {
                     );
                 }
 
-                use crate::overlay::realtime_webview::state::APP_SELECTION_HWND;
-                let app_sel_val = APP_SELECTION_HWND.load(std::sync::atomic::Ordering::SeqCst);
-                if app_sel_val != 0 {
-                    let hwnd =
-                        windows::Win32::Foundation::HWND(app_sel_val as *mut std::ffi::c_void);
-                    let _ = PostMessageW(Some(hwnd), WM_THEME_UPDATE, WPARAM(0), LPARAM(0));
-                }
+                crate::overlay::window_selector::update_theme(crate::overlay::is_dark_mode());
             }
 
             // D. Update Screen Record WebView

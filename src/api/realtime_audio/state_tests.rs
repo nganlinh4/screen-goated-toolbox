@@ -29,7 +29,11 @@ fn shared_fixtures_match_windows_realtime_state() {
                         Some(expected) => {
                             let actual = actual.expect("translation request");
                             assert_eq!(actual.0, expected.chunk, "case {}", case.name);
-                            assert_eq!(actual.1, expected.has_finished_delimiter, "case {}", case.name);
+                            assert_eq!(
+                                actual.1, expected.has_finished_delimiter,
+                                "case {}",
+                                case.name
+                            );
                             assert_eq!(actual.2, expected.bytes_to_commit, "case {}", case.name);
                             state.update_last_processed_len();
                             state.start_new_translation();
@@ -56,40 +60,38 @@ fn shared_fixtures_match_windows_realtime_state() {
             }
         }
 
-        assert_eq!(state.full_transcript, case.expected_state.full_transcript, "case {}", case.name);
         assert_eq!(
-            state.display_transcript,
-            case.expected_state.display_transcript,
+            state.full_transcript, case.expected_state.full_transcript,
             "case {}",
             case.name
         );
         assert_eq!(
-            state.last_committed_pos,
-            case.expected_state.last_committed_pos,
+            state.display_transcript, case.expected_state.display_transcript,
             "case {}",
             case.name
         );
         assert_eq!(
-            state.last_processed_len,
-            case.expected_state.last_processed_len,
+            state.last_committed_pos, case.expected_state.last_committed_pos,
             "case {}",
             case.name
         );
         assert_eq!(
-            state.committed_translation,
-            case.expected_state.committed_translation,
+            state.last_processed_len, case.expected_state.last_processed_len,
             "case {}",
             case.name
         );
         assert_eq!(
-            state.uncommitted_translation,
-            case.expected_state.uncommitted_translation,
+            state.committed_translation, case.expected_state.committed_translation,
             "case {}",
             case.name
         );
         assert_eq!(
-            state.display_translation,
-            case.expected_state.display_translation,
+            state.uncommitted_translation, case.expected_state.uncommitted_translation,
+            "case {}",
+            case.name
+        );
+        assert_eq!(
+            state.display_translation, case.expected_state.display_translation,
             "case {}",
             case.name
         );
@@ -101,7 +103,11 @@ fn shared_fixtures_match_windows_realtime_state() {
                 translation: translation.clone(),
             })
             .collect();
-        assert_eq!(actual_history, case.expected_state.translation_history, "case {}", case.name);
+        assert_eq!(
+            actual_history, case.expected_state.translation_history,
+            "case {}",
+            case.name
+        );
     }
 }
 

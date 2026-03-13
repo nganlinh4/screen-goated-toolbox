@@ -7,11 +7,13 @@ import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
+import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.ttssettings.RenderGlobalTtsSettingsDialog
 
 @Composable
 fun GlobalTtsSettingsDialog(
     settings: MobileGlobalTtsSettings,
+    locale: MobileLocaleText,
     edgeVoiceCatalogState: EdgeVoiceCatalogState,
     onDismiss: () -> Unit,
     onMethodChanged: (MobileTtsMethod) -> Unit,
@@ -25,6 +27,7 @@ fun GlobalTtsSettingsDialog(
 ) {
     RenderGlobalTtsSettingsDialog(
         settings = settings,
+        locale = locale,
         edgeVoiceCatalogState = edgeVoiceCatalogState,
         onDismiss = onDismiss,
         onMethodChanged = onMethodChanged,

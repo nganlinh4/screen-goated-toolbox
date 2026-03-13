@@ -1,0 +1,44 @@
+package dev.screengoated.toolbox.mobile.ui.i18n
+
+import dev.screengoated.toolbox.mobile.model.MobileThemeMode
+import dev.screengoated.toolbox.mobile.model.next
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class MobileShellParityTest {
+    @Test
+    fun themeCycleMatchesWindowsTitleBarOrder() {
+        assertEquals(MobileThemeMode.DARK, MobileThemeMode.SYSTEM.next())
+        assertEquals(MobileThemeMode.LIGHT, MobileThemeMode.DARK.next())
+        assertEquals(MobileThemeMode.SYSTEM, MobileThemeMode.LIGHT.next())
+    }
+
+    @Test
+    fun languageChoicesMatchWindowsVisibleOptions() {
+        val options = MobileLocaleText.forLanguage("en").languageOptions.map { it.code }
+        assertEquals(listOf("en", "vi", "ko"), options)
+    }
+
+    @Test
+    fun previewTextComesFromUiLocaleBundle() {
+        val en = MobileLocaleText.forLanguage("en").ttsPreviewTexts.first()
+        val vi = MobileLocaleText.forLanguage("vi").ttsPreviewTexts.first()
+        val ko = MobileLocaleText.forLanguage("ko").ttsPreviewTexts.first()
+
+        assertTrue(en.startsWith("Hello"))
+        assertTrue(vi.startsWith("Xin chào"))
+        assertTrue(ko.startsWith("안녕하세요"))
+    }
+
+    @Test
+    fun overlayChromeTextComesFromUiLocaleBundle() {
+        val en = MobileLocaleText.forLanguage("en").overlay.placeholderText
+        val vi = MobileLocaleText.forLanguage("vi").overlay.placeholderText
+        val ko = MobileLocaleText.forLanguage("ko").overlay.placeholderText
+
+        assertTrue(en.startsWith("Waiting"))
+        assertTrue(vi.startsWith("Đang chờ"))
+        assertTrue(ko.startsWith("음성을"))
+    }
+}

@@ -1,124 +1,52 @@
-// --- WINDOW SELECTION OVERLAY ---
-// Native full-screen transparent overlay for picking a window to record.
-// Spawns a dedicated OS thread with its own Win32 message loop and WRY WebView.
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-use crate::overlay::screen_record::SR_HWND;
-use raw_window_handle::{
-    HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
+use crate::overlay::window_selector::{
+    self, SelectorCallbacks, SelectorEntry, SelectorOwner, SelectorText,
 };
-use std::num::NonZeroIsize;
-use std::sync::Once;
-use std::sync::atomic::{AtomicIsize, Ordering};
-use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
-use windows::Win32::Graphics::Gdi::HBRUSH;
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Controls::MARGINS;
-use windows::Win32::UI::WindowsAndMessaging::*;
-use wry::{Rect, WebContext, WebViewBuilder};
 
-// Must match the constant in mod.rs.
-const WM_APP_RUN_SCRIPT: u32 = WM_USER + 112;
+use super::{SR_HWND, WM_APP_RUN_SCRIPT};
 
-static REGISTER_SELECTOR_CLASS: Once = Once::new();
-static SELECTOR_HWND: AtomicIsize = AtomicIsize::new(0);
-
-thread_local! {
-    static SELECTOR_WEBVIEW: std::cell::RefCell<Option<wry::WebView>> =
-        const { std::cell::RefCell::new(None) };
-    static SELECTOR_WEB_CONTEXT: std::cell::RefCell<Option<WebContext>> =
-        const { std::cell::RefCell::new(None) };
+fn json_u32(value: &serde_json::Value, key: &str, default: u32) -> u32 {
+    value[key]
+        .as_u64()
+        .and_then(|value| u32::try_from(value).ok())
+        .unwrap_or(default)
 }
 
-struct HwndWrapper(HWND);
+fn to_selector_entry(window: &serde_json::Value) -> Option<SelectorEntry> {
+    let id = window["id"].as_str()?.to_string();
+    let title = window["title"].as_str()?.to_string();
+    let subtitle = window["processName"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let disabled = window["isAdmin"].as_bool().unwrap_or(false);
+    let badge_text = disabled.then(|| "ADMIN".to_string());
 
-impl HasWindowHandle for HwndWrapper {
-    fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
-        let hwnd = self.0.0 as isize;
-        if hwnd == 0 {
-            return Err(HandleError::Unavailable);
-        }
-        if let Some(non_zero) = NonZeroIsize::new(hwnd) {
-            let mut handle = Win32WindowHandle::new(non_zero);
-            handle.hinstance = None;
-            let raw = RawWindowHandle::Win32(handle);
-            Ok(unsafe { WindowHandle::borrow_raw(raw) })
-        } else {
-            Err(HandleError::Unavailable)
-        }
-    }
+    Some(SelectorEntry {
+        id,
+        title,
+        subtitle,
+        icon_data_url: window["iconDataUrl"].as_str().map(ToOwned::to_owned),
+        preview_data_url: window["previewDataUrl"].as_str().map(ToOwned::to_owned),
+        width: json_u32(window, "winW", 16),
+        height: json_u32(window, "winH", 9),
+        badge_text,
+        disabled,
+    })
 }
 
-unsafe extern "system" fn selector_wnd_proc(
-    hwnd: HWND,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    unsafe {
-        match msg {
-            WM_SIZE => {
-                SELECTOR_WEBVIEW.with(|wv| {
-                    if let Some(webview) = wv.borrow().as_ref() {
-                        let mut r = RECT::default();
-                        let _ = GetClientRect(hwnd, &mut r);
-                        let _ = webview.set_bounds(Rect {
-                            position: wry::dpi::Position::Physical(
-                                wry::dpi::PhysicalPosition::new(0, 0),
-                            ),
-                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                                (r.right - r.left) as u32,
-                                (r.bottom - r.top) as u32,
-                            )),
-                        });
-                    }
-                });
-                LRESULT(0)
-            }
-            WM_APP_RUN_SCRIPT => {
-                let script_ptr = lparam.0 as *mut String;
-                if !script_ptr.is_null() {
-                    let script = Box::from_raw(script_ptr);
-                    SELECTOR_WEBVIEW.with(|wv| {
-                        if let Some(webview) = wv.borrow().as_ref() {
-                            let _ = webview.evaluate_script(&script);
-                        }
-                    });
-                }
-                LRESULT(0)
-            }
-            WM_CLOSE => {
-                let _ = DestroyWindow(hwnd);
-                LRESULT(0)
-            }
-            WM_DESTROY => {
-                SELECTOR_HWND.store(0, Ordering::SeqCst);
-                PostQuitMessage(0);
-                LRESULT(0)
-            }
-            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
-        }
-    }
-}
-
-/// Returns true if the selector overlay has been closed (or was never opened).
-pub fn selector_is_closed() -> bool {
-    SELECTOR_HWND.load(Ordering::SeqCst) == 0
-}
-
-/// Push a thumbnail data-URL for a specific window into the live overlay.
-pub fn post_thumbnail_update(window_id: usize, data_url: String) {
-    let val = SELECTOR_HWND.load(Ordering::SeqCst);
-    if val == 0 {
+fn post_screen_record_script(script: String) {
+    let sr_hwnd_val = unsafe { std::ptr::addr_of!(SR_HWND).read().0.0 as isize };
+    if sr_hwnd_val == 0 {
         return;
     }
-    // Escape backticks so the data URL is safe inside a JS template literal.
-    let safe_url = data_url.replace('`', "");
-    let script = format!("window.updateThumb('{}',`{}`);", window_id, safe_url);
+
     let script_ptr = Box::into_raw(Box::new(script));
     unsafe {
         let _ = PostMessageW(
-            Some(HWND(val as *mut _)),
+            Some(HWND(sr_hwnd_val as *mut _)),
             WM_APP_RUN_SCRIPT,
             WPARAM(0),
             LPARAM(script_ptr as isize),
@@ -126,666 +54,58 @@ pub fn post_thumbnail_update(window_id: usize, data_url: String) {
     }
 }
 
-fn generate_html(
-    windows: &[serde_json::Value],
-    font_css: &str,
-    is_dark: bool,
-    title: &str,
-    subtitle: &str,
-    count_label: &str,
-    cancel_label: &str,
-) -> String {
-    // Escape </script> sequences to prevent premature tag closure.
-    let windows_json = serde_json::to_string(windows)
-        .unwrap_or_else(|_| "[]".to_string())
-        .replace("</", "<\\/");
-
-    let (
-        overlay_bg,
-        card_bg,
-        card_border,
-        card_hover_border,
-        thumb_bg,
-        title_color,
-        subtitle_color,
-        proc_color,
-        close_color,
-        close_hover_color,
-        wave_color,
-        header_color,
-        scroll_thumb,
-    ) = if is_dark {
-        (
-            "rgba(10,10,12,0.88)",
-            "rgba(255,255,255,0.07)",
-            "rgba(255,255,255,0.10)",
-            "rgba(59,130,246,0.70)",
-            "rgba(255,255,255,0.04)",
-            "#fff",
-            "rgba(255,255,255,0.40)",
-            "rgba(255,255,255,0.32)",
-            "rgba(255,255,255,0.45)",
-            "#fff",
-            "#60a5fa",
-            "rgba(255,255,255,0.52)",
-            "rgba(255,255,255,0.18)",
-        )
-    } else {
-        (
-            "rgba(240,242,247,0.92)",
-            "rgba(0,0,0,0.04)",
-            "rgba(0,0,0,0.09)",
-            "rgba(37,99,235,0.65)",
-            "rgba(0,0,0,0.05)",
-            "#0f172a",
-            "rgba(0,0,0,0.42)",
-            "rgba(0,0,0,0.38)",
-            "rgba(0,0,0,0.38)",
-            "#0f172a",
-            "#1d4ed8",
-            "rgba(0,0,0,0.42)",
-            "rgba(0,0,0,0.22)",
-        )
-    };
-
-    format!(
-        r##"<!DOCTYPE html>
-<html lang="en" data-theme="{theme}">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>{title}</title>
-<style>
-{font_css}
-*{{box-sizing:border-box;margin:0;padding:0}}
-html,body{{width:100%;height:100%;overflow:hidden;font-family:'Google Sans Flex','Segoe UI',system-ui,sans-serif;font-variation-settings:'ROND' 100;background:transparent}}
-
-::-webkit-scrollbar{{width:6px}}
-::-webkit-scrollbar-track{{background:transparent}}
-::-webkit-scrollbar-thumb{{background:{scroll_thumb};border-radius:3px}}
-
-@keyframes overlayIn{{
-  from{{opacity:0;transform:scale(0.98)}}
-  to{{opacity:1;transform:scale(1)}}
-}}
-@keyframes cardIn{{
-  from{{opacity:0;transform:translateY(10px)}}
-  to{{opacity:1;transform:translateY(0)}}
-}}
-@keyframes waveColor{{
-  0%,100%{{color:{header_color};font-variation-settings:'GRAD' 0,'wght' 600,'ROND' 100}}
-  50%{{color:{wave_color};font-variation-settings:'GRAD' 200,'wght' 900,'ROND' 100}}
-}}
-@keyframes thumbFadeIn{{
-  from{{opacity:0}}
-  to{{opacity:1}}
-}}
-
-.overlay{{
-  position:fixed;inset:0;
-  background:{overlay_bg};
-  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-  display:flex;flex-direction:column;align-items:center;
-  padding:34px 24px 22px;overflow-y:auto;
-  animation:overlayIn 0.22s cubic-bezier(0.2,0,0,1) forwards;
-}}
-
-.close-btn{{
-  position:fixed;top:14px;right:18px;
-  width:32px;height:32px;
-  display:flex;align-items:center;justify-content:center;
-  cursor:pointer;color:{close_color};font-size:20px;line-height:1;
-  transition:color 0.12s;z-index:10;user-select:none;
-  background:none;border:none;padding:0;
-}}
-.close-btn:hover{{color:{close_hover_color}}}
-
-.header{{text-align:center;margin-bottom:18px;flex-shrink:0;width:min(92vw,1760px)}}
-.title{{
-  color:{title_color};
-  font-size:clamp(24px,2.1vw,34px);font-weight:600;
-  font-stretch:130%;text-transform:uppercase;
-  letter-spacing:0.12em;
-  margin-bottom:6px;
-  font-family:'Google Sans Flex','Segoe UI',system-ui,sans-serif;
-  font-variation-settings:'wght' 600,'ROND' 100;
-  line-height:1.15
-}}
-.subtitle{{
-  color:{subtitle_color};font-size:12px;
-  font-variation-settings:'wght' 400,'ROND' 80;
-  line-height:1.7
-}}
-.win-count{{
-  display:block;color:{proc_color};font-size:11px;
-  font-variation-settings:'wght' 400,'ROND' 80
-}}
-
-/* align-items:start = each card is only as tall as its content,
-   prevents grid from stretching shorter cards to the tallest row height */
-.grid{{
-  display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(clamp(220px,18vw,280px),1fr));
-  gap:14px;width:min(92vw,1760px);max-width:1760px;
-  align-items:start
-}}
-
-.card{{
-  --card-accent-rgb: 128,128,128;
-  --card-hover-border: {card_hover_border};
-  background:
-    radial-gradient(circle at top left, rgba(var(--card-accent-rgb),0.18), transparent 48%),
-    linear-gradient(180deg, rgba(var(--card-accent-rgb),0.12), transparent 68%),
-    {card_bg};
-  border:1px solid {card_border};
-  border-radius:10px;overflow:hidden;cursor:pointer;
-  transition:background 0.12s,border-color 0.12s,transform 0.12s,box-shadow 0.12s;
-  user-select:none;
-  position:relative;
-  opacity:0; /* set by JS stagger animation */
-}}
-.card::before{{
-  content:'';
-  position:absolute;left:0;right:0;top:0;height:3px;
-  background:rgba(var(--card-accent-rgb),0.9);
-  opacity:0.92;pointer-events:none
-}}
-.card:hover{{
-  border-color:var(--card-hover-border);
-  transform:translateY(-3px);
-  box-shadow:
-    0 10px 28px rgba(0,0,0,0.22),
-    0 0 0 1px rgba(var(--card-accent-rgb),0.20) inset,
-    0 0 24px rgba(var(--card-accent-rgb),0.14)
-}}
-.card:active{{transform:translateY(-1px)}}
-.card.admin-blocked{{opacity:0.35!important;cursor:not-allowed}}
-.card.admin-blocked:hover{{transform:none;box-shadow:none;border-color:{card_border}}}
-
-.thumb{{
-  width:100%;
-  background:
-    linear-gradient(180deg, rgba(var(--card-accent-rgb),0.16), transparent 78%),
-    {thumb_bg};
-  display:flex;align-items:center;justify-content:center;
-  overflow:hidden;position:relative;
-  /* Hard cap: no thumbnail taller than 196px regardless of aspect ratio */
-  max-height:196px
-}}
-.thumb img{{
-  width:100%;height:100%;object-fit:cover;display:block;
-  /* Show the top of the window — most useful region for identification */
-  object-position:center top;
-  animation:thumbFadeIn 0.3s ease forwards
-}}
-.thumb-ph{{
-  position:absolute;inset:0;
-  display:flex;align-items:center;justify-content:center;
-  color:rgba(128,128,128,0.20);font-size:24px
-}}
-
-.info{{
-  padding:8px 10px;display:flex;align-items:center;gap:9px;
-  background:linear-gradient(90deg, rgba(var(--card-accent-rgb),0.16), transparent 78%)
-}}
-.icon{{
-  width:22px;height:22px;flex-shrink:0;border-radius:6px;object-fit:contain;
-  background:rgba(var(--card-accent-rgb),0.18);
-  box-shadow:0 0 0 1px rgba(var(--card-accent-rgb),0.24) inset;
-  padding:2px
-}}
-.icon-ph{{width:22px;height:22px;background:rgba(128,128,128,0.12);border-radius:4px;flex-shrink:0}}
-.text{{flex:1;min-width:0}}
-.win-title{{
-  color:{title_color};font-size:11.5px;font-weight:500;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  font-variation-settings:'wght' 500,'ROND' 100
-}}
-.proc-name{{
-  color:{proc_color};font-size:10px;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px
-}}
-.admin-badge{{
-  background:rgba(239,68,68,0.16);color:rgb(239,68,68);
-  border:1px solid rgba(239,68,68,0.28);
-  border-radius:3px;font-size:8px;font-weight:700;
-  padding:1px 4px;letter-spacing:0.07em;text-transform:uppercase;flex-shrink:0
-}}
-@media (max-width: 1100px){{
-  .overlay{{padding:40px 18px 18px}}
-  .header{{width:min(96vw,1200px)}}
-  .grid{{
-    width:min(96vw,1200px);
-    grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
-    gap:12px
-  }}
-  .thumb{{max-height:172px}}
-}}
-@media (max-width: 760px){{
-  .overlay{{padding:42px 14px 14px}}
-  .header{{width:100%;margin-bottom:16px}}
-  .title{{font-size:22px;letter-spacing:0.08em}}
-  .subtitle{{font-size:11px}}
-  .grid{{
-    width:100%;
-    grid-template-columns:repeat(auto-fill,minmax(170px,1fr));
-    gap:10px
-  }}
-  .thumb{{max-height:148px}}
-}}
-</style>
-</head>
-<body>
-<button class="close-btn" id="close-btn" title="{cancel_label}" aria-label="{cancel_label}">&#x2715;</button>
-<div class="overlay" id="overlay">
-  <div class="header">
-    <div class="title" id="title-text">{title}</div>
-    <div class="subtitle">{subtitle}<span class="win-count">{count_label}</span></div>
-  </div>
-  <div class="grid" id="grid"></div>
-</div>
-<script>
-var windows={windows_json};
-
-// Wave-animate the title characters on load
-(function(){{
-  var el=document.getElementById('title-text');
-  if(!el) return;
-  el.innerHTML=el.innerText.split('').map(function(ch,i){{
-    return '<span style="display:inline-block;animation:waveColor 0.65s ease forwards '+(0.08+i*0.035).toFixed(3)+'s">'+
-      (ch===' '?'&nbsp;':ch.replace(/&/g,'&amp;').replace(/</g,'&lt;'))+'</span>';
-  }}).join('');
-}})();
-
-function selectWindow(id){{window.ipc.postMessage('select:'+id);}}
-function cancel(){{window.ipc.postMessage('cancel');}}
-function clamp(value,min,max){{return Math.max(min,Math.min(max,value));}}
-function rgbToHsl(r,g,b){{
-  r/=255;g/=255;b/=255;
-  var max=Math.max(r,g,b),min=Math.min(r,g,b);
-  var h,s,l=(max+min)/2;
-  if(max===min){{h=0;s=0;}}
-  else {{
-    var d=max-min;
-    s=l>0.5?d/(2-max-min):d/(max+min);
-    switch(max){{
-      case r:h=(g-b)/d+(g<b?6:0);break;
-      case g:h=(b-r)/d+2;break;
-      default:h=(r-g)/d+4;break;
-    }}
-    h/=6;
-  }}
-  return [h,s,l];
-}}
-function hslToRgb(h,s,l){{
-  var r,g,b;
-  if(s===0){{r=g=b=l;}}
-  else {{
-    function hue2rgb(p,q,t){{
-      if(t<0)t+=1;
-      if(t>1)t-=1;
-      if(t<1/6)return p+(q-p)*6*t;
-      if(t<1/2)return q;
-      if(t<2/3)return p+(q-p)*(2/3-t)*6;
-      return p;
-    }}
-    var q=l<0.5?l*(1+s):l+s-l*s;
-    var p=2*l-q;
-    r=hue2rgb(p,q,h+1/3);
-    g=hue2rgb(p,q,h);
-    b=hue2rgb(p,q,h-1/3);
-  }}
-  return [Math.round(r*255),Math.round(g*255),Math.round(b*255)];
-}}
-function normalizeAccentColor(rgb){{
-  var hsl=rgbToHsl(rgb[0],rgb[1],rgb[2]);
-  hsl[1]=Math.max(hsl[1],0.28);
-  hsl[2]=clamp(hsl[2],0.34,0.62);
-  return hslToRgb(hsl[0],hsl[1],hsl[2]);
-}}
-function computeAverageIconColor(img){{
-  try {{
-    var canvas=document.createElement('canvas');
-    canvas.width=16;canvas.height=16;
-    var ctx=canvas.getContext('2d',{{willReadFrequently:true}});
-    if(!ctx) return null;
-    ctx.clearRect(0,0,16,16);
-    ctx.drawImage(img,0,0,16,16);
-    var data=ctx.getImageData(0,0,16,16).data;
-    var r=0,g=0,b=0,total=0;
-    for(var i=0;i<data.length;i+=4){{
-      var alpha=data[i+3]/255;
-      if(alpha<0.05) continue;
-      var rr=data[i],gg=data[i+1],bb=data[i+2];
-      var max=Math.max(rr,gg,bb),min=Math.min(rr,gg,bb);
-      var sat=max===0?0:(max-min)/max;
-      var lum=(0.2126*rr+0.7152*gg+0.0722*bb)/255;
-      var weight=alpha*(0.35+sat*0.9);
-      if(lum<0.08||lum>0.96) weight*=0.55;
-      r+=rr*weight;g+=gg*weight;b+=bb*weight;total+=weight;
-    }}
-    if(total<0.001) return null;
-    return normalizeAccentColor([
-      Math.round(r/total),
-      Math.round(g/total),
-      Math.round(b/total)
-    ]);
-  }} catch(_err) {{
-    return null;
-  }}
-}}
-function applyCardAccent(card,rgb){{
-  if(!rgb) return;
-  card.style.setProperty('--card-accent-rgb',rgb.join(','));
-}}
-function attachCardAccentFromIcon(card,img){{
-  var apply=function(){{applyCardAccent(card,computeAverageIconColor(img));}};
-  if(img.complete&&img.naturalWidth>0) apply();
-  else img.addEventListener('load',apply,{{once:true}});
-}}
-
-var grid=document.getElementById('grid');
-var overlay=document.getElementById('overlay');
-
-document.getElementById('close-btn').addEventListener('click',cancel);
-
-windows.forEach(function(w,idx){{
-  // Clamp aspect ratio: min 1.0 (square) … max 2.8 (ultra-wide).
-  // Very tall windows (chat bars, tool panels) would otherwise dominate the row.
-  var raw=(w.winW&&w.winH)?(w.winW/w.winH):(16/9);
-  var ar=Math.min(Math.max(raw,1.0),2.8);
-
-  var card=document.createElement('div');
-  card.className='card'+(w.isAdmin?' admin-blocked':'');
-  card.style.animation='cardIn 0.22s cubic-bezier(0.2,0,0,1) forwards '+(0.04+idx*0.022).toFixed(3)+'s';
-
-  // Thumbnail area — clamped window aspect ratio
-  var thumb=document.createElement('div');
-  thumb.className='thumb';
-  thumb.style.aspectRatio=ar.toFixed(4);
-  thumb.id='thumb-wrap-'+w.id;
-
-  var ph=document.createElement('div');ph.className='thumb-ph';ph.textContent='\u25a3';
-  thumb.appendChild(ph);
-
-  // Pre-populate if thumbnail already present (future-proofing)
-  if(w.previewDataUrl){{
-    var img=document.createElement('img');img.src=w.previewDataUrl;img.alt='';
-    thumb.appendChild(img);ph.style.display='none';
-  }}
-
-  var info=document.createElement('div');info.className='info';
-  if(w.iconDataUrl){{
-    var ic=document.createElement('img');ic.className='icon';ic.src=w.iconDataUrl;ic.alt='';info.appendChild(ic);
-    attachCardAccentFromIcon(card,ic);
-  }}else{{
-    var iph=document.createElement('div');iph.className='icon-ph';info.appendChild(iph);
-  }}
-  var text=document.createElement('div');text.className='text';
-  var t=document.createElement('div');t.className='win-title';t.textContent=w.title;t.title=w.title;
-  var p=document.createElement('div');p.className='proc-name';p.textContent=w.processName;
-  text.appendChild(t);text.appendChild(p);info.appendChild(text);
-  if(w.isAdmin){{
-    var badge=document.createElement('span');badge.className='admin-badge';badge.textContent='ADMIN';info.appendChild(badge);
-  }}
-  card.appendChild(thumb);card.appendChild(info);
-  if(!w.isAdmin){{card.addEventListener('click',function(){{selectWindow(w.id);}});}}
-  grid.appendChild(card);
-}});
-
-// Called by Rust background thread once each thumbnail is ready
-window.updateThumb=function(id,dataUrl){{
-  var wrap=document.getElementById('thumb-wrap-'+id);
-  if(!wrap) return;
-  var ph=wrap.querySelector('.thumb-ph');
-  if(ph) ph.style.display='none';
-  var existing=wrap.querySelector('img');
-  if(existing){{existing.src=dataUrl;return;}}
-  var img=document.createElement('img');img.src=dataUrl;img.alt='';
-  wrap.appendChild(img);
-}};
-
-document.addEventListener('keydown',function(e){{if(e.key==='Escape')cancel();}});
-overlay.addEventListener('click',function(e){{if(e.target===overlay)cancel();}});
-</script>
-</body>
-</html>"##,
-        theme = if is_dark { "dark" } else { "light" },
-        font_css = font_css,
-        overlay_bg = overlay_bg,
-        card_bg = card_bg,
-        card_border = card_border,
-        card_hover_border = card_hover_border,
-        thumb_bg = thumb_bg,
-        title_color = title_color,
-        subtitle_color = subtitle_color,
-        proc_color = proc_color,
-        close_color = close_color,
-        close_hover_color = close_hover_color,
-        wave_color = wave_color,
-        header_color = header_color,
-        scroll_thumb = scroll_thumb,
-        title = title,
-        subtitle = subtitle,
-        count_label = count_label,
-        cancel_label = cancel_label,
-        windows_json = windows_json,
-    )
+pub fn selector_is_closed() -> bool {
+    !window_selector::is_owner_active(SelectorOwner::ScreenRecord)
 }
 
-/// Opens a full-screen transparent native overlay window displaying the given list of capturable windows.
-/// When the user picks a window, fires `external-window-selected` in the SR WebView.
-/// When cancelled, simply closes the overlay.
+pub fn post_thumbnail_update(window_id: usize, data_url: String) {
+    window_selector::post_preview_update_for_owner(
+        SelectorOwner::ScreenRecord,
+        &window_id.to_string(),
+        data_url,
+    );
+}
+
 pub fn show_window_selector(windows_data: Vec<serde_json::Value>, is_dark: bool, lang: String) {
-    // Close any existing selector first.
-    let existing = SELECTOR_HWND.load(Ordering::SeqCst);
-    if existing != 0 {
-        unsafe {
-            let _ = PostMessageW(
-                Some(HWND(existing as *mut _)),
-                WM_CLOSE,
-                WPARAM(0),
-                LPARAM(0),
-            );
-        }
-        std::thread::sleep(std::time::Duration::from_millis(80));
+    let entries: Vec<SelectorEntry> = windows_data.iter().filter_map(to_selector_entry).collect();
+    if entries.is_empty() {
+        return;
     }
+    let entry_count = entries.len();
 
-    std::thread::spawn(move || unsafe {
-        let hinstance = match GetModuleHandleW(None) {
-            Ok(h) => h,
-            Err(_) => return,
-        };
-
-        REGISTER_SELECTOR_CLASS.call_once(|| {
-            let _ = RegisterClassExW(&WNDCLASSEXW {
-                cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-                style: CS_HREDRAW | CS_VREDRAW,
-                lpfnWndProc: Some(selector_wnd_proc),
-                hInstance: hinstance.into(),
-                lpszClassName: windows::core::w!("SRWindowSelectorClass"),
-                // Null brush — window is fully transparent via DWM layering.
-                hbrBackground: HBRUSH(std::ptr::null_mut()),
-                ..Default::default()
-            });
-        });
-
-        // Cover the entire virtual desktop (all monitors).
-        let screen_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-        let screen_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-        let screen_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-        let screen_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-
-        let hwnd = match CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-            windows::core::w!("SRWindowSelectorClass"),
-            windows::core::w!(""),
-            WS_POPUP | WS_VISIBLE,
-            screen_x,
-            screen_y,
-            screen_w,
-            screen_h,
-            None,
-            None,
-            Some(hinstance.into()),
-            None,
-        ) {
-            Ok(h) => h,
-            Err(e) => {
-                eprintln!("[WindowSelector] CreateWindowExW failed: {e}");
+    let locale = crate::gui::locale::LocaleText::get(&lang);
+    let callbacks = SelectorCallbacks::new(
+        |window_id| {
+            let window_id: String = window_id.chars().filter(|ch| ch.is_ascii_digit()).collect();
+            if window_id.is_empty() {
                 return;
             }
-        };
 
-        // Enable per-pixel alpha compositing so the WebView can show a transparent/blurred background.
-        let margins = MARGINS {
-            cxLeftWidth: -1,
-            cxRightWidth: -1,
-            cyTopHeight: -1,
-            cyBottomHeight: -1,
-        };
-        let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+            post_screen_record_script(format!(
+                "window.dispatchEvent(new CustomEvent('external-window-selected',{{detail:{{windowId:'{}'}}}}))",
+                window_id
+            ));
+        },
+        || {
+            post_screen_record_script(
+                "window.dispatchEvent(new CustomEvent('external-window-selection-cancelled'))"
+                    .to_string(),
+            );
+        },
+    );
 
-        SELECTOR_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
-
-        // Capture SR HWND value for posting events back to the main SR WebView.
-        // SR_HWND is SendHwnd(HWND), so .0 gives HWND and .0.0 gives *mut c_void.
-        let sr_hwnd_val = std::ptr::addr_of!(SR_HWND).read().0.0 as isize;
-
-        // Use the shared WebContext (same profile as other overlays).
-        SELECTOR_WEB_CONTEXT.with(|c| {
-            if c.borrow().is_none() {
-                let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
-                *c.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
-            }
-        });
-
-        // Resolve locale strings for the current language.
-        let locale = crate::gui::locale::LocaleText::get(&lang);
-        let title = locale.win_select_title.to_string();
-        let subtitle = locale.win_select_subtitle.to_string();
-        let count_label = locale
-            .win_select_count
-            .replace("{}", &windows_data.len().to_string());
-        let cancel_label = locale.cancel_label.to_string();
-
-        // Build HTML with Google Sans Flex font embedded via font manager.
-        let font_css = crate::overlay::html_components::font_manager::get_font_css();
-        let html = generate_html(
-            &windows_data,
-            &font_css,
-            is_dark,
-            &title,
-            &subtitle,
-            &count_label,
-            &cancel_label,
-        );
-
-        // Serve HTML via font manager's local HTTP server for same-origin font loading.
-        let page_url = crate::overlay::html_components::font_manager::store_html_page(html.clone())
-            .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html)));
-
-        let wrapper = HwndWrapper(hwnd);
-
-        let webview_result = {
-            let _lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
-            SELECTOR_WEB_CONTEXT.with(|ctx_cell| {
-                let mut ctx_ref = ctx_cell.borrow_mut();
-                let builder = WebViewBuilder::new_with_web_context(ctx_ref.as_mut().unwrap());
-                let builder =
-                    crate::overlay::html_components::font_manager::configure_webview(builder);
-                builder
-                    .with_transparent(true)
-                    .with_background_color((0, 0, 0, 0))
-                    .with_url(&page_url)
-                    .with_ipc_handler(move |msg: wry::http::Request<String>| {
-                        let body = msg.body().as_str().to_string();
-                        let sel_hwnd_val = SELECTOR_HWND.load(Ordering::SeqCst);
-
-                        if let Some(window_id) = body.strip_prefix("select:") {
-                            // Sanitise the window ID (numeric string, safe to interpolate).
-                            let window_id: String =
-                                window_id.chars().filter(|c| c.is_ascii_digit()).collect();
-                            let script = format!(
-                                "window.dispatchEvent(new CustomEvent(\
-                                 'external-window-selected',\
-                                 {{detail:{{windowId:'{}'}}}}))",
-                                window_id
-                            );
-                            let script_ptr = Box::into_raw(Box::new(script));
-                            let _ = PostMessageW(
-                                Some(HWND(sr_hwnd_val as *mut _)),
-                                WM_APP_RUN_SCRIPT,
-                                WPARAM(0),
-                                LPARAM(script_ptr as isize),
-                            );
-                        } else if body == "cancel" {
-                            let script = "window.dispatchEvent(new CustomEvent('external-window-selection-cancelled'))"
-                                .to_string();
-                            let script_ptr = Box::into_raw(Box::new(script));
-                            let _ = PostMessageW(
-                                Some(HWND(sr_hwnd_val as *mut _)),
-                                WM_APP_RUN_SCRIPT,
-                                WPARAM(0),
-                                LPARAM(script_ptr as isize),
-                            );
-                        }
-
-                        // Close the overlay after any IPC message (select or cancel).
-                        if sel_hwnd_val != 0 {
-                            let _ = PostMessageW(
-                                Some(HWND(sel_hwnd_val as *mut _)),
-                                WM_CLOSE,
-                                WPARAM(0),
-                                LPARAM(0),
-                            );
-                        }
-                    })
-                    .build_as_child(&wrapper)
-            })
-        };
-
-        let webview = match webview_result {
-            Ok(wv) => wv,
-            Err(e) => {
-                eprintln!("[WindowSelector] WebView build failed: {e}");
-                SELECTOR_HWND.store(0, Ordering::SeqCst);
-                let _ = DestroyWindow(hwnd);
-                return;
-            }
-        };
-
-        // Size the WebView to fill the window.
-        let _ = webview.set_bounds(Rect {
-            position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
-            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                screen_w as u32,
-                screen_h as u32,
-            )),
-        });
-
-        SELECTOR_WEBVIEW.with(|wv| {
-            *wv.borrow_mut() = Some(webview);
-        });
-
-        // Run the message loop for this window.
-        let mut msg = MSG::default();
-        loop {
-            match GetMessageW(&mut msg, None, 0, 0).0 {
-                -1 | 0 => break,
-                _ => {
-                    let _ = TranslateMessage(&msg);
-                    DispatchMessageW(&msg);
-                }
-            }
-        }
-
-        // Drop WebView then WebContext (order matters for WebView2 cleanup).
-        SELECTOR_WEBVIEW.with(|wv| {
-            *wv.borrow_mut() = None;
-        });
-        SELECTOR_WEB_CONTEXT.with(|ctx| {
-            *ctx.borrow_mut() = None;
-        });
-    });
+    window_selector::show_selector(
+        SelectorOwner::ScreenRecord,
+        entries,
+        is_dark,
+        SelectorText {
+            title: locale.win_select_title.to_string(),
+            subtitle: locale.win_select_subtitle.to_string(),
+            count_label: locale
+                .win_select_count
+                .replace("{}", &entry_count.to_string()),
+            cancel_label: locale.cancel_label.to_string(),
+        },
+        callbacks,
+    );
 }
