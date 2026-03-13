@@ -405,14 +405,35 @@ pub(crate) fn run_native_export_with_staged(
             .ok_or("No source video found")?
     };
 
-    let audio_volume = config.background_config.volume.clamp(0.0, 2.0);
-    // Volume 0 or GIF format → omit audio track (GIF is silent looping video).
-    let source_audio_path =
-        if !config.audio_path.is_empty() && audio_volume > 0.0 && config.format != "gif" {
-            Some(config.audio_path.clone())
-        } else {
-            None
-        };
+    let legacy_audio_volume = config.background_config.volume.clamp(0.0, 1.0);
+    let mut device_audio_points = config.segment.device_audio_points.clone();
+    device_audio_points.sort_by(|a, b| {
+        a.time
+            .partial_cmp(&b.time)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    if device_audio_points.is_empty() {
+        device_audio_points = vec![
+            config::DeviceAudioPoint {
+                time: 0.0,
+                volume: legacy_audio_volume,
+            },
+            config::DeviceAudioPoint {
+                time: config.duration.max(0.0),
+                volume: legacy_audio_volume,
+            },
+        ];
+    }
+    let has_audible_device_audio = device_audio_points.iter().any(|point| point.volume > 0.0001);
+    // Silent curve or GIF format → omit audio track (GIF is silent looping video).
+    let source_audio_path = if !config.audio_path.is_empty()
+        && has_audible_device_audio
+        && config.format != "gif"
+    {
+        Some(config.audio_path.clone())
+    } else {
+        None
+    };
 
     let output_base_dir = if config.output_dir.trim().is_empty() {
         dirs::download_dir().unwrap_or_else(|| PathBuf::from("."))
@@ -739,7 +760,7 @@ pub(crate) fn run_native_export_with_staged(
         source_video_path: source_video_path.clone(),
         output_path: encode_output_path.to_str().unwrap().to_string(),
         audio_path: source_audio_path.clone(),
-        audio_volume,
+        audio_volume_points: device_audio_points,
         output_width: out_w,
         output_height: out_h,
         framerate: config.framerate,

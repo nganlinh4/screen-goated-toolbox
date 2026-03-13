@@ -107,6 +107,11 @@ export interface SpeedPoint {
   speed: number;
 }
 
+export interface DeviceAudioPoint {
+  time: number;
+  volume: number;
+}
+
 export type RecordingMode = "withoutCursor" | "withCursor";
 
 export interface VideoSegment {
@@ -126,6 +131,7 @@ export interface VideoSegment {
   keyboardMouseVisibilitySegments?: CursorVisibilitySegment[];
   keystrokeOverlay?: KeystrokeOverlayConfig;
   speedPoints?: SpeedPoint[];
+  deviceAudioPoints?: DeviceAudioPoint[];
   useCustomCursor?: boolean;
   crop?: CropRect;
 }
@@ -207,7 +213,7 @@ export interface BackgroundConfig {
   cursorOpenHandVariant?: CursorPack;
   customBackground?: string;
   cropBottom?: number; // 0-100 percentage
-  volume?: number; // 0-1
+  volume?: number; // Legacy project compatibility only; replaced by segment.deviceAudioPoints
   canvasMode?: "auto" | "custom"; // default 'auto'
   canvasWidth?: number; // pixels, used when canvasMode === 'custom'
   canvasHeight?: number; // pixels, used when canvasMode === 'custom'

@@ -45,6 +45,10 @@ import {
   rebuildKeystrokeVisibilitySegmentsForMode,
 } from "@/lib/keystrokeVisibility";
 import { normalizeMousePositionsToVideoSpace } from "@/lib/dynamicCapture";
+import {
+  buildFlatDeviceAudioPoints,
+  normalizeDeviceAudioPoints,
+} from "@/lib/deviceAudio";
 
 const DEFAULT_KEYSTROKE_DELAY_SEC = 0;
 const KEYSTROKE_DELAY_KEY = "screen-record-keystroke-delay-v1";
@@ -596,13 +600,6 @@ export function useVideoPlayback({
     };
   }, []);
 
-  // Volume sync
-  useEffect(() => {
-    if (videoControllerRef.current && backgroundConfig.volume !== undefined) {
-      videoControllerRef.current.setVolume(backgroundConfig.volume);
-    }
-  }, [backgroundConfig.volume]);
-
   // Render options sync — apply isCropping overrides so the controller always
   // renders the correct view (e.g. after seeked events, thumbnail generation).
   useEffect(() => {
@@ -943,6 +940,7 @@ export function useRecording(props: UseRecordingProps) {
             { time: 0, speed: 1 },
             { time: timelineDuration, speed: 1 },
           ],
+          deviceAudioPoints: buildFlatDeviceAudioPoints(timelineDuration),
         };
 
         const keystrokeEvents = buildKeystrokeEvents(
@@ -1261,6 +1259,11 @@ export function useProjects(props: UseProjectsProps) {
           project.recordingMode === "withCursor" ? false : true;
       }
       correctedSegment.crop = normalizeCropRect(correctedSegment.crop);
+      correctedSegment.deviceAudioPoints = normalizeDeviceAudioPoints(
+        correctedSegment.deviceAudioPoints,
+        videoDuration,
+        project.backgroundConfig.volume,
+      );
       correctedSegment.cursorVisibilitySegments =
         clampVisibilitySegmentsToDuration(
           correctedSegment.cursorVisibilitySegments,
@@ -1410,16 +1413,6 @@ export function useProjects(props: UseProjectsProps) {
         canvasWidth: project.backgroundConfig?.canvasWidth,
         canvasHeight: project.backgroundConfig?.canvasHeight,
       });
-
-      if (
-        props.videoControllerRef.current &&
-        project.backgroundConfig.volume !== undefined
-      ) {
-        props.videoControllerRef.current.setVolume(
-          project.backgroundConfig.volume,
-        );
-      }
-
       // Ensure keyboard focus returns to the document after the Projects overlay
       // animates out (clone removal can leave focus in limbo → spacebar ignored).
       requestAnimationFrame(() => document.body.focus());
@@ -1451,6 +1444,7 @@ interface UseExportProps {
   tempCanvasRef: React.RefObject<HTMLCanvasElement>;
   audioRef: React.RefObject<HTMLAudioElement | null>;
   isRecording: boolean;
+  isBatchEditing: boolean;
   segment: VideoSegment | null;
   backgroundConfig: BackgroundConfig;
   mousePositions: MousePosition[];
@@ -1687,6 +1681,7 @@ export function useExport(props: UseExportProps) {
   useEffect(() => {
     if (
       props.isRecording ||
+      props.isBatchEditing ||
       isProcessing ||
       showExportDialog ||
       isCompositionExport ||
@@ -1763,6 +1758,7 @@ export function useExport(props: UseExportProps) {
     };
   }, [
     props.isRecording,
+    props.isBatchEditing,
     isProcessing,
     showExportDialog,
     isCompositionExport,
@@ -1793,6 +1789,7 @@ export function useExport(props: UseExportProps) {
   useEffect(() => {
     if (
       props.isRecording ||
+      props.isBatchEditing ||
       isProcessing ||
       !showExportDialog ||
       isCompositionExport ||
@@ -1842,6 +1839,7 @@ export function useExport(props: UseExportProps) {
     };
   }, [
     props.isRecording,
+    props.isBatchEditing,
     isProcessing,
     showExportDialog,
     isCompositionExport,

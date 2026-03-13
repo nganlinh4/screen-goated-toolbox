@@ -358,6 +358,10 @@ export class VideoExporter {
         time: Math.round(point.time * 1000) / 1000,
         speed: Math.round(point.speed * 10000) / 10000,
       })),
+      deviceAudioPoints: (segment.deviceAudioPoints ?? []).map((point) => ({
+        time: Math.round(point.time * 1000) / 1000,
+        volume: Math.round(point.volume * 10000) / 10000,
+      })),
       textSegments: (segment.textSegments ?? []).map((text) => ({
         id: text.id,
         start: Math.round(text.startTime * 1000) / 1000,
