@@ -34,16 +34,21 @@ import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
+import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
 
 @Composable
 internal fun RenderGlobalTtsSettingsDialog(
     settings: MobileGlobalTtsSettings,
+    edgeVoiceCatalogState: EdgeVoiceCatalogState,
     onDismiss: () -> Unit,
     onMethodChanged: (MobileTtsMethod) -> Unit,
     onSpeedPresetChanged: (MobileTtsSpeedPreset) -> Unit,
     onVoiceChanged: (String) -> Unit,
     onConditionsChanged: (List<MobileTtsLanguageCondition>) -> Unit,
     onEdgeSettingsChanged: (MobileEdgeTtsSettings) -> Unit,
+    onRetryEdgeVoiceCatalog: () -> Unit,
+    onPreviewGeminiVoice: (String) -> Unit,
+    onPreviewEdgeVoice: (String, String) -> Unit,
 ) {
     val selectMethod: (MobileTtsMethod) -> Unit = { method ->
         onMethodChanged(method)
@@ -104,6 +109,7 @@ internal fun RenderGlobalTtsSettingsDialog(
                             onSpeedPresetChanged = onSpeedPresetChanged,
                             onConditionsChanged = onConditionsChanged,
                             onVoiceChanged = onVoiceChanged,
+                            onPreviewVoice = onPreviewGeminiVoice,
                         )
 
                         MobileTtsMethod.GOOGLE_TRANSLATE -> GoogleTranslateSection(
@@ -113,15 +119,12 @@ internal fun RenderGlobalTtsSettingsDialog(
 
                         MobileTtsMethod.EDGE_TTS -> EdgeTtsSection(
                             settings = settings.edgeSettings,
+                            catalogState = edgeVoiceCatalogState,
                             onChanged = onEdgeSettingsChanged,
+                            onRetryCatalog = onRetryEdgeVoiceCatalog,
+                            onPreviewVoice = onPreviewEdgeVoice,
                         )
                     }
-
-                    Text(
-                        text = "Android now stores the full Windows-style TTS config here. Provider-specific preview and playback parity still land separately.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         }

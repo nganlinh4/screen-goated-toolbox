@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "realtime_skips_existing_history_on_first_enable",
+      "initial_committed_text": "Sentence one. Sentence two. Active sentence tail with more words",
+      "initial_state": {
+        "spoken_length": 0,
+        "queued_length": 0
+      },
+      "action": "enable_realtime",
+      "expected": {
+        "spoken_length": 27,
+        "queued_length": 62,
+        "queued_segments": [
+          " Active sentence tail with more words"
+        ]
+      }
+    },
+    {
+      "name": "preview_interrupt_replays_unsent_realtime_tail",
+      "initial_committed_text": "Sentence one. Sentence two. Active sentence tail with more words",
+      "initial_state": {
+        "spoken_length": 13,
+        "queued_length": 62
+      },
+      "pending_realtime_requests": [
+        {
+          "request_id": 41,
+          "end_offset": 62
+        }
+      ],
+      "action": "preview_interrupt",
+      "expected": {
+        "spoken_length": 13,
+        "queued_length": 13,
+        "queued_segments": []
+      }
+    },
+    {
+      "name": "google_translate_fast_is_coerced_to_normal",
+      "initial_settings": {
+        "method": "GEMINI_LIVE",
+        "speed_preset": "FAST"
+      },
+      "action": "switch_method_to_google_translate",
+      "expected": {
+        "method": "GOOGLE_TRANSLATE",
+        "speed_preset": "NORMAL"
+      }
+    }
+  ]
+}

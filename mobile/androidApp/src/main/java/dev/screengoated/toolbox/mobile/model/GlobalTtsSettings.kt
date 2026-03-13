@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.model
 
 import kotlinx.serialization.Serializable
 import java.util.Locale
+import kotlin.random.Random
 
 @Serializable
 enum class MobileTtsMethod {
@@ -48,6 +49,15 @@ data class MobileGlobalTtsSettings(
     val edgeSettings: MobileEdgeTtsSettings = MobileEdgeTtsSettings(),
 )
 
+fun MobileGlobalTtsSettings.withMethod(method: MobileTtsMethod): MobileGlobalTtsSettings {
+    val coercedSpeed = if (method == MobileTtsMethod.GOOGLE_TRANSLATE && speedPreset == MobileTtsSpeedPreset.FAST) {
+        MobileTtsSpeedPreset.NORMAL
+    } else {
+        speedPreset
+    }
+    return copy(method = method, speedPreset = coercedSpeed)
+}
+
 data class GeminiVoiceOption(
     val name: String,
     val gender: String,
@@ -79,6 +89,19 @@ fun defaultEdgeTtsVoiceConfigs(): List<MobileEdgeTtsVoiceConfig> {
 }
 
 object MobileTtsCatalog {
+    val previewTexts: List<String> = listOf(
+        "Hello, I am {}, ready to read this text for you.",
+        "The quick brown fox jumps over the lazy dog.",
+        "Today is a beautiful day, {} hopes you learn something new.",
+        "Technology is rapidly changing the world we live in.",
+        "I hope you are having a wonderful day, from {}.",
+        "This is a demonstration of the synthetic voice capabilities of {}.",
+        "Remember to take breaks and rest your eyes.",
+        "Success is the sum of small efforts repeated day in and day out.",
+        "Stay curious and never stop exploring with {}.",
+        "Thank you for using Screen Goated Toolbox.",
+    )
+
     val maleVoices: List<GeminiVoiceOption> = listOf(
         GeminiVoiceOption("Achird", "Male"),
         GeminiVoiceOption("Algenib", "Male"),
@@ -237,4 +260,8 @@ object MobileTtsCatalog {
             "es-ES-AlvaroNeural",
         ),
     )
+
+    fun randomPreviewText(voiceName: String): String {
+        return previewTexts.random(Random(System.currentTimeMillis())).replace("{}", voiceName)
+    }
 }

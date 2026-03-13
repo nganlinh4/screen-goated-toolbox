@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.SystemClock
 import dev.screengoated.toolbox.mobile.capture.AudioCaptureController
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
+import dev.screengoated.toolbox.mobile.service.tts.RealtimeTtsCoordinator
+import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
 import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
 import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
@@ -26,13 +28,14 @@ class LiveSessionRuntime(
     projectionConsentStore: ProjectionConsentStore,
     private val liveSocketClient: GeminiLiveSocketClient,
     private val translationClient: RealtimeTranslationClient,
+    ttsRuntimeService: TtsRuntimeService,
     overlaySupported: Boolean,
     stopRequested: () -> Unit,
     sourceModeChanged: (SourceMode) -> Unit,
 ) {
     private var lastTranslationAttemptAtMs: Long = 0L
     private val audioCaptureController = AudioCaptureController(context, projectionConsentStore)
-    private val textToSpeech = RealtimeTtsController(context)
+    private val realtimeTtsCoordinator = RealtimeTtsCoordinator(ttsRuntimeService)
     private val overlayController = OverlayController(
         context = context,
         repository = repository,
@@ -40,7 +43,7 @@ class LiveSessionRuntime(
         stopRequested = stopRequested,
         restartRequested = { requestRestart() },
         sourceModeChanged = sourceModeChanged,
-        stopTextToSpeech = { textToSpeech.stop() },
+        stopTextToSpeech = { realtimeTtsCoordinator.stop() },
     )
 
     private var sessionJob: Job? = null
@@ -58,7 +61,7 @@ class LiveSessionRuntime(
         sessionJob?.cancel()
         sessionJob = null
         lastTranslationAttemptAtMs = 0L
-        textToSpeech.stopAndReset()
+        realtimeTtsCoordinator.stopAndReset()
         overlayController.hide()
     }
 
@@ -83,7 +86,7 @@ class LiveSessionRuntime(
             overlayController.show(scope)
         }
 
-        textToSpeech.stopAndReset()
+        realtimeTtsCoordinator.stopAndReset()
         sessionJob = scope.launch {
             repository.markStarting()
             repository.setTranscriptionMethod(TranscriptionMethod.GEMINI_LIVE)
@@ -186,14 +189,16 @@ class LiveSessionRuntime(
 
     private fun maybeSpeakCommittedText() {
         if (!overlayController.isTranslationVisible()) {
-            textToSpeech.stop()
+            realtimeTtsCoordinator.stop()
             return
         }
         val state = repository.state.value
-        textToSpeech.speakCommittedText(
+        realtimeTtsCoordinator.update(
             committedText = state.liveText.committedTranslation,
             targetLanguage = state.config.targetLanguage,
-            settings = repository.currentRealtimeTtsSettings(),
+            globalSettings = repository.currentGlobalTtsSettings(),
+            realtimeSettings = repository.currentRealtimeTtsSettings(),
+            translationVisible = true,
         )
     }
 
@@ -201,7 +206,7 @@ class LiveSessionRuntime(
         sessionJob?.cancelAndJoin()
         sessionJob = null
         lastTranslationAttemptAtMs = 0L
-        textToSpeech.stopAndReset()
+        realtimeTtsCoordinator.stopAndReset()
         if (!keepOverlay) {
             overlayController.hide()
         }

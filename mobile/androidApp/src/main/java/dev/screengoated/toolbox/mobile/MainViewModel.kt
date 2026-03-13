@@ -7,11 +7,20 @@ import androidx.lifecycle.ViewModelProvider
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
+import dev.screengoated.toolbox.mobile.model.MobileTtsCatalog
 import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
+import dev.screengoated.toolbox.mobile.model.withMethod
 import dev.screengoated.toolbox.mobile.service.LiveTranslateService
+import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
+import dev.screengoated.toolbox.mobile.service.tts.TtsConsumer
+import dev.screengoated.toolbox.mobile.service.tts.TtsPriority
+import dev.screengoated.toolbox.mobile.service.tts.TtsRequest
+import dev.screengoated.toolbox.mobile.service.tts.TtsRequestMode
+import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
+import dev.screengoated.toolbox.mobile.service.tts.toRuntimeSnapshot
 import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionPatch
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
@@ -19,6 +28,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 class MainViewModel(
     private val repository: AndroidLiveSessionRepository,
+    private val ttsRuntimeService: TtsRuntimeService,
 ) : ViewModel() {
     val sessionState: StateFlow<dev.screengoated.toolbox.mobile.shared.live.LiveSessionState> =
         repository.state
@@ -26,6 +36,7 @@ class MainViewModel(
     val cerebrasApiKey: StateFlow<String> = repository.cerebrasApiKey
     val realtimeTtsSettings: StateFlow<RealtimeTtsSettings> = repository.realtimeTtsSettings
     val globalTtsSettings: StateFlow<MobileGlobalTtsSettings> = repository.globalTtsSettings
+    val edgeVoiceCatalogState: StateFlow<EdgeVoiceCatalogState> = ttsRuntimeService.edgeVoiceCatalogState
 
     init {
         repository.updateConfig(
@@ -94,7 +105,7 @@ class MainViewModel(
 
     fun onGlobalTtsMethodChanged(method: MobileTtsMethod) {
         repository.updateGlobalTtsSettings(
-            repository.currentGlobalTtsSettings().copy(method = method),
+            repository.currentGlobalTtsSettings().withMethod(method),
         )
     }
 
@@ -122,6 +133,53 @@ class MainViewModel(
         )
     }
 
+    fun onVoiceSettingsShown() {
+        ttsRuntimeService.ensureEdgeVoiceCatalog()
+    }
+
+    fun retryEdgeVoiceCatalog() {
+        ttsRuntimeService.ensureEdgeVoiceCatalog(force = true)
+    }
+
+    fun previewGeminiVoice(voiceName: String) {
+        val snapshot = repository.currentGlobalTtsSettings().copy(voice = voiceName)
+        ttsRuntimeService.interruptAndSpeak(
+            TtsRequest(
+                text = MobileTtsCatalog.randomPreviewText(voiceName),
+                consumer = TtsConsumer.SETTINGS_PREVIEW,
+                priority = TtsPriority.PREVIEW,
+                requestMode = TtsRequestMode.INTERRUPT,
+                settingsSnapshot = snapshot.toRuntimeSnapshot(),
+                ownerToken = "settings-preview",
+            ),
+        )
+    }
+
+    fun previewEdgeVoice(
+        languageCode: String,
+        voiceName: String,
+    ) {
+        val settings = repository.currentGlobalTtsSettings()
+        val nextConfigs = settings.edgeSettings.voiceConfigs.toMutableList()
+        val existingIndex = nextConfigs.indexOfFirst { it.languageCode.equals(languageCode, ignoreCase = true) }
+        if (existingIndex >= 0) {
+            nextConfigs[existingIndex] = nextConfigs[existingIndex].copy(voiceName = voiceName)
+        }
+        val snapshot = settings.copy(
+            edgeSettings = settings.edgeSettings.copy(voiceConfigs = nextConfigs),
+        )
+        ttsRuntimeService.interruptAndSpeak(
+            TtsRequest(
+                text = "Hello, this is an Edge voice preview for $voiceName.",
+                consumer = TtsConsumer.SETTINGS_PREVIEW,
+                priority = TtsPriority.PREVIEW,
+                requestMode = TtsRequestMode.INTERRUPT,
+                settingsSnapshot = snapshot.toRuntimeSnapshot(),
+                ownerToken = "settings-preview",
+            ),
+        )
+    }
+
     fun rememberProjectionConsent(resultCode: Int, data: Intent?) {
         repository.rememberProjectionConsent(resultCode, data)
     }
@@ -145,10 +203,11 @@ class MainViewModel(
     companion object {
         fun factory(application: SgtMobileApplication): ViewModelProvider.Factory {
             val repository = application.appContainer.repository
+            val ttsRuntimeService = application.appContainer.ttsRuntimeService
             return object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return MainViewModel(repository) as T
+                    return MainViewModel(repository, ttsRuntimeService) as T
                 }
             }
         }
