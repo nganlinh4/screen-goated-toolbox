@@ -37,10 +37,12 @@ import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsVoiceConfig
 import dev.screengoated.toolbox.mobile.model.MobileTtsCatalog
+import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 @Composable
 internal fun EdgeTtsSection(
     settings: MobileEdgeTtsSettings,
+    locale: MobileLocaleText,
     catalogState: EdgeVoiceCatalogState,
     onChanged: (MobileEdgeTtsSettings) -> Unit,
     onRetryCatalog: () -> Unit,
@@ -53,31 +55,31 @@ internal fun EdgeTtsSection(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    text = "Microsoft Edge TTS",
+                    text = locale.ttsEdgeTitle,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = "High-quality neural voices. Free, no API key required.",
+                    text = locale.ttsEdgeDesc,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 SliderField(
-                    label = "Pitch",
+                    label = locale.ttsPitchLabel,
                     value = settings.pitch.toFloat(),
                     valueRange = -50f..50f,
                     valueLabel = "${settings.pitch} Hz",
                     onValueChange = { onChanged(settings.copy(pitch = it.toInt())) },
                 )
                 SliderField(
-                    label = "Rate",
+                    label = locale.ttsRateLabel,
                     value = settings.rate.toFloat(),
                     valueRange = -50f..100f,
                     valueLabel = "${settings.rate}%",
                     onValueChange = { onChanged(settings.copy(rate = it.toInt())) },
                 )
                 SliderField(
-                    label = "Volume",
+                    label = locale.ttsVolumeLabel,
                     value = settings.volume.toFloat(),
                     valueRange = -50f..50f,
                     valueLabel = "${settings.volume}%",
@@ -88,6 +90,7 @@ internal fun EdgeTtsSection(
 
         EdgeVoiceRoutingCard(
             settings = settings,
+            locale = locale,
             catalogState = catalogState,
             onChanged = onChanged,
             onRetryCatalog = onRetryCatalog,
@@ -99,6 +102,7 @@ internal fun EdgeTtsSection(
 @Composable
 private fun EdgeVoiceRoutingCard(
     settings: MobileEdgeTtsSettings,
+    locale: MobileLocaleText,
     catalogState: EdgeVoiceCatalogState,
     onChanged: (MobileEdgeTtsSettings) -> Unit,
     onRetryCatalog: () -> Unit,
@@ -112,14 +116,14 @@ private fun EdgeVoiceRoutingCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "Voice per Language:",
+                text = locale.ttsVoicePerLanguageLabel,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
             )
 
             when {
                 catalogState.loading -> Text(
-                    text = "Loading voice list...",
+                    text = locale.ttsLoadingVoices,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -130,13 +134,13 @@ private fun EdgeVoiceRoutingCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
-                        text = "Failed to load voices: ${catalogState.errorMessage}",
+                        text = locale.ttsFailedLoadVoices(catalogState.errorMessage.orEmpty()),
                         modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
                     OutlinedButton(onClick = onRetryCatalog) {
-                        Text("Retry")
+                        Text(locale.ttsRetryLabel)
                     }
                 }
             }
@@ -157,6 +161,7 @@ private fun EdgeVoiceRoutingCard(
                     onRemove = {
                         onChanged(settings.copy(voiceConfigs = settings.voiceConfigs.filterIndexed { current, _ -> current != index }))
                     },
+                    locale = locale,
                     onPreview = { onPreviewVoice(config.languageCode, config.voiceName) },
                 )
             }
@@ -164,7 +169,7 @@ private fun EdgeVoiceRoutingCard(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box {
                     OutlinedButton(onClick = { addMenuExpanded = true }) {
-                        Text("+ Add Voice Config")
+                        Text(locale.ttsAddLanguageLabel)
                     }
                     DropdownMenu(
                         expanded = addMenuExpanded,
@@ -203,7 +208,7 @@ private fun EdgeVoiceRoutingCard(
                 ) {
                     Icon(Icons.Rounded.Refresh, contentDescription = null)
                     Text(
-                        text = "Reset to Defaults",
+                        text = locale.ttsResetToDefaultsLabel,
                         modifier = Modifier.padding(start = 6.dp),
                     )
                 }
@@ -217,6 +222,7 @@ private fun EdgeVoiceRoutingCard(
 private fun EdgeVoiceConfigRow(
     config: MobileEdgeTtsVoiceConfig,
     availableVoices: List<String>,
+    locale: MobileLocaleText,
     onConfigChanged: (MobileEdgeTtsVoiceConfig) -> Unit,
     onRemove: () -> Unit,
     onPreview: () -> Unit,
@@ -243,12 +249,12 @@ private fun EdgeVoiceConfigRow(
                         value = config.voiceName,
                         onValueChange = { onConfigChanged(config.copy(voiceName = it)) },
                         singleLine = true,
-                        label = { Text("Voice") },
+                        label = { Text(locale.ttsVoiceLabel) },
                     )
                     if (suggestions.isNotEmpty()) {
                         Box {
                             IconButton(onClick = { suggestionsExpanded = true }) {
-                                Icon(Icons.Rounded.ArrowDropDown, contentDescription = "Show suggested voices")
+                                Icon(Icons.Rounded.ArrowDropDown, contentDescription = locale.ttsVoiceLabel)
                             }
                             DropdownMenu(
                                 expanded = suggestionsExpanded,
@@ -267,10 +273,10 @@ private fun EdgeVoiceConfigRow(
                         }
                     }
                     IconButton(onClick = onPreview) {
-                        Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = "Preview Edge voice")
+                        Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = locale.ttsVoiceLabel)
                     }
                     IconButton(onClick = onRemove) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Remove voice config")
+                        Icon(Icons.Rounded.Close, contentDescription = locale.removeLabel)
                     }
                 }
             }
@@ -291,12 +297,12 @@ private fun EdgeVoiceConfigRow(
                     value = config.voiceName,
                     onValueChange = { onConfigChanged(config.copy(voiceName = it)) },
                     singleLine = true,
-                    label = { Text("Voice") },
+                    label = { Text(locale.ttsVoiceLabel) },
                 )
                 if (suggestions.isNotEmpty()) {
                     Box {
                         IconButton(onClick = { suggestionsExpanded = true }) {
-                            Icon(Icons.Rounded.ArrowDropDown, contentDescription = "Show suggested voices")
+                            Icon(Icons.Rounded.ArrowDropDown, contentDescription = locale.ttsVoiceLabel)
                         }
                         DropdownMenu(
                             expanded = suggestionsExpanded,
@@ -315,10 +321,10 @@ private fun EdgeVoiceConfigRow(
                     }
                 }
                 IconButton(onClick = onPreview) {
-                    Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = "Preview Edge voice")
+                    Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = locale.ttsVoiceLabel)
                 }
                 IconButton(onClick = onRemove) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Remove voice config")
+                    Icon(Icons.Rounded.Close, contentDescription = locale.removeLabel)
                 }
             }
         }

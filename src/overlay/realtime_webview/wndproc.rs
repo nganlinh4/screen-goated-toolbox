@@ -12,6 +12,24 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::Rect;
+
+fn sync_tts_ui_state(hwnd: HWND) {
+    let enabled = REALTIME_TTS_ENABLED.load(Ordering::SeqCst);
+    let speed = CURRENT_TTS_SPEED.load(Ordering::Relaxed);
+    let hwnd_key = hwnd.0 as isize;
+    let script = format!(
+        "if(window.setTtsEnabled) window.setTtsEnabled({}); if(window.updateTtsSpeed) window.updateTtsSpeed({});",
+        if enabled { "true" } else { "false" },
+        speed
+    );
+
+    REALTIME_WEBVIEWS.with(|wvs| {
+        if let Some(webview) = wvs.borrow().get(&hwnd_key) {
+            let _ = webview.evaluate_script(&script);
+        }
+    });
+}
+
 pub unsafe extern "system" fn realtime_wnd_proc(
     hwnd: HWND,
     msg: u32,
@@ -97,6 +115,7 @@ pub unsafe extern "system" fn realtime_wnd_proc(
                         (String::new(), String::new())
                     }
                 };
+                sync_tts_ui_state(hwnd);
                 update_webview_text(hwnd, &old_text, &new_text);
                 LRESULT(0)
             }
@@ -344,6 +363,7 @@ pub unsafe extern "system" fn translation_wnd_proc(
                     }
                 }
 
+                sync_tts_ui_state(hwnd);
                 update_webview_text(hwnd, &old_text, &new_text);
                 LRESULT(0)
             }

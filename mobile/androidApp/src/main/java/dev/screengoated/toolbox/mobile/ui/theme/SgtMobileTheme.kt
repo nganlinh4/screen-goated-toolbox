@@ -16,6 +16,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 
 private val DarkColors = darkColorScheme()
 private val LightColors = lightColorScheme()
@@ -33,10 +34,15 @@ private val SgtShapes = Shapes(
 
 @Composable
 fun SgtMobileTheme(
+    themeMode: MobileThemeMode,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    val isDark = isSystemInDarkTheme()
+    val isDark = when (themeMode) {
+        MobileThemeMode.SYSTEM -> isSystemInDarkTheme()
+        MobileThemeMode.DARK -> true
+        MobileThemeMode.LIGHT -> false
+    }
     val colors = when {
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && isDark -> dynamicDarkColorScheme(context)
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> dynamicLightColorScheme(context)

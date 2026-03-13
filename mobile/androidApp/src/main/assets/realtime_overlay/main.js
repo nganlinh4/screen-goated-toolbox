@@ -8,11 +8,96 @@
         const fontDecrease = document.getElementById('font-decrease');
         const fontIncrease = document.getElementById('font-increase');
         const copyBtn = document.getElementById('copy-btn');
+        const controls = document.getElementById('controls');
 
         let currentFontSize = {{FONT_SIZE}};
         let micVisible = true;
         let transVisible = true;
         let headerCollapsed = false;
+        let controlsScrollLeft = 0;
+
+        function restoreControlsScroll(pinnedScrollLeft) {
+            if (!controls) return;
+            controls.scrollLeft = pinnedScrollLeft;
+            controlsScrollLeft = pinnedScrollLeft;
+            requestAnimationFrame(() => {
+                controls.scrollLeft = pinnedScrollLeft;
+                requestAnimationFrame(() => {
+                    controls.scrollLeft = pinnedScrollLeft;
+                    controlsScrollLeft = pinnedScrollLeft;
+                });
+            });
+        }
+
+        function preserveControlsScroll(callback) {
+            const pinnedScrollLeft = controls ? controls.scrollLeft : 0;
+            const activeElement = document.activeElement;
+            if (activeElement && activeElement !== document.body && typeof activeElement.blur === 'function') {
+                activeElement.blur();
+            }
+            callback();
+            restoreControlsScroll(pinnedScrollLeft);
+        }
+
+        if (controls) {
+            controls.addEventListener('scroll', function() {
+                controlsScrollLeft = controls.scrollLeft;
+            }, { passive: true });
+            controls.addEventListener('focusin', function() {
+                restoreControlsScroll(controlsScrollLeft);
+            });
+        }
+
+        function installControlTapGuard(element) {
+            if (!element) return;
+            if (element.tagName === 'INPUT' && element.type === 'range') return;
+            const guard = function(e) {
+                if (e.cancelable) {
+                    e.preventDefault();
+                }
+                restoreControlsScroll(controls ? controls.scrollLeft : controlsScrollLeft);
+            };
+            element.addEventListener('pointerdown', guard, { passive: false });
+            element.addEventListener('mousedown', guard);
+        }
+
+        function setSelectedByDataValue(nodes, value) {
+            nodes.forEach(node => {
+                node.classList.toggle('active', node.getAttribute('data-value') === value);
+            });
+        }
+
+        function setAudioSource(source) {
+            if (!micBtn || !deviceBtn) return;
+            micBtn.classList.toggle('active', source === 'mic');
+            deviceBtn.classList.toggle('active', source === 'device');
+        }
+
+        function setTranslationModel(modelName) {
+            if (!modelIcons.length) return;
+            setSelectedByDataValue(modelIcons, modelName);
+        }
+
+        function setTranscriptionModel(modelName) {
+            if (!transModelIcons.length) return;
+            setSelectedByDataValue(transModelIcons, modelName);
+        }
+
+        function setFontSize(fontSize) {
+            if (!fontSize || fontSize === currentFontSize) return;
+            currentFontSize = fontSize;
+            content.style.fontSize = currentFontSize + 'px';
+            minContentHeight = 0;
+            content.style.minHeight = '';
+        }
+
+        window.setAudioSource = setAudioSource;
+        window.setTranslationModel = setTranslationModel;
+        window.setTranscriptionModel = setTranscriptionModel;
+        window.setFontSize = setFontSize;
+        window.setTheme = function(isDark) {
+            document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+        };
 
         // TTS Modal elements
         const speakBtn = document.getElementById('speak-btn');
@@ -38,8 +123,10 @@
         if (speakBtn && ttsModal && ttsModalOverlay) {
             speakBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
-                ttsModal.classList.toggle('show');
-                ttsModalOverlay.classList.toggle('show');
+                preserveControlsScroll(() => {
+                    ttsModal.classList.toggle('show');
+                    ttsModalOverlay.classList.toggle('show');
+                });
             });
 
             ttsModalOverlay.addEventListener('click', function() {
@@ -51,10 +138,12 @@
         if (ttsToggle) {
             ttsToggle.addEventListener('click', function(e) {
                 e.stopPropagation();
-                ttsEnabled = !ttsEnabled;
-                this.classList.toggle('on', ttsEnabled);
-                if (speakBtn) speakBtn.classList.toggle('active', ttsEnabled);
-                window.ipc.postMessage('ttsEnabled:' + (ttsEnabled ? '1' : '0'));
+                preserveControlsScroll(() => {
+                    ttsEnabled = !ttsEnabled;
+                    this.classList.toggle('on', ttsEnabled);
+                    if (speakBtn) speakBtn.classList.toggle('active', ttsEnabled);
+                    window.ipc.postMessage('ttsEnabled:' + (ttsEnabled ? '1' : '0'));
+                });
             });
         }
 
@@ -86,6 +175,16 @@
 
         const volumeSlider = document.getElementById('volume-slider');
         const volumeValue = document.getElementById('volume-value');
+        [
+            copyBtn,
+            fontDecrease,
+            fontIncrease,
+            toggleMic,
+            toggleTrans,
+            headerToggle,
+            speakBtn,
+            ttsToggle,
+        ].forEach(installControlTapGuard);
         if (volumeSlider && volumeValue) {
             volumeSlider.addEventListener('input', function(e) {
                 e.stopPropagation();
@@ -109,20 +208,22 @@
         if (copyBtn) {
             copyBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
-                // Get all text content (excluding placeholder)
-                const textContent = content.textContent.trim();
-                if (textContent && !content.querySelector('.placeholder')) {
-                    // Send to Rust via IPC for clipboard (navigator.clipboard not available in WebView2)
-                    window.ipc.postMessage('copyText:' + textContent);
-                    // Show success feedback
-                    copyBtn.classList.add('copied');
-                    const icon = copyBtn.querySelector('.material-symbols-rounded');
-                    if (icon) icon.innerHTML = '{{CHECK_SVG}}';
-                    setTimeout(() => {
-                        copyBtn.classList.remove('copied');
-                        if (icon) icon.innerHTML = '{{COPY_SVG}}';
-                    }, 1500);
-                }
+                preserveControlsScroll(() => {
+                    // Get all text content (excluding placeholder)
+                    const textContent = content.textContent.trim();
+                    if (textContent && !content.querySelector('.placeholder')) {
+                        // Send to Rust via IPC for clipboard (navigator.clipboard not available in WebView2)
+                        window.ipc.postMessage('copyText:' + textContent);
+                        // Show success feedback
+                        copyBtn.classList.add('copied');
+                        const icon = copyBtn.querySelector('.material-symbols-rounded');
+                        if (icon) icon.innerHTML = '{{CHECK_SVG}}';
+                        setTimeout(() => {
+                            copyBtn.classList.remove('copied');
+                            if (icon) icon.innerHTML = '{{COPY_SVG}}';
+                        }, 1500);
+                    }
+                });
             });
         }
 
@@ -169,18 +270,22 @@
         // Visibility toggle buttons
         toggleMic.addEventListener('click', function(e) {
             e.stopPropagation();
-            micVisible = !micVisible;
-            this.classList.toggle('active', micVisible);
-            this.classList.toggle('inactive', !micVisible);
-            window.ipc.postMessage('toggleMic:' + (micVisible ? '1' : '0'));
+            preserveControlsScroll(() => {
+                micVisible = !micVisible;
+                this.classList.toggle('active', micVisible);
+                this.classList.toggle('inactive', !micVisible);
+                window.ipc.postMessage('toggleMic:' + (micVisible ? '1' : '0'));
+            });
         });
 
         toggleTrans.addEventListener('click', function(e) {
             e.stopPropagation();
-            transVisible = !transVisible;
-            this.classList.toggle('active', transVisible);
-            this.classList.toggle('inactive', !transVisible);
-            window.ipc.postMessage('toggleTrans:' + (transVisible ? '1' : '0'));
+            preserveControlsScroll(() => {
+                transVisible = !transVisible;
+                this.classList.toggle('active', transVisible);
+                this.classList.toggle('inactive', !transVisible);
+                window.ipc.postMessage('toggleTrans:' + (transVisible ? '1' : '0'));
+            });
         });
 
         // Function to update visibility state from native side
@@ -203,26 +308,30 @@
         // Font size controls
         fontDecrease.addEventListener('click', function(e) {
             e.stopPropagation();
-            if (currentFontSize > 10) {
-                currentFontSize -= 2;
-                content.style.fontSize = currentFontSize + 'px';
-                // Reset min height so text can shrink properly
-                minContentHeight = 0;
-                content.style.minHeight = '';
-                window.ipc.postMessage('fontSize:' + currentFontSize);
-            }
+            preserveControlsScroll(() => {
+                if (currentFontSize > 10) {
+                    currentFontSize -= 2;
+                    content.style.fontSize = currentFontSize + 'px';
+                    // Reset min height so text can shrink properly
+                    minContentHeight = 0;
+                    content.style.minHeight = '';
+                    window.ipc.postMessage('fontSize:' + currentFontSize);
+                }
+            });
         });
 
         fontIncrease.addEventListener('click', function(e) {
             e.stopPropagation();
-            if (currentFontSize < 32) {
-                currentFontSize += 2;
-                content.style.fontSize = currentFontSize + 'px';
-                // Reset min height for fresh calculation
-                minContentHeight = 0;
-                content.style.minHeight = '';
-                window.ipc.postMessage('fontSize:' + currentFontSize);
-            }
+            preserveControlsScroll(() => {
+                if (currentFontSize < 32) {
+                    currentFontSize += 2;
+                    content.style.fontSize = currentFontSize + 'px';
+                    // Reset min height for fresh calculation
+                    minContentHeight = 0;
+                    content.style.minHeight = '';
+                    window.ipc.postMessage('fontSize:' + currentFontSize);
+                }
+            });
         });
 
         // Audio source toggle buttons
@@ -230,28 +339,26 @@
         const deviceBtn = document.getElementById('device-btn');
 
         if (micBtn) {
+            installControlTapGuard(micBtn);
             micBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 e.preventDefault();
-
-                // Switch to mic mode
-                micBtn.classList.add('active');
-                if (deviceBtn) deviceBtn.classList.remove('active');
-
-                window.ipc.postMessage('audioSource:mic');
+                preserveControlsScroll(() => {
+                    setAudioSource('mic');
+                    window.ipc.postMessage('audioSource:mic');
+                });
             });
         }
 
         if (deviceBtn) {
+            installControlTapGuard(deviceBtn);
             deviceBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 e.preventDefault();
-
-                // Switch to device mode
-                if (micBtn) micBtn.classList.remove('active');
-                deviceBtn.classList.add('active');
-
-                window.ipc.postMessage('audioSource:device');
+                preserveControlsScroll(() => {
+                    setAudioSource('device');
+                    window.ipc.postMessage('audioSource:device');
+                });
             });
         }
 
@@ -261,21 +368,25 @@
         const langSelect = document.getElementById('language-select');
         const langSelectCode = document.getElementById('language-select-code');
         if (langSelect) {
+            installControlTapGuard(langSelect);
             window.setTargetLanguage = function(language, code) {
                 const shortCode = code || (language || '').substring(0, 2).toUpperCase();
+                const baseTitle = langSelect.dataset.baseTitle || langSelect.title || '';
                 if (langSelectCode) {
                     langSelectCode.textContent = shortCode;
                 }
                 langSelect.dataset.language = language || '';
                 langSelect.dataset.code = shortCode;
-                langSelect.title = language ? ('Target Language: ' + language) : 'Target Language';
+                langSelect.title = language ? (baseTitle + ': ' + language) : baseTitle;
             };
 
             if (langSelect.tagName === 'BUTTON') {
                 langSelect.addEventListener('click', function(e) {
                     e.stopPropagation();
                     e.preventDefault();
-                    window.ipc.postMessage('showLanguagePicker');
+                    preserveControlsScroll(() => {
+                        window.ipc.postMessage('showLanguagePicker');
+                    });
                 });
                 window.setTargetLanguage(langSelect.dataset.language || '', langSelect.dataset.code || '');
             } else {
@@ -305,8 +416,10 @@
                 langSelect.addEventListener('blur', showCodes);
                 langSelect.addEventListener('change', function(e) {
                     e.stopPropagation();
-                    window.ipc.postMessage('language:' + this.value);
-                    setTimeout(showCodes, 100);
+                    preserveControlsScroll(() => {
+                        window.ipc.postMessage('language:' + this.value);
+                        setTimeout(showCodes, 100);
+                    });
                 });
             }
         }
@@ -315,17 +428,15 @@
         const modelIcons = document.querySelectorAll('.model-icon');
         if (modelIcons.length) {
             modelIcons.forEach(icon => {
+                installControlTapGuard(icon);
                 icon.addEventListener('click', (e) => {
                     e.stopPropagation();
                     e.preventDefault();
-
-                    // Update UI - toggle active class
-                    modelIcons.forEach(i => i.classList.remove('active'));
-                    icon.classList.add('active');
-
-                    // Send IPC
-                    const val = icon.getAttribute('data-value');
-                    window.ipc.postMessage('translationModel:' + val);
+                    preserveControlsScroll(() => {
+                        setTranslationModel(icon.getAttribute('data-value'));
+                        const val = icon.getAttribute('data-value');
+                        window.ipc.postMessage('translationModel:' + val);
+                    });
                 });
             });
         }
@@ -334,15 +445,15 @@
         const transModelIcons = document.querySelectorAll('.trans-model-icon');
         if (transModelIcons.length) {
             transModelIcons.forEach(icon => {
+                installControlTapGuard(icon);
                 icon.addEventListener('click', (e) => {
                     e.stopPropagation();
                     e.preventDefault();
-
-                    transModelIcons.forEach(i => i.classList.remove('active'));
-                    icon.classList.add('active');
-
-                    const val = icon.getAttribute('data-value');
-                    window.ipc.postMessage('transcriptionModel:' + val);
+                    preserveControlsScroll(() => {
+                        setTranscriptionModel(icon.getAttribute('data-value'));
+                        const val = icon.getAttribute('data-value');
+                        window.ipc.postMessage('transcriptionModel:' + val);
+                    });
                 });
             });
         }
@@ -385,18 +496,9 @@
 
         // Update settings from native side (used when overlay is shown with saved config)
         window.updateSettings = function(settings) {
-            // Update audio source toggle
-            if (settings.audioSource && micBtn && deviceBtn) {
-                if (settings.audioSource === 'device') {
-                    micBtn.classList.remove('active');
-                    deviceBtn.classList.add('active');
-                } else {
-                    micBtn.classList.add('active');
-                    deviceBtn.classList.remove('active');
-                }
-            }
+            const pinnedControlsScroll = controls ? controls.scrollLeft : controlsScrollLeft;
+            if (settings.audioSource) setAudioSource(settings.audioSource);
 
-            // Update language select
             if (settings.targetLanguage && langSelect) {
                 if (window.setTargetLanguage) {
                     window.setTargetLanguage(settings.targetLanguage, settings.targetLanguageCode);
@@ -405,29 +507,12 @@
                 }
             }
 
-            // Update translation model
-            if (settings.translationModel && modelIcons.length) {
-                modelIcons.forEach(icon => {
-                    const val = icon.getAttribute('data-value');
-                    icon.classList.toggle('active', val === settings.translationModel);
-                });
-            }
+            if (settings.translationModel) setTranslationModel(settings.translationModel);
 
-            // Update transcription model
-            if (settings.transcriptionModel && transModelIcons && transModelIcons.length) {
-                transModelIcons.forEach(icon => {
-                    const val = icon.getAttribute('data-value');
-                    icon.classList.toggle('active', val === settings.transcriptionModel);
-                });
-            }
+            if (settings.transcriptionModel) setTranscriptionModel(settings.transcriptionModel);
 
-            // Update font size
-            if (settings.fontSize && settings.fontSize !== currentFontSize) {
-                currentFontSize = settings.fontSize;
-                content.style.fontSize = currentFontSize + 'px';
-                minContentHeight = 0;
-                content.style.minHeight = '';
-            }
+            if (settings.fontSize) setFontSize(settings.fontSize);
+            restoreControlsScroll(pinnedControlsScroll);
         };
 
         // Handle resize to keep text at bottom

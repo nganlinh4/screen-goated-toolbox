@@ -32,6 +32,7 @@ class AndroidLiveSessionRepository(
     private val mutablePaneFontSizes = MutableStateFlow(settingsStore.loadPaneFontSizes())
     private val mutableRealtimeTtsSettings = MutableStateFlow(settingsStore.loadRealtimeTtsSettings())
     private val mutableGlobalTtsSettings = MutableStateFlow(settingsStore.loadGlobalTtsSettings())
+    private val mutableUiPreferences = MutableStateFlow(settingsStore.loadUiPreferences())
 
     val apiKey: StateFlow<String> = mutableApiKey.asStateFlow()
     val cerebrasApiKey: StateFlow<String> = mutableCerebrasApiKey.asStateFlow()
@@ -40,6 +41,7 @@ class AndroidLiveSessionRepository(
     val paneFontSizes: StateFlow<RealtimePaneFontSizes> = mutablePaneFontSizes.asStateFlow()
     val realtimeTtsSettings: StateFlow<RealtimeTtsSettings> = mutableRealtimeTtsSettings.asStateFlow()
     val globalTtsSettings: StateFlow<MobileGlobalTtsSettings> = mutableGlobalTtsSettings.asStateFlow()
+    val uiPreferences: StateFlow<MobileUiPreferences> = mutableUiPreferences.asStateFlow()
 
     val supportedLanguages: List<String> = LanguageCatalog.names
 
@@ -89,6 +91,15 @@ class AndroidLiveSessionRepository(
     fun updateGlobalTtsSettings(settings: MobileGlobalTtsSettings) {
         mutableGlobalTtsSettings.value = settings
         settingsStore.saveGlobalTtsSettings(settings)
+    }
+
+    fun updateUiPreferences(preferences: MobileUiPreferences) {
+        val normalizedLanguage = when (preferences.uiLanguage) {
+            "vi", "ko" -> preferences.uiLanguage
+            else -> "en"
+        }
+        mutableUiPreferences.value = preferences.copy(uiLanguage = normalizedLanguage)
+        settingsStore.saveUiPreferences(mutableUiPreferences.value)
     }
 
     fun runtimePermissions(): Array<String> = permissionEvaluator.runtimePermissions()
@@ -176,6 +187,8 @@ class AndroidLiveSessionRepository(
     fun currentRealtimeTtsSettings(): RealtimeTtsSettings = realtimeTtsSettings.value
 
     fun currentGlobalTtsSettings(): MobileGlobalTtsSettings = globalTtsSettings.value
+
+    fun currentUiPreferences(): MobileUiPreferences = uiPreferences.value
 
     fun translationModelId(): String = state.value.config.translationProvider.id
 

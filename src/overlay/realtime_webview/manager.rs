@@ -5,6 +5,7 @@ use super::webview::*;
 use super::wndproc::*;
 use crate::APP;
 use crate::api::realtime_audio::{RealtimeState, start_realtime_transcription};
+use crate::overlay::window_selector::{self, SelectorOwner};
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
@@ -30,13 +31,7 @@ pub fn stop_realtime_overlay() {
     REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
 
     unsafe {
-        // Close app selection popup if open
-        let popup_val = APP_SELECTION_HWND.load(std::sync::atomic::Ordering::SeqCst);
-        if popup_val != 0 {
-            let popup_hwnd = HWND(popup_val as *mut std::ffi::c_void);
-            let _ = PostMessageW(Some(popup_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            APP_SELECTION_HWND.store(0, std::sync::atomic::Ordering::SeqCst);
-        }
+        window_selector::close_selector_for_owner(SelectorOwner::RealtimeAppSelection);
 
         if !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {
             let _ = PostMessageW(

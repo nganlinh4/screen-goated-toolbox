@@ -39,10 +39,12 @@ import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsCatalog
 import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
+import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 @Composable
 internal fun GeminiLiveSection(
     settings: MobileGlobalTtsSettings,
+    locale: MobileLocaleText,
     onSpeedPresetChanged: (MobileTtsSpeedPreset) -> Unit,
     onConditionsChanged: (List<MobileTtsLanguageCondition>) -> Unit,
     onVoiceChanged: (String) -> Unit,
@@ -53,18 +55,20 @@ internal fun GeminiLiveSection(
             val stacked = maxWidth < 720.dp
             if (stacked) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    GeminiSpeedCard(settings.speedPreset, onSpeedPresetChanged)
-                    GeminiConditionsCard(settings.languageConditions, onConditionsChanged)
+                    GeminiSpeedCard(settings.speedPreset, locale, onSpeedPresetChanged)
+                    GeminiConditionsCard(settings.languageConditions, locale, onConditionsChanged)
                 }
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     GeminiSpeedCard(
                         selected = settings.speedPreset,
+                        locale = locale,
                         onChanged = onSpeedPresetChanged,
                         modifier = Modifier.weight(0.38f),
                     )
                     GeminiConditionsCard(
                         conditions = settings.languageConditions,
+                        locale = locale,
                         onChanged = onConditionsChanged,
                         modifier = Modifier.weight(0.62f),
                     )
@@ -75,6 +79,7 @@ internal fun GeminiLiveSection(
         HorizontalDivider()
         GeminiVoiceGrid(
             selectedVoice = settings.voice,
+            locale = locale,
             onVoiceChanged = onVoiceChanged,
             onPreviewVoice = onPreviewVoice,
         )
@@ -84,6 +89,7 @@ internal fun GeminiLiveSection(
 @Composable
 private fun GeminiSpeedCard(
     selected: MobileTtsSpeedPreset,
+    locale: MobileLocaleText,
     onChanged: (MobileTtsSpeedPreset) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -93,7 +99,7 @@ private fun GeminiSpeedCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = "Reading Speed:",
+                text = locale.ttsSpeedLabel,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -101,13 +107,13 @@ private fun GeminiSpeedCard(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TtsRadioRow("Slow", selected == MobileTtsSpeedPreset.SLOW) {
+                TtsRadioRow(locale.ttsSpeedSlow, selected == MobileTtsSpeedPreset.SLOW) {
                     onChanged(MobileTtsSpeedPreset.SLOW)
                 }
-                TtsRadioRow("Normal", selected == MobileTtsSpeedPreset.NORMAL) {
+                TtsRadioRow(locale.ttsSpeedNormal, selected == MobileTtsSpeedPreset.NORMAL) {
                     onChanged(MobileTtsSpeedPreset.NORMAL)
                 }
-                TtsRadioRow("Fast", selected == MobileTtsSpeedPreset.FAST) {
+                TtsRadioRow(locale.ttsSpeedFast, selected == MobileTtsSpeedPreset.FAST) {
                     onChanged(MobileTtsSpeedPreset.FAST)
                 }
             }
@@ -118,6 +124,7 @@ private fun GeminiSpeedCard(
 @Composable
 private fun GeminiConditionsCard(
     conditions: List<MobileTtsLanguageCondition>,
+    locale: MobileLocaleText,
     onChanged: (List<MobileTtsLanguageCondition>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -129,14 +136,14 @@ private fun GeminiConditionsCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = "Per-language Accent:",
+                text = locale.ttsInstructionsLabel,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
             )
 
             if (conditions.isEmpty()) {
                 Text(
-                    text = "No language conditions yet.",
+                    text = locale.noLanguageConditionsYet,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -159,7 +166,7 @@ private fun GeminiConditionsCard(
                                     )
                                 },
                                 singleLine = true,
-                                label = { Text("Instruction") },
+                                label = { Text(locale.instructionLabel) },
                             )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -170,7 +177,7 @@ private fun GeminiConditionsCard(
                                         onChanged(conditions.filterIndexed { current, _ -> current != index })
                                     },
                                 ) {
-                                    Icon(Icons.Rounded.Close, contentDescription = "Remove condition")
+                                    Icon(Icons.Rounded.Close, contentDescription = locale.removeLabel)
                                 }
                             }
                         }
@@ -197,14 +204,14 @@ private fun GeminiConditionsCard(
                                     )
                                 },
                                 singleLine = true,
-                                label = { Text("Instruction") },
+                                label = { Text(locale.instructionLabel) },
                             )
                             IconButton(
                                 onClick = {
                                     onChanged(conditions.filterIndexed { current, _ -> current != index })
                                 },
                             ) {
-                                Icon(Icons.Rounded.Close, contentDescription = "Remove condition")
+                                Icon(Icons.Rounded.Close, contentDescription = locale.removeLabel)
                             }
                         }
                     }
@@ -213,7 +220,7 @@ private fun GeminiConditionsCard(
 
             Box {
                 OutlinedButton(onClick = { addMenuExpanded = true }) {
-                    Text("+ Add condition...")
+                    Text(locale.ttsAddCondition)
                 }
                 DropdownMenu(
                     expanded = addMenuExpanded,
@@ -260,21 +267,22 @@ internal fun ConditionLanguageLabel(
 @Composable
 private fun GeminiVoiceGrid(
     selectedVoice: String,
+    locale: MobileLocaleText,
     onVoiceChanged: (String) -> Unit,
     onPreviewVoice: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            text = "Voice:",
+            text = locale.ttsVoiceLabel,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
         )
 
         BoxWithConstraints {
             when {
-                maxWidth >= 900.dp -> FourColumnVoiceGrid(selectedVoice, onVoiceChanged, onPreviewVoice)
-                maxWidth >= 600.dp -> TwoColumnVoiceGrid(selectedVoice, onVoiceChanged, onPreviewVoice)
-                else -> SingleColumnVoiceGrid(selectedVoice, onVoiceChanged, onPreviewVoice)
+                maxWidth >= 900.dp -> FourColumnVoiceGrid(selectedVoice, locale, onVoiceChanged, onPreviewVoice)
+                maxWidth >= 600.dp -> TwoColumnVoiceGrid(selectedVoice, locale, onVoiceChanged, onPreviewVoice)
+                else -> SingleColumnVoiceGrid(selectedVoice, locale, onVoiceChanged, onPreviewVoice)
             }
         }
     }
@@ -283,6 +291,7 @@ private fun GeminiVoiceGrid(
 @Composable
 private fun FourColumnVoiceGrid(
     selectedVoice: String,
+    locale: MobileLocaleText,
     onVoiceChanged: (String) -> Unit,
     onPreviewVoice: (String) -> Unit,
 ) {
@@ -293,9 +302,10 @@ private fun FourColumnVoiceGrid(
 
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         VoiceColumnCard(
-            title = "Male",
+            title = locale.ttsMale,
             voices = maleVoices.take(maleMid),
             selectedVoice = selectedVoice,
+            locale = locale,
             onVoiceChanged = onVoiceChanged,
             onPreviewVoice = onPreviewVoice,
             modifier = Modifier.weight(1f),
@@ -304,14 +314,16 @@ private fun FourColumnVoiceGrid(
             title = null,
             voices = maleVoices.drop(maleMid),
             selectedVoice = selectedVoice,
+            locale = locale,
             onVoiceChanged = onVoiceChanged,
             onPreviewVoice = onPreviewVoice,
             modifier = Modifier.weight(1f),
         )
         VoiceColumnCard(
-            title = "Female",
+            title = locale.ttsFemale,
             voices = femaleVoices.take(femaleMid),
             selectedVoice = selectedVoice,
+            locale = locale,
             onVoiceChanged = onVoiceChanged,
             onPreviewVoice = onPreviewVoice,
             modifier = Modifier.weight(1f),
@@ -320,6 +332,7 @@ private fun FourColumnVoiceGrid(
             title = null,
             voices = femaleVoices.drop(femaleMid),
             selectedVoice = selectedVoice,
+            locale = locale,
             onVoiceChanged = onVoiceChanged,
             onPreviewVoice = onPreviewVoice,
             modifier = Modifier.weight(1f),
@@ -330,22 +343,25 @@ private fun FourColumnVoiceGrid(
 @Composable
 private fun TwoColumnVoiceGrid(
     selectedVoice: String,
+    locale: MobileLocaleText,
     onVoiceChanged: (String) -> Unit,
     onPreviewVoice: (String) -> Unit,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         VoiceColumnCard(
-            title = "Male",
+            title = locale.ttsMale,
             voices = MobileTtsCatalog.maleVoices,
             selectedVoice = selectedVoice,
+            locale = locale,
             onVoiceChanged = onVoiceChanged,
             onPreviewVoice = onPreviewVoice,
             modifier = Modifier.weight(1f),
         )
         VoiceColumnCard(
-            title = "Female",
+            title = locale.ttsFemale,
             voices = MobileTtsCatalog.femaleVoices,
             selectedVoice = selectedVoice,
+            locale = locale,
             onVoiceChanged = onVoiceChanged,
             onPreviewVoice = onPreviewVoice,
             modifier = Modifier.weight(1f),
@@ -356,21 +372,24 @@ private fun TwoColumnVoiceGrid(
 @Composable
 private fun SingleColumnVoiceGrid(
     selectedVoice: String,
+    locale: MobileLocaleText,
     onVoiceChanged: (String) -> Unit,
     onPreviewVoice: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         VoiceColumnCard(
-            title = "Male",
+            title = locale.ttsMale,
             voices = MobileTtsCatalog.maleVoices,
             selectedVoice = selectedVoice,
+            locale = locale,
             onVoiceChanged = onVoiceChanged,
             onPreviewVoice = onPreviewVoice,
         )
         VoiceColumnCard(
-            title = "Female",
+            title = locale.ttsFemale,
             voices = MobileTtsCatalog.femaleVoices,
             selectedVoice = selectedVoice,
+            locale = locale,
             onVoiceChanged = onVoiceChanged,
             onPreviewVoice = onPreviewVoice,
         )
@@ -382,6 +401,7 @@ private fun VoiceColumnCard(
     title: String?,
     voices: List<GeminiVoiceOption>,
     selectedVoice: String,
+    locale: MobileLocaleText,
     onVoiceChanged: (String) -> Unit,
     onPreviewVoice: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -416,7 +436,7 @@ private fun VoiceColumnCard(
                     ) {
                         Icon(
                             Icons.AutoMirrored.Rounded.VolumeUp,
-                            contentDescription = "Preview voice",
+                            contentDescription = locale.ttsVoiceLabel,
                         )
                     }
                     Text(

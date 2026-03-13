@@ -44,6 +44,7 @@ class LiveSessionRuntime(
         restartRequested = { requestRestart() },
         sourceModeChanged = sourceModeChanged,
         stopTextToSpeech = { realtimeTtsCoordinator.stop() },
+        ttsRuntimeService = ttsRuntimeService,
     )
 
     private var sessionJob: Job? = null

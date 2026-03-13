@@ -19,6 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.ui.SgtMobileApp
+import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.theme.SgtMobileTheme
 
 class MainActivity : ComponentActivity() {
@@ -84,8 +85,10 @@ class MainActivity : ComponentActivity() {
             val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
             val cerebrasApiKey by viewModel.cerebrasApiKey.collectAsStateWithLifecycle()
             val globalTtsSettings by viewModel.globalTtsSettings.collectAsStateWithLifecycle()
+            val uiPreferences by viewModel.uiPreferences.collectAsStateWithLifecycle()
             val edgeVoiceCatalogState by viewModel.edgeVoiceCatalogState.collectAsStateWithLifecycle()
             val context = LocalContext.current
+            val locale = MobileLocaleText.forLanguage(uiPreferences.uiLanguage)
             val onSessionToggle by rememberUpdatedState {
                 if (state.phase == dev.screengoated.toolbox.mobile.shared.live.SessionPhase.LISTENING ||
                     state.phase == dev.screengoated.toolbox.mobile.shared.live.SessionPhase.TRANSLATING ||
@@ -105,14 +108,18 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            SgtMobileTheme {
+            SgtMobileTheme(themeMode = uiPreferences.themeMode) {
                 SgtMobileApp(
                     state = state,
                     apiKey = apiKey,
                     cerebrasApiKey = cerebrasApiKey,
                     globalTtsSettings = globalTtsSettings,
+                    uiPreferences = uiPreferences,
+                    locale = locale,
                     onApiKeyChanged = viewModel::onApiKeyChanged,
                     onCerebrasApiKeyChanged = viewModel::onCerebrasApiKeyChanged,
+                    onUiLanguageSelected = viewModel::onUiLanguageSelected,
+                    onThemeCycleRequested = viewModel::onThemeCycleRequested,
                     edgeVoiceCatalogState = edgeVoiceCatalogState,
                     onGlobalTtsMethodChanged = viewModel::onGlobalTtsMethodChanged,
                     onGlobalTtsSpeedPresetChanged = viewModel::onGlobalTtsSpeedPresetChanged,

@@ -234,7 +234,8 @@ pub fn get() -> LocaleText {
         realtime_tts_volume: "Volume",
         // App selection modal
         app_select_title: "Select App to Capture",
-        app_select_hint: "Choose the app whose audio you want to transcribe (TTS isolated)",
+        app_select_hint: "Choose the app to capture (required so TTS audio is not captured back into system audio)",
+        app_select_count: "{} apps",
         // --- TRAY MENU EN ---
         tray_settings: "⚙️ Settings",
         tray_quit: "Quit",

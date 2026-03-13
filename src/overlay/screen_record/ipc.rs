@@ -173,7 +173,7 @@ fn extract_icon_data_url_from_exe(exe_path: &str) -> Option<String> {
     }
 }
 
-fn capture_window_thumbnail(hwnd: HWND) -> Option<String> {
+pub(crate) fn capture_window_thumbnail(hwnd: HWND) -> Option<String> {
     unsafe {
         let mut rect = RECT::default();
         if DwmGetWindowAttribute(

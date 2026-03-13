@@ -1,13 +1,5 @@
 package dev.screengoated.toolbox.mobile.service.overlay
 
-internal const val OVERLAY_PLACEHOLDER_TEXT = "Waiting for speech..."
-internal const val OVERLAY_TTS_TITLE = "Read"
-internal const val OVERLAY_TTS_SPEED = "Speed"
-internal const val OVERLAY_TTS_AUTO = "Auto"
-internal const val OVERLAY_TTS_VOLUME = "Volume"
-internal const val OVERLAY_CANCEL_TEXT = "Cancel"
-internal const val OVERLAY_PARAKEET_NOTE = "(English only)"
-
 internal fun overlayBaseHtmlTemplate(): String {
     return """
         <!DOCTYPE html>
@@ -26,18 +18,18 @@ internal fun overlayBaseHtmlTemplate(): String {
                     <div id="title">{{TITLE_CONTENT}}</div>
                     <div id="controls">
                         {{AUDIO_SELECTOR}}
-                        <span class="ctrl-btn" id="copy-btn" title="Copy text"><span class="material-symbols-rounded">{{CONTENT_COPY_SVG}}</span></span>
+                        <span class="ctrl-btn" id="copy-btn" title="{{COPY_TEXT_TITLE}}"><span class="material-symbols-rounded">{{CONTENT_COPY_SVG}}</span></span>
                         <div class="pill-group">
-                            <span class="ctrl-btn" id="font-decrease" title="Decrease font size"><span class="material-symbols-rounded">{{REMOVE_SVG}}</span></span>
-                            <span class="ctrl-btn" id="font-increase" title="Increase font size"><span class="material-symbols-rounded">{{ADD_SVG}}</span></span>
+                            <span class="ctrl-btn" id="font-decrease" title="{{DECREASE_FONT_TITLE}}"><span class="material-symbols-rounded">{{REMOVE_SVG}}</span></span>
+                            <span class="ctrl-btn" id="font-increase" title="{{INCREASE_FONT_TITLE}}"><span class="material-symbols-rounded">{{ADD_SVG}}</span></span>
                         </div>
                         <div class="btn-group">
-                            <span class="vis-btn mic active" id="toggle-mic" title="Toggle Transcription"><span class="material-symbols-rounded">{{SUBTITLES_SVG}}</span></span>
-                            <span class="vis-btn trans active" id="toggle-trans" title="Toggle Translation"><span class="material-symbols-rounded">{{TRANSLATE_SVG}}</span></span>
+                            <span class="vis-btn mic active" id="toggle-mic" title="{{TOGGLE_TRANSCRIPTION_TITLE}}"><span class="material-symbols-rounded">{{SUBTITLES_SVG}}</span></span>
+                            <span class="vis-btn trans active" id="toggle-trans" title="{{TOGGLE_TRANSLATION_TITLE}}"><span class="material-symbols-rounded">{{TRANSLATE_SVG}}</span></span>
                         </div>
                     </div>
                 </div>
-                <div id="header-toggle" title="Toggle header"><span class="material-symbols-rounded">{{EXPAND_LESS_SVG}}</span></div>
+                <div id="header-toggle" title="{{TOGGLE_HEADER_TITLE}}"><span class="material-symbols-rounded">{{EXPAND_LESS_SVG}}</span></div>
                 <div id="viewport">
                     <div id="content">
                         <span class="placeholder">{{PLACEHOLDER_TEXT}}</span>
@@ -48,14 +40,14 @@ internal fun overlayBaseHtmlTemplate(): String {
             <div id="download-modal">
                 <div class="download-modal-title">
                     <span class="material-symbols-rounded">{{DOWNLOAD_SVG}}</span>
-                    <span id="download-title">Downloading Model</span>
+                    <span id="download-title">{{DOWNLOAD_TITLE}}</span>
                 </div>
-                <div class="download-modal-msg" id="download-msg">Please wait...</div>
+                <div class="download-modal-msg" id="download-msg">{{PLEASE_WAIT_TEXT}}</div>
                 <div class="download-progress-bar">
                     <div class="download-progress-fill" id="download-fill" style="width: 0%;"></div>
                 </div>
                 <div class="download-modal-footnote">{{SUPPORTS_ENGLISH}}</div>
-                <button class="download-cancel-btn" id="download-cancel-btn" title="Cancel download and return to Gemini Live">
+                <button class="download-cancel-btn" id="download-cancel-btn" title="{{CANCEL_DOWNLOAD_TITLE}}">
                     <span class="material-symbols-rounded">{{CLOSE_SVG}}</span>
                     {{CANCEL_TEXT}}
                 </button>

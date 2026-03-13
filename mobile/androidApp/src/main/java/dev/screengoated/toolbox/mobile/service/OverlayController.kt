@@ -12,11 +12,16 @@ import android.util.Log
 import android.widget.Toast
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
+import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
+import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.service.overlay.OverlayLanguagePicker
 import dev.screengoated.toolbox.mobile.service.overlay.OverlayPaneWindow
 import dev.screengoated.toolbox.mobile.service.overlay.RealtimeOverlayHtmlBuilder
 import dev.screengoated.toolbox.mobile.service.overlay.RealtimeOverlayPaneSettings
+import dev.screengoated.toolbox.mobile.service.tts.TtsConsumer
+import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
+import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeState
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionPatch
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +40,7 @@ class OverlayController(
     private val restartRequested: () -> Unit,
     private val sourceModeChanged: (SourceMode) -> Unit,
     private val stopTextToSpeech: () -> Unit,
+    private val ttsRuntimeService: TtsRuntimeService,
 ) {
     private val windowManager = context.getSystemService(android.view.WindowManager::class.java)
     private val clipboardManager = context.getSystemService(ClipboardManager::class.java)
@@ -50,6 +56,7 @@ class OverlayController(
     private var transcriptionWindow: OverlayPaneWindow? = null
     private var translationWindow: OverlayPaneWindow? = null
     private var updateJob: Job? = null
+    private var ttsRuntimeJob: Job? = null
     private var listeningVisible = true
     private var translationVisible = true
     private var lastSnapshot: OverlaySnapshot? = null
@@ -57,6 +64,7 @@ class OverlayController(
     private var renderBurstCount = 0
     private var lastSyncedVisibility: Pair<Boolean, Boolean>? = null
     private var lastTtsState: OverlayTtsState? = null
+    private var lastRuntimeTtsState: TtsRuntimeState = TtsRuntimeState()
 
     fun show(scope: CoroutineScope): Boolean {
         if (!overlaySupported || !Settings.canDrawOverlays(context) || transcriptionWindow != null || translationWindow != null) {
@@ -74,11 +82,20 @@ class OverlayController(
                 repository.state,
                 repository.paneFontSizes,
                 repository.realtimeTtsSettings,
-            ) { state, fontSizes, ttsSettings ->
-                OverlaySnapshot(state, fontSizes, ttsSettings)
+                repository.uiPreferences,
+            ) { state, fontSizes, ttsSettings, uiPreferences ->
+                OverlaySnapshot(state, fontSizes, ttsSettings, uiPreferences)
             }.collectLatest { snapshot ->
                 lastSnapshot = snapshot
                 render(snapshot)
+            }
+        }
+        ttsRuntimeJob = scope.launch(Dispatchers.Main.immediate) {
+            ttsRuntimeService.runtimeState.collectLatest { runtimeState ->
+                lastRuntimeTtsState = runtimeState
+                lastSnapshot?.let { snapshot ->
+                    syncTranslationControls(snapshot, force = false)
+                }
             }
         }
         return true
@@ -87,9 +104,12 @@ class OverlayController(
     fun hide() {
         updateJob?.cancel()
         updateJob = null
+        ttsRuntimeJob?.cancel()
+        ttsRuntimeJob = null
         languagePicker.hide()
         lastSyncedVisibility = null
         lastTtsState = null
+        lastRuntimeTtsState = TtsRuntimeState()
         transcriptionWindow?.destroy()
         translationWindow?.destroy()
         transcriptionWindow = null
@@ -136,15 +156,15 @@ class OverlayController(
             html = htmlBuilder.build(
                 RealtimeOverlayPaneSettings(
                     isTranslation = false,
-                    audioSource = if (state.config.sourceMode == SourceMode.DEVICE) "device" else "mic",
-                    targetLanguage = state.config.targetLanguage,
-                    translationModel = state.config.translationProvider.id,
-                    transcriptionModel = state.config.transcriptionProvider.id,
-                    fontSize = snapshot.fontSizes.transcriptionSp,
-                    isDark = isDarkTheme(),
+                    isDark = isDarkTheme(snapshot.uiPreferences.themeMode),
+                    uiLanguage = snapshot.uiPreferences.uiLanguage,
                 ),
             ),
-            settings = overlayPaneSettingsJson(state, snapshot.fontSizes.transcriptionSp),
+            settings = overlayPaneRuntimeSettings(
+                state = state,
+                fontSize = snapshot.fontSizes.transcriptionSp,
+                isDark = isDarkTheme(snapshot.uiPreferences.themeMode),
+            ),
             oldText = transcriptOldText(state),
             newText = transcriptNewText(state),
         ) == true
@@ -152,15 +172,15 @@ class OverlayController(
             html = htmlBuilder.build(
                 RealtimeOverlayPaneSettings(
                     isTranslation = true,
-                    audioSource = if (state.config.sourceMode == SourceMode.DEVICE) "device" else "mic",
-                    targetLanguage = state.config.targetLanguage,
-                    translationModel = state.config.translationProvider.id,
-                    transcriptionModel = state.config.transcriptionProvider.id,
-                    fontSize = snapshot.fontSizes.translationSp,
-                    isDark = isDarkTheme(),
+                    isDark = isDarkTheme(snapshot.uiPreferences.themeMode),
+                    uiLanguage = snapshot.uiPreferences.uiLanguage,
                 ),
             ),
-            settings = overlayPaneSettingsJson(state, snapshot.fontSizes.translationSp),
+            settings = overlayPaneRuntimeSettings(
+                state = state,
+                fontSize = snapshot.fontSizes.translationSp,
+                isDark = isDarkTheme(snapshot.uiPreferences.themeMode),
+            ),
             oldText = state.liveText.committedTranslation,
             newText = state.liveText.uncommittedTranslation,
         ) == true
@@ -259,12 +279,7 @@ class OverlayController(
         snapshot: OverlaySnapshot,
         force: Boolean,
     ) {
-        val ttsState = OverlayTtsState(
-            enabled = snapshot.ttsSettings.enabled,
-            speedPercent = snapshot.ttsSettings.speedPercent,
-            autoSpeed = snapshot.ttsSettings.autoSpeed,
-            volumePercent = snapshot.ttsSettings.volumePercent,
-        )
+        val ttsState = overlayTtsState(snapshot.ttsSettings, lastRuntimeTtsState)
         if (force || lastTtsState != ttsState) {
             lastTtsState = ttsState
             translationWindow?.evaluate(
@@ -331,7 +346,7 @@ class OverlayController(
             anchorBounds = anchor,
             selectedLanguage = repository.currentConfig().targetLanguage,
             languages = repository.supportedLanguages,
-            isDark = isDarkTheme(),
+            isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
         )
     }
 
@@ -481,9 +496,15 @@ class OverlayController(
         }
     }
 
-    private fun isDarkTheme(): Boolean {
-        val nightModeFlags = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-        return nightModeFlags == Configuration.UI_MODE_NIGHT_YES
+    private fun isDarkTheme(themeMode: MobileThemeMode): Boolean {
+        return when (themeMode) {
+            MobileThemeMode.DARK -> true
+            MobileThemeMode.LIGHT -> false
+            MobileThemeMode.SYSTEM -> {
+                val nightModeFlags = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+                nightModeFlags == Configuration.UI_MODE_NIGHT_YES
+            }
+        }
     }
 
     private fun dp(value: Int): Int {
@@ -498,9 +519,30 @@ class OverlayController(
     }
 }
 
-private data class OverlayTtsState(
+internal data class OverlayTtsState(
     val enabled: Boolean,
     val speedPercent: Int,
     val autoSpeed: Boolean,
     val volumePercent: Int,
 )
+
+internal fun overlayTtsState(
+    settings: RealtimeTtsSettings,
+    runtimeState: TtsRuntimeState,
+): OverlayTtsState {
+    val displayedSpeed = if (
+        settings.enabled &&
+        runtimeState.isPlaying &&
+        runtimeState.activeConsumer == TtsConsumer.REALTIME
+    ) {
+        runtimeState.currentRealtimeEffectiveSpeed.coerceIn(50, 200)
+    } else {
+        settings.speedPercent
+    }
+    return OverlayTtsState(
+        enabled = settings.enabled,
+        speedPercent = displayedSpeed,
+        autoSpeed = settings.autoSpeed,
+        volumePercent = settings.volumePercent,
+    )
+}

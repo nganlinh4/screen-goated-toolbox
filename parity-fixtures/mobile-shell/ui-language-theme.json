@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "theme_cycle_matches_windows_title_bar",
+      "initial_theme_mode": "SYSTEM",
+      "action": "cycle_theme",
+      "expected_cycle": [
+        "DARK",
+        "LIGHT",
+        "SYSTEM"
+      ]
+    },
+    {
+      "name": "ui_language_choices_match_windows_title_bar",
+      "expected_language_codes": [
+        "en",
+        "vi",
+        "ko"
+      ]
+    },
+    {
+      "name": "localized_preview_text_comes_from_ui_language_bundle",
+      "voice_name": "Aoede",
+      "locales": [
+        {
+          "ui_language": "en",
+          "expected_prefix": "Hello"
+        },
+        {
+          "ui_language": "vi",
+          "expected_prefix": "Xin chào"
+        },
+        {
+          "ui_language": "ko",
+          "expected_prefix": "안녕하세요"
+        }
+      ]
+    }
+  ]
+}

@@ -246,10 +246,7 @@ impl AudioPlayer {
                 match enumerator.GetDevice(&id_hstring) {
                     Ok(d) => d,
                     Err(e) => {
-                        eprintln!(
-                            "[TTS WASAPI] ERROR: Specified device not found: {:?}",
-                            e
-                        );
+                        eprintln!("[TTS WASAPI] ERROR: Specified device not found: {:?}", e);
                         return Err(anyhow::anyhow!(
                             "Configured TTS output device is unavailable; waiting for it to return"
                         ));
@@ -390,9 +387,10 @@ impl AudioPlayer {
     fn play(&self, audio_data: &[u8], is_realtime: bool) {
         // Get effective speed
         let effective_speed = if is_realtime {
+            use crate::api::realtime_audio::WM_UPDATE_TTS_SPEED;
             use crate::overlay::realtime_webview::state::{
                 COMMITTED_TRANSLATION_QUEUE, CURRENT_TTS_SPEED, REALTIME_HWND,
-                REALTIME_TTS_AUTO_SPEED, REALTIME_TTS_SPEED, WM_UPDATE_TTS_SPEED,
+                REALTIME_TTS_AUTO_SPEED, REALTIME_TTS_SPEED,
             };
 
             let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);

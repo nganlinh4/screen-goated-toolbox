@@ -235,7 +235,8 @@ pub fn get() -> LocaleText {
         realtime_tts_volume: "Âm lượng",
         // App selection modal
         app_select_title: "Chọn Ứng Dụng",
-        app_select_hint: "Chọn ứng dụng cần ghi âm (TTS sẽ được tách riêng)",
+        app_select_hint: "Chọn ứng dụng cần ghi âm (bước này giúp âm thanh TTS không bị thu ngược vào âm thanh máy tính)",
+        app_select_count: "{} ứng dụng",
         // --- TRAY MENU VI ---
         tray_settings: "⚙️ Cài đặt",
         tray_quit: "Thoát",

@@ -44,10 +44,15 @@
     "landscapeLayout": "side-by-side-default-detached",
     "chevronConsumesLayoutSpace": false,
     "headerOverflowBehavior": "horizontal-swipe",
+    "headerScrollRetention": "preserve-on-runtime-control-taps",
+    "headerStateSync": "discrete-js-no-html-reload",
+    "overlayLocaleSource": "active-ui-language-bundle",
+    "overlayLocaleRefresh": "live-on-ui-language-change",
     "roundedWindowMask": true,
     "languagePicker": "native-overlay",
     "androidDeviceTtsIsolation": "non-capturable-no-app-picker",
     "androidTtsSettingsApplyToUnreadText": true,
-    "androidTtsRequestsTransientDuckFocus": true
+    "androidTtsRequestsTransientDuckFocus": true,
+    "ttsDisplayedSpeedSource": "runtime-effective-while-speaking"
   }
 }

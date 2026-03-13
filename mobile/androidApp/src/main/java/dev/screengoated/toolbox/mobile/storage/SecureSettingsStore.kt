@@ -7,6 +7,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
+import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
 import dev.screengoated.toolbox.mobile.model.RealtimePaneFontSizes
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.service.tts.CachedEdgeVoiceCatalog
@@ -82,6 +83,13 @@ class SecureSettingsStore(
         )
     }
 
+    fun loadUiPreferences(): MobileUiPreferences {
+        val payload = prefs.getString(KEY_UI_PREFERENCES, null) ?: return MobileUiPreferences()
+        return runCatching {
+            json.decodeFromString<MobileUiPreferences>(payload)
+        }.getOrDefault(MobileUiPreferences())
+    }
+
     fun loadGlobalTtsSettings(): MobileGlobalTtsSettings {
         val payload = prefs.getString(KEY_GLOBAL_TTS_SETTINGS, null) ?: return MobileGlobalTtsSettings()
         return runCatching {
@@ -95,6 +103,12 @@ class SecureSettingsStore(
             .putInt(KEY_TTS_SPEED, settings.speedPercent)
             .putBoolean(KEY_TTS_AUTO_SPEED, settings.autoSpeed)
             .putInt(KEY_TTS_VOLUME, settings.volumePercent)
+            .apply()
+    }
+
+    fun saveUiPreferences(preferences: MobileUiPreferences) {
+        prefs.edit()
+            .putString(KEY_UI_PREFERENCES, json.encodeToString(MobileUiPreferences.serializer(), preferences))
             .apply()
     }
 
@@ -130,5 +144,6 @@ class SecureSettingsStore(
         private const val KEY_TTS_VOLUME = "realtime_tts_volume"
         private const val KEY_GLOBAL_TTS_SETTINGS = "global_tts_settings"
         private const val KEY_EDGE_VOICE_CATALOG = "edge_voice_catalog"
+        private const val KEY_UI_PREFERENCES = "ui_preferences"
     }
 }

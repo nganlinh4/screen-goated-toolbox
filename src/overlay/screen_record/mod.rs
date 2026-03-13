@@ -44,6 +44,7 @@ pub mod native_export;
 pub mod window_selection;
 
 // Re-exports
+pub(crate) use ipc::capture_window_thumbnail;
 use ipc::handle_ipc_command;
 
 // --- CONSTANTS ---

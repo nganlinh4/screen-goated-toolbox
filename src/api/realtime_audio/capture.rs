@@ -209,12 +209,10 @@ pub fn start_device_loopback_capture(
     let host = cpal::default_host();
 
     // Use default output device for loopback
-    let device = host
-        .default_output_device()
-        .ok_or_else(|| {
-            request_device_reconnect("no default output device available");
-            anyhow::anyhow!("No output device available")
-        })?;
+    let device = host.default_output_device().ok_or_else(|| {
+        request_device_reconnect("no default output device available");
+        anyhow::anyhow!("No output device available")
+    })?;
     let config = match device.default_output_config() {
         Ok(config) => config,
         Err(err) => {
@@ -258,123 +256,129 @@ pub fn start_device_loopback_capture(
     });
 
     let stream = match config.sample_format() {
-        cpal::SampleFormat::F32 => device.build_input_stream(
-            &config.into(),
-            move |data: &[f32], _: &_| {
-                if stop_signal_audio.load(Ordering::Relaxed)
-                    || pause_signal_audio.load(Ordering::Relaxed)
-                    || crate::api::tts::TTS_MANAGER.is_playing.load(Ordering::SeqCst)
-                {
-                    return;
-                }
+        cpal::SampleFormat::F32 => device
+            .build_input_stream(
+                &config.into(),
+                move |data: &[f32], _: &_| {
+                    if stop_signal_audio.load(Ordering::Relaxed)
+                        || pause_signal_audio.load(Ordering::Relaxed)
+                        || crate::api::tts::TTS_MANAGER
+                            .is_playing
+                            .load(Ordering::SeqCst)
+                    {
+                        return;
+                    }
 
-                // Convert to mono and i16
-                let mono_samples: Vec<i16> = data
-                    .chunks(channels)
-                    .map(|frame| {
-                        let sum: f32 = frame.iter().sum();
-                        let avg = sum / channels as f32;
-                        (avg.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
-                    })
-                    .collect();
-
-                // Simple resampling (linear interpolation)
-                let resampled: Vec<i16> = if resample_ratio < 1.0 {
-                    let new_len = (mono_samples.len() as f64 * resample_ratio) as usize;
-                    (0..new_len)
-                        .map(|i| {
-                            let src_idx = i as f64 / resample_ratio;
-                            let idx0 = src_idx as usize;
-                            let idx1 = (idx0 + 1).min(mono_samples.len() - 1);
-                            let frac = src_idx - idx0 as f64;
-                            let s0 = mono_samples[idx0] as f64;
-                            let s1 = mono_samples[idx1] as f64;
-                            (s0 + (s1 - s0) * frac) as i16
+                    // Convert to mono and i16
+                    let mono_samples: Vec<i16> = data
+                        .chunks(channels)
+                        .map(|frame| {
+                            let sum: f32 = frame.iter().sum();
+                            let avg = sum / channels as f32;
+                            (avg.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
                         })
-                        .collect()
-                } else {
-                    mono_samples
-                };
+                        .collect();
 
-                if let Ok(mut buf) = audio_buffer_clone.lock() {
-                    buf.extend(resampled.iter().cloned());
-                }
+                    // Simple resampling (linear interpolation)
+                    let resampled: Vec<i16> = if resample_ratio < 1.0 {
+                        let new_len = (mono_samples.len() as f64 * resample_ratio) as usize;
+                        (0..new_len)
+                            .map(|i| {
+                                let src_idx = i as f64 / resample_ratio;
+                                let idx0 = src_idx as usize;
+                                let idx1 = (idx0 + 1).min(mono_samples.len() - 1);
+                                let frac = src_idx - idx0 as f64;
+                                let s0 = mono_samples[idx0] as f64;
+                                let s1 = mono_samples[idx1] as f64;
+                                (s0 + (s1 - s0) * frac) as i16
+                            })
+                            .collect()
+                    } else {
+                        mono_samples
+                    };
 
-                // Calculate RMS for volume visualization
-                if !resampled.is_empty() {
-                    let sum_sq: f64 = resampled
-                        .iter()
-                        .map(|&s| (s as f64 / 32768.0).powi(2))
-                        .sum();
-                    let rms = (sum_sq / resampled.len() as f64).sqrt() as f32;
-                    REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
-                }
-            },
-            err_fn,
-            None,
-        )
-        .map_err(|err| {
-            request_device_reconnect(&format!("failed to build loopback stream: {err}"));
-            err
-        })?,
-        cpal::SampleFormat::I16 => device.build_input_stream(
-            &config.into(),
-            move |data: &[i16], _: &_| {
-                if stop_signal_audio.load(Ordering::Relaxed)
-                    || pause_signal_audio.load(Ordering::Relaxed)
-                    || crate::api::tts::TTS_MANAGER.is_playing.load(Ordering::SeqCst)
-                {
-                    return;
-                }
+                    if let Ok(mut buf) = audio_buffer_clone.lock() {
+                        buf.extend(resampled.iter().cloned());
+                    }
 
-                // Convert to mono
-                let mono_samples: Vec<i16> = data
-                    .chunks(channels)
-                    .map(|frame| {
-                        let sum: i32 = frame.iter().map(|&s| s as i32).sum();
-                        (sum / channels as i32) as i16
-                    })
-                    .collect();
+                    // Calculate RMS for volume visualization
+                    if !resampled.is_empty() {
+                        let sum_sq: f64 = resampled
+                            .iter()
+                            .map(|&s| (s as f64 / 32768.0).powi(2))
+                            .sum();
+                        let rms = (sum_sq / resampled.len() as f64).sqrt() as f32;
+                        REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
+                    }
+                },
+                err_fn,
+                None,
+            )
+            .map_err(|err| {
+                request_device_reconnect(&format!("failed to build loopback stream: {err}"));
+                err
+            })?,
+        cpal::SampleFormat::I16 => device
+            .build_input_stream(
+                &config.into(),
+                move |data: &[i16], _: &_| {
+                    if stop_signal_audio.load(Ordering::Relaxed)
+                        || pause_signal_audio.load(Ordering::Relaxed)
+                        || crate::api::tts::TTS_MANAGER
+                            .is_playing
+                            .load(Ordering::SeqCst)
+                    {
+                        return;
+                    }
 
-                // Simple resampling
-                let resampled: Vec<i16> = if resample_ratio < 1.0 {
-                    let new_len = (mono_samples.len() as f64 * resample_ratio) as usize;
-                    (0..new_len)
-                        .map(|i| {
-                            let src_idx = i as f64 / resample_ratio;
-                            let idx0 = src_idx as usize;
-                            let idx1 = (idx0 + 1).min(mono_samples.len() - 1);
-                            let frac = src_idx - idx0 as f64;
-                            let s0 = mono_samples[idx0] as f64;
-                            let s1 = mono_samples[idx1] as f64;
-                            (s0 + (s1 - s0) * frac) as i16
+                    // Convert to mono
+                    let mono_samples: Vec<i16> = data
+                        .chunks(channels)
+                        .map(|frame| {
+                            let sum: i32 = frame.iter().map(|&s| s as i32).sum();
+                            (sum / channels as i32) as i16
                         })
-                        .collect()
-                } else {
-                    mono_samples
-                };
+                        .collect();
 
-                if let Ok(mut buf) = audio_buffer_clone.lock() {
-                    buf.extend(resampled.iter().cloned());
-                }
+                    // Simple resampling
+                    let resampled: Vec<i16> = if resample_ratio < 1.0 {
+                        let new_len = (mono_samples.len() as f64 * resample_ratio) as usize;
+                        (0..new_len)
+                            .map(|i| {
+                                let src_idx = i as f64 / resample_ratio;
+                                let idx0 = src_idx as usize;
+                                let idx1 = (idx0 + 1).min(mono_samples.len() - 1);
+                                let frac = src_idx - idx0 as f64;
+                                let s0 = mono_samples[idx0] as f64;
+                                let s1 = mono_samples[idx1] as f64;
+                                (s0 + (s1 - s0) * frac) as i16
+                            })
+                            .collect()
+                    } else {
+                        mono_samples
+                    };
 
-                // Calculate RMS for volume visualization
-                if !resampled.is_empty() {
-                    let sum_sq: f64 = resampled
-                        .iter()
-                        .map(|&s| (s as f64 / 32768.0).powi(2))
-                        .sum();
-                    let rms = (sum_sq / resampled.len() as f64).sqrt() as f32;
-                    REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
-                }
-            },
-            err_fn,
-            None,
-        )
-        .map_err(|err| {
-            request_device_reconnect(&format!("failed to build loopback stream: {err}"));
-            err
-        })?,
+                    if let Ok(mut buf) = audio_buffer_clone.lock() {
+                        buf.extend(resampled.iter().cloned());
+                    }
+
+                    // Calculate RMS for volume visualization
+                    if !resampled.is_empty() {
+                        let sum_sq: f64 = resampled
+                            .iter()
+                            .map(|&s| (s as f64 / 32768.0).powi(2))
+                            .sum();
+                        let rms = (sum_sq / resampled.len() as f64).sqrt() as f32;
+                        REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
+                    }
+                },
+                err_fn,
+                None,
+            )
+            .map_err(|err| {
+                request_device_reconnect(&format!("failed to build loopback stream: {err}"));
+                err
+            })?,
         _ => return Err(anyhow::anyhow!("Unsupported audio format")),
     };
 
