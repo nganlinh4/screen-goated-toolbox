@@ -105,16 +105,24 @@ import {
   equalBackgroundConfig,
 } from "@/lib/backgroundConfig";
 import { buildFlatDeviceAudioPoints } from "@/lib/deviceAudio";
+import { buildFlatMicAudioPoints } from "@/lib/micAudio";
 import {
   getMediaServerUrl,
   isManagedCompositionSnapshotPath,
   writeBlobToTempMediaFile,
 } from "@/lib/mediaServer";
+import {
+  DEFAULT_RECORDING_AUDIO_SELECTION,
+  normalizeRecordingAudioSelection,
+  sanitizeRecordingAudioSelection,
+  type RecordingAudioSelection,
+} from "@/types/recordingAudio";
 
 const LAST_BG_CONFIG_KEY = "screen-record-last-background-config-v1";
 const RECENT_UPLOADS_KEY = "screen-record-recent-uploads-v1";
 const RECORDING_MODE_KEY = "screen-record-recording-mode-v1";
 const CAPTURE_SOURCE_KEY = "screen-record-capture-source-v1";
+const RECORDING_AUDIO_KEY = "screen-record-recording-audio-v1";
 const KEYSTROKE_DELAY_KEY = "screen-record-keystroke-delay-v1";
 const KEYSTROKE_MODE_PREF_KEY = "screen-record-keystroke-mode-pref-v1";
 const KEYSTROKE_OVERLAY_PREF_KEY = "screen-record-keystroke-overlay-pref-v1";
@@ -253,6 +261,7 @@ function toPreviewRectSnapshot(
 interface ClipMediaAssets {
   videoBlob: Blob | null;
   audioBlob: Blob | null;
+  micAudioBlob: Blob | null;
   customBackground: string | null;
 }
 
@@ -324,6 +333,16 @@ function getInitialCaptureSource(): "monitor" | "window" {
   return "monitor";
 }
 
+function getInitialRecordingAudioSelection(): RecordingAudioSelection {
+  try {
+    const raw = localStorage.getItem(RECORDING_AUDIO_KEY);
+    if (!raw) return { ...DEFAULT_RECORDING_AUDIO_SELECTION };
+    return normalizeRecordingAudioSelection(JSON.parse(raw));
+  } catch {
+    return { ...DEFAULT_RECORDING_AUDIO_SELECTION };
+  }
+}
+
 function getSavedKeystrokeModePref(): KeystrokeMode {
   try {
     const raw = localStorage.getItem(KEYSTROKE_MODE_PREF_KEY);
@@ -392,6 +411,10 @@ function App() {
   const [captureSource, setCaptureSource] = useState<"monitor" | "window">(
     getInitialCaptureSource,
   );
+  const [recordingAudioSelection, setRecordingAudioSelection] =
+    useState<RecordingAudioSelection>(getInitialRecordingAudioSelection);
+  const [isSelectingRecordingAudioApp, setIsSelectingRecordingAudioApp] =
+    useState(false);
   const [captureTargetId, setCaptureTargetId] = useState<string>("0");
   const [captureFps, setCaptureFps] = useState<number | null>(() => {
     try {
@@ -434,6 +457,7 @@ function App() {
     handleOpenRawVideoDialog,
     handleToggleRawAutoCopy,
   } = rawVideo;
+  const [currentRawMicAudioPath, setCurrentRawMicAudioPath] = useState("");
   const [isBackgroundUploadProcessing, setIsBackgroundUploadProcessing] =
     useState(false);
   const [isProjectInteractionShieldVisible, setIsProjectInteractionShieldVisible] =
@@ -493,9 +517,19 @@ function App() {
   const nextPreloadAudioRef = useRef<HTMLAudioElement | null>(null);
   const clipAssetCacheRef = useRef<Map<string, ClipMediaAssets>>(new Map());
   const clipUrlCacheRef = useRef<
-    Map<string, { videoUrl: string; audioUrl: string | null }>
+    Map<
+      string,
+      {
+        videoUrl: string;
+        audioUrl: string | null;
+        micAudioUrl: string | null;
+      }
+    >
   >(new Map());
   const clipExportSourcePathCacheRef = useRef<Map<string, string>>(new Map());
+  const clipExportMicAudioPathCacheRef = useRef<Map<string, string | null>>(
+    new Map(),
+  );
   const preloadedSlotClipIdsRef = useRef<Record<PreloadSlotKey, string | null>>(
     {
       previous: null,
@@ -620,8 +654,11 @@ function App() {
     setCurrentVideo,
     currentAudio,
     setCurrentAudio,
+    currentMicAudio,
+    setCurrentMicAudio,
     videoRef,
     audioRef,
+    micAudioRef,
     canvasRef,
     tempCanvasRef,
     videoControllerRef,
@@ -644,6 +681,7 @@ function App() {
     setSegment,
     setCurrentVideo,
     setCurrentAudio,
+    setCurrentMicAudio,
     setIsVideoReady,
     setThumbnails,
     invalidateThumbnails,
@@ -654,6 +692,7 @@ function App() {
     renderFrame,
     currentVideo,
     currentAudio,
+    currentMicAudio,
   });
   const {
     isRecording,
@@ -663,6 +702,7 @@ function App() {
     mousePositions,
     setMousePositions,
     audioFilePath,
+    micAudioFilePath,
     videoFilePath,
     videoFilePathOwnerUrl,
     error,
@@ -697,20 +737,34 @@ function App() {
     (options?: {
       preserveVideoUrl?: string | null;
       preserveAudioUrl?: string | null;
+      preserveMicAudioUrl?: string | null;
     }) => {
       const preservedVideoUrl = options?.preserveVideoUrl ?? null;
       const preservedAudioUrl = options?.preserveAudioUrl ?? null;
+      const preservedMicAudioUrl = options?.preserveMicAudioUrl ?? null;
 
-      for (const { videoUrl, audioUrl } of clipUrlCacheRef.current.values()) {
+      for (const {
+        videoUrl,
+        audioUrl,
+        micAudioUrl,
+      } of clipUrlCacheRef.current.values()) {
         if (videoUrl?.startsWith("blob:") && videoUrl !== preservedVideoUrl) {
           URL.revokeObjectURL(videoUrl);
         }
         if (audioUrl?.startsWith("blob:") && audioUrl !== preservedAudioUrl) {
           URL.revokeObjectURL(audioUrl);
         }
+        if (
+          micAudioUrl?.startsWith("blob:") &&
+          micAudioUrl !== preservedMicAudioUrl
+        ) {
+          URL.revokeObjectURL(micAudioUrl);
+        }
       }
       clipAssetCacheRef.current.clear();
       clipUrlCacheRef.current.clear();
+      clipExportSourcePathCacheRef.current.clear();
+      clipExportMicAudioPathCacheRef.current.clear();
       (["previous", "next"] as const).forEach((slot) => {
         preloadedSlotClipIdsRef.current[slot] = null;
         const { videoRef: preloadVideoRef, audioRef: preloadAudioRef } =
@@ -748,6 +802,7 @@ function App() {
           ? {
               videoBlob: project.videoBlob ?? null,
               audioBlob: project.audioBlob ?? null,
+              micAudioBlob: project.micAudioBlob ?? null,
               customBackground:
                 project.backgroundConfig.customBackground ?? null,
             }
@@ -777,9 +832,15 @@ function App() {
           projectOverride,
           compositionOverride,
         );
+        const micAudioUrl = clip.rawMicAudioPath
+          ? await getMediaServerUrl(clip.rawMicAudioPath)
+          : loadedAssets?.micAudioBlob
+            ? URL.createObjectURL(loadedAssets.micAudioBlob)
+            : null;
         const nextUrls = {
           videoUrl,
-          audioUrl: loadedAssets?.audioBlob ? videoUrl : null,
+          audioUrl: videoUrl,
+          micAudioUrl,
         };
         clipUrlCacheRef.current.set(clipId, nextUrls);
         return nextUrls;
@@ -791,10 +852,14 @@ function App() {
         compositionOverride,
       );
       if (!loadedAssets?.videoBlob) return null;
+      const videoUrl = URL.createObjectURL(loadedAssets.videoBlob);
       const nextUrls = {
-        videoUrl: URL.createObjectURL(loadedAssets.videoBlob),
+        videoUrl,
         audioUrl: loadedAssets.audioBlob
           ? URL.createObjectURL(loadedAssets.audioBlob)
+          : videoUrl,
+        micAudioUrl: loadedAssets.micAudioBlob
+          ? URL.createObjectURL(loadedAssets.micAudioBlob)
           : null,
       };
       clipUrlCacheRef.current.set(clipId, nextUrls);
@@ -933,6 +998,11 @@ function App() {
             .map((urls) => urls.audioUrl)
             .filter((url): url is string => Boolean(url)),
         );
+        const cachedMicAudioUrls = new Set(
+          Array.from(clipUrlCacheRef.current.values())
+            .map((urls) => urls.micAudioUrl)
+            .filter((url): url is string => Boolean(url)),
+        );
         if (
           currentVideo?.startsWith("blob:") &&
           !cachedVideoUrls.has(currentVideo)
@@ -944,6 +1014,12 @@ function App() {
           !cachedAudioUrls.has(currentAudio)
         ) {
           URL.revokeObjectURL(currentAudio);
+        }
+        if (
+          currentMicAudio?.startsWith("blob:") &&
+          !cachedMicAudioUrls.has(currentMicAudio)
+        ) {
+          URL.revokeObjectURL(currentMicAudio);
         }
         invalidateThumbnails();
         const loadedAssets = await loadClipAssets(
@@ -987,16 +1063,32 @@ function App() {
         if (videoObjectUrl) {
           setCurrentVideo(videoObjectUrl);
         }
-        if (clipUrls?.audioUrl || loadedAssets?.audioBlob) {
-          const audioObjectUrl = await videoControllerRef.current?.loadAudio(
+        if (clipUrls?.audioUrl || loadedAssets?.audioBlob || videoObjectUrl) {
+          const audioObjectUrl = await videoControllerRef.current?.loadDeviceAudio(
             clipUrls?.audioUrl
               ? { audioUrl: clipUrls.audioUrl }
-              : { audioBlob: loadedAssets?.audioBlob ?? undefined },
+              : loadedAssets?.audioBlob
+                ? { audioBlob: loadedAssets.audioBlob }
+                : videoObjectUrl
+                  ? { audioUrl: videoObjectUrl }
+                  : {},
           );
           if (!isLatestRequest()) return;
           setCurrentAudio(audioObjectUrl || null);
         } else {
           setCurrentAudio(null);
+        }
+        if (clipUrls?.micAudioUrl || loadedAssets?.micAudioBlob) {
+          const micAudioObjectUrl =
+            await videoControllerRef.current?.loadMicAudio(
+              clipUrls?.micAudioUrl
+                ? { audioUrl: clipUrls.micAudioUrl }
+                : { audioBlob: loadedAssets?.micAudioBlob ?? undefined },
+            );
+          if (!isLatestRequest()) return;
+          setCurrentMicAudio(micAudioObjectUrl || null);
+        } else {
+          setCurrentMicAudio(null);
         }
         if (!isLatestRequest()) return;
         setPreviewDuration(
@@ -1010,6 +1102,7 @@ function App() {
         setMousePositions(clip.mousePositions);
         setCurrentRecordingMode(clip.recordingMode ?? "withoutCursor");
         handleProjectRawVideoPathChange(clip.rawVideoPath ?? "");
+        setCurrentRawMicAudioPath(clip.rawMicAudioPath ?? "");
         setLoadedClipId(clip.id);
         void generateThumbnailsForSource({
           videoUrl: clipUrls?.videoUrl ?? videoObjectUrl ?? null,
@@ -1028,6 +1121,7 @@ function App() {
     [
       composition,
       currentAudio,
+      currentMicAudio,
       currentProjectData,
       currentVideo,
       drawPreloadedClipFrame,
@@ -1035,6 +1129,7 @@ function App() {
       handleProjectRawVideoPathChange,
       loadClipAssets,
       setCurrentAudio,
+      setCurrentMicAudio,
       setCurrentVideo,
       setPreviewDuration,
       setThumbnails,
@@ -1050,6 +1145,7 @@ function App() {
     videoControllerRef,
     setCurrentVideo,
     setCurrentAudio,
+    setCurrentMicAudio,
     setSegment,
     setBackgroundConfig,
     applyLoadedBackgroundConfig,
@@ -1061,6 +1157,7 @@ function App() {
       clearClipMediaCaches({
         preserveVideoUrl: currentVideo,
         preserveAudioUrl: currentAudio,
+        preserveMicAudioUrl: currentMicAudio,
       });
       clipExportSourcePathCacheRef.current.clear();
       isSwitchingCompositionClipRef.current = true;
@@ -1069,6 +1166,7 @@ function App() {
         ...project,
         backgroundConfig: cloneBackgroundConfig(project.backgroundConfig),
       });
+      setCurrentRawMicAudioPath(project.rawMicAudioPath ?? "");
       const nextComposition = ensureProjectComposition(project);
       setComposition(nextComposition);
       if (spreadAnimationTimerRef.current) {
@@ -1114,6 +1212,7 @@ function App() {
     },
     currentVideo,
     currentAudio,
+    currentMicAudio,
   });
   useEffect(() => {
     if (!BACKGROUND_MUTATION_DEBUG) return;
@@ -1169,6 +1268,32 @@ function App() {
       }
       const tempPath = await writeBlobToTempMediaFile(assets.videoBlob);
       clipExportSourcePathCacheRef.current.set(cacheKey, tempPath);
+      return tempPath;
+    },
+    [loadClipAssets, projects.currentProjectId],
+  );
+  const resolveClipExportMicAudioPath = useCallback(
+    async (clip: ProjectCompositionClip): Promise<string> => {
+      const projectId = projects.currentProjectId;
+      if (!projectId) {
+        throw new Error("Project not loaded");
+      }
+      const cacheKey = `${projectId}:${clip.id}`;
+      const cached = clipExportMicAudioPathCacheRef.current.get(cacheKey);
+      if (cached !== undefined) {
+        return cached ?? "";
+      }
+      if (clip.rawMicAudioPath) {
+        clipExportMicAudioPathCacheRef.current.set(cacheKey, clip.rawMicAudioPath);
+        return clip.rawMicAudioPath;
+      }
+      const assets = await loadClipAssets(projectId, clip.id);
+      if (!assets?.micAudioBlob) {
+        clipExportMicAudioPathCacheRef.current.set(cacheKey, null);
+        return "";
+      }
+      const tempPath = await writeBlobToTempMediaFile(assets.micAudioBlob);
+      clipExportMicAudioPathCacheRef.current.set(cacheKey, tempPath);
       return tempPath;
     },
     [loadClipAssets, projects.currentProjectId],
@@ -1268,12 +1393,14 @@ function App() {
     canvasRef,
     tempCanvasRef,
     audioRef,
+    micAudioRef,
     segment,
     backgroundConfig,
     isRecording,
     isBatchEditing: isBatching,
     mousePositions,
     audioFilePath,
+    micAudioFilePath: micAudioFilePath || currentRawMicAudioPath,
     videoFilePath,
     videoFilePathOwnerUrl,
     rawVideoPath: currentRawVideoPath,
@@ -1283,6 +1410,7 @@ function App() {
     composition,
     currentProjectId: projects.currentProjectId,
     resolveClipExportSourcePath,
+    resolveClipExportMicAudioPath,
   });
 
   const handleExportSuccessPathChange = useCallback(
@@ -1717,6 +1845,22 @@ function App() {
       // ignore persistence failures
     }
   }, [captureSource]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        RECORDING_AUDIO_KEY,
+        JSON.stringify(
+          sanitizeRecordingAudioSelection({
+            ...recordingAudioSelection,
+            selectedDeviceApp: null,
+          }),
+        ),
+      );
+    } catch {
+      // ignore persistence failures
+    }
+  }, [recordingAudioSelection]);
 
   useEffect(() => {
     try {
@@ -2306,6 +2450,7 @@ function App() {
           compositionState,
         );
         let videoBlob: Blob | undefined;
+        let micAudioBlob: Blob | undefined;
         let thumbnail: string | undefined;
         if (activeClip.role === "root") {
           // Use the current preview frame for the project card even on light
@@ -2327,6 +2472,12 @@ function App() {
           if (!videoBlob && currentVideo && !currentRawVideoPath) {
             const response = await fetch(currentVideo);
             videoBlob = await response.blob();
+          }
+          micAudioBlob =
+            loadedAssets?.micAudioBlob ?? currentProjectData?.micAudioBlob;
+          if (!micAudioBlob && currentMicAudio && !activeClip.rawMicAudioPath) {
+            const response = await fetch(currentMicAudio);
+            micAudioBlob = await response.blob();
           }
         }
         const canvasConfig = extractCanvasConfig(backgroundConfig);
@@ -2361,6 +2512,7 @@ function App() {
                   : activeClip.thumbnail,
               recordingMode: currentRecordingMode,
               rawVideoPath: currentRawVideoPath || undefined,
+              rawMicAudioPath: currentRawMicAudioPath || undefined,
             },
           );
           if (effectiveMode === "unified") {
@@ -2380,7 +2532,7 @@ function App() {
         if (
           includeMedia &&
           activeClip.role === "snapshot" &&
-          !currentRawVideoPath
+          (!currentRawVideoPath || !activeClip.rawMicAudioPath)
         ) {
           let snapshotVideoBlob = loadedAssets?.videoBlob ?? undefined;
           if (!snapshotVideoBlob && currentVideo) {
@@ -2393,12 +2545,18 @@ function App() {
             const audioResponse = await fetch(currentAudio);
             snapshotAudioBlob = await audioResponse.blob();
           }
+          let snapshotMicAudioBlob = loadedAssets?.micAudioBlob ?? undefined;
+          if (!snapshotMicAudioBlob && currentMicAudio && !activeClip.rawMicAudioPath) {
+            const micAudioResponse = await fetch(currentMicAudio);
+            snapshotMicAudioBlob = await micAudioResponse.blob();
+          }
           await projectManager.saveCompositionClipAssets(
             projectId,
             activeClip.id,
             {
               videoBlob: snapshotVideoBlob,
               audioBlob: snapshotAudioBlob,
+              micAudioBlob: snapshotMicAudioBlob,
               customBackground: backgroundConfig.customBackground,
             },
           );
@@ -2429,6 +2587,7 @@ function App() {
             projects.projects.find((p) => p.id === projectId)?.name ||
             "Auto Saved",
           videoBlob,
+          micAudioBlob,
           segment: rootClip.segment,
           backgroundConfig: rootClip.backgroundConfig,
           mousePositions: rootClip.mousePositions,
@@ -2439,6 +2598,7 @@ function App() {
           duration: rootClip.duration,
           recordingMode: rootClip.recordingMode ?? currentRecordingMode,
           rawVideoPath: rootClip.rawVideoPath,
+          rawMicAudioPath: rootClip.rawMicAudioPath,
           composition: nextComposition,
         });
         setComposition(nextComposition);
@@ -2475,6 +2635,7 @@ function App() {
       projects.loadProjects,
       currentVideo,
       currentAudio,
+      currentMicAudio,
       loadedClipId,
       currentProjectData,
       segment,
@@ -2486,6 +2647,7 @@ function App() {
       debugProject,
       currentRecordingMode,
       currentRawVideoPath,
+      currentRawMicAudioPath,
       loadClipAssets,
     ],
   );
@@ -2753,6 +2915,7 @@ function App() {
       const pickedProject = await projectManager.loadProject(projectId);
       if (!pickedProject) return;
       let snapshotRawVideoPath: string | undefined;
+      let snapshotRawMicAudioPath: string | undefined;
       if (pickedProject.rawVideoPath) {
         try {
           const saved = await invoke<{ savedPath: string }>(
@@ -2769,10 +2932,27 @@ function App() {
           );
         }
       }
+      if (pickedProject.rawMicAudioPath) {
+        try {
+          const saved = await invoke<{ savedPath: string }>(
+            "save_composition_snapshot_copy",
+            {
+              sourcePath: pickedProject.rawMicAudioPath,
+            },
+          );
+          snapshotRawMicAudioPath = saved?.savedPath || undefined;
+        } catch (error) {
+          console.error(
+            "[Composition] Failed to create native snapshot mic copy:",
+            error,
+          );
+        }
+      }
       const snapshotClip = normalizeCompositionClipToCanvas(
         createCompositionSnapshotClip({
           ...pickedProject,
           rawVideoPath: snapshotRawVideoPath,
+          rawMicAudioPath: snapshotRawMicAudioPath,
         }),
         composition.globalCanvasConfig ?? extractCanvasConfig(backgroundConfig),
       );
@@ -2782,13 +2962,16 @@ function App() {
         );
         return;
       }
-      if (!snapshotRawVideoPath) {
+      if (!snapshotRawVideoPath || (!snapshotRawMicAudioPath && pickedProject.micAudioBlob)) {
         await projectManager.saveCompositionClipAssets(
           projects.currentProjectId,
           snapshotClip.id,
           {
-            videoBlob: pickedProject.videoBlob,
-            audioBlob: pickedProject.audioBlob,
+            videoBlob: !snapshotRawVideoPath ? pickedProject.videoBlob : undefined,
+            audioBlob: !snapshotRawVideoPath ? pickedProject.audioBlob : undefined,
+            micAudioBlob: !snapshotRawMicAudioPath
+              ? pickedProject.micAudioBlob
+              : undefined,
             customBackground: pickedProject.backgroundConfig.customBackground,
           },
         );
@@ -2874,7 +3057,22 @@ function App() {
           // ignore cleanup failures for snapshot media copies
         }
       }
+      if (
+        clip.rawMicAudioPath &&
+        isManagedCompositionSnapshotPath(clip.rawMicAudioPath)
+      ) {
+        try {
+          await invoke("delete_file", { path: clip.rawMicAudioPath });
+        } catch {
+          // ignore cleanup failures for snapshot media copies
+        }
+      }
       clipAssetCacheRef.current.delete(clipId);
+      if (projects.currentProjectId) {
+        const cacheKey = `${projects.currentProjectId}:${clipId}`;
+        clipExportSourcePathCacheRef.current.delete(cacheKey);
+        clipExportMicAudioPathCacheRef.current.delete(cacheKey);
+      }
       const removedUrls = clipUrlCacheRef.current.get(clipId);
       if (removedUrls) {
         if (removedUrls.videoUrl.startsWith("blob:")) {
@@ -2882,6 +3080,9 @@ function App() {
         }
         if (removedUrls.audioUrl?.startsWith("blob:")) {
           URL.revokeObjectURL(removedUrls.audioUrl);
+        }
+        if (removedUrls.micAudioUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(removedUrls.micAudioUrl);
         }
         clipUrlCacheRef.current.delete(clipId);
       }
@@ -3023,10 +3224,59 @@ function App() {
         selectedRecordingMode,
         targetType,
         captureFpsRef.current ?? undefined,
+        sanitizeRecordingAudioSelection(recordingAudioSelection),
       );
     },
-    [startNewRecording, selectedRecordingMode],
+    [recordingAudioSelection, selectedRecordingMode, startNewRecording],
   );
+
+  const handleToggleRecordingDeviceAudio = useCallback((enabled: boolean) => {
+    setRecordingAudioSelection((prev) => ({
+      ...prev,
+      deviceEnabled: enabled,
+      deviceMode: enabled ? prev.deviceMode : "all",
+      selectedDeviceApp: enabled ? prev.selectedDeviceApp : null,
+    }));
+  }, []);
+
+  const handleToggleRecordingMicAudio = useCallback((enabled: boolean) => {
+    setRecordingAudioSelection((prev) => ({
+      ...prev,
+      micEnabled: enabled,
+    }));
+  }, []);
+
+  const handleSelectAllRecordingDeviceAudio = useCallback(() => {
+    setIsSelectingRecordingAudioApp(false);
+    setRecordingAudioSelection((prev) => ({
+      ...prev,
+      deviceEnabled: true,
+      deviceMode: "all",
+      selectedDeviceApp: null,
+    }));
+  }, []);
+
+  const handleRequestRecordingAudioAppSelection = useCallback(async () => {
+    setRecordingAudioSelection((prev) => ({
+      ...prev,
+      deviceEnabled: true,
+      deviceMode: "app",
+      selectedDeviceApp: null,
+    }));
+    setIsSelectingRecordingAudioApp(true);
+    try {
+      await invoke("show_recording_audio_app_selector");
+    } catch (error) {
+      console.error("[RecordingAudio] Failed to open app selector:", error);
+      setIsSelectingRecordingAudioApp(false);
+      setRecordingAudioSelection((prev) => ({
+        ...prev,
+        deviceEnabled: true,
+        deviceMode: "all",
+        selectedDeviceApp: null,
+      }));
+    }
+  }, []);
 
   const handleSelectWindowForRecording = useCallback(
     async (windowId: string, _captureMethod: "game" | "window") => {
@@ -3055,6 +3305,7 @@ function App() {
       setCurrentRecordingMode(selectedRecordingMode);
       if (!currentVideo) {
         setCurrentRawVideoPath("");
+        setCurrentRawMicAudioPath("");
         setLastRawSavedPath("");
       }
       setRawButtonSavedFlash(false);
@@ -3123,6 +3374,54 @@ function App() {
       );
   }, []);
 
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ pid: number; appName: string }>
+      ).detail;
+      if (!detail || typeof detail.pid !== "number") return;
+
+      setIsSelectingRecordingAudioApp(false);
+      setRecordingAudioSelection((prev) => ({
+        ...prev,
+        deviceEnabled: true,
+        deviceMode: "app",
+        selectedDeviceApp: {
+          pid: detail.pid,
+          name: detail.appName || `PID ${detail.pid}`,
+        },
+      }));
+    };
+    window.addEventListener("external-recording-audio-app-selected", handler);
+    return () => {
+      window.removeEventListener(
+        "external-recording-audio-app-selected",
+        handler,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    const handler = () => {
+      setIsSelectingRecordingAudioApp(false);
+      setRecordingAudioSelection((prev) => ({
+        ...prev,
+        deviceMode: "all",
+        selectedDeviceApp: null,
+      }));
+    };
+    window.addEventListener(
+      "external-recording-audio-app-selection-cancelled",
+      handler,
+    );
+    return () => {
+      window.removeEventListener(
+        "external-recording-audio-app-selection-cancelled",
+        handler,
+      );
+    };
+  }, []);
+
   const onStopRecording = useCallback(async () => {
     setShowRawVideoDialog(false);
     exportHook.setShowExportSuccessDialog(false);
@@ -3139,11 +3438,13 @@ function App() {
         videoUrl,
         recordingMode,
         rawVideoPath,
+        rawMicAudioPath,
         capturedFps,
       } = result;
       setLastCaptureFps(capturedFps);
       setCurrentRecordingMode(recordingMode);
       setCurrentRawVideoPath(rawVideoPath || "");
+      setCurrentRawMicAudioPath(rawMicAudioPath || "");
       setLastRawSavedPath("");
 
       let autoSavedPath = "";
@@ -3188,6 +3489,7 @@ function App() {
         duration: initialSegment.trimEnd,
         recordingMode,
         rawVideoPath: rawVideoPath || undefined,
+        rawMicAudioPath: rawMicAudioPath || undefined,
       });
       projects.setCurrentProjectId(project.id);
       setCurrentProjectData(project);
@@ -3308,6 +3610,9 @@ function App() {
           { time: duration, speed: 1 },
         ],
         deviceAudioPoints: buildFlatDeviceAudioPoints(duration),
+        micAudioPoints: buildFlatMicAudioPoints(duration),
+        deviceAudioAvailable: true,
+        micAudioAvailable: Boolean(currentMicAudio),
         keystrokeMode: getSavedKeystrokeModePref(),
         keystrokeDelaySec: DEFAULT_KEYSTROKE_DELAY_SEC,
         keystrokeLanguage: getSavedKeystrokeLanguage(),
@@ -3409,6 +3714,14 @@ function App() {
           onOpenHotkeyDialog={openHotkeyDialog}
           recordingMode={selectedRecordingMode}
           onRecordingModeChange={setSelectedRecordingMode}
+          recordingAudioSelection={recordingAudioSelection}
+          isSelectingRecordingAudioApp={isSelectingRecordingAudioApp}
+          onToggleRecordingDeviceAudio={handleToggleRecordingDeviceAudio}
+          onToggleRecordingMicAudio={handleToggleRecordingMicAudio}
+          onSelectAllRecordingDeviceAudio={handleSelectAllRecordingDeviceAudio}
+          onRequestRecordingAudioAppSelection={
+            handleRequestRecordingAudioAppSelection
+          }
           rawButtonLabel={
             rawButtonSavedFlash ? t.rawVideoSavedButton : t.saveRawVideo
           }
@@ -3464,6 +3777,7 @@ function App() {
                       preload="auto"
                     />
                     <audio ref={audioRef} className="hidden" />
+                    <audio ref={micAudioRef} className="hidden" />
                     <video
                       ref={previousPreloadVideoRef}
                       className="hidden"
@@ -3944,6 +4258,10 @@ function App() {
               isPlaying={isPlaying}
               onViewportZoomChange={setTimelineViewportZoom}
               onViewportCanvasWidthChange={setTimelineCanvasWidthPx}
+              isDeviceAudioAvailable={
+                segment?.deviceAudioAvailable !== false
+              }
+              isMicAudioAvailable={Boolean(segment?.micAudioAvailable)}
               beginBatch={beginBatch}
               commitBatch={commitBatch}
             />

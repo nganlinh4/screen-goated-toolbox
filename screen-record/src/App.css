@@ -96,6 +96,7 @@
         --timeline-zoom-color: #2563eb;
         --timeline-speed-color: #8b5cf6;
         --timeline-device-audio-color: #e11d48;
+        --timeline-mic-audio-color: #0ea5e9;
         --timeline-success-color: #0f9f8d;
         --timeline-warning-color: #d97706;
         --timeline-neutral-color: #64748b;
@@ -194,6 +195,7 @@
         --timeline-zoom-color: #7ab0ff;
         --timeline-speed-color: #a78bfa;
         --timeline-device-audio-color: #fb7185;
+        --timeline-mic-audio-color: #38bdf8;
         --timeline-success-color: #2dd4bf;
         --timeline-warning-color: #fbbf24;
         --timeline-neutral-color: #94a3b8;
@@ -499,6 +501,97 @@ body.dragging-seek * {
     outline: none;
     border-color: color-mix(in srgb, var(--primary-color) 54%, var(--ui-border));
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent);
+}
+
+.ui-checkbox-input {
+    --ui-checkbox-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 10'%3E%3Cpath d='M1.5 5.3 4.4 8.1 10.5 1.9' fill='none' stroke='white' stroke-linecap='round' stroke-linejoin='round' stroke-width='2.15'/%3E%3C/svg%3E");
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    border-radius: 5px;
+    border: 1px solid color-mix(in srgb, var(--outline) 58%, var(--ui-border));
+    background:
+        var(--ui-checkbox-check),
+        linear-gradient(180deg,
+            color-mix(in srgb, var(--ui-surface-3) 96%, white 4%) 0%,
+            color-mix(in srgb, var(--ui-surface-2) 96%, black 4%) 100%);
+    box-shadow:
+        inset 0 1px 0 color-mix(in srgb, white 18%, transparent),
+        inset 0 0 0 1px color-mix(in srgb, black 10%, transparent);
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 0 0, auto;
+    cursor: pointer;
+    transition:
+        border-color 140ms ease,
+        background 140ms ease,
+        background-size 140ms ease,
+        box-shadow 140ms ease,
+        transform 140ms ease;
+}
+
+.ui-checkbox-input:hover {
+    border-color: color-mix(in srgb, var(--primary-color) 44%, var(--ui-border));
+    box-shadow:
+        inset 0 1px 0 color-mix(in srgb, white 20%, transparent),
+        inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 16%, transparent);
+}
+
+.ui-checkbox-input:focus-visible {
+    outline: none;
+    border-color: color-mix(in srgb, var(--primary-color) 58%, var(--ui-border));
+    box-shadow:
+        0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent),
+        inset 0 1px 0 color-mix(in srgb, white 20%, transparent),
+        inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 16%, transparent);
+}
+
+.ui-checkbox-input:checked {
+    border-color: color-mix(in srgb, var(--primary-color) 64%, var(--ui-border));
+    background:
+        var(--ui-checkbox-check),
+        linear-gradient(180deg,
+            color-mix(in srgb, var(--primary-color) 93%, white 7%) 0%,
+            color-mix(in srgb, var(--primary-color) 88%, black 6%) 100%);
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 10px 8px, auto;
+    box-shadow:
+        inset 0 1px 0 color-mix(in srgb, white 16%, transparent),
+        inset 0 0 0 1px color-mix(in srgb, white 12%, transparent);
+}
+
+.ui-checkbox-input:checked:hover {
+    border-color: color-mix(in srgb, var(--primary-color) 74%, var(--ui-border));
+    box-shadow:
+        inset 0 1px 0 color-mix(in srgb, white 18%, transparent),
+        inset 0 0 0 1px color-mix(in srgb, white 16%, transparent);
+}
+
+.ui-checkbox-input:disabled {
+    cursor: not-allowed;
+    border-color: color-mix(in srgb, var(--ui-border) 92%, transparent);
+    background:
+        var(--ui-checkbox-check),
+        linear-gradient(180deg,
+            color-mix(in srgb, var(--ui-surface-2) 86%, transparent) 0%,
+            color-mix(in srgb, var(--ui-surface-1) 92%, transparent) 100%);
+    box-shadow: none;
+    opacity: 0.55;
+}
+
+.ui-checkbox-input:disabled:checked {
+    background:
+        var(--ui-checkbox-check),
+        linear-gradient(180deg,
+            color-mix(in srgb, var(--primary-color) 62%, var(--ui-surface-2)) 0%,
+            color-mix(in srgb, var(--primary-color) 52%, var(--ui-surface-1)) 100%);
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 10px 8px, auto;
 }
 
 .ui-icon-button {
@@ -851,6 +944,20 @@ body.dragging-seek * {
     background: var(--timeline-lane-bg-strong);
 }
 
+.timeline-lane-unavailable {
+    opacity: 0.38;
+    filter: saturate(0.18) grayscale(0.22);
+    box-shadow: none;
+}
+
+.timeline-lane-unavailable .timeline-control-point {
+    box-shadow: none;
+}
+
+.timeline-label-unavailable {
+    opacity: 0.38;
+}
+
 .timeline-track-empty {
     border: 1px dashed var(--timeline-lane-border);
     border-radius: 0.875rem;
@@ -894,6 +1001,12 @@ body.dragging-seek * {
     background: color-mix(in srgb, var(--timeline-device-audio-color) 16%, var(--ui-surface-3));
     border-color: color-mix(in srgb, var(--timeline-device-audio-color) 36%, transparent);
     color: var(--timeline-device-audio-color);
+}
+
+.timeline-chip[data-tone="mic-audio"] {
+    background: color-mix(in srgb, var(--timeline-mic-audio-color) 16%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--timeline-mic-audio-color) 36%, transparent);
+    color: var(--timeline-mic-audio-color);
 }
 
 .timeline-handle-pill {
@@ -1036,6 +1149,11 @@ body.dragging-seek * {
 .timeline-control-point[data-tone="device-audio"] {
     border: 2px solid var(--timeline-device-audio-color);
     color: var(--timeline-device-audio-color);
+}
+
+.timeline-control-point[data-tone="mic-audio"] {
+    border: 2px solid var(--timeline-mic-audio-color);
+    color: var(--timeline-mic-audio-color);
 }
 
 .timeline-control-point[data-state="active"] {

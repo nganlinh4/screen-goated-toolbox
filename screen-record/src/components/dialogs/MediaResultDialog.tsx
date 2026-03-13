@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { FolderOpen, Copy, CheckCircle2, Maximize2, Minimize2, Play, Pause, Volume2, VolumeX } from 'lucide-react';
 import { invoke } from '@/lib/ipc';
 import { useSettings } from '@/hooks/useSettings';
@@ -457,7 +458,7 @@ export function RawVideoDialog({
       isBusy={isBusy}
       extraControls={
         <label className="media-auto-copy-toggle flex items-center gap-2 text-xs text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] cursor-pointer transition-colors">
-          <input type="checkbox" className="rounded border-[var(--outline)]" checked={autoCopyEnabled} onChange={(e) => onToggleAutoCopy(e.target.checked)} disabled={isBusy} />
+          <Checkbox checked={autoCopyEnabled} onChange={(e) => onToggleAutoCopy(e.target.checked)} disabled={isBusy} />
           <span>{t.autoCopyAfterRecording}</span>
         </label>
       }
@@ -506,7 +507,7 @@ export function ExportSuccessDialog({
             </div>
           ) : null}
           <label className="media-auto-copy-toggle flex items-center gap-2 text-xs text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] cursor-pointer transition-colors">
-            <input type="checkbox" className="rounded border-[var(--outline)]" checked={autoCopyEnabled} onChange={(e) => onToggleAutoCopy(e.target.checked)} />
+            <Checkbox checked={autoCopyEnabled} onChange={(e) => onToggleAutoCopy(e.target.checked)} />
             <span>{isGif ? t.autoCopyGifAfterExport : t.autoCopyVideoAfterExport}</span>
           </label>
         </div>

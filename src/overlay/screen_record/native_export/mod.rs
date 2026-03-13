@@ -1,4 +1,5 @@
 pub mod anim_cache;
+mod audio_mix;
 mod background_presets;
 mod camera_path;
 mod composition;
@@ -20,6 +21,7 @@ use config::{ExportConfig, ExportRuntimeDiagnostics};
 use cursor::{collect_used_cursor_slots, parse_baked_cursor_frames};
 use overlay::load_custom_background_rgba;
 use sampling::{sample_baked_path, sample_parsed_baked_cursor};
+use audio_mix::{build_preprocessed_audio_mix, ExportAudioSource};
 
 use super::SR_HWND;
 use super::gpu_export::{
@@ -424,16 +426,32 @@ pub(crate) fn run_native_export_with_staged(
             },
         ];
     }
+    let mut mic_audio_points = config.segment.mic_audio_points.clone();
+    mic_audio_points.sort_by(|a, b| {
+        a.time
+            .partial_cmp(&b.time)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    if mic_audio_points.is_empty() {
+        mic_audio_points = vec![
+            config::DeviceAudioPoint {
+                time: 0.0,
+                volume: 0.0,
+            },
+            config::DeviceAudioPoint {
+                time: config.duration.max(0.0),
+                volume: 0.0,
+            },
+        ];
+    }
     let has_audible_device_audio = device_audio_points.iter().any(|point| point.volume > 0.0001);
-    // Silent curve or GIF format → omit audio track (GIF is silent looping video).
-    let source_audio_path = if !config.audio_path.is_empty()
-        && has_audible_device_audio
-        && config.format != "gif"
-    {
-        Some(config.audio_path.clone())
-    } else {
-        None
-    };
+    let has_audible_mic_audio = mic_audio_points.iter().any(|point| point.volume > 0.0001);
+    let mut speed_points = config.segment.speed_points.clone();
+    speed_points.sort_by(|a, b| {
+        a.time
+            .partial_cmp(&b.time)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let output_base_dir = if config.output_dir.trim().is_empty() {
         dirs::download_dir().unwrap_or_else(|| PathBuf::from("."))
@@ -460,6 +478,42 @@ pub(crate) fn run_native_export_with_staged(
     } else {
         final_output_path.clone()
     };
+    let use_preprocessed_audio =
+        config.format != "gif" && !config.mic_audio_path.trim().is_empty() && has_audible_mic_audio;
+    let mixed_audio_path = if use_preprocessed_audio {
+        build_preprocessed_audio_mix(
+            &[
+                ExportAudioSource {
+                    path: config.device_audio_path.clone(),
+                    volume_points: device_audio_points.clone(),
+                },
+                ExportAudioSource {
+                    path: config.mic_audio_path.clone(),
+                    volume_points: mic_audio_points.clone(),
+                },
+            ],
+            &speed_points,
+            config.trim_start,
+            config.duration,
+            &config.segment.trim_segments,
+            &output_base_dir,
+            &format!("SGT_Export_{}", timestamp_ms),
+        )?
+    } else {
+        None
+    };
+    let mixed_audio_cleanup_path = mixed_audio_path.clone();
+    let source_audio_path = if let Some(path) = &mixed_audio_path {
+        Some(path.to_string_lossy().to_string())
+    } else if !config.device_audio_path.is_empty()
+        && has_audible_device_audio
+        && config.format != "gif"
+    {
+        Some(config.device_audio_path.clone())
+    } else {
+        None
+    };
+    let audio_is_preprocessed = mixed_audio_path.is_some();
 
     // Get source dimensions via MF SourceReader (lightweight probe, no GPU)
     mf_decode::mf_startup()?;
@@ -760,20 +814,13 @@ pub(crate) fn run_native_export_with_staged(
         source_video_path: source_video_path.clone(),
         output_path: encode_output_path.to_str().unwrap().to_string(),
         audio_path: source_audio_path.clone(),
+        audio_is_preprocessed,
         audio_volume_points: device_audio_points,
         output_width: out_w,
         output_height: out_h,
         framerate: config.framerate,
         bitrate_kbps: bitrate,
-        speed_points: {
-            let mut points = config.segment.speed_points.clone();
-            points.sort_by(|a, b| {
-                a.time
-                    .partial_cmp(&b.time)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            points
-        },
+        speed_points,
         trim_start: config.trim_start,
         duration: config.duration,
         codec: mf_encode::VideoCodec::H264,
@@ -822,6 +869,9 @@ pub(crate) fn run_native_export_with_staged(
             // Detect this case and report cancellation instead of false success.
             if EXPORT_CANCELLED.load(Ordering::SeqCst) {
                 let _ = fs::remove_file(&encode_output_path);
+                if let Some(path) = &mixed_audio_cleanup_path {
+                    let _ = fs::remove_file(path);
+                }
                 println!("[Export][Summary] status=cancelled (partial encode finalized)");
                 return Ok(serde_json::json!({ "status": "cancelled" }));
             }
@@ -838,6 +888,9 @@ pub(crate) fn run_native_export_with_staged(
                     Err(e) => {
                         let _ = fs::remove_file(&encode_output_path);
                         let _ = fs::remove_file(&final_output_path);
+                        if let Some(path) = &mixed_audio_cleanup_path {
+                            let _ = fs::remove_file(path);
+                        }
                         println!("[Export][Summary] status=error (gif convert) error={}", e);
                         return Err(e);
                     }
@@ -884,6 +937,9 @@ pub(crate) fn run_native_export_with_staged(
                 total_secs,
                 actual_total_bitrate_kbps
             );
+            if let Some(path) = &mixed_audio_cleanup_path {
+                let _ = fs::remove_file(path);
+            }
 
             Ok(serde_json::json!({
                 "status": "success",
@@ -899,6 +955,9 @@ pub(crate) fn run_native_export_with_staged(
         Err(e) => {
             let _ = fs::remove_file(&encode_output_path);
             let _ = fs::remove_file(&final_output_path);
+            if let Some(path) = &mixed_audio_cleanup_path {
+                let _ = fs::remove_file(path);
+            }
 
             if EXPORT_CANCELLED.load(Ordering::SeqCst) {
                 println!("[Export][Summary] status=cancelled");

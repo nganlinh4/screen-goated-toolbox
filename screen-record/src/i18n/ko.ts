@@ -40,6 +40,12 @@ const ko: Translations = {
   monitorDisplayName: '디스플레이 {index}',
   monitorDisplayNamePrimary: '디스플레이 {index} (기본)',
   monitorPrimaryShort: '기본',
+  recordingAudioSource: '사운드 소스',
+  recordingAudioAll: '전체',
+  recordingAudioOneApp: '앱 하나',
+  recordingAudioChangeApp: '앱 변경',
+  recordingAudioChoosingApp: '앱 선택 중\u2026',
+  recordingAudioMuted: '음소거',
 
   // SidePanel tabs
   tabZoom: '확대',
@@ -239,6 +245,7 @@ const ko: Translations = {
   trackVideo: '비디오',
   trackSpeed: '속도',
   trackDeviceAudio: '기기 오디오',
+  trackMicAudio: '마이크',
   resetSpeed: '속도 초기화',
 
   // App

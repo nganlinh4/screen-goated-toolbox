@@ -206,6 +206,14 @@ export function projectClipSegmentToSequence(
         ...point,
         time: projectTime(point.time),
       })),
+      deviceAudioPoints: segment.deviceAudioPoints?.map((point) => ({
+        ...point,
+        time: projectTime(point.time),
+      })),
+      micAudioPoints: segment.micAudioPoints?.map((point) => ({
+        ...point,
+        time: projectTime(point.time),
+      })),
     },
     sequenceDuration,
   );
@@ -290,6 +298,18 @@ export function projectSequenceSegmentToClip(
         ...point,
         time: toClipTime(point.time),
       })),
+    deviceAudioPoints: sequenceSegment.deviceAudioPoints
+      ?.filter((point) => overlapsClip(point.time, point.time))
+      .map((point) => ({
+        ...point,
+        time: toClipTime(point.time),
+      })),
+    micAudioPoints: sequenceSegment.micAudioPoints
+      ?.filter((point) => overlapsClip(point.time, point.time))
+      .map((point) => ({
+        ...point,
+        time: toClipTime(point.time),
+      })),
   };
 }
 
@@ -318,6 +338,10 @@ export function mergeCompositionSegmentsToSequence(
     keyboardVisibilitySegments: [],
     keyboardMouseVisibilitySegments: [],
     speedPoints: [],
+    deviceAudioPoints: [],
+    micAudioPoints: [],
+    deviceAudioAvailable: false,
+    micAudioAvailable: false,
     useCustomCursor: true,
   };
 
@@ -342,12 +366,30 @@ export function mergeCompositionSegmentsToSequence(
       ...(projected.keyboardMouseVisibilitySegments ?? []),
     );
     merged.speedPoints?.push(...(projected.speedPoints ?? []));
+    merged.deviceAudioPoints?.push(...(projected.deviceAudioPoints ?? []));
+    merged.micAudioPoints?.push(...(projected.micAudioPoints ?? []));
+    merged.deviceAudioAvailable =
+      merged.deviceAudioAvailable || projected.deviceAudioAvailable !== false;
+    merged.micAudioAvailable =
+      merged.micAudioAvailable || projected.micAudioAvailable === true;
   }
 
   if ((merged.speedPoints?.length ?? 0) === 0) {
     merged.speedPoints = [
       { time: 0, speed: 1 },
       { time: timeline.totalDuration, speed: 1 },
+    ];
+  }
+  if ((merged.deviceAudioPoints?.length ?? 0) === 0) {
+    merged.deviceAudioPoints = [
+      { time: 0, volume: 1 },
+      { time: timeline.totalDuration, volume: 1 },
+    ];
+  }
+  if ((merged.micAudioPoints?.length ?? 0) === 0) {
+    merged.micAudioPoints = [
+      { time: 0, volume: 0 },
+      { time: timeline.totalDuration, volume: 0 },
     ];
   }
 
@@ -434,6 +476,18 @@ export function replaceSequenceClipSegmentInGlobal(
         (point) => !overlapsClip(point.time, point.time),
       ),
       ...(projectedClipSegment.speedPoints ?? []),
+    ].sort((a, b) => a.time - b.time),
+    deviceAudioPoints: [
+      ...(globalSegment.deviceAudioPoints ?? []).filter(
+        (point) => !overlapsClip(point.time, point.time),
+      ),
+      ...(projectedClipSegment.deviceAudioPoints ?? []),
+    ].sort((a, b) => a.time - b.time),
+    micAudioPoints: [
+      ...(globalSegment.micAudioPoints ?? []).filter(
+        (point) => !overlapsClip(point.time, point.time),
+      ),
+      ...(projectedClipSegment.micAudioPoints ?? []),
     ].sort((a, b) => a.time - b.time),
   };
 }

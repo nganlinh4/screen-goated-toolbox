@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { FolderOpen } from 'lucide-react';
 import { invoke } from '@/lib/ipc';
 import {
@@ -523,9 +524,7 @@ export function ExportDialog({
                   </div>
                 </div>
                 <label className="export-auto-copy-toggle mt-3 flex items-center gap-2 text-xs text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] cursor-pointer transition-colors">
-                  <input
-                    type="checkbox"
-                    className="rounded border-[var(--outline)]"
+                  <Checkbox
                     checked={autoCopyEnabled}
                     onChange={(e) => onToggleAutoCopy(e.target.checked)}
                   />

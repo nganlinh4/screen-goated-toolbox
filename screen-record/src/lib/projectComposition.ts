@@ -129,6 +129,7 @@ export function createRootCompositionClip(
     | "mousePositions"
     | "recordingMode"
     | "rawVideoPath"
+    | "rawMicAudioPath"
   >,
 ): ProjectCompositionClip {
   return {
@@ -144,6 +145,7 @@ export function createRootCompositionClip(
     mousePositions: cloneMousePositions(project.mousePositions),
     recordingMode: project.recordingMode,
     rawVideoPath: project.rawVideoPath,
+    rawMicAudioPath: project.rawMicAudioPath,
   };
 }
 
@@ -163,6 +165,7 @@ export function createCompositionSnapshotClip(
     mousePositions: cloneMousePositions(project.mousePositions),
     recordingMode: project.recordingMode,
     rawVideoPath: project.rawVideoPath,
+    rawMicAudioPath: project.rawMicAudioPath,
   };
 }
 
@@ -178,6 +181,7 @@ export function ensureProjectComposition(
     | "mousePositions"
     | "recordingMode"
     | "rawVideoPath"
+    | "rawMicAudioPath"
     | "composition"
   >,
 ): ProjectComposition {

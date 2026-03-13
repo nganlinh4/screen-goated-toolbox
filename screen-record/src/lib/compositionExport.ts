@@ -84,7 +84,8 @@ interface NativeCompositionExportClipJob {
   clipId: string;
   clipName: string;
   sourceVideoPath: string;
-  audioPath: string;
+  deviceAudioPath: string;
+  micAudioPath: string;
   sourceWidth: number;
   sourceHeight: number;
   trimStart: number;
@@ -128,6 +129,7 @@ export interface CompositionExportContext {
   composition: ProjectComposition;
   exportOptions: ExportOptions;
   resolveClipSourcePath: (clip: ProjectCompositionClip) => Promise<string>;
+  resolveClipMicAudioPath: (clip: ProjectCompositionClip) => Promise<string>;
 }
 
 function isLockedCanvasSize(backgroundConfig: BackgroundConfig | null | undefined): boolean {
@@ -317,7 +319,12 @@ export async function buildCompositionExportDialogState(
 export async function exportCompositionAndDownload(
   context: CompositionExportContext,
 ): Promise<NativeCompositionExportResponse> {
-  const { composition, exportOptions, resolveClipSourcePath } = context;
+  const {
+    composition,
+    exportOptions,
+    resolveClipSourcePath,
+    resolveClipMicAudioPath,
+  } = context;
   const sessionId = crypto.randomUUID();
 
   try {
@@ -351,6 +358,7 @@ export async function exportCompositionAndDownload(
     for (const clip of composition.clips) {
       const jobId = clip.id;
       const sourceVideoPath = await resolveClipSourcePath(clip);
+      const micAudioPath = await resolveClipMicAudioPath(clip);
       const metadata = await probeVideoMetadata(sourceVideoPath);
       const backgroundConfig =
         getCompositionResolvedBackgroundConfig(composition, clip.id) ??
@@ -408,7 +416,8 @@ export async function exportCompositionAndDownload(
         clipId: clip.id,
         clipName: clip.name,
         sourceVideoPath,
-        audioPath: sourceVideoPath,
+        deviceAudioPath: sourceVideoPath,
+        micAudioPath,
         sourceWidth: metadata.width,
         sourceHeight: metadata.height,
         trimStart: trimBounds.trimStart,

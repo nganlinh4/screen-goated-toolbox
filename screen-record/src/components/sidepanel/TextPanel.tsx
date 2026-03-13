@@ -1,6 +1,7 @@
 import { AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import { VideoSegment, TextSegment } from '@/types/video';
 import { ColorPicker } from '@/components/ui/ColorPicker';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Slider } from '@/components/ui/Slider';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { SettingRow } from '@/components/layout/SettingRow';
@@ -145,8 +146,7 @@ export function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch,
           {/* Background Pill */}
           <div>
             <label className="flex items-center gap-3 text-[10px] text-on-surface-variant cursor-pointer">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={editingText.style.background?.enabled ?? false}
                 onChange={(e) => updateStyle({
                   background: {
@@ -158,7 +158,6 @@ export function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch,
                     borderRadius: editingText.style.background?.borderRadius ?? 32
                   }
                 })}
-                className="rounded"
               />
               {t.backgroundPill}
             </label>

@@ -18,7 +18,10 @@ pub struct ExportConfig {
     pub quality_gate_percent: f64,
     #[serde(default = "default_pre_render_policy")]
     pub pre_render_policy: String,
-    pub audio_path: String,
+    #[serde(default)]
+    pub device_audio_path: String,
+    #[serde(default)]
+    pub mic_audio_path: String,
     #[serde(default)]
     pub output_dir: String,
     #[serde(default = "default_format")]
@@ -42,7 +45,9 @@ pub struct CompositionExportClipJob {
     pub clip_name: String,
     pub source_video_path: String,
     #[serde(default)]
-    pub audio_path: String,
+    pub device_audio_path: String,
+    #[serde(default)]
+    pub mic_audio_path: String,
     #[serde(default)]
     pub source_width: u32,
     #[serde(default)]
@@ -199,6 +204,8 @@ pub struct VideoSegment {
     pub speed_points: Vec<SpeedPoint>,
     #[serde(default)]
     pub device_audio_points: Vec<DeviceAudioPoint>,
+    #[serde(default)]
+    pub mic_audio_points: Vec<DeviceAudioPoint>,
     #[serde(default)]
     pub smooth_motion_path: Vec<SmoothCameraPoint>,
     #[serde(default)]

@@ -14,6 +14,7 @@ pub use host::{
 pub enum SelectorOwner {
     ScreenRecord,
     RealtimeAppSelection,
+    ScreenRecordAudioAppSelection,
 }
 
 impl SelectorOwner {
@@ -21,6 +22,7 @@ impl SelectorOwner {
         match self {
             Self::ScreenRecord => 1,
             Self::RealtimeAppSelection => 2,
+            Self::ScreenRecordAudioAppSelection => 3,
         }
     }
 
@@ -28,6 +30,7 @@ impl SelectorOwner {
         match value {
             1 => Some(Self::ScreenRecord),
             2 => Some(Self::RealtimeAppSelection),
+            3 => Some(Self::ScreenRecordAudioAppSelection),
             _ => None,
         }
     }

@@ -40,6 +40,12 @@ const vi: Translations = {
   monitorDisplayName: 'Màn hình {index}',
   monitorDisplayNamePrimary: 'Màn hình {index} (Chính)',
   monitorPrimaryShort: 'chính',
+  recordingAudioSource: 'Nguồn Âm Thanh',
+  recordingAudioAll: 'Tất Cả',
+  recordingAudioOneApp: '1 Ứng Dụng',
+  recordingAudioChangeApp: 'Đổi Ứng Dụng',
+  recordingAudioChoosingApp: 'Đang chọn ứng dụng\u2026',
+  recordingAudioMuted: 'Tắt tiếng',
 
   // SidePanel tabs
   tabZoom: 'Phóng To',
@@ -239,6 +245,7 @@ const vi: Translations = {
   trackVideo: 'Video',
   trackSpeed: 'Tốc Độ',
   trackDeviceAudio: 'Âm Thanh Thiết Bị',
+  trackMicAudio: 'Mic',
   resetSpeed: 'Đặt lại tốc độ',
 
   // App

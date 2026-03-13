@@ -9,14 +9,24 @@ import {
   getNextPlayableTime,
   getTrimSegments,
 } from "./trimSegments";
-import { clampDeviceAudioVolume, getDeviceAudioVolumeAtTime } from "./deviceAudio";
+import {
+  buildFlatDeviceAudioPoints,
+  clampDeviceAudioVolume,
+  getDeviceAudioVolumeAtTime,
+} from "./deviceAudio";
+import {
+  buildFlatMicAudioPoints,
+  clampMicAudioVolume,
+  getMicAudioVolumeAtTime,
+} from "./micAudio";
 import { getSpeedAtTime } from "./videoExporter";
 import { DEFAULT_BUILT_IN_BACKGROUND_ID } from "@/lib/backgroundPresets";
 import { isNativeMediaUrl } from "@/lib/mediaServer";
 
 interface VideoControllerOptions {
   videoRef: HTMLVideoElement;
-  audioRef?: HTMLAudioElement;
+  deviceAudioRef?: HTMLAudioElement;
+  micAudioRef?: HTMLAudioElement;
   canvasRef: HTMLCanvasElement;
   tempCanvasRef: HTMLCanvasElement;
   onTimeUpdate?: (time: number) => void;
@@ -51,7 +61,8 @@ const PLAYBACK_RESET_DEBUG = false;
 
 export class VideoController {
   private video: HTMLVideoElement;
-  private audio?: HTMLAudioElement;
+  private deviceAudio?: HTMLAudioElement;
+  private micAudio?: HTMLAudioElement;
   private canvas: HTMLCanvasElement;
   private tempCanvas: HTMLCanvasElement;
   private options: VideoControllerOptions;
@@ -59,7 +70,6 @@ export class VideoController {
   private renderOptions?: RenderOptions;
   private isChangingSource = false;
   private isGeneratingThumbnail = false;
-  private audioPlayPromise: Promise<void> | null = null;
   private pendingSeekTime: number | null = null;
   private lastRequestedSeekTime: number | null = null;
   private readonly SEGMENT_EPS = 0.03;
@@ -71,10 +81,13 @@ export class VideoController {
   private playbackRecoveryAnchorTime: number | null = null;
   private playbackRecoveryAnchorExpiresAt = 0;
   private playbackRecoveryRetryCount = 0;
+  private deviceAudioPlayPromise: Promise<void> | null = null;
+  private micAudioPlayPromise: Promise<void> | null = null;
 
   constructor(options: VideoControllerOptions) {
     this.video = options.videoRef;
-    this.audio = options.audioRef;
+    this.deviceAudio = options.deviceAudioRef;
+    this.micAudio = options.micAudioRef;
     this.canvas = options.canvasRef;
     this.tempCanvas = options.tempCanvasRef;
     this.options = options;
@@ -104,32 +117,74 @@ export class VideoController {
   private handleLoadedData = () => {
     // During source changes, canplaythrough handler manages ready state & rendering
     if (this.isChangingSource) return;
-    this.applyDeviceAudioVolume(this.video.currentTime);
+    this.applyAudioTrackVolumes(this.video.currentTime);
     this.renderFrame();
     this.setReady(true);
   };
 
-  private get hasValidAudio(): boolean {
+  private hasValidMediaElement(element?: HTMLAudioElement) {
     return !!(
-      this.audio &&
-      this.audio.src &&
-      this.audio.src !== "" &&
-      this.audio.src !== window.location.href
+      element &&
+      element.src &&
+      element.src !== "" &&
+      element.src !== window.location.href
     );
   }
 
-  private handlePlay = () => {
-    this.applyDeviceAudioVolume(this.video.currentTime);
-    if (this.hasValidAudio && this.audio) {
-      // Hard sync before playing to prevent initial harsh audio glitch
-      if (Math.abs(this.video.currentTime - this.audio.currentTime) > 0.05) {
-        this.audio.currentTime = this.video.currentTime;
-      }
-      this.audio.currentTime = this.video.currentTime;
-      this.audio.playbackRate = this.video.playbackRate;
-      // Store promise so handlePause can await it before pausing (avoids AbortError)
-      this.audioPlayPromise = this.audio.play().catch(() => {});
+  private get hasValidDeviceAudio(): boolean {
+    return this.hasValidMediaElement(this.deviceAudio);
+  }
+
+  private get hasValidMicAudio(): boolean {
+    return this.hasValidMediaElement(this.micAudio);
+  }
+
+  private get hasExternalAudio(): boolean {
+    return this.hasValidDeviceAudio || this.hasValidMicAudio;
+  }
+
+  private syncAudioElementTime(element: HTMLAudioElement | undefined, time: number) {
+    if (!element || !this.hasValidMediaElement(element)) return;
+    if (Math.abs(element.currentTime - time) > 0.05) {
+      element.currentTime = time;
     }
+  }
+
+  private syncAudioElementPlaybackRate(
+    element: HTMLAudioElement | undefined,
+    playbackRate: number,
+  ) {
+    if (!element || !this.hasValidMediaElement(element)) return;
+    element.playbackRate = playbackRate;
+  }
+
+  private playAudioElement(
+    element: HTMLAudioElement | undefined,
+  ): Promise<void> | null {
+    if (!element || !this.hasValidMediaElement(element)) return null;
+    return element.play().catch(() => {});
+  }
+
+  private pauseAudioElement(
+    element: HTMLAudioElement | undefined,
+    pendingPromise: Promise<void> | null,
+  ) {
+    if (!element || !this.hasValidMediaElement(element)) return;
+    if (pendingPromise) {
+      pendingPromise.then(() => element.pause()).catch(() => {});
+      return;
+    }
+    element.pause();
+  }
+
+  private handlePlay = () => {
+    this.applyAudioTrackVolumes(this.video.currentTime);
+    this.syncAudioElementTime(this.deviceAudio, this.video.currentTime);
+    this.syncAudioElementTime(this.micAudio, this.video.currentTime);
+    this.syncAudioElementPlaybackRate(this.deviceAudio, this.video.playbackRate);
+    this.syncAudioElementPlaybackRate(this.micAudio, this.video.playbackRate);
+    this.deviceAudioPlayPromise = this.playAudioElement(this.deviceAudio);
+    this.micAudioPlayPromise = this.playAudioElement(this.micAudio);
 
     // Ensure animation is running
     if (this.renderOptions) {
@@ -153,16 +208,10 @@ export class VideoController {
   private handlePause = () => {
     this.playRequestSeq += 1;
     this.clearPlaybackRecoveryAnchor();
-    if (this.hasValidAudio && this.audio) {
-      // Wait for pending play() promise before pausing to avoid AbortError
-      const promise = this.audioPlayPromise;
-      this.audioPlayPromise = null;
-      if (promise) {
-        promise.then(() => this.audio?.pause()).catch(() => {});
-      } else {
-        this.audio.pause();
-      }
-    }
+    this.pauseAudioElement(this.deviceAudio, this.deviceAudioPlayPromise);
+    this.pauseAudioElement(this.micAudio, this.micAudioPlayPromise);
+    this.deviceAudioPlayPromise = null;
+    this.micAudioPlayPromise = null;
     this.stopPlaybackMonitor();
     this.setPlaying(false);
     this.setCurrentTime(this.video.currentTime);
@@ -186,16 +235,30 @@ export class VideoController {
     );
   }
 
-  private applyDeviceAudioVolume(time: number = this.video.currentTime) {
-    const volume = this.getDeviceAudioVolume(time);
-    if (this.hasValidAudio && this.audio) {
-      this.audio.volume = volume;
+  private getMicAudioVolume(time: number): number {
+    return clampMicAudioVolume(
+      getMicAudioVolumeAtTime(time, this.renderOptions?.segment?.micAudioPoints),
+    );
+  }
+
+  private applyAudioTrackVolumes(time: number = this.video.currentTime) {
+    const deviceVolume = this.getDeviceAudioVolume(time);
+    const micVolume = this.getMicAudioVolume(time);
+
+    if (this.hasValidDeviceAudio && this.deviceAudio) {
+      this.deviceAudio.volume = deviceVolume;
+    }
+    if (this.hasValidMicAudio && this.micAudio) {
+      this.micAudio.volume = micVolume;
+    }
+
+    if (this.hasExternalAudio) {
       this.video.muted = true;
       return;
     }
 
     this.video.muted = false;
-    this.video.volume = volume;
+    this.video.volume = deviceVolume;
   }
 
   private handleTimeUpdate = () => {
@@ -211,11 +274,23 @@ export class VideoController {
       }
 
       // Smooth audio sync: only correct if drift > 150ms to avoid audio stutter
-      if (this.hasValidAudio && this.audio && !this.video.paused) {
+      if (this.hasExternalAudio && !this.video.paused) {
         const speed = this.video.playbackRate;
-        const drift = Math.abs(this.video.currentTime - this.audio.currentTime);
-        if (drift > Math.max(0.15, 0.1 * speed)) {
-          this.audio.currentTime = this.video.currentTime;
+        if (
+          this.deviceAudio &&
+          this.hasValidDeviceAudio &&
+          Math.abs(this.video.currentTime - this.deviceAudio.currentTime) >
+            Math.max(0.15, 0.1 * speed)
+        ) {
+          this.deviceAudio.currentTime = this.video.currentTime;
+        }
+        if (
+          this.micAudio &&
+          this.hasValidMicAudio &&
+          Math.abs(this.video.currentTime - this.micAudio.currentTime) >
+            Math.max(0.15, 0.1 * speed)
+        ) {
+          this.micAudio.currentTime = this.video.currentTime;
         }
       }
 
@@ -225,12 +300,12 @@ export class VideoController {
         const safeRate = Math.max(0.0625, Math.min(16.0, currentSpeed));
         if (Math.abs(this.video.playbackRate - safeRate) > 0.05) {
           this.video.playbackRate = safeRate;
-          if (this.hasValidAudio && this.audio)
-            this.audio.playbackRate = safeRate;
+          this.syncAudioElementPlaybackRate(this.deviceAudio, safeRate);
+          this.syncAudioElementPlaybackRate(this.micAudio, safeRate);
         }
       }
 
-      this.applyDeviceAudioVolume(currentTime);
+      this.applyAudioTrackVolumes(currentTime);
       this.setCurrentTime(currentTime);
       this.maybeClearPlaybackRecoveryAnchor(currentTime);
       // Removed renderFrame here - allow animation loop to handle updates during playback
@@ -245,7 +320,7 @@ export class VideoController {
 
     // Render the just-decoded frame immediately
     this.renderFrame();
-    this.applyDeviceAudioVolume(this.video.currentTime);
+    this.applyAudioTrackVolumes(this.video.currentTime);
 
     const requestedTime = this.lastRequestedSeekTime;
     const recoveryAnchorTime = this.playbackRecoveryAnchorTime;
@@ -271,9 +346,8 @@ export class VideoController {
       this.setSeeking(true);
       this.setCurrentTime(recoveryAnchorTime);
       this.video.currentTime = recoveryAnchorTime;
-      if (this.hasValidAudio && this.audio) {
-        this.audio.currentTime = recoveryAnchorTime;
-      }
+      this.syncAudioElementTime(this.deviceAudio, recoveryAnchorTime);
+      this.syncAudioElementTime(this.micAudio, recoveryAnchorTime);
       return;
     }
 
@@ -300,7 +374,8 @@ export class VideoController {
       });
       this.setCurrentTime(clamped);
       this.video.currentTime = clamped;
-      if (this.hasValidAudio && this.audio) this.audio.currentTime = clamped;
+      this.syncAudioElementTime(this.deviceAudio, clamped);
+      this.syncAudioElementTime(this.micAudio, clamped);
     } else {
       const clamped = this.renderOptions?.segment
         ? (getNextPlayableTime(
@@ -326,7 +401,8 @@ export class VideoController {
 
       if (Math.abs(clamped - this.video.currentTime) > 0.001) {
         this.video.currentTime = clamped;
-        if (this.hasValidAudio && this.audio) this.audio.currentTime = clamped;
+        this.syncAudioElementTime(this.deviceAudio, clamped);
+        this.syncAudioElementTime(this.micAudio, clamped);
       }
 
       let displayTime = clamped;
@@ -370,7 +446,8 @@ export class VideoController {
       );
       if (nextTime !== null && nextTime - currentTime > this.SEGMENT_EPS) {
         this.video.currentTime = nextTime;
-        if (this.hasValidAudio && this.audio) this.audio.currentTime = nextTime;
+        this.syncAudioElementTime(this.deviceAudio, nextTime);
+        this.syncAudioElementTime(this.micAudio, nextTime);
         this.setCurrentTime(nextTime);
         return nextTime;
       }
@@ -383,8 +460,8 @@ export class VideoController {
       }
       if (currentTime >= last.endTime - TRANSITION_EPS && !this.video.paused) {
         this.video.currentTime = last.endTime;
-        if (this.hasValidAudio && this.audio)
-          this.audio.currentTime = last.endTime;
+        this.syncAudioElementTime(this.deviceAudio, last.endTime);
+        this.syncAudioElementTime(this.micAudio, last.endTime);
         this.setCurrentTime(last.endTime);
         this.video.pause();
         return last.endTime;
@@ -401,8 +478,8 @@ export class VideoController {
       const next = segs[currentSegIndex + 1];
       if (next && next.startTime - currentTime > this.SEGMENT_EPS) {
         this.video.currentTime = next.startTime;
-        if (this.hasValidAudio && this.audio)
-          this.audio.currentTime = next.startTime;
+        this.syncAudioElementTime(this.deviceAudio, next.startTime);
+        this.syncAudioElementTime(this.micAudio, next.startTime);
         this.setCurrentTime(next.startTime);
         return next.startTime;
       }
@@ -411,8 +488,8 @@ export class VideoController {
         return next.startTime;
       }
       this.video.currentTime = currentSeg.endTime;
-      if (this.hasValidAudio && this.audio)
-        this.audio.currentTime = currentSeg.endTime;
+      this.syncAudioElementTime(this.deviceAudio, currentSeg.endTime);
+      this.syncAudioElementTime(this.micAudio, currentSeg.endTime);
       this.setCurrentTime(currentSeg.endTime);
       this.video.pause();
       return currentSeg.endTime;
@@ -430,7 +507,7 @@ export class VideoController {
       }
       if (!this.state.isSeeking) {
         this.enforceSegmentPlaybackBounds(this.video.currentTime, true);
-        this.applyDeviceAudioVolume(this.video.currentTime);
+        this.applyAudioTrackVolumes(this.video.currentTime);
       }
       this.playbackMonitorRaf = requestAnimationFrame(loop);
     };
@@ -627,9 +704,8 @@ export class VideoController {
     this.lastRequestedSeekTime = anchorTime;
     this.setSeeking(true);
     this.video.currentTime = anchorTime;
-    if (this.hasValidAudio && this.audio) {
-      this.audio.currentTime = anchorTime;
-    }
+    this.syncAudioElementTime(this.deviceAudio, anchorTime);
+    this.syncAudioElementTime(this.micAudio, anchorTime);
     this.setCurrentTime(anchorTime);
     return true;
   }
@@ -817,7 +893,7 @@ export class VideoController {
   public renderImmediate(options: RenderOptions) {
     if (this.video.readyState < 2) return;
     this.renderOptions = options;
-    this.applyDeviceAudioVolume(this.video.currentTime);
+    this.applyAudioTrackVolumes(this.video.currentTime);
     const ctx = {
       video: this.video,
       canvas: this.canvas,
@@ -835,7 +911,7 @@ export class VideoController {
   // Public API
   public updateRenderOptions(options: RenderOptions) {
     this.renderOptions = options;
-    this.applyDeviceAudioVolume(this.video.currentTime);
+    this.applyAudioTrackVolumes(this.video.currentTime);
     // Throttle heavy re-renders during rapid slider dragging (e.g. motion blur).
     if (this.renderTimeout === null) {
       this.renderTimeout = requestAnimationFrame(() => {
@@ -853,9 +929,8 @@ export class VideoController {
     const playRequestId = ++this.playRequestSeq;
     const startPlayback = (targetTime: number) => {
       if (playRequestId !== this.playRequestSeq) return;
-      if (this.hasValidAudio && this.audio) {
-        this.audio.currentTime = targetTime;
-      }
+      this.syncAudioElementTime(this.deviceAudio, targetTime);
+      this.syncAudioElementTime(this.micAudio, targetTime);
       this.setCurrentTime(targetTime);
       this.video.play().catch(() => {});
     };
@@ -957,7 +1032,8 @@ export class VideoController {
     // Decoder is idle — start seeking now
     this.setSeeking(true);
     this.video.currentTime = time;
-    if (this.hasValidAudio && this.audio) this.audio.currentTime = time;
+    this.syncAudioElementTime(this.deviceAudio, time);
+    this.syncAudioElementTime(this.micAudio, time);
   }
 
   /** Flush any pending seek immediately (call on drag end). */
@@ -980,7 +1056,8 @@ export class VideoController {
       this.armPlaybackRecoveryAnchor(clamped);
       this.setSeeking(true);
       this.video.currentTime = clamped;
-      if (this.hasValidAudio && this.audio) this.audio.currentTime = clamped;
+      this.syncAudioElementTime(this.deviceAudio, clamped);
+      this.syncAudioElementTime(this.micAudio, clamped);
       this.setCurrentTime(clamped);
     }
   }
@@ -1008,6 +1085,12 @@ export class VideoController {
     this.video.removeEventListener("loadedmetadata", this.handleLoadedMetadata);
     this.video.removeEventListener("durationchange", this.handleDurationChange);
     this.video.removeEventListener("error", this.handleError);
+    if (this.deviceAudio) {
+      this.clearMediaElementSource(this.deviceAudio);
+    }
+    if (this.micAudio) {
+      this.clearMediaElementSource(this.micAudio);
+    }
   }
 
   // Getters
@@ -1041,8 +1124,11 @@ export class VideoController {
   }): Promise<string> {
     try {
       // Clear previous audio
-      if (this.audio) {
-        this.clearMediaElementSource(this.audio);
+      if (this.deviceAudio) {
+        this.clearMediaElementSource(this.deviceAudio);
+      }
+      if (this.micAudio) {
+        this.clearMediaElementSource(this.micAudio);
       }
 
       let blob: Blob;
@@ -1093,17 +1179,21 @@ export class VideoController {
     }
   }
 
-  public async loadAudio({
-    audioBlob,
-    audioUrl,
-    onLoadingProgress,
-  }: {
-    audioBlob?: Blob;
-    audioUrl?: string;
-    onLoadingProgress?: (p: number) => void;
-  }): Promise<string> {
+  private async loadAudioElement(
+    element: HTMLAudioElement | undefined,
+    label: string,
+    {
+      audioBlob,
+      audioUrl,
+      onLoadingProgress,
+    }: {
+      audioBlob?: Blob;
+      audioUrl?: string;
+      onLoadingProgress?: (p: number) => void;
+    },
+  ): Promise<string> {
     try {
-      if (!this.audio) return "";
+      if (!element) return "";
 
       let blob: Blob;
 
@@ -1111,12 +1201,12 @@ export class VideoController {
         blob = audioBlob;
       } else if (audioUrl?.startsWith("blob:") || isNativeMediaUrl(audioUrl)) {
         const directAudioUrl = audioUrl!;
-        this.audio.src = directAudioUrl;
-        this.audio.load();
+        element.src = directAudioUrl;
+        element.load();
         return directAudioUrl;
       } else if (audioUrl) {
         const response = await fetch(audioUrl);
-        if (!response.ok) throw new Error("Failed to fetch audio");
+        if (!response.ok) throw new Error(`Failed to fetch ${label}`);
 
         const reader = response.body!.getReader();
         const contentLength = +(response.headers.get("Content-Length") ?? 0);
@@ -1137,18 +1227,51 @@ export class VideoController {
 
         blob = new Blob(chunks, { type: "audio/wav" });
       } else {
+        this.clearMediaElementSource(element);
         return "";
       }
 
       const objectUrl = URL.createObjectURL(blob);
-      this.audio.src = objectUrl;
-      this.audio.load();
+      element.src = objectUrl;
+      element.load();
 
       return objectUrl;
     } catch (error) {
-      console.error("[AudioLoad]", error);
+      console.error(`[${label}]`, error);
       return "";
     }
+  }
+
+  public async loadDeviceAudio({
+    audioBlob,
+    audioUrl,
+    onLoadingProgress,
+  }: {
+    audioBlob?: Blob;
+    audioUrl?: string;
+    onLoadingProgress?: (p: number) => void;
+  }): Promise<string> {
+    return this.loadAudioElement(this.deviceAudio, "DeviceAudioLoad", {
+      audioBlob,
+      audioUrl,
+      onLoadingProgress,
+    });
+  }
+
+  public async loadMicAudio({
+    audioBlob,
+    audioUrl,
+    onLoadingProgress,
+  }: {
+    audioBlob?: Blob;
+    audioUrl?: string;
+    onLoadingProgress?: (p: number) => void;
+  }): Promise<string> {
+    return this.loadAudioElement(this.micAudio, "MicAudioLoad", {
+      audioBlob,
+      audioUrl,
+      onLoadingProgress,
+    });
   }
 
   // Update existing method to be private
@@ -1230,6 +1353,14 @@ export class VideoController {
       ],
       zoomKeyframes: [],
       textSegments: [],
+      speedPoints: [
+        { time: 0, speed: 1 },
+        { time: duration, speed: 1 },
+      ],
+      deviceAudioPoints: buildFlatDeviceAudioPoints(duration),
+      micAudioPoints: buildFlatMicAudioPoints(duration),
+      deviceAudioAvailable: true,
+      micAudioAvailable: false,
     };
     return initialSegment;
   }
