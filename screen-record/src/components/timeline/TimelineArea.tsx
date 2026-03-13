@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import type { VideoSegment } from "@/types/video";
 import { useSettings } from "@/hooks/useSettings";
 import { KeystrokeTrack } from "./KeystrokeTrack";
+import { MicTrack } from "./MicTrack";
 import { Playhead } from "./Playhead";
 import { PointerTrack } from "./PointerTrack";
 import { DeviceAudioTrack } from "./DeviceAudioTrack";
@@ -20,6 +21,7 @@ const TIMELINE_TRACK_HEIGHTS = {
   debug: 40,
   speed: 40,
   deviceAudio: 40,
+  micAudio: 40,
   text: 28,
   keystroke: 28,
   pointer: 28,
@@ -51,6 +53,8 @@ interface TimelineAreaProps {
   isPlaying?: boolean;
   onViewportZoomChange?: (zoom: number) => void;
   onViewportCanvasWidthChange?: (widthPx: number) => void;
+  isDeviceAudioAvailable: boolean;
+  isMicAudioAvailable: boolean;
   beginBatch: () => void;
   commitBatch: () => void;
 }
@@ -80,6 +84,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   isPlaying,
   onViewportZoomChange,
   onViewportCanvasWidthChange,
+  isDeviceAudioAvailable,
+  isMicAudioAvailable,
   beginBatch,
   commitBatch,
 }) => {
@@ -97,6 +103,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     ...(showDebug ? [TIMELINE_TRACK_HEIGHTS.debug] : []),
     TIMELINE_TRACK_HEIGHTS.speed,
     TIMELINE_TRACK_HEIGHTS.deviceAudio,
+    TIMELINE_TRACK_HEIGHTS.micAudio,
     TIMELINE_TRACK_HEIGHTS.text,
     TIMELINE_TRACK_HEIGHTS.keystroke,
     TIMELINE_TRACK_HEIGHTS.pointer,
@@ -240,9 +247,14 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 R
               </button>
             </div>
-            <div className="timeline-label-device-audio h-10 flex items-center">
+            <div className={`timeline-label-device-audio h-10 flex items-center ${isDeviceAudioAvailable ? "" : "timeline-label-unavailable"}`}>
               <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                 {t.trackDeviceAudio}
+              </span>
+            </div>
+            <div className={`timeline-label-mic-audio h-10 flex items-center ${isMicAudioAvailable ? "" : "timeline-label-unavailable"}`}>
+              <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+                {t.trackMicAudio}
               </span>
             </div>
             <div className="timeline-label-text h-7 flex items-center">
@@ -335,6 +347,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     <DeviceAudioTrack
                       segment={segment}
                       duration={duration}
+                      isAvailable={isDeviceAudioAvailable}
                       onUpdateDeviceAudioPoints={(points) => {
                         setSegment({ ...segment, deviceAudioPoints: points });
                       }}
@@ -343,6 +356,21 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     />
                   ) : (
                     <div className="device-audio-track-empty timeline-track-empty h-10" />
+                  )}
+
+                  {segment ? (
+                    <MicTrack
+                      segment={segment}
+                      duration={duration}
+                      isAvailable={isMicAudioAvailable}
+                      onUpdateMicAudioPoints={(points) => {
+                        setSegment({ ...segment, micAudioPoints: points });
+                      }}
+                      beginBatch={beginBatch}
+                      commitBatch={commitBatch}
+                    />
+                  ) : (
+                    <div className="mic-audio-track-empty timeline-track-empty h-10" />
                   )}
 
                   {segment ? (

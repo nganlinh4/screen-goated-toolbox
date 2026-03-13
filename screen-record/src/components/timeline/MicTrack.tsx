@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { DeviceAudioPoint, VideoSegment } from "@/types/video";
-import { buildFlatDeviceAudioPoints, clampDeviceAudioVolume } from "@/lib/deviceAudio";
+import { MicAudioPoint, VideoSegment } from "@/types/video";
+import { buildFlatMicAudioPoints, clampMicAudioVolume } from "@/lib/micAudio";
 import {
   type AdjacentSegmentIndices,
   type AdjustableLineDragVisualMode,
@@ -14,48 +14,47 @@ import {
   subscribeToAdjustableLineDragVisualMode,
 } from "./adjustableLineUtils";
 
-const DEVICE_AUDIO_TRACK_TOP_PX = 5;
-const DEVICE_AUDIO_TRACK_BOTTOM_PX = 35;
-const DEVICE_AUDIO_TRACK_RANGE_PX =
-  DEVICE_AUDIO_TRACK_BOTTOM_PX - DEVICE_AUDIO_TRACK_TOP_PX;
-const DEVICE_AUDIO_TRACK_VIEWBOX_HEIGHT = 40;
+const MIC_TRACK_TOP_PX = 5;
+const MIC_TRACK_BOTTOM_PX = 35;
+const MIC_TRACK_RANGE_PX = MIC_TRACK_BOTTOM_PX - MIC_TRACK_TOP_PX;
+const MIC_TRACK_VIEWBOX_HEIGHT = 40;
 
 function volumeToY(volume: number) {
-  return 1 - clampDeviceAudioVolume(volume);
+  return 1 - clampMicAudioVolume(volume);
 }
 
 function yToVolume(y: number) {
-  return clampDeviceAudioVolume(1 - y);
+  return clampMicAudioVolume(1 - y);
 }
 
 function volumeToTrackY(volume: number) {
-  return DEVICE_AUDIO_TRACK_TOP_PX + volumeToY(volume) * DEVICE_AUDIO_TRACK_RANGE_PX;
+  return MIC_TRACK_TOP_PX + volumeToY(volume) * MIC_TRACK_RANGE_PX;
 }
 
 function volumeToTrackYPercent(volume: number) {
-  return `${(volumeToTrackY(volume) / DEVICE_AUDIO_TRACK_VIEWBOX_HEIGHT) * 100}%`;
+  return `${(volumeToTrackY(volume) / MIC_TRACK_VIEWBOX_HEIGHT) * 100}%`;
 }
 
-interface DeviceAudioTrackProps {
+interface MicTrackProps {
   segment: VideoSegment;
   duration: number;
   isAvailable: boolean;
-  onUpdateDeviceAudioPoints: (points: DeviceAudioPoint[]) => void;
+  onUpdateMicAudioPoints: (points: MicAudioPoint[]) => void;
   beginBatch: () => void;
   commitBatch: () => void;
 }
 
-export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
+export const MicTrack: React.FC<MicTrackProps> = ({
   segment,
   duration,
   isAvailable,
-  onUpdateDeviceAudioPoints,
+  onUpdateMicAudioPoints,
   beginBatch,
   commitBatch,
 }) => {
-  const points = segment.deviceAudioPoints?.length
-    ? segment.deviceAudioPoints
-    : buildFlatDeviceAudioPoints(duration);
+  const points = segment.micAudioPoints?.length
+    ? segment.micAudioPoints
+    : buildFlatMicAudioPoints(duration);
   const draggingIdxRef = useRef<number | null>(null);
   const pointsRef = useRef(points);
   pointsRef.current = points;
@@ -94,14 +93,14 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
         if (hoveredIdx === 0 || hoveredIdx === points.length - 1) return;
         const next = [...points];
         next.splice(hoveredIdx, 1);
-        onUpdateDeviceAudioPoints(next);
+        onUpdateMicAudioPoints(next);
         setHoveredIdx(null);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [hoveredIdx, onUpdateDeviceAudioPoints, points]);
+  }, [hoveredIdx, onUpdateMicAudioPoints, points]);
 
   useEffect(() => {
     return subscribeToAdjustableLineDragVisualMode(setGlobalDragVisualMode);
@@ -136,7 +135,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
 
   const generatePath = () => {
     if (points.length === 0) {
-      return `M 0 ${DEVICE_AUDIO_TRACK_TOP_PX} L 100 ${DEVICE_AUDIO_TRACK_TOP_PX}`;
+      return `M 0 ${MIC_TRACK_BOTTOM_PX} L 100 ${MIC_TRACK_BOTTOM_PX}`;
     }
     const sorted = [...points].sort((a, b) => a.time - b.time);
     const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
@@ -235,7 +234,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
     startClientX: number,
     startClientY: number,
     rect: DOMRect,
-    initialPoints: DeviceAudioPoint[],
+    initialPoints: MicAudioPoint[],
   ) => {
     draggingIdxRef.current = activeIdx;
     pointsRef.current = initialPoints;
@@ -244,7 +243,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
     const startTime = activePoint.time;
     const startVolumeY = volumeToY(activePoint.volume);
     const startVolume = activePoint.volume;
-    const valueRangePx = Math.max(1, DEVICE_AUDIO_TRACK_RANGE_PX);
+    const valueRangePx = Math.max(1, MIC_TRACK_RANGE_PX);
     setActiveSegmentIndices(null);
     setActiveDragIdx(activeIdx);
     updateAxisLockMode(null);
@@ -301,7 +300,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
         }
         next[draggingIdxRef.current] = { time: t, volume };
         pointsRef.current = next;
-        onUpdateDeviceAudioPoints(next);
+        onUpdateMicAudioPoints(next);
         setDragBadge({
           x: me.clientX,
           y: me.clientY - 40,
@@ -321,7 +320,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
       setDragBadge(null);
       const sorted = sortPointsByTime(pointsRef.current);
       pointsRef.current = sorted;
-      onUpdateDeviceAudioPoints(sorted);
+      onUpdateMicAudioPoints(sorted);
       commitBatch();
     };
 
@@ -334,10 +333,10 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
     fixedTimes: number[],
     startClientY: number,
     startVolume: number,
-    initialPoints: DeviceAudioPoint[],
+    initialPoints: MicAudioPoint[],
   ) => {
     pointsRef.current = initialPoints;
-    const valueRangePx = Math.max(1, DEVICE_AUDIO_TRACK_RANGE_PX);
+    const valueRangePx = Math.max(1, MIC_TRACK_RANGE_PX);
     const startVolumeY = volumeToY(startVolume);
     setIsSegmentDragActive(true);
     setActiveSegmentIndices([
@@ -362,7 +361,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
         };
       });
       pointsRef.current = next;
-      onUpdateDeviceAudioPoints(next);
+      onUpdateMicAudioPoints(next);
       setDragBadge({
         x: me.clientX,
         y: me.clientY - 40,
@@ -379,7 +378,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
       setDragBadge(null);
       const sorted = sortPointsByTime(pointsRef.current);
       pointsRef.current = sorted;
-      onUpdateDeviceAudioPoints(sorted);
+      onUpdateMicAudioPoints(sorted);
       commitBatch();
     };
 
@@ -407,7 +406,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
 
       beginBatch();
       pointsRef.current = plan.points;
-      onUpdateDeviceAudioPoints(plan.points);
+      onUpdateMicAudioPoints(plan.points);
       startDraggingSegment(
         plan.activeIndices,
         plan.activeIndices.map((index) => plan.points[index]?.time ?? time),
@@ -427,12 +426,12 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
       getValue: (point) => point.volume,
     });
 
-    const point = { time, volume: clampDeviceAudioVolume(expectedVolume) };
+    const point = { time, volume: clampMicAudioVolume(expectedVolume) };
     nextPoints.push(point);
     nextPoints = sortPointsByTime(nextPoints);
     const activeIdx = nextPoints.indexOf(point);
     pointsRef.current = nextPoints;
-    onUpdateDeviceAudioPoints(nextPoints);
+    onUpdateMicAudioPoints(nextPoints);
 
     startDraggingPoint(activeIdx, e.clientX, e.clientY, rect, nextPoints);
   };
@@ -482,47 +481,47 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
   return (
     <>
       <div
-        className={`device-audio-track timeline-lane timeline-lane-strong relative h-10 ${
+        className={`mic-audio-track timeline-lane timeline-lane-strong relative h-10 ${
           isAvailable ? "" : "timeline-lane-unavailable"
         }`}
       >
         <div
-          className="device-audio-track-curve-clip absolute inset-0 overflow-hidden"
+          className="mic-audio-track-curve-clip absolute inset-0 overflow-hidden"
           style={{ borderRadius: "inherit" }}
         >
           <svg
-            className="device-audio-track-curve h-full w-full overflow-hidden"
+            className="mic-audio-track-curve h-full w-full overflow-hidden"
             preserveAspectRatio="none"
             viewBox="0 0 100 40"
           >
             <line
-              className="device-audio-track-baseline device-audio-track-baseline-top"
+              className="mic-audio-track-baseline mic-audio-track-baseline-top"
               x1="0"
-              y1={DEVICE_AUDIO_TRACK_TOP_PX}
+              y1={MIC_TRACK_TOP_PX}
               x2="100"
-              y2={DEVICE_AUDIO_TRACK_TOP_PX}
-              stroke="color-mix(in srgb, var(--timeline-device-audio-color) 24%, transparent)"
+              y2={MIC_TRACK_TOP_PX}
+              stroke="color-mix(in srgb, var(--timeline-mic-audio-color) 24%, transparent)"
               vectorEffect="non-scaling-stroke"
             />
             <line
-              className="device-audio-track-baseline device-audio-track-baseline-bottom"
+              className="mic-audio-track-baseline mic-audio-track-baseline-bottom"
               x1="0"
-              y1={DEVICE_AUDIO_TRACK_BOTTOM_PX}
+              y1={MIC_TRACK_BOTTOM_PX}
               x2="100"
-              y2={DEVICE_AUDIO_TRACK_BOTTOM_PX}
-              stroke="color-mix(in srgb, var(--timeline-device-audio-color) 18%, transparent)"
+              y2={MIC_TRACK_BOTTOM_PX}
+              stroke="color-mix(in srgb, var(--timeline-mic-audio-color) 18%, transparent)"
               vectorEffect="non-scaling-stroke"
             />
             <path
-              className="device-audio-track-fill-path"
+              className="mic-audio-track-fill-path"
               d={generateFillPath()}
-              fill="color-mix(in srgb, var(--timeline-device-audio-color) 12%, transparent)"
+              fill="color-mix(in srgb, var(--timeline-mic-audio-color) 12%, transparent)"
             />
             <path
-              className="device-audio-track-main-path"
+              className="mic-audio-track-main-path"
               d={generatePath()}
               fill="none"
-              stroke="var(--timeline-device-audio-color)"
+              stroke="var(--timeline-mic-audio-color)"
               strokeWidth="1.5"
               vectorEffect="non-scaling-stroke"
             />
@@ -531,7 +530,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
                 className="timeline-segment-highlight-fill"
                 d={highlightedSegmentFillPath}
                 fill="currentColor"
-                style={{ color: "var(--timeline-device-audio-color)" }}
+                style={{ color: "var(--timeline-mic-audio-color)" }}
               />
             )}
             {highlightedSegmentPath && (
@@ -544,13 +543,13 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
                 strokeDasharray="3 4"
                 strokeLinecap="round"
                 vectorEffect="non-scaling-stroke"
-                style={{ color: "var(--timeline-device-audio-color)" }}
+                style={{ color: "var(--timeline-mic-audio-color)" }}
               />
             )}
           </svg>
         </div>
         <div
-          className={`device-audio-layer absolute inset-0 z-10 ${
+          className={`mic-audio-layer absolute inset-0 z-10 ${
             isAvailable ? "pointer-events-auto" : "pointer-events-none"
           }`}
           onPointerDown={handlePointerDown}
@@ -562,22 +561,22 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
           {points.map((point, i) => (
             <div
               key={i}
-              className={`device-audio-point timeline-control-point absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer ${
+              className={`mic-audio-point timeline-control-point absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer ${
                 hoveredIdx === i
-                  ? "ring-2 ring-[var(--timeline-device-audio-color)]/40"
+                  ? "ring-2 ring-[var(--timeline-mic-audio-color)]/40"
                   : "hover:scale-110"
               }`}
-              data-tone="device-audio"
+              data-tone="mic-audio"
               data-state={
                 hoveredIdx === i || activeDragIdx === i ? "active" : "idle"
               }
-                data-lock-mode={
+              data-lock-mode={
                 activeDragIdx === i ? (axisLockMode ?? undefined) : undefined
               }
               style={{
                 left: `${(point.time / duration) * 100}%`,
                 top: volumeToTrackYPercent(point.volume),
-                color: "var(--timeline-device-audio-color)",
+                color: "var(--timeline-mic-audio-color)",
               }}
               onMouseEnter={() => {
                 if (globalDragVisualMode !== null) return;
@@ -592,8 +591,8 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
 
       {dragBadge && (
         <div
-          className="device-audio-track-drag-badge timeline-chip fixed z-[100] px-3 py-1.5 text-white font-bold text-sm pointer-events-none -translate-x-1/2 -translate-y-full"
-          data-tone="device-audio"
+          className="mic-audio-track-drag-badge timeline-chip fixed z-[100] px-3 py-1.5 text-white font-bold text-sm pointer-events-none -translate-x-1/2 -translate-y-full"
+          data-tone="mic-audio"
           data-active="true"
           style={{ left: dragBadge.x, top: dragBadge.y }}
         >

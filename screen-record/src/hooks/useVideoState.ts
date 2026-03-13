@@ -49,6 +49,14 @@ import {
   buildFlatDeviceAudioPoints,
   normalizeDeviceAudioPoints,
 } from "@/lib/deviceAudio";
+import {
+  buildFlatMicAudioPoints,
+  normalizeMicAudioPoints,
+} from "@/lib/micAudio";
+import {
+  sanitizeRecordingAudioSelection,
+  type RecordingAudioSelection,
+} from "@/types/recordingAudio";
 
 const DEFAULT_KEYSTROKE_DELAY_SEC = 0;
 const KEYSTROKE_DELAY_KEY = "screen-record-keystroke-delay-v1";
@@ -339,9 +347,11 @@ export function useVideoPlayback({
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [currentVideo, setCurrentVideo] = useState<string | null>(null);
   const [currentAudio, setCurrentAudio] = useState<string | null>(null);
+  const [currentMicAudio, setCurrentMicAudio] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const micAudioRef = useRef<HTMLAudioElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tempCanvasRef = useRef<HTMLCanvasElement>(
     document.createElement("canvas"),
@@ -349,6 +359,7 @@ export function useVideoPlayback({
   const videoControllerRef = useRef<ReturnType<typeof createVideoController>>();
   const currentVideoRef = useRef<string | null>(null);
   const currentAudioRef = useRef<string | null>(null);
+  const currentMicAudioRef = useRef<string | null>(null);
   const thumbnailRequestIdRef = useRef(0);
   const thumbnailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thumbnailCacheRef = useRef<Map<string, string[]>>(new Map());
@@ -366,7 +377,8 @@ export function useVideoPlayback({
 
     videoControllerRef.current = createVideoController({
       videoRef: videoRef.current,
-      audioRef: audioRef.current || undefined,
+      deviceAudioRef: audioRef.current || undefined,
+      micAudioRef: micAudioRef.current || undefined,
       canvasRef: canvasRef.current,
       tempCanvasRef: tempCanvasRef.current,
       onTimeUpdate: setCurrentTime,
@@ -700,12 +712,19 @@ export function useVideoPlayback({
   }, [currentAudio]);
 
   useEffect(() => {
+    currentMicAudioRef.current = currentMicAudio;
+  }, [currentMicAudio]);
+
+  useEffect(() => {
     return () => {
       if (currentVideoRef.current?.startsWith("blob:")) {
         URL.revokeObjectURL(currentVideoRef.current);
       }
       if (currentAudioRef.current?.startsWith("blob:")) {
         URL.revokeObjectURL(currentAudioRef.current);
+      }
+      if (currentMicAudioRef.current?.startsWith("blob:")) {
+        URL.revokeObjectURL(currentMicAudioRef.current);
       }
     };
   }, []);
@@ -724,8 +743,11 @@ export function useVideoPlayback({
     setCurrentVideo,
     currentAudio,
     setCurrentAudio,
+    currentMicAudio,
+    setCurrentMicAudio,
     videoRef,
     audioRef,
+    micAudioRef,
     canvasRef,
     tempCanvasRef,
     videoControllerRef,
@@ -754,6 +776,7 @@ interface UseRecordingProps {
   setSegment: (segment: VideoSegment | null) => void;
   setCurrentVideo: (url: string | null) => void;
   setCurrentAudio: (url: string | null) => void;
+  setCurrentMicAudio: (url: string | null) => void;
   setIsVideoReady: (ready: boolean) => void;
   setThumbnails: (thumbnails: string[]) => void;
   invalidateThumbnails: () => void;
@@ -770,6 +793,7 @@ interface UseRecordingProps {
   renderFrame: () => void;
   currentVideo: string | null;
   currentAudio: string | null;
+  currentMicAudio: string | null;
 }
 
 export function useRecording(props: UseRecordingProps) {
@@ -781,15 +805,25 @@ export function useRecording(props: UseRecordingProps) {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [mousePositions, setMousePositions] = useState<MousePosition[]>([]);
   const [audioFilePath, setAudioFilePath] = useState("");
+  const [micAudioFilePath, setMicAudioFilePath] = useState("");
   const [videoFilePath, setVideoFilePath] = useState("");
   const [videoFilePathOwnerUrl, setVideoFilePathOwnerUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const activeRecordingAudioSelectionRef = useRef<RecordingAudioSelection>(
+    sanitizeRecordingAudioSelection({
+      deviceEnabled: true,
+      micEnabled: false,
+      deviceMode: "all",
+      selectedDeviceApp: null,
+    }),
+  );
 
   const startNewRecording = async (
     targetId: string,
     recordingMode: RecordingMode,
     targetType: "monitor" | "window" = "monitor",
     targetFps?: number,
+    recordingAudioSelection?: RecordingAudioSelection,
   ) => {
     try {
       if (props.currentVideo) {
@@ -799,6 +833,7 @@ export function useRecording(props: UseRecordingProps) {
         // once the new video is ready to replace them.
       } else {
         setAudioFilePath("");
+        setMicAudioFilePath("");
         setVideoFilePath("");
         setVideoFilePathOwnerUrl("");
         setMousePositions([]);
@@ -821,11 +856,25 @@ export function useRecording(props: UseRecordingProps) {
         }
       }
 
+      const audioSelection = sanitizeRecordingAudioSelection(
+        recordingAudioSelection ?? {
+          deviceEnabled: true,
+          micEnabled: false,
+          deviceMode: "all",
+          selectedDeviceApp: null,
+        },
+      );
+      activeRecordingAudioSelectionRef.current = audioSelection;
+
       await invoke("start_recording", {
         targetId,
         targetType,
         includeCursor: recordingMode === "withCursor",
         fps: targetFps ?? null,
+        deviceAudioEnabled: audioSelection.deviceEnabled,
+        deviceAudioMode: audioSelection.deviceMode,
+        deviceAudioAppPid: audioSelection.selectedDeviceApp?.pid ?? null,
+        micEnabled: audioSelection.micEnabled,
       });
       setActiveRecordingMode(recordingMode);
       setIsRecording(true);
@@ -841,12 +890,14 @@ export function useRecording(props: UseRecordingProps) {
     videoUrl: string;
     recordingMode: RecordingMode;
     rawVideoPath: string;
+    rawMicAudioPath: string;
     capturedFps: number | null;
   } | null> => {
     if (!isRecording) return null;
 
     let objectUrl: string | undefined;
     let audioObjectUrl: string | undefined;
+    let micAudioObjectUrl: string | undefined;
 
     try {
       setIsRecording(false);
@@ -858,34 +909,26 @@ export function useRecording(props: UseRecordingProps) {
       props.setDuration(0);
       setLoadingProgress(0);
 
-      const [
-        videoUrl,
-        audioUrl,
-        rawMouseData,
-        audioPath,
-        videoPath,
-        rawInputEvents,
-        rawCapturedFps,
-      ] =
-        await invoke<
-          [
-            string,
-            string,
-            any[],
-            string,
-            string,
-            RawInputEvent[],
-            number | null,
-          ]
-        >("stop_recording");
+      const result = await invoke<{
+        videoUrl: string;
+        deviceAudioUrl: string;
+        micAudioUrl: string;
+        mouseData: any[];
+        deviceAudioPath: string;
+        micAudioPath: string;
+        videoFilePath: string;
+        inputEvents: RawInputEvent[];
+        capturedFps: number | null;
+      }>("stop_recording");
       const capturedFps =
-        typeof rawCapturedFps === "number" && rawCapturedFps > 0
-          ? rawCapturedFps
+        typeof result.capturedFps === "number" && result.capturedFps > 0
+          ? result.capturedFps
           : null;
-      setAudioFilePath(audioPath);
-      setVideoFilePath(videoPath || "");
+      setAudioFilePath(result.deviceAudioPath || "");
+      setMicAudioFilePath(result.micAudioPath || "");
+      setVideoFilePath(result.videoFilePath || "");
 
-      const mouseData: MousePosition[] = rawMouseData.map((p) => ({
+      const mouseData: MousePosition[] = result.mouseData.map((p) => ({
         x: p.x,
         y: p.y,
         timestamp: p.timestamp,
@@ -896,18 +939,18 @@ export function useRecording(props: UseRecordingProps) {
       }));
 
       objectUrl = await props.videoControllerRef.current?.loadVideo({
-        videoUrl,
+        videoUrl: result.videoUrl,
         onLoadingProgress: setLoadingProgress,
         debugLabel: "recording-stop",
       });
 
       if (objectUrl) {
         const videoDuration = props.videoRef.current?.duration || 0;
-        const maxMouseTimestamp = rawMouseData.reduce((max, entry) => {
+        const maxMouseTimestamp = result.mouseData.reduce((max, entry) => {
           const ts = typeof entry?.timestamp === "number" ? entry.timestamp : 0;
           return Math.max(max, ts);
         }, 0);
-        const maxInputTimestamp = (rawInputEvents || []).reduce(
+        const maxInputTimestamp = (result.inputEvents || []).reduce(
           (max: number, entry: any) => {
             const ts =
               typeof entry?.timestamp === "number" ? entry.timestamp : 0;
@@ -941,10 +984,16 @@ export function useRecording(props: UseRecordingProps) {
             { time: timelineDuration, speed: 1 },
           ],
           deviceAudioPoints: buildFlatDeviceAudioPoints(timelineDuration),
+          micAudioPoints: buildFlatMicAudioPoints(timelineDuration),
+          deviceAudioAvailable:
+            activeRecordingAudioSelectionRef.current.deviceEnabled,
+          micAudioAvailable:
+            activeRecordingAudioSelectionRef.current.micEnabled &&
+            Boolean(result.micAudioUrl || result.micAudioPath),
         };
 
         const keystrokeEvents = buildKeystrokeEvents(
-          rawInputEvents || [],
+          result.inputEvents || [],
           timelineDuration,
         );
         const segmentWithKeystrokes: VideoSegment = {
@@ -1046,16 +1095,25 @@ export function useRecording(props: UseRecordingProps) {
         if (props.currentVideo && props.currentVideo !== objectUrl)
           URL.revokeObjectURL(props.currentVideo);
         if (props.currentAudio) URL.revokeObjectURL(props.currentAudio);
+        if (props.currentMicAudio) URL.revokeObjectURL(props.currentMicAudio);
 
-        if (audioUrl && audioUrl !== videoUrl) {
-          audioObjectUrl = await props.videoControllerRef.current?.loadAudio({
-            audioUrl,
+        if (result.deviceAudioUrl) {
+          audioObjectUrl = await props.videoControllerRef.current?.loadDeviceAudio({
+            audioUrl: result.deviceAudioUrl,
           });
+        }
+        if (result.micAudioUrl) {
+          micAudioObjectUrl = await props.videoControllerRef.current?.loadMicAudio(
+            {
+              audioUrl: result.micAudioUrl,
+            },
+          );
         }
 
         props.setCurrentVideo(objectUrl);
         setVideoFilePathOwnerUrl(objectUrl);
         props.setCurrentAudio(audioObjectUrl || null);
+        props.setCurrentMicAudio(micAudioObjectUrl || null);
         props.setDuration(timelineDuration);
         props.setCurrentTime(initialSegment.trimStart);
         props.setSegment(initialSegment);
@@ -1067,7 +1125,7 @@ export function useRecording(props: UseRecordingProps) {
         invoke("restore_window").catch(() => {});
         void props.generateThumbnailsForSource({
           videoUrl: objectUrl,
-          filePath: videoPath || undefined,
+          filePath: result.videoFilePath || undefined,
           segment: initialSegment,
           deferMs: 180,
         });
@@ -1077,7 +1135,8 @@ export function useRecording(props: UseRecordingProps) {
           initialSegment,
           videoUrl: objectUrl,
           recordingMode: activeRecordingMode,
-          rawVideoPath: videoPath || "",
+          rawVideoPath: result.videoFilePath || "",
+          rawMicAudioPath: result.micAudioPath || "",
           capturedFps,
         };
       }
@@ -1085,6 +1144,7 @@ export function useRecording(props: UseRecordingProps) {
     } catch (err) {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       if (audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
+      if (micAudioObjectUrl) URL.revokeObjectURL(micAudioObjectUrl);
       setError(err instanceof Error ? err.message : String(err));
       return null;
     } finally {
@@ -1117,6 +1177,7 @@ export function useRecording(props: UseRecordingProps) {
     mousePositions,
     setMousePositions,
     audioFilePath,
+    micAudioFilePath,
     videoFilePath,
     videoFilePathOwnerUrl,
     error,
@@ -1135,6 +1196,7 @@ interface UseProjectsProps {
   >;
   setCurrentVideo: (url: string | null) => void;
   setCurrentAudio: (url: string | null) => void;
+  setCurrentMicAudio: (url: string | null) => void;
   setSegment: (segment: VideoSegment | null) => void;
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
   applyLoadedBackgroundConfig?: (backgroundConfig: BackgroundConfig) => void;
@@ -1145,10 +1207,13 @@ interface UseProjectsProps {
   onProjectLoaded?: (project: Project) => void;
   currentVideo: string | null;
   currentAudio: string | null;
+  currentMicAudio: string | null;
 }
 
 export function useProjects(props: UseProjectsProps) {
-  const [projects, setProjects] = useState<Omit<Project, "videoBlob">[]>([]);
+  const [projects, setProjects] = useState<
+    Omit<Project, "videoBlob" | "audioBlob" | "micAudioBlob">[]
+  >([]);
   const [showProjectsDialog, setShowProjectsDialog] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const loadRequestSeqRef = useRef(0);
@@ -1191,6 +1256,7 @@ export function useProjects(props: UseProjectsProps) {
 
       const previousVideoUrl = props.currentVideo;
       const previousAudioUrl = props.currentAudio;
+      const previousMicAudioUrl = props.currentMicAudio;
 
       // Restore rawVideoPath for old projects that only have a blob.
       // Writes the blob to disk via the media server POST endpoint (binary, no JSON overhead).
@@ -1207,6 +1273,21 @@ export function useProjects(props: UseProjectsProps) {
           }
         } catch (e) {
           console.error("[ProjectLoad] Failed to restore rawVideoPath:", e);
+        }
+      }
+      let rawMicAudioPath = project.rawMicAudioPath ?? "";
+      if (!rawMicAudioPath && project.micAudioBlob && project.micAudioBlob.size > 0) {
+        try {
+          rawMicAudioPath = await writeBlobToTempMediaFile(project.micAudioBlob);
+          if (rawMicAudioPath) {
+            await projectManager.updateProject(projectId, {
+              ...project,
+              rawVideoPath,
+              rawMicAudioPath,
+            });
+          }
+        } catch (e) {
+          console.error("[ProjectLoad] Failed to restore rawMicAudioPath:", e);
         }
       }
       if (loadRequestSeq !== loadRequestSeqRef.current) return;
@@ -1227,15 +1308,36 @@ export function useProjects(props: UseProjectsProps) {
       if (loadRequestSeq !== loadRequestSeqRef.current) return;
 
       let audioObjectUrl: string | undefined;
-      if (rawVideoPath && project.audioBlob) {
+      let micAudioObjectUrl: string | undefined;
+      if (rawVideoPath) {
         const mediaUrl = await getMediaServerUrl(rawVideoPath);
-        audioObjectUrl = await props.videoControllerRef.current?.loadAudio({
-          audioUrl: mediaUrl,
-        });
+        audioObjectUrl = await props.videoControllerRef.current?.loadDeviceAudio(
+          {
+            audioUrl: mediaUrl,
+          },
+        );
       } else if (project.audioBlob) {
-        audioObjectUrl = await props.videoControllerRef.current?.loadAudio({
+        audioObjectUrl = await props.videoControllerRef.current?.loadDeviceAudio({
           audioBlob: project.audioBlob,
         });
+      } else if (videoObjectUrl) {
+        audioObjectUrl = await props.videoControllerRef.current?.loadDeviceAudio({
+          audioUrl: videoObjectUrl,
+        });
+      }
+      if (rawMicAudioPath) {
+        const mediaUrl = await getMediaServerUrl(rawMicAudioPath);
+        micAudioObjectUrl = await props.videoControllerRef.current?.loadMicAudio(
+          {
+            audioUrl: mediaUrl,
+          },
+        );
+      } else if (project.micAudioBlob) {
+        micAudioObjectUrl = await props.videoControllerRef.current?.loadMicAudio(
+          {
+            audioBlob: project.micAudioBlob,
+          },
+        );
       }
       if (loadRequestSeq !== loadRequestSeqRef.current) return;
 
@@ -1264,6 +1366,16 @@ export function useProjects(props: UseProjectsProps) {
         videoDuration,
         project.backgroundConfig.volume,
       );
+      correctedSegment.micAudioPoints = normalizeMicAudioPoints(
+        correctedSegment.micAudioPoints,
+        videoDuration,
+      );
+      correctedSegment.deviceAudioAvailable =
+        correctedSegment.deviceAudioAvailable !== false;
+      correctedSegment.micAudioAvailable =
+        typeof correctedSegment.micAudioAvailable === "boolean"
+          ? correctedSegment.micAudioAvailable
+          : Boolean(project.rawMicAudioPath || project.micAudioBlob || micAudioObjectUrl);
       correctedSegment.cursorVisibilitySegments =
         clampVisibilitySegmentsToDuration(
           correctedSegment.cursorVisibilitySegments,
@@ -1386,6 +1498,20 @@ export function useProjects(props: UseProjectsProps) {
           URL.revokeObjectURL(previousAudioUrl);
         }
       }
+      if (micAudioObjectUrl) {
+        props.setCurrentMicAudio(micAudioObjectUrl);
+        if (
+          previousMicAudioUrl?.startsWith("blob:") &&
+          previousMicAudioUrl !== micAudioObjectUrl
+        ) {
+          URL.revokeObjectURL(previousMicAudioUrl);
+        }
+      } else {
+        props.setCurrentMicAudio(null);
+        if (previousMicAudioUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(previousMicAudioUrl);
+        }
+      }
       props.setSegment(correctedSegment);
       const loadedBackground = cloneBackgroundConfig(project.backgroundConfig);
       if (props.applyLoadedBackgroundConfig) {
@@ -1405,6 +1531,7 @@ export function useProjects(props: UseProjectsProps) {
       props.onProjectLoaded?.({
         ...project,
         rawVideoPath,
+        rawMicAudioPath,
         segment: correctedSegment,
       });
       logProjectLoad("load:applied", {
@@ -1443,12 +1570,14 @@ interface UseExportProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   tempCanvasRef: React.RefObject<HTMLCanvasElement>;
   audioRef: React.RefObject<HTMLAudioElement | null>;
+  micAudioRef: React.RefObject<HTMLAudioElement | null>;
   isRecording: boolean;
   isBatchEditing: boolean;
   segment: VideoSegment | null;
   backgroundConfig: BackgroundConfig;
   mousePositions: MousePosition[];
   audioFilePath: string;
+  micAudioFilePath: string;
   videoFilePath: string;
   videoFilePathOwnerUrl: string;
   rawVideoPath: string;
@@ -1459,6 +1588,9 @@ interface UseExportProps {
   composition: ProjectComposition | null;
   currentProjectId: string | null;
   resolveClipExportSourcePath: (
+    clip: ProjectCompositionClip,
+  ) => Promise<string>;
+  resolveClipExportMicAudioPath: (
     clip: ProjectCompositionClip,
   ) => Promise<string>;
 }
@@ -1717,7 +1849,9 @@ export function useExport(props: UseExportProps) {
           backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
           mousePositions: props.mousePositions,
           audio: props.audioRef.current || undefined,
+          micAudio: props.micAudioRef.current || undefined,
           audioFilePath: props.audioFilePath || sourceVideoPath,
+          micAudioFilePath: props.micAudioFilePath || "",
           videoFilePath: sourceVideoPath,
         })
         .catch(() => {
@@ -1772,6 +1906,8 @@ export function useExport(props: UseExportProps) {
     props.mousePositions,
     props.audioRef,
     props.audioFilePath,
+    props.micAudioRef,
+    props.micAudioFilePath,
     resolveSourceVideoPath,
     exportOptions.width,
     exportOptions.height,
@@ -1826,7 +1962,9 @@ export function useExport(props: UseExportProps) {
           backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
           mousePositions: props.mousePositions,
           audio: props.audioRef.current || undefined,
+          micAudio: props.micAudioRef.current || undefined,
           audioFilePath: props.audioFilePath || sourceVideoPath,
+          micAudioFilePath: props.micAudioFilePath || "",
           videoFilePath: sourceVideoPath,
         })
         .catch((error) => {
@@ -1864,6 +2002,8 @@ export function useExport(props: UseExportProps) {
     props.mousePositions,
     props.audioRef,
     props.audioFilePath,
+    props.micAudioRef,
+    props.micAudioFilePath,
     resolveSourceVideoPath,
   ]);
 
@@ -1921,6 +2061,7 @@ export function useExport(props: UseExportProps) {
             composition: props.composition,
             exportOptions,
             resolveClipSourcePath: props.resolveClipExportSourcePath,
+            resolveClipMicAudioPath: props.resolveClipExportMicAudioPath,
           })
         : await videoExporter.exportAndDownload({
             width: exportOptions.width,
@@ -1942,7 +2083,9 @@ export function useExport(props: UseExportProps) {
             backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
             mousePositions: props.mousePositions,
             audio: props.audioRef.current || undefined,
+            micAudio: props.micAudioRef.current || undefined,
             audioFilePath: props.audioFilePath || sourceVideoPath,
+            micAudioFilePath: props.micAudioFilePath || "",
             videoFilePath: sourceVideoPath,
             onProgress: setExportProgress,
           });

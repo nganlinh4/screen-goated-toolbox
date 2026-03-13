@@ -362,6 +362,10 @@ export class VideoExporter {
         time: Math.round(point.time * 1000) / 1000,
         volume: Math.round(point.volume * 10000) / 10000,
       })),
+      micAudioPoints: (segment.micAudioPoints ?? []).map((point) => ({
+        time: Math.round(point.time * 1000) / 1000,
+        volume: Math.round(point.volume * 10000) / 10000,
+      })),
       textSegments: (segment.textSegments ?? []).map((text) => ({
         id: text.id,
         start: Math.round(text.startTime * 1000) / 1000,
@@ -476,8 +480,10 @@ export class VideoExporter {
 
   private buildPreparationContext(options: ExportOptions & {
     audioFilePath: string;
+    micAudioFilePath: string;
     videoFilePath?: string;
     audio?: HTMLAudioElement | null;
+    micAudio?: HTMLAudioElement | null;
   }): ExportPreparationContext {
     const {
       video,
@@ -617,8 +623,10 @@ export class VideoExporter {
 
   async primeExportPreparation(options: ExportOptions & {
     audioFilePath: string;
+    micAudioFilePath: string;
     videoFilePath?: string;
     audio?: HTMLAudioElement | null;
+    micAudio?: HTMLAudioElement | null;
   }) {
     if ((options.preRenderPolicy || 'aggressive') === 'off') return;
     if (this.isExporting) return;
@@ -629,8 +637,10 @@ export class VideoExporter {
 
   async exportAndDownload(options: ExportOptions & {
     audioFilePath: string;
+    micAudioFilePath: string;
     videoFilePath?: string;
     audio?: HTMLAudioElement | null;
+    micAudio?: HTMLAudioElement | null;
   }) {
     if (this.isExporting) {
       throw new Error('Export already in progress');
@@ -643,7 +653,9 @@ export class VideoExporter {
       const {
         audioFilePath,
         videoFilePath,
-        audio
+        audio,
+        micAudio,
+        micAudioFilePath,
       } = options;
       const context = this.buildPreparationContext(options);
       const prepared = await this.getPreparedPayload(context);
@@ -654,7 +666,12 @@ export class VideoExporter {
       // if sourceVideoPath is empty. Never send raw bytes through JSON IPC.
       const sourceVideoPath = (videoFilePath || '').trim();
 
-      const hasAudio = Boolean((audioFilePath || '').trim() || (audio && audio.src));
+      const hasAudio = Boolean(
+        (audioFilePath || '').trim() ||
+        (micAudioFilePath || '').trim() ||
+        (audio && audio.src) ||
+        (micAudio && micAudio.src),
+      );
       const estimateProfileKey = getExportEstimateProfileKey({
         width: prepared.width,
         height: prepared.height,
@@ -712,7 +729,8 @@ export class VideoExporter {
         targetVideoBitrateKbps: context.targetVideoBitrateKbps,
         qualityGatePercent: options.qualityGatePercent ?? 3,
         preRenderPolicy: options.preRenderPolicy || 'aggressive',
-        audioPath: audioFilePath,
+        deviceAudioPath: audioFilePath,
+        micAudioPath: micAudioFilePath,
         outputDir: options.outputDir || '',
         format: options.format || 'mp4',
         trimStart: prepared.trimBounds.trimStart,

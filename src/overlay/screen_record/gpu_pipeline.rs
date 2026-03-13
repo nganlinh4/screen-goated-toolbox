@@ -58,6 +58,7 @@ pub struct PipelineConfig {
     pub source_video_path: String,
     pub output_path: String,
     pub audio_path: Option<String>,
+    pub audio_is_preprocessed: bool,
     /// Device audio volume curve in source-video time (0.0 = silent, 1.0 = unchanged).
     pub audio_volume_points: Vec<DeviceAudioPoint>,
     pub output_width: u32,
@@ -1945,7 +1946,7 @@ fn run_encode_thread(context: EncodeThreadContext<'_>) -> Result<ZeroCopyExportR
     let mut audio_eof = false;
     let mut total_audio_samples_written: u64 = 0;
 
-    if let Some(dec) = &audio_decoder {
+    if let Some(dec) = &audio_decoder && !config.audio_is_preprocessed {
         let start_time = if config.trim_segments.is_empty() {
             config.trim_start
         } else {
@@ -2026,6 +2027,50 @@ fn run_encode_thread(context: EncodeThreadContext<'_>) -> Result<ZeroCopyExportR
         // Audio interleaving.
         if let (Some(dec), Some(stream)) = (&audio_decoder, &opt_audio_stream) {
             while !audio_eof && audio_output_100ns <= timestamp_100ns {
+                if config.audio_is_preprocessed {
+                    match dec.read_samples() {
+                        Ok(Some((pcm, _ts_100ns))) => {
+                            let channels = dec.channels() as usize;
+                            if channels == 0 || pcm.is_empty() {
+                                continue;
+                            }
+                            let samples_per_channel = pcm.len() / (channels * 4);
+                            if samples_per_channel == 0 {
+                                continue;
+                            }
+                            let next_total =
+                                total_audio_samples_written + samples_per_channel as u64;
+                            let next_100ns = (next_total * 10_000_000) / dec.sample_rate() as u64;
+                            let dur_100ns = next_100ns as i64 - audio_output_100ns;
+                            if dur_100ns <= 0 {
+                                continue;
+                            }
+                            if let Err(e) = stream.write_samples_direct(
+                                encoder.writer(),
+                                &pcm,
+                                audio_output_100ns,
+                                dur_100ns,
+                            ) {
+                                eprintln!("[Audio] Native mixed audio write error: {}", e);
+                                audio_eof = true;
+                            } else {
+                                total_audio_samples_written = next_total;
+                                audio_output_100ns = next_100ns as i64;
+                            }
+                            continue;
+                        }
+                        Ok(None) => {
+                            audio_eof = true;
+                            continue;
+                        }
+                        Err(e) => {
+                            eprintln!("[Audio] Native mixed audio decode error: {}", e);
+                            audio_eof = true;
+                            continue;
+                        }
+                    }
+                }
+
                 let current_seg = if config.trim_segments.is_empty() {
                     Some((config.trim_start, config.trim_start + config.duration))
                 } else {

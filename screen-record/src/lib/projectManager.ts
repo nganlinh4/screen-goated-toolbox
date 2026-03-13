@@ -4,13 +4,13 @@ import { isManagedCompositionSnapshotPath } from "@/lib/mediaServer";
 
 const PROJECT_SWITCH_DEBUG = false;
 const DB_NAME = "ScreenDemoDB";
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 const PROJECTS_STORE = "projects";
 const APP_META_STORE = "app_meta";
 const LEGACY_PROJECTS_KEY = "screen-demo-projects";
 const PROJECT_MIGRATION_KEY = "projects-storage-migrated-v1";
 
-type StoredProjectRecord = Omit<Project, "videoBlob" | "audioBlob">;
+type StoredProjectRecord = Omit<Project, "videoBlob" | "audioBlob" | "micAudioBlob">;
 
 function summarizeProjectUpdate(
   updates: Partial<Omit<Project, "id" | "createdAt" | "lastModified">>,
@@ -91,6 +91,7 @@ function stripHeavyProjectFields(
   const record = { ...project } as Project;
   delete (record as Partial<Project>).videoBlob;
   delete (record as Partial<Project>).audioBlob;
+  delete (record as Partial<Project>).micAudioBlob;
   return record as StoredProjectRecord;
 }
 
@@ -138,13 +139,16 @@ class ProjectManager {
     if (newProject.audioBlob) {
       await this.saveAudioBlob(newProject.id, newProject.audioBlob);
     }
+    if (newProject.micAudioBlob) {
+      await this.saveMicAudioBlob(newProject.id, newProject.micAudioBlob);
+    }
 
     await this.saveProjectRecord(stripHeavyProjectFields(newProject));
     await this.pruneProjects();
     return newProject;
   }
 
-  async getProjects(): Promise<Omit<Project, "videoBlob" | "audioBlob">[]> {
+  async getProjects(): Promise<Omit<Project, "videoBlob" | "audioBlob" | "micAudioBlob">[]> {
     await this.ensureProjectStoreReady();
     return sortProjectsByDisplayOrder(await this.getProjectRecords());
   }
@@ -158,10 +162,12 @@ class ProjectManager {
     if (!videoBlob && !project.rawVideoPath) return null;
 
     const audioBlob = await this.loadAudioBlob(id);
+    const micAudioBlob = await this.loadMicAudioBlob(id);
     return {
       ...project,
       videoBlob: videoBlob || undefined,
       audioBlob: audioBlob || undefined,
+      micAudioBlob: micAudioBlob || undefined,
     };
   }
 
@@ -203,6 +209,13 @@ class ProjectManager {
       if (updates.audioBlob) await this.saveAudioBlob(id, updates.audioBlob);
       else await this.deleteAudioBlob(id);
     }
+    if ("micAudioBlob" in updates) {
+      if (updates.micAudioBlob) {
+        await this.saveMicAudioBlob(id, updates.micAudioBlob);
+      } else {
+        await this.deleteMicAudioBlob(id);
+      }
+    }
 
     const nextProject: Project = {
       ...previousProject,
@@ -212,6 +225,7 @@ class ProjectManager {
       lastModified: Date.now(),
       videoBlob: undefined,
       audioBlob: undefined,
+      micAudioBlob: undefined,
     };
 
     await this.saveProjectRecord(stripHeavyProjectFields(nextProject));
@@ -221,7 +235,12 @@ class ProjectManager {
   async saveCompositionClipAssets(
     projectId: string,
     clipId: string,
-    data: { videoBlob?: Blob; audioBlob?: Blob; customBackground?: string },
+    data: {
+      videoBlob?: Blob;
+      audioBlob?: Blob;
+      micAudioBlob?: Blob;
+      customBackground?: string;
+    },
   ): Promise<void> {
     const key = buildCompositionAssetKey(projectId, clipId);
     if (data.videoBlob) {
@@ -233,6 +252,11 @@ class ProjectManager {
       await this.idbPut("composition_audio", data.audioBlob, key);
     } else {
       await this.idbDelete("composition_audio", key);
+    }
+    if (data.micAudioBlob) {
+      await this.idbPut("composition_mic_audio", data.micAudioBlob, key);
+    } else {
+      await this.idbDelete("composition_mic_audio", key);
     }
     if (data.customBackground) {
       await this.idbPut(
@@ -251,12 +275,14 @@ class ProjectManager {
   ): Promise<{
     videoBlob: Blob | null;
     audioBlob: Blob | null;
+    micAudioBlob: Blob | null;
     customBackground: string | null;
   }> {
     const key = buildCompositionAssetKey(projectId, clipId);
     return {
       videoBlob: await this.loadBlobData("composition_videos", key),
       audioBlob: await this.loadBlobData("composition_audio", key),
+      micAudioBlob: await this.loadBlobData("composition_mic_audio", key),
       customBackground: await this.loadStringData(
         "composition_custom_backgrounds",
         key,
@@ -271,6 +297,7 @@ class ProjectManager {
     const key = buildCompositionAssetKey(projectId, clipId);
     await this.idbDelete("composition_videos", key);
     await this.idbDelete("composition_audio", key);
+    await this.idbDelete("composition_mic_audio", key);
     await this.idbDelete("composition_custom_backgrounds", key);
   }
 
@@ -374,6 +401,7 @@ class ProjectManager {
   ): Promise<void> {
     await this.deleteVideoBlob(id);
     await this.deleteAudioBlob(id);
+    await this.deleteMicAudioBlob(id);
     await this.deleteLegacyInlineProjectData(id);
     await this.deleteCompositionData(id, project?.composition?.clips);
     await this.deleteCompositionSnapshotFiles(
@@ -440,6 +468,9 @@ class ProjectManager {
           if (!db.objectStoreNames.contains("audio")) {
             db.createObjectStore("audio");
           }
+          if (!db.objectStoreNames.contains("mic_audio")) {
+            db.createObjectStore("mic_audio");
+          }
           if (!db.objectStoreNames.contains("mouse")) {
             db.createObjectStore("mouse");
           }
@@ -457,6 +488,9 @@ class ProjectManager {
           }
           if (!db.objectStoreNames.contains("composition_audio")) {
             db.createObjectStore("composition_audio");
+          }
+          if (!db.objectStoreNames.contains("composition_mic_audio")) {
+            db.createObjectStore("composition_mic_audio");
           }
           if (!db.objectStoreNames.contains("composition_custom_backgrounds")) {
             db.createObjectStore("composition_custom_backgrounds");
@@ -566,6 +600,18 @@ class ProjectManager {
 
   private deleteAudioBlob(id: string): Promise<void> {
     return this.idbDelete("audio", id);
+  }
+
+  private saveMicAudioBlob(id: string, blob: Blob): Promise<void> {
+    return this.idbPut("mic_audio", blob, id);
+  }
+
+  private async loadMicAudioBlob(id: string): Promise<Blob | null> {
+    return this.idbGet("mic_audio", id);
+  }
+
+  private deleteMicAudioBlob(id: string): Promise<void> {
+    return this.idbDelete("mic_audio", id);
   }
 
   private async deleteCompositionData(

@@ -38,6 +38,12 @@ const en = {
   monitorDisplayName: 'Display {index}',
   monitorDisplayNamePrimary: 'Display {index} (Primary)',
   monitorPrimaryShort: 'primary',
+  recordingAudioSource: 'Sound Source',
+  recordingAudioAll: 'All',
+  recordingAudioOneApp: 'One App',
+  recordingAudioChangeApp: 'Change App',
+  recordingAudioChoosingApp: 'Choosing app\u2026',
+  recordingAudioMuted: 'Muted',
 
   // SidePanel tabs
   tabZoom: 'Zoom',
@@ -237,6 +243,7 @@ const en = {
   trackVideo: 'Video',
   trackSpeed: 'Speed',
   trackDeviceAudio: 'Device Audio',
+  trackMicAudio: 'Mic',
   resetSpeed: 'Reset Speed',
 
   // App

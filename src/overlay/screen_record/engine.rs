@@ -86,6 +86,7 @@ lazy_static::lazy_static! {
     pub static ref SHOULD_STOP_AUDIO: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref AUDIO_ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    pub static ref MIC_AUDIO_ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
     pub static ref ENCODER_ACTIVE: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref ACTIVE_CAPTURE_CONTROL: Mutex<Option<InternalCaptureControl>> = Mutex::new(None);
     /// Stores the CaptureControl returned by start_free_threaded so stop_recording
@@ -120,6 +121,7 @@ lazy_static::lazy_static! {
 
 pub static VIDEO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 pub static AUDIO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+pub static MIC_AUDIO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 /// FPS the most recent recording was actually encoded at. Used by stop_recording
 /// so the frontend can show the correct "Match Original" option in the export UI.
 pub static LAST_RECORDING_FPS: std::sync::Mutex<Option<u32>> = std::sync::Mutex::new(None);
@@ -240,7 +242,8 @@ impl CaptureHandler {
         if let Some(encoder) = self.encoder.lock().take() {
             std::thread::spawn(move || {
                 let audio_wait = Instant::now();
-                while !AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst)
+                while (!AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst)
+                    || !MIC_AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst))
                     && audio_wait.elapsed().as_secs() < 5
                 {
                     std::thread::sleep(Duration::from_millis(20));
@@ -968,6 +971,22 @@ struct CaptureFlags {
     target_type: String,
     target_id: String,
     fps: Option<u32>,
+    #[serde(default = "default_device_audio_enabled")]
+    device_audio_enabled: bool,
+    #[serde(default = "default_device_audio_mode")]
+    device_audio_mode: String,
+    #[serde(default)]
+    device_audio_app_pid: Option<u32>,
+    #[serde(default)]
+    mic_enabled: bool,
+}
+
+fn default_device_audio_enabled() -> bool {
+    true
+}
+
+fn default_device_audio_mode() -> String {
+    "all".to_string()
 }
 
 impl GraphicsCaptureApiHandler for CaptureHandler {
@@ -985,6 +1004,10 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 target_type: "monitor".to_string(),
                 target_id: ctx.flags.clone(),
                 fps: None,
+                device_audio_enabled: true,
+                device_audio_mode: "all".to_string(),
+                device_audio_app_pid: None,
+                mic_enabled: false,
             }
         });
         eprintln!(
@@ -1087,9 +1110,17 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 .unwrap()
                 .as_millis()
         ));
+        let mic_audio_path = video_path.with_file_name(format!(
+            "{}_mic.wav",
+            video_path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("recording")
+        ));
 
         *VIDEO_PATH.lock().unwrap() = Some(video_path.to_string_lossy().to_string());
         *AUDIO_PATH.lock().unwrap() = Some(video_path.to_string_lossy().to_string());
+        *MIC_AUDIO_PATH.lock().unwrap() = None;
 
         let target_fps = flags.fps.unwrap_or_else(|| select_target_fps(monitor_hz));
         *LAST_RECORDING_FPS.lock().unwrap() = Some(target_fps);
@@ -1171,13 +1202,46 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
         SHOULD_STOP_AUDIO.store(false, Ordering::SeqCst);
         AUDIO_ENCODING_FINISHED.store(false, Ordering::SeqCst);
+        MIC_AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
+        let device_audio_source = if !flags.device_audio_enabled {
+            audio_engine::DeviceAudioCaptureSource::Disabled
+        } else if flags.device_audio_mode == "app" {
+            flags
+                .device_audio_app_pid
+                .map(audio_engine::DeviceAudioCaptureSource::SingleApp)
+                .unwrap_or(audio_engine::DeviceAudioCaptureSource::SystemOutput)
+        } else {
+            audio_engine::DeviceAudioCaptureSource::SystemOutput
+        };
         let start = Instant::now();
         audio_engine::record_audio(
             audio_handle,
             start,
             SHOULD_STOP_AUDIO.clone(),
             AUDIO_ENCODING_FINISHED.clone(),
+            device_audio_source,
         );
+        if flags.mic_enabled {
+            MIC_AUDIO_ENCODING_FINISHED.store(false, Ordering::SeqCst);
+            match audio_engine::record_mic_audio_sidecar(
+                mic_audio_path.to_string_lossy().to_string(),
+                SHOULD_STOP_AUDIO.clone(),
+                MIC_AUDIO_ENCODING_FINISHED.clone(),
+            ) {
+                Ok(()) => {
+                    *MIC_AUDIO_PATH.lock().unwrap() =
+                        Some(mic_audio_path.to_string_lossy().to_string());
+                }
+                Err(error) => {
+                    MIC_AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
+                    *MIC_AUDIO_PATH.lock().unwrap() = None;
+                    eprintln!("[MicCapture] {}", error);
+                }
+            }
+        } else {
+            MIC_AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
+            *MIC_AUDIO_PATH.lock().unwrap() = None;
+        }
 
         ENCODER_ACTIVE.store(true, Ordering::SeqCst);
         ENCODING_FINISHED.store(false, Ordering::SeqCst);
@@ -1307,14 +1371,16 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                         // finish flushing before sending EOF to the MF transcode.
                         SHOULD_STOP_AUDIO.store(true, Ordering::SeqCst);
                         let audio_wait = Instant::now();
-                        while !AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst)
+                        while (!AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst)
+                            || !MIC_AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst))
                             && audio_wait.elapsed().as_secs() < 5
                         {
                             std::thread::sleep(Duration::from_millis(20));
                         }
                         eprintln!(
-                            "[FramePump] audio finished={}, finalizing encoder",
-                            AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst)
+                            "[FramePump] audio finished={} mic_finished={}, finalizing encoder",
+                            AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst),
+                            MIC_AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst)
                         );
 
                         if let Some(enc) = encoder_for_pump.lock().take() {

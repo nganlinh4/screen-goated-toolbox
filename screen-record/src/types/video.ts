@@ -107,10 +107,13 @@ export interface SpeedPoint {
   speed: number;
 }
 
-export interface DeviceAudioPoint {
+export interface AudioGainPoint {
   time: number;
   volume: number;
 }
+
+export type DeviceAudioPoint = AudioGainPoint;
+export type MicAudioPoint = AudioGainPoint;
 
 export type RecordingMode = "withoutCursor" | "withCursor";
 
@@ -132,6 +135,9 @@ export interface VideoSegment {
   keystrokeOverlay?: KeystrokeOverlayConfig;
   speedPoints?: SpeedPoint[];
   deviceAudioPoints?: DeviceAudioPoint[];
+  micAudioPoints?: MicAudioPoint[];
+  deviceAudioAvailable?: boolean;
+  micAudioAvailable?: boolean;
   useCustomCursor?: boolean;
   crop?: CropRect;
 }
@@ -158,6 +164,7 @@ export interface ProjectCompositionClip {
   mousePositions: MousePosition[];
   recordingMode?: RecordingMode;
   rawVideoPath?: string;
+  rawMicAudioPath?: string;
 }
 
 export interface ProjectComposition {
@@ -346,11 +353,13 @@ export interface Project {
   duration?: number;
   videoBlob?: Blob;
   audioBlob?: Blob;
+  micAudioBlob?: Blob;
   segment: VideoSegment;
   backgroundConfig: BackgroundConfig;
   mousePositions: MousePosition[];
   thumbnail?: string;
   recordingMode?: RecordingMode;
   rawVideoPath?: string;
+  rawMicAudioPath?: string;
   composition?: ProjectComposition;
 }

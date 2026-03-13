@@ -5,7 +5,8 @@ use super::bg_download;
 use super::engine::{
     ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, CAPTURE_ERROR, CaptureHandler, ENCODER_ACTIVE,
     ENCODING_FINISHED, IS_RECORDING, LAST_CAPTURE_FRAME_HEIGHT, LAST_CAPTURE_FRAME_WIDTH,
-    MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH, get_monitors,
+    MIC_AUDIO_ENCODING_FINISHED, MIC_AUDIO_PATH, MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH,
+    get_monitors,
 };
 use super::input_capture;
 use super::mf_decode;
@@ -916,6 +917,20 @@ pub fn handle_ipc_command(
 
             Ok(serde_json::Value::Null)
         }
+        "show_recording_audio_app_selector" => {
+            let (is_dark, lang) = {
+                let app = crate::APP.lock().unwrap();
+                let is_dark = match app.config.theme_mode {
+                    crate::config::ThemeMode::Dark => true,
+                    crate::config::ThemeMode::Light => false,
+                    crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
+                };
+                let lang = app.config.ui_language.clone();
+                (is_dark, lang)
+            };
+            super::audio_source_selection::show_audio_app_selector(is_dark, lang);
+            Ok(serde_json::Value::Null)
+        }
         "start_recording" => {
             IS_RECORDING.store(true, std::sync::atomic::Ordering::SeqCst);
             let target_type = args["targetType"].as_str().unwrap_or("monitor");
@@ -924,6 +939,16 @@ pub fn handle_ipc_command(
                 .or_else(|| args["monitorId"].as_str())
                 .unwrap_or("0");
             let include_cursor = args["includeCursor"].as_bool().unwrap_or(false);
+            let device_audio_enabled = args["deviceAudioEnabled"].as_bool().unwrap_or(true);
+            let device_audio_mode = match args["deviceAudioMode"].as_str() {
+                Some("app") if device_audio_enabled => "app",
+                _ => "all",
+            };
+            let device_audio_app_pid = args["deviceAudioAppPid"]
+                .as_u64()
+                .and_then(|value| u32::try_from(value).ok())
+                .filter(|_| device_audio_mode == "app");
+            let mic_enabled = args["micEnabled"].as_bool().unwrap_or(false);
             let cursor_setting = if include_cursor {
                 CursorCaptureSettings::WithCursor
             } else {
@@ -944,12 +969,21 @@ pub fn handle_ipc_command(
                 "target_type": target_type,
                 "target_id": target_id,
                 "fps": fps,
+                "device_audio_enabled": device_audio_enabled,
+                "device_audio_mode": device_audio_mode,
+                "device_audio_app_pid": device_audio_app_pid,
+                "mic_enabled": mic_enabled,
             }))
             .unwrap();
 
             eprintln!(
-                "[CaptureBackend] start_recording: target_type={:?}, target_id={:?}",
-                target_type, target_id
+                "[CaptureBackend] start_recording: target_type={:?}, target_id={:?}, device_audio_enabled={}, device_audio_mode={}, device_audio_app_pid={:?}, mic_enabled={}",
+                target_type,
+                target_id,
+                device_audio_enabled,
+                device_audio_mode,
+                device_audio_app_pid,
+                mic_enabled
             );
 
             // Request 1ms timer resolution so thread::sleep(1ms) actually sleeps ~1ms
@@ -1155,6 +1189,7 @@ pub fn handle_ipc_command(
                 super::engine::SHOULD_STOP_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);
                 ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
                 AUDIO_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
+                MIC_AUDIO_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
                 return Err(err_msg);
             }
 
@@ -1170,14 +1205,16 @@ pub fn handle_ipc_command(
             //   completed from pump's EOF signals).
             let start = std::time::Instant::now();
             while (!ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
-                || !AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst))
+                || !AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
+                || !MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst))
                 && start.elapsed().as_secs() < 10
             {
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
 
             let encoding_done = ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
-                && AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst);
+                && AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
+                && MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst);
 
             if !encoding_done {
                 eprintln!(
@@ -1195,14 +1232,16 @@ pub fn handle_ipc_command(
                 // ENCODING_FINISHED after the capture thread is stopped.
                 let retry_start = std::time::Instant::now();
                 while (!ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
-                    || !AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst))
+                    || !AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
+                    || !MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst))
                     && retry_start.elapsed().as_secs() < 5
                 {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
 
                 let retry_done = ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
-                    && AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst);
+                    && AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
+                    && MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst);
 
                 if !retry_done {
                     IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -1211,8 +1250,12 @@ pub fn handle_ipc_command(
                         .store(true, std::sync::atomic::Ordering::SeqCst);
                     ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
                     AUDIO_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
+                    MIC_AUDIO_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
 
                     if let Some(ref path) = *VIDEO_PATH.lock().unwrap() {
+                        let _ = std::fs::remove_file(path);
+                    }
+                    if let Some(ref path) = *MIC_AUDIO_PATH.lock().unwrap() {
                         let _ = std::fs::remove_file(path);
                     }
 
@@ -1229,6 +1272,7 @@ pub fn handle_ipc_command(
 
             let video_path = VIDEO_PATH.lock().unwrap().clone().ok_or("No video path")?;
             let video_file_path = video_path.clone();
+            let mic_audio_path = MIC_AUDIO_PATH.lock().unwrap().clone();
             let last_recording_fps = *super::engine::LAST_RECORDING_FPS.lock().unwrap();
 
             let mut port = SERVER_PORT.load(std::sync::atomic::Ordering::SeqCst);
@@ -1240,18 +1284,27 @@ pub fn handle_ipc_command(
 
             let encoded_path = urlencoding::encode(&video_path);
             let video_url = format!("http://localhost:{}/?path={}", port, encoded_path);
-            let audio_url = format!("http://localhost:{}/?path={}", port, encoded_path);
+            let device_audio_url = format!("http://localhost:{}/?path={}", port, encoded_path);
+            let mic_audio_url = mic_audio_path
+                .as_ref()
+                .filter(|path| std::path::Path::new(path).exists())
+                .map(|path| {
+                    let encoded = urlencoding::encode(path);
+                    format!("http://localhost:{}/?path={}", port, encoded)
+                });
             IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
 
-            Ok(serde_json::json!([
-                video_url,
-                audio_url,
-                mouse_positions,
-                video_file_path,
-                video_file_path,
-                raw_input_events,
-                last_recording_fps
-            ]))
+            Ok(serde_json::json!({
+                "videoUrl": video_url,
+                "deviceAudioUrl": device_audio_url,
+                "micAudioUrl": mic_audio_url.unwrap_or_default(),
+                "mouseData": mouse_positions,
+                "deviceAudioPath": video_file_path,
+                "micAudioPath": mic_audio_path.unwrap_or_default(),
+                "videoFilePath": video_file_path,
+                "inputEvents": raw_input_events,
+                "capturedFps": last_recording_fps
+            }))
         }
         "get_hotkeys" => {
             let app = APP.lock().unwrap();

@@ -38,6 +38,15 @@ impl MfAudioDecoder {
     /// Open an audio file (or video file with audio track) for decoding.
     /// Outputs 32-bit float PCM at the source sample rate.
     pub fn new(file_path: &str) -> Result<Self, String> {
+        Self::new_with_output_format(file_path, None, None)
+    }
+
+    /// Open an audio file with an optional caller-specified PCM float output format.
+    pub fn new_with_output_format(
+        file_path: &str,
+        target_sample_rate: Option<u32>,
+        target_channels: Option<u32>,
+    ) -> Result<Self, String> {
         let mut attrs: Option<IMFAttributes> = None;
         unsafe {
             MFCreateAttributes(&mut attrs, 1).map_err(|e| format!("MFCreateAttributes: {e}"))?;
@@ -80,6 +89,31 @@ impl MfAudioDecoder {
             pcm_type
                 .SetGUID(&MF_MT_SUBTYPE, &MFAudioFormat_Float)
                 .map_err(|e| format!("SetGUID SUBTYPE: {e}"))?;
+            pcm_type
+                .SetUINT32(&MF_MT_AUDIO_BITS_PER_SAMPLE, 32)
+                .map_err(|e| format!("SetUINT32 BITS: {e}"))?;
+            if let Some(sample_rate) = target_sample_rate {
+                pcm_type
+                    .SetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND, sample_rate)
+                    .map_err(|e| format!("SetUINT32 SAMPLE_RATE: {e}"))?;
+            }
+            if let Some(channels) = target_channels {
+                pcm_type
+                    .SetUINT32(&MF_MT_AUDIO_NUM_CHANNELS, channels)
+                    .map_err(|e| format!("SetUINT32 CHANNELS: {e}"))?;
+                let block_align = channels * 4;
+                pcm_type
+                    .SetUINT32(&MF_MT_AUDIO_BLOCK_ALIGNMENT, block_align)
+                    .map_err(|e| format!("SetUINT32 BLOCK_ALIGN: {e}"))?;
+                if let Some(sample_rate) = target_sample_rate {
+                    pcm_type
+                        .SetUINT32(
+                            &MF_MT_AUDIO_AVG_BYTES_PER_SECOND,
+                            sample_rate * block_align,
+                        )
+                        .map_err(|e| format!("SetUINT32 AVG_BYTES: {e}"))?;
+                }
+            }
             reader
                 .SetCurrentMediaType(audio_idx, None, &pcm_type)
                 .map_err(|e| format!("SetCurrentMediaType Float: {e}"))?;

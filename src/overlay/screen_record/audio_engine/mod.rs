@@ -1,6 +1,9 @@
+mod device_audio;
+mod mic_capture;
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ringbuf::HeapRb;
 use ringbuf::traits::*;
+use ringbuf::HeapRb;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -10,9 +13,19 @@ use windows::Win32::System::Threading::{
 };
 use windows_capture::encoder::AudioEncoderHandle;
 
-const AUDIO_POLL_SLEEP_MS: u64 = 5;
-const AUDIO_SILENCE_CATCHUP_THRESHOLD_100NS: i64 = 200_000; // 20 ms
-const AUDIO_SILENCE_CHUNK_DIVISOR: u32 = 50; // 20 ms chunks
+use device_audio::record_per_app_audio;
+pub(crate) use mic_capture::record_mic_audio_sidecar;
+
+pub(super) const AUDIO_POLL_SLEEP_MS: u64 = 5;
+pub(super) const AUDIO_SILENCE_CATCHUP_THRESHOLD_100NS: i64 = 200_000;
+pub(super) const AUDIO_SILENCE_CHUNK_DIVISOR: u32 = 50;
+
+#[derive(Debug, Clone, Copy)]
+pub enum DeviceAudioCaptureSource {
+    Disabled,
+    SystemOutput,
+    SingleApp(u32),
+}
 
 pub fn get_default_audio_config() -> (u32, u32) {
     let host = cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or_else(|_| cpal::default_host());
@@ -29,16 +42,46 @@ pub fn record_audio(
     start_time: Instant,
     stop_signal: Arc<AtomicBool>,
     finished_signal: Arc<AtomicBool>,
+    source: DeviceAudioCaptureSource,
 ) {
     thread::spawn(move || {
         unsafe {
             let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
         }
         let (fallback_sample_rate, fallback_channels) = get_default_audio_config();
+
+        match source {
+            DeviceAudioCaptureSource::Disabled => {
+                eprintln!("[AudioMux] device audio capture disabled for this recording");
+                record_silence_only_audio(
+                    audio_handle,
+                    start_time,
+                    stop_signal,
+                    finished_signal,
+                    fallback_sample_rate,
+                    fallback_channels as usize,
+                );
+                return;
+            }
+            DeviceAudioCaptureSource::SingleApp(process_id) => {
+                record_per_app_audio(
+                    audio_handle,
+                    start_time,
+                    stop_signal,
+                    finished_signal,
+                    fallback_sample_rate,
+                    fallback_channels as usize,
+                    process_id,
+                );
+                return;
+            }
+            DeviceAudioCaptureSource::SystemOutput => {}
+        }
+
         let host = match cpal::host_from_id(cpal::HostId::Wasapi) {
-            Ok(h) => h,
-            Err(e) => {
-                eprintln!("Failed to get WASAPI host: {}", e);
+            Ok(host) => host,
+            Err(error) => {
+                eprintln!("Failed to get WASAPI host: {}", error);
                 cpal::default_host()
             }
         };
@@ -69,28 +112,28 @@ pub fn record_audio(
                         None,
                     ) {
                         Ok(stream) => {
-                            if let Err(e) = stream.play() {
+                            if let Err(error) = stream.play() {
                                 eprintln!(
                                     "Failed to start audio stream; falling back to silence: {}",
-                                    e
+                                    error
                                 );
                             } else {
                                 loopback_available = true;
                                 loopback_stream = Some(stream);
                             }
                         }
-                        Err(e) => {
+                        Err(error) => {
                             eprintln!(
                                 "Failed to build audio input stream; falling back to silence: {}",
-                                e
+                                error
                             );
                         }
                     }
                 }
-                Err(e) => {
+                Err(error) => {
                     eprintln!(
                         "Failed to get default output config; falling back to silence: {}",
-                        e
+                        error
                     );
                 }
             }
@@ -129,8 +172,8 @@ pub fn record_audio(
                 if let Some((bytes, duration_100ns)) =
                     encode_pcm_chunk_i16(&chunk[..count], channels, sample_rate)
                 {
-                    if let Err(e) = audio_handle.send_audio_buffer(bytes, audio_output_100ns) {
-                        eprintln!("Audio mux send error: {}", e);
+                    if let Err(error) = audio_handle.send_audio_buffer(bytes, audio_output_100ns) {
+                        eprintln!("Audio mux send error: {}", error);
                         break;
                     }
                     audio_output_100ns = audio_output_100ns.saturating_add(duration_100ns);
@@ -142,9 +185,7 @@ pub fn record_audio(
             let lag_100ns = wall_clock_100ns.saturating_sub(audio_output_100ns);
             if lag_100ns >= AUDIO_SILENCE_CATCHUP_THRESHOLD_100NS {
                 if !silence_logged {
-                    eprintln!(
-                        "[AudioMux] loopback starved; injecting silence to keep encoder alive"
-                    );
+                    eprintln!("[AudioMux] loopback starved; injecting silence to keep encoder alive");
                     silence_logged = true;
                 }
 
@@ -155,8 +196,8 @@ pub fn record_audio(
                 if let Some((bytes, duration_100ns)) =
                     encode_pcm_chunk_i16(&silence_chunk[..samples_to_send], channels, sample_rate)
                 {
-                    if let Err(e) = audio_handle.send_audio_buffer(bytes, audio_output_100ns) {
-                        eprintln!("Audio silence send error: {}", e);
+                    if let Err(error) = audio_handle.send_audio_buffer(bytes, audio_output_100ns) {
+                        eprintln!("Audio silence send error: {}", error);
                         break;
                     }
                     audio_output_100ns = audio_output_100ns.saturating_add(duration_100ns);
@@ -178,8 +219,8 @@ pub fn record_audio(
             if let Some((bytes, duration_100ns)) =
                 encode_pcm_chunk_i16(&chunk[..count], channels, sample_rate)
             {
-                if let Err(e) = audio_handle.send_audio_buffer(bytes, audio_output_100ns) {
-                    eprintln!("Audio mux flush send error: {}", e);
+                if let Err(error) = audio_handle.send_audio_buffer(bytes, audio_output_100ns) {
+                    eprintln!("Audio mux flush send error: {}", error);
                     break;
                 }
                 audio_output_100ns = audio_output_100ns.saturating_add(duration_100ns);
@@ -190,7 +231,51 @@ pub fn record_audio(
     });
 }
 
-fn encode_pcm_chunk_i16(
+pub(super) fn record_silence_only_audio(
+    audio_handle: AudioEncoderHandle,
+    start_time: Instant,
+    stop_signal: Arc<AtomicBool>,
+    finished_signal: Arc<AtomicBool>,
+    sample_rate: u32,
+    channels: usize,
+) {
+    if channels == 0 || sample_rate == 0 {
+        finished_signal.store(true, Ordering::SeqCst);
+        return;
+    }
+
+    let mut audio_output_100ns = (start_time.elapsed().as_nanos() / 100) as i64;
+    let silence_frames = (sample_rate / AUDIO_SILENCE_CHUNK_DIVISOR).max(1) as usize;
+    let silence_samples = silence_frames.saturating_mul(channels);
+    let silence_chunk = vec![0.0f32; silence_samples];
+
+    while !stop_signal.load(Ordering::SeqCst) {
+        let wall_clock_100ns = (start_time.elapsed().as_nanos() / 100) as i64;
+        let lag_100ns = wall_clock_100ns.saturating_sub(audio_output_100ns);
+        if lag_100ns >= AUDIO_SILENCE_CATCHUP_THRESHOLD_100NS {
+            let lag_frames =
+                ((lag_100ns as i128) * (sample_rate as i128) / 10_000_000i128) as usize;
+            let frames_to_send = lag_frames.clamp(1, silence_frames);
+            let samples_to_send = frames_to_send.saturating_mul(channels);
+            if let Some((bytes, duration_100ns)) =
+                encode_pcm_chunk_i16(&silence_chunk[..samples_to_send], channels, sample_rate)
+            {
+                if let Err(error) = audio_handle.send_audio_buffer(bytes, audio_output_100ns) {
+                    eprintln!("Audio silence send error: {}", error);
+                    break;
+                }
+                audio_output_100ns = audio_output_100ns.saturating_add(duration_100ns);
+                continue;
+            }
+        }
+
+        thread::sleep(Duration::from_millis(AUDIO_POLL_SLEEP_MS));
+    }
+
+    finished_signal.store(true, Ordering::SeqCst);
+}
+
+pub(super) fn encode_pcm_chunk_i16(
     samples: &[f32],
     channels: usize,
     sample_rate: u32,
@@ -209,6 +294,30 @@ fn encode_pcm_chunk_i16(
     for &sample in &samples[..sample_count] {
         let pcm = (sample.clamp(-1.0, 1.0) * 32767.0) as i16;
         bytes.extend_from_slice(&pcm.to_le_bytes());
+    }
+
+    let duration_100ns = ((frame_count as u128) * 10_000_000u128 / (sample_rate as u128)) as i64;
+    Some((bytes, duration_100ns))
+}
+
+pub(super) fn encode_pcm_i16_chunk(
+    samples: &[i16],
+    channels: usize,
+    sample_rate: u32,
+) -> Option<(Vec<u8>, i64)> {
+    if channels == 0 || sample_rate == 0 || samples.is_empty() {
+        return None;
+    }
+
+    let frame_count = samples.len() / channels;
+    if frame_count == 0 {
+        return None;
+    }
+
+    let sample_count = frame_count * channels;
+    let mut bytes = Vec::with_capacity(sample_count * 2);
+    for sample in &samples[..sample_count] {
+        bytes.extend_from_slice(&sample.to_le_bytes());
     }
 
     let duration_100ns = ((frame_count as u128) * 10_000_000u128 / (sample_rate as u128)) as i64;

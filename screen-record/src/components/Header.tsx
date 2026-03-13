@@ -10,6 +10,7 @@ import { Hotkey, MonitorInfo } from '@/hooks/useAppHooks';
 import { formatMonitorSummary, formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';
 import { RecordingMode } from '@/types/video';
+import { RecordingAudioSelection } from '@/types/recordingAudio';
 import { useHeaderStatus } from '@/lib/headerStatus';
 import {
   DropdownMenu,
@@ -20,6 +21,7 @@ import {
   DropdownMenuLabel,
 } from '@/components/ui/DropdownMenu';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { RecordingAudioSourceDropdown } from '@/components/header/RecordingAudioSourceDropdown';
 
 /** Returns exact integer divisors of Hz that are ≥ 30 (Hz/n for n ∈ {1,2,3,4}). */
 function getPerfectFpsOptions(hz: number): number[] {
@@ -42,7 +44,7 @@ function getCombinedFpsOptions(monitors: MonitorInfo[]): number[] {
 }
 
 type CaptureMenuStep = 'root' | 'display-monitors' | 'display-fps' | 'window-fps';
-type HeaderDropdown = 'recordingMode' | 'captureSource' | null;
+type HeaderDropdown = 'recordingAudio' | 'recordingMode' | 'captureSource' | null;
 const HEADER_DROPDOWN_DEBUG = false;
 
 interface HeaderProps {
@@ -56,6 +58,12 @@ interface HeaderProps {
   onExport: () => void;
   recordingMode: RecordingMode;
   onRecordingModeChange: (mode: RecordingMode) => void;
+  recordingAudioSelection: RecordingAudioSelection;
+  isSelectingRecordingAudioApp: boolean;
+  onToggleRecordingDeviceAudio: (enabled: boolean) => void;
+  onToggleRecordingMicAudio: (enabled: boolean) => void;
+  onSelectAllRecordingDeviceAudio: () => void;
+  onRequestRecordingAudioAppSelection: () => void;
   rawButtonLabel: string;
   rawButtonPulse: boolean;
   rawButtonDisabled: boolean;
@@ -83,6 +91,12 @@ export function Header({
   onExport,
   recordingMode,
   onRecordingModeChange,
+  recordingAudioSelection,
+  isSelectingRecordingAudioApp,
+  onToggleRecordingDeviceAudio,
+  onToggleRecordingMicAudio,
+  onSelectAllRecordingDeviceAudio,
+  onRequestRecordingAudioAppSelection,
   rawButtonLabel,
   rawButtonPulse,
   rawButtonDisabled,
@@ -125,6 +139,7 @@ export function Header({
     [monitors, pickedMonitorId]
   );
 
+  const isRecordingAudioMenuOpen = activeDropdown === 'recordingAudio';
   const isRecordingModeMenuOpen = activeDropdown === 'recordingMode';
   const isCaptureSourceMenuOpen = activeDropdown === 'captureSource';
 
@@ -291,6 +306,40 @@ export function Header({
             <Keyboard className="w-3 h-3 mr-1" />
             {t.addHotkey}
           </Button>
+        </div>
+
+        <div className="header-actions flex items-center gap-2">
+          <RecordingAudioSourceDropdown
+            open={isRecordingAudioMenuOpen}
+            onOpenChange={(open) => {
+              logHeaderDropdown('recording-audio-open-change', { open });
+              if (open) {
+                pendingDropdownRef.current = null;
+                clearPendingHandoff();
+                resetCaptureMenu();
+                setActiveDropdown('recordingAudio');
+                return;
+              }
+              if (suppressedCloseRef.current === 'recordingAudio') {
+                logHeaderDropdown('recording-audio-close-suppressed');
+                suppressedCloseRef.current = null;
+                return;
+              }
+              if (pendingDropdownRef.current) return;
+              setActiveDropdown((prev) => (prev === 'recordingAudio' ? null : prev));
+            }}
+            onTriggerPointerDown={handleDropdownTriggerPointerDown('recordingAudio')}
+            selection={recordingAudioSelection}
+            isSelectingApp={isSelectingRecordingAudioApp}
+            onToggleDevice={onToggleRecordingDeviceAudio}
+            onToggleMic={onToggleRecordingMicAudio}
+            onSelectAllDeviceAudio={onSelectAllRecordingDeviceAudio}
+            onRequestAppSelection={() => {
+              onRequestRecordingAudioAppSelection();
+              setActiveDropdown(null);
+            }}
+            t={t}
+          />
           <div className="recording-mode-dropdown relative flex-shrink-0" onMouseDown={(e) => e.stopPropagation()}>
             <DropdownMenu open={isRecordingModeMenuOpen} onOpenChange={(open) => {
               logHeaderDropdown('recording-mode-open-change', { open });
@@ -339,9 +388,6 @@ export function Header({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-        </div>
-
-        <div className="header-actions flex items-center gap-2">
           {/* ── Capture-source dropdown (multi-step) ── */}
           <div className="capture-source-dropdown relative flex-shrink-0" onMouseDown={(e) => e.stopPropagation()}>
             <DropdownMenu open={isCaptureSourceMenuOpen} onOpenChange={(open) => {
