@@ -15,7 +15,7 @@
             }
 
             if (!hasContent) {
-                content.innerHTML = '<span class="placeholder">{{PLACEHOLDER_TEXT}}</span>';
+                content.innerHTML = window.getPlaceholderMarkup ? window.getPlaceholderMarkup() : '<span class="placeholder">{{PLACEHOLDER_TEXT}}</span>';
                 content.style.minHeight = '';
                 isFirstText = true;
                 minContentHeight = 0;
@@ -331,7 +331,7 @@
 
         // Clear text and reset to initial placeholder state
         function clearText() {
-            content.innerHTML = '<span class=\"placeholder\">{{PLACEHOLDER_TEXT}}</span>';
+            content.innerHTML = window.getPlaceholderMarkup ? window.getPlaceholderMarkup() : '<span class=\"placeholder\">{{PLACEHOLDER_TEXT}}</span>';
             content.style.minHeight = '';
             isFirstText = true;
             minContentHeight = 0;

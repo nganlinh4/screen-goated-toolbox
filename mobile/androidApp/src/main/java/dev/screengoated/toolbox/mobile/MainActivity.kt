@@ -102,7 +102,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            LaunchedEffect(state.lastError) {
+            LaunchedEffect(state.errorSerial) {
                 state.lastError?.takeIf { it.isNotBlank() }?.let { message ->
                     Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                 }
@@ -153,6 +153,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun continueStartFlow() {
+        viewModel.refreshPermissions()
         val state = viewModel.sessionState.value
         if (!viewModel.hasApiKey()) {
             pendingStart = false

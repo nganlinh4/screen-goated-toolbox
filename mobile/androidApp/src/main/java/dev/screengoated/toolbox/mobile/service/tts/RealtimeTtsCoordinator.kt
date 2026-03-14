@@ -24,6 +24,7 @@ class RealtimeTtsCoordinator(
                 if (event.consumer != TtsConsumer.REALTIME || event.ownerToken != OWNER_TOKEN) {
                     return@collectLatest
                 }
+
                 when (event.completionStatus) {
                     TtsCompletionStatus.COMPLETED -> {
                         val completedOffset = pendingOffsets.remove(event.requestId)
@@ -36,8 +37,7 @@ class RealtimeTtsCoordinator(
                     TtsCompletionStatus.INTERRUPTED,
                     TtsCompletionStatus.FAILED,
                     -> {
-                        pendingOffsets.clear()
-                        queuedLength = spokenLength
+                        pendingOffsets.remove(event.requestId)
                     }
                 }
                 runtime.setRealtimeQueueDepth(pendingOffsets.size)
@@ -70,6 +70,7 @@ class RealtimeTtsCoordinator(
         }
 
         if (normalized.length < spokenLength || normalized.length < queuedLength) {
+
             resetOffsets()
         }
 
@@ -94,6 +95,7 @@ class RealtimeTtsCoordinator(
             return
         }
 
+
         val requestId = runtime.enqueueRealtime(
             TtsRequest(
                 text = nextSegment,
@@ -113,6 +115,7 @@ class RealtimeTtsCoordinator(
     }
 
     fun stop() {
+
         runtime.stop()
         pendingOffsets.clear()
         queuedLength = spokenLength
@@ -120,6 +123,7 @@ class RealtimeTtsCoordinator(
     }
 
     fun stopAndReset() {
+
         runtime.stop()
         resetOffsets()
         runtime.setRealtimeQueueDepth(0)

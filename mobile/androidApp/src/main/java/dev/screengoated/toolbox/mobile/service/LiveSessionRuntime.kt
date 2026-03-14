@@ -148,13 +148,14 @@ class LiveSessionRuntime(
             lastTranslationAttemptAtMs = nowMs
             repository.markTranslating()
             val startedAt = SystemClock.elapsedRealtime()
+            val requestedProvider = repository.currentConfig().translationProvider.id
             try {
                 val usedProvider = translationClient.streamTranslation(
                     geminiApiKey = repository.currentApiKey(),
                     cerebrasApiKey = repository.currentCerebrasApiKey(),
                     request = request,
                     targetLanguage = repository.currentConfig().targetLanguage,
-                    providerId = repository.currentConfig().translationProvider.id,
+                    providerId = requestedProvider,
                     model = repository.currentConfig().translationProvider.model,
                     onDelta = { delta ->
                         repository.appendTranslationDelta(
@@ -163,7 +164,10 @@ class LiveSessionRuntime(
                         )
                     },
                 )
-                if (usedProvider != repository.translationModelId()) {
+                // Only persist fallback switch if user hasn't changed the model during this request
+                if (usedProvider != requestedProvider &&
+                    repository.translationModelId() == requestedProvider
+                ) {
                     repository.updateTranslationModel(usedProvider)
                 }
                 if (request.hasFinishedDelimiter) {
@@ -181,8 +185,11 @@ class LiveSessionRuntime(
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (error: Throwable) {
-                repository.fail(error.message ?: "Translation failed.")
+            } catch (_: Throwable) {
+                // Translation failure should not kill the session — retry next cycle
+                if (repository.state.value.phase != SessionPhase.ERROR) {
+                    repository.markListening()
+                }
             }
             delay(100)
         }

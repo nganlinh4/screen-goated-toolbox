@@ -6,6 +6,7 @@
 - Windows theme and system-language enums/helpers: [src/config/types/enums.rs](../../src/config/types/enums.rs)
 - Windows locale string bundles: [src/gui/locale/mod.rs](../../src/gui/locale/mod.rs), [src/gui/locale/en.rs](../../src/gui/locale/en.rs), [src/gui/locale/vi.rs](../../src/gui/locale/vi.rs), [src/gui/locale/ko.rs](../../src/gui/locale/ko.rs)
 - Windows TTS settings preview behavior: [src/gui/settings_ui/global/tts_settings.rs](../../src/gui/settings_ui/global/tts_settings.rs)
+- Windows app/tray icon assets: [assets/app-icon-small.png](../../assets/app-icon-small.png), [assets/app-icon-small-light.png](../../assets/app-icon-small-light.png), [assets/tray_icon.png](../../assets/tray_icon.png), [assets/tray_icon-light.png](../../assets/tray_icon-light.png)
 
 ## Behavior Contract
 - Mobile keeps the same top-level UI language choices as Windows:
@@ -24,6 +25,14 @@
   - `{}`
   placeholders are replaced with the selected voice name
   - preview selection should avoid repeating the immediately previous preview entry when multiple entries exist
+- Mobile in-app branding uses the Windows light/dark app-icon pair:
+  - dark surfaces use the dark Windows icon asset
+  - light surfaces use the light Windows icon asset
+  - launcher resources may stay Android-stable, but in-app shell, dialogs, and notification branding must come from the Windows asset pair
+- Mobile shell layout stays Windows-structured but uses Android-native expressive composition:
+  - top command bar for language, theme, and branding
+  - global settings surface for credentials, live control, and TTS settings
+  - honest placeholders for future Windows sections instead of fake-working mobile-only screens
 - Mobile may keep Android-native rendering, but the language/theme state model and localized preview text source must match Windows.
 
 ## Failure And Recovery

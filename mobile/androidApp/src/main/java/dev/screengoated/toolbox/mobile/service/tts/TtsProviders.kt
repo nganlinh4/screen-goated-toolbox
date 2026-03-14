@@ -303,13 +303,21 @@ internal class EdgeTtsProvider(
         val voiceName = resolveVoice(request)
         val settings = request.settingsSnapshot.edgeSettings
         val connectionId = UUID.randomUUID().toString().replace("-", "")
+
+        val secMsGec = generateSecMsGec()
         val socketRequest = Request.Builder()
-            .url("$EDGE_WS_ENDPOINT?TrustedClientToken=$EDGE_TRUSTED_TOKEN&ConnectionId=$connectionId")
+            .url("$EDGE_WS_ENDPOINT?TrustedClientToken=$EDGE_TRUSTED_TOKEN&ConnectionId=$connectionId&Sec-MS-GEC=$secMsGec&Sec-MS-GEC-Version=$SEC_MS_GEC_VERSION")
+            .header("Origin", EDGE_ORIGIN)
+            .header("Pragma", "no-cache")
+            .header("Cache-Control", "no-cache")
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$CHROMIUM_FULL_VERSION Safari/537.36 Edg/$CHROMIUM_FULL_VERSION")
             .build()
 
         BlockingWebSocketSession(httpClient, socketRequest).use { session ->
             if (!session.awaitOpen(10_000)) {
-                sink.offer(ProviderAudioEvent.Error("Edge TTS websocket failed to open."))
+                val failEvent = session.poll(0)
+                val reason = if (failEvent is WebSocketEvent.Failure) failEvent.throwable.message else "timeout"
+                sink.offer(ProviderAudioEvent.Error("Edge TTS websocket failed: $reason"))
                 return
             }
 
@@ -320,6 +328,7 @@ internal class EdgeTtsProvider(
                     "{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}"
 
             if (!session.sendText(configMessage)) {
+
                 sink.offer(ProviderAudioEvent.Error("Edge TTS config payload was rejected."))
                 return
             }
@@ -337,6 +346,7 @@ internal class EdgeTtsProvider(
                     "X-Timestamp:${edgeSsmlTimestamp()}Z\r\n" +
                     "Path:ssml\r\n\r\n$ssml"
             if (!session.sendText(ssmlMessage)) {
+
                 sink.offer(ProviderAudioEvent.Error("Edge TTS SSML payload was rejected."))
                 return
             }
@@ -360,38 +370,55 @@ internal class EdgeTtsProvider(
                     }
 
                     is WebSocketEvent.Text -> {
+
                         if (event.payload.contains("Path:turn.end")) {
+
                             emitDecodedMp3(mp3Data.toByteArray(), sink)
                             return
                         }
                     }
 
                     is WebSocketEvent.Failure -> {
+
                         sink.offer(ProviderAudioEvent.Error(event.throwable.message ?: "Edge TTS websocket failed."))
                         return
                     }
 
                     WebSocketEvent.Closed -> {
+
                         emitDecodedMp3(mp3Data.toByteArray(), sink)
                         return
                     }
                 }
             }
+
         }
     }
 
     private fun resolveVoice(request: TtsRequest): String {
         val detectedLanguage = languageDetector.detectIso639_1(request.text)
-        return request.settingsSnapshot.edgeSettings.voiceConfigs.firstOrNull {
+        val configs = request.settingsSnapshot.edgeSettings.voiceConfigs
+        val matched = configs.firstOrNull {
             it.languageCode.equals(detectedLanguage, ignoreCase = true)
-        }?.voiceName ?: DEFAULT_EDGE_VOICE
+        }
+        val voice = matched?.voiceName ?: DEFAULT_EDGE_VOICE
+
+        return voice
     }
 
     private fun emitDecodedMp3(
         mp3: ByteArray,
         sink: LinkedBlockingDeque<ProviderAudioEvent>,
     ) {
-        val pcm = mp3Decoder.decodeToMonoPcm24k(mp3)
+
+        val pcm = try {
+            mp3Decoder.decodeToMonoPcm24k(mp3)
+        } catch (e: Exception) {
+
+            sink.offer(ProviderAudioEvent.Error("Edge TTS MP3 decode failed: ${e.message}"))
+            return
+        }
+
         if (pcm.isEmpty()) {
             sink.offer(ProviderAudioEvent.Error("Edge TTS did not return playable audio."))
             return
@@ -435,10 +462,24 @@ internal class EdgeTtsProvider(
             .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS", java.util.Locale.US))
     }
 
+    private fun generateSecMsGec(): String {
+        val winEpochOffset = 11644473600L
+        val nowSeconds = System.currentTimeMillis() / 1000
+        val adjustedSeconds = nowSeconds + winEpochOffset
+        val roundedSeconds = adjustedSeconds - (adjustedSeconds % 300)
+        val ticks = roundedSeconds * 10_000_000L
+        val input = "$ticks$EDGE_TRUSTED_TOKEN"
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
+        return digest.joinToString("") { "%02X".format(it) }
+    }
+
     private companion object {
         private const val EDGE_TRUSTED_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4"
         private const val EDGE_WS_ENDPOINT =
             "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1"
+        private const val EDGE_ORIGIN = "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold"
+        private const val CHROMIUM_FULL_VERSION = "143.0.3650.75"
+        private const val SEC_MS_GEC_VERSION = "1-$CHROMIUM_FULL_VERSION"
         private const val DEFAULT_EDGE_VOICE = "en-US-AriaNeural"
         private const val CHUNK_BYTES = 24_000
     }

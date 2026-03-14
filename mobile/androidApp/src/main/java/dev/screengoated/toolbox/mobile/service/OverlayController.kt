@@ -157,13 +157,13 @@ class OverlayController(
                 RealtimeOverlayPaneSettings(
                     isTranslation = false,
                     isDark = isDarkTheme(snapshot.uiPreferences.themeMode),
-                    uiLanguage = snapshot.uiPreferences.uiLanguage,
                 ),
             ),
             settings = overlayPaneRuntimeSettings(
                 state = state,
                 fontSize = snapshot.fontSizes.transcriptionSp,
                 isDark = isDarkTheme(snapshot.uiPreferences.themeMode),
+                uiLanguage = snapshot.uiPreferences.uiLanguage,
             ),
             oldText = transcriptOldText(state),
             newText = transcriptNewText(state),
@@ -173,13 +173,13 @@ class OverlayController(
                 RealtimeOverlayPaneSettings(
                     isTranslation = true,
                     isDark = isDarkTheme(snapshot.uiPreferences.themeMode),
-                    uiLanguage = snapshot.uiPreferences.uiLanguage,
                 ),
             ),
             settings = overlayPaneRuntimeSettings(
                 state = state,
                 fontSize = snapshot.fontSizes.translationSp,
                 isDark = isDarkTheme(snapshot.uiPreferences.themeMode),
+                uiLanguage = snapshot.uiPreferences.uiLanguage,
             ),
             oldText = state.liveText.committedTranslation,
             newText = state.liveText.uncommittedTranslation,
@@ -211,6 +211,10 @@ class OverlayController(
                 message.removePrefix("translationModel:"),
             )
             message.startsWith("perf:") -> Log.d(PERF_TAG, "pane=$paneId ${message.removePrefix("perf:")}")
+            message == "overlayReady" -> {
+                windowFor(paneId)?.onReady()
+                syncVisibility(force = true)
+            }
 
             message.startsWith("transcriptionModel:") -> updateTranscriptionModel(
                 message.removePrefix("transcriptionModel:"),

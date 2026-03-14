@@ -21,12 +21,14 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
     private lateinit var runtime: LiveSessionRuntime
     private lateinit var notifications: ServiceNotificationFactory
     private lateinit var repository: dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
+    private lateinit var projectionConsentStore: dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
 
     override fun onCreate() {
         super.onCreate()
 
         val container = (application as SgtMobileApplication).appContainer
         repository = container.repository
+        projectionConsentStore = container.projectionConsentStore
         notifications = ServiceNotificationFactory(this)
         notifications.ensureChannel()
         runtime = LiveSessionRuntime(
@@ -73,19 +75,28 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
         repository.refreshPermissions()
         if (!repository.canStartSession()) {
             repository.markAwaitingPermissions()
+            startForeground(
+                ServiceNotificationFactory.NOTIFICATION_ID,
+                notifications.build(notifications.snapshot(repository.state.value)),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+            )
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return
         }
 
-        startForeground(
-            ServiceNotificationFactory.NOTIFICATION_ID,
-            notifications.build(notifications.snapshot(repository.state.value)),
-            when (repository.state.value.config.sourceMode) {
-                SourceMode.MIC -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-                SourceMode.DEVICE -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            },
-        )
+        val notification = notifications.build(notifications.snapshot(repository.state.value))
+        val fgsType = resolveForegroundType(repository.state.value.config.sourceMode)
+        try {
+            startForeground(ServiceNotificationFactory.NOTIFICATION_ID, notification, fgsType)
+        } catch (_: SecurityException) {
+            projectionConsentStore.clear()
+            startForeground(
+                ServiceNotificationFactory.NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+            )
+        }
         runtime.start(serviceScope)
     }
 
@@ -97,14 +108,26 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
     }
 
     private fun updateForegroundType(sourceMode: SourceMode) {
-        startForeground(
-            ServiceNotificationFactory.NOTIFICATION_ID,
-            notifications.build(notifications.snapshot(repository.state.value)),
-            when (sourceMode) {
-                SourceMode.MIC -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-                SourceMode.DEVICE -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            },
-        )
+        val notification = notifications.build(notifications.snapshot(repository.state.value))
+        val fgsType = resolveForegroundType(sourceMode)
+        try {
+            startForeground(ServiceNotificationFactory.NOTIFICATION_ID, notification, fgsType)
+        } catch (_: SecurityException) {
+            projectionConsentStore.clear()
+            startForeground(
+                ServiceNotificationFactory.NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+            )
+        }
+    }
+
+    private fun resolveForegroundType(sourceMode: SourceMode): Int {
+        return if (sourceMode == SourceMode.DEVICE && projectionConsentStore.hasConsent()) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        } else {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        }
     }
 
     companion object {

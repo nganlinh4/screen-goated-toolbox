@@ -190,6 +190,7 @@ class AndroidTtsRuntimeService(
                 continue
             }
 
+
             runCatching {
                 when (job.request.settingsSnapshot.method) {
                     MobileTtsMethod.GEMINI_LIVE -> geminiProvider.stream(
@@ -211,6 +212,7 @@ class AndroidTtsRuntimeService(
                     )
                 }
             }.onFailure { error ->
+
                 job.audioEvents.offer(
                     ProviderAudioEvent.Error(
                         error.message ?: "TTS provider failed.",
@@ -260,6 +262,7 @@ class AndroidTtsRuntimeService(
                     }
 
                     is ProviderAudioEvent.Error -> {
+
                         audioPlayer.stopImmediate()
                         completion = TtsCompletionStatus.FAILED
                         done = true

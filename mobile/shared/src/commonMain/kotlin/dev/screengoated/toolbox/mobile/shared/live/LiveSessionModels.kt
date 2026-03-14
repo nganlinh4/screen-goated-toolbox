@@ -146,6 +146,7 @@ data class LiveSessionState(
     val permissions: PermissionSnapshot = PermissionSnapshot(),
     val liveText: LiveTextState = LiveTextState(),
     val lastError: String? = null,
+    val errorSerial: Int = 0,
     val overlayVisible: Boolean = false,
     val metrics: LiveSessionMetrics = LiveSessionMetrics(),
 ) {

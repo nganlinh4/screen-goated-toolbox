@@ -203,6 +203,7 @@ class LiveSessionStore(
             current.copy(
                 phase = SessionPhase.ERROR,
                 lastError = message,
+                errorSerial = current.errorSerial + 1,
             )
         }
     }

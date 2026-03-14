@@ -153,6 +153,10 @@ internal class OverlayPaneWindow(
         paneHolder.evaluate(script)
     }
 
+    fun onReady() {
+        paneHolder.onReady()
+    }
+
     private fun resizeByGesture(detector: ScaleGestureDetector) {
         val scaleX = axisScale(detector.currentSpanX, detector.previousSpanX)
         val scaleY = axisScale(detector.currentSpanY, detector.previousSpanY)

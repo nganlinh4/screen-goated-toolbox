@@ -47,7 +47,8 @@
   - runtime header actions (`+/-`, mic/device, language, translation model, transcription model, TTS toggle/modal) must preserve the current horizontal header scroll position instead of snapping back to the start
   - runtime header actions must update the already-loaded WebView through discrete JS bridge calls; they must not trigger a full HTML reload just to reflect changed source/model/language/font settings
   - overlay placeholder text, TTS labels, download modal labels, and overlay control tooltips must come from the active mobile UI language bundle rather than fixed English strings
-  - when the mobile UI language changes, the overlay chrome must refresh to the new locale on the current session instead of waiting for a full app restart
+  - when the mobile UI language changes, the overlay chrome must refresh to the new locale on the current session through discrete JS locale updates instead of waiting for a full app restart
+  - mobile UI language changes must not force a full pane HTML reload just to swap strings
   - if the translation pane is hidden, mobile must skip opening new translation requests just like Windows skips work when translation visibility is off
 - Realtime control contract:
   - translation providers must expose `cerebras-oss`, `google-gemma`, and `google-gtx`

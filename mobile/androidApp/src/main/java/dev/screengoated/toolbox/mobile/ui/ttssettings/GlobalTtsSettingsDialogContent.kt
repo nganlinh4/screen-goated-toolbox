@@ -5,11 +5,14 @@ package dev.screengoated.toolbox.mobile.ui.ttssettings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -19,6 +22,8 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
@@ -26,12 +31,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.SingleChoiceSegmentedButtonRowScope
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.WideNavigationRail
 import androidx.compose.material3.WideNavigationRailItem
 import androidx.compose.material3.WideNavigationRailValue
@@ -39,6 +41,9 @@ import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -101,6 +106,7 @@ internal fun RenderGlobalTtsSettingsDialog(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Text(
                             text = locale.ttsSettingsTitle,
@@ -177,27 +183,32 @@ internal fun RenderGlobalTtsSettingsDialog(
                                             text = locale.ttsMethodLabel,
                                             style = MaterialTheme.typography.labelLargeEmphasized,
                                         )
-                                        SingleChoiceSegmentedButtonRow(
+                                        val methods = listOf(
+                                            Triple(MobileTtsMethod.GEMINI_LIVE, locale.ttsMethodStandard, Icons.Rounded.AutoAwesome),
+                                            Triple(MobileTtsMethod.EDGE_TTS, locale.ttsMethodEdge, Icons.Rounded.GraphicEq),
+                                            Triple(MobileTtsMethod.GOOGLE_TRANSLATE, locale.ttsMethodFast, Icons.Rounded.Language),
+                                        )
+                                        FlowRow(
                                             modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+                                            verticalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
                                         ) {
-                                            TtsMethodSegment(
-                                                index = 0,
-                                                count = 3,
-                                                selected = settings.method == MobileTtsMethod.GEMINI_LIVE,
-                                                label = locale.ttsMethodStandard,
-                                            ) { selectMethod(MobileTtsMethod.GEMINI_LIVE) }
-                                            TtsMethodSegment(
-                                                index = 1,
-                                                count = 3,
-                                                selected = settings.method == MobileTtsMethod.EDGE_TTS,
-                                                label = locale.ttsMethodEdge,
-                                            ) { selectMethod(MobileTtsMethod.EDGE_TTS) }
-                                            TtsMethodSegment(
-                                                index = 2,
-                                                count = 3,
-                                                selected = settings.method == MobileTtsMethod.GOOGLE_TRANSLATE,
-                                                label = locale.ttsMethodFast,
-                                            ) { selectMethod(MobileTtsMethod.GOOGLE_TRANSLATE) }
+                                            methods.forEachIndexed { index, (method, label, icon) ->
+                                                ToggleButton(
+                                                    checked = settings.method == method,
+                                                    onCheckedChange = { selectMethod(method) },
+                                                    shapes = when (index) {
+                                                        0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                                                        methods.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                                                        else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                                                    },
+                                                    modifier = Modifier.semantics { role = Role.RadioButton },
+                                                ) {
+                                                    Icon(icon, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                                                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                                                    Text(label, style = MaterialTheme.typography.labelMediumEmphasized, maxLines = 2)
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -260,12 +271,23 @@ private fun GoogleTranslateSection(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                TtsRadioRow(locale.ttsSpeedSlow, selected == MobileTtsSpeedPreset.SLOW) {
-                    onSpeedPresetChanged(MobileTtsSpeedPreset.SLOW)
-                }
-                TtsRadioRow(locale.ttsSpeedNormal, selected == MobileTtsSpeedPreset.NORMAL) {
-                    onSpeedPresetChanged(MobileTtsSpeedPreset.NORMAL)
+            val speedOptions = listOf(
+                MobileTtsSpeedPreset.SLOW to locale.ttsSpeedSlow,
+                MobileTtsSpeedPreset.NORMAL to locale.ttsSpeedNormal,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
+                speedOptions.forEachIndexed { index, (preset, label) ->
+                    ToggleButton(
+                        checked = selected == preset,
+                        onCheckedChange = { onSpeedPresetChanged(preset) },
+                        shapes = when (index) {
+                            0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                            else -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                        },
+                        modifier = Modifier.semantics { role = Role.RadioButton },
+                    ) {
+                        Text(label)
+                    }
                 }
             }
         }
@@ -287,28 +309,6 @@ internal fun TtsRadioRow(
         RadioButton(selected = selected, onClick = onClick)
         Text(text = label, style = MaterialTheme.typography.bodyMedium)
     }
-}
-
-@Composable
-private fun SingleChoiceSegmentedButtonRowScope.TtsMethodSegment(
-    index: Int,
-    count: Int,
-    selected: Boolean,
-    label: String,
-    onClick: () -> Unit,
-) {
-    SegmentedButton(
-        shape = SegmentedButtonDefaults.itemShape(index = index, count = count),
-        selected = selected,
-        onClick = onClick,
-        label = {
-            Text(
-                text = label,
-                maxLines = 2,
-                style = MaterialTheme.typography.labelMediumEmphasized,
-            )
-        },
-    )
 }
 
 internal fun Int.divCeil(divisor: Int): Int {

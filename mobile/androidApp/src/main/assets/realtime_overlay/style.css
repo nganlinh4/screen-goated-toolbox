@@ -244,21 +244,21 @@
             background: transparent;
             border: none;
         }
-        .vis-btn.active {
+        .vis-btn.active.mic {
+            color: {{SECONDARY}};
+            opacity: 1;
+        }
+        .vis-btn.active.trans {
+            color: {{TERTIARY}};
             opacity: 1;
         }
         .vis-btn.inactive {
-            opacity: 0.35;
+            color: {{ICON_INACTIVE_COLOR}};
+            opacity: 0.5;
         }
         .vis-btn:hover {
             opacity: 0.75;
             transform: scale(1.08);
-        }
-        .vis-btn.mic {
-            color: {{SECONDARY}};
-        }
-        .vis-btn.trans {
-            color: {{TERTIARY}};
         }
         select {
             font-family: 'Google Sans Flex', sans-serif;

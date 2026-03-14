@@ -36,6 +36,11 @@
           "expected_prefix": "안녕하세요"
         }
       ]
+    },
+    {
+      "name": "mobile_branding_uses_windows_app_icon_pair",
+      "expected_dark_asset": "assets/app-icon-small.png",
+      "expected_light_asset": "assets/app-icon-small-light.png"
     }
   ]
 }

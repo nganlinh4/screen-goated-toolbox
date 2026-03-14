@@ -53,6 +53,7 @@
     "androidDeviceTtsIsolation": "non-capturable-no-app-picker",
     "androidTtsSettingsApplyToUnreadText": true,
     "androidTtsRequestsTransientDuckFocus": true,
-    "ttsDisplayedSpeedSource": "runtime-effective-while-speaking"
+    "ttsDisplayedSpeedSource": "runtime-effective-while-speaking",
+    "localeUpdatePath": "discrete-js-no-html-reload"
   }
 }

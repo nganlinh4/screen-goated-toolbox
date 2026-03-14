@@ -1,7 +1,7 @@
-{
-    "mode": "tcpip",
-    "packageName": "dev.screengoated.toolbox.mobile.debug",
-    "host": "192.168.219.218",
-    "port": 5555,
-    "apkPath": "C:\\WORK\\screen-goated-toolbox\\mobile\\androidApp\\build\\outputs\\apk\\full\\debug\\androidApp-full-debug.apk"
+﻿{
+    "mode":  "wireless-debugging",
+    "packageName":  "dev.screengoated.toolbox.mobile.debug",
+    "host":  "192.168.219.201",
+    "port":  37077,
+    "apkPath":  "C:\\WORK\\screen-goated-toolbox\\mobile\\androidApp\\build\\outputs\\apk\\full\\debug\\androidApp-full-debug.apk"
 }

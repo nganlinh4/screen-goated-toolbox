@@ -410,7 +410,7 @@ switch ($Action) {
 
     "logcat" {
         $endpoint = Ensure-Connected $config
-        & cmd.exe /c "adb -s $endpoint logcat | findstr /i ""AndroidRuntime chromium cr_WebView WebView SGT LiveTranslate dev.screengoated toolbox"""
+        & adb -s $endpoint logcat -s "SGT-EdgeTTS:*" "SGT-TTS:*" "SGTGeminiLive:*" "SGTAudioCapture:*" "SGTOverlayPerf:*" "AndroidRuntime:*" "SGT:*" "LiveTranslate:*"
     }
 
     "logcat-all" {
