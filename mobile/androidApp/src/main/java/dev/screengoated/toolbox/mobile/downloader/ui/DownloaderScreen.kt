@@ -368,10 +368,17 @@ private fun SessionContent(
         singleLine = true,
         shape = MaterialTheme.shapes.large,
         trailingIcon = {
-            IconButton(onClick = {
-                clipboard.getText()?.text?.let { viewModel.updateUrl(it) }
-            }) {
-                Icon(Icons.Rounded.ContentPaste, contentDescription = "Paste")
+            Row {
+                if (session.inputUrl.isNotEmpty()) {
+                    IconButton(onClick = { viewModel.updateUrl("") }) {
+                        Icon(Icons.Rounded.Close, contentDescription = "Clear", modifier = Modifier.size(20.dp))
+                    }
+                }
+                IconButton(onClick = {
+                    clipboard.getText()?.text?.let { viewModel.updateUrl(it) }
+                }) {
+                    Icon(Icons.Rounded.ContentPaste, contentDescription = "Paste")
+                }
             }
         },
     )

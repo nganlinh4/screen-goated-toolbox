@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class, androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 
 package dev.screengoated.toolbox.mobile.ui
 
@@ -48,6 +48,8 @@ internal fun MobileShellSurface(
     onVoiceSettingsClick: () -> Unit,
     onSessionToggle: () -> Unit,
     onDownloaderClick: () -> Unit = {},
+    sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
 ) {
     val isActive = state.phase in setOf(
         SessionPhase.STARTING,
@@ -65,7 +67,6 @@ internal fun MobileShellSurface(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(scrollState)
                     .padding(horizontal = 20.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
             ) {
@@ -75,10 +76,13 @@ internal fun MobileShellSurface(
                     locale = locale,
                     modifier = Modifier.fillMaxHeight(),
                 )
+                val wideScrollState = rememberScrollState()
+                val wideNeedsScroll = selectedSection != MobileShellSection.APPS
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .widthIn(max = 960.dp),
+                        .widthIn(max = 960.dp)
+                        .then(if (wideNeedsScroll) Modifier.verticalScroll(wideScrollState) else Modifier),
                     verticalArrangement = Arrangement.spacedBy(ShellSpacing.sectionGap),
                 ) {
                     SectionDetail(
@@ -95,6 +99,8 @@ internal fun MobileShellSurface(
                         onSessionToggle = onSessionToggle,
                         canToggle = canToggle,
                         onDownloaderClick = onDownloaderClick,
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = animatedVisibilityScope,
                     )
                 }
             }
@@ -170,15 +176,16 @@ internal fun MobileShellSurface(
                     modifier = Modifier
                         .fillMaxSize()
                         .weight(1f),
-                    beyondViewportPageCount = sections.size - 1,
+                    beyondViewportPageCount = 1,
                     pageSpacing = 16.dp,
                     key = { sections[it].name },
                 ) { page ->
+                    val needsScroll = sections[page] != MobileShellSection.APPS
                     val scrollState = rememberScrollState()
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(scrollState),
+                            .then(if (needsScroll) Modifier.verticalScroll(scrollState) else Modifier),
                         verticalArrangement = Arrangement.spacedBy(ShellSpacing.sectionGap),
                     ) {
                         SectionDetail(
@@ -195,6 +202,8 @@ internal fun MobileShellSurface(
                             onSessionToggle = onSessionToggle,
                             canToggle = canToggle,
                             onDownloaderClick = onDownloaderClick,
+                            sharedTransitionScope = null,
+                            animatedVisibilityScope = null,
                         )
                     }
                 }

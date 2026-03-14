@@ -102,7 +102,7 @@ internal fun CredentialsCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(ShellSpacing.innerPad),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -162,7 +162,7 @@ internal fun CredentialsCard(
             ) {
                 AnimatedVisibility(visible = enabledState[index]) {
                     OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         value = value,
                         onValueChange = onValueChange,
                         label = { Text(providers[index].keyLabel, style = MaterialTheme.typography.labelSmall) },
