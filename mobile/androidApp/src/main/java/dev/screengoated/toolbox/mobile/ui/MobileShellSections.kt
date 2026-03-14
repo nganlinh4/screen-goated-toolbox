@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class, ExperimentalTextApi::class)
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class, ExperimentalTextApi::class, androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 
 package dev.screengoated.toolbox.mobile.ui
 
@@ -655,6 +655,8 @@ internal fun SectionDetail(
     onSessionToggle: () -> Unit,
     canToggle: Boolean,
     onDownloaderClick: () -> Unit = {},
+    sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
 ) {
     when (selectedSection) {
         MobileShellSection.APPS -> AppsCarouselSection(
@@ -663,6 +665,8 @@ internal fun SectionDetail(
             onSessionToggle = onSessionToggle,
             canToggle = canToggle,
             onDownloaderClick = onDownloaderClick,
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope,
         )
 
         MobileShellSection.TOOLS -> ToolsSection(locale = locale)
@@ -703,78 +707,129 @@ internal fun AppsCarouselSection(
     onSessionToggle: () -> Unit,
     canToggle: Boolean,
     onDownloaderClick: () -> Unit = {},
+    sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
 ) {
-    // Use all available space. Item height is calculated to perfectly fill
-    // the carousel without landing in a forbidden zone.
+    val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+    if (isLandscape) {
+        AppsHorizontalCarousel(state, locale, onSessionToggle, canToggle, onDownloaderClick, sharedTransitionScope, animatedVisibilityScope)
+    } else {
+        AppsVerticalCarousel(state, locale, onSessionToggle, canToggle, onDownloaderClick, sharedTransitionScope, animatedVisibilityScope)
+    }
+}
+
+@Composable
+private fun AppsItemContent(
+    index: Int,
+    state: LiveSessionState,
+    locale: MobileLocaleText,
+    onSessionToggle: () -> Unit,
+    canToggle: Boolean,
+    onDownloaderClick: () -> Unit,
+    sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .then(
+                when (index) {
+                    1 -> {
+                        val sharedMod = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                            with(sharedTransitionScope) {
+                                Modifier.sharedBounds(
+                                    sharedContentState = rememberSharedContentState("downloader-card"),
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    resizeMode = androidx.compose.animation.SharedTransitionScope.ResizeMode.RemeasureToBounds,
+                                )
+                            }
+                        } else Modifier
+                        sharedMod.then(Modifier.clickable(onClick = onDownloaderClick))
+                    }
+                    else -> Modifier
+                },
+            ),
+    ) {
+        when (index) {
+            0 -> LiveTranslateCarouselTile(state = state, locale = locale, onSessionToggle = onSessionToggle, canToggle = canToggle)
+            1 -> AppTile(slot = appSlots[1], title = locale.appVideoDownloaderTitle, icon = Icons.Rounded.Download)
+            2 -> AppTile(slot = appSlots[2], title = locale.appDjTitle, icon = Icons.Rounded.GraphicEq)
+            else -> AppTile(slot = appSlots[index], title = locale.comingSoonLabel, icon = null)
+        }
+    }
+}
+
+@Composable
+private fun AppsVerticalCarousel(
+    state: LiveSessionState,
+    locale: MobileLocaleText,
+    onSessionToggle: () -> Unit,
+    canToggle: Boolean,
+    onDownloaderClick: () -> Unit,
+    sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
+) {
     val screenH = LocalConfiguration.current.screenHeightDp.dp
-    val carouselHeight = (screenH - 170.dp).coerceIn(320.dp, 700.dp)
-    // Calculate item height so ~3 items fit with peek: (height - peek) / 3 - spacing
-    val itemHeight = ((carouselHeight - 40.dp) / 3.2f).coerceIn(140.dp, 200.dp)
+    val available = (screenH - 170.dp).coerceAtLeast(320.dp)
+    val itemHeight = ((available - 40.dp) / 3.2f).coerceIn(140.dp, 200.dp)
+    val carouselHeight = available.coerceAtMost(700.dp)
     val fadeSize = 32.dp
     val bgColor = MaterialTheme.colorScheme.background
 
-    Box(modifier = Modifier
-        .fillMaxWidth()
-        .height(carouselHeight)
-    ) {
+    Box(modifier = Modifier.fillMaxWidth().height(carouselHeight)) {
         VerticalUncontainedCarousel(
             itemCount = appSlots.size,
             itemHeight = itemHeight,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxWidth().height(carouselHeight),
             itemSpacing = 8.dp,
             contentPadding = PaddingValues(top = 4.dp, bottom = fadeSize),
         ) { index ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .maskClip(MaterialTheme.shapes.extraLarge)
-                    .then(
-                        when (index) {
-                            1 -> Modifier.clickable(onClick = onDownloaderClick)
-                            else -> Modifier
-                        },
-                    ),
-            ) {
-                when (index) {
-                    0 -> LiveTranslateCarouselTile(
-                        state = state,
-                        locale = locale,
-                        onSessionToggle = onSessionToggle,
-                        canToggle = canToggle,
-                    )
-                    1 -> AppTile(
-                        slot = appSlots[1],
-                        title = locale.appVideoDownloaderTitle,
-                        icon = Icons.Rounded.Download,
-                    )
-                    2 -> AppTile(
-                        slot = appSlots[2],
-                        title = locale.appDjTitle,
-                        icon = Icons.Rounded.GraphicEq,
-                    )
-                    else -> AppTile(
-                        slot = appSlots[index],
-                        title = locale.comingSoonLabel,
-                        icon = null,
-                    )
-                }
+            Box(modifier = Modifier.fillMaxSize().maskClip(MaterialTheme.shapes.extraLarge)) {
+                AppsItemContent(index, state, locale, onSessionToggle, canToggle, onDownloaderClick, sharedTransitionScope, animatedVisibilityScope)
             }
         }
-        // Top fade curtain
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(fadeSize)
-                .background(Brush.verticalGradient(listOf(bgColor, Color.Transparent))),
-        )
-        // Bottom fade curtain
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(fadeSize)
-                .align(Alignment.BottomStart)
-                .background(Brush.verticalGradient(listOf(Color.Transparent, bgColor))),
-        )
+        Box(modifier = Modifier.fillMaxWidth().height(fadeSize).background(Brush.verticalGradient(listOf(bgColor, Color.Transparent))))
+        Box(modifier = Modifier.fillMaxWidth().height(fadeSize).align(Alignment.BottomStart).background(Brush.verticalGradient(listOf(Color.Transparent, bgColor))))
+    }
+}
+
+@Composable
+private fun AppsHorizontalCarousel(
+    state: LiveSessionState,
+    locale: MobileLocaleText,
+    onSessionToggle: () -> Unit,
+    canToggle: Boolean,
+    onDownloaderClick: () -> Unit,
+    sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
+) {
+    val screenH = LocalConfiguration.current.screenHeightDp.dp
+    val itemWidth = 200.dp
+    val carouselHeight = (screenH - 100.dp).coerceIn(160.dp, 300.dp)
+    val fadeSize = 24.dp
+    val bgColor = MaterialTheme.colorScheme.background
+
+    Box(modifier = Modifier.fillMaxWidth().height(carouselHeight)) {
+        HorizontalUncontainedCarousel(
+            state = rememberCarouselState { appSlots.size },
+            itemWidth = itemWidth,
+            modifier = Modifier.fillMaxSize(),
+            itemSpacing = 8.dp,
+            contentPadding = PaddingValues(start = 4.dp, end = fadeSize),
+        ) { index ->
+            Card(
+                modifier = Modifier.fillMaxSize().maskClip(MaterialTheme.shapes.extraLarge),
+                shape = MaterialTheme.shapes.extraLarge,
+                colors = CardDefaults.cardColors(containerColor = appSlots[index].color.copy(alpha = 0.15f)),
+            ) {
+                AppsItemContent(index, state, locale, onSessionToggle, canToggle, onDownloaderClick, sharedTransitionScope, animatedVisibilityScope)
+            }
+        }
+        // Left fade
+        Box(modifier = Modifier.fillMaxHeight().width(fadeSize).background(Brush.horizontalGradient(listOf(bgColor, Color.Transparent))))
+        // Right fade
+        Box(modifier = Modifier.fillMaxHeight().width(fadeSize).align(Alignment.CenterEnd).background(Brush.horizontalGradient(listOf(Color.Transparent, bgColor))))
     }
 }
 

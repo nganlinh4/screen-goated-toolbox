@@ -1,10 +1,22 @@
-@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalMaterial3ExpressiveApi::class,
+    ExperimentalSharedTransitionApi::class,
+)
 
 package dev.screengoated.toolbox.mobile.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +56,7 @@ import androidx.graphics.shapes.RoundedPolygon
 
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -106,6 +119,7 @@ fun SgtMobileApp(
     }
 
     val focusManager = LocalFocusManager.current
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -173,16 +187,29 @@ fun SgtMobileApp(
                 )
             }
         }
-    }
 
-    if (showDownloader) {
-        androidx.activity.compose.BackHandler { showDownloader = false }
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface),
+        // Downloader overlay with container-transform-style animation
+        if (showDownloader) {
+            androidx.activity.compose.BackHandler { showDownloader = false }
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showDownloader,
+            enter = fadeIn(tween(200)) + androidx.compose.animation.scaleIn(
+                initialScale = 0.8f,
+                animationSpec = tween(350, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            ),
+            exit = fadeOut(tween(150)) + androidx.compose.animation.scaleOut(
+                targetScale = 0.8f,
+                animationSpec = tween(250, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            ),
         ) {
-            DownloaderScreenWrapper(locale = locale, onBack = { showDownloader = false })
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surface),
+            ) {
+                DownloaderScreenWrapper(locale = locale, onBack = { showDownloader = false })
+            }
         }
     }
 }

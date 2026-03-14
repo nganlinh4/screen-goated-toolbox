@@ -121,7 +121,9 @@ internal fun VerticalUncontainedCarousel(
         beyondViewportPageCount = 1,
         snapPosition = snapPosition,
         flingBehavior = flingBehavior,
-        modifier = modifier.nestedScroll(nestedScrollBlocker).semantics { role = Role.Carousel },
+        modifier = modifier
+            .nestedScroll(nestedScrollBlocker)
+            .semantics { role = Role.Carousel },
     ) { page ->
         val itemDrawInfo = remember { VcItemDrawInfo() }
         val scope = remember(itemDrawInfo) { VcItemScopeImpl(itemDrawInfo) }
@@ -178,8 +180,10 @@ private class VcItemScopeImpl(private val info: VcItemDrawInfo) : VerticalCarous
         return remember(info.maskRect, density) {
             GenericShape { size, direction ->
                 val rect = info.maskRect.intersect(size.toRect())
-                addOutline(shape.createOutline(rect.size, direction, density))
-                translate(Offset(rect.left, rect.top))
+                if (rect.width > 0f && rect.height > 0f) {
+                    addOutline(shape.createOutline(rect.size, direction, density))
+                    translate(Offset(rect.left, rect.top))
+                }
             }
         }
     }
