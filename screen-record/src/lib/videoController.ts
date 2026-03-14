@@ -3,6 +3,7 @@ import type {
   VideoSegment,
   BackgroundConfig,
   MousePosition,
+  WebcamConfig,
 } from "@/types/video";
 import {
   clampToTrimSegments,
@@ -25,6 +26,7 @@ import { isNativeMediaUrl } from "@/lib/mediaServer";
 
 interface VideoControllerOptions {
   videoRef: HTMLVideoElement;
+  webcamVideoRef?: HTMLVideoElement;
   deviceAudioRef?: HTMLAudioElement;
   micAudioRef?: HTMLAudioElement;
   canvasRef: HTMLCanvasElement;
@@ -52,6 +54,7 @@ interface VideoState {
 interface RenderOptions {
   segment: VideoSegment;
   backgroundConfig: BackgroundConfig;
+  webcamConfig?: WebcamConfig;
   mousePositions: MousePosition[];
   interactiveBackgroundPreview?: boolean;
 }
@@ -61,6 +64,7 @@ const PLAYBACK_RESET_DEBUG = false;
 
 export class VideoController {
   private video: HTMLVideoElement;
+  private webcamVideo?: HTMLVideoElement;
   private deviceAudio?: HTMLAudioElement;
   private micAudio?: HTMLAudioElement;
   private canvas: HTMLCanvasElement;
@@ -81,11 +85,13 @@ export class VideoController {
   private playbackRecoveryAnchorTime: number | null = null;
   private playbackRecoveryAnchorExpiresAt = 0;
   private playbackRecoveryRetryCount = 0;
+  private webcamVideoPlayPromise: Promise<void> | null = null;
   private deviceAudioPlayPromise: Promise<void> | null = null;
   private micAudioPlayPromise: Promise<void> | null = null;
 
   constructor(options: VideoControllerOptions) {
     this.video = options.videoRef;
+    this.webcamVideo = options.webcamVideoRef;
     this.deviceAudio = options.deviceAudioRef;
     this.micAudio = options.micAudioRef;
     this.canvas = options.canvasRef;
@@ -122,7 +128,7 @@ export class VideoController {
     this.setReady(true);
   };
 
-  private hasValidMediaElement(element?: HTMLAudioElement) {
+  private hasValidMediaElement(element?: HTMLMediaElement) {
     return !!(
       element &&
       element.src &&
@@ -139,19 +145,55 @@ export class VideoController {
     return this.hasValidMediaElement(this.micAudio);
   }
 
+  private get hasValidWebcamVideo(): boolean {
+    return this.hasValidMediaElement(this.webcamVideo);
+  }
+
   private get hasExternalAudio(): boolean {
     return this.hasValidDeviceAudio || this.hasValidMicAudio;
   }
 
-  private syncAudioElementTime(element: HTMLAudioElement | undefined, time: number) {
+  private getMicAudioOffsetSec(): number {
+    const offset = this.renderOptions?.segment?.micAudioOffsetSec ?? 0;
+    return Number.isFinite(offset) ? offset : 0;
+  }
+
+  private getWebcamOffsetSec(): number {
+    const offset = this.renderOptions?.segment?.webcamOffsetSec ?? 0;
+    return Number.isFinite(offset) ? offset : 0;
+  }
+
+  private getTimedMediaCurrentTime(videoTime: number, offsetSec: number): number {
+    return Math.max(0, videoTime - offsetSec);
+  }
+
+  private shouldTimedMediaBeActive(videoTime: number, offsetSec: number): boolean {
+    return videoTime >= offsetSec - 0.001;
+  }
+
+  private syncAudioElementTime(
+    element: HTMLMediaElement | undefined,
+    time: number,
+  ) {
     if (!element || !this.hasValidMediaElement(element)) return;
     if (Math.abs(element.currentTime - time) > 0.05) {
       element.currentTime = time;
     }
   }
 
+  private syncTimedMediaElementTime(
+    element: HTMLMediaElement | undefined,
+    videoTime: number,
+    offsetSec: number,
+  ) {
+    this.syncAudioElementTime(
+      element,
+      this.getTimedMediaCurrentTime(videoTime, offsetSec),
+    );
+  }
+
   private syncAudioElementPlaybackRate(
-    element: HTMLAudioElement | undefined,
+    element: HTMLMediaElement | undefined,
     playbackRate: number,
   ) {
     if (!element || !this.hasValidMediaElement(element)) return;
@@ -159,14 +201,14 @@ export class VideoController {
   }
 
   private playAudioElement(
-    element: HTMLAudioElement | undefined,
+    element: HTMLMediaElement | undefined,
   ): Promise<void> | null {
     if (!element || !this.hasValidMediaElement(element)) return null;
     return element.play().catch(() => {});
   }
 
   private pauseAudioElement(
-    element: HTMLAudioElement | undefined,
+    element: HTMLMediaElement | undefined,
     pendingPromise: Promise<void> | null,
   ) {
     if (!element || !this.hasValidMediaElement(element)) return;
@@ -177,23 +219,76 @@ export class VideoController {
     element.pause();
   }
 
+  private syncTimedMediaPlayback(
+    element: HTMLMediaElement | undefined,
+    isValid: boolean,
+    pendingPromise: Promise<void> | null,
+    videoTime: number,
+    offsetSec: number,
+  ): Promise<void> | null {
+    if (!element || !isValid) {
+      return null;
+    }
+
+    const targetTime = this.getTimedMediaCurrentTime(videoTime, offsetSec);
+    if (Math.abs(element.currentTime - targetTime) > 0.05) {
+      element.currentTime = targetTime;
+    }
+
+    if (!this.shouldTimedMediaBeActive(videoTime, offsetSec)) {
+      this.pauseAudioElement(element, pendingPromise);
+      return null;
+    }
+
+    if (element.paused) {
+      return this.playAudioElement(element);
+    }
+
+    return pendingPromise;
+  }
+
   private handlePlay = () => {
     this.applyAudioTrackVolumes(this.video.currentTime);
+    this.syncTimedMediaElementTime(
+      this.webcamVideo,
+      this.video.currentTime,
+      this.getWebcamOffsetSec(),
+    );
     this.syncAudioElementTime(this.deviceAudio, this.video.currentTime);
-    this.syncAudioElementTime(this.micAudio, this.video.currentTime);
+    this.syncTimedMediaElementTime(
+      this.micAudio,
+      this.video.currentTime,
+      this.getMicAudioOffsetSec(),
+    );
+    this.syncAudioElementPlaybackRate(this.webcamVideo, this.video.playbackRate);
     this.syncAudioElementPlaybackRate(this.deviceAudio, this.video.playbackRate);
     this.syncAudioElementPlaybackRate(this.micAudio, this.video.playbackRate);
+    this.webcamVideoPlayPromise = this.syncTimedMediaPlayback(
+      this.webcamVideo,
+      this.hasValidWebcamVideo,
+      this.webcamVideoPlayPromise,
+      this.video.currentTime,
+      this.getWebcamOffsetSec(),
+    );
     this.deviceAudioPlayPromise = this.playAudioElement(this.deviceAudio);
-    this.micAudioPlayPromise = this.playAudioElement(this.micAudio);
+    this.micAudioPlayPromise = this.syncTimedMediaPlayback(
+      this.micAudio,
+      this.hasValidMicAudio,
+      this.micAudioPlayPromise,
+      this.video.currentTime,
+      this.getMicAudioOffsetSec(),
+    );
 
     // Ensure animation is running
     if (this.renderOptions) {
       videoRenderer.startAnimation({
         video: this.video,
+        webcamVideo: this.webcamVideo,
         canvas: this.canvas,
         tempCanvas: this.tempCanvas,
         segment: this.renderOptions.segment,
         backgroundConfig: this.renderOptions.backgroundConfig,
+        webcamConfig: this.renderOptions.webcamConfig,
         mousePositions: this.renderOptions.mousePositions,
         currentTime: this.video.currentTime,
         interactiveBackgroundPreview:
@@ -208,8 +303,10 @@ export class VideoController {
   private handlePause = () => {
     this.playRequestSeq += 1;
     this.clearPlaybackRecoveryAnchor();
+    this.pauseAudioElement(this.webcamVideo, this.webcamVideoPlayPromise);
     this.pauseAudioElement(this.deviceAudio, this.deviceAudioPlayPromise);
     this.pauseAudioElement(this.micAudio, this.micAudioPlayPromise);
+    this.webcamVideoPlayPromise = null;
     this.deviceAudioPlayPromise = null;
     this.micAudioPlayPromise = null;
     this.stopPlaybackMonitor();
@@ -276,6 +373,36 @@ export class VideoController {
       // Smooth audio sync: only correct if drift > 150ms to avoid audio stutter
       if (this.hasExternalAudio && !this.video.paused) {
         const speed = this.video.playbackRate;
+        this.webcamVideoPlayPromise = this.syncTimedMediaPlayback(
+          this.webcamVideo,
+          this.hasValidWebcamVideo,
+          this.webcamVideoPlayPromise,
+          this.video.currentTime,
+          this.getWebcamOffsetSec(),
+        );
+        this.micAudioPlayPromise = this.syncTimedMediaPlayback(
+          this.micAudio,
+          this.hasValidMicAudio,
+          this.micAudioPlayPromise,
+          this.video.currentTime,
+          this.getMicAudioOffsetSec(),
+        );
+        if (
+          this.webcamVideo &&
+          this.hasValidWebcamVideo &&
+          Math.abs(
+            this.getTimedMediaCurrentTime(
+              this.video.currentTime,
+              this.getWebcamOffsetSec(),
+            ) - this.webcamVideo.currentTime,
+          ) >
+            Math.max(0.15, 0.1 * speed)
+        ) {
+          this.webcamVideo.currentTime = this.getTimedMediaCurrentTime(
+            this.video.currentTime,
+            this.getWebcamOffsetSec(),
+          );
+        }
         if (
           this.deviceAudio &&
           this.hasValidDeviceAudio &&
@@ -287,10 +414,18 @@ export class VideoController {
         if (
           this.micAudio &&
           this.hasValidMicAudio &&
-          Math.abs(this.video.currentTime - this.micAudio.currentTime) >
+          Math.abs(
+            this.getTimedMediaCurrentTime(
+              this.video.currentTime,
+              this.getMicAudioOffsetSec(),
+            ) - this.micAudio.currentTime,
+          ) >
             Math.max(0.15, 0.1 * speed)
         ) {
-          this.micAudio.currentTime = this.video.currentTime;
+          this.micAudio.currentTime = this.getTimedMediaCurrentTime(
+            this.video.currentTime,
+            this.getMicAudioOffsetSec(),
+          );
         }
       }
 
@@ -300,6 +435,7 @@ export class VideoController {
         const safeRate = Math.max(0.0625, Math.min(16.0, currentSpeed));
         if (Math.abs(this.video.playbackRate - safeRate) > 0.05) {
           this.video.playbackRate = safeRate;
+          this.syncAudioElementPlaybackRate(this.webcamVideo, safeRate);
           this.syncAudioElementPlaybackRate(this.deviceAudio, safeRate);
           this.syncAudioElementPlaybackRate(this.micAudio, safeRate);
         }
@@ -346,8 +482,17 @@ export class VideoController {
       this.setSeeking(true);
       this.setCurrentTime(recoveryAnchorTime);
       this.video.currentTime = recoveryAnchorTime;
+      this.syncTimedMediaElementTime(
+        this.webcamVideo,
+        recoveryAnchorTime,
+        this.getWebcamOffsetSec(),
+      );
       this.syncAudioElementTime(this.deviceAudio, recoveryAnchorTime);
-      this.syncAudioElementTime(this.micAudio, recoveryAnchorTime);
+      this.syncTimedMediaElementTime(
+        this.micAudio,
+        recoveryAnchorTime,
+        this.getMicAudioOffsetSec(),
+      );
       return;
     }
 
@@ -374,8 +519,17 @@ export class VideoController {
       });
       this.setCurrentTime(clamped);
       this.video.currentTime = clamped;
+      this.syncTimedMediaElementTime(
+        this.webcamVideo,
+        clamped,
+        this.getWebcamOffsetSec(),
+      );
       this.syncAudioElementTime(this.deviceAudio, clamped);
-      this.syncAudioElementTime(this.micAudio, clamped);
+      this.syncTimedMediaElementTime(
+        this.micAudio,
+        clamped,
+        this.getMicAudioOffsetSec(),
+      );
     } else {
       const clamped = this.renderOptions?.segment
         ? (getNextPlayableTime(
@@ -401,8 +555,17 @@ export class VideoController {
 
       if (Math.abs(clamped - this.video.currentTime) > 0.001) {
         this.video.currentTime = clamped;
+        this.syncTimedMediaElementTime(
+          this.webcamVideo,
+          clamped,
+          this.getWebcamOffsetSec(),
+        );
         this.syncAudioElementTime(this.deviceAudio, clamped);
-        this.syncAudioElementTime(this.micAudio, clamped);
+        this.syncTimedMediaElementTime(
+          this.micAudio,
+          clamped,
+          this.getMicAudioOffsetSec(),
+        );
       }
 
       let displayTime = clamped;
@@ -446,8 +609,17 @@ export class VideoController {
       );
       if (nextTime !== null && nextTime - currentTime > this.SEGMENT_EPS) {
         this.video.currentTime = nextTime;
+        this.syncTimedMediaElementTime(
+          this.webcamVideo,
+          nextTime,
+          this.getWebcamOffsetSec(),
+        );
         this.syncAudioElementTime(this.deviceAudio, nextTime);
-        this.syncAudioElementTime(this.micAudio, nextTime);
+        this.syncTimedMediaElementTime(
+          this.micAudio,
+          nextTime,
+          this.getMicAudioOffsetSec(),
+        );
         this.setCurrentTime(nextTime);
         return nextTime;
       }
@@ -460,8 +632,17 @@ export class VideoController {
       }
       if (currentTime >= last.endTime - TRANSITION_EPS && !this.video.paused) {
         this.video.currentTime = last.endTime;
+        this.syncTimedMediaElementTime(
+          this.webcamVideo,
+          last.endTime,
+          this.getWebcamOffsetSec(),
+        );
         this.syncAudioElementTime(this.deviceAudio, last.endTime);
-        this.syncAudioElementTime(this.micAudio, last.endTime);
+        this.syncTimedMediaElementTime(
+          this.micAudio,
+          last.endTime,
+          this.getMicAudioOffsetSec(),
+        );
         this.setCurrentTime(last.endTime);
         this.video.pause();
         return last.endTime;
@@ -478,8 +659,17 @@ export class VideoController {
       const next = segs[currentSegIndex + 1];
       if (next && next.startTime - currentTime > this.SEGMENT_EPS) {
         this.video.currentTime = next.startTime;
+        this.syncTimedMediaElementTime(
+          this.webcamVideo,
+          next.startTime,
+          this.getWebcamOffsetSec(),
+        );
         this.syncAudioElementTime(this.deviceAudio, next.startTime);
-        this.syncAudioElementTime(this.micAudio, next.startTime);
+        this.syncTimedMediaElementTime(
+          this.micAudio,
+          next.startTime,
+          this.getMicAudioOffsetSec(),
+        );
         this.setCurrentTime(next.startTime);
         return next.startTime;
       }
@@ -488,8 +678,17 @@ export class VideoController {
         return next.startTime;
       }
       this.video.currentTime = currentSeg.endTime;
+      this.syncTimedMediaElementTime(
+        this.webcamVideo,
+        currentSeg.endTime,
+        this.getWebcamOffsetSec(),
+      );
       this.syncAudioElementTime(this.deviceAudio, currentSeg.endTime);
-      this.syncAudioElementTime(this.micAudio, currentSeg.endTime);
+      this.syncTimedMediaElementTime(
+        this.micAudio,
+        currentSeg.endTime,
+        this.getMicAudioOffsetSec(),
+      );
       this.setCurrentTime(currentSeg.endTime);
       this.video.pause();
       return currentSeg.endTime;
@@ -704,8 +903,17 @@ export class VideoController {
     this.lastRequestedSeekTime = anchorTime;
     this.setSeeking(true);
     this.video.currentTime = anchorTime;
+    this.syncTimedMediaElementTime(
+      this.webcamVideo,
+      anchorTime,
+      this.getWebcamOffsetSec(),
+    );
     this.syncAudioElementTime(this.deviceAudio, anchorTime);
-    this.syncAudioElementTime(this.micAudio, anchorTime);
+    this.syncTimedMediaElementTime(
+      this.micAudio,
+      anchorTime,
+      this.getMicAudioOffsetSec(),
+    );
     this.setCurrentTime(anchorTime);
     return true;
   }
@@ -792,10 +1000,12 @@ export class VideoController {
 
     const renderContext = {
       video: this.video,
+      webcamVideo: this.webcamVideo,
       canvas: this.canvas,
       tempCanvas: this.tempCanvas,
       segment: this.renderOptions.segment,
       backgroundConfig: this.renderOptions.backgroundConfig,
+      webcamConfig: this.renderOptions.webcamConfig,
       mousePositions: this.renderOptions.mousePositions,
       currentTime: this.getAdjustedTime(this.video.currentTime),
       interactiveBackgroundPreview:
@@ -858,10 +1068,12 @@ export class VideoController {
 
       videoRenderer.drawFrame({
         video: this.video,
+        webcamVideo: this.webcamVideo,
         canvas: thumbCanvas,
         tempCanvas: thumbTemp,
         segment: options.segment,
         backgroundConfig: options.backgroundConfig,
+        webcamConfig: options.webcamConfig,
         mousePositions: options.mousePositions,
         currentTime: options.segment.trimStart,
         interactiveBackgroundPreview: false,
@@ -896,10 +1108,12 @@ export class VideoController {
     this.applyAudioTrackVolumes(this.video.currentTime);
     const ctx = {
       video: this.video,
+      webcamVideo: this.webcamVideo,
       canvas: this.canvas,
       tempCanvas: this.tempCanvas,
       segment: options.segment,
       backgroundConfig: options.backgroundConfig,
+      webcamConfig: options.webcamConfig,
       mousePositions: options.mousePositions,
       currentTime: options.segment.trimStart,
       interactiveBackgroundPreview: options.interactiveBackgroundPreview,
@@ -929,8 +1143,17 @@ export class VideoController {
     const playRequestId = ++this.playRequestSeq;
     const startPlayback = (targetTime: number) => {
       if (playRequestId !== this.playRequestSeq) return;
+      this.syncTimedMediaElementTime(
+        this.webcamVideo,
+        targetTime,
+        this.getWebcamOffsetSec(),
+      );
       this.syncAudioElementTime(this.deviceAudio, targetTime);
-      this.syncAudioElementTime(this.micAudio, targetTime);
+      this.syncTimedMediaElementTime(
+        this.micAudio,
+        targetTime,
+        this.getMicAudioOffsetSec(),
+      );
       this.setCurrentTime(targetTime);
       this.video.play().catch(() => {});
     };
@@ -1032,8 +1255,17 @@ export class VideoController {
     // Decoder is idle — start seeking now
     this.setSeeking(true);
     this.video.currentTime = time;
+    this.syncTimedMediaElementTime(
+      this.webcamVideo,
+      time,
+      this.getWebcamOffsetSec(),
+    );
     this.syncAudioElementTime(this.deviceAudio, time);
-    this.syncAudioElementTime(this.micAudio, time);
+    this.syncTimedMediaElementTime(
+      this.micAudio,
+      time,
+      this.getMicAudioOffsetSec(),
+    );
   }
 
   /** Flush any pending seek immediately (call on drag end). */
@@ -1056,8 +1288,17 @@ export class VideoController {
       this.armPlaybackRecoveryAnchor(clamped);
       this.setSeeking(true);
       this.video.currentTime = clamped;
+      this.syncTimedMediaElementTime(
+        this.webcamVideo,
+        clamped,
+        this.getWebcamOffsetSec(),
+      );
       this.syncAudioElementTime(this.deviceAudio, clamped);
-      this.syncAudioElementTime(this.micAudio, clamped);
+      this.syncTimedMediaElementTime(
+        this.micAudio,
+        clamped,
+        this.getMicAudioOffsetSec(),
+      );
       this.setCurrentTime(clamped);
     }
   }
@@ -1085,6 +1326,9 @@ export class VideoController {
     this.video.removeEventListener("loadedmetadata", this.handleLoadedMetadata);
     this.video.removeEventListener("durationchange", this.handleDurationChange);
     this.video.removeEventListener("error", this.handleError);
+    if (this.webcamVideo) {
+      this.clearMediaElementSource(this.webcamVideo);
+    }
     if (this.deviceAudio) {
       this.clearMediaElementSource(this.deviceAudio);
     }
@@ -1124,6 +1368,9 @@ export class VideoController {
   }): Promise<string> {
     try {
       // Clear previous audio
+      if (this.webcamVideo) {
+        this.clearMediaElementSource(this.webcamVideo);
+      }
       if (this.deviceAudio) {
         this.clearMediaElementSource(this.deviceAudio);
       }
@@ -1179,8 +1426,8 @@ export class VideoController {
     }
   }
 
-  private async loadAudioElement(
-    element: HTMLAudioElement | undefined,
+  private async loadMediaElement(
+    element: HTMLMediaElement | undefined,
     label: string,
     {
       audioBlob,
@@ -1225,7 +1472,9 @@ export class VideoController {
           onLoadingProgress?.(progress);
         }
 
-        blob = new Blob(chunks, { type: "audio/wav" });
+        blob = new Blob(chunks, {
+          type: element instanceof HTMLVideoElement ? "video/mp4" : "audio/wav",
+        });
       } else {
         this.clearMediaElementSource(element);
         return "";
@@ -1251,7 +1500,7 @@ export class VideoController {
     audioUrl?: string;
     onLoadingProgress?: (p: number) => void;
   }): Promise<string> {
-    return this.loadAudioElement(this.deviceAudio, "DeviceAudioLoad", {
+    return this.loadMediaElement(this.deviceAudio, "DeviceAudioLoad", {
       audioBlob,
       audioUrl,
       onLoadingProgress,
@@ -1267,9 +1516,25 @@ export class VideoController {
     audioUrl?: string;
     onLoadingProgress?: (p: number) => void;
   }): Promise<string> {
-    return this.loadAudioElement(this.micAudio, "MicAudioLoad", {
+    return this.loadMediaElement(this.micAudio, "MicAudioLoad", {
       audioBlob,
       audioUrl,
+      onLoadingProgress,
+    });
+  }
+
+  public async loadWebcamVideo({
+    videoBlob,
+    videoUrl,
+    onLoadingProgress,
+  }: {
+    videoBlob?: Blob;
+    videoUrl?: string;
+    onLoadingProgress?: (p: number) => void;
+  }): Promise<string> {
+    return this.loadMediaElement(this.webcamVideo, "WebcamVideoLoad", {
+      audioBlob: videoBlob,
+      audioUrl: videoUrl,
       onLoadingProgress,
     });
   }

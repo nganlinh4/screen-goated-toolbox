@@ -117,6 +117,24 @@ export type MicAudioPoint = AudioGainPoint;
 
 export type RecordingMode = "withoutCursor" | "withCursor";
 
+export type WebcamPosition =
+  | "bottomRight"
+  | "bottomLeft"
+  | "topRight"
+  | "topLeft";
+
+export interface WebcamConfig {
+  visible: boolean;
+  position: WebcamPosition;
+  mirror: boolean;
+  roundnessPx: number;
+  maxSizePercent: number;
+  minSizePercent: number;
+  autoSizeDuringZoom: boolean;
+  shadowPx: number;
+  insetPx: number;
+}
+
 export interface VideoSegment {
   trimStart: number;
   trimEnd: number;
@@ -136,8 +154,12 @@ export interface VideoSegment {
   speedPoints?: SpeedPoint[];
   deviceAudioPoints?: DeviceAudioPoint[];
   micAudioPoints?: MicAudioPoint[];
+  micAudioOffsetSec?: number;
+  webcamVisibilitySegments?: CursorVisibilitySegment[];
   deviceAudioAvailable?: boolean;
   micAudioAvailable?: boolean;
+  webcamOffsetSec?: number;
+  webcamAvailable?: boolean;
   useCustomCursor?: boolean;
   crop?: CropRect;
 }
@@ -161,10 +183,12 @@ export interface ProjectCompositionClip {
   thumbnail?: string;
   segment: VideoSegment;
   backgroundConfig: BackgroundConfig;
+  webcamConfig?: WebcamConfig;
   mousePositions: MousePosition[];
   recordingMode?: RecordingMode;
   rawVideoPath?: string;
   rawMicAudioPath?: string;
+  rawWebcamVideoPath?: string;
 }
 
 export interface ProjectComposition {
@@ -309,6 +333,19 @@ export interface BakedOverlayPayload {
   frames: OverlayFrame[];
 }
 
+export interface BakedWebcamFrame {
+  time: number;
+  visible: boolean;
+  opacity: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  roundnessPx: number;
+  shadowPx: number;
+  mirror: boolean;
+}
+
 export interface ExportOptions {
   width: number; // 0 = use original canvas dimensions
   height: number; // 0 = use original canvas dimensions
@@ -331,9 +368,12 @@ export interface ExportOptions {
   mousePositions?: MousePosition[];
   onProgress?: (progress: number) => void;
   audio?: HTMLAudioElement;
+  webcamVideo?: HTMLVideoElement;
+  webcamConfig?: WebcamConfig;
   bakedPath?: BakedCameraFrame[];
   bakedCursorPath?: BakedCursorFrame[];
   bakedKeystrokeOverlays?: BakedKeystrokeOverlay[];
+  bakedWebcamFrames?: BakedWebcamFrame[];
 }
 
 export type ExportArtifactFormat = "mp4" | "gif";
@@ -354,12 +394,15 @@ export interface Project {
   videoBlob?: Blob;
   audioBlob?: Blob;
   micAudioBlob?: Blob;
+  webcamBlob?: Blob;
   segment: VideoSegment;
   backgroundConfig: BackgroundConfig;
+  webcamConfig?: WebcamConfig;
   mousePositions: MousePosition[];
   thumbnail?: string;
   recordingMode?: RecordingMode;
   rawVideoPath?: string;
   rawMicAudioPath?: string;
+  rawWebcamVideoPath?: string;
   composition?: ProjectComposition;
 }

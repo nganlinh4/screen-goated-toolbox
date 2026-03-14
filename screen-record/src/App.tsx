@@ -26,6 +26,7 @@ import {
   VideoSegment,
   KeystrokeMode,
   RecordingMode,
+  WebcamConfig,
 } from "@/types/video";
 import { projectManager } from "@/lib/projectManager";
 import { TimelineArea } from "@/components/timeline";
@@ -106,6 +107,8 @@ import {
 } from "@/lib/backgroundConfig";
 import { buildFlatDeviceAudioPoints } from "@/lib/deviceAudio";
 import { buildFlatMicAudioPoints } from "@/lib/micAudio";
+import { cloneWebcamConfig, DEFAULT_WEBCAM_CONFIG } from "@/lib/webcam";
+import { buildFullWebcamVisibilitySegments } from "@/lib/webcamVisibility";
 import {
   getMediaServerUrl,
   isManagedCompositionSnapshotPath,
@@ -262,6 +265,7 @@ interface ClipMediaAssets {
   videoBlob: Blob | null;
   audioBlob: Blob | null;
   micAudioBlob: Blob | null;
+  webcamBlob: Blob | null;
   customBackground: string | null;
 }
 
@@ -406,6 +410,9 @@ function App() {
       cloneBackgroundConfig(getInitialBackgroundConfig()),
     );
   const backgroundConfig = backgroundConfigState;
+  const [webcamConfig, setWebcamConfig] = useState<WebcamConfig>(() =>
+    cloneWebcamConfig(DEFAULT_WEBCAM_CONFIG),
+  );
   const [selectedRecordingMode, setSelectedRecordingMode] =
     useState<RecordingMode>(getInitialRecordingMode);
   const [captureSource, setCaptureSource] = useState<"monitor" | "window">(
@@ -458,6 +465,7 @@ function App() {
     handleToggleRawAutoCopy,
   } = rawVideo;
   const [currentRawMicAudioPath, setCurrentRawMicAudioPath] = useState("");
+  const [currentRawWebcamVideoPath, setCurrentRawWebcamVideoPath] = useState("");
   const [isBackgroundUploadProcessing, setIsBackgroundUploadProcessing] =
     useState(false);
   const [isProjectInteractionShieldVisible, setIsProjectInteractionShieldVisible] =
@@ -523,11 +531,15 @@ function App() {
         videoUrl: string;
         audioUrl: string | null;
         micAudioUrl: string | null;
+        webcamVideoUrl: string | null;
       }
     >
   >(new Map());
   const clipExportSourcePathCacheRef = useRef<Map<string, string>>(new Map());
   const clipExportMicAudioPathCacheRef = useRef<Map<string, string | null>>(
+    new Map(),
+  );
+  const clipExportWebcamPathCacheRef = useRef<Map<string, string | null>>(
     new Map(),
   );
   const preloadedSlotClipIdsRef = useRef<Record<PreloadSlotKey, string | null>>(
@@ -636,6 +648,7 @@ function App() {
   const playback = useVideoPlayback({
     segment,
     backgroundConfig,
+    webcamConfig,
     mousePositionsRef,
     isCropping,
     interactiveBackgroundPreview: isCanvasResizeDragging,
@@ -656,7 +669,10 @@ function App() {
     setCurrentAudio,
     currentMicAudio,
     setCurrentMicAudio,
+    currentWebcamVideo,
+    setCurrentWebcamVideo,
     videoRef,
+    webcamVideoRef,
     audioRef,
     micAudioRef,
     canvasRef,
@@ -682,6 +698,7 @@ function App() {
     setCurrentVideo,
     setCurrentAudio,
     setCurrentMicAudio,
+    setCurrentWebcamVideo,
     setIsVideoReady,
     setThumbnails,
     invalidateThumbnails,
@@ -693,6 +710,7 @@ function App() {
     currentVideo,
     currentAudio,
     currentMicAudio,
+    currentWebcamVideo,
   });
   const {
     isRecording,
@@ -703,6 +721,7 @@ function App() {
     setMousePositions,
     audioFilePath,
     micAudioFilePath,
+    webcamVideoFilePath,
     videoFilePath,
     videoFilePathOwnerUrl,
     error,
@@ -738,15 +757,18 @@ function App() {
       preserveVideoUrl?: string | null;
       preserveAudioUrl?: string | null;
       preserveMicAudioUrl?: string | null;
+      preserveWebcamVideoUrl?: string | null;
     }) => {
       const preservedVideoUrl = options?.preserveVideoUrl ?? null;
       const preservedAudioUrl = options?.preserveAudioUrl ?? null;
       const preservedMicAudioUrl = options?.preserveMicAudioUrl ?? null;
+      const preservedWebcamVideoUrl = options?.preserveWebcamVideoUrl ?? null;
 
       for (const {
         videoUrl,
         audioUrl,
         micAudioUrl,
+        webcamVideoUrl,
       } of clipUrlCacheRef.current.values()) {
         if (videoUrl?.startsWith("blob:") && videoUrl !== preservedVideoUrl) {
           URL.revokeObjectURL(videoUrl);
@@ -760,11 +782,18 @@ function App() {
         ) {
           URL.revokeObjectURL(micAudioUrl);
         }
+        if (
+          webcamVideoUrl?.startsWith("blob:") &&
+          webcamVideoUrl !== preservedWebcamVideoUrl
+        ) {
+          URL.revokeObjectURL(webcamVideoUrl);
+        }
       }
       clipAssetCacheRef.current.clear();
       clipUrlCacheRef.current.clear();
       clipExportSourcePathCacheRef.current.clear();
       clipExportMicAudioPathCacheRef.current.clear();
+      clipExportWebcamPathCacheRef.current.clear();
       (["previous", "next"] as const).forEach((slot) => {
         preloadedSlotClipIdsRef.current[slot] = null;
         const { videoRef: preloadVideoRef, audioRef: preloadAudioRef } =
@@ -803,6 +832,7 @@ function App() {
               videoBlob: project.videoBlob ?? null,
               audioBlob: project.audioBlob ?? null,
               micAudioBlob: project.micAudioBlob ?? null,
+              webcamBlob: project.webcamBlob ?? null,
               customBackground:
                 project.backgroundConfig.customBackground ?? null,
             }
@@ -837,10 +867,16 @@ function App() {
           : loadedAssets?.micAudioBlob
             ? URL.createObjectURL(loadedAssets.micAudioBlob)
             : null;
+        const webcamVideoUrl = clip.rawWebcamVideoPath
+          ? await getMediaServerUrl(clip.rawWebcamVideoPath)
+          : loadedAssets?.webcamBlob
+            ? URL.createObjectURL(loadedAssets.webcamBlob)
+            : null;
         const nextUrls = {
           videoUrl,
           audioUrl: videoUrl,
           micAudioUrl,
+          webcamVideoUrl,
         };
         clipUrlCacheRef.current.set(clipId, nextUrls);
         return nextUrls;
@@ -860,6 +896,9 @@ function App() {
           : videoUrl,
         micAudioUrl: loadedAssets.micAudioBlob
           ? URL.createObjectURL(loadedAssets.micAudioBlob)
+          : null,
+        webcamVideoUrl: loadedAssets.webcamBlob
+          ? URL.createObjectURL(loadedAssets.webcamBlob)
           : null,
       };
       clipUrlCacheRef.current.set(clipId, nextUrls);
@@ -1003,6 +1042,11 @@ function App() {
             .map((urls) => urls.micAudioUrl)
             .filter((url): url is string => Boolean(url)),
         );
+        const cachedWebcamVideoUrls = new Set(
+          Array.from(clipUrlCacheRef.current.values())
+            .map((urls) => urls.webcamVideoUrl)
+            .filter((url): url is string => Boolean(url)),
+        );
         if (
           currentVideo?.startsWith("blob:") &&
           !cachedVideoUrls.has(currentVideo)
@@ -1020,6 +1064,12 @@ function App() {
           !cachedMicAudioUrls.has(currentMicAudio)
         ) {
           URL.revokeObjectURL(currentMicAudio);
+        }
+        if (
+          currentWebcamVideo?.startsWith("blob:") &&
+          !cachedWebcamVideoUrls.has(currentWebcamVideo)
+        ) {
+          URL.revokeObjectURL(currentWebcamVideo);
         }
         invalidateThumbnails();
         const loadedAssets = await loadClipAssets(
@@ -1090,6 +1140,18 @@ function App() {
         } else {
           setCurrentMicAudio(null);
         }
+        if (clipUrls?.webcamVideoUrl || loadedAssets?.webcamBlob) {
+          const webcamVideoObjectUrl =
+            await videoControllerRef.current?.loadWebcamVideo(
+              clipUrls?.webcamVideoUrl
+                ? { videoUrl: clipUrls.webcamVideoUrl }
+                : { videoBlob: loadedAssets?.webcamBlob ?? undefined },
+            );
+          if (!isLatestRequest()) return;
+          setCurrentWebcamVideo(webcamVideoObjectUrl || null);
+        } else {
+          setCurrentWebcamVideo(null);
+        }
         if (!isLatestRequest()) return;
         setPreviewDuration(
           Math.max(videoControllerRef.current?.duration ?? 0, clipPreviewDuration),
@@ -1099,10 +1161,12 @@ function App() {
           setThumbnails(clipThumbnailPlaceholder);
         }
         applyLoadedBackgroundConfig(cloneBackgroundConfig(resolvedBackground));
+        setWebcamConfig(cloneWebcamConfig(clip.webcamConfig));
         setMousePositions(clip.mousePositions);
         setCurrentRecordingMode(clip.recordingMode ?? "withoutCursor");
         handleProjectRawVideoPathChange(clip.rawVideoPath ?? "");
         setCurrentRawMicAudioPath(clip.rawMicAudioPath ?? "");
+        setCurrentRawWebcamVideoPath(clip.rawWebcamVideoPath ?? "");
         setLoadedClipId(clip.id);
         void generateThumbnailsForSource({
           videoUrl: clipUrls?.videoUrl ?? videoObjectUrl ?? null,
@@ -1122,6 +1186,7 @@ function App() {
       composition,
       currentAudio,
       currentMicAudio,
+      currentWebcamVideo,
       currentProjectData,
       currentVideo,
       drawPreloadedClipFrame,
@@ -1130,14 +1195,18 @@ function App() {
       loadClipAssets,
       setCurrentAudio,
       setCurrentMicAudio,
+      setCurrentWebcamVideo,
       setCurrentVideo,
       setPreviewDuration,
       setThumbnails,
       generateThumbnailsForSource,
       applyLoadedBackgroundConfig,
+      setWebcamConfig,
       setMousePositions,
       invalidateThumbnails,
       setSegment,
+      setCurrentRawMicAudioPath,
+      setCurrentRawWebcamVideoPath,
       videoControllerRef,
     ],
   );
@@ -1146,8 +1215,10 @@ function App() {
     setCurrentVideo,
     setCurrentAudio,
     setCurrentMicAudio,
+    setCurrentWebcamVideo,
     setSegment,
     setBackgroundConfig,
+    setWebcamConfig,
     applyLoadedBackgroundConfig,
     setMousePositions,
     setThumbnails,
@@ -1158,15 +1229,20 @@ function App() {
         preserveVideoUrl: currentVideo,
         preserveAudioUrl: currentAudio,
         preserveMicAudioUrl: currentMicAudio,
+        preserveWebcamVideoUrl: currentWebcamVideo,
       });
       clipExportSourcePathCacheRef.current.clear();
+      clipExportWebcamPathCacheRef.current.clear();
       isSwitchingCompositionClipRef.current = true;
       clipLoadRequestSeqRef.current += 1;
       setCurrentProjectData({
         ...project,
         backgroundConfig: cloneBackgroundConfig(project.backgroundConfig),
+        webcamConfig: cloneWebcamConfig(project.webcamConfig),
       });
       setCurrentRawMicAudioPath(project.rawMicAudioPath ?? "");
+      setCurrentRawWebcamVideoPath(project.rawWebcamVideoPath ?? "");
+      setWebcamConfig(cloneWebcamConfig(project.webcamConfig));
       const nextComposition = ensureProjectComposition(project);
       setComposition(nextComposition);
       if (spreadAnimationTimerRef.current) {
@@ -1213,6 +1289,7 @@ function App() {
     currentVideo,
     currentAudio,
     currentMicAudio,
+    currentWebcamVideo,
   });
   useEffect(() => {
     if (!BACKGROUND_MUTATION_DEBUG) return;
@@ -1294,6 +1371,35 @@ function App() {
       }
       const tempPath = await writeBlobToTempMediaFile(assets.micAudioBlob);
       clipExportMicAudioPathCacheRef.current.set(cacheKey, tempPath);
+      return tempPath;
+    },
+    [loadClipAssets, projects.currentProjectId],
+  );
+  const resolveClipExportWebcamPath = useCallback(
+    async (clip: ProjectCompositionClip): Promise<string> => {
+      const projectId = projects.currentProjectId;
+      if (!projectId) {
+        throw new Error("Project not loaded");
+      }
+      const cacheKey = `${projectId}:${clip.id}`;
+      const cached = clipExportWebcamPathCacheRef.current.get(cacheKey);
+      if (cached !== undefined) {
+        return cached ?? "";
+      }
+      if (clip.rawWebcamVideoPath) {
+        clipExportWebcamPathCacheRef.current.set(
+          cacheKey,
+          clip.rawWebcamVideoPath,
+        );
+        return clip.rawWebcamVideoPath;
+      }
+      const assets = await loadClipAssets(projectId, clip.id);
+      if (!assets?.webcamBlob) {
+        clipExportWebcamPathCacheRef.current.set(cacheKey, null);
+        return "";
+      }
+      const tempPath = await writeBlobToTempMediaFile(assets.webcamBlob);
+      clipExportWebcamPathCacheRef.current.set(cacheKey, tempPath);
       return tempPath;
     },
     [loadClipAssets, projects.currentProjectId],
@@ -1390,17 +1496,20 @@ function App() {
   // Export
   const exportHook = useExport({
     videoRef,
+    webcamVideoRef,
     canvasRef,
     tempCanvasRef,
     audioRef,
     micAudioRef,
     segment,
     backgroundConfig,
+    webcamConfig,
     isRecording,
     isBatchEditing: isBatching,
     mousePositions,
     audioFilePath,
     micAudioFilePath: micAudioFilePath || currentRawMicAudioPath,
+    webcamVideoFilePath: webcamVideoFilePath || currentRawWebcamVideoPath,
     videoFilePath,
     videoFilePathOwnerUrl,
     rawVideoPath: currentRawVideoPath,
@@ -1411,6 +1520,7 @@ function App() {
     currentProjectId: projects.currentProjectId,
     resolveClipExportSourcePath,
     resolveClipExportMicAudioPath,
+    resolveClipExportWebcamPath,
   });
 
   const handleExportSuccessPathChange = useCallback(
@@ -2451,6 +2561,7 @@ function App() {
         );
         let videoBlob: Blob | undefined;
         let micAudioBlob: Blob | undefined;
+        let webcamBlob: Blob | undefined;
         let thumbnail: string | undefined;
         if (activeClip.role === "root") {
           // Use the current preview frame for the project card even on light
@@ -2478,6 +2589,16 @@ function App() {
           if (!micAudioBlob && currentMicAudio && !activeClip.rawMicAudioPath) {
             const response = await fetch(currentMicAudio);
             micAudioBlob = await response.blob();
+          }
+          webcamBlob =
+            loadedAssets?.webcamBlob ?? currentProjectData?.webcamBlob;
+          if (
+            !webcamBlob &&
+            currentWebcamVideo &&
+            !currentRawWebcamVideoPath
+          ) {
+            const response = await fetch(currentWebcamVideo);
+            webcamBlob = await response.blob();
           }
         }
         const canvasConfig = extractCanvasConfig(backgroundConfig);
@@ -2510,9 +2631,11 @@ function App() {
                 activeClip.role === "root"
                   ? (thumbnail ?? activeClip.thumbnail)
                   : activeClip.thumbnail,
+              webcamConfig: cloneWebcamConfig(webcamConfig),
               recordingMode: currentRecordingMode,
               rawVideoPath: currentRawVideoPath || undefined,
               rawMicAudioPath: currentRawMicAudioPath || undefined,
+              rawWebcamVideoPath: currentRawWebcamVideoPath || undefined,
             },
           );
           if (effectiveMode === "unified") {
@@ -2550,6 +2673,15 @@ function App() {
             const micAudioResponse = await fetch(currentMicAudio);
             snapshotMicAudioBlob = await micAudioResponse.blob();
           }
+          let snapshotWebcamBlob = loadedAssets?.webcamBlob ?? undefined;
+          if (
+            !snapshotWebcamBlob &&
+            currentWebcamVideo &&
+            !activeClip.rawWebcamVideoPath
+          ) {
+            const webcamResponse = await fetch(currentWebcamVideo);
+            snapshotWebcamBlob = await webcamResponse.blob();
+          }
           await projectManager.saveCompositionClipAssets(
             projectId,
             activeClip.id,
@@ -2557,6 +2689,7 @@ function App() {
               videoBlob: snapshotVideoBlob,
               audioBlob: snapshotAudioBlob,
               micAudioBlob: snapshotMicAudioBlob,
+              webcamBlob: snapshotWebcamBlob,
               customBackground: backgroundConfig.customBackground,
             },
           );
@@ -2588,8 +2721,12 @@ function App() {
             "Auto Saved",
           videoBlob,
           micAudioBlob,
+          webcamBlob,
           segment: rootClip.segment,
           backgroundConfig: rootClip.backgroundConfig,
+          webcamConfig:
+            getCompositionClip(nextComposition, "root")?.webcamConfig ??
+            cloneWebcamConfig(webcamConfig),
           mousePositions: rootClip.mousePositions,
           thumbnail:
             activeClip.role === "root"
@@ -2599,6 +2736,7 @@ function App() {
           recordingMode: rootClip.recordingMode ?? currentRecordingMode,
           rawVideoPath: rootClip.rawVideoPath,
           rawMicAudioPath: rootClip.rawMicAudioPath,
+          rawWebcamVideoPath: rootClip.rawWebcamVideoPath,
           composition: nextComposition,
         });
         setComposition(nextComposition);
@@ -2636,6 +2774,7 @@ function App() {
       currentVideo,
       currentAudio,
       currentMicAudio,
+      currentWebcamVideo,
       loadedClipId,
       currentProjectData,
       segment,
@@ -2648,7 +2787,9 @@ function App() {
       currentRecordingMode,
       currentRawVideoPath,
       currentRawMicAudioPath,
+      currentRawWebcamVideoPath,
       loadClipAssets,
+      webcamConfig,
     ],
   );
   persistRef.current = persistCurrentProjectNow;
@@ -2916,6 +3057,7 @@ function App() {
       if (!pickedProject) return;
       let snapshotRawVideoPath: string | undefined;
       let snapshotRawMicAudioPath: string | undefined;
+      let snapshotRawWebcamVideoPath: string | undefined;
       if (pickedProject.rawVideoPath) {
         try {
           const saved = await invoke<{ savedPath: string }>(
@@ -2948,11 +3090,28 @@ function App() {
           );
         }
       }
+      if (pickedProject.rawWebcamVideoPath) {
+        try {
+          const saved = await invoke<{ savedPath: string }>(
+            "save_composition_snapshot_copy",
+            {
+              sourcePath: pickedProject.rawWebcamVideoPath,
+            },
+          );
+          snapshotRawWebcamVideoPath = saved?.savedPath || undefined;
+        } catch (error) {
+          console.error(
+            "[Composition] Failed to create native snapshot webcam copy:",
+            error,
+          );
+        }
+      }
       const snapshotClip = normalizeCompositionClipToCanvas(
         createCompositionSnapshotClip({
           ...pickedProject,
           rawVideoPath: snapshotRawVideoPath,
           rawMicAudioPath: snapshotRawMicAudioPath,
+          rawWebcamVideoPath: snapshotRawWebcamVideoPath,
         }),
         composition.globalCanvasConfig ?? extractCanvasConfig(backgroundConfig),
       );
@@ -2962,7 +3121,11 @@ function App() {
         );
         return;
       }
-      if (!snapshotRawVideoPath || (!snapshotRawMicAudioPath && pickedProject.micAudioBlob)) {
+      if (
+        !snapshotRawVideoPath ||
+        (!snapshotRawMicAudioPath && pickedProject.micAudioBlob) ||
+        (!snapshotRawWebcamVideoPath && pickedProject.webcamBlob)
+      ) {
         await projectManager.saveCompositionClipAssets(
           projects.currentProjectId,
           snapshotClip.id,
@@ -2971,6 +3134,9 @@ function App() {
             audioBlob: !snapshotRawVideoPath ? pickedProject.audioBlob : undefined,
             micAudioBlob: !snapshotRawMicAudioPath
               ? pickedProject.micAudioBlob
+              : undefined,
+            webcamBlob: !snapshotRawWebcamVideoPath
+              ? pickedProject.webcamBlob
               : undefined,
             customBackground: pickedProject.backgroundConfig.customBackground,
           },
@@ -3067,11 +3233,22 @@ function App() {
           // ignore cleanup failures for snapshot media copies
         }
       }
+      if (
+        clip.rawWebcamVideoPath &&
+        isManagedCompositionSnapshotPath(clip.rawWebcamVideoPath)
+      ) {
+        try {
+          await invoke("delete_file", { path: clip.rawWebcamVideoPath });
+        } catch {
+          // ignore cleanup failures for snapshot media copies
+        }
+      }
       clipAssetCacheRef.current.delete(clipId);
       if (projects.currentProjectId) {
         const cacheKey = `${projects.currentProjectId}:${clipId}`;
         clipExportSourcePathCacheRef.current.delete(cacheKey);
         clipExportMicAudioPathCacheRef.current.delete(cacheKey);
+        clipExportWebcamPathCacheRef.current.delete(cacheKey);
       }
       const removedUrls = clipUrlCacheRef.current.get(clipId);
       if (removedUrls) {
@@ -3306,6 +3483,7 @@ function App() {
       if (!currentVideo) {
         setCurrentRawVideoPath("");
         setCurrentRawMicAudioPath("");
+        setCurrentRawWebcamVideoPath("");
         setLastRawSavedPath("");
       }
       setRawButtonSavedFlash(false);
@@ -3436,16 +3614,24 @@ function App() {
         mouseData,
         initialSegment,
         videoUrl,
+        webcamVideoUrl,
         recordingMode,
         rawVideoPath,
         rawMicAudioPath,
+        rawWebcamVideoPath,
         capturedFps,
       } = result;
       setLastCaptureFps(capturedFps);
       setCurrentRecordingMode(recordingMode);
       setCurrentRawVideoPath(rawVideoPath || "");
       setCurrentRawMicAudioPath(rawMicAudioPath || "");
+      setCurrentRawWebcamVideoPath(rawWebcamVideoPath || "");
       setLastRawSavedPath("");
+      const nextWebcamConfig = cloneWebcamConfig({
+        ...DEFAULT_WEBCAM_CONFIG,
+        visible: initialSegment.webcamAvailable !== false,
+      });
+      setWebcamConfig(nextWebcamConfig);
 
       let autoSavedPath = "";
       if (rawAutoCopyEnabled && rawVideoPath && rawSaveDir) {
@@ -3474,22 +3660,30 @@ function App() {
       }
 
       let videoBlob: Blob | undefined;
+      let webcamBlob: Blob | undefined;
       if (!rawVideoPath) {
         const response = await fetch(videoUrl);
         videoBlob = await response.blob();
+      }
+      if (!rawWebcamVideoPath && webcamVideoUrl) {
+        const response = await fetch(webcamVideoUrl);
+        webcamBlob = await response.blob();
       }
       const thumbnail = generateThumbnail();
       const project = await projectManager.saveProject({
         name: `Recording ${new Date().toLocaleString()}`,
         videoBlob,
+        webcamBlob,
         segment: initialSegment,
         backgroundConfig,
+        webcamConfig: nextWebcamConfig,
         mousePositions: mouseData,
         thumbnail: thumbnail || undefined,
         duration: initialSegment.trimEnd,
         recordingMode,
         rawVideoPath: rawVideoPath || undefined,
         rawMicAudioPath: rawMicAudioPath || undefined,
+        rawWebcamVideoPath: rawWebcamVideoPath || undefined,
       });
       projects.setCurrentProjectId(project.id);
       setCurrentProjectData(project);
@@ -3611,8 +3805,13 @@ function App() {
         ],
         deviceAudioPoints: buildFlatDeviceAudioPoints(duration),
         micAudioPoints: buildFlatMicAudioPoints(duration),
+        micAudioOffsetSec: 0,
+        webcamVisibilitySegments: currentWebcamVideo
+          ? buildFullWebcamVisibilitySegments(duration)
+          : [],
         deviceAudioAvailable: true,
         micAudioAvailable: Boolean(currentMicAudio),
+        webcamOffsetSec: 0,
         keystrokeMode: getSavedKeystrokeModePref(),
         keystrokeDelaySec: DEFAULT_KEYSTROKE_DELAY_SEC,
         keystrokeLanguage: getSavedKeystrokeLanguage(),
@@ -3775,6 +3974,14 @@ function App() {
                       crossOrigin="anonymous"
                       playsInline
                       preload="auto"
+                    />
+                    <video
+                      ref={webcamVideoRef}
+                      className="hidden"
+                      crossOrigin="anonymous"
+                      playsInline
+                      preload="auto"
+                      muted
                     />
                     <audio ref={audioRef} className="hidden" />
                     <audio ref={micAudioRef} className="hidden" />
@@ -4214,6 +4421,9 @@ function App() {
                 onUpdateZoom={throttledUpdateZoom}
                 backgroundConfig={backgroundConfig}
                 setBackgroundConfig={setBackgroundConfig}
+                webcamConfig={webcamConfig}
+                setWebcamConfig={setWebcamConfig}
+                webcamAvailable={Boolean(segment?.webcamAvailable)}
                 recentUploads={recentUploads}
                 onRemoveRecentUpload={handleRemoveRecentUpload}
                 onBackgroundUpload={handleBackgroundUpload}
@@ -4262,6 +4472,7 @@ function App() {
                 segment?.deviceAudioAvailable !== false
               }
               isMicAudioAvailable={Boolean(segment?.micAudioAvailable)}
+              isWebcamAvailable={Boolean(segment?.webcamAvailable)}
               beginBatch={beginBatch}
               commitBatch={commitBatch}
             />

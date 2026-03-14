@@ -211,6 +211,7 @@ fn build_single_clip_config(
         pre_render_policy: export.pre_render_policy.clone(),
         device_audio_path: clip.device_audio_path.clone(),
         mic_audio_path: clip.mic_audio_path.clone(),
+        webcam_video_path: clip.webcam_video_path.clone(),
         output_dir: temp_output_dir.to_string_lossy().to_string(),
         format: "mp4".to_string(),
         trim_start: clip.trim_start,

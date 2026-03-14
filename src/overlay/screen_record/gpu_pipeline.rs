@@ -29,6 +29,7 @@ use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Direct3D12 as d3d12;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Dxgi::IDXGIKeyedMutex;
+use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 use windows::core::Interface;
 
 use super::d3d_interop::{
@@ -40,7 +41,8 @@ use super::mf_audio::{AudioConfig, MfAudioDecoder};
 use super::mf_decode::{DecodedFrame, DxgiDeviceManager, MfDecoder};
 use super::mf_encode::{EncoderConfig, MfEncoder, VideoCodec};
 use super::native_export::config::{
-    AnimatedCursorSlotData, DeviceAudioPoint, OverlayFrame, SpeedPoint, TrimSegment,
+    AnimatedCursorSlotData, BakedWebcamFrame, DeviceAudioPoint, OverlayFrame, SpeedPoint,
+    TrimSegment,
 };
 
 /// Result of a GPU export run.
@@ -61,6 +63,9 @@ pub struct PipelineConfig {
     pub audio_is_preprocessed: bool,
     /// Device audio volume curve in source-video time (0.0 = silent, 1.0 = unchanged).
     pub audio_volume_points: Vec<DeviceAudioPoint>,
+    pub webcam_video_path: Option<String>,
+    pub webcam_offset_sec: f64,
+    pub webcam_frames: Vec<BakedWebcamFrame>,
     pub output_width: u32,
     pub output_height: u32,
     pub framerate: u32,
@@ -113,6 +118,12 @@ enum DecodeOutput {
         source_step: f64,
         frame_idx: u32,
     },
+    /// Stream inactive for this frame (e.g. webcam fully hidden); no GPU work needed.
+    Inactive {
+        source_time: f64,
+        source_step: f64,
+        frame_idx: u32,
+    },
 }
 
 impl DecodeOutput {
@@ -120,21 +131,24 @@ impl DecodeOutput {
         match self {
             Self::Gpu { source_time, .. }
             | Self::GpuHold { source_time, .. }
-            | Self::Cpu { source_time, .. } => *source_time,
+            | Self::Cpu { source_time, .. }
+            | Self::Inactive { source_time, .. } => *source_time,
         }
     }
     fn source_step(&self) -> f64 {
         match self {
             Self::Gpu { source_step, .. }
             | Self::GpuHold { source_step, .. }
-            | Self::Cpu { source_step, .. } => *source_step,
+            | Self::Cpu { source_step, .. }
+            | Self::Inactive { source_step, .. } => *source_step,
         }
     }
     fn frame_idx(&self) -> u32 {
         match self {
             Self::Gpu { frame_idx, .. }
             | Self::GpuHold { frame_idx, .. }
-            | Self::Cpu { frame_idx, .. } => *frame_idx,
+            | Self::Cpu { frame_idx, .. }
+            | Self::Inactive { frame_idx, .. } => *frame_idx,
         }
     }
 }
@@ -321,6 +335,140 @@ pub fn build_frame_times(config: &PipelineConfig) -> Vec<f64> {
     }
 
     times
+}
+
+struct WebcamDecodeSetup {
+    d3d_device: ID3D11Device,
+    d3d_context: ID3D11DeviceContext,
+    ring: DecodeInputRing,
+    source_times: Vec<f64>,
+    active_mask: Vec<bool>,
+    source_width: u32,
+    source_height: u32,
+    render_width: u32,
+    render_height: u32,
+}
+
+fn prepare_webcam_decode_setup(
+    source_times: &[f64],
+    config: &PipelineConfig,
+    wgpu_vendor: u32,
+    wgpu_device_id: u32,
+    wgpu_device: &wgpu::Device,
+) -> Result<Option<WebcamDecodeSetup>, String> {
+    let Some(path) = config
+        .webcam_video_path
+        .as_ref()
+        .filter(|path| !path.trim().is_empty())
+    else {
+        return Ok(None);
+    };
+    if !std::path::Path::new(path).exists() || config.webcam_frames.is_empty() {
+        return Ok(None);
+    }
+    if config.webcam_frames.len() != source_times.len() {
+        return Err(format!(
+            "Webcam baked frames length {} does not match export frames {}",
+            config.webcam_frames.len(),
+            source_times.len()
+        ));
+    }
+
+    let active_mask: Vec<bool> = config
+        .webcam_frames
+        .iter()
+        .enumerate()
+        .map(|(index, frame)| {
+            let webcam_media_time = source_times[index] - config.webcam_offset_sec;
+            webcam_media_time >= 0.0
+                && frame.visible
+                && frame.opacity > 0.001
+                && frame.width > 0.0
+                && frame.height > 0.0
+        })
+        .collect();
+    if !active_mask.iter().any(|active| *active) {
+        return Ok(None);
+    }
+
+    let mut max_width = 0.0f64;
+    let mut max_height = 0.0f64;
+    for frame in &config.webcam_frames {
+        if !(frame.visible && frame.opacity > 0.001) {
+            continue;
+        }
+        max_width = max_width.max(frame.width.max(0.0));
+        max_height = max_height.max(frame.height.max(0.0));
+    }
+    if max_width <= 0.0 || max_height <= 0.0 {
+        return Ok(None);
+    }
+
+    let (d3d_device, d3d_context) = if wgpu_vendor != 0 {
+        create_d3d11_device_on_adapter(wgpu_vendor, wgpu_device_id)?
+    } else {
+        create_d3d11_device()?
+    };
+    {
+        let mt: ID3D11Multithread = d3d_device
+            .cast()
+            .map_err(|e| format!("QI ID3D11Multithread (webcam): {e}"))?;
+        unsafe {
+            let _ = mt.SetMultithreadProtected(true);
+        }
+    }
+    let device_manager = DxgiDeviceManager::new(&d3d_device)?;
+    let decoder = MfDecoder::new(path, &device_manager, true)?;
+    let source_width = decoder.width();
+    let source_height = decoder.height();
+    let render_width = (max_width.ceil() as u32).clamp(2, decoder.width().max(2));
+    let render_height = (max_height.ceil() as u32).clamp(2, decoder.height().max(2));
+    drop(decoder);
+
+    let ring = try_create_decode_input_ring(&d3d_device, wgpu_device, render_width, render_height)
+        .ok_or_else(|| "Webcam zero-copy decode ring init failed".to_string())?;
+    println!(
+        "[Export] Zero-copy GPU webcam decode path ({}-slot ring, {}x{})",
+        DECODE_RING_SIZE,
+        render_width,
+        render_height
+    );
+
+    Ok(Some(WebcamDecodeSetup {
+        d3d_device,
+        d3d_context,
+        ring,
+        source_times: source_times
+            .iter()
+            .map(|time| time - config.webcam_offset_sec)
+            .collect(),
+        active_mask,
+        source_width,
+        source_height,
+        render_width,
+        render_height,
+    }))
+}
+
+struct ComScope(bool);
+
+impl ComScope {
+    fn initialize_mta() -> Result<Self, String> {
+        unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }
+            .ok()
+            .map_err(|e| format!("CoInitializeEx render thread: {e}"))?;
+        Ok(Self(true))
+    }
+}
+
+impl Drop for ComScope {
+    fn drop(&mut self) {
+        if self.0 {
+            unsafe {
+                CoUninitialize();
+            }
+        }
+    }
 }
 
 /// Import a shared D3D11 texture (NT handle) into wgpu as a DX12 texture.
@@ -750,12 +898,68 @@ pub fn run_zero_copy_export(
         .as_ref()
         .map(|r| r.dx12_keyed_mutexes.as_slice())
         .unwrap_or(&[]);
+    let webcam_setup = prepare_webcam_decode_setup(
+        source_times,
+        config,
+        wgpu_vendor,
+        wgpu_device_id,
+        compositor.device(),
+    )?;
+    let webcam_enabled = webcam_setup.is_some();
+    let webcam_wgpu_textures: &[wgpu::Texture] = webcam_setup
+        .as_ref()
+        .map(|setup| setup.ring.wgpu_textures.as_slice())
+        .unwrap_or(&[]);
+    let webcam_d3d_textures: Vec<ID3D11Texture2D> = webcam_setup
+        .as_ref()
+        .map(|setup| setup.ring.shared_buffers.iter().map(|b| b.texture.clone()).collect())
+        .unwrap_or_default();
+    let webcam_keyed_mutexes: &[IDXGIKeyedMutex] = webcam_setup
+        .as_ref()
+        .map(|setup| setup.ring.keyed_mutexes.as_slice())
+        .unwrap_or(&[]);
+    let webcam_d3d11_fence: Option<&ID3D11Fence> =
+        webcam_setup.as_ref().map(|setup| &setup.ring.d3d11_fence);
+    let webcam_d3d12_fence: Option<&d3d12::ID3D12Fence> =
+        webcam_setup.as_ref().map(|setup| &setup.ring.d3d12_fence);
+    let webcam_source_times: &[f64] = webcam_setup
+        .as_ref()
+        .map(|setup| setup.source_times.as_slice())
+        .unwrap_or(&[]);
+    let webcam_active_mask: Option<&[bool]> =
+        webcam_setup.as_ref().map(|setup| setup.active_mask.as_slice());
+    let webcam_d3d_device: Option<&ID3D11Device> =
+        webcam_setup.as_ref().map(|setup| &setup.d3d_device);
+    let webcam_d3d_context: Option<&ID3D11DeviceContext> =
+        webcam_setup.as_ref().map(|setup| &setup.d3d_context);
+    let webcam_source_width = webcam_setup
+        .as_ref()
+        .map(|setup| setup.source_width)
+        .unwrap_or(0);
+    let webcam_source_height = webcam_setup
+        .as_ref()
+        .map(|setup| setup.source_height)
+        .unwrap_or(0);
+    let webcam_render_width = webcam_setup
+        .as_ref()
+        .map(|setup| setup.render_width)
+        .unwrap_or(0);
+    let webcam_render_height = webcam_setup
+        .as_ref()
+        .map(|setup| setup.render_height)
+        .unwrap_or(0);
 
     // ─── Channels ───────────────────────────────────────────────────────────
 
     // Forward channels (decode → render → encode).
     let (decode_tx, render_rx) = mpsc::sync_channel::<DecodeOutput>(3);
     let (render_tx, encode_rx) = mpsc::sync_channel::<RenderOutput>(3);
+    let (webcam_decode_tx, webcam_render_rx) = if webcam_enabled {
+        let (tx, rx) = mpsc::sync_channel::<DecodeOutput>(3);
+        (Some(tx), Some(rx))
+    } else {
+        (None, None)
+    };
 
     // Decode recycle: GPU path returns ring indices, CPU path returns Vec<u8>.
     let (dec_gpu_recycle_tx, dec_gpu_recycle_rx) = mpsc::channel::<usize>();
@@ -765,6 +969,15 @@ pub fn run_zero_copy_export(
             let _ = dec_gpu_recycle_tx.send(i);
         }
     }
+    let (webcam_recycle_tx, webcam_recycle_rx) = if webcam_enabled {
+        let (tx, rx) = mpsc::channel::<usize>();
+        for i in 0..DECODE_RING_SIZE {
+            let _ = tx.send(i);
+        }
+        (Some(tx), Some(rx))
+    } else {
+        (None, None)
+    };
 
     // Encode recycle: GPU path returns ring indices, CPU path returns Vec<u8>.
     let (cpu_recycle_tx, cpu_recycle_rx) = mpsc::channel::<Vec<u8>>();
@@ -776,10 +989,13 @@ pub fn run_zero_copy_export(
     }
 
     let decode_error: std::sync::Arc<Mutex<Option<String>>> = std::sync::Arc::new(Mutex::new(None));
+    let webcam_decode_error: std::sync::Arc<Mutex<Option<String>>> =
+        std::sync::Arc::new(Mutex::new(None));
     let render_error: std::sync::Arc<Mutex<Option<String>>> = std::sync::Arc::new(Mutex::new(None));
 
     let mut result: Result<ZeroCopyExportResult, String> = Err("pipeline did not run".into());
     let decode_err_clone = decode_error.clone();
+    let webcam_decode_err_clone = webcam_decode_error.clone();
     let render_err_clone = render_error.clone();
 
     let decode_label = if use_gpu_decode { "GPU" } else { "CPU" };
@@ -807,9 +1023,20 @@ pub fn run_zero_copy_export(
         s.spawn(move || {
             let result = if use_gpu_decode {
                 run_decode_thread(DecodeThreadContext {
-                    config,
+                    label: "primary",
                     cancel_flag,
+                    source_video_path: &config.source_video_path,
                     source_times,
+                    speed_points: &config.speed_points,
+                    trim_segments: &config.trim_segments,
+                    framerate: config.framerate,
+                    crop_x: config.crop_x,
+                    crop_y: config.crop_y,
+                    source_rect_width: config.video_width,
+                    source_rect_height: config.video_height,
+                    output_width: config.video_width,
+                    output_height: config.video_height,
+                    active_mask: None,
                     d3d11_device: &dec_device,
                     d3d11_context: &dec_context,
                     tx: decode_tx,
@@ -832,6 +1059,42 @@ pub fn run_zero_copy_export(
                 *decode_err_clone.lock().unwrap() = Some(e);
             }
         });
+        if let (Some(webcam_tx), Some(webcam_rx)) = (webcam_decode_tx, webcam_recycle_rx) {
+            s.spawn(move || {
+                let result = run_decode_thread(DecodeThreadContext {
+                    label: "webcam",
+                    cancel_flag,
+                    source_video_path: config
+                        .webcam_video_path
+                        .as_deref()
+                        .expect("webcam path missing while webcam decode is enabled"),
+                    source_times: webcam_source_times,
+                    speed_points: &config.speed_points,
+                    trim_segments: &config.trim_segments,
+                    framerate: config.framerate,
+                    crop_x: 0,
+                    crop_y: 0,
+                    source_rect_width: webcam_source_width.max(1),
+                    source_rect_height: webcam_source_height.max(1),
+                    output_width: webcam_render_width.max(1),
+                    output_height: webcam_render_height.max(1),
+                    active_mask: webcam_active_mask,
+                    d3d11_device: webcam_d3d_device
+                        .expect("webcam device missing while webcam decode is enabled"),
+                    d3d11_context: webcam_d3d_context
+                        .expect("webcam context missing while webcam decode is enabled"),
+                    tx: webcam_tx,
+                    recycle_rx: webcam_rx,
+                    shared_textures: &webcam_d3d_textures,
+                    keyed_mutexes: webcam_keyed_mutexes,
+                    d3d11_fence: webcam_d3d11_fence,
+                });
+                if let Err(e) = result {
+                    cancel_flag.store(true, Ordering::Relaxed);
+                    *webcam_decode_err_clone.lock().unwrap() = Some(e);
+                }
+            });
+        }
 
         // Thread 2: Render (compositor)
         s.spawn(move || {
@@ -848,6 +1111,13 @@ pub fn run_zero_copy_export(
                 dec_wgpu_textures,
                 dec_d3d12_fence,
                 dec_keyed_mutexes,
+                webcam_rx: webcam_render_rx,
+                webcam_gpu_recycle_tx: webcam_recycle_tx,
+                webcam_wgpu_textures,
+                webcam_d3d12_fence,
+                webcam_keyed_mutexes,
+                webcam_render_width,
+                webcam_render_height,
                 gpu_textures: gpu_wgpu_textures,
                 gpu_dx12_keyed_mutexes,
                 gpu_slot_rx: gpu_recycle_rx,
@@ -879,13 +1149,22 @@ pub fn run_zero_copy_export(
 
     // Surface decode/render errors — prefer the earliest root cause over encode errors.
     let decode_err = decode_error.lock().unwrap().take();
+    let webcam_decode_err = webcam_decode_error.lock().unwrap().take();
     let render_err = render_error.lock().unwrap().take();
 
-    match (decode_err, render_err, result) {
-        (Some(d), Some(r), _) => Err(format!("Decode thread: {d}\nRender thread: {r}")),
-        (Some(d), None, _) => Err(format!("Decode thread: {d}")),
-        (None, Some(r), _) => Err(format!("Render thread: {r}")),
-        (None, None, res) => res,
+    match (decode_err, webcam_decode_err, render_err, result) {
+        (Some(d), Some(w), Some(r), _) => Err(format!(
+            "Primary decode thread: {d}\nWebcam decode thread: {w}\nRender thread: {r}"
+        )),
+        (Some(d), Some(w), None, _) => {
+            Err(format!("Primary decode thread: {d}\nWebcam decode thread: {w}"))
+        }
+        (Some(d), None, Some(r), _) => Err(format!("Primary decode thread: {d}\nRender thread: {r}")),
+        (None, Some(w), Some(r), _) => Err(format!("Webcam decode thread: {w}\nRender thread: {r}")),
+        (Some(d), None, None, _) => Err(format!("Primary decode thread: {d}")),
+        (None, Some(w), None, _) => Err(format!("Webcam decode thread: {w}")),
+        (None, None, Some(r), _) => Err(format!("Render thread: {r}")),
+        (None, None, None, res) => res,
     }
 }
 
@@ -896,9 +1175,20 @@ pub fn run_zero_copy_export(
 /// GPU fence, then send the ring index to the render thread. Re-VP-Blt for held
 /// frames is cheap (microseconds on GPU) compared to the old CPU readback (~6ms).
 struct DecodeThreadContext<'a> {
-    config: &'a PipelineConfig,
+    label: &'static str,
     cancel_flag: &'a std::sync::atomic::AtomicBool,
+    source_video_path: &'a str,
     source_times: &'a [f64],
+    speed_points: &'a [SpeedPoint],
+    trim_segments: &'a [TrimSegment],
+    framerate: u32,
+    crop_x: u32,
+    crop_y: u32,
+    source_rect_width: u32,
+    source_rect_height: u32,
+    output_width: u32,
+    output_height: u32,
+    active_mask: Option<&'a [bool]>,
     d3d11_device: &'a ID3D11Device,
     d3d11_context: &'a ID3D11DeviceContext,
     tx: mpsc::SyncSender<DecodeOutput>,
@@ -910,9 +1200,20 @@ struct DecodeThreadContext<'a> {
 
 fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), String> {
     let DecodeThreadContext {
-        config,
+        label,
         cancel_flag,
+        source_video_path,
         source_times,
+        speed_points,
+        trim_segments,
+        framerate,
+        crop_x,
+        crop_y,
+        source_rect_width,
+        source_rect_height,
+        output_width,
+        output_height,
+        active_mask,
         d3d11_device,
         d3d11_context,
         tx,
@@ -932,21 +1233,21 @@ fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), String> {
     let mut fence_value: u64 = 0;
 
     let device_manager = DxgiDeviceManager::new(d3d11_device)?;
-    let decoder = MfDecoder::new(&config.source_video_path, &device_manager, true)?;
+    let decoder = MfDecoder::new(source_video_path, &device_manager, true)?;
     let source_w = decoder.width();
     let source_h = decoder.height();
 
-    let initial_seek = if !config.trim_segments.is_empty() {
-        config.trim_segments[0].start_time
+    let initial_seek = if !trim_segments.is_empty() {
+        trim_segments[0].start_time
     } else {
-        config.trim_start
+        source_times.first().copied().unwrap_or(0.0).max(0.0)
     };
     if initial_seek > 0.0 {
         decoder.seek_seconds(initial_seek)?;
     }
 
-    let vp_out_w = config.video_width;
-    let vp_out_h = config.video_height;
+    let vp_out_w = output_width;
+    let vp_out_h = output_height;
     let decode_vp = VideoProcessor::new(
         d3d11_device,
         d3d11_context,
@@ -955,7 +1256,13 @@ fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), String> {
         vp_out_w,
         vp_out_h,
     )?;
-    decode_vp.set_source_rect(config.crop_x, config.crop_y, vp_out_w, vp_out_h);
+    if crop_x != 0
+        || crop_y != 0
+        || source_rect_width != source_w
+        || source_rect_height != source_h
+    {
+        decode_vp.set_source_rect(crop_x, crop_y, source_rect_width, source_rect_height);
+    }
 
     // Pool of VP output textures for B-frame PTS reorder.
     // Hardware decoders deliver B-frames in decode order (non-monotonic PTS).
@@ -1099,19 +1406,32 @@ fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), String> {
             .get(frame_idx + 1)
             .copied()
             .unwrap_or(source_time);
-        let speed = get_speed(source_time, &config.speed_points).clamp(0.1, 16.0);
-        let expected_step = speed / config.framerate as f64;
+        let speed = get_speed(source_time, speed_points).clamp(0.1, 16.0);
+        let expected_step = speed / framerate.max(1) as f64;
         let mut source_step = next_source_time - source_time;
         if source_step <= 0.0 || source_step > expected_step * 1.05 {
             source_step = expected_step;
         }
 
+        if active_mask.is_some_and(|mask| !mask[frame_idx]) {
+            if tx
+                .send(DecodeOutput::Inactive {
+                    source_time,
+                    source_step,
+                    frame_idx: frame_idx as u32,
+                })
+                .is_err()
+            {
+                break;
+            }
+            continue;
+        }
+
         let mut source_changed = false;
 
         // Seek on trim segment boundary change.
-        if !config.trim_segments.is_empty() {
-            let target_seg = config
-                .trim_segments
+        if !trim_segments.is_empty() {
+            let target_seg = trim_segments
                 .iter()
                 .position(|s| {
                     source_time >= s.start_time - 0.001 && source_time <= s.end_time + 0.001
@@ -1119,7 +1439,7 @@ fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), String> {
                 .unwrap_or(current_segment_idx);
 
             if target_seg != current_segment_idx {
-                decoder.seek_seconds(config.trim_segments[target_seg].start_time)?;
+                decoder.seek_seconds(trim_segments[target_seg].start_time)?;
                 current_segment_idx = target_seg;
                 flush_and_refill!();
                 source_changed = true;
@@ -1242,7 +1562,8 @@ fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), String> {
 
     let elapsed = t_thread.elapsed().as_secs_f64();
     println!(
-        "[Decode] GPU: {} src → {} out ({} held) in {:.1}s",
+        "[Decode:{}] GPU: {} src → {} out ({} held) in {:.1}s",
+        label,
         src_decoded,
         source_times.len(),
         frames_held,
@@ -1532,6 +1853,13 @@ struct RenderThreadContext<'a> {
     dec_d3d12_fence: Option<&'a d3d12::ID3D12Fence>,
     // Keyed mutexes for decode ring slots (CPU ownership protocol).
     dec_keyed_mutexes: &'a [IDXGIKeyedMutex],
+    webcam_rx: Option<mpsc::Receiver<DecodeOutput>>,
+    webcam_gpu_recycle_tx: Option<mpsc::Sender<usize>>,
+    webcam_wgpu_textures: &'a [wgpu::Texture],
+    webcam_d3d12_fence: Option<&'a d3d12::ID3D12Fence>,
+    webcam_keyed_mutexes: &'a [IDXGIKeyedMutex],
+    webcam_render_width: u32,
+    webcam_render_height: u32,
     // Encode output resources.
     gpu_textures: &'a [wgpu::Texture],
     // D3D12-side keyed mutex per encode ring slot.
@@ -1542,6 +1870,7 @@ struct RenderThreadContext<'a> {
 }
 
 fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
+    let _com_scope = ComScope::initialize_mta()?;
     let RenderThreadContext {
         config,
         compositor,
@@ -1555,6 +1884,13 @@ fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
         dec_wgpu_textures,
         dec_d3d12_fence,
         dec_keyed_mutexes,
+        webcam_rx,
+        webcam_gpu_recycle_tx,
+        webcam_wgpu_textures,
+        webcam_d3d12_fence,
+        webcam_keyed_mutexes,
+        webcam_render_width,
+        webcam_render_height,
         gpu_textures,
         gpu_dx12_keyed_mutexes,
         gpu_slot_rx,
@@ -1578,6 +1914,8 @@ fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
     // CPU encode: entries accumulate with pipelined readbacks and are drained together.
     let mut dec_ring_recycle_queue: std::collections::VecDeque<Option<usize>> =
         std::collections::VecDeque::new();
+    let mut webcam_ring_recycle_queue: std::collections::VecDeque<Option<usize>> =
+        std::collections::VecDeque::new();
 
     loop {
         let tw0 = Instant::now();
@@ -1594,6 +1932,7 @@ fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
                 }
                 DecodeOutput::GpuHold { .. } => {}
                 DecodeOutput::Cpu { .. } => {}
+                DecodeOutput::Inactive { .. } => {}
             }
             break;
         }
@@ -1653,8 +1992,62 @@ fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
                 let _ = dec_cpu_recycle_tx.send(bgra_video);
                 dec_ring_recycle_queue.push_back(None);
             }
+            DecodeOutput::Inactive { .. } => {
+                dec_ring_recycle_queue.push_back(None);
+            }
         }
         t_upload += tu0.elapsed().as_secs_f64();
+
+        if let Some(webcam_rx) = webcam_rx.as_ref() {
+            let webcam_msg = webcam_rx
+                .recv()
+                .map_err(|_| "Webcam decode channel closed".to_string())?;
+            if webcam_msg.frame_idx() != frame_idx {
+                return Err(format!(
+                    "Webcam frame index mismatch: expected {}, got {}",
+                    frame_idx,
+                    webcam_msg.frame_idx()
+                ));
+            }
+
+            match webcam_msg {
+                DecodeOutput::Gpu {
+                    ring_idx,
+                    fence_value,
+                    ..
+                } => {
+                    if !webcam_keyed_mutexes.is_empty() {
+                        unsafe {
+                            webcam_keyed_mutexes[ring_idx]
+                                .AcquireSync(0, u32::MAX)
+                                .map_err(|e| format!("AcquireSync webcam render[{ring_idx}]: {e}"))?;
+                        }
+                    }
+                    if let Some(fence) = webcam_d3d12_fence {
+                        unsafe {
+                            if let Some(hal_dev) = compositor.device().as_hal::<wgpu::hal::api::Dx12>()
+                            {
+                                let raw_queue: &d3d12::ID3D12CommandQueue =
+                                    &*(hal_dev.raw_queue() as *const _);
+                                let _ = raw_queue.Wait(fence, fence_value);
+                            }
+                        }
+                    }
+                    compositor.copy_webcam_frame_from_shared(
+                        &webcam_wgpu_textures[ring_idx],
+                        webcam_render_width,
+                        webcam_render_height,
+                    );
+                    webcam_ring_recycle_queue.push_back(Some(ring_idx));
+                }
+                DecodeOutput::GpuHold { .. } | DecodeOutput::Inactive { .. } => {
+                    webcam_ring_recycle_queue.push_back(None);
+                }
+                DecodeOutput::Cpu { .. } => {
+                    return Err("Unexpected CPU webcam decode output".to_string());
+                }
+            }
+        }
 
         // 1b. Update animated cursor atlas tiles based on current source time.
         for slot in &config.animated_cursor_slots {
@@ -1691,10 +2084,27 @@ fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
             compositor.render_to_output(&uniforms, true, None);
         }
 
-        // Atlas overlay pass.
-        if !config.overlay_frames.is_empty() {
+        let webcam_frame = if webcam_rx.is_some() && !config.webcam_frames.is_empty() {
+            let webcam_idx = (frame_idx as usize).min(config.webcam_frames.len() - 1);
+            Some(&config.webcam_frames[webcam_idx])
+        } else {
+            None
+        };
+        let webcam_should_render = webcam_frame.is_some_and(|frame| {
+            frame.visible && frame.opacity > 0.001 && frame.width > 0.0 && frame.height > 0.0
+        });
+        let overlay_quads = if !config.overlay_frames.is_empty() {
             let overlay_idx = (frame_idx as usize).min(config.overlay_frames.len() - 1);
-            compositor.render_overlays(&config.overlay_frames[overlay_idx].quads);
+            config.overlay_frames[overlay_idx].quads.as_slice()
+        } else {
+            &[]
+        };
+
+        if webcam_should_render || !overlay_quads.is_empty() {
+            compositor.render_post_overlays(
+                if webcam_should_render { webcam_frame } else { None },
+                overlay_quads,
+            );
         }
 
         t_render += tr0.elapsed().as_secs_f64();
@@ -1749,6 +2159,16 @@ fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
                 }
                 let _ = dec_gpu_recycle_tx.send(idx);
             }
+            if let Some(Some(idx)) = webcam_ring_recycle_queue.pop_front() {
+                if !webcam_keyed_mutexes.is_empty() {
+                    unsafe {
+                        let _ = webcam_keyed_mutexes[idx].ReleaseSync(0);
+                    }
+                }
+                if let Some(tx) = webcam_gpu_recycle_tx.as_ref() {
+                    let _ = tx.send(idx);
+                }
+            }
             t_readback += trb0.elapsed().as_secs_f64();
             if tx.send(RenderOutput::Gpu { ring_idx }).is_err() {
                 break;
@@ -1770,6 +2190,16 @@ fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
                         }
                     }
                     let _ = dec_gpu_recycle_tx.send(idx);
+                }
+                if let Some(Some(idx)) = webcam_ring_recycle_queue.pop_front() {
+                    if !webcam_keyed_mutexes.is_empty() {
+                        unsafe {
+                            let _ = webcam_keyed_mutexes[idx].ReleaseSync(0);
+                        }
+                    }
+                    if let Some(tx) = webcam_gpu_recycle_tx.as_ref() {
+                        let _ = tx.send(idx);
+                    }
                 }
                 t_readback += trb0.elapsed().as_secs_f64();
                 queued_readbacks -= 1;
@@ -1798,6 +2228,16 @@ fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
                 }
             }
             let _ = dec_gpu_recycle_tx.send(idx);
+        }
+        if let Some(Some(idx)) = webcam_ring_recycle_queue.pop_front() {
+            if !webcam_keyed_mutexes.is_empty() {
+                unsafe {
+                    let _ = webcam_keyed_mutexes[idx].ReleaseSync(0);
+                }
+            }
+            if let Some(tx) = webcam_gpu_recycle_tx.as_ref() {
+                let _ = tx.send(idx);
+            }
         }
         t_readback += trb0.elapsed().as_secs_f64();
         queued_readbacks -= 1;

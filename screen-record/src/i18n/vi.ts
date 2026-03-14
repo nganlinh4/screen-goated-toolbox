@@ -49,6 +49,7 @@ const vi: Translations = {
 
   // SidePanel tabs
   tabZoom: 'Phóng To',
+  tabCamera: 'Camera',
   tabBackground: 'Nền',
   tabCursor: 'Con Trỏ',
   tabBlur: 'Nhòe',
@@ -71,6 +72,16 @@ const vi: Translations = {
   shadow: 'Đổ Bóng',
   volume: 'Âm Lượng',
   backgroundStyle: 'Kiểu Nền',
+
+  // CameraPanel
+  cameraSettings: 'Camera',
+  cameraUnavailable: 'Clip này không có video webcam.',
+  cameraShow: 'Hiện Camera',
+  cameraMirror: 'Lật Gương',
+  cameraAutoSize: 'Tự Động Khi Zoom',
+  cameraPosition: 'Vị Trí',
+  cameraMaxSize: 'Kích Thước Max',
+  cameraMinSize: 'Kích Thước Min',
 
   // CursorPanel
   cursorSettings: 'Cài Đặt Con Trỏ',
@@ -246,6 +257,7 @@ const vi: Translations = {
   trackSpeed: 'Tốc Độ',
   trackDeviceAudio: 'Âm Thanh Thiết Bị',
   trackMicAudio: 'Mic',
+  trackWebcam: 'Webcam',
   resetSpeed: 'Đặt lại tốc độ',
 
   // App

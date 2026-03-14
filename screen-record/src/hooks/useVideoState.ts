@@ -26,6 +26,7 @@ import {
   RawInputEvent,
   RecordingMode,
   CropRect,
+  WebcamConfig,
 } from "@/types/video";
 import {
   clampVisibilitySegmentsToDuration,
@@ -53,6 +54,11 @@ import {
   buildFlatMicAudioPoints,
   normalizeMicAudioPoints,
 } from "@/lib/micAudio";
+import { cloneWebcamConfig } from "@/lib/webcam";
+import {
+  buildFullWebcamVisibilitySegments,
+  normalizeWebcamVisibilitySegments,
+} from "@/lib/webcamVisibility";
 import {
   sanitizeRecordingAudioSelection,
   type RecordingAudioSelection,
@@ -70,10 +76,16 @@ const CROP_PREF_KEY = "screen-record-crop-pref-v1";
 const DEFAULT_EXPORT_FPS = 60;
 const MIN_EXPORT_FPS = 1;
 const MAX_EXPORT_FPS = 240;
+const TRACK_DELAY_LIMIT_SEC = 2;
 const MIN_CROP_SIZE = 0.05;
 const TRAILING_MOUSE_SAMPLE_EPSILON_SEC = 1 / 240;
 const PROJECT_LOAD_DEBUG = false;
 const PROJECT_SWITCH_DEBUG = false;
+
+function normalizeTrackDelaySec(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.max(-TRACK_DELAY_LIMIT_SEC, Math.min(TRACK_DELAY_LIMIT_SEC, value));
+}
 
 function summarizeLoadedBackground(backgroundConfig: BackgroundConfig | null | undefined) {
   return backgroundConfig
@@ -328,6 +340,7 @@ function getSavedExportFpsPref(): number {
 interface UseVideoPlaybackProps {
   segment: VideoSegment | null;
   backgroundConfig: BackgroundConfig;
+  webcamConfig?: WebcamConfig;
   mousePositionsRef: { current: MousePosition[] };
   isCropping: boolean;
   interactiveBackgroundPreview?: boolean;
@@ -336,6 +349,7 @@ interface UseVideoPlaybackProps {
 export function useVideoPlayback({
   segment,
   backgroundConfig,
+  webcamConfig,
   mousePositionsRef,
   isCropping,
   interactiveBackgroundPreview = false,
@@ -348,8 +362,12 @@ export function useVideoPlayback({
   const [currentVideo, setCurrentVideo] = useState<string | null>(null);
   const [currentAudio, setCurrentAudio] = useState<string | null>(null);
   const [currentMicAudio, setCurrentMicAudio] = useState<string | null>(null);
+  const [currentWebcamVideo, setCurrentWebcamVideo] = useState<string | null>(
+    null,
+  );
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const webcamVideoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const micAudioRef = useRef<HTMLAudioElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -360,6 +378,7 @@ export function useVideoPlayback({
   const currentVideoRef = useRef<string | null>(null);
   const currentAudioRef = useRef<string | null>(null);
   const currentMicAudioRef = useRef<string | null>(null);
+  const currentWebcamVideoRef = useRef<string | null>(null);
   const thumbnailRequestIdRef = useRef(0);
   const thumbnailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thumbnailCacheRef = useRef<Map<string, string[]>>(new Map());
@@ -377,6 +396,7 @@ export function useVideoPlayback({
 
     videoControllerRef.current = createVideoController({
       videoRef: videoRef.current,
+      webcamVideoRef: webcamVideoRef.current || undefined,
       deviceAudioRef: audioRef.current || undefined,
       micAudioRef: micAudioRef.current || undefined,
       canvasRef: canvasRef.current,
@@ -428,15 +448,23 @@ export function useVideoPlayback({
 
     videoRenderer.drawFrame({
       video: videoRef.current,
+      webcamVideo: webcamVideoRef.current,
       canvas: canvasRef.current,
       tempCanvas: tempCanvasRef.current,
       segment: renderSegment,
       backgroundConfig: renderBackground,
+      webcamConfig,
       mousePositions: mousePositionsRef.current,
       currentTime: videoRef.current.currentTime,
       interactiveBackgroundPreview,
     });
-  }, [segment, backgroundConfig, interactiveBackgroundPreview, isCropping]);
+  }, [
+    segment,
+    backgroundConfig,
+    webcamConfig,
+    interactiveBackgroundPreview,
+    isCropping,
+  ]);
 
   const togglePlayPause = useCallback(() => {
     videoControllerRef.current?.togglePlayPause();
@@ -646,10 +674,11 @@ export function useVideoPlayback({
     videoControllerRef.current.updateRenderOptions({
       segment: renderSegment,
       backgroundConfig: renderBackground,
+      webcamConfig,
       mousePositions: mousePositionsRef.current,
       interactiveBackgroundPreview,
     });
-  }, [segment, backgroundConfig, interactiveBackgroundPreview, isCropping]);
+  }, [segment, backgroundConfig, webcamConfig, interactiveBackgroundPreview, isCropping]);
 
   // Render context sync — update the running animation loop's context when
   // segment/backgroundConfig/isCropping change, WITHOUT restarting the loop.
@@ -688,10 +717,12 @@ export function useVideoPlayback({
     // Update context for the animation loop (picked up on next RAF tick)
     videoRenderer.updateRenderContext({
       video,
+      webcamVideo: webcamVideoRef.current,
       canvas: canvasRef.current!,
       tempCanvas: tempCanvasRef.current,
       segment: loopSegment,
       backgroundConfig: loopBackground,
+      webcamConfig,
       mousePositions: mousePositionsRef.current,
       currentTime: video.currentTime,
       interactiveBackgroundPreview,
@@ -700,7 +731,7 @@ export function useVideoPlayback({
     if (video.paused) {
       renderFrame();
     }
-  }, [segment, backgroundConfig, interactiveBackgroundPreview, isCropping]);
+  }, [segment, backgroundConfig, webcamConfig, interactiveBackgroundPreview, isCropping]);
 
   // Cleanup URLs
   useEffect(() => {
@@ -716,6 +747,10 @@ export function useVideoPlayback({
   }, [currentMicAudio]);
 
   useEffect(() => {
+    currentWebcamVideoRef.current = currentWebcamVideo;
+  }, [currentWebcamVideo]);
+
+  useEffect(() => {
     return () => {
       if (currentVideoRef.current?.startsWith("blob:")) {
         URL.revokeObjectURL(currentVideoRef.current);
@@ -725,6 +760,9 @@ export function useVideoPlayback({
       }
       if (currentMicAudioRef.current?.startsWith("blob:")) {
         URL.revokeObjectURL(currentMicAudioRef.current);
+      }
+      if (currentWebcamVideoRef.current?.startsWith("blob:")) {
+        URL.revokeObjectURL(currentWebcamVideoRef.current);
       }
     };
   }, []);
@@ -745,7 +783,10 @@ export function useVideoPlayback({
     setCurrentAudio,
     currentMicAudio,
     setCurrentMicAudio,
+    currentWebcamVideo,
+    setCurrentWebcamVideo,
     videoRef,
+    webcamVideoRef,
     audioRef,
     micAudioRef,
     canvasRef,
@@ -777,6 +818,7 @@ interface UseRecordingProps {
   setCurrentVideo: (url: string | null) => void;
   setCurrentAudio: (url: string | null) => void;
   setCurrentMicAudio: (url: string | null) => void;
+  setCurrentWebcamVideo: (url: string | null) => void;
   setIsVideoReady: (ready: boolean) => void;
   setThumbnails: (thumbnails: string[]) => void;
   invalidateThumbnails: () => void;
@@ -794,6 +836,7 @@ interface UseRecordingProps {
   currentVideo: string | null;
   currentAudio: string | null;
   currentMicAudio: string | null;
+  currentWebcamVideo: string | null;
 }
 
 export function useRecording(props: UseRecordingProps) {
@@ -806,6 +849,7 @@ export function useRecording(props: UseRecordingProps) {
   const [mousePositions, setMousePositions] = useState<MousePosition[]>([]);
   const [audioFilePath, setAudioFilePath] = useState("");
   const [micAudioFilePath, setMicAudioFilePath] = useState("");
+  const [webcamVideoFilePath, setWebcamVideoFilePath] = useState("");
   const [videoFilePath, setVideoFilePath] = useState("");
   const [videoFilePathOwnerUrl, setVideoFilePathOwnerUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -834,6 +878,7 @@ export function useRecording(props: UseRecordingProps) {
       } else {
         setAudioFilePath("");
         setMicAudioFilePath("");
+        setWebcamVideoFilePath("");
         setVideoFilePath("");
         setVideoFilePathOwnerUrl("");
         setMousePositions([]);
@@ -875,6 +920,7 @@ export function useRecording(props: UseRecordingProps) {
         deviceAudioMode: audioSelection.deviceMode,
         deviceAudioAppPid: audioSelection.selectedDeviceApp?.pid ?? null,
         micEnabled: audioSelection.micEnabled,
+        webcamEnabled: true,
       });
       setActiveRecordingMode(recordingMode);
       setIsRecording(true);
@@ -888,9 +934,11 @@ export function useRecording(props: UseRecordingProps) {
     mouseData: MousePosition[];
     initialSegment: VideoSegment;
     videoUrl: string;
+    webcamVideoUrl: string;
     recordingMode: RecordingMode;
     rawVideoPath: string;
     rawMicAudioPath: string;
+    rawWebcamVideoPath: string;
     capturedFps: number | null;
   } | null> => {
     if (!isRecording) return null;
@@ -898,6 +946,7 @@ export function useRecording(props: UseRecordingProps) {
     let objectUrl: string | undefined;
     let audioObjectUrl: string | undefined;
     let micAudioObjectUrl: string | undefined;
+    let webcamVideoObjectUrl: string | undefined;
 
     try {
       setIsRecording(false);
@@ -913,9 +962,13 @@ export function useRecording(props: UseRecordingProps) {
         videoUrl: string;
         deviceAudioUrl: string;
         micAudioUrl: string;
+        webcamVideoUrl: string;
+        micAudioOffsetSec: number;
+        webcamVideoOffsetSec: number;
         mouseData: any[];
         deviceAudioPath: string;
         micAudioPath: string;
+        webcamVideoPath: string;
         videoFilePath: string;
         inputEvents: RawInputEvent[];
         capturedFps: number | null;
@@ -926,6 +979,7 @@ export function useRecording(props: UseRecordingProps) {
           : null;
       setAudioFilePath(result.deviceAudioPath || "");
       setMicAudioFilePath(result.micAudioPath || "");
+      setWebcamVideoFilePath(result.webcamVideoPath || "");
       setVideoFilePath(result.videoFilePath || "");
 
       const mouseData: MousePosition[] = result.mouseData.map((p) => ({
@@ -967,6 +1021,17 @@ export function useRecording(props: UseRecordingProps) {
           timelineDuration,
         );
         setMousePositions(stabilizedMouseData);
+        const micAudioAvailable =
+          activeRecordingAudioSelectionRef.current.micEnabled &&
+          Boolean(result.micAudioUrl || result.micAudioPath);
+        const webcamAvailable = Boolean(
+          result.webcamVideoUrl || result.webcamVideoPath,
+        );
+        const micDefaultVolume =
+          micAudioAvailable &&
+          !activeRecordingAudioSelectionRef.current.deviceEnabled
+            ? 1
+            : 0;
         const baseSegment: VideoSegment = {
           trimStart: 0,
           trimEnd: timelineDuration,
@@ -984,12 +1049,19 @@ export function useRecording(props: UseRecordingProps) {
             { time: timelineDuration, speed: 1 },
           ],
           deviceAudioPoints: buildFlatDeviceAudioPoints(timelineDuration),
-          micAudioPoints: buildFlatMicAudioPoints(timelineDuration),
+          micAudioPoints: buildFlatMicAudioPoints(
+            timelineDuration,
+            micDefaultVolume,
+          ),
+          micAudioOffsetSec: normalizeTrackDelaySec(result.micAudioOffsetSec),
+          webcamVisibilitySegments: webcamAvailable
+            ? buildFullWebcamVisibilitySegments(timelineDuration)
+            : [],
           deviceAudioAvailable:
             activeRecordingAudioSelectionRef.current.deviceEnabled,
-          micAudioAvailable:
-            activeRecordingAudioSelectionRef.current.micEnabled &&
-            Boolean(result.micAudioUrl || result.micAudioPath),
+          micAudioAvailable,
+          webcamOffsetSec: normalizeTrackDelaySec(result.webcamVideoOffsetSec),
+          webcamAvailable,
         };
 
         const keystrokeEvents = buildKeystrokeEvents(
@@ -1096,6 +1168,9 @@ export function useRecording(props: UseRecordingProps) {
           URL.revokeObjectURL(props.currentVideo);
         if (props.currentAudio) URL.revokeObjectURL(props.currentAudio);
         if (props.currentMicAudio) URL.revokeObjectURL(props.currentMicAudio);
+        if (props.currentWebcamVideo) {
+          URL.revokeObjectURL(props.currentWebcamVideo);
+        }
 
         if (result.deviceAudioUrl) {
           audioObjectUrl = await props.videoControllerRef.current?.loadDeviceAudio({
@@ -1109,11 +1184,18 @@ export function useRecording(props: UseRecordingProps) {
             },
           );
         }
+        if (result.webcamVideoUrl) {
+          webcamVideoObjectUrl =
+            await props.videoControllerRef.current?.loadWebcamVideo({
+              videoUrl: result.webcamVideoUrl,
+            });
+        }
 
         props.setCurrentVideo(objectUrl);
         setVideoFilePathOwnerUrl(objectUrl);
         props.setCurrentAudio(audioObjectUrl || null);
         props.setCurrentMicAudio(micAudioObjectUrl || null);
+        props.setCurrentWebcamVideo(webcamVideoObjectUrl || null);
         props.setDuration(timelineDuration);
         props.setCurrentTime(initialSegment.trimStart);
         props.setSegment(initialSegment);
@@ -1134,9 +1216,11 @@ export function useRecording(props: UseRecordingProps) {
           mouseData: stabilizedMouseData,
           initialSegment,
           videoUrl: objectUrl,
+          webcamVideoUrl: webcamVideoObjectUrl || "",
           recordingMode: activeRecordingMode,
           rawVideoPath: result.videoFilePath || "",
           rawMicAudioPath: result.micAudioPath || "",
+          rawWebcamVideoPath: result.webcamVideoPath || "",
           capturedFps,
         };
       }
@@ -1145,6 +1229,7 @@ export function useRecording(props: UseRecordingProps) {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       if (audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
       if (micAudioObjectUrl) URL.revokeObjectURL(micAudioObjectUrl);
+      if (webcamVideoObjectUrl) URL.revokeObjectURL(webcamVideoObjectUrl);
       setError(err instanceof Error ? err.message : String(err));
       return null;
     } finally {
@@ -1178,6 +1263,7 @@ export function useRecording(props: UseRecordingProps) {
     setMousePositions,
     audioFilePath,
     micAudioFilePath,
+    webcamVideoFilePath,
     videoFilePath,
     videoFilePathOwnerUrl,
     error,
@@ -1197,8 +1283,10 @@ interface UseProjectsProps {
   setCurrentVideo: (url: string | null) => void;
   setCurrentAudio: (url: string | null) => void;
   setCurrentMicAudio: (url: string | null) => void;
+  setCurrentWebcamVideo: (url: string | null) => void;
   setSegment: (segment: VideoSegment | null) => void;
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
+  setWebcamConfig?: React.Dispatch<React.SetStateAction<WebcamConfig>>;
   applyLoadedBackgroundConfig?: (backgroundConfig: BackgroundConfig) => void;
   setMousePositions: (positions: MousePosition[]) => void;
   setThumbnails: (thumbnails: string[]) => void;
@@ -1208,11 +1296,12 @@ interface UseProjectsProps {
   currentVideo: string | null;
   currentAudio: string | null;
   currentMicAudio: string | null;
+  currentWebcamVideo?: string | null;
 }
 
 export function useProjects(props: UseProjectsProps) {
   const [projects, setProjects] = useState<
-    Omit<Project, "videoBlob" | "audioBlob" | "micAudioBlob">[]
+    Omit<Project, "videoBlob" | "audioBlob" | "micAudioBlob" | "webcamBlob">[]
   >([]);
   const [showProjectsDialog, setShowProjectsDialog] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
@@ -1257,6 +1346,7 @@ export function useProjects(props: UseProjectsProps) {
       const previousVideoUrl = props.currentVideo;
       const previousAudioUrl = props.currentAudio;
       const previousMicAudioUrl = props.currentMicAudio;
+      const previousWebcamVideoUrl = props.currentWebcamVideo;
 
       // Restore rawVideoPath for old projects that only have a blob.
       // Writes the blob to disk via the media server POST endpoint (binary, no JSON overhead).
@@ -1290,6 +1380,22 @@ export function useProjects(props: UseProjectsProps) {
           console.error("[ProjectLoad] Failed to restore rawMicAudioPath:", e);
         }
       }
+      let rawWebcamVideoPath = project.rawWebcamVideoPath ?? "";
+      if (!rawWebcamVideoPath && project.webcamBlob && project.webcamBlob.size > 0) {
+        try {
+          rawWebcamVideoPath = await writeBlobToTempMediaFile(project.webcamBlob);
+          if (rawWebcamVideoPath) {
+            await projectManager.updateProject(projectId, {
+              ...project,
+              rawVideoPath,
+              rawMicAudioPath,
+              rawWebcamVideoPath,
+            });
+          }
+        } catch (e) {
+          console.error("[ProjectLoad] Failed to restore rawWebcamVideoPath:", e);
+        }
+      }
       if (loadRequestSeq !== loadRequestSeqRef.current) return;
 
       let videoObjectUrl: string | undefined;
@@ -1309,6 +1415,7 @@ export function useProjects(props: UseProjectsProps) {
 
       let audioObjectUrl: string | undefined;
       let micAudioObjectUrl: string | undefined;
+      let webcamVideoObjectUrl: string | undefined;
       if (rawVideoPath) {
         const mediaUrl = await getMediaServerUrl(rawVideoPath);
         audioObjectUrl = await props.videoControllerRef.current?.loadDeviceAudio(
@@ -1338,6 +1445,18 @@ export function useProjects(props: UseProjectsProps) {
             audioBlob: project.micAudioBlob,
           },
         );
+      }
+      if (rawWebcamVideoPath) {
+        const mediaUrl = await getMediaServerUrl(rawWebcamVideoPath);
+        webcamVideoObjectUrl =
+          await props.videoControllerRef.current?.loadWebcamVideo({
+            videoUrl: mediaUrl,
+          });
+      } else if (project.webcamBlob) {
+        webcamVideoObjectUrl =
+          await props.videoControllerRef.current?.loadWebcamVideo({
+            videoBlob: project.webcamBlob,
+          });
       }
       if (loadRequestSeq !== loadRequestSeqRef.current) return;
 
@@ -1370,12 +1489,27 @@ export function useProjects(props: UseProjectsProps) {
         correctedSegment.micAudioPoints,
         videoDuration,
       );
+      correctedSegment.micAudioOffsetSec = normalizeTrackDelaySec(
+        correctedSegment.micAudioOffsetSec,
+      );
       correctedSegment.deviceAudioAvailable =
         correctedSegment.deviceAudioAvailable !== false;
       correctedSegment.micAudioAvailable =
         typeof correctedSegment.micAudioAvailable === "boolean"
           ? correctedSegment.micAudioAvailable
           : Boolean(project.rawMicAudioPath || project.micAudioBlob || micAudioObjectUrl);
+      correctedSegment.webcamAvailable =
+        typeof correctedSegment.webcamAvailable === "boolean"
+          ? correctedSegment.webcamAvailable
+          : Boolean(rawWebcamVideoPath || project.webcamBlob || webcamVideoObjectUrl);
+      correctedSegment.webcamOffsetSec = normalizeTrackDelaySec(
+        correctedSegment.webcamOffsetSec,
+      );
+      correctedSegment.webcamVisibilitySegments = normalizeWebcamVisibilitySegments(
+        correctedSegment.webcamVisibilitySegments,
+        videoDuration,
+        correctedSegment.webcamAvailable !== false,
+      );
       correctedSegment.cursorVisibilitySegments =
         clampVisibilitySegmentsToDuration(
           correctedSegment.cursorVisibilitySegments,
@@ -1470,6 +1604,7 @@ export function useProjects(props: UseProjectsProps) {
       props.videoControllerRef.current?.renderImmediate({
         segment: correctedSegment,
         backgroundConfig: cloneBackgroundConfig(project.backgroundConfig),
+        webcamConfig: cloneWebcamConfig(project.webcamConfig),
         mousePositions: project.mousePositions,
       });
 
@@ -1512,8 +1647,23 @@ export function useProjects(props: UseProjectsProps) {
           URL.revokeObjectURL(previousMicAudioUrl);
         }
       }
+      if (webcamVideoObjectUrl) {
+        props.setCurrentWebcamVideo(webcamVideoObjectUrl);
+        if (
+          previousWebcamVideoUrl?.startsWith("blob:") &&
+          previousWebcamVideoUrl !== webcamVideoObjectUrl
+        ) {
+          URL.revokeObjectURL(previousWebcamVideoUrl);
+        }
+      } else {
+        props.setCurrentWebcamVideo(null);
+        if (previousWebcamVideoUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(previousWebcamVideoUrl);
+        }
+      }
       props.setSegment(correctedSegment);
       const loadedBackground = cloneBackgroundConfig(project.backgroundConfig);
+      props.setWebcamConfig?.(cloneWebcamConfig(project.webcamConfig));
       if (props.applyLoadedBackgroundConfig) {
         props.applyLoadedBackgroundConfig(loadedBackground);
       } else {
@@ -1532,6 +1682,7 @@ export function useProjects(props: UseProjectsProps) {
         ...project,
         rawVideoPath,
         rawMicAudioPath,
+        rawWebcamVideoPath,
         segment: correctedSegment,
       });
       logProjectLoad("load:applied", {
@@ -1567,6 +1718,7 @@ export function useProjects(props: UseProjectsProps) {
 // ============================================================================
 interface UseExportProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  webcamVideoRef: React.RefObject<HTMLVideoElement | null>;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   tempCanvasRef: React.RefObject<HTMLCanvasElement>;
   audioRef: React.RefObject<HTMLAudioElement | null>;
@@ -1575,9 +1727,11 @@ interface UseExportProps {
   isBatchEditing: boolean;
   segment: VideoSegment | null;
   backgroundConfig: BackgroundConfig;
+  webcamConfig: WebcamConfig;
   mousePositions: MousePosition[];
   audioFilePath: string;
   micAudioFilePath: string;
+  webcamVideoFilePath: string;
   videoFilePath: string;
   videoFilePathOwnerUrl: string;
   rawVideoPath: string;
@@ -1591,6 +1745,9 @@ interface UseExportProps {
     clip: ProjectCompositionClip,
   ) => Promise<string>;
   resolveClipExportMicAudioPath: (
+    clip: ProjectCompositionClip,
+  ) => Promise<string>;
+  resolveClipExportWebcamPath: (
     clip: ProjectCompositionClip,
   ) => Promise<string>;
 }
@@ -1847,11 +2004,14 @@ export function useExport(props: UseExportProps) {
           tempCanvas: props.tempCanvasRef.current!,
           segment,
           backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
+          webcamConfig: cloneWebcamConfig(props.webcamConfig),
           mousePositions: props.mousePositions,
           audio: props.audioRef.current || undefined,
           micAudio: props.micAudioRef.current || undefined,
+          webcamVideo: props.webcamVideoRef.current || undefined,
           audioFilePath: props.audioFilePath || sourceVideoPath,
           micAudioFilePath: props.micAudioFilePath || "",
+          webcamVideoFilePath: props.webcamVideoFilePath || "",
           videoFilePath: sourceVideoPath,
         })
         .catch(() => {
@@ -1903,11 +2063,14 @@ export function useExport(props: UseExportProps) {
     props.canvasRef,
     props.tempCanvasRef,
     props.backgroundConfig,
+    props.webcamConfig,
     props.mousePositions,
     props.audioRef,
     props.audioFilePath,
     props.micAudioRef,
     props.micAudioFilePath,
+    props.webcamVideoRef,
+    props.webcamVideoFilePath,
     resolveSourceVideoPath,
     exportOptions.width,
     exportOptions.height,
@@ -1960,11 +2123,14 @@ export function useExport(props: UseExportProps) {
           tempCanvas: props.tempCanvasRef.current!,
           segment,
           backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
+          webcamConfig: cloneWebcamConfig(props.webcamConfig),
           mousePositions: props.mousePositions,
           audio: props.audioRef.current || undefined,
           micAudio: props.micAudioRef.current || undefined,
+          webcamVideo: props.webcamVideoRef.current || undefined,
           audioFilePath: props.audioFilePath || sourceVideoPath,
           micAudioFilePath: props.micAudioFilePath || "",
+          webcamVideoFilePath: props.webcamVideoFilePath || "",
           videoFilePath: sourceVideoPath,
         })
         .catch((error) => {
@@ -1999,11 +2165,14 @@ export function useExport(props: UseExportProps) {
     props.canvasRef,
     props.tempCanvasRef,
     props.backgroundConfig,
+    props.webcamConfig,
     props.mousePositions,
     props.audioRef,
     props.audioFilePath,
     props.micAudioRef,
     props.micAudioFilePath,
+    props.webcamVideoRef,
+    props.webcamVideoFilePath,
     resolveSourceVideoPath,
   ]);
 
@@ -2062,6 +2231,7 @@ export function useExport(props: UseExportProps) {
             exportOptions,
             resolveClipSourcePath: props.resolveClipExportSourcePath,
             resolveClipMicAudioPath: props.resolveClipExportMicAudioPath,
+            resolveClipWebcamPath: props.resolveClipExportWebcamPath,
           })
         : await videoExporter.exportAndDownload({
             width: exportOptions.width,
@@ -2081,11 +2251,14 @@ export function useExport(props: UseExportProps) {
             tempCanvas: props.tempCanvasRef.current!,
             segment: props.segment!,
             backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
+            webcamConfig: cloneWebcamConfig(props.webcamConfig),
             mousePositions: props.mousePositions,
             audio: props.audioRef.current || undefined,
             micAudio: props.micAudioRef.current || undefined,
+            webcamVideo: props.webcamVideoRef.current || undefined,
             audioFilePath: props.audioFilePath || sourceVideoPath,
             micAudioFilePath: props.micAudioFilePath || "",
+            webcamVideoFilePath: props.webcamVideoFilePath || "",
             videoFilePath: sourceVideoPath,
             onProgress: setExportProgress,
           });

@@ -184,6 +184,13 @@ export function projectClipSegmentToSequence(
           endTime: projectTime(range.endTime),
         }),
       ),
+      webcamVisibilitySegments: segment.webcamVisibilitySegments?.map(
+        (range) => ({
+          ...range,
+          startTime: projectTime(range.startTime),
+          endTime: projectTime(range.endTime),
+        }),
+      ),
       keystrokeEvents: segment.keystrokeEvents?.map((event) => ({
         ...event,
         startTime: projectTime(event.startTime),
@@ -270,6 +277,13 @@ export function projectSequenceSegmentToClip(
         startTime: toClipTime(range.startTime),
         endTime: toClipTime(range.endTime),
       })),
+    webcamVisibilitySegments: sequenceSegment.webcamVisibilitySegments
+      ?.filter((range) => overlapsClip(range.startTime, range.endTime))
+      .map((range) => ({
+        ...range,
+        startTime: toClipTime(range.startTime),
+        endTime: toClipTime(range.endTime),
+      })),
     keystrokeEvents: sequenceSegment.keystrokeEvents
       ?.filter((event) => overlapsClip(event.startTime, event.endTime))
       .map((event) => ({
@@ -331,6 +345,7 @@ export function mergeCompositionSegmentsToSequence(
     zoomInfluencePoints: [],
     textSegments: [],
     cursorVisibilitySegments: [],
+    webcamVisibilitySegments: [],
     keystrokeMode: "keyboardMouse",
     keystrokeLanguage: "en",
     keystrokeDelaySec: 0,
@@ -357,6 +372,9 @@ export function mergeCompositionSegmentsToSequence(
     merged.textSegments.push(...projected.textSegments);
     merged.cursorVisibilitySegments?.push(
       ...(projected.cursorVisibilitySegments ?? []),
+    );
+    merged.webcamVisibilitySegments?.push(
+      ...(projected.webcamVisibilitySegments ?? []),
     );
     merged.keystrokeEvents?.push(...(projected.keystrokeEvents ?? []));
     merged.keyboardVisibilitySegments?.push(
@@ -452,6 +470,12 @@ export function replaceSequenceClipSegmentInGlobal(
         (range) => !overlapsClip(range.startTime, range.endTime),
       ),
       ...(projectedClipSegment.cursorVisibilitySegments ?? []),
+    ].sort((a, b) => a.startTime - b.startTime),
+    webcamVisibilitySegments: [
+      ...(globalSegment.webcamVisibilitySegments ?? []).filter(
+        (range) => !overlapsClip(range.startTime, range.endTime),
+      ),
+      ...(projectedClipSegment.webcamVisibilitySegments ?? []),
     ].sort((a, b) => a.startTime - b.startTime),
     keystrokeEvents: [
       ...(globalSegment.keystrokeEvents ?? []).filter(

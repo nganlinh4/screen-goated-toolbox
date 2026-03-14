@@ -361,3 +361,88 @@ fn fs_main(in: OverlayVertexOut) -> @location(0) vec4<f32> {
 pub(super) fn overlay_shader() -> &'static str {
     OVERLAY_SHADER_BODY
 }
+
+pub(super) const WEBCAM_SHADER_BODY: &str = r#"
+struct WebcamUniforms {
+    output_size: vec2<f32>,
+    origin: vec2<f32>,
+    size: vec2<f32>,
+    roundness_px: f32,
+    shadow_px: f32,
+    opacity: f32,
+    mirror: f32,
+    _pad: vec2<f32>,
+}
+
+struct WebcamVertexOut {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) pixel_pos: vec2<f32>,
+}
+
+@group(0) @binding(0) var webcam_tex: texture_2d<f32>;
+@group(0) @binding(1) var webcam_samp: sampler;
+@group(1) @binding(0) var<uniform> u: WebcamUniforms;
+
+@vertex
+fn vs_main(@location(0) pos: vec2<f32>, @location(1) uv: vec2<f32>) -> WebcamVertexOut {
+    var out: WebcamVertexOut;
+    out.clip_pos = vec4<f32>(pos, 0.0, 1.0);
+    out.uv = uv;
+    out.pixel_pos = uv * u.output_size;
+    return out;
+}
+
+fn sd_round_box(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
+    let q = abs(p) - b + vec2<f32>(r, r);
+    return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;
+}
+
+@fragment
+fn fs_main(in: WebcamVertexOut) -> @location(0) vec4<f32> {
+    let half_size = u.size * 0.5;
+    if (half_size.x <= 0.0 || half_size.y <= 0.0) {
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+
+    let radius = min(max(u.roundness_px, 0.0), min(half_size.x, half_size.y));
+    let center = u.origin + half_size;
+    let fill_dist = sd_round_box(in.pixel_pos - center, half_size, radius);
+    let fill_alpha = clamp(1.0 - smoothstep(0.0, 1.35, fill_dist), 0.0, 1.0);
+
+    let shadow_offset_y = max(2.0, u.shadow_px * 0.18);
+    let shadow_dist = sd_round_box(
+        in.pixel_pos - (center + vec2<f32>(0.0, shadow_offset_y)),
+        half_size,
+        radius,
+    );
+    let shadow_extent = max(u.shadow_px * 1.65, 1.0);
+    let shadow_alpha = (1.0 - smoothstep(0.0, shadow_extent, shadow_dist)) * 0.32;
+    let visible_shadow_alpha = shadow_alpha * (1.0 - fill_alpha) * u.opacity;
+
+    var composed_rgb = vec3<f32>(8.0 / 255.0, 10.0 / 255.0, 20.0 / 255.0) * visible_shadow_alpha;
+    var composed_alpha = visible_shadow_alpha;
+
+    if (fill_alpha > 0.0001) {
+        var webcam_uv = (in.pixel_pos - u.origin) / max(u.size, vec2<f32>(1.0, 1.0));
+        webcam_uv = clamp(webcam_uv, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
+        if (u.mirror > 0.5) {
+            webcam_uv.x = 1.0 - webcam_uv.x;
+        }
+        let webcam_col = textureSample(webcam_tex, webcam_samp, webcam_uv).rgb;
+        let visible_fill_alpha = fill_alpha * u.opacity;
+        composed_rgb = composed_rgb + (webcam_col * visible_fill_alpha);
+        composed_alpha = composed_alpha + visible_fill_alpha;
+    }
+
+    if (composed_alpha <= 0.0001) {
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+
+    return vec4<f32>(composed_rgb / composed_alpha, composed_alpha);
+}
+"#;
+
+pub(super) fn webcam_shader() -> &'static str {
+    WEBCAM_SHADER_BODY
+}

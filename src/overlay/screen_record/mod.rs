@@ -42,6 +42,7 @@ pub mod mf_audio;
 mod mf_decode;
 mod mf_encode;
 pub mod native_export;
+mod webcam_capture;
 pub mod window_selection;
 
 // Re-exports

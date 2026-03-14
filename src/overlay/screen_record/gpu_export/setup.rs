@@ -3,7 +3,7 @@ use std::sync::{Arc, OnceLock};
 use wgpu::util::DeviceExt;
 
 use super::compositor::CompositorUniforms;
-use super::shader::{compositor_shader, overlay_shader};
+use super::shader::{compositor_shader, overlay_shader, webcam_shader};
 
 pub(super) const OUTPUT_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
 
@@ -57,11 +57,13 @@ pub(super) struct SharedGpuContext {
     pub pipeline: wgpu::RenderPipeline,
     pub accumulate_pipeline: wgpu::RenderPipeline,
     pub overlay_pipeline: wgpu::RenderPipeline,
+    pub webcam_pipeline: wgpu::RenderPipeline,
     pub vertex_buffer: wgpu::Buffer,
     pub uniform_layout: wgpu::BindGroupLayout,
     pub texture_layout: wgpu::BindGroupLayout,
     pub background_overlay_layout: wgpu::BindGroupLayout,
     pub atlas_texture_layout: wgpu::BindGroupLayout,
+    pub webcam_uniform_layout: wgpu::BindGroupLayout,
 }
 
 static SHARED_GPU_CONTEXT: OnceLock<Result<SharedGpuContext, String>> = OnceLock::new();
@@ -335,10 +337,28 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
             },
         ],
     });
+    let webcam_uniform_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Webcam Uniform Layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
 
     let overlay_shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Overlay Shader"),
         source: wgpu::ShaderSource::Wgsl(overlay_shader().into()),
+    });
+    let webcam_shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Webcam Overlay Shader"),
+        source: wgpu::ShaderSource::Wgsl(webcam_shader().into()),
     });
 
     let overlay_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -403,6 +423,52 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         multiview_mask: None,
         cache: None,
     });
+    let webcam_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Webcam Pipeline Layout"),
+        bind_group_layouts: &[&texture_layout, &webcam_uniform_layout],
+        immediate_size: 0,
+    });
+
+    let webcam_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Webcam Overlay Pipeline"),
+        layout: Some(&webcam_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &webcam_shader_module,
+            entry_point: Some("vs_main"),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &[
+                    wgpu::VertexAttribute {
+                        offset: 0,
+                        shader_location: 0,
+                        format: wgpu::VertexFormat::Float32x2,
+                    },
+                    wgpu::VertexAttribute {
+                        offset: 8,
+                        shader_location: 1,
+                        format: wgpu::VertexFormat::Float32x2,
+                    },
+                ],
+            }],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &webcam_shader_module,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: OUTPUT_TEXTURE_FORMAT,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    });
 
     Ok(SharedGpuContext {
         device,
@@ -410,11 +476,13 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         pipeline,
         accumulate_pipeline,
         overlay_pipeline,
+        webcam_pipeline,
         vertex_buffer,
         uniform_layout,
         texture_layout,
         background_overlay_layout,
         atlas_texture_layout,
+        webcam_uniform_layout,
     })
 }
 

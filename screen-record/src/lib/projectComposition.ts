@@ -7,6 +7,7 @@ import type {
   ProjectCompositionClip,
   ProjectCompositionMode,
   VideoSegment,
+  WebcamConfig,
 } from "@/types/video";
 
 function cloneSegment(segment: VideoSegment): VideoSegment {
@@ -17,6 +18,13 @@ function cloneBackgroundConfig(
   backgroundConfig: BackgroundConfig,
 ): BackgroundConfig {
   return JSON.parse(JSON.stringify(backgroundConfig)) as BackgroundConfig;
+}
+
+function cloneWebcamConfig(
+  webcamConfig: WebcamConfig | null | undefined,
+): WebcamConfig | undefined {
+  if (!webcamConfig) return undefined;
+  return JSON.parse(JSON.stringify(webcamConfig)) as WebcamConfig;
 }
 
 function cloneMousePositions(mousePositions: MousePosition[]): MousePosition[] {
@@ -126,10 +134,12 @@ export function createRootCompositionClip(
     | "thumbnail"
     | "segment"
     | "backgroundConfig"
+    | "webcamConfig"
     | "mousePositions"
     | "recordingMode"
     | "rawVideoPath"
     | "rawMicAudioPath"
+    | "rawWebcamVideoPath"
   >,
 ): ProjectCompositionClip {
   return {
@@ -142,10 +152,12 @@ export function createRootCompositionClip(
     thumbnail: project.thumbnail,
     segment: cloneSegment(project.segment),
     backgroundConfig: cloneBackgroundConfig(project.backgroundConfig),
+    webcamConfig: cloneWebcamConfig(project.webcamConfig),
     mousePositions: cloneMousePositions(project.mousePositions),
     recordingMode: project.recordingMode,
     rawVideoPath: project.rawVideoPath,
     rawMicAudioPath: project.rawMicAudioPath,
+    rawWebcamVideoPath: project.rawWebcamVideoPath,
   };
 }
 
@@ -162,10 +174,12 @@ export function createCompositionSnapshotClip(
     thumbnail: project.thumbnail,
     segment: cloneSegment(project.segment),
     backgroundConfig: cloneBackgroundConfig(project.backgroundConfig),
+    webcamConfig: cloneWebcamConfig(project.webcamConfig),
     mousePositions: cloneMousePositions(project.mousePositions),
     recordingMode: project.recordingMode,
     rawVideoPath: project.rawVideoPath,
     rawMicAudioPath: project.rawMicAudioPath,
+    rawWebcamVideoPath: project.rawWebcamVideoPath,
   };
 }
 
@@ -178,10 +192,12 @@ export function ensureProjectComposition(
     | "thumbnail"
     | "segment"
     | "backgroundConfig"
+    | "webcamConfig"
     | "mousePositions"
     | "recordingMode"
     | "rawVideoPath"
     | "rawMicAudioPath"
+    | "rawWebcamVideoPath"
     | "composition"
   >,
 ): ProjectComposition {

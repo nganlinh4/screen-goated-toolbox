@@ -14,6 +14,7 @@ const MIXER_INTEGRATION_STEP_SEC: f64 = 0.005;
 pub struct ExportAudioSource {
     pub path: String,
     pub volume_points: Vec<DeviceAudioPoint>,
+    pub start_offset_sec: f64,
 }
 
 fn normalized_trim_segments(
@@ -324,7 +325,8 @@ fn mix_source_into_raw_file(
         let Some((pcm, ts_100ns)) = decoder.read_samples()? else {
             break;
         };
-        let chunk_time = ts_100ns as f64 / 10_000_000.0;
+        let decoded_time = ts_100ns as f64 / 10_000_000.0;
+        let chunk_time = decoded_time + source.start_offset_sec;
         let Some(segment) = trim_segments.get(segment_idx) else {
             break;
         };

@@ -380,6 +380,22 @@ pub(crate) fn run_native_export_with_staged(
         baked_cursor.len()
     );
     let overlay_frames = staged.overlay_frames;
+    let mut webcam_frames = staged.webcam_frames;
+    let webcam_unsorted = webcam_frames
+        .windows(2)
+        .filter(|w| w[1].time < w[0].time)
+        .count();
+    if webcam_unsorted > 0 {
+        println!(
+            "[Export][WARN] Baked webcam path has {} non-monotonic entries — sorting",
+            webcam_unsorted
+        );
+        webcam_frames.sort_by(|a, b| {
+            a.time
+                .partial_cmp(&b.time)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
     let cursor_slot_overrides = staged.cursor_slot_overrides;
     println!(
         "[Export] Browser cursor slot overrides: {}",
@@ -486,10 +502,12 @@ pub(crate) fn run_native_export_with_staged(
                 ExportAudioSource {
                     path: config.device_audio_path.clone(),
                     volume_points: device_audio_points.clone(),
+                    start_offset_sec: 0.0,
                 },
                 ExportAudioSource {
                     path: config.mic_audio_path.clone(),
                     volume_points: mic_audio_points.clone(),
+                    start_offset_sec: config.segment.mic_audio_offset_sec,
                 },
             ],
             &speed_points,
@@ -816,6 +834,13 @@ pub(crate) fn run_native_export_with_staged(
         audio_path: source_audio_path.clone(),
         audio_is_preprocessed,
         audio_volume_points: device_audio_points,
+        webcam_video_path: if config.webcam_video_path.trim().is_empty() {
+            None
+        } else {
+            Some(config.webcam_video_path.clone())
+        },
+        webcam_offset_sec: config.segment.webcam_offset_sec,
+        webcam_frames,
         output_width: out_w,
         output_height: out_h,
         framerate: config.framerate,

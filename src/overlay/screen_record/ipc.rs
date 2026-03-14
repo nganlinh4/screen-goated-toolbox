@@ -5,7 +5,9 @@ use super::bg_download;
 use super::engine::{
     ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, CAPTURE_ERROR, CaptureHandler, ENCODER_ACTIVE,
     ENCODING_FINISHED, IS_RECORDING, LAST_CAPTURE_FRAME_HEIGHT, LAST_CAPTURE_FRAME_WIDTH,
-    MIC_AUDIO_ENCODING_FINISHED, MIC_AUDIO_PATH, MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH,
+    MIC_AUDIO_ENCODING_FINISHED, MIC_AUDIO_PATH, MIC_AUDIO_START_OFFSET_MS, MOUSE_POSITIONS,
+    SHOULD_STOP, VIDEO_PATH, WEBCAM_ENCODING_FINISHED, WEBCAM_VIDEO_PATH,
+    WEBCAM_VIDEO_START_OFFSET_MS,
     get_monitors,
 };
 use super::input_capture;
@@ -619,6 +621,18 @@ pub fn handle_ipc_command(
                         native_export::staging::append_cursor_frames(frames);
                     }
                 }
+                "webcam" => {
+                    let frames: Vec<native_export::config::BakedWebcamFrame> =
+                        serde_json::from_value(args["data"].clone())
+                            .map_err(|e| format!("bad webcam chunk: {e}"))?;
+                    if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
+                        native_export::staging::append_webcam_frames_for(
+                            session_id, job_id, frames,
+                        );
+                    } else {
+                        native_export::staging::append_webcam_frames(frames);
+                    }
+                }
                 "atlas" => {
                     let b64 = args["base64"].as_str().ok_or("missing base64")?;
                     let w = args["width"].as_u64().unwrap_or(1) as u32;
@@ -949,6 +963,7 @@ pub fn handle_ipc_command(
                 .and_then(|value| u32::try_from(value).ok())
                 .filter(|_| device_audio_mode == "app");
             let mic_enabled = args["micEnabled"].as_bool().unwrap_or(false);
+            let webcam_enabled = args["webcamEnabled"].as_bool().unwrap_or(true);
             let cursor_setting = if include_cursor {
                 CursorCaptureSettings::WithCursor
             } else {
@@ -973,17 +988,19 @@ pub fn handle_ipc_command(
                 "device_audio_mode": device_audio_mode,
                 "device_audio_app_pid": device_audio_app_pid,
                 "mic_enabled": mic_enabled,
+                "webcam_enabled": webcam_enabled,
             }))
             .unwrap();
 
             eprintln!(
-                "[CaptureBackend] start_recording: target_type={:?}, target_id={:?}, device_audio_enabled={}, device_audio_mode={}, device_audio_app_pid={:?}, mic_enabled={}",
+                "[CaptureBackend] start_recording: target_type={:?}, target_id={:?}, device_audio_enabled={}, device_audio_mode={}, device_audio_app_pid={:?}, mic_enabled={}, webcam_enabled={}",
                 target_type,
                 target_id,
                 device_audio_enabled,
                 device_audio_mode,
                 device_audio_app_pid,
-                mic_enabled
+                mic_enabled,
+                webcam_enabled
             );
 
             // Request 1ms timer resolution so thread::sleep(1ms) actually sleeps ~1ms
@@ -1190,6 +1207,7 @@ pub fn handle_ipc_command(
                 ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
                 AUDIO_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
                 MIC_AUDIO_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
+                WEBCAM_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
                 return Err(err_msg);
             }
 
@@ -1206,7 +1224,8 @@ pub fn handle_ipc_command(
             let start = std::time::Instant::now();
             while (!ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
                 || !AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
-                || !MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst))
+                || !MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
+                || !WEBCAM_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst))
                 && start.elapsed().as_secs() < 10
             {
                 std::thread::sleep(std::time::Duration::from_millis(100));
@@ -1214,7 +1233,8 @@ pub fn handle_ipc_command(
 
             let encoding_done = ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
                 && AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
-                && MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst);
+                && MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
+                && WEBCAM_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst);
 
             if !encoding_done {
                 eprintln!(
@@ -1233,7 +1253,8 @@ pub fn handle_ipc_command(
                 let retry_start = std::time::Instant::now();
                 while (!ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
                     || !AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
-                    || !MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst))
+                    || !MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
+                    || !WEBCAM_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst))
                     && retry_start.elapsed().as_secs() < 5
                 {
                     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -1241,7 +1262,8 @@ pub fn handle_ipc_command(
 
                 let retry_done = ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
                     && AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
-                    && MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst);
+                    && MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
+                    && WEBCAM_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst);
 
                 if !retry_done {
                     IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -1251,11 +1273,15 @@ pub fn handle_ipc_command(
                     ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
                     AUDIO_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
                     MIC_AUDIO_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
+                    WEBCAM_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
 
                     if let Some(ref path) = *VIDEO_PATH.lock().unwrap() {
                         let _ = std::fs::remove_file(path);
                     }
                     if let Some(ref path) = *MIC_AUDIO_PATH.lock().unwrap() {
+                        let _ = std::fs::remove_file(path);
+                    }
+                    if let Some(ref path) = *WEBCAM_VIDEO_PATH.lock().unwrap() {
                         let _ = std::fs::remove_file(path);
                     }
 
@@ -1273,6 +1299,16 @@ pub fn handle_ipc_command(
             let video_path = VIDEO_PATH.lock().unwrap().clone().ok_or("No video path")?;
             let video_file_path = video_path.clone();
             let mic_audio_path = MIC_AUDIO_PATH.lock().unwrap().clone();
+            let webcam_video_path = WEBCAM_VIDEO_PATH.lock().unwrap().clone();
+            let mic_audio_offset_sec = match MIC_AUDIO_START_OFFSET_MS.load(std::sync::atomic::Ordering::SeqCst) {
+                u64::MAX => 0.0,
+                value => value as f64 / 1000.0,
+            };
+            let webcam_video_offset_sec =
+                match WEBCAM_VIDEO_START_OFFSET_MS.load(std::sync::atomic::Ordering::SeqCst) {
+                    u64::MAX => 0.0,
+                    value => value as f64 / 1000.0,
+                };
             let last_recording_fps = *super::engine::LAST_RECORDING_FPS.lock().unwrap();
 
             let mut port = SERVER_PORT.load(std::sync::atomic::Ordering::SeqCst);
@@ -1292,15 +1328,26 @@ pub fn handle_ipc_command(
                     let encoded = urlencoding::encode(path);
                     format!("http://localhost:{}/?path={}", port, encoded)
                 });
+            let webcam_video_url = webcam_video_path
+                .as_ref()
+                .filter(|path| std::path::Path::new(path).exists())
+                .map(|path| {
+                    let encoded = urlencoding::encode(path);
+                    format!("http://localhost:{}/?path={}", port, encoded)
+                });
             IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
 
             Ok(serde_json::json!({
                 "videoUrl": video_url,
                 "deviceAudioUrl": device_audio_url,
                 "micAudioUrl": mic_audio_url.unwrap_or_default(),
+                "webcamVideoUrl": webcam_video_url.unwrap_or_default(),
                 "mouseData": mouse_positions,
                 "deviceAudioPath": video_file_path,
                 "micAudioPath": mic_audio_path.unwrap_or_default(),
+                "webcamVideoPath": webcam_video_path.unwrap_or_default(),
+                "micAudioOffsetSec": mic_audio_offset_sec,
+                "webcamVideoOffsetSec": webcam_video_offset_sec,
                 "videoFilePath": video_file_path,
                 "inputEvents": raw_input_events,
                 "capturedFps": last_recording_fps

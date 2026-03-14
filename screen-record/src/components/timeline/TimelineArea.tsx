@@ -9,11 +9,17 @@ import { DeviceAudioTrack } from "./DeviceAudioTrack";
 import { SpeedTrack } from "./SpeedTrack";
 import { TextTrack } from "./TextTrack";
 import { TrimTrack } from "./TrimTrack";
+import { WebcamVisibilityTrack } from "./WebcamVisibilityTrack";
 import { ZoomDebugOverlay } from "./ZoomDebugOverlay";
 import { ZoomTrack } from "./ZoomTrack";
 import { buildTimelineRulerTicks } from "./timelineRuler";
 import { useTimelineDrag } from "./useTimelineDrag";
 import { useTimelineViewport } from "./useTimelineViewport";
+import { Slider } from "@/components/ui/Slider";
+import {
+  clampVisibilitySegmentsToDuration,
+  mergePointerSegments,
+} from "@/lib/cursorHiding";
 
 const TIMELINE_TRACK_GAP_PX = 2;
 const TIMELINE_TRACK_HEIGHTS = {
@@ -22,6 +28,7 @@ const TIMELINE_TRACK_HEIGHTS = {
   speed: 40,
   deviceAudio: 40,
   micAudio: 40,
+  webcam: 28,
   text: 28,
   keystroke: 28,
   pointer: 28,
@@ -55,6 +62,7 @@ interface TimelineAreaProps {
   onViewportCanvasWidthChange?: (widthPx: number) => void;
   isDeviceAudioAvailable: boolean;
   isMicAudioAvailable: boolean;
+  isWebcamAvailable: boolean;
   beginBatch: () => void;
   commitBatch: () => void;
 }
@@ -86,12 +94,63 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   onViewportCanvasWidthChange,
   isDeviceAudioAvailable,
   isMicAudioAvailable,
+  isWebcamAvailable,
   beginBatch,
   commitBatch,
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
   const showEmptyRuler = duration <= 0;
+  const clampTrackDelay = (value: number) =>
+    Math.max(-2, Math.min(2, value));
+  const renderTrackDelayLabel = ({
+    className,
+    groupClassName,
+    label,
+    value,
+    onChange,
+    isAvailable,
+    heightClassName,
+  }: {
+    className: string;
+    groupClassName: string;
+    label: string;
+    value: number;
+    onChange: (value: number) => void;
+    isAvailable: boolean;
+    heightClassName: string;
+  }) => (
+    <div
+      className={`${className} ${heightClassName} relative flex items-center ${
+        isAvailable ? "" : "timeline-label-unavailable"
+      } ${groupClassName}`}
+    >
+      <div className="timeline-label-hover-bridge absolute left-full inset-y-0 w-3" />
+      <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+        {label}
+      </span>
+      <div className="playback-keystroke-delay-popover absolute left-[calc(100%+8px)] top-1/2 z-30 -translate-y-1/2 w-[218px] px-2.5 py-2 rounded-lg border pointer-events-none opacity-0 translate-x-1 transition-all duration-150 group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:pointer-events-auto">
+        <div className="flex items-center gap-3">
+          <div className="flex-1 rounded-full px-1 py-[3px]">
+            <Slider
+              min={-2}
+              max={2}
+              step={0.01}
+              value={value}
+              disabled={!isAvailable || !segment}
+              onPointerDown={beginBatch}
+              onPointerUp={commitBatch}
+              onChange={(nextValue) => onChange(clampTrackDelay(nextValue))}
+              className="playback-keystroke-delay-slider block w-full"
+            />
+          </div>
+          <span className="text-[10px] tabular-nums text-[var(--overlay-panel-fg)]/86 w-12 text-right">
+            {value.toFixed(2)}s
+          </span>
+        </div>
+      </div>
+    </div>
+  );
   const keystrokeTrackLabel =
     segment?.keystrokeMode === "keyboard"
       ? t.trackKeyboard
@@ -104,6 +163,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     TIMELINE_TRACK_HEIGHTS.speed,
     TIMELINE_TRACK_HEIGHTS.deviceAudio,
     TIMELINE_TRACK_HEIGHTS.micAudio,
+    TIMELINE_TRACK_HEIGHTS.webcam,
     TIMELINE_TRACK_HEIGHTS.text,
     TIMELINE_TRACK_HEIGHTS.keystroke,
     TIMELINE_TRACK_HEIGHTS.pointer,
@@ -125,6 +185,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     handleKeystrokeClick,
     handlePointerDragStart,
     handlePointerClick,
+    handleWebcamDragStart,
+    handleWebcamClick,
     handleKeyframeClick,
     handleMouseDown,
     handleMouseMove,
@@ -159,6 +221,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     dragState.isDraggingPointerStart ||
     dragState.isDraggingPointerEnd ||
     dragState.isDraggingPointerBody ||
+    dragState.isDraggingWebcamStart ||
+    dragState.isDraggingWebcamEnd ||
+    dragState.isDraggingWebcamBody ||
     dragState.isDraggingZoom ||
     dragState.isDraggingSeek;
   const {
@@ -252,11 +317,30 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 {t.trackDeviceAudio}
               </span>
             </div>
-            <div className={`timeline-label-mic-audio h-10 flex items-center ${isMicAudioAvailable ? "" : "timeline-label-unavailable"}`}>
-              <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
-                {t.trackMicAudio}
-              </span>
-            </div>
+            {renderTrackDelayLabel({
+              className: "timeline-label-mic-audio",
+              groupClassName: "group",
+              label: t.trackMicAudio,
+              value: segment?.micAudioOffsetSec ?? 0,
+              onChange: (value) => {
+                if (!segment || !isMicAudioAvailable) return;
+                setSegment({ ...segment, micAudioOffsetSec: value });
+              },
+              isAvailable: isMicAudioAvailable,
+              heightClassName: "h-10",
+            })}
+            {renderTrackDelayLabel({
+              className: "timeline-label-webcam",
+              groupClassName: "group",
+              label: t.trackWebcam,
+              value: segment?.webcamOffsetSec ?? 0,
+              onChange: (value) => {
+                if (!segment || !isWebcamAvailable) return;
+                setSegment({ ...segment, webcamOffsetSec: value });
+              },
+              isAvailable: isWebcamAvailable,
+              heightClassName: "h-7",
+            })}
             <div className="timeline-label-text h-7 flex items-center">
               <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                 {t.trackText}
@@ -371,6 +455,43 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     />
                   ) : (
                     <div className="mic-audio-track-empty timeline-track-empty h-10" />
+                  )}
+
+                  {segment ? (
+                    <WebcamVisibilityTrack
+                      segment={segment}
+                      duration={duration}
+                      isAvailable={isWebcamAvailable}
+                      onWebcamClick={handleWebcamClick}
+                      onHandleDragStart={handleWebcamDragStart}
+                      onAddWebcamSegment={(atTime) => {
+                        if (!segment || !isWebcamAvailable || typeof atTime !== "number") return;
+                        const segDur = Math.min(2, Math.max(0.3, duration * 0.08));
+                        let startTime = Math.max(0, atTime - segDur / 2);
+                        let endTime = Math.min(duration, startTime + segDur);
+                        if (endTime - startTime < 0.1) {
+                          startTime = Math.max(0, endTime - 0.1);
+                        }
+                        beginBatch();
+                        setSegment({
+                          ...segment,
+                          webcamVisibilitySegments: clampVisibilitySegmentsToDuration(
+                            mergePointerSegments([
+                              ...(segment.webcamVisibilitySegments ?? []),
+                              {
+                                id: crypto.randomUUID(),
+                                startTime,
+                                endTime,
+                              },
+                            ]),
+                            duration,
+                          ),
+                        });
+                        commitBatch();
+                      }}
+                    />
+                  ) : (
+                    <div className="webcam-visibility-track-empty timeline-track-empty h-7" />
                   )}
 
                   {segment ? (

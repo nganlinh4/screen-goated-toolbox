@@ -4,13 +4,16 @@ import { isManagedCompositionSnapshotPath } from "@/lib/mediaServer";
 
 const PROJECT_SWITCH_DEBUG = false;
 const DB_NAME = "ScreenDemoDB";
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 const PROJECTS_STORE = "projects";
 const APP_META_STORE = "app_meta";
 const LEGACY_PROJECTS_KEY = "screen-demo-projects";
 const PROJECT_MIGRATION_KEY = "projects-storage-migrated-v1";
 
-type StoredProjectRecord = Omit<Project, "videoBlob" | "audioBlob" | "micAudioBlob">;
+type StoredProjectRecord = Omit<
+  Project,
+  "videoBlob" | "audioBlob" | "micAudioBlob" | "webcamBlob"
+>;
 
 function summarizeProjectUpdate(
   updates: Partial<Omit<Project, "id" | "createdAt" | "lastModified">>,
@@ -92,6 +95,7 @@ function stripHeavyProjectFields(
   delete (record as Partial<Project>).videoBlob;
   delete (record as Partial<Project>).audioBlob;
   delete (record as Partial<Project>).micAudioBlob;
+  delete (record as Partial<Project>).webcamBlob;
   return record as StoredProjectRecord;
 }
 
@@ -142,13 +146,18 @@ class ProjectManager {
     if (newProject.micAudioBlob) {
       await this.saveMicAudioBlob(newProject.id, newProject.micAudioBlob);
     }
+    if (newProject.webcamBlob) {
+      await this.saveWebcamBlob(newProject.id, newProject.webcamBlob);
+    }
 
     await this.saveProjectRecord(stripHeavyProjectFields(newProject));
     await this.pruneProjects();
     return newProject;
   }
 
-  async getProjects(): Promise<Omit<Project, "videoBlob" | "audioBlob" | "micAudioBlob">[]> {
+  async getProjects(): Promise<
+    Omit<Project, "videoBlob" | "audioBlob" | "micAudioBlob" | "webcamBlob">[]
+  > {
     await this.ensureProjectStoreReady();
     return sortProjectsByDisplayOrder(await this.getProjectRecords());
   }
@@ -163,11 +172,13 @@ class ProjectManager {
 
     const audioBlob = await this.loadAudioBlob(id);
     const micAudioBlob = await this.loadMicAudioBlob(id);
+    const webcamBlob = await this.loadWebcamBlob(id);
     return {
       ...project,
       videoBlob: videoBlob || undefined,
       audioBlob: audioBlob || undefined,
       micAudioBlob: micAudioBlob || undefined,
+      webcamBlob: webcamBlob || undefined,
     };
   }
 
@@ -216,6 +227,13 @@ class ProjectManager {
         await this.deleteMicAudioBlob(id);
       }
     }
+    if ("webcamBlob" in updates) {
+      if (updates.webcamBlob) {
+        await this.saveWebcamBlob(id, updates.webcamBlob);
+      } else {
+        await this.deleteWebcamBlob(id);
+      }
+    }
 
     const nextProject: Project = {
       ...previousProject,
@@ -226,6 +244,7 @@ class ProjectManager {
       videoBlob: undefined,
       audioBlob: undefined,
       micAudioBlob: undefined,
+      webcamBlob: undefined,
     };
 
     await this.saveProjectRecord(stripHeavyProjectFields(nextProject));
@@ -239,6 +258,7 @@ class ProjectManager {
       videoBlob?: Blob;
       audioBlob?: Blob;
       micAudioBlob?: Blob;
+      webcamBlob?: Blob;
       customBackground?: string;
     },
   ): Promise<void> {
@@ -258,6 +278,11 @@ class ProjectManager {
     } else {
       await this.idbDelete("composition_mic_audio", key);
     }
+    if (data.webcamBlob) {
+      await this.idbPut("composition_webcam_videos", data.webcamBlob, key);
+    } else {
+      await this.idbDelete("composition_webcam_videos", key);
+    }
     if (data.customBackground) {
       await this.idbPut(
         "composition_custom_backgrounds",
@@ -276,6 +301,7 @@ class ProjectManager {
     videoBlob: Blob | null;
     audioBlob: Blob | null;
     micAudioBlob: Blob | null;
+    webcamBlob: Blob | null;
     customBackground: string | null;
   }> {
     const key = buildCompositionAssetKey(projectId, clipId);
@@ -283,6 +309,7 @@ class ProjectManager {
       videoBlob: await this.loadBlobData("composition_videos", key),
       audioBlob: await this.loadBlobData("composition_audio", key),
       micAudioBlob: await this.loadBlobData("composition_mic_audio", key),
+      webcamBlob: await this.loadBlobData("composition_webcam_videos", key),
       customBackground: await this.loadStringData(
         "composition_custom_backgrounds",
         key,
@@ -298,6 +325,7 @@ class ProjectManager {
     await this.idbDelete("composition_videos", key);
     await this.idbDelete("composition_audio", key);
     await this.idbDelete("composition_mic_audio", key);
+    await this.idbDelete("composition_webcam_videos", key);
     await this.idbDelete("composition_custom_backgrounds", key);
   }
 
@@ -397,16 +425,21 @@ class ProjectManager {
 
   private async deleteProjectData(
     id: string,
-    project: Pick<Project, "composition" | "rawVideoPath"> | null | undefined,
+    project:
+      | Pick<Project, "composition" | "rawVideoPath" | "rawWebcamVideoPath">
+      | null
+      | undefined,
   ): Promise<void> {
     await this.deleteVideoBlob(id);
     await this.deleteAudioBlob(id);
     await this.deleteMicAudioBlob(id);
+    await this.deleteWebcamBlob(id);
     await this.deleteLegacyInlineProjectData(id);
     await this.deleteCompositionData(id, project?.composition?.clips);
     await this.deleteCompositionSnapshotFiles(
       project?.composition?.clips,
       project?.rawVideoPath,
+      project?.rawWebcamVideoPath,
     );
   }
 
@@ -471,6 +504,9 @@ class ProjectManager {
           if (!db.objectStoreNames.contains("mic_audio")) {
             db.createObjectStore("mic_audio");
           }
+          if (!db.objectStoreNames.contains("webcam_videos")) {
+            db.createObjectStore("webcam_videos");
+          }
           if (!db.objectStoreNames.contains("mouse")) {
             db.createObjectStore("mouse");
           }
@@ -491,6 +527,9 @@ class ProjectManager {
           }
           if (!db.objectStoreNames.contains("composition_mic_audio")) {
             db.createObjectStore("composition_mic_audio");
+          }
+          if (!db.objectStoreNames.contains("composition_webcam_videos")) {
+            db.createObjectStore("composition_webcam_videos");
           }
           if (!db.objectStoreNames.contains("composition_custom_backgrounds")) {
             db.createObjectStore("composition_custom_backgrounds");
@@ -614,6 +653,18 @@ class ProjectManager {
     return this.idbDelete("mic_audio", id);
   }
 
+  private saveWebcamBlob(id: string, blob: Blob): Promise<void> {
+    return this.idbPut("webcam_videos", blob, id);
+  }
+
+  private async loadWebcamBlob(id: string): Promise<Blob | null> {
+    return this.idbGet("webcam_videos", id);
+  }
+
+  private deleteWebcamBlob(id: string): Promise<void> {
+    return this.idbDelete("webcam_videos", id);
+  }
+
   private async deleteCompositionData(
     projectId: string,
     clips: Array<{ id: string; role?: string }> | undefined,
@@ -627,25 +678,39 @@ class ProjectManager {
 
   private async deleteCompositionSnapshotFiles(
     clips:
-      | Array<{ id?: string; role?: string; rawVideoPath?: string }>
+      | Array<{
+          id?: string;
+          role?: string;
+          rawVideoPath?: string;
+          rawWebcamVideoPath?: string;
+        }>
       | undefined,
     rootRawVideoPath?: string,
+    rootRawWebcamVideoPath?: string,
   ): Promise<void> {
     if (!Array.isArray(clips)) return;
     for (const clip of clips) {
-      if (
-        !clip ||
-        clip.role !== "snapshot" ||
-        !clip.rawVideoPath ||
-        clip.rawVideoPath === rootRawVideoPath ||
-        !isManagedCompositionSnapshotPath(clip.rawVideoPath)
-      ) {
+      if (!clip || clip.role !== "snapshot") {
         continue;
       }
-      try {
-        await invoke("delete_file", { path: clip.rawVideoPath });
-      } catch {
-        // ignore cleanup failures for orphaned snapshot files
+
+      for (const path of [clip.rawVideoPath, clip.rawWebcamVideoPath]) {
+        const rootPath =
+          path === clip.rawWebcamVideoPath
+            ? rootRawWebcamVideoPath
+            : rootRawVideoPath;
+        if (
+          !path ||
+          path === rootPath ||
+          !isManagedCompositionSnapshotPath(path)
+        ) {
+          continue;
+        }
+        try {
+          await invoke("delete_file", { path });
+        } catch {
+          // ignore cleanup failures for orphaned snapshot files
+        }
       }
     }
   }
