@@ -10,6 +10,7 @@ use super::cursors::{
     get_or_render_cursor_tile,
 };
 use super::setup::{OUTPUT_TEXTURE_FORMAT, OverlayVertex, shared_gpu_context};
+use super::webcam::WebcamOverlayState;
 use crate::overlay::screen_record::native_export::config::OverlayQuad;
 
 const READBACK_RING_SIZE: usize = 5;
@@ -225,6 +226,7 @@ pub struct GpuCompositor {
     atlas_bind_group: wgpu::BindGroup,
     atlas_sampler: wgpu::Sampler,
     overlay_vertex_buffer: wgpu::Buffer,
+    webcam_overlay: WebcamOverlayState,
 }
 
 impl GpuCompositor {
@@ -523,6 +525,7 @@ impl GpuCompositor {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let webcam_overlay = WebcamOverlayState::new(&device, &shared);
 
         Ok(Self {
             device,
@@ -559,6 +562,7 @@ impl GpuCompositor {
             atlas_bind_group,
             atlas_sampler,
             overlay_vertex_buffer,
+            webcam_overlay,
         })
     }
 
@@ -1110,6 +1114,71 @@ impl GpuCompositor {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 
+    pub fn copy_webcam_frame_from_shared(
+        &mut self,
+        source: &wgpu::Texture,
+        width: u32,
+        height: u32,
+    ) {
+        let shared = match shared_gpu_context() {
+            Ok(shared) => shared,
+            Err(_) => return,
+        };
+        self.webcam_overlay
+            .ensure_size(&self.device, &shared, width, height);
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Copy Shared Webcam to Overlay"),
+            });
+
+        encoder.copy_buffer_to_texture(
+            wgpu::TexelCopyBufferInfo {
+                buffer: &self.cache_flush_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: None,
+                    rows_per_image: None,
+                },
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: source,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: source,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: self.webcam_overlay.texture(),
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+        self.webcam_overlay.mark_has_frame();
+    }
+
     /// Copy the output texture to a shared wgpu texture (GPU-to-GPU, no PCIe bus).
     ///
     /// Used by the zero-copy pipeline: after rendering, the output is copied to a
@@ -1176,17 +1245,7 @@ impl GpuCompositor {
         &self.queue
     }
 
-    /// Draw atlas quads directly onto the output texture (called after the main render pass).
-    /// Uses premultiplied-alpha blending so transparent quads compose correctly.
-    pub fn render_overlays(&self, quads: &[OverlayQuad]) {
-        if quads.is_empty() {
-            return;
-        }
-        let shared = match shared_gpu_context() {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-
+    fn build_overlay_vertices(&self, quads: &[OverlayQuad]) -> Vec<OverlayVertex> {
         let out_w = self.width as f32;
         let out_h = self.height as f32;
         let mut vertices: Vec<OverlayVertex> = Vec::with_capacity(quads.len() * 6);
@@ -1239,32 +1298,85 @@ impl GpuCompositor {
                 _pad: 0.0,
             });
         }
+        vertices
+    }
 
-        let byte_len = (vertices.len() * std::mem::size_of::<OverlayVertex>()) as u64;
-        if byte_len > self.overlay_vertex_buffer.size() {
-            return; // Buffer too small — skip rather than panic
+    pub fn render_post_overlays(
+        &self,
+        webcam_frame: Option<&crate::overlay::screen_record::native_export::config::BakedWebcamFrame>,
+        quads: &[OverlayQuad],
+    ) {
+        let shared = match shared_gpu_context() {
+            Ok(shared) => shared,
+            Err(_) => return,
+        };
+        let webcam_ready = webcam_frame.is_some_and(|frame| {
+            self.webcam_overlay
+                .prepare(&self.queue, self.width, self.height, frame)
+        });
+
+        let overlay_vertices = if quads.is_empty() {
+            Vec::new()
+        } else {
+            self.build_overlay_vertices(quads)
+        };
+        let overlay_vertex_count = overlay_vertices.len() as u32;
+
+        if !webcam_ready && overlay_vertex_count == 0 {
+            return;
         }
-        self.queue.write_buffer(
-            &self.overlay_vertex_buffer,
-            0,
-            bytemuck::cast_slice(&vertices),
-        );
+
+        if overlay_vertex_count > 0 {
+            let byte_len = (overlay_vertices.len() * std::mem::size_of::<OverlayVertex>()) as u64;
+            if byte_len > self.overlay_vertex_buffer.size() {
+                return;
+            }
+            self.queue.write_buffer(
+                &self.overlay_vertex_buffer,
+                0,
+                bytemuck::cast_slice(&overlay_vertices),
+            );
+        }
 
         let mut encoder = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        {
-            let view = self
-                .output_texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Post Overlays"),
+            });
+        let view = self
+            .output_texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        if webcam_ready {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
+                label: Some("Webcam Overlay Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load, // composite onto existing output
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            self.webcam_overlay
+                .render_pass(&mut pass, &shared, &self.vertex_buffer);
+        }
+
+        if overlay_vertex_count > 0 {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Atlas Overlay Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -1276,8 +1388,9 @@ impl GpuCompositor {
             pass.set_pipeline(&shared.overlay_pipeline);
             pass.set_bind_group(0, &self.atlas_bind_group, &[]);
             pass.set_vertex_buffer(0, self.overlay_vertex_buffer.slice(..));
-            pass.draw(0..vertices.len() as u32, 0..1);
+            pass.draw(0..overlay_vertex_count, 0..1);
         }
+
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 }

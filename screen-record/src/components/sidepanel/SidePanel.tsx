@@ -1,18 +1,26 @@
 import { VideoSegment, BackgroundConfig } from '@/types/video';
 import { useSettings } from '@/hooks/useSettings';
 import { ZoomPanel } from './ZoomPanel';
+import { CameraPanel } from './CameraPanel';
 import { BackgroundPanel } from './BackgroundPanel';
 import { CursorPanel } from './CursorPanel';
 import { TextPanel } from './TextPanel';
 import { BlurPanel } from './BlurPanel';
 import { motion } from 'framer-motion';
+import type { WebcamConfig } from '@/types/video';
 
 // ============================================================================
 // Types
 // ============================================================================
-export type ActivePanel = 'zoom' | 'background' | 'cursor' | 'blur' | 'text';
+export type ActivePanel =
+  | 'zoom'
+  | 'camera'
+  | 'background'
+  | 'cursor'
+  | 'blur'
+  | 'text';
 
-const PANEL_TAB_ORDER: ActivePanel[] = ['zoom', 'background', 'cursor', 'blur', 'text'];
+const PANEL_TAB_ORDER: ActivePanel[] = ['zoom', 'camera', 'background', 'cursor', 'blur', 'text'];
 
 // ============================================================================
 // PanelTabs
@@ -29,6 +37,8 @@ function PanelTabs({ activePanel, onPanelChange }: PanelTabsProps) {
     label:
       id === 'zoom'
         ? t.tabZoom
+        : id === 'camera'
+          ? t.tabCamera
         : id === 'background'
           ? t.tabBackground
           : id === 'cursor'
@@ -85,6 +95,9 @@ interface SidePanelProps {
   onUpdateZoom: (updates: { zoomFactor?: number; positionX?: number; positionY?: number }) => void;
   backgroundConfig: BackgroundConfig;
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
+  webcamConfig: WebcamConfig;
+  setWebcamConfig: React.Dispatch<React.SetStateAction<WebcamConfig>>;
+  webcamAvailable: boolean;
   recentUploads: string[];
   onRemoveRecentUpload: (imageUrl: string) => void;
   onBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -106,6 +119,9 @@ export function SidePanel({
   onUpdateZoom,
   backgroundConfig,
   setBackgroundConfig,
+  webcamConfig,
+  setWebcamConfig,
+  webcamAvailable,
   recentUploads,
   onRemoveRecentUpload,
   onBackgroundUpload,
@@ -142,6 +158,18 @@ export function SidePanel({
           onRemoveRecentUpload={onRemoveRecentUpload}
           onBackgroundUpload={onBackgroundUpload}
           isBackgroundUploadProcessing={isBackgroundUploadProcessing}
+        />
+      );
+    }
+
+    if (panelId === 'camera') {
+      return (
+        <CameraPanel
+          webcamConfig={webcamConfig}
+          setWebcamConfig={setWebcamConfig}
+          webcamAvailable={webcamAvailable}
+          beginBatch={beginBatch}
+          commitBatch={commitBatch}
         />
       );
     }

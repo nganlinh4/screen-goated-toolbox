@@ -9,13 +9,14 @@ export interface SliderProps {
   onPointerDown?: () => void;
   onPointerUp?: () => void;
   className?: string;
+  disabled?: boolean;
 }
 
 /**
  * Range slider that manages the `--value-pct` CSS variable used by App.css
  * to paint the active-track fill. Replaces the duplicated `sv()` helper.
  */
-export function Slider({ min, max, step = 1, value, onChange, onPointerDown, onPointerUp, className }: SliderProps) {
+export function Slider({ min, max, step = 1, value, onChange, onPointerDown, onPointerUp, className, disabled = false }: SliderProps) {
   const pct = max === min ? 0 : ((value - min) / (max - min)) * 100;
   return (
     <input
@@ -28,6 +29,7 @@ export function Slider({ min, max, step = 1, value, onChange, onPointerDown, onP
       onChange={(e) => onChange(Number(e.target.value))}
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
+      disabled={disabled}
       className={cn('flex-1 min-w-0', className)}
     />
   );

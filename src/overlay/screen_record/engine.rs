@@ -8,7 +8,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem::zeroed;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use wc_windows::core::Interface as WcInterface;
@@ -87,6 +87,7 @@ lazy_static::lazy_static! {
     pub static ref ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref AUDIO_ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref MIC_AUDIO_ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
+    pub static ref WEBCAM_ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
     pub static ref ENCODER_ACTIVE: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref ACTIVE_CAPTURE_CONTROL: Mutex<Option<InternalCaptureControl>> = Mutex::new(None);
     /// Stores the CaptureControl returned by start_free_threaded so stop_recording
@@ -122,6 +123,9 @@ lazy_static::lazy_static! {
 pub static VIDEO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 pub static AUDIO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 pub static MIC_AUDIO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+pub static WEBCAM_VIDEO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+pub static MIC_AUDIO_START_OFFSET_MS: AtomicU64 = AtomicU64::new(u64::MAX);
+pub static WEBCAM_VIDEO_START_OFFSET_MS: AtomicU64 = AtomicU64::new(u64::MAX);
 /// FPS the most recent recording was actually encoded at. Used by stop_recording
 /// so the frontend can show the correct "Match Original" option in the export UI.
 pub static LAST_RECORDING_FPS: std::sync::Mutex<Option<u32>> = std::sync::Mutex::new(None);
@@ -979,6 +983,8 @@ struct CaptureFlags {
     device_audio_app_pid: Option<u32>,
     #[serde(default)]
     mic_enabled: bool,
+    #[serde(default = "default_webcam_enabled")]
+    webcam_enabled: bool,
 }
 
 fn default_device_audio_enabled() -> bool {
@@ -987,6 +993,10 @@ fn default_device_audio_enabled() -> bool {
 
 fn default_device_audio_mode() -> String {
     "all".to_string()
+}
+
+fn default_webcam_enabled() -> bool {
+    true
 }
 
 impl GraphicsCaptureApiHandler for CaptureHandler {
@@ -1008,6 +1018,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 device_audio_mode: "all".to_string(),
                 device_audio_app_pid: None,
                 mic_enabled: false,
+                webcam_enabled: true,
             }
         });
         eprintln!(
@@ -1117,10 +1128,20 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 .and_then(|stem| stem.to_str())
                 .unwrap_or("recording")
         ));
+        let webcam_video_path = video_path.with_file_name(format!(
+            "{}_webcam.mp4",
+            video_path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("recording")
+        ));
 
         *VIDEO_PATH.lock().unwrap() = Some(video_path.to_string_lossy().to_string());
         *AUDIO_PATH.lock().unwrap() = Some(video_path.to_string_lossy().to_string());
         *MIC_AUDIO_PATH.lock().unwrap() = None;
+        *WEBCAM_VIDEO_PATH.lock().unwrap() = None;
+        MIC_AUDIO_START_OFFSET_MS.store(u64::MAX, Ordering::SeqCst);
+        WEBCAM_VIDEO_START_OFFSET_MS.store(u64::MAX, Ordering::SeqCst);
 
         let target_fps = flags.fps.unwrap_or_else(|| select_target_fps(monitor_hz));
         *LAST_RECORDING_FPS.lock().unwrap() = Some(target_fps);
@@ -1203,6 +1224,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         SHOULD_STOP_AUDIO.store(false, Ordering::SeqCst);
         AUDIO_ENCODING_FINISHED.store(false, Ordering::SeqCst);
         MIC_AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
+        WEBCAM_ENCODING_FINISHED.store(true, Ordering::SeqCst);
         let device_audio_source = if !flags.device_audio_enabled {
             audio_engine::DeviceAudioCaptureSource::Disabled
         } else if flags.device_audio_mode == "app" {
@@ -1225,8 +1247,10 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             MIC_AUDIO_ENCODING_FINISHED.store(false, Ordering::SeqCst);
             match audio_engine::record_mic_audio_sidecar(
                 mic_audio_path.to_string_lossy().to_string(),
+                start,
                 SHOULD_STOP_AUDIO.clone(),
                 MIC_AUDIO_ENCODING_FINISHED.clone(),
+                &MIC_AUDIO_START_OFFSET_MS,
             ) {
                 Ok(()) => {
                     *MIC_AUDIO_PATH.lock().unwrap() =
@@ -1241,6 +1265,29 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         } else {
             MIC_AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
             *MIC_AUDIO_PATH.lock().unwrap() = None;
+        }
+        if flags.webcam_enabled {
+            WEBCAM_ENCODING_FINISHED.store(false, Ordering::SeqCst);
+            match super::webcam_capture::record_webcam_video_sidecar(
+                webcam_video_path.to_string_lossy().to_string(),
+                start,
+                SHOULD_STOP_AUDIO.clone(),
+                WEBCAM_ENCODING_FINISHED.clone(),
+                &WEBCAM_VIDEO_START_OFFSET_MS,
+            ) {
+                Ok(()) => {
+                    *WEBCAM_VIDEO_PATH.lock().unwrap() =
+                        Some(webcam_video_path.to_string_lossy().to_string());
+                }
+                Err(error) => {
+                    WEBCAM_ENCODING_FINISHED.store(true, Ordering::SeqCst);
+                    *WEBCAM_VIDEO_PATH.lock().unwrap() = None;
+                    eprintln!("[WebcamCapture] {}", error);
+                }
+            }
+        } else {
+            WEBCAM_ENCODING_FINISHED.store(true, Ordering::SeqCst);
+            *WEBCAM_VIDEO_PATH.lock().unwrap() = None;
         }
 
         ENCODER_ACTIVE.store(true, Ordering::SeqCst);

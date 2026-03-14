@@ -23,6 +23,8 @@ pub struct ExportConfig {
     #[serde(default)]
     pub mic_audio_path: String,
     #[serde(default)]
+    pub webcam_video_path: String,
+    #[serde(default)]
     pub output_dir: String,
     #[serde(default = "default_format")]
     pub format: String,
@@ -48,6 +50,8 @@ pub struct CompositionExportClipJob {
     pub device_audio_path: String,
     #[serde(default)]
     pub mic_audio_path: String,
+    #[serde(default)]
+    pub webcam_video_path: String,
     #[serde(default)]
     pub source_width: u32,
     #[serde(default)]
@@ -177,6 +181,22 @@ pub struct BakedCursorFrame {
     pub rotation: f64,
 }
 
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BakedWebcamFrame {
+    pub time: f64,
+    pub visible: bool,
+    #[serde(default = "default_opacity")]
+    pub opacity: f64,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub roundness_px: f64,
+    pub shadow_px: f64,
+    pub mirror: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct ParsedBakedCursorFrame {
     pub time: f64,
@@ -206,6 +226,10 @@ pub struct VideoSegment {
     pub device_audio_points: Vec<DeviceAudioPoint>,
     #[serde(default)]
     pub mic_audio_points: Vec<DeviceAudioPoint>,
+    #[serde(default)]
+    pub mic_audio_offset_sec: f64,
+    #[serde(default)]
+    pub webcam_offset_sec: f64,
     #[serde(default)]
     pub smooth_motion_path: Vec<SmoothCameraPoint>,
     #[serde(default)]

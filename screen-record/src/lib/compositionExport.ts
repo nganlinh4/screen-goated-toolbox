@@ -24,6 +24,7 @@ import type {
   ProjectComposition,
   ProjectCompositionClip,
   VideoSegment,
+  WebcamConfig,
 } from "@/types/video";
 
 type CursorPackSlug =
@@ -86,12 +87,14 @@ interface NativeCompositionExportClipJob {
   sourceVideoPath: string;
   deviceAudioPath: string;
   micAudioPath: string;
+  webcamVideoPath: string;
   sourceWidth: number;
   sourceHeight: number;
   trimStart: number;
   duration: number;
   segment: VideoSegment;
   backgroundConfig: BackgroundConfig;
+  webcamConfig?: WebcamConfig;
   mousePositions: ProjectCompositionClip["mousePositions"];
 }
 
@@ -130,6 +133,7 @@ export interface CompositionExportContext {
   exportOptions: ExportOptions;
   resolveClipSourcePath: (clip: ProjectCompositionClip) => Promise<string>;
   resolveClipMicAudioPath: (clip: ProjectCompositionClip) => Promise<string>;
+  resolveClipWebcamPath: (clip: ProjectCompositionClip) => Promise<string>;
 }
 
 function isLockedCanvasSize(backgroundConfig: BackgroundConfig | null | undefined): boolean {
@@ -324,6 +328,7 @@ export async function exportCompositionAndDownload(
     exportOptions,
     resolveClipSourcePath,
     resolveClipMicAudioPath,
+    resolveClipWebcamPath,
   } = context;
   const sessionId = crypto.randomUUID();
 
@@ -359,6 +364,7 @@ export async function exportCompositionAndDownload(
       const jobId = clip.id;
       const sourceVideoPath = await resolveClipSourcePath(clip);
       const micAudioPath = await resolveClipMicAudioPath(clip);
+      const webcamVideoPath = await resolveClipWebcamPath(clip);
       const metadata = await probeVideoMetadata(sourceVideoPath);
       const backgroundConfig =
         getCompositionResolvedBackgroundConfig(composition, clip.id) ??
@@ -410,6 +416,35 @@ export async function exportCompositionAndDownload(
           });
         }
       }
+      if (webcamVideoPath) {
+        const webcamMetadata = await probeVideoMetadata(webcamVideoPath).catch(() => null);
+        const bakedWebcamFrames = videoRenderer.generateBakedWebcamFrames(
+          normalizedSegment,
+          clip.webcamConfig,
+          width,
+          height,
+          webcamMetadata && webcamMetadata.height > 0
+            ? webcamMetadata.width / webcamMetadata.height
+            : undefined,
+          fps,
+        );
+        const frameChunkSize = 1500;
+        for (
+          let frameIndex = 0;
+          frameIndex < bakedWebcamFrames.length;
+          frameIndex += frameChunkSize
+        ) {
+          await invoke("stage_export_data", {
+            sessionId,
+            jobId,
+            dataType: "webcam",
+            data: bakedWebcamFrames.slice(
+              frameIndex,
+              frameIndex + frameChunkSize,
+            ),
+          });
+        }
+      }
 
       clipJobs.push({
         jobId,
@@ -418,12 +453,14 @@ export async function exportCompositionAndDownload(
         sourceVideoPath,
         deviceAudioPath: sourceVideoPath,
         micAudioPath,
+        webcamVideoPath,
         sourceWidth: metadata.width,
         sourceHeight: metadata.height,
         trimStart: trimBounds.trimStart,
         duration: activeDuration,
         segment: normalizedSegment,
         backgroundConfig,
+        webcamConfig: clip.webcamConfig,
         mousePositions: clip.mousePositions,
       });
     }

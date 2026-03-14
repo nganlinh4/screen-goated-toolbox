@@ -16,11 +16,15 @@ export interface TimelineDragState {
   isDraggingPointerStart: boolean;
   isDraggingPointerEnd: boolean;
   isDraggingPointerBody: boolean;
+  isDraggingWebcamStart: boolean;
+  isDraggingWebcamEnd: boolean;
+  isDraggingWebcamBody: boolean;
   isDraggingZoom: boolean;
   isDraggingSeek: boolean;
   draggingTextId: string | null;
   draggingKeystrokeId: string | null;
   draggingPointerId: string | null;
+  draggingWebcamId: string | null;
   draggingZoomIdx: number | null;
 }
 
@@ -72,11 +76,15 @@ export function useTimelineDrag({
   const [isDraggingPointerStart, setIsDraggingPointerStart] = useState(false);
   const [isDraggingPointerEnd, setIsDraggingPointerEnd] = useState(false);
   const [isDraggingPointerBody, setIsDraggingPointerBody] = useState(false);
+  const [isDraggingWebcamStart, setIsDraggingWebcamStart] = useState(false);
+  const [isDraggingWebcamEnd, setIsDraggingWebcamEnd] = useState(false);
+  const [isDraggingWebcamBody, setIsDraggingWebcamBody] = useState(false);
   const [isDraggingZoom, setIsDraggingZoom] = useState(false);
   const [isDraggingSeek, setIsDraggingSeek] = useState(false);
   const [draggingTextId, setDraggingTextId] = useState<string | null>(null);
   const [draggingKeystrokeId, setDraggingKeystrokeId] = useState<string | null>(null);
   const [draggingPointerId, setDraggingPointerId] = useState<string | null>(null);
+  const [draggingWebcamId, setDraggingWebcamId] = useState<string | null>(null);
   const [draggingZoomIdx, setDraggingZoomIdx] = useState<number | null>(null);
   const draggingZoomIdxRef = useRef<number | null>(null);
   const draggingZoomTokenRef = useRef<string | null>(null);
@@ -84,12 +92,15 @@ export function useTimelineDrag({
   const textDragOffsetRef = useRef(0);
   const keystrokeDragOffsetRef = useRef(0);
   const pointerDragOffsetRef = useRef(0);
+  const webcamDragOffsetRef = useRef(0);
   const trimDraggingIdRef = useRef<string | null>(null);
   const trimDragOriginalsRef = useRef<TrimSegment[] | null>(null);
   const keystrokeDragOriginals = useRef<CursorVisibilitySegment[] | null>(null);
   const pointerDragOriginals = useRef<CursorVisibilitySegment[] | null>(null);
+  const webcamDragOriginals = useRef<CursorVisibilitySegment[] | null>(null);
   const keystrokeDragDidMove = useRef(false);
   const pointerDragDidMove = useRef(false);
+  const webcamDragDidMove = useRef(false);
 
   const getTimeFromClientX = useCallback((clientX: number): number | null => {
     const timeline = timelineRef.current;
@@ -498,6 +509,83 @@ export function useTimelineDrag({
     commitBatch();
   }, [isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, segment, setSegment, setEditingPointerId, beginBatch, commitBatch, duration]);
 
+  const handleWebcamDragStart = useCallback((id: string, type: 'start' | 'end' | 'body', offset?: number) => {
+    beginBatch();
+    setEditingKeystrokeId?.(null);
+    webcamDragDidMove.current = false;
+    webcamDragOriginals.current = segment?.webcamVisibilitySegments
+      ? clampVisibilitySegmentsToDuration(segment.webcamVisibilitySegments, duration).map((seg) => ({ ...seg }))
+      : null;
+    setDraggingWebcamId(id);
+    if (type === 'start') setIsDraggingWebcamStart(true);
+    else if (type === 'end') setIsDraggingWebcamEnd(true);
+    else if (type === 'body') {
+      setIsDraggingWebcamBody(true);
+      if (offset !== undefined) webcamDragOffsetRef.current = offset;
+    }
+  }, [beginBatch, segment, setEditingKeystrokeId, duration]);
+
+  const handleWebcamDrag = useCallback((clientX: number) => {
+    if ((!isDraggingWebcamStart && !isDraggingWebcamEnd && !isDraggingWebcamBody) || !draggingWebcamId || !segment) return;
+    const originals = webcamDragOriginals.current;
+    if (!originals) return;
+    const newTime = getTimeFromClientX(clientX);
+    if (newTime === null) return;
+    webcamDragDidMove.current = true;
+
+    const modified = originals.map((seg) => {
+      if (seg.id !== draggingWebcamId) return { ...seg };
+      if (isDraggingWebcamStart) {
+        return { ...seg, startTime: Math.min(Math.max(0, newTime), seg.endTime - 0.1) };
+      }
+      if (isDraggingWebcamEnd) {
+        return { ...seg, endTime: Math.max(Math.min(duration, newTime), seg.startTime + 0.1) };
+      }
+      if (isDraggingWebcamBody) {
+        const segDuration = seg.endTime - seg.startTime;
+        let nextStart = newTime - webcamDragOffsetRef.current;
+        if (nextStart < 0) nextStart = 0;
+        if (nextStart + segDuration > duration) nextStart = duration - segDuration;
+        return { ...seg, startTime: nextStart, endTime: nextStart + segDuration };
+      }
+      return { ...seg };
+    });
+
+    setSegment({
+      ...segment,
+      webcamVisibilitySegments: clampVisibilitySegmentsToDuration(mergePointerSegments(modified), duration),
+    });
+  }, [isDraggingWebcamStart, isDraggingWebcamEnd, isDraggingWebcamBody, draggingWebcamId, segment, getTimeFromClientX, setSegment, duration]);
+
+  const handleWebcamClick = useCallback((id: string, splitTime: number) => {
+    if (isDraggingWebcamStart || isDraggingWebcamEnd || isDraggingWebcamBody) return;
+    if (webcamDragDidMove.current) { webcamDragDidMove.current = false; return; }
+    if (!segment?.webcamVisibilitySegments) return;
+
+    const seg = segment.webcamVisibilitySegments.find((range) => range.id === id);
+    if (!seg) return;
+
+    const SPLIT_GAP = 0.3;
+    const half = SPLIT_GAP / 2;
+    const leftEnd = splitTime - half;
+    const rightStart = splitTime + half;
+
+    if (leftEnd - seg.startTime < 0.15 || seg.endTime - rightStart < 0.15) return;
+
+    beginBatch();
+    const left: CursorVisibilitySegment = { id: seg.id, startTime: seg.startTime, endTime: leftEnd };
+    const right: CursorVisibilitySegment = { id: crypto.randomUUID(), startTime: rightStart, endTime: seg.endTime };
+
+    setSegment({
+      ...segment,
+      webcamVisibilitySegments: clampVisibilitySegmentsToDuration(segment.webcamVisibilitySegments, duration)
+        .filter((range) => range.id !== id)
+        .concat([left, right])
+        .sort((a, b) => a.startTime - b.startTime),
+    });
+    commitBatch();
+  }, [isDraggingWebcamStart, isDraggingWebcamEnd, isDraggingWebcamBody, segment, setSegment, beginBatch, commitBatch, duration]);
+
   // Text click (select)
   const handleTextClick = useCallback((id: string) => {
     if (!isDraggingTextStart && !isDraggingTextEnd) {
@@ -559,26 +647,27 @@ export function useTimelineDrag({
 
   // Unified mouse handlers for TimelineArea
   const handleMouseDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingKeystrokeStart || isDraggingKeystrokeEnd || isDraggingKeystrokeBody || isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody || isDraggingZoom) return;
+    if (isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingKeystrokeStart || isDraggingKeystrokeEnd || isDraggingKeystrokeBody || isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody || isDraggingWebcamStart || isDraggingWebcamEnd || isDraggingWebcamBody || isDraggingZoom) return;
     setIsDraggingSeek(true);
     setEditingTextId(null);
     setEditingKeystrokeId?.(null);
     setEditingPointerId?.(null);
     handleSeek(e.clientX);
-  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingZoom, setEditingTextId, setEditingKeystrokeId, setEditingPointerId, handleSeek]);
+  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingWebcamStart, isDraggingWebcamEnd, isDraggingWebcamBody, isDraggingZoom, setEditingTextId, setEditingKeystrokeId, setEditingPointerId, handleSeek]);
 
   const handleMouseMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     handleTrimDrag(e.clientX);
     handleTextDrag(e.clientX);
     handleKeystrokeDrag(e.clientX);
     handlePointerDrag(e.clientX);
+    handleWebcamDrag(e.clientX);
     handleZoomDrag(e.clientX);
     if (isDraggingSeek) handleSeek(e.clientX);
-  }, [handleTrimDrag, handleTextDrag, handleKeystrokeDrag, handlePointerDrag, handleZoomDrag, isDraggingSeek, handleSeek]);
+  }, [handleTrimDrag, handleTextDrag, handleKeystrokeDrag, handlePointerDrag, handleWebcamDrag, handleZoomDrag, isDraggingSeek, handleSeek]);
 
   const handleMouseUp = useCallback(() => {
     // Commit batch if any drag operation was active (not seek — seek doesn't modify segment)
-    if (isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingKeystrokeStart || isDraggingKeystrokeEnd || isDraggingKeystrokeBody || isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody || isDraggingZoom) {
+    if (isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingKeystrokeStart || isDraggingKeystrokeEnd || isDraggingKeystrokeBody || isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody || isDraggingWebcamStart || isDraggingWebcamEnd || isDraggingWebcamBody || isDraggingZoom) {
       commitBatch();
     }
     // Flush any pending throttled seek so the final position is applied
@@ -596,6 +685,9 @@ export function useTimelineDrag({
     setIsDraggingPointerStart(false);
     setIsDraggingPointerEnd(false);
     setIsDraggingPointerBody(false);
+    setIsDraggingWebcamStart(false);
+    setIsDraggingWebcamEnd(false);
+    setIsDraggingWebcamBody(false);
     setIsDraggingZoom(false);
     setDraggingZoomIdx(null);
     draggingZoomIdxRef.current = null;
@@ -603,14 +695,16 @@ export function useTimelineDrag({
     setDraggingTextId(null);
     setDraggingKeystrokeId(null);
     setDraggingPointerId(null);
+    setDraggingWebcamId(null);
     keystrokeDragOriginals.current = null;
     pointerDragOriginals.current = null;
+    webcamDragOriginals.current = null;
     setIsDraggingSeek(false);
-  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingZoom, isDraggingSeek, commitBatch, onSeekEnd]);
+  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingWebcamStart, isDraggingWebcamEnd, isDraggingWebcamBody, isDraggingZoom, isDraggingSeek, commitBatch, onSeekEnd]);
 
   // Attach window-level listeners during any drag so cursor can leave the timeline
   useEffect(() => {
-    const anyDragging = isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingKeystrokeStart || isDraggingKeystrokeEnd || isDraggingKeystrokeBody || isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody || isDraggingZoom || isDraggingSeek;
+    const anyDragging = isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingKeystrokeStart || isDraggingKeystrokeEnd || isDraggingKeystrokeBody || isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody || isDraggingWebcamStart || isDraggingWebcamEnd || isDraggingWebcamBody || isDraggingZoom || isDraggingSeek;
     if (!anyDragging) return;
 
     const onMove = (e: PointerEvent) => {
@@ -618,6 +712,7 @@ export function useTimelineDrag({
       handleTextDrag(e.clientX);
       handleKeystrokeDrag(e.clientX);
       handlePointerDrag(e.clientX);
+      handleWebcamDrag(e.clientX);
       handleZoomDrag(e.clientX);
       if (isDraggingSeek) handleSeek(e.clientX);
     };
@@ -631,7 +726,7 @@ export function useTimelineDrag({
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
     };
-  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingZoom, isDraggingSeek, handleTrimDrag, handleTextDrag, handleKeystrokeDrag, handlePointerDrag, handleZoomDrag, handleSeek, handleMouseUp]);
+  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingWebcamStart, isDraggingWebcamEnd, isDraggingWebcamBody, isDraggingZoom, isDraggingSeek, handleTrimDrag, handleTextDrag, handleKeystrokeDrag, handlePointerDrag, handleWebcamDrag, handleZoomDrag, handleSeek, handleMouseUp]);
 
   // Enforce drag cursor globally and suppress hover UI on other timeline tracks while dragging.
   useEffect(() => {
@@ -644,8 +739,10 @@ export function useTimelineDrag({
       isDraggingKeystrokeEnd ||
       isDraggingPointerStart ||
       isDraggingPointerEnd ||
+      isDraggingWebcamStart ||
+      isDraggingWebcamEnd ||
       isDraggingZoom;
-    const isMove = isDraggingTextBody || isDraggingKeystrokeBody || isDraggingPointerBody;
+    const isMove = isDraggingTextBody || isDraggingKeystrokeBody || isDraggingPointerBody || isDraggingWebcamBody;
 
     if (isEwResize) document.body.classList.add('dragging-ew');
     else document.body.classList.remove('dragging-ew');
@@ -673,6 +770,9 @@ export function useTimelineDrag({
     isDraggingPointerStart,
     isDraggingPointerEnd,
     isDraggingPointerBody,
+    isDraggingWebcamStart,
+    isDraggingWebcamEnd,
+    isDraggingWebcamBody,
     isDraggingZoom,
     isDraggingSeek,
   ]);
@@ -689,11 +789,15 @@ export function useTimelineDrag({
     isDraggingPointerStart,
     isDraggingPointerEnd,
     isDraggingPointerBody,
+    isDraggingWebcamStart,
+    isDraggingWebcamEnd,
+    isDraggingWebcamBody,
     isDraggingZoom,
     isDraggingSeek,
     draggingTextId,
     draggingKeystrokeId,
     draggingPointerId,
+    draggingWebcamId,
     draggingZoomIdx,
   };
 
@@ -710,6 +814,8 @@ export function useTimelineDrag({
     handleKeystrokeClick,
     handlePointerDragStart,
     handlePointerClick,
+    handleWebcamDragStart,
+    handleWebcamClick,
     handleKeyframeClick,
     handleMouseDown,
     handleMouseMove,

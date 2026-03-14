@@ -8,7 +8,9 @@
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
-use super::config::{AnimatedCursorSlotData, BakedCameraFrame, BakedCursorFrame, OverlayFrame};
+use super::config::{
+    AnimatedCursorSlotData, BakedCameraFrame, BakedCursorFrame, BakedWebcamFrame, OverlayFrame,
+};
 
 #[derive(Clone)]
 pub struct CursorSlotOverride {
@@ -19,6 +21,7 @@ pub struct CursorSlotOverride {
 pub struct StagedExportData {
     pub camera_frames: Vec<BakedCameraFrame>,
     pub cursor_frames: Vec<BakedCursorFrame>,
+    pub webcam_frames: Vec<BakedWebcamFrame>,
     pub cursor_slot_overrides: Vec<CursorSlotOverride>,
     /// Decoded RGBA pixels from the sprite atlas PNG (width × height × 4).
     pub atlas_rgba: Option<Vec<u8>>,
@@ -33,6 +36,7 @@ impl StagedExportData {
         Self {
             camera_frames: Vec::new(),
             cursor_frames: Vec::new(),
+            webcam_frames: Vec::new(),
             cursor_slot_overrides: Vec::new(),
             atlas_rgba: None,
             atlas_w: 1,
@@ -82,6 +86,22 @@ pub fn append_cursor_frames(frames: Vec<BakedCursorFrame>) {
     let mut guard = STAGED.lock().unwrap();
     let staged = guard.get_or_insert_with(StagedExportData::new);
     staged.cursor_frames.extend(frames);
+}
+
+pub fn append_webcam_frames(frames: Vec<BakedWebcamFrame>) {
+    let mut guard = STAGED.lock().unwrap();
+    let staged = guard.get_or_insert_with(StagedExportData::new);
+    staged.webcam_frames.extend(frames);
+}
+
+pub fn append_webcam_frames_for(session_id: &str, job_id: &str, frames: Vec<BakedWebcamFrame>) {
+    let mut guard = STAGED_SESSIONS.lock().unwrap();
+    let staged = guard
+        .entry(session_id.to_string())
+        .or_default()
+        .entry(job_id.to_string())
+        .or_insert_with(StagedExportData::new);
+    staged.webcam_frames.extend(frames);
 }
 
 pub fn append_cursor_frames_for(session_id: &str, job_id: &str, frames: Vec<BakedCursorFrame>) {

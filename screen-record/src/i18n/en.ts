@@ -47,6 +47,7 @@ const en = {
 
   // SidePanel tabs
   tabZoom: 'Zoom',
+  tabCamera: 'Camera',
   tabBackground: 'Background',
   tabCursor: 'Cursor',
   tabBlur: 'Blur',
@@ -69,6 +70,16 @@ const en = {
   shadow: 'Shadow',
   volume: 'Volume',
   backgroundStyle: 'Background Style',
+
+  // CameraPanel
+  cameraSettings: 'Camera',
+  cameraUnavailable: 'No webcam video is available for this clip.',
+  cameraShow: 'Show Camera',
+  cameraMirror: 'Mirror',
+  cameraAutoSize: 'Auto During Zoom',
+  cameraPosition: 'Position',
+  cameraMaxSize: 'Max Size',
+  cameraMinSize: 'Min Size',
 
   // CursorPanel
   cursorSettings: 'Cursor Settings',
@@ -244,6 +255,7 @@ const en = {
   trackSpeed: 'Speed',
   trackDeviceAudio: 'Device Audio',
   trackMicAudio: 'Mic',
+  trackWebcam: 'Webcam',
   resetSpeed: 'Reset Speed',
 
   // App

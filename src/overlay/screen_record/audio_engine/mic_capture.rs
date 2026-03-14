@@ -2,9 +2,9 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::traits::*;
 use ringbuf::{HeapProd, HeapRb};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use windows::Win32::System::Threading::{
     GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_HIGHEST,
 };
@@ -36,6 +36,8 @@ fn build_mic_input_stream(
     device: &cpal::Device,
     stream_config: &cpal::StreamConfig,
     sample_format: cpal::SampleFormat,
+    recording_start: Instant,
+    start_offset_ms: &'static AtomicU64,
     producer: HeapProd<i16>,
 ) -> Result<cpal::Stream, String> {
     let err_fn = |err| eprintln!("[MicCapture] stream error: {}", err);
@@ -46,6 +48,15 @@ fn build_mic_input_stream(
                 .build_input_stream(
                     stream_config,
                     move |data: &[f32], _: &_| {
+                        if !data.is_empty() {
+                            let elapsed_ms = recording_start.elapsed().as_millis() as u64;
+                            let _ = start_offset_ms.compare_exchange(
+                                u64::MAX,
+                                elapsed_ms,
+                                Ordering::SeqCst,
+                                Ordering::SeqCst,
+                            );
+                        }
                         push_mic_f32_samples(&mut producer, data);
                     },
                     err_fn,
@@ -59,6 +70,15 @@ fn build_mic_input_stream(
                 .build_input_stream(
                     stream_config,
                     move |data: &[i16], _: &_| {
+                        if !data.is_empty() {
+                            let elapsed_ms = recording_start.elapsed().as_millis() as u64;
+                            let _ = start_offset_ms.compare_exchange(
+                                u64::MAX,
+                                elapsed_ms,
+                                Ordering::SeqCst,
+                                Ordering::SeqCst,
+                            );
+                        }
                         let _ = producer.push_slice(data);
                     },
                     err_fn,
@@ -72,6 +92,15 @@ fn build_mic_input_stream(
                 .build_input_stream(
                     stream_config,
                     move |data: &[u16], _: &_| {
+                        if !data.is_empty() {
+                            let elapsed_ms = recording_start.elapsed().as_millis() as u64;
+                            let _ = start_offset_ms.compare_exchange(
+                                u64::MAX,
+                                elapsed_ms,
+                                Ordering::SeqCst,
+                                Ordering::SeqCst,
+                            );
+                        }
                         push_mic_u16_samples(&mut producer, data);
                     },
                     err_fn,
@@ -85,10 +114,13 @@ fn build_mic_input_stream(
 
 pub(crate) fn record_mic_audio_sidecar(
     output_path: String,
+    recording_start: Instant,
     stop_signal: Arc<AtomicBool>,
     finished_signal: Arc<AtomicBool>,
+    start_offset_ms: &'static AtomicU64,
 ) -> Result<(), String> {
     finished_signal.store(false, Ordering::SeqCst);
+    start_offset_ms.store(u64::MAX, Ordering::SeqCst);
 
     let host = cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or_else(|_| cpal::default_host());
     let device = host
@@ -107,7 +139,14 @@ pub(crate) fn record_mic_audio_sidecar(
     let rb = HeapRb::<i16>::new(buffer_len);
     let (producer, mut consumer) = rb.split();
     let stream_config: cpal::StreamConfig = config.clone().into();
-    let stream = build_mic_input_stream(&device, &stream_config, config.sample_format(), producer)?;
+    let stream = build_mic_input_stream(
+        &device,
+        &stream_config,
+        config.sample_format(),
+        recording_start,
+        start_offset_ms,
+        producer,
+    )?;
     stream
         .play()
         .map_err(|e| format!("Failed to start microphone capture: {e}"))?;

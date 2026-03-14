@@ -49,6 +49,7 @@ const ko: Translations = {
 
   // SidePanel tabs
   tabZoom: '확대',
+  tabCamera: '카메라',
   tabBackground: '배경',
   tabCursor: '커서',
   tabBlur: '블러',
@@ -71,6 +72,16 @@ const ko: Translations = {
   shadow: '그림자',
   volume: '볼륨',
   backgroundStyle: '배경 스타일',
+
+  // CameraPanel
+  cameraSettings: '카메라',
+  cameraUnavailable: '이 클립에는 웹캠 비디오가 없습니다.',
+  cameraShow: '카메라 표시',
+  cameraMirror: '미러',
+  cameraAutoSize: '줌 중 자동 크기',
+  cameraPosition: '위치',
+  cameraMaxSize: '최대 크기',
+  cameraMinSize: '최소 크기',
 
   // CursorPanel
   cursorSettings: '커서 설정',
@@ -246,6 +257,7 @@ const ko: Translations = {
   trackSpeed: '속도',
   trackDeviceAudio: '기기 오디오',
   trackMicAudio: '마이크',
+  trackWebcam: '웹캠',
   resetSpeed: '속도 초기화',
 
   // App

@@ -1,4 +1,14 @@
-import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, BakedCameraFrame, BakedCursorFrame, BakedOverlayPayload } from '@/types/video';
+import {
+  BackgroundConfig,
+  MousePosition,
+  VideoSegment,
+  ZoomKeyframe,
+  BakedCameraFrame,
+  BakedCursorFrame,
+  BakedOverlayPayload,
+  BakedWebcamFrame,
+  WebcamConfig,
+} from '@/types/video';
 import { getCursorVisibility } from '@/lib/cursorHiding';
 import { getTrimSegments, toCompactTime } from '@/lib/trimSegments';
 import {
@@ -26,6 +36,7 @@ import { calculateCurrentZoomStateInternal } from './cameraZoom';
 import { createCursorImageSet, ensureCursorAnimations } from './cursorAssets';
 import { drawFrame as drawFrameImpl, type RendererState } from './drawFrame';
 import { normalizeMousePositionsToVideoSpace } from '@/lib/dynamicCapture';
+import { buildBakedWebcamFrames, cloneWebcamConfig } from '@/lib/webcam';
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -33,10 +44,12 @@ import { normalizeMousePositionsToVideoSpace } from '@/lib/dynamicCapture';
 
 export interface RenderContext {
   video: HTMLVideoElement;
+  webcamVideo?: HTMLVideoElement | null;
   canvas: HTMLCanvasElement;
   tempCanvas: HTMLCanvasElement;
   segment: VideoSegment;
   backgroundConfig: BackgroundConfig;
+  webcamConfig?: WebcamConfig;
   mousePositions: MousePosition[];
   currentTime: number;
   interactiveBackgroundPreview?: boolean;
@@ -139,6 +152,9 @@ class VideoRenderer {
       blurAccumCtx: null,
       blurSubCanvas: null,
       blurSubCtx: null,
+      webcamFrameCanvas: null,
+      webcamFrameCtx: null,
+      webcamFrameReady: false,
       isDrawing: false,
       lastDrawTime: 0,
       latestElapsed: 0,
@@ -305,6 +321,31 @@ class VideoRenderer {
     }
 
     return bakedPath;
+  }
+
+  public generateBakedWebcamFrames(
+    segment: VideoSegment,
+    webcamConfig: WebcamConfig | null | undefined,
+    outputWidth: number,
+    outputHeight: number,
+    webcamAspectRatio: number | null | undefined,
+    fps: number = 60,
+  ): BakedWebcamFrame[] {
+    return buildBakedWebcamFrames(
+      segment,
+      cloneWebcamConfig(webcamConfig),
+      outputWidth,
+      outputHeight,
+      webcamAspectRatio,
+      (time) =>
+        this.calculateCurrentZoomState(
+          time,
+          segment,
+          outputWidth,
+          outputHeight,
+        ).zoomFactor,
+      fps,
+    );
   }
 
   public sampleZoomCurve(

@@ -4,8 +4,10 @@ import type {
   BakedCameraFrame,
   BakedCursorFrame,
   BakedOverlayPayload,
+  BakedWebcamFrame,
   MousePosition,
   VideoSegment,
+  WebcamConfig,
 } from '@/types/video';
 
 import { videoRenderer } from './videoRenderer';
@@ -99,8 +101,10 @@ interface ExportPreparationContext {
   segment: VideoSegment | null;
   normalizedSegment: VideoSegment | null;
   backgroundConfig?: BackgroundConfig;
+  webcamConfig?: WebcamConfig;
   mousePositions?: MousePosition[];
   video: HTMLVideoElement | undefined;
+  webcamVideo?: HTMLVideoElement | undefined;
   videoDuration: number;
   sourceWidth: number;
   sourceHeight: number;
@@ -123,6 +127,7 @@ interface PreparedBakePayload {
   activeDuration: number;
   bakedPath: BakedCameraFrame[];
   bakedCursorPath: BakedCursorFrame[];
+  bakedWebcamFrames: BakedWebcamFrame[];
   overlayPayload?: BakedOverlayPayload;
 }
 
@@ -366,6 +371,12 @@ export class VideoExporter {
         time: Math.round(point.time * 1000) / 1000,
         volume: Math.round(point.volume * 10000) / 10000,
       })),
+      micAudioOffsetSec: Math.round((segment.micAudioOffsetSec ?? 0) * 10000) / 10000,
+      webcamVisibilitySegments: (segment.webcamVisibilitySegments ?? []).map((range) => ({
+        start: Math.round(range.startTime * 1000) / 1000,
+        end: Math.round(range.endTime * 1000) / 1000,
+      })),
+      webcamOffsetSec: Math.round((segment.webcamOffsetSec ?? 0) * 10000) / 10000,
       textSegments: (segment.textSegments ?? []).map((text) => ({
         id: text.id,
         start: Math.round(text.startTime * 1000) / 1000,
@@ -426,13 +437,14 @@ export class VideoExporter {
   private estimatePreparedPayloadBytes(payload: PreparedBakePayload): number {
     const cameraBytes = payload.bakedPath.length * 32;
     const cursorBytes = payload.bakedCursorPath.length * 48;
+    const webcamBytes = payload.bakedWebcamFrames.length * 48;
     const atlasBytes = payload.overlayPayload
       ? Math.floor((payload.overlayPayload.atlasBase64.length * 3) / 4)
       : 0;
     const framesBytes = payload.overlayPayload
       ? payload.overlayPayload.frames.reduce((sum, f) => sum + f.quads.length * 40, 0)
       : 0;
-    return cameraBytes + cursorBytes + atlasBytes + framesBytes;
+    return cameraBytes + cursorBytes + webcamBytes + atlasBytes + framesBytes;
   }
 
   private prunePreparationCache(requiredBytes = 0) {
@@ -481,6 +493,7 @@ export class VideoExporter {
   private buildPreparationContext(options: ExportOptions & {
     audioFilePath: string;
     micAudioFilePath: string;
+    webcamVideoFilePath: string;
     videoFilePath?: string;
     audio?: HTMLAudioElement | null;
     micAudio?: HTMLAudioElement | null;
@@ -489,6 +502,7 @@ export class VideoExporter {
       video,
       segment,
       backgroundConfig,
+      webcamConfig,
       targetVideoBitrateKbps: requestedTargetVideoBitrateKbps = 0,
     } = options;
 
@@ -523,8 +537,10 @@ export class VideoExporter {
       segment: segment ?? null,
       normalizedSegment,
       backgroundConfig,
+      webcamConfig,
       mousePositions: options.mousePositions,
       video,
+      webcamVideo: options.webcamVideo,
       videoDuration,
       sourceWidth,
       sourceHeight,
@@ -554,6 +570,10 @@ export class VideoExporter {
     const mouseLastTs = mousePositions.length > 0 ? mousePositions[mousePositions.length - 1].timestamp : 0;
     const mouseStamp = this.buildMousePositionsStamp(mousePositions);
     const backgroundStamp = this.buildBackgroundStamp(context.backgroundConfig);
+    const webcamConfigStamp = this.buildJsonHash(context.webcamConfig ?? null);
+    const webcamVideoStamp = context.webcamVideo
+      ? `${context.webcamVideo.videoWidth}x${context.webcamVideo.videoHeight}`
+      : 'none';
     return [
       segmentId,
       segmentStamp,
@@ -561,6 +581,8 @@ export class VideoExporter {
       `${mousePositions.length}:${mouseLastTs.toFixed(3)}:${mouseStamp}`,
       backgroundId,
       backgroundStamp,
+      webcamConfigStamp,
+      webcamVideoStamp,
       `${context.sourceWidth}x${context.sourceHeight}`,
       `${context.width}x${context.height}`,
       `fps:${context.fps}`,
@@ -575,6 +597,19 @@ export class VideoExporter {
     // Camera and cursor paths are now generated in Rust from raw keyframes/mouse positions.
     const bakedPath: BakedCameraFrame[] = [];
     const bakedCursorPath: BakedCursorFrame[] = [];
+    const bakedWebcamFrames =
+      normalizedSegment && context.webcamConfig
+        ? videoRenderer.generateBakedWebcamFrames(
+            normalizedSegment,
+            context.webcamConfig,
+            context.width,
+            context.height,
+            context.webcamVideo?.videoWidth && context.webcamVideo?.videoHeight
+              ? context.webcamVideo.videoWidth / context.webcamVideo.videoHeight
+              : undefined,
+            context.fps,
+          )
+        : [];
 
     await this.yieldToUiFrame();
     const t0 = Date.now();
@@ -594,6 +629,7 @@ export class VideoExporter {
       activeDuration: context.activeDuration,
       bakedPath,
       bakedCursorPath,
+      bakedWebcamFrames,
       overlayPayload,
     };
   }
@@ -624,6 +660,7 @@ export class VideoExporter {
   async primeExportPreparation(options: ExportOptions & {
     audioFilePath: string;
     micAudioFilePath: string;
+    webcamVideoFilePath: string;
     videoFilePath?: string;
     audio?: HTMLAudioElement | null;
     micAudio?: HTMLAudioElement | null;
@@ -638,6 +675,7 @@ export class VideoExporter {
   async exportAndDownload(options: ExportOptions & {
     audioFilePath: string;
     micAudioFilePath: string;
+    webcamVideoFilePath: string;
     videoFilePath?: string;
     audio?: HTMLAudioElement | null;
     micAudio?: HTMLAudioElement | null;
@@ -656,6 +694,7 @@ export class VideoExporter {
         audio,
         micAudio,
         micAudioFilePath,
+        webcamVideoFilePath,
       } = options;
       const context = this.buildPreparationContext(options);
       const prepared = await this.getPreparedPayload(context);
@@ -711,6 +750,15 @@ export class VideoExporter {
           });
         }
       }
+      if (prepared.bakedWebcamFrames.length > 0) {
+        const FRAME_CHUNK = 1500;
+        for (let i = 0; i < prepared.bakedWebcamFrames.length; i += FRAME_CHUNK) {
+          await invoke('stage_export_data', {
+            dataType: 'webcam',
+            data: prepared.bakedWebcamFrames.slice(i, i + FRAME_CHUNK),
+          });
+        }
+      }
       await invoke('log_message', { message: `[Prep] IPC Atlas+Overlays: ${Date.now() - t0Overlays}ms` });
 
       // Animated cursor frames are pre-staged to Rust's persistent store
@@ -731,12 +779,14 @@ export class VideoExporter {
         preRenderPolicy: options.preRenderPolicy || 'aggressive',
         deviceAudioPath: audioFilePath,
         micAudioPath: micAudioFilePath,
+        webcamVideoPath: webcamVideoFilePath,
         outputDir: options.outputDir || '',
         format: options.format || 'mp4',
         trimStart: prepared.trimBounds.trimStart,
         duration: prepared.activeDuration,
         segment: prepared.normalizedSegment,
         backgroundConfig: context.backgroundConfig,
+        webcamConfig: context.webcamConfig,
         mousePositions,
       };
       const tBeforeStringify = performance.now();
