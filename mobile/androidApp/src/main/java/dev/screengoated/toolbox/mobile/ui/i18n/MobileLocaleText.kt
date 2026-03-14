@@ -157,6 +157,14 @@ data class MobileLocaleText(
     val dlShowLog: String,
     val dlHideLog: String,
     val dlReset: String,
+    // Downloaded tools UI
+    val toolUpdate: String,
+    val toolDelete: String,
+    val toolBundled: String,
+    val toolUpdated: String,
+    val toolUpToDate: String,
+    val toolUpdating: String,
+    val toolUpdateFailed: String,
 ) {
     fun ttsFailedLoadVoices(error: String): String {
         return ttsFailedLoadVoicesTemplate.replace("{}", error)
@@ -360,6 +368,13 @@ data class MobileLocaleText(
                 dlShowLog = "Show Error Log",
                 dlHideLog = "Hide Error Log",
                 dlReset = "Reset",
+                toolUpdate = "Update",
+                toolDelete = "Delete",
+                toolBundled = "Bundled",
+                toolUpdated = "Updated!",
+                toolUpToDate = "Up to date",
+                toolUpdating = "Updating...",
+                toolUpdateFailed = "Update failed",
             )
         }
 
@@ -528,6 +543,13 @@ data class MobileLocaleText(
                 dlShowLog = "Hiện nhật ký lỗi",
                 dlHideLog = "Ẩn nhật ký lỗi",
                 dlReset = "Đặt lại",
+                toolUpdate = "Cập nhật",
+                toolDelete = "Xoá",
+                toolBundled = "Đã tích hợp",
+                toolUpdated = "Đã cập nhật!",
+                toolUpToDate = "Mới nhất",
+                toolUpdating = "Đang cập nhật...",
+                toolUpdateFailed = "Cập nhật thất bại",
             )
         }
 
@@ -696,6 +718,13 @@ data class MobileLocaleText(
                 dlShowLog = "오류 로그 보기",
                 dlHideLog = "오류 로그 숨기기",
                 dlReset = "초기화",
+                toolUpdate = "업데이트",
+                toolDelete = "삭제",
+                toolBundled = "내장됨",
+                toolUpdated = "업데이트 완료!",
+                toolUpToDate = "최신 버전",
+                toolUpdating = "업데이트 중...",
+                toolUpdateFailed = "업데이트 실패",
             )
         }
     }
