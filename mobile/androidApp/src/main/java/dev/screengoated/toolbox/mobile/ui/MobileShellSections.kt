@@ -3,6 +3,7 @@
 package dev.screengoated.toolbox.mobile.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.rounded.FormatQuote
 import androidx.compose.material.icons.rounded.GTranslate
 import androidx.compose.material.icons.rounded.Gamepad
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Hearing
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.ImageSearch
@@ -66,9 +68,12 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.carousel.HorizontalUncontainedCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
@@ -81,11 +86,15 @@ import androidx.compose.material3.WideNavigationRailValue
 import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.material3.toPath
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
@@ -111,8 +120,8 @@ import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 internal enum class MobileShellSection(val icon: ImageVector) {
-    APPS(Icons.Rounded.Apps),
-    TOOLS(Icons.Rounded.Tune),
+    APPS(Icons.Rounded.GridView),
+    TOOLS(Icons.Rounded.Apps),
     SETTINGS(Icons.Rounded.Settings),
     HISTORY(Icons.Rounded.History);
 
@@ -130,38 +139,79 @@ internal fun SectionSegmentedRow(
     onSectionSelected: (MobileShellSection) -> Unit,
     locale: MobileLocaleText,
     modifier: Modifier = Modifier,
+    pagerState: androidx.compose.foundation.pager.PagerState? = null,
 ) {
     val sections = MobileShellSection.entries
-    FlowRow(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-        verticalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-    ) {
-        sections.forEachIndexed { index, section ->
-            ToggleButton(
-                checked = selectedSection == section,
-                onCheckedChange = { onSectionSelected(section) },
-                shapes = when (index) {
-                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                    sections.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                },
-                modifier = Modifier.semantics { role = Role.RadioButton },
-            ) {
-                Icon(
-                    section.icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(ButtonDefaults.IconSize),
-                )
-                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                Text(
-                    text = section.label(locale),
-                    maxLines = 1,
-                    style = MaterialTheme.typography.labelMediumEmphasized,
-                )
+    val activeBg = MaterialTheme.colorScheme.secondaryContainer
+    val inactiveBg = Color.Transparent
+    val activeContent = MaterialTheme.colorScheme.onSecondaryContainer
+    val inactiveContent = MaterialTheme.colorScheme.onSurfaceVariant
+
+    HorizontalFloatingToolbar(
+        expanded = true,
+        modifier = modifier,
+        content = {
+            sections.forEachIndexed { index, section ->
+                // Calculate per-tab activation fraction (0.0 = inactive, 1.0 = fully active)
+                // Tracks pager scroll position in real-time during swipes
+                val fraction = if (pagerState != null && pagerState.isScrollInProgress) {
+                    val page = pagerState.currentPage
+                    val offset = pagerState.currentPageOffsetFraction
+                    when (index) {
+                        page -> (1f - kotlin.math.abs(offset)).coerceIn(0f, 1f)
+                        page + 1 -> offset.coerceIn(0f, 1f)
+                        page - 1 -> (-offset).coerceIn(0f, 1f)
+                        else -> 0f
+                    }
+                } else {
+                    if (selectedSection == section) 1f else 0f
+                }
+
+                val bgColor = androidx.compose.ui.graphics.lerp(inactiveBg, activeBg, fraction)
+                val contentColor = androidx.compose.ui.graphics.lerp(inactiveContent, activeContent, fraction)
+
+                val isActive = fraction > 0.5f
+                androidx.compose.material3.Surface(
+                    onClick = { onSectionSelected(section) },
+                    color = bgColor,
+                    contentColor = contentColor,
+                    shape = MaterialTheme.shapes.large,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = isActive,
+                            enter = androidx.compose.animation.fadeIn() +
+                                androidx.compose.animation.expandHorizontally(),
+                            exit = androidx.compose.animation.fadeOut() +
+                                androidx.compose.animation.shrinkHorizontally(),
+                        ) {
+                            Row {
+                                Icon(
+                                    section.icon,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                            }
+                        }
+                        Text(
+                            text = section.label(locale),
+                            maxLines = 1,
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontFamily = condensedFontSteps[2].second,
+                            ),
+                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                            softWrap = false,
+                        )
+                    }
+                }
             }
-        }
-    }
+        },
+    )
 }
 
 @Composable
@@ -242,14 +292,294 @@ private fun ShellRailItem(
 }
 
 @Composable
+internal fun DownloadedToolsSection(locale: MobileLocaleText) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val manager = remember {
+        (context.applicationContext as dev.screengoated.toolbox.mobile.SgtMobileApplication)
+            .appContainer.parakeetModelManager
+    }
+    val modelState by manager.state.collectAsState()
+    val scope = rememberCoroutineScope()
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(ShellSpacing.innerPad),
+            verticalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
+        ) {
+            Text(
+                text = locale.shellDownloadedToolsLabel,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+            )
+
+            DownloadedToolRow(
+                name = "Parakeet",
+                note = "(English only)",
+                icon = Icons.Rounded.Mic,
+                state = modelState,
+                onDownload = { scope.launch { manager.download() } },
+                onDelete = { manager.delete() },
+            )
+
+            // yt-dlp and ffmpeg — managed by the video downloader
+            val app = (context.applicationContext
+                as dev.screengoated.toolbox.mobile.SgtMobileApplication)
+            val dlRepo = app.appContainer.downloaderRepository
+            val dlState = dlRepo.state.collectAsState().value
+
+            VideoToolRow(
+                name = "yt-dlp + Python",
+                icon = Icons.Rounded.Download,
+                status = dlState.ytdlp.status,
+                version = dlState.ytdlp.version,
+                error = dlState.ytdlp.error,
+                updateStatus = dlState.ytdlpUpdate,
+                onInstall = { dlRepo.installTools() },
+                onUpdate = { dlRepo.checkUpdates() },
+                showUpdateButton = true,
+                bundledLabel = "Bundled",
+            )
+
+            VideoToolRow(
+                name = "ffmpeg",
+                icon = Icons.Rounded.GraphicEq,
+                status = dlState.ffmpeg.status,
+                version = null,
+                error = null,
+                updateStatus = dev.screengoated.toolbox.mobile.downloader.UpdateStatus.IDLE,
+                onInstall = {},
+                onUpdate = {},
+                bundledLabel = dlState.ffmpeg.version ?: "Bundled",
+            )
+        }
+    }
+}
+
+@Composable
+private fun DownloadedToolRow(
+    name: String,
+    note: String,
+    icon: ImageVector,
+    state: dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState,
+    onDownload: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(24.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = when (state) {
+                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Missing -> "Not installed"
+                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Downloading ->
+                        "Downloading ${state.currentFile} (${state.progress.toInt()}%)"
+                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Installed -> {
+                        val mb = state.sizeBytes / (1024.0 * 1024.0)
+                        "Installed (%.1f MB) $note".format(mb)
+                    }
+                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Deleting -> "Deleting..."
+                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Error -> state.message
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = when (state) {
+                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Installed ->
+                        MaterialTheme.colorScheme.primary
+                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Error ->
+                        MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+            if (state is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Downloading) {
+                val fraction = state.progress / 100f
+                if (fraction <= 0f || fraction >= 1f) {
+                    androidx.compose.material3.LinearWavyProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(5.dp),
+                    )
+                } else {
+                    androidx.compose.material3.LinearWavyProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(5.dp),
+                    )
+                }
+            }
+        }
+        when (state) {
+            is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Missing,
+            is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Error -> {
+                Button(
+                    onClick = onDownload,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                    ),
+                ) { Text("Download") }
+            }
+            is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Installed -> {
+                Button(
+                    onClick = onDelete,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) { Text("Delete") }
+            }
+            else -> {}
+        }
+    }
+}
+
+@Composable
+private fun VideoToolRow(
+    name: String,
+    icon: ImageVector,
+    status: dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus,
+    version: String?,
+    error: String?,
+    updateStatus: dev.screengoated.toolbox.mobile.downloader.UpdateStatus,
+    onInstall: () -> Unit,
+    onUpdate: () -> Unit,
+    showUpdateButton: Boolean = false,
+    bundledLabel: String? = null,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(24.dp),
+            tint = if (status == dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.INSTALLED) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = when (status) {
+                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.INSTALLED ->
+                        bundledLabel ?: (version ?: "Installed")
+                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.DOWNLOADING -> "Downloading..."
+                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.EXTRACTING -> "Extracting..."
+                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.CHECKING -> "Checking..."
+                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.ERROR -> error ?: "Error"
+                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.MISSING -> "Not installed"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = when (status) {
+                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.INSTALLED ->
+                        MaterialTheme.colorScheme.primary
+                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.ERROR ->
+                        MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+            if (status == dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.DOWNLOADING ||
+                status == dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.EXTRACTING ||
+                status == dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.CHECKING
+            ) {
+                androidx.compose.material3.LinearWavyProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(5.dp),
+                )
+            }
+            // Update status
+            when (updateStatus) {
+                dev.screengoated.toolbox.mobile.downloader.UpdateStatus.UPDATE_AVAILABLE -> Text(
+                    "Updated!",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                dev.screengoated.toolbox.mobile.downloader.UpdateStatus.UP_TO_DATE -> Text(
+                    "Up to date",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                dev.screengoated.toolbox.mobile.downloader.UpdateStatus.CHECKING -> Text(
+                    "Updating...",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                dev.screengoated.toolbox.mobile.downloader.UpdateStatus.ERROR -> Text(
+                    "Update failed",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                else -> {}
+            }
+        }
+        when (status) {
+            dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.MISSING,
+            dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.ERROR -> {
+                if (bundledLabel == null) {
+                    Button(onClick = onInstall) { Text("Install") }
+                }
+            }
+            dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.INSTALLED -> {
+                if (showUpdateButton) {
+                    val isUpdating = updateStatus == dev.screengoated.toolbox.mobile.downloader.UpdateStatus.CHECKING
+                    Button(onClick = onUpdate, enabled = !isUpdating) {
+                        Text(if (isUpdating) "..." else "Update")
+                    }
+                }
+            }
+            else -> {}
+        }
+    }
+}
+
+@Composable
+private fun PlaceholderToolRow(name: String, icon: ImageVector, comingSoon: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(24.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            )
+            Text(
+                text = comingSoon,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+            )
+        }
+    }
+}
+
+@Composable
 internal fun QuickActionsRow(locale: MobileLocaleText) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
     ) {
         UtilityTile(
-            label = locale.shellDownloadsLabel,
-            description = locale.shellDownloadsDescription,
+            label = locale.shellDownloadedToolsLabel,
+            description = locale.shellDownloadedToolsDescription,
             icon = Icons.Rounded.Download,
             brush = Brush.linearGradient(
                 listOf(
@@ -324,6 +654,7 @@ internal fun SectionDetail(
     onVoiceSettingsClick: () -> Unit,
     onSessionToggle: () -> Unit,
     canToggle: Boolean,
+    onDownloaderClick: () -> Unit = {},
 ) {
     when (selectedSection) {
         MobileShellSection.APPS -> AppsCarouselSection(
@@ -331,6 +662,7 @@ internal fun SectionDetail(
             locale = locale,
             onSessionToggle = onSessionToggle,
             canToggle = canToggle,
+            onDownloaderClick = onDownloaderClick,
         )
 
         MobileShellSection.TOOLS -> ToolsSection(locale = locale)
@@ -370,34 +702,39 @@ internal fun AppsCarouselSection(
     locale: MobileLocaleText,
     onSessionToggle: () -> Unit,
     canToggle: Boolean,
+    onDownloaderClick: () -> Unit = {},
 ) {
-    // Derive carousel height from screen size, avoiding the keyline "forbidden zone" where
-    // remainingSpace after focal items is so large that mediumSize ≈ largeSize (no peek effect).
-    // Valid zones (largeItemSize=158dp, itemSpacing=8dp):
-    //   2-focal: carouselHeight ≤ 400dp   (remainingSpace ≤ 84dp → mediumSize ≤ 126dp ✓)
-    //   3-focal: 490dp ≤ carouselHeight ≤ 555dp  (3 items fit, reasonable peek)
-    // Heights 401–489dp land in the forbidden zone → snap to 490dp.
+    // Use all available space. Item height is calculated to perfectly fill
+    // the carousel without landing in a forbidden zone.
     val screenH = LocalConfiguration.current.screenHeightDp.dp
-    val preferred = (screenH - 220.dp).coerceAtLeast(320.dp)
-    val carouselHeight = when {
-        preferred <= 400.dp -> preferred
-        preferred < 490.dp -> 490.dp
-        else -> preferred.coerceAtMost(555.dp)
-    }
-    val fadeSize = 16.dp
+    val carouselHeight = (screenH - 170.dp).coerceIn(320.dp, 700.dp)
+    // Calculate item height so ~3 items fit with peek: (height - peek) / 3 - spacing
+    val itemHeight = ((carouselHeight - 40.dp) / 3.2f).coerceIn(140.dp, 200.dp)
+    val fadeSize = 32.dp
     val bgColor = MaterialTheme.colorScheme.background
 
-    Box(modifier = Modifier.fillMaxWidth()) {
+    Box(modifier = Modifier
+        .fillMaxWidth()
+        .height(carouselHeight)
+    ) {
         VerticalUncontainedCarousel(
             itemCount = appSlots.size,
-            itemHeight = 150.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(carouselHeight),
+            itemHeight = itemHeight,
+            modifier = Modifier.fillMaxSize(),
             itemSpacing = 8.dp,
             contentPadding = PaddingValues(top = 4.dp, bottom = fadeSize),
         ) { index ->
-            Box(modifier = Modifier.fillMaxSize().maskClip(MaterialTheme.shapes.extraLarge)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .maskClip(MaterialTheme.shapes.extraLarge)
+                    .then(
+                        when (index) {
+                            1 -> Modifier.clickable(onClick = onDownloaderClick)
+                            else -> Modifier
+                        },
+                    ),
+            ) {
                 when (index) {
                     0 -> LiveTranslateCarouselTile(
                         state = state,
@@ -785,6 +1122,9 @@ private fun fontFamilyForIndex(idx: Int): FontFamily = when {
     else -> condensedFontSteps[0].second
 }
 
+// Cache settled font width index per text string across recompositions/page revisits
+private val flexWidthCache = HashMap<String, Int>(64)
+
 /** Single-line text that independently auto-adjusts wdth: stretches short text, condenses long. */
 @Composable
 private fun AutoFlexLine(
@@ -793,8 +1133,9 @@ private fun AutoFlexLine(
     modifier: Modifier = Modifier,
 ) {
     val style = MaterialTheme.typography.labelLarge
-    var stretchIdx by remember(text) { mutableIntStateOf(0) }
-    var tryStretch by remember(text) { mutableIntStateOf(1) }
+    val cached = flexWidthCache[text]
+    var stretchIdx by remember(text) { mutableIntStateOf(cached ?: 0) }
+    var tryStretch by remember(text) { mutableIntStateOf(if (cached != null) 0 else 1) }
     val fontFamily = remember(stretchIdx) { fontFamilyForIndex(stretchIdx) }
 
     Text(
@@ -818,6 +1159,8 @@ private fun AutoFlexLine(
             } else if (tryStretch > 0 && tryStretch <= stretchedFontSteps.lastIndex) {
                 stretchIdx = tryStretch
                 tryStretch++
+            } else {
+                flexWidthCache[text] = stretchIdx
             }
         },
     )
@@ -886,10 +1229,8 @@ private fun ToolCategoryRow(
             itemSpacing = 8.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
                 .drawWithContent {
                     drawContent()
-                    // Right curtain: full at start, gone at end
                     val rightAlpha = (1f - scrollFraction).coerceIn(0f, 1f)
                     if (rightAlpha > 0.01f) {
                         drawRect(
@@ -900,7 +1241,6 @@ private fun ToolCategoryRow(
                             ),
                         )
                     }
-                    // Left curtain: gone at start, full at end
                     val leftAlpha = scrollFraction.coerceIn(0f, 1f)
                     if (leftAlpha > 0.01f) {
                         drawRect(
@@ -994,7 +1334,7 @@ internal fun GlobalSection(
                 onVoiceSettingsClick = onVoiceSettingsClick,
             )
         }
-        QuickActionsRow(locale = locale)
+        DownloadedToolsSection(locale = locale)
     }
 }
 

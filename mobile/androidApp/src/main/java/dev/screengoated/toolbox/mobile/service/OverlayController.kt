@@ -9,11 +9,12 @@ import android.graphics.Rect
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
-import android.widget.Toast
+import android.view.View
+import android.view.WindowManager
+import android.widget.FrameLayout
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
-import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.service.overlay.OverlayLanguagePicker
 import dev.screengoated.toolbox.mobile.service.overlay.OverlayPaneWindow
@@ -107,6 +108,7 @@ class OverlayController(
         ttsRuntimeJob?.cancel()
         ttsRuntimeJob = null
         languagePicker.hide()
+        hideDismissZone()
         lastSyncedVisibility = null
         lastTtsState = null
         lastRuntimeTtsState = TtsRuntimeState()
@@ -122,6 +124,24 @@ class OverlayController(
     }
 
     fun isTranslationVisible(): Boolean = translationVisible
+
+    fun showDownloadModal() {
+        transcriptionWindow?.evaluate(
+            "if(window.showDownloadModal) window.showDownloadModal('Downloading Parakeet', 'Preparing...', 0);",
+        )
+    }
+
+    fun hideDownloadModal() {
+        transcriptionWindow?.evaluate("if(window.hideDownloadModal) window.hideDownloadModal();")
+    }
+
+    fun updateDownloadProgress(progress: Float, filename: String) {
+        val msg = "Downloading $filename"
+        val pct = progress.coerceIn(0f, 100f)
+        transcriptionWindow?.evaluate(
+            "if(window.showDownloadModal) window.showDownloadModal('Downloading Parakeet', '$msg', $pct);",
+        )
+    }
 
     private fun createPaneWindow(paneId: OverlayPaneId): OverlayPaneWindow {
         return OverlayPaneWindow(
@@ -193,11 +213,39 @@ class OverlayController(
         message: String,
     ) {
         when {
-            message.startsWith("dragWindow:") -> parseDelta(message.removePrefix("dragWindow:")) { dx, dy ->
-                windowFor(paneId)?.moveBy(
-                    (dx * DRAG_WINDOW_GAIN).roundToInt(),
-                    (dy * DRAG_WINDOW_GAIN).roundToInt(),
-                )
+            message.startsWith("dragWindow:") -> {
+                parseDelta(message.removePrefix("dragWindow:")) { dx, dy ->
+                    windowFor(paneId)?.moveBy(
+                        (dx * DRAG_WINDOW_GAIN).roundToInt(),
+                        (dy * DRAG_WINDOW_GAIN).roundToInt(),
+                    )
+                }
+                ensureDismissBubble()
+            }
+
+            message.startsWith("dragAt:") -> {
+                val proximity = fingerBubbleProximity(message.removePrefix("dragAt:"))
+                updateDismissZone(proximity)
+            }
+
+            message.startsWith("dragEnd:") -> {
+                val proximity = fingerBubbleProximity(message.removePrefix("dragEnd:"))
+                lastFingerDistSq = Int.MAX_VALUE
+                if (proximity >= 0.8f) {
+                    dismissOverlay(paneId)
+                } else {
+                    hideDismissZone()
+                }
+            }
+
+            message.startsWith("resizeCorner:") -> {
+                val parts = message.removePrefix("resizeCorner:").split(",")
+                if (parts.size == 3) {
+                    val corner = parts[0]
+                    val dx = (parts[1].toIntOrNull() ?: 0) * DRAG_WINDOW_GAIN
+                    val dy = (parts[2].toIntOrNull() ?: 0) * DRAG_WINDOW_GAIN
+                    windowFor(paneId)?.resizeFromCorner(corner, dx.roundToInt(), dy.roundToInt())
+                }
             }
 
             message.startsWith("copyText:") -> copyText("Realtime", message.removePrefix("copyText:"))
@@ -346,20 +394,19 @@ class OverlayController(
 
     private fun showLanguagePicker() {
         val anchor = translationWindow?.currentBounds() ?: return
+        val locale = dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText.forLanguage(
+            repository.currentUiPreferences().uiLanguage,
+        )
         languagePicker.show(
             anchorBounds = anchor,
             selectedLanguage = repository.currentConfig().targetLanguage,
             languages = repository.supportedLanguages,
             isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
+            title = locale.overlay.targetLanguageTitle,
         )
     }
 
     private fun updateTranscriptionModel(modelId: String) {
-        if (modelId == RealtimeModelIds.TRANSCRIPTION_PARAKEET) {
-            Toast.makeText(context, "Parakeet on Android is not implemented yet.", Toast.LENGTH_SHORT).show()
-            lastSnapshot?.let(::render)
-            return
-        }
         if (repository.transcriptionModelId() != modelId) {
             repository.updateTranscriptionModel(modelId)
             restartRequested()
@@ -511,6 +558,150 @@ class OverlayController(
         }
     }
 
+    // --- Dismiss bubble (drag-to-bottom-to-dismiss, mimics Android Bubbles) ---
+    private var dismissBubbleView: View? = null
+    private var dismissBubbleActive = false
+
+    private fun ensureDismissBubble() {
+        if (dismissBubbleView != null) return
+        val bubbleSize = dp(56)
+        val circle = View(context).apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(android.graphics.Color.argb(200, 60, 60, 60))
+            }
+            alpha = 0f
+            scaleX = 0.4f
+            scaleY = 0.4f
+        }
+        val icon = android.widget.TextView(context).apply {
+            text = "\u00D7"
+            textSize = 24f
+            setTextColor(android.graphics.Color.WHITE)
+            gravity = android.view.Gravity.CENTER
+        }
+        val container = FrameLayout(context).apply {
+            addView(circle, FrameLayout.LayoutParams(bubbleSize, bubbleSize).apply {
+                gravity = android.view.Gravity.CENTER
+            })
+            addView(icon, FrameLayout.LayoutParams(bubbleSize, bubbleSize).apply {
+                gravity = android.view.Gravity.CENTER
+            })
+        }
+        val params = WindowManager.LayoutParams(
+            bubbleSize * 2,
+            bubbleSize * 2,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            android.graphics.PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
+            y = dp(24)
+        }
+        dismissBubbleView = container
+        runCatching { windowManager.addView(container, params) }
+        circle.animate()
+            .alpha(1f).scaleX(1f).scaleY(1f)
+            .setDuration(250)
+            .setInterpolator(android.view.animation.OvershootInterpolator(1.5f))
+            .start()
+    }
+
+    /** @param proximity 0.0 = far, 1.0 = on bubble */
+    private fun updateDismissZone(proximity: Float) {
+        ensureDismissBubble()
+        val circle = (dismissBubbleView as? FrameLayout)?.getChildAt(0) ?: return
+        // Smooth scale: 1.0 at rest → 1.35 at full proximity
+        val scale = 1f + proximity * 0.35f
+        circle.scaleX = scale
+        circle.scaleY = scale
+        // Color: grey(60,60,60) → red(220,50,50) blended by proximity
+        val r = (60 + (160 * proximity)).toInt().coerceIn(0, 255)
+        val g = (60 - (10 * proximity)).toInt().coerceIn(0, 255)
+        val b = (60 - (10 * proximity)).toInt().coerceIn(0, 255)
+        val a = (200 + (20 * proximity)).toInt().coerceIn(0, 255)
+        (circle.background as? android.graphics.drawable.GradientDrawable)
+            ?.setColor(android.graphics.Color.argb(a, r, g, b))
+    }
+
+    private fun hideDismissZone() {
+        val view = dismissBubbleView ?: return
+        val circle = (view as? FrameLayout)?.getChildAt(0)
+        if (circle != null) {
+            circle.animate()
+                .alpha(0f)
+                .scaleX(0.3f)
+                .scaleY(0.3f)
+                .setDuration(200)
+                .withEndAction {
+                    runCatching { windowManager.removeView(view) }
+                    dismissBubbleView = null
+                    dismissBubbleActive = false
+                }
+                .start()
+        } else {
+            runCatching { windowManager.removeView(view) }
+            dismissBubbleView = null
+            dismissBubbleActive = false
+        }
+    }
+
+    private var lastFingerDx = 0
+    private var lastFingerDy = 0
+    private var lastFingerDistSq = Int.MAX_VALUE
+
+    /**
+     * Returns 0.0 (far) to 1.0 (on bubble). Uses distance + approach prediction.
+     */
+    private fun fingerBubbleProximity(rawXY: String): Float {
+        val parts = rawXY.split(",")
+        if (parts.size != 2) return 0f
+        val fingerCssX = parts[0].toIntOrNull() ?: return 0f
+        val fingerCssY = parts[1].toIntOrNull() ?: return 0f
+        val density = context.resources.displayMetrics.density
+        val screen = screenBounds()
+        val bubbleCenterCssX = (screen.width() / density / 2).toInt()
+        val statusBarPx = statusBarHeight()
+        val bubbleCenterCssY = ((screen.height() - statusBarPx - dp(24) - dp(28)) / density).toInt()
+        val dx = fingerCssX - bubbleCenterCssX
+        val dy = fingerCssY - bubbleCenterCssY
+        val distSq = dx * dx + dy * dy
+
+        // Predict: if finger is moving toward bubble, activate earlier
+        val approaching = distSq < lastFingerDistSq
+        lastFingerDx = dx
+        lastFingerDy = dy
+        lastFingerDistSq = distSq
+
+        val hitRadius = 55f // CSS px — on the bubble
+        val outerRadius = if (approaching) 140f else 110f // start reacting earlier when approaching
+
+        val dist = kotlin.math.sqrt(distSq.toFloat())
+        return if (dist <= hitRadius) {
+            1f
+        } else if (dist <= outerRadius) {
+            1f - (dist - hitRadius) / (outerRadius - hitRadius)
+        } else {
+            0f
+        }
+    }
+
+    private fun statusBarHeight(): Int {
+        val resourceId = context.resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (resourceId > 0) context.resources.getDimensionPixelSize(resourceId) else dp(24)
+    }
+
+    private fun dismissOverlay(paneId: OverlayPaneId) {
+        hideDismissZone()
+        when (paneId) {
+            OverlayPaneId.TRANSCRIPTION -> toggleListening(false)
+            OverlayPaneId.TRANSLATION -> toggleTranslation(false)
+        }
+    }
+
     private fun dp(value: Int): Int {
         return (value * context.resources.displayMetrics.density).toInt()
     }
@@ -519,6 +710,7 @@ class OverlayController(
         private const val OVERLAY_MIN_WIDTH_PX = 420
         private const val OVERLAY_MIN_HEIGHT_PX = 180
         private const val DRAG_WINDOW_GAIN = 1.8f
+        private const val DISMISS_ZONE_PX = 120
         private const val PERF_TAG = "SGTOverlayPerf"
     }
 }

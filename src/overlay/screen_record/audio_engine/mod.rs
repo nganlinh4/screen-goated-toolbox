@@ -2,8 +2,8 @@ mod device_audio;
 mod mic_capture;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ringbuf::traits::*;
 use ringbuf::HeapRb;
+use ringbuf::traits::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -185,7 +185,9 @@ pub fn record_audio(
             let lag_100ns = wall_clock_100ns.saturating_sub(audio_output_100ns);
             if lag_100ns >= AUDIO_SILENCE_CATCHUP_THRESHOLD_100NS {
                 if !silence_logged {
-                    eprintln!("[AudioMux] loopback starved; injecting silence to keep encoder alive");
+                    eprintln!(
+                        "[AudioMux] loopback starved; injecting silence to keep encoder alive"
+                    );
                     silence_logged = true;
                 }
 

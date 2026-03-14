@@ -68,7 +68,17 @@ internal fun buildOverlayWebView(
         settings.displayZoomControls = false
         settings.setSupportZoom(false)
         setLayerType(View.LAYER_TYPE_HARDWARE, null)
-        webChromeClient = WebChromeClient()
+        webChromeClient = object : WebChromeClient() {
+            override fun onJsAlert(
+                view: WebView?,
+                url: String?,
+                message: String?,
+                result: android.webkit.JsResult?,
+            ): Boolean {
+                result?.cancel()
+                return true
+            }
+        }
         addJavascriptInterface(
             object {
                 @JavascriptInterface

@@ -2,8 +2,8 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use super::config::{DeviceAudioPoint, SpeedPoint, TrimSegment};
 use super::super::mf_audio::MfAudioDecoder;
+use super::config::{DeviceAudioPoint, SpeedPoint, TrimSegment};
 
 pub const MIX_OUTPUT_SAMPLE_RATE: u32 = 48_000;
 pub const MIX_OUTPUT_CHANNELS: u32 = 2;
@@ -161,11 +161,7 @@ fn apply_audio_volume_envelope(
         }
         for channel_idx in 0..channels {
             let sample_idx = ((frame_idx * channels) + channel_idx) * 4;
-            let sample = f32::from_le_bytes(
-                pcm[sample_idx..sample_idx + 4]
-                    .try_into()
-                    .unwrap(),
-            );
+            let sample = f32::from_le_bytes(pcm[sample_idx..sample_idx + 4].try_into().unwrap());
             pcm[sample_idx..sample_idx + 4]
                 .copy_from_slice(&(sample * volume).clamp(-1.0, 1.0).to_le_bytes());
         }
@@ -186,7 +182,10 @@ struct OutputTimeMapper {
 
 impl OutputTimeMapper {
     fn new(trim_segments: Vec<TrimSegment>, speed_points: Vec<SpeedPoint>) -> Self {
-        let cursor_source_time = trim_segments.first().map(|segment| segment.start_time).unwrap_or(0.0);
+        let cursor_source_time = trim_segments
+            .first()
+            .map(|segment| segment.start_time)
+            .unwrap_or(0.0);
         Self {
             trim_segments,
             speed_points,
@@ -228,8 +227,7 @@ impl OutputTimeMapper {
 
     fn integrate_to(&mut self, target_time: f64) {
         while self.cursor_source_time < target_time - 1e-9 {
-            let step_end =
-                (self.cursor_source_time + MIXER_INTEGRATION_STEP_SEC).min(target_time);
+            let step_end = (self.cursor_source_time + MIXER_INTEGRATION_STEP_SEC).min(target_time);
             let mid_time = (self.cursor_source_time + step_end) * 0.5;
             let speed = get_speed(mid_time, &self.speed_points).clamp(0.1, 16.0);
             self.cursor_output_time += (step_end - self.cursor_source_time) / speed;
@@ -263,7 +261,9 @@ fn mix_pcm_chunk_into_raw_file(
         return Ok(());
     }
 
-    let start_frame = (output_start_time * MIX_OUTPUT_SAMPLE_RATE as f64).round().max(0.0) as u64;
+    let start_frame = (output_start_time * MIX_OUTPUT_SAMPLE_RATE as f64)
+        .round()
+        .max(0.0) as u64;
     let byte_offset = start_frame
         .saturating_mul(channels as u64)
         .saturating_mul(2);
@@ -281,10 +281,7 @@ fn mix_pcm_chunk_into_raw_file(
     }
 
     let mut combined = Vec::with_capacity(mixed_bytes.len());
-    for (new_chunk, existing_chunk) in mixed_bytes
-        .chunks_exact(2)
-        .zip(existing.chunks_exact(2))
-    {
+    for (new_chunk, existing_chunk) in mixed_bytes.chunks_exact(2).zip(existing.chunks_exact(2)) {
         let new_sample = i16::from_le_bytes(new_chunk.try_into().unwrap()) as i32;
         let existing_sample = i16::from_le_bytes(existing_chunk.try_into().unwrap()) as i32;
         let mixed = (existing_sample + new_sample).clamp(i16::MIN as i32, i16::MAX as i32) as i16;
@@ -379,8 +376,8 @@ fn write_wav_from_raw_pcm(raw_path: &Path, wav_path: &Path) -> Result<(), String
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
-    let mut writer = hound::WavWriter::create(wav_path, spec)
-        .map_err(|e| format!("Create mixed WAV: {e}"))?;
+    let mut writer =
+        hound::WavWriter::create(wav_path, spec).map_err(|e| format!("Create mixed WAV: {e}"))?;
     let mut raw_file = File::open(raw_path).map_err(|e| format!("Open mixed PCM: {e}"))?;
     let mut buffer = vec![0u8; 32 * 1024];
 
@@ -416,7 +413,9 @@ pub fn build_preprocessed_audio_mix(
 ) -> Result<Option<PathBuf>, String> {
     let active_sources: Vec<ExportAudioSource> = sources
         .iter()
-        .filter(|source| !source.path.trim().is_empty() && curve_has_audible_points(&source.volume_points))
+        .filter(|source| {
+            !source.path.trim().is_empty() && curve_has_audible_points(&source.volume_points)
+        })
         .cloned()
         .collect();
     if active_sources.is_empty() {

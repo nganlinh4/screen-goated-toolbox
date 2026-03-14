@@ -97,6 +97,7 @@
         --timeline-speed-color: #8b5cf6;
         --timeline-device-audio-color: #e11d48;
         --timeline-mic-audio-color: #0ea5e9;
+        --timeline-webcam-color: #65a30d;
         --timeline-success-color: #0f9f8d;
         --timeline-warning-color: #d97706;
         --timeline-neutral-color: #64748b;
@@ -196,6 +197,7 @@
         --timeline-speed-color: #a78bfa;
         --timeline-device-audio-color: #fb7185;
         --timeline-mic-audio-color: #38bdf8;
+        --timeline-webcam-color: #a3e635;
         --timeline-success-color: #2dd4bf;
         --timeline-warning-color: #fbbf24;
         --timeline-neutral-color: #94a3b8;
@@ -1009,6 +1011,12 @@ body.dragging-seek * {
     color: var(--timeline-mic-audio-color);
 }
 
+.timeline-chip[data-tone="webcam"] {
+    background: color-mix(in srgb, var(--timeline-webcam-color) 16%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--timeline-webcam-color) 36%, transparent);
+    color: var(--timeline-webcam-color);
+}
+
 .timeline-handle-pill {
     width: 3px;
     height: 12px;
@@ -1069,6 +1077,10 @@ body.dragging-seek * {
     background: var(--timeline-warning-color);
 }
 
+.timeline-add-button[data-tone="webcam"] {
+    background: var(--timeline-webcam-color);
+}
+
 .timeline-block {
     border-radius: 0.625rem;
     border: 1px solid var(--timeline-lane-border);
@@ -1104,6 +1116,11 @@ body.dragging-seek * {
     border-color: color-mix(in srgb, var(--timeline-neutral-color) 35%, var(--timeline-lane-border));
 }
 
+.timeline-block[data-tone="webcam"] {
+    background: color-mix(in srgb, var(--timeline-webcam-color) 16%, var(--ui-surface-3));
+    border-color: color-mix(in srgb, var(--timeline-webcam-color) 38%, var(--timeline-lane-border));
+}
+
 .timeline-block[data-style="quiet"] {
     border-style: dashed;
 }
@@ -1122,6 +1139,14 @@ body.dragging-seek * {
 
 .timeline-block[data-active="true"][data-tone="neutral"] {
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--timeline-neutral-color) 70%, transparent), var(--shadow-elevation-2);
+}
+
+.timeline-block[data-active="true"][data-tone="webcam"] {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--timeline-webcam-color) 72%, transparent), var(--shadow-elevation-2);
+}
+
+.timeline-label-webcam > span {
+    color: var(--timeline-webcam-color);
 }
 
 .timeline-control-point {

@@ -7,8 +7,7 @@ use super::engine::{
     ENCODING_FINISHED, IS_RECORDING, LAST_CAPTURE_FRAME_HEIGHT, LAST_CAPTURE_FRAME_WIDTH,
     MIC_AUDIO_ENCODING_FINISHED, MIC_AUDIO_PATH, MIC_AUDIO_START_OFFSET_MS, MOUSE_POSITIONS,
     SHOULD_STOP, VIDEO_PATH, WEBCAM_ENCODING_FINISHED, WEBCAM_VIDEO_PATH,
-    WEBCAM_VIDEO_START_OFFSET_MS,
-    get_monitors,
+    WEBCAM_VIDEO_START_OFFSET_MS, get_monitors,
 };
 use super::input_capture;
 use super::mf_decode;
@@ -1300,10 +1299,11 @@ pub fn handle_ipc_command(
             let video_file_path = video_path.clone();
             let mic_audio_path = MIC_AUDIO_PATH.lock().unwrap().clone();
             let webcam_video_path = WEBCAM_VIDEO_PATH.lock().unwrap().clone();
-            let mic_audio_offset_sec = match MIC_AUDIO_START_OFFSET_MS.load(std::sync::atomic::Ordering::SeqCst) {
-                u64::MAX => 0.0,
-                value => value as f64 / 1000.0,
-            };
+            let mic_audio_offset_sec =
+                match MIC_AUDIO_START_OFFSET_MS.load(std::sync::atomic::Ordering::SeqCst) {
+                    u64::MAX => 0.0,
+                    value => value as f64 / 1000.0,
+                };
             let webcam_video_offset_sec =
                 match WEBCAM_VIDEO_START_OFFSET_MS.load(std::sync::atomic::Ordering::SeqCst) {
                     u64::MAX => 0.0,

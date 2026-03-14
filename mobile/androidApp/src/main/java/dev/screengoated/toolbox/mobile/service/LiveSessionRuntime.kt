@@ -4,6 +4,9 @@ import android.content.Context
 import android.os.SystemClock
 import dev.screengoated.toolbox.mobile.capture.AudioCaptureController
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
+import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
+import dev.screengoated.toolbox.mobile.service.parakeet.ParakeetEngine
+import dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelManager
 import dev.screengoated.toolbox.mobile.service.tts.RealtimeTtsCoordinator
 import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
 import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
@@ -23,7 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class LiveSessionRuntime(
-    context: Context,
+    private val context: Context,
     private val repository: AndroidLiveSessionRepository,
     projectionConsentStore: ProjectionConsentStore,
     private val liveSocketClient: GeminiLiveSocketClient,
@@ -32,6 +35,7 @@ class LiveSessionRuntime(
     overlaySupported: Boolean,
     stopRequested: () -> Unit,
     sourceModeChanged: (SourceMode) -> Unit,
+    val parakeetModelManager: ParakeetModelManager,
 ) {
     private var lastTranslationAttemptAtMs: Long = 0L
     private val audioCaptureController = AudioCaptureController(context, projectionConsentStore)
@@ -69,6 +73,7 @@ class LiveSessionRuntime(
     private fun requestRestart() {
         val scope = hostScope ?: return
         scope.launch {
+            audioCaptureController.preserveConsentOnClose = true
             stopSession(keepOverlay = true)
             launchSession(scope)
         }
@@ -88,30 +93,26 @@ class LiveSessionRuntime(
         }
 
         realtimeTtsCoordinator.stopAndReset()
+        val useParakeet = config.transcriptionProvider.id == RealtimeModelIds.TRANSCRIPTION_PARAKEET
+
         sessionJob = scope.launch {
             repository.markStarting()
-            repository.setTranscriptionMethod(TranscriptionMethod.GEMINI_LIVE)
+
+            if (useParakeet) {
+                repository.setTranscriptionMethod(TranscriptionMethod.PARAKEET)
+            } else {
+                repository.setTranscriptionMethod(TranscriptionMethod.GEMINI_LIVE)
+            }
 
             val translationJob = launch(Dispatchers.IO) {
                 runTranslationLoop()
             }
 
             try {
-                withContext(Dispatchers.IO) {
-                    liveSocketClient.runSession(
-                        apiKey = apiKey,
-                        audioChunks = audioCaptureController.open(
-                            config = repository.currentConfig(),
-                            onRms = { rms -> overlayController.updateVolume(rms) },
-                        ),
-                        onTranscript = { transcript ->
-                            repository.markListening()
-                            repository.appendTranscript(
-                                text = transcript,
-                                nowMs = SystemClock.elapsedRealtime(),
-                            )
-                        },
-                    )
+                if (useParakeet) {
+                    runParakeetSession()
+                } else {
+                    runGeminiSession(apiKey)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -119,6 +120,115 @@ class LiveSessionRuntime(
                 repository.fail(error.message ?: "Live transcription stopped unexpectedly.")
             } finally {
                 translationJob.cancel()
+            }
+        }
+    }
+
+    private suspend fun runGeminiSession(apiKey: String) {
+        withContext(Dispatchers.IO) {
+            liveSocketClient.runSession(
+                apiKey = apiKey,
+                audioChunks = audioCaptureController.open(
+                    config = repository.currentConfig(),
+                    onRms = { rms -> overlayController.updateVolume(rms) },
+                ),
+                onTranscript = { transcript ->
+                    repository.markListening()
+                    repository.appendTranscript(
+                        text = transcript,
+                        nowMs = SystemClock.elapsedRealtime(),
+                    )
+                },
+            )
+        }
+    }
+
+    private suspend fun runParakeetSession() {
+        if (!parakeetModelManager.isInstalled()) {
+            overlayController.showDownloadModal()
+            try {
+                withContext(Dispatchers.IO) {
+                    // Launch state observer for progress updates
+                    val progressJob = launch(Dispatchers.Main) {
+                        parakeetModelManager.state.collect { state ->
+                            when (state) {
+                                is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Downloading -> {
+                                    overlayController.updateDownloadProgress(state.progress, state.currentFile)
+                                }
+                                else -> {}
+                            }
+                        }
+                    }
+                    try {
+                        parakeetModelManager.download()
+                    } finally {
+                        progressJob.cancel()
+                    }
+                }
+                overlayController.hideDownloadModal()
+            } catch (e: CancellationException) {
+                overlayController.hideDownloadModal()
+                throw e
+            }
+
+            if (!parakeetModelManager.isInstalled()) {
+                repository.updateTranscriptionModel(RealtimeModelIds.TRANSCRIPTION_GEMINI)
+                return
+            }
+        }
+
+        withContext(Dispatchers.IO) {
+            val modelDir = java.io.File(context.filesDir, "models/parakeet")
+            val engine = ParakeetEngine(modelDir)
+            try {
+                repository.markListening()
+                val audioFlow = audioCaptureController.open(
+                    config = repository.currentConfig(),
+                    onRms = { rms -> overlayController.updateVolume(rms) },
+                )
+
+                val sampleAccumulator = mutableListOf<Float>()
+
+                audioFlow.collect { chunk ->
+                    for (s in chunk) {
+                        sampleAccumulator.add(s / 32768f)
+                    }
+
+                    while (sampleAccumulator.size >= PARAKEET_CHUNK_SIZE) {
+                        val chunkFloats = FloatArray(PARAKEET_CHUNK_SIZE)
+                        for (i in 0 until PARAKEET_CHUNK_SIZE) {
+                            chunkFloats[i] = sampleAccumulator.removeFirst()
+                        }
+
+                        val rawText = engine.transcribe(chunkFloats)
+                        if (rawText.isNotEmpty()) {
+                            val processed = processSentencePieceText(rawText)
+                            if (processed.isNotEmpty()) {
+                                repository.appendTranscript(
+                                    text = processed,
+                                    nowMs = SystemClock.elapsedRealtime(),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Flush: send 3 silence chunks to extract any remaining text
+                val silence = FloatArray(PARAKEET_CHUNK_SIZE)
+                repeat(3) {
+                    val rawText = engine.transcribe(silence)
+                    if (rawText.isNotEmpty()) {
+                        val processed = processSentencePieceText(rawText)
+                        if (processed.isNotEmpty()) {
+                            repository.appendTranscript(
+                                text = processed,
+                                nowMs = SystemClock.elapsedRealtime(),
+                            )
+                        }
+                    }
+                }
+            } finally {
+                engine.close()
             }
         }
     }
@@ -222,3 +332,17 @@ class LiveSessionRuntime(
 }
 
 private const val TRANSLATION_INTERVAL_MS = 1_500L
+
+/** 160ms chunk at 16kHz = 2560 samples (matches Windows parakeet-rs) */
+private const val PARAKEET_CHUNK_SIZE = 2560
+
+/**
+ * Matches Windows `process_sentencepiece_text()` in parakeet.rs:
+ * Preserves leading space (word boundary indicator ▁) while cleaning up the token.
+ */
+private fun processSentencePieceText(text: String): String {
+    val startsWithWord = text.startsWith('\u2581') || text.startsWith('▁')
+    val processed = text.replace("\u2581", " ").replace("▁", " ").trim()
+    if (processed.isEmpty()) return ""
+    return if (startsWithWord) " $processed" else processed
+}

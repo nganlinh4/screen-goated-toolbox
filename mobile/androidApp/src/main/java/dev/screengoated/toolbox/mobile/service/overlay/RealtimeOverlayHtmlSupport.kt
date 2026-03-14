@@ -124,28 +124,72 @@ internal fun overlayMobileShim(): String {
             const blockInteractive = target =>
                 !!(target.closest('#controls') || target.closest('#tts-modal') || target.closest('.language-btn'));
             let dragTouch = null;
+            let resizeTouch = null; // {x, y, corner: 'bl'|'br'}
+
+            const RESIZE_ZONE_PX = 44; // corner touch zone size
+
+            function detectCorner(touchX, touchY) {
+                if (!container) return null;
+                const rect = container.getBoundingClientRect();
+                const localX = touchX - rect.left;
+                const localY = touchY - rect.top;
+                const inBottom = localY > rect.height - RESIZE_ZONE_PX;
+                if (!inBottom) return null;
+                if (localX < RESIZE_ZONE_PX) return 'bl';
+                if (localX > rect.width - RESIZE_ZONE_PX) return 'br';
+                return null;
+            }
 
             if (container) {
                 container.addEventListener('touchstart', event => {
                     if (event.touches.length !== 1 || blockInteractive(event.target)) return;
                     const touch = event.touches[0];
-                    dragTouch = { x: touch.screenX, y: touch.screenY };
+                    const corner = detectCorner(touch.clientX, touch.clientY);
+                    if (corner) {
+                        resizeTouch = { x: touch.screenX, y: touch.screenY, corner: corner };
+                        dragTouch = null;
+                    } else {
+                        dragTouch = { x: touch.screenX, y: touch.screenY };
+                        resizeTouch = null;
+                    }
                 }, { passive: true });
 
                 container.addEventListener('touchmove', event => {
-                    if (!dragTouch || event.touches.length !== 1 || blockInteractive(event.target)) return;
+                    if (event.touches.length !== 1 || blockInteractive(event.target)) return;
                     const touch = event.touches[0];
+
+                    if (resizeTouch) {
+                        const dx = Math.round(touch.screenX - resizeTouch.x);
+                        const dy = Math.round(touch.screenY - resizeTouch.y);
+                        if (dx !== 0 || dy !== 0) {
+                            window.ipc.postMessage('resizeCorner:' + resizeTouch.corner + ',' + dx + ',' + dy);
+                            resizeTouch.x = touch.screenX;
+                            resizeTouch.y = touch.screenY;
+                            if (event.cancelable) event.preventDefault();
+                        }
+                        return;
+                    }
+
+                    if (!dragTouch) return;
                     const dx = Math.round(touch.screenX - dragTouch.x);
                     const dy = Math.round(touch.screenY - dragTouch.y);
                     if (dx !== 0 || dy !== 0) {
                         window.ipc.postMessage('dragWindow:' + dx + ',' + dy);
+                        window.ipc.postMessage('dragAt:' + Math.round(touch.screenX) + ',' + Math.round(touch.screenY));
                         dragTouch = { x: touch.screenX, y: touch.screenY };
                         if (event.cancelable) event.preventDefault();
                     }
                 }, { passive: false });
 
-                container.addEventListener('touchend', () => { dragTouch = null; }, { passive: true });
-                container.addEventListener('touchcancel', () => { dragTouch = null; }, { passive: true });
+                container.addEventListener('touchend', event => {
+                    if (dragTouch && event.changedTouches.length > 0) {
+                        const touch = event.changedTouches[0];
+                        window.ipc.postMessage('dragEnd:' + Math.round(touch.screenX) + ',' + Math.round(touch.screenY));
+                    }
+                    dragTouch = null;
+                    resizeTouch = null;
+                }, { passive: true });
+                container.addEventListener('touchcancel', () => { dragTouch = null; resizeTouch = null; }, { passive: true });
             }
 
             window.setTtsState = function(enabled, speed, autoSpeed, volume) {

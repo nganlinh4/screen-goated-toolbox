@@ -153,6 +153,9 @@
         #header-toggle.collapsed .material-symbols-rounded {
             transform: rotate(180deg);
         }
+        #title:empty {
+            display: none;
+        }
         #title {
             font-size: 12px;
             font-weight: bold;

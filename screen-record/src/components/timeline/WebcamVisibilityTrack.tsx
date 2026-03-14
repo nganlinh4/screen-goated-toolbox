@@ -87,14 +87,14 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
             onWebcamClick(segmentRange.id, time);
           }}
           className="webcam-visibility-segment timeline-block absolute h-full cursor-move group"
-          data-tone="neutral"
+          data-tone="webcam"
           style={{
             left: `${(segmentRange.startTime / safeDuration) * 100}%`,
             width: `${((segmentRange.endTime - segmentRange.startTime) / safeDuration) * 100}%`,
           }}
         >
           <div className="webcam-visibility-segment-content absolute inset-0 flex items-center justify-center overflow-hidden px-1">
-            <span className="webcam-visibility-segment-icon text-[10px] text-[var(--timeline-neutral-color)] truncate">
+            <span className="webcam-visibility-segment-icon text-[10px] text-[var(--timeline-webcam-color)] truncate">
               ●
             </span>
           </div>
@@ -122,7 +122,7 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
       {hoverX !== null && onAddWebcamSegment && (
         <button
           className="webcam-visibility-add-btn timeline-add-button absolute top-1/2 -translate-y-1/2 w-4 h-4 text-white text-[10px] leading-none font-bold z-10 pointer-events-auto"
-          data-tone="neutral"
+          data-tone="webcam"
           style={{ left: hoverX - 8 }}
           onPointerDown={(e) => {
             e.stopPropagation();

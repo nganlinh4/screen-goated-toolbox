@@ -23,6 +23,9 @@ class AudioCaptureController(
     private val context: Context,
     private val projectionConsentStore: ProjectionConsentStore,
 ) {
+    /** When true, the next playback flow close keeps MediaProjection alive for reuse. */
+    @Volatile var preserveConsentOnClose = false
+    private var cachedProjection: android.media.projection.MediaProjection? = null
     @SuppressLint("MissingPermission")
     fun open(
         config: LiveSessionConfig,
@@ -94,10 +97,13 @@ class AudioCaptureController(
     private fun playbackFlow(
         onRms: (Float) -> Unit,
     ): Flow<ShortArray> = callbackFlow {
-        val projectionManager = context.getSystemService(MediaProjectionManager::class.java)
-            ?: error("MediaProjectionManager unavailable on this device.")
-        val mediaProjection = projectionConsentStore.createMediaProjection(projectionManager)
-            ?: error("Playback capture consent is missing.")
+        val mediaProjection = cachedProjection ?: run {
+            val projectionManager = context.getSystemService(MediaProjectionManager::class.java)
+                ?: error("MediaProjectionManager unavailable on this device.")
+            projectionConsentStore.createMediaProjection(projectionManager)
+                ?: error("Playback capture consent is missing.")
+        }
+        cachedProjection = null // consumed — will be re-cached in awaitClose if preserveConsentOnClose
 
         val format = AudioFormat.Builder()
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
@@ -156,8 +162,13 @@ class AudioCaptureController(
             reader.cancel()
             runCatching { audioRecord.stop() }
             audioRecord.release()
-            mediaProjection.stop()
-            projectionConsentStore.clear()
+            if (preserveConsentOnClose) {
+                preserveConsentOnClose = false
+                cachedProjection = mediaProjection // keep alive for next open()
+            } else {
+                mediaProjection.stop()
+                projectionConsentStore.clear()
+            }
         }
     }
 
