@@ -222,7 +222,7 @@ class DownloaderRepository(
         val size = fileSizeMb(File(nativeLibDir, "libffmpeg.so")) +
             fileSizeMb(File(nativeLibDir, "libffprobe.so")) +
             dirSizeMb(File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg"))
-        return "Bundled (%.1f MB)".format(size)
+        return "%.1f MB".format(size)
     }
 
     private fun dirSizeMb(dir: File): Double {

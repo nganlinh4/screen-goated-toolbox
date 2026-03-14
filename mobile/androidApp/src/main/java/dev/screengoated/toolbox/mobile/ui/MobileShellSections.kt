@@ -323,6 +323,7 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
                 note = "(English only)",
                 icon = Icons.Rounded.Mic,
                 state = modelState,
+                locale = locale,
                 onDownload = { scope.launch { manager.download() } },
                 onDelete = { manager.delete() },
             )
@@ -340,10 +341,11 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
                 version = dlState.ytdlp.version,
                 error = dlState.ytdlp.error,
                 updateStatus = dlState.ytdlpUpdate,
+                locale = locale,
                 onInstall = { dlRepo.installTools() },
                 onUpdate = { dlRepo.checkUpdates() },
                 showUpdateButton = true,
-                bundledLabel = "Bundled",
+                bundledLabel = locale.toolBundled,
             )
 
             VideoToolRow(
@@ -353,9 +355,14 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
                 version = null,
                 error = null,
                 updateStatus = dev.screengoated.toolbox.mobile.downloader.UpdateStatus.IDLE,
+                locale = locale,
                 onInstall = {},
                 onUpdate = {},
-                bundledLabel = dlState.ffmpeg.version ?: "Bundled",
+                bundledLabel = if (dlState.ffmpeg.version != null) {
+                    "${locale.toolBundled} (${dlState.ffmpeg.version})"
+                } else {
+                    locale.toolBundled
+                },
             )
         }
     }
@@ -367,6 +374,7 @@ private fun DownloadedToolRow(
     note: String,
     icon: ImageVector,
     state: dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState,
+    locale: MobileLocaleText,
     onDownload: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -385,7 +393,7 @@ private fun DownloadedToolRow(
             Text(text = name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
             Text(
                 text = when (state) {
-                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Missing -> "Not installed"
+                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Missing -> locale.dlDepsNotInstalled
                     is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Downloading ->
                         "Downloading ${state.currentFile} (${state.progress.toInt()}%)"
                     is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Installed -> {
@@ -426,7 +434,7 @@ private fun DownloadedToolRow(
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                     ),
-                ) { Text("Download") }
+                ) { Text(locale.dlDepsInstall) }
             }
             is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Installed -> {
                 Button(
@@ -434,7 +442,7 @@ private fun DownloadedToolRow(
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error,
                     ),
-                ) { Text("Delete") }
+                ) { Text(locale.toolDelete) }
             }
             else -> {}
         }
@@ -449,6 +457,7 @@ private fun VideoToolRow(
     version: String?,
     error: String?,
     updateStatus: dev.screengoated.toolbox.mobile.downloader.UpdateStatus,
+    locale: MobileLocaleText,
     onInstall: () -> Unit,
     onUpdate: () -> Unit,
     showUpdateButton: Boolean = false,
@@ -474,12 +483,12 @@ private fun VideoToolRow(
             Text(
                 text = when (status) {
                     dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.INSTALLED ->
-                        bundledLabel ?: (version ?: "Installed")
-                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.DOWNLOADING -> "Downloading..."
-                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.EXTRACTING -> "Extracting..."
-                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.CHECKING -> "Checking..."
-                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.ERROR -> error ?: "Error"
-                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.MISSING -> "Not installed"
+                        bundledLabel ?: (version ?: locale.dlDepsReady)
+                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.DOWNLOADING -> locale.dlDepsDownloading
+                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.EXTRACTING -> locale.dlDepsExtracting
+                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.CHECKING -> locale.dlDepsChecking
+                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.ERROR -> error ?: locale.dlStatusError
+                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.MISSING -> locale.dlDepsNotInstalled
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = when (status) {
@@ -501,22 +510,22 @@ private fun VideoToolRow(
             // Update status
             when (updateStatus) {
                 dev.screengoated.toolbox.mobile.downloader.UpdateStatus.UPDATE_AVAILABLE -> Text(
-                    "Updated!",
+                    locale.toolUpdated,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
                 dev.screengoated.toolbox.mobile.downloader.UpdateStatus.UP_TO_DATE -> Text(
-                    "Up to date",
+                    locale.toolUpToDate,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 dev.screengoated.toolbox.mobile.downloader.UpdateStatus.CHECKING -> Text(
-                    "Updating...",
+                    locale.toolUpdating,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 dev.screengoated.toolbox.mobile.downloader.UpdateStatus.ERROR -> Text(
-                    "Update failed",
+                    locale.toolUpdateFailed,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -527,14 +536,14 @@ private fun VideoToolRow(
             dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.MISSING,
             dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.ERROR -> {
                 if (bundledLabel == null) {
-                    Button(onClick = onInstall) { Text("Install") }
+                    Button(onClick = onInstall) { Text(locale.dlDepsInstall) }
                 }
             }
             dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.INSTALLED -> {
                 if (showUpdateButton) {
                     val isUpdating = updateStatus == dev.screengoated.toolbox.mobile.downloader.UpdateStatus.CHECKING
                     Button(onClick = onUpdate, enabled = !isUpdating) {
-                        Text(if (isUpdating) "..." else "Update")
+                        Text(if (isUpdating) "..." else locale.toolUpdate)
                     }
                 }
             }
