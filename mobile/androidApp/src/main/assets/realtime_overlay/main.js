@@ -15,26 +15,44 @@
         let transVisible = true;
         let headerCollapsed = false;
         let controlsScrollLeft = 0;
+        let overlayLocale = {
+            placeholderText: 'Waiting for speech...',
+            copyTextTitle: 'Copy text',
+            decreaseFontTitle: 'Decrease font size',
+            increaseFontTitle: 'Increase font size',
+            toggleTranscriptionTitle: 'Toggle transcription',
+            toggleTranslationTitle: 'Toggle translation',
+            toggleHeaderTitle: 'Toggle header',
+            micInputTitle: 'Microphone input',
+            deviceAudioTitle: 'Device audio',
+            geminiLiveTitle: 'Gemini Live (Cloud)',
+            parakeetTitle: 'Parakeet (Local)',
+            gemmaTitle: 'AI Translation (Gemma)',
+            cerebrasTitle: 'Instant AI (Cerebras)',
+            gtxTitle: 'Unlimited Translation (Google)',
+            targetLanguageTitle: 'Target language',
+            ttsSettingsTitle: 'Text-to-speech settings',
+            ttsTitle: 'Read',
+            ttsSpeed: 'Speed',
+            ttsAuto: 'Auto',
+            ttsVolume: 'Volume',
+            downloadingModelTitle: 'Downloading model',
+            pleaseWaitText: 'Please wait...',
+            cancelText: 'Cancel',
+            parakeetNote: '(English only)',
+        };
 
         function restoreControlsScroll(pinnedScrollLeft) {
             if (!controls) return;
-            controls.scrollLeft = pinnedScrollLeft;
             controlsScrollLeft = pinnedScrollLeft;
             requestAnimationFrame(() => {
                 controls.scrollLeft = pinnedScrollLeft;
-                requestAnimationFrame(() => {
-                    controls.scrollLeft = pinnedScrollLeft;
-                    controlsScrollLeft = pinnedScrollLeft;
-                });
+                controlsScrollLeft = pinnedScrollLeft;
             });
         }
 
         function preserveControlsScroll(callback) {
             const pinnedScrollLeft = controls ? controls.scrollLeft : 0;
-            const activeElement = document.activeElement;
-            if (activeElement && activeElement !== document.body && typeof activeElement.blur === 'function') {
-                activeElement.blur();
-            }
             callback();
             restoreControlsScroll(pinnedScrollLeft);
         }
@@ -43,23 +61,46 @@
             controls.addEventListener('scroll', function() {
                 controlsScrollLeft = controls.scrollLeft;
             }, { passive: true });
-            controls.addEventListener('focusin', function() {
-                restoreControlsScroll(controlsScrollLeft);
-            });
         }
 
         function installControlTapGuard(element) {
             if (!element) return;
             if (element.tagName === 'INPUT' && element.type === 'range') return;
-            const guard = function(e) {
-                if (e.cancelable) {
-                    e.preventDefault();
-                }
-                restoreControlsScroll(controls ? controls.scrollLeft : controlsScrollLeft);
-            };
-            element.addEventListener('pointerdown', guard, { passive: false });
-            element.addEventListener('mousedown', guard);
+            if (typeof element.tabIndex === 'number') {
+                element.tabIndex = -1;
+            }
         }
+
+        function updateTextNode(id, value) {
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = value;
+            }
+        }
+
+        function updateTitleById(id, value) {
+            const element = document.getElementById(id);
+            if (element) {
+                element.title = value;
+            }
+        }
+
+        function updateTitleBySelector(selector, value) {
+            document.querySelectorAll(selector).forEach(node => {
+                node.title = value;
+            });
+        }
+
+        function refreshPlaceholderIfNeeded() {
+            const placeholder = content ? content.querySelector('.placeholder') : null;
+            if (placeholder) {
+                placeholder.textContent = overlayLocale.placeholderText;
+            }
+        }
+
+        window.getPlaceholderMarkup = function() {
+            return '<span class="placeholder">' + overlayLocale.placeholderText + '</span>';
+        };
 
         function setSelectedByDataValue(nodes, value) {
             nodes.forEach(node => {
@@ -104,8 +145,13 @@
         const ttsModal = document.getElementById('tts-modal');
         const ttsModalOverlay = document.getElementById('tts-modal-overlay');
         const ttsToggle = document.getElementById('tts-toggle');
+        const ttsModalTitleText = document.getElementById('tts-modal-title-text');
+        const ttsSpeedLabel = document.getElementById('tts-speed-label');
+        const ttsVolumeLabel = document.getElementById('tts-volume-label');
         const speedSlider = document.getElementById('speed-slider');
         const speedValue = document.getElementById('speed-value');
+        const downloadFootnote = document.getElementById('download-footnote');
+        const downloadCancelText = document.getElementById('download-cancel-text');
         let ttsEnabled = false;
         let ttsSpeed = 100;
         const PERF_THRESHOLD_MS = 8;
@@ -342,7 +388,6 @@
             installControlTapGuard(micBtn);
             micBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                e.preventDefault();
                 preserveControlsScroll(() => {
                     setAudioSource('mic');
                     window.ipc.postMessage('audioSource:mic');
@@ -354,7 +399,6 @@
             installControlTapGuard(deviceBtn);
             deviceBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                e.preventDefault();
                 preserveControlsScroll(() => {
                     setAudioSource('device');
                     window.ipc.postMessage('audioSource:device');
@@ -367,11 +411,56 @@
         // Language Select Logic - show short code when collapsed, full name when open
         const langSelect = document.getElementById('language-select');
         const langSelectCode = document.getElementById('language-select-code');
+
+        window.setLocaleStrings = function(locale) {
+            overlayLocale = Object.assign({}, overlayLocale, locale || {});
+            updateTitleById('copy-btn', overlayLocale.copyTextTitle);
+            updateTitleById('font-decrease', overlayLocale.decreaseFontTitle);
+            updateTitleById('font-increase', overlayLocale.increaseFontTitle);
+            updateTitleById('toggle-mic', overlayLocale.toggleTranscriptionTitle);
+            updateTitleById('toggle-trans', overlayLocale.toggleTranslationTitle);
+            updateTitleById('header-toggle', overlayLocale.toggleHeaderTitle);
+            updateTitleById('mic-btn', overlayLocale.micInputTitle);
+            updateTitleById('device-btn', overlayLocale.deviceAudioTitle);
+            updateTitleById('speak-btn', overlayLocale.ttsSettingsTitle);
+            updateTitleBySelector('.model-icon[data-value="google-gemma"]', overlayLocale.gemmaTitle);
+            updateTitleBySelector('.model-icon[data-value="cerebras-oss"]', overlayLocale.cerebrasTitle);
+            updateTitleBySelector('.model-icon[data-value="google-gtx"]', overlayLocale.gtxTitle);
+            updateTitleBySelector('.trans-model-icon[data-value="gemini"]', overlayLocale.geminiLiveTitle);
+            updateTitleBySelector('.trans-model-icon[data-value="parakeet"]', overlayLocale.parakeetTitle);
+            updateTextNode('tts-modal-title-text', overlayLocale.ttsTitle);
+            updateTextNode('tts-speed-label', overlayLocale.ttsSpeed);
+            updateTextNode('tts-volume-label', overlayLocale.ttsVolume);
+            updateTextNode('download-title', overlayLocale.downloadingModelTitle);
+            updateTextNode('download-msg', overlayLocale.pleaseWaitText);
+            updateTextNode('download-footnote', overlayLocale.parakeetNote);
+            updateTextNode('download-cancel-text', overlayLocale.cancelText);
+            if (ttsToggle) {
+                ttsToggle.title = overlayLocale.ttsTitle;
+            }
+            const autoToggle = document.getElementById('auto-speed-toggle');
+            if (autoToggle) {
+                autoToggle.textContent = overlayLocale.ttsAuto;
+                autoToggle.title = overlayLocale.ttsAuto;
+            }
+            updateTitleById('download-cancel-btn', overlayLocale.cancelText);
+            if (langSelect) {
+                langSelect.dataset.baseTitle = overlayLocale.targetLanguageTitle;
+                if (window.setTargetLanguage) {
+                    window.setTargetLanguage(
+                        langSelect.dataset.language || '',
+                        langSelect.dataset.code || '',
+                    );
+                }
+            }
+            refreshPlaceholderIfNeeded();
+        };
+
         if (langSelect) {
             installControlTapGuard(langSelect);
             window.setTargetLanguage = function(language, code) {
                 const shortCode = code || (language || '').substring(0, 2).toUpperCase();
-                const baseTitle = langSelect.dataset.baseTitle || langSelect.title || '';
+                const baseTitle = langSelect.dataset.baseTitle || overlayLocale.targetLanguageTitle || langSelect.title || '';
                 if (langSelectCode) {
                     langSelectCode.textContent = shortCode;
                 }
@@ -383,7 +472,6 @@
             if (langSelect.tagName === 'BUTTON') {
                 langSelect.addEventListener('click', function(e) {
                     e.stopPropagation();
-                    e.preventDefault();
                     preserveControlsScroll(() => {
                         window.ipc.postMessage('showLanguagePicker');
                     });
@@ -431,7 +519,6 @@
                 installControlTapGuard(icon);
                 icon.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    e.preventDefault();
                     preserveControlsScroll(() => {
                         setTranslationModel(icon.getAttribute('data-value'));
                         const val = icon.getAttribute('data-value');
@@ -448,7 +535,6 @@
                 installControlTapGuard(icon);
                 icon.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    e.preventDefault();
                     preserveControlsScroll(() => {
                         setTranscriptionModel(icon.getAttribute('data-value'));
                         const val = icon.getAttribute('data-value');
@@ -456,6 +542,12 @@
                     });
                 });
             });
+        }
+        window.setLocaleStrings(overlayLocale);
+
+        // Signal readiness to native side so initial settings can be applied
+        if (window.ipc && window.ipc.postMessage) {
+            window.ipc.postMessage('overlayReady');
         }
 
         // Download Modal Functions

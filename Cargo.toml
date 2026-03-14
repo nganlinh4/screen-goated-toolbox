@@ -12,6 +12,7 @@ image = { version = "0.25", default-features = false, features = ["png", "bmp"] 
 ureq = { version = "3.2", features = ["json", "native-tls"] }
 tungstenite = { version = "0.28", features = ["native-tls"] }
 native-tls = "0.2"
+sha2 = "0.10"
 url = "2.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -114,6 +115,10 @@ features = [
     "Win32_Storage_Xps",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Variant",
+    "Media_Capture",
+    "Media_MediaProperties",
+    "Storage",
+    "Storage_Streams",
     "Graphics_Capture",
     "Graphics_DirectX",
     "Graphics_DirectX_Direct3D11",

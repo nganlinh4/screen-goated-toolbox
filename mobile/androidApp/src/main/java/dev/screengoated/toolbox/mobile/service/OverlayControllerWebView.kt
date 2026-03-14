@@ -14,6 +14,7 @@ import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
 import dev.screengoated.toolbox.mobile.model.RealtimePaneFontSizes
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
+import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import org.json.JSONObject
 
 internal enum class OverlayPaneId {
@@ -43,6 +44,7 @@ internal data class OverlayPaneRuntimeSettings(
     val transcriptionModel: String,
     val fontSize: Int,
     val isDark: Boolean,
+    val localeJson: String,
 )
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -91,6 +93,7 @@ internal class OverlayPaneHolder(
     private var lastSettings: OverlayPaneRuntimeSettings? = null
     private var lastOldText: String = ""
     private var lastNewText: String = ""
+    private var pendingInitialState: (() -> Unit)? = null
 
     fun render(
         html: String,
@@ -117,24 +120,21 @@ internal class OverlayPaneHolder(
             lastOldText = oldText
             lastNewText = newText
             Log.d(PERF_TAG, "reload-html pane=$paneId oldLen=${oldText.length} newLen=${newText.length}")
+            pendingInitialState = {
+                applyState(
+                    previousSettings = null,
+                    settings = settings,
+                    oldText = oldText,
+                    newText = newText,
+                    textChanged = true,
+                )
+            }
             webView.loadDataWithBaseURL(
                 "file:///android_asset/realtime_overlay/",
                 html,
                 "text/html",
                 "utf-8",
                 null,
-            )
-            webView.postDelayed(
-                {
-                    applyState(
-                        previousSettings = null,
-                        settings = settings,
-                        oldText = oldText,
-                        newText = newText,
-                        textChanged = true,
-                    )
-                },
-                80,
             )
             return true
         }
@@ -156,6 +156,11 @@ internal class OverlayPaneHolder(
             textChanged = textChanged,
         )
         return false
+    }
+
+    fun onReady() {
+        pendingInitialState?.invoke()
+        pendingInitialState = null
     }
 
     fun evaluate(script: String) {
@@ -187,6 +192,11 @@ internal class OverlayPaneHolder(
             if (previousSettings?.audioSource != settings.audioSource) {
                 append("if(window.setAudioSource) window.setAudioSource(")
                 append(JSONObject.quote(settings.audioSource))
+                append(");")
+            }
+            if (previousSettings?.localeJson != settings.localeJson) {
+                append("if(window.setLocaleStrings) window.setLocaleStrings(")
+                append(settings.localeJson)
                 append(");")
             }
             if (
@@ -241,6 +251,7 @@ internal fun overlayPaneRuntimeSettings(
     state: LiveSessionState,
     fontSize: Int,
     isDark: Boolean,
+    uiLanguage: String,
 ): OverlayPaneRuntimeSettings {
     return OverlayPaneRuntimeSettings(
         audioSource = if (state.config.sourceMode == dev.screengoated.toolbox.mobile.shared.live.SourceMode.DEVICE) {
@@ -254,7 +265,38 @@ internal fun overlayPaneRuntimeSettings(
         transcriptionModel = state.config.transcriptionProvider.id,
         fontSize = fontSize,
         isDark = isDark,
+        localeJson = overlayLocaleJson(uiLanguage),
     )
+}
+
+private fun overlayLocaleJson(uiLanguage: String): String {
+    val overlay = MobileLocaleText.forLanguage(uiLanguage).overlay
+    return JSONObject().apply {
+        put("placeholderText", overlay.placeholderText)
+        put("copyTextTitle", overlay.copyTextTitle)
+        put("decreaseFontTitle", overlay.decreaseFontTitle)
+        put("increaseFontTitle", overlay.increaseFontTitle)
+        put("toggleTranscriptionTitle", overlay.toggleTranscriptionTitle)
+        put("toggleTranslationTitle", overlay.toggleTranslationTitle)
+        put("toggleHeaderTitle", overlay.toggleHeaderTitle)
+        put("micInputTitle", overlay.micInputTitle)
+        put("deviceAudioTitle", overlay.deviceAudioTitle)
+        put("geminiLiveTitle", overlay.geminiLiveTitle)
+        put("parakeetTitle", overlay.parakeetTitle)
+        put("gemmaTitle", overlay.gemmaTitle)
+        put("cerebrasTitle", overlay.cerebrasTitle)
+        put("gtxTitle", overlay.gtxTitle)
+        put("targetLanguageTitle", overlay.targetLanguageTitle)
+        put("ttsSettingsTitle", overlay.ttsSettingsTitle)
+        put("ttsTitle", overlay.ttsTitle)
+        put("ttsSpeed", overlay.ttsSpeed)
+        put("ttsAuto", overlay.ttsAuto)
+        put("ttsVolume", overlay.ttsVolume)
+        put("downloadingModelTitle", overlay.downloadingModelTitle)
+        put("pleaseWaitText", overlay.pleaseWaitText)
+        put("cancelText", overlay.cancelText)
+        put("parakeetNote", overlay.parakeetNote)
+    }.toString()
 }
 
 internal fun transcriptOldText(state: LiveSessionState): String {

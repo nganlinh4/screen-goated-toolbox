@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.ui.i18n
 
+import dev.screengoated.toolbox.mobile.branding.MobileBrandAssets
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 import dev.screengoated.toolbox.mobile.model.next
 import org.junit.Assert.assertEquals
@@ -40,5 +41,11 @@ class MobileShellParityTest {
         assertTrue(en.startsWith("Waiting"))
         assertTrue(vi.startsWith("Đang chờ"))
         assertTrue(ko.startsWith("음성을"))
+    }
+
+    @Test
+    fun windowsBrandIconPairIsTheCanonicalMobileBrandSource() {
+        assertEquals("assets/app-icon-small.png", MobileBrandAssets.WINDOWS_DARK_ICON_SOURCE)
+        assertEquals("assets/app-icon-small-light.png", MobileBrandAssets.WINDOWS_LIGHT_ICON_SOURCE)
     }
 }

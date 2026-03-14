@@ -2,6 +2,7 @@ use minimp3::{Decoder, Frame};
 use std::io::{Cursor, Read};
 use std::sync::{Arc, atomic::Ordering};
 use std::time::{Duration, Instant};
+use sha2::{Sha256, Digest};
 use tungstenite::{Message, client};
 
 use super::manager::TtsManager;
@@ -457,8 +458,23 @@ fn handle_edge_tts(
         voice_name, pitch, rate
     );
 
+    fn generate_sec_ms_gec(trusted_token: &str) -> String {
+        let win_epoch_offset: u64 = 11_644_473_600;
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let adjusted = now_secs + win_epoch_offset;
+        let rounded = adjusted - (adjusted % 300);
+        let ticks = rounded * 10_000_000;
+        let input = format!("{}{}", ticks, trusted_token);
+        let hash = Sha256::digest(input.as_bytes());
+        hash.iter().map(|b| format!("{:02X}", b)).collect()
+    }
+
     // Edge TTS WebSocket constants
     let trusted_token = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+    let sec_ms_gec_version = "1-143.0.3650.75";
     let connection_id = format!(
         "{:032x}",
         std::time::SystemTime::now()
@@ -466,9 +482,10 @@ fn handle_edge_tts(
             .unwrap_or_default()
             .as_nanos()
     );
+    let sec_ms_gec = generate_sec_ms_gec(trusted_token);
     let wss_url = format!(
-        "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken={}&ConnectionId={}",
-        trusted_token, connection_id
+        "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken={}&ConnectionId={}&Sec-MS-GEC={}&Sec-MS-GEC-Version={}",
+        trusted_token, connection_id, sec_ms_gec, sec_ms_gec_version
     );
 
     eprintln!("[TTS Edge] Connecting to Bing Speech WebSocket...");
@@ -507,7 +524,20 @@ fn handle_edge_tts(
         }
     };
 
-    let (mut socket, _) = match client(&wss_url, tls_stream) {
+    let ws_request = tungstenite::http::Request::builder()
+        .uri(&wss_url)
+        .header("Host", host)
+        .header("Origin", "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold")
+        .header("Pragma", "no-cache")
+        .header("Cache-Control", "no-cache")
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.3650.75 Safari/537.36 Edg/143.0.3650.75")
+        .header("Connection", "Upgrade")
+        .header("Upgrade", "websocket")
+        .header("Sec-WebSocket-Version", "13")
+        .header("Sec-WebSocket-Key", tungstenite::handshake::client::generate_key())
+        .body(())
+        .unwrap();
+    let (mut socket, _) = match client(ws_request, tls_stream) {
         Ok(s) => {
             eprintln!("[TTS Edge] WebSocket connected successfully");
             s

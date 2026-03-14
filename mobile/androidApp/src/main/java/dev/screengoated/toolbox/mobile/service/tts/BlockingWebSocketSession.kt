@@ -7,10 +7,10 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
 import java.io.Closeable
-import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 internal sealed interface WebSocketEvent {
     data class Text(
@@ -33,6 +33,7 @@ internal class BlockingWebSocketSession(
     request: Request,
 ) : Closeable {
     private val openSignal = CountDownLatch(1)
+    private val openedSuccessfully = AtomicBoolean(false)
     private val events = LinkedBlockingQueue<WebSocketEvent>()
     private val socket: WebSocket
 
@@ -44,6 +45,7 @@ internal class BlockingWebSocketSession(
                     webSocket: WebSocket,
                     response: Response,
                 ) {
+                    openedSuccessfully.set(true)
                     openSignal.countDown()
                 }
 
@@ -90,7 +92,10 @@ internal class BlockingWebSocketSession(
     }
 
     fun awaitOpen(timeoutMs: Long): Boolean {
-        return openSignal.await(timeoutMs, TimeUnit.MILLISECONDS)
+        if (!openSignal.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+            return false
+        }
+        return openedSuccessfully.get()
     }
 
     fun sendText(payload: String): Boolean = socket.send(payload)

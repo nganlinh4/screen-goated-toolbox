@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+
 package dev.screengoated.toolbox.mobile.ui.ttssettings
 
 import androidx.compose.foundation.layout.Arrangement
@@ -15,8 +17,10 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material3.Card
+import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -122,11 +126,12 @@ private fun EdgeVoiceRoutingCard(
             )
 
             when {
-                catalogState.loading -> Text(
-                    text = locale.ttsLoadingVoices,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                catalogState.loading -> Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ContainedLoadingIndicator()
+                }
 
                 catalogState.errorMessage != null -> Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -166,52 +171,50 @@ private fun EdgeVoiceRoutingCard(
                 )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box {
-                    OutlinedButton(onClick = { addMenuExpanded = true }) {
-                        Text(locale.ttsAddLanguageLabel)
-                    }
-                    DropdownMenu(
-                        expanded = addMenuExpanded,
-                        onDismissRequest = { addMenuExpanded = false },
-                    ) {
-                        val usedCodes = settings.voiceConfigs.map { it.languageCode }.toSet()
-                        MobileTtsCatalog.edgeConfigLanguages
-                            .filterNot { usedCodes.contains(it.code) }
-                            .forEach { option ->
-                                DropdownMenuItem(
-                                    text = { Text(option.name) },
-                                    onClick = {
-                                        val defaultVoice = catalogState.byLanguage[option.code.lowercase()]
-                                            ?.firstOrNull()
-                                            ?.shortName
-                                            ?: MobileTtsCatalog.edgeVoiceSuggestions(option.code).firstOrNull()
-                                            ?: "${option.code}-Voice"
-                                        onChanged(
-                                            settings.copy(
-                                                voiceConfigs = settings.voiceConfigs + MobileEdgeTtsVoiceConfig(
-                                                    languageCode = option.code,
-                                                    languageName = option.name,
-                                                    voiceName = defaultVoice,
-                                                ),
-                                            ),
-                                        )
-                                        addMenuExpanded = false
-                                    },
-                                )
-                            }
-                    }
+            Box {
+                OutlinedButton(onClick = { addMenuExpanded = true }) {
+                    Text(locale.ttsAddLanguageLabel)
                 }
-
-                OutlinedButton(
-                    onClick = { onChanged(MobileEdgeTtsSettings()) },
+                DropdownMenu(
+                    expanded = addMenuExpanded,
+                    onDismissRequest = { addMenuExpanded = false },
                 ) {
-                    Icon(Icons.Rounded.Refresh, contentDescription = null)
-                    Text(
-                        text = locale.ttsResetToDefaultsLabel,
-                        modifier = Modifier.padding(start = 6.dp),
-                    )
+                    val usedCodes = settings.voiceConfigs.map { it.languageCode }.toSet()
+                    MobileTtsCatalog.edgeConfigLanguages
+                        .filterNot { usedCodes.contains(it.code) }
+                        .forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option.name) },
+                                onClick = {
+                                    val defaultVoice = catalogState.byLanguage[option.code.lowercase()]
+                                        ?.firstOrNull()
+                                        ?.shortName
+                                        ?: MobileTtsCatalog.edgeVoiceSuggestions(option.code).firstOrNull()
+                                        ?: "${option.code}-Voice"
+                                    onChanged(
+                                        settings.copy(
+                                            voiceConfigs = settings.voiceConfigs + MobileEdgeTtsVoiceConfig(
+                                                languageCode = option.code,
+                                                languageName = option.name,
+                                                voiceName = defaultVoice,
+                                            ),
+                                        ),
+                                    )
+                                    addMenuExpanded = false
+                                },
+                            )
+                        }
                 }
+            }
+
+            OutlinedButton(
+                onClick = { onChanged(MobileEdgeTtsSettings()) },
+            ) {
+                Icon(Icons.Rounded.Refresh, contentDescription = null)
+                Text(
+                    text = locale.ttsResetToDefaultsLabel,
+                    modifier = Modifier.padding(start = 6.dp),
+                )
             }
 
         }

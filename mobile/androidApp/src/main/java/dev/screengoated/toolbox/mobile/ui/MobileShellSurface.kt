@@ -2,6 +2,10 @@
 
 package dev.screengoated.toolbox.mobile.ui
 
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -14,10 +18,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
@@ -42,8 +50,8 @@ internal fun MobileShellSurface(
         SessionPhase.LISTENING,
         SessionPhase.TRANSLATING,
     )
-    val canToggle = apiKey.isNotBlank() || isActive
-    var selectedSection by rememberSaveable { mutableStateOf(MobileShellSection.GLOBAL) }
+    val canToggle = true
+    var selectedSection by rememberSaveable { mutableStateOf(MobileShellSection.APPS) }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val wideLayout = maxWidth >= 760.dp
@@ -67,9 +75,8 @@ internal fun MobileShellSurface(
                     modifier = Modifier
                         .weight(1f)
                         .widthIn(max = 960.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(ShellSpacing.sectionGap),
                 ) {
-                    QuickActionsRow(locale = locale)
                     SectionDetail(
                         selectedSection = selectedSection,
                         state = state,
@@ -87,40 +94,88 @@ internal fun MobileShellSurface(
                 }
             }
         } else {
+            val sections = MobileShellSection.entries
+            val pagerState = rememberPagerState { sections.size }
+            val scope = rememberCoroutineScope()
+
+            // Sync pager → selectedSection
+            LaunchedEffect(pagerState) {
+                snapshotFlow { pagerState.currentPage }.collect { page ->
+                    selectedSection = sections[page]
+                }
+            }
+            // Sync selectedSection → pager (from button taps)
+            LaunchedEffect(selectedSection) {
+                val target = selectedSection.ordinal
+                if (pagerState.currentPage != target) {
+                    pagerState.animateScrollToPage(target)
+                }
+            }
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(ShellSpacing.sectionGap),
             ) {
-                SectionDeck(
+                SectionSegmentedRow(
                     selectedSection = selectedSection,
-                    onSectionSelected = { selectedSection = it },
+                    onSectionSelected = {
+                        selectedSection = it
+                        scope.launch { pagerState.animateScrollToPage(it.ordinal) }
+                    },
                     locale = locale,
+                    modifier = Modifier.pointerInput(Unit) {
+                        var totalDrag = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { totalDrag = 0f },
+                            onHorizontalDrag = { _, dragAmount -> totalDrag += dragAmount },
+                            onDragEnd = {
+                                val threshold = 80f
+                                val current = pagerState.currentPage
+                                val target = when {
+                                    totalDrag < -threshold && current < sections.lastIndex -> current + 1
+                                    totalDrag > threshold && current > 0 -> current - 1
+                                    else -> null
+                                }
+                                if (target != null) {
+                                    scope.launch { pagerState.animateScrollToPage(target) }
+                                }
+                            },
+                        )
+                    },
                 )
-                QuickActionsRow(locale = locale)
-                SectionDetail(
-                    selectedSection = selectedSection,
-                    state = state,
-                    apiKey = apiKey,
-                    cerebrasApiKey = cerebrasApiKey,
-                    globalTtsSettings = globalTtsSettings,
-                    locale = locale,
-                    wideLayout = false,
-                    onApiKeyChanged = onApiKeyChanged,
-                    onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
-                    onVoiceSettingsClick = onVoiceSettingsClick,
-                    onSessionToggle = onSessionToggle,
-                    canToggle = canToggle,
-                )
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f),
+                    beyondViewportPageCount = 1,
+                    pageSpacing = 16.dp,
+                ) { page ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(ShellSpacing.sectionGap),
+                    ) {
+                        SectionDetail(
+                            selectedSection = sections[page],
+                            state = state,
+                            apiKey = apiKey,
+                            cerebrasApiKey = cerebrasApiKey,
+                            globalTtsSettings = globalTtsSettings,
+                            locale = locale,
+                            wideLayout = false,
+                            onApiKeyChanged = onApiKeyChanged,
+                            onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
+                            onVoiceSettingsClick = onVoiceSettingsClick,
+                            onSessionToggle = onSessionToggle,
+                            canToggle = canToggle,
+                        )
+                    }
+                }
             }
         }
     }
-}
-
-internal enum class MobileShellSection {
-    GLOBAL,
-    HISTORY,
-    PRESETS,
 }

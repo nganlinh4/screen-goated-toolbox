@@ -157,6 +157,7 @@ class AudioCaptureController(
             runCatching { audioRecord.stop() }
             audioRecord.release()
             mediaProjection.stop()
+            projectionConsentStore.clear()
         }
     }
 

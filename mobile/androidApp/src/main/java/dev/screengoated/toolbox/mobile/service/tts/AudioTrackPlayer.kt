@@ -6,7 +6,6 @@ import android.media.AudioFocusRequest
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
-import android.media.PlaybackParams
 import android.os.Build
 import android.os.SystemClock
 
@@ -23,6 +22,7 @@ internal class AudioTrackPlayer(
         .build()
 
     private val audioTrack = createAudioTrack()
+    private val stretcher = WsolaStretcher(24_000)
     private var writtenFrames: Long = 0
     private var hasAudioFocus = false
     private var active = false
@@ -38,8 +38,21 @@ internal class AudioTrackPlayer(
         }
         requestAudioFocus()
         ensureStarted()
-        applyPlaybackSpeed(speedPercent)
-        val output = upsampleAndScale(pcm24k, volumePercent)
+
+        // Decode PCM bytes to 24kHz shorts
+        val samples24k = ShortArray(pcm24k.size / 2)
+        for (i in samples24k.indices) {
+            val byteIndex = i * 2
+            samples24k[i] = ((pcm24k[byteIndex + 1].toInt() shl 8) or
+                (pcm24k[byteIndex].toInt() and 0xFF)).toShort()
+        }
+
+        // Apply WSOLA time-stretching at 24kHz (pitch-preserving)
+        val speedRatio = speedPercent.coerceIn(50, 200) / 100.0
+        val stretched = stretcher.stretch(samples24k, speedRatio)
+
+        // Upsample stretched 24kHz to 48kHz and apply volume
+        val output = upsampleAndScale(stretched, volumePercent)
         val writtenBytes = audioTrack.write(output, 0, output.size, AudioTrack.WRITE_BLOCKING)
         if (writtenBytes > 0) {
             writtenFrames += writtenBytes / 2L
@@ -83,39 +96,20 @@ internal class AudioTrackPlayer(
         }
     }
 
-    private fun applyPlaybackSpeed(speedPercent: Int) {
-        val speed = speedPercent.coerceIn(50, 200) / 100f
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            runCatching {
-                val params = PlaybackParams()
-                    .setSpeed(speed)
-                    .setPitch(1f)
-                audioTrack.playbackParams = params
-            }
-        } else {
-            runCatching {
-                audioTrack.playbackRate = (48_000 * speed).toInt()
-            }
-        }
-    }
-
     private fun upsampleAndScale(
-        pcm24k: ByteArray,
+        samples24k: ShortArray,
         volumePercent: Int,
     ): ByteArray {
         val volume = volumePercent.coerceIn(0, 200) / 100f
-        val output = ByteArray(pcm24k.size * 2)
+        val output = ByteArray(samples24k.size * 4) // 2x upsample, 2 bytes per sample
         var outputIndex = 0
-        var inputIndex = 0
-        while (inputIndex + 1 < pcm24k.size) {
-            val sample = ((pcm24k[inputIndex + 1].toInt() shl 8) or (pcm24k[inputIndex].toInt() and 0xFF)).toShort()
+        for (sample in samples24k) {
             val scaled = (sample * volume).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
             repeat(2) {
                 output[outputIndex] = (scaled.toInt() and 0xFF).toByte()
                 output[outputIndex + 1] = ((scaled.toInt() shr 8) and 0xFF).toByte()
                 outputIndex += 2
             }
-            inputIndex += 2
         }
         return output
     }
