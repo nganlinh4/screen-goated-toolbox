@@ -6,10 +6,14 @@ import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.text.Editable
 import android.text.TextUtils
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -24,12 +28,18 @@ internal class OverlayLanguagePicker(
     private val onSelected: (String) -> Unit,
 ) {
     private var overlayView: FrameLayout? = null
+    private val typeface: Typeface by lazy {
+        runCatching {
+            Typeface.createFromAsset(context.assets, "realtime_overlay/GoogleSansFlex.ttf")
+        }.getOrDefault(Typeface.DEFAULT)
+    }
 
     fun show(
         anchorBounds: OverlayBounds,
         selectedLanguage: String,
         languages: List<String>,
         isDark: Boolean,
+        title: String,
     ) {
         hide()
         val screen = screenBoundsProvider()
@@ -44,6 +54,9 @@ internal class OverlayLanguagePicker(
             margin,
             (screen.height() - cardHeight - margin).coerceAtLeast(margin),
         )
+
+        val textColor = if (isDark) Color.parseColor("#F4F2F8") else Color.parseColor("#17151B")
+        val subtextColor = if (isDark) Color.parseColor("#A19CA9") else Color.parseColor("#6E6874")
 
         val root = FrameLayout(context).apply {
             layoutParams = ViewGroup.LayoutParams(
@@ -68,11 +81,11 @@ internal class OverlayLanguagePicker(
         }
 
         val header = TextView(context).apply {
-            text = "Target language"
-            setTextColor(if (isDark) Color.parseColor("#F4F2F8") else Color.parseColor("#17151B"))
+            text = title
+            setTextColor(textColor)
             textSize = 13f
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, 0, 0, dp(10))
+            typeface = Typeface.create(this@OverlayLanguagePicker.typeface, Typeface.BOLD)
+            setPadding(0, 0, 0, dp(8))
         }
         card.addView(
             header,
@@ -82,6 +95,29 @@ internal class OverlayLanguagePicker(
             ),
         )
 
+        // Search box
+        val searchBox = EditText(context).apply {
+            hint = "Search..."
+            setHintTextColor(subtextColor)
+            setTextColor(textColor)
+            textSize = 13f
+            typeface = this@OverlayLanguagePicker.typeface
+            isSingleLine = true
+            imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12).toFloat()
+                setColor(if (isDark) Color.argb(40, 255, 255, 255) else Color.argb(30, 0, 0, 0))
+            }
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+        card.addView(
+            searchBox,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(8) },
+        )
+
         val scrollView = ScrollView(context).apply {
             isFillViewport = true
             overScrollMode = ScrollView.OVER_SCROLL_IF_CONTENT_SCROLLS
@@ -89,9 +125,32 @@ internal class OverlayLanguagePicker(
         val list = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
-        languages.forEach { language ->
-            list.addView(languageRow(language, selectedLanguage == language, isDark))
+
+        fun populateList(filter: String) {
+            list.removeAllViews()
+            val filtered = if (filter.isBlank()) {
+                languages
+            } else {
+                languages.filter {
+                    it.contains(filter, ignoreCase = true) ||
+                        LanguageCatalog.codeForName(it).contains(filter, ignoreCase = true)
+                }
+            }
+            for (language in filtered) {
+                list.addView(languageRow(language, selectedLanguage == language, isDark))
+            }
         }
+
+        populateList("")
+
+        searchBox.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                populateList(s?.toString() ?: "")
+            }
+        })
+
         scrollView.addView(
             list,
             ViewGroup.LayoutParams(
@@ -122,11 +181,11 @@ internal class OverlayLanguagePicker(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
         }
 
         overlayView = root
@@ -176,6 +235,7 @@ internal class OverlayLanguagePicker(
                     text = language
                     setTextColor(if (isDark) Color.parseColor("#F4F2F8") else Color.parseColor("#17151B"))
                     textSize = 13f
+                    typeface = this@OverlayLanguagePicker.typeface
                     ellipsize = TextUtils.TruncateAt.END
                     maxLines = 1
                 },
@@ -186,7 +246,7 @@ internal class OverlayLanguagePicker(
                     text = LanguageCatalog.codeForName(language)
                     setTextColor(if (selected) Color.parseColor("#00C8FF") else if (isDark) Color.parseColor("#A19CA9") else Color.parseColor("#6E6874"))
                     textSize = 11f
-                    typeface = Typeface.DEFAULT_BOLD
+                    typeface = Typeface.create(this@OverlayLanguagePicker.typeface, Typeface.BOLD)
                 },
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,

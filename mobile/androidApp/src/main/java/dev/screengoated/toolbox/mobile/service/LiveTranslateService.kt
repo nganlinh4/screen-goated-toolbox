@@ -41,6 +41,7 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
             overlaySupported = dev.screengoated.toolbox.mobile.BuildConfig.OVERLAY_SUPPORTED,
             stopRequested = { stopSession() },
             sourceModeChanged = ::updateForegroundType,
+            parakeetModelManager = container.parakeetModelManager,
         )
 
         serviceScope.launch {

@@ -29,7 +29,7 @@ internal class RealtimeOverlayHtmlBuilder(
                     isDark = settings.isDark,
                 ),
                 "JS_CONTENT" to javascript(locale),
-                "TITLE_CONTENT" to if (settings.isTranslation) "" else """<canvas id="volume-canvas" width="90" height="24"></canvas>""",
+                "TITLE_CONTENT" to "",
                 "AUDIO_SELECTOR" to controls(settings.isTranslation, locale),
                 "LOADING_ICON" to if (settings.isTranslation) {
                     RealtimeOverlayIcons.TRANSLATION_LOADING
@@ -109,6 +109,7 @@ internal class RealtimeOverlayHtmlBuilder(
             """.trimIndent()
         } else {
             """
+            <canvas id="volume-canvas" width="90" height="24"></canvas>
             <div class="btn-group">
                 <span class="material-symbols-rounded audio-icon" id="mic-btn" data-value="mic" title="${locale.overlay.micInputTitle}">${RealtimeOverlayIcons.MIC}</span>
                 <span class="material-symbols-rounded audio-icon" id="device-btn" data-value="device" title="${locale.overlay.deviceAudioTitle}">${RealtimeOverlayIcons.SPEAKER_GROUP}</span>

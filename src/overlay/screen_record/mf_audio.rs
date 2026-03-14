@@ -107,10 +107,7 @@ impl MfAudioDecoder {
                     .map_err(|e| format!("SetUINT32 BLOCK_ALIGN: {e}"))?;
                 if let Some(sample_rate) = target_sample_rate {
                     pcm_type
-                        .SetUINT32(
-                            &MF_MT_AUDIO_AVG_BYTES_PER_SECOND,
-                            sample_rate * block_align,
-                        )
+                        .SetUINT32(&MF_MT_AUDIO_AVG_BYTES_PER_SECOND, sample_rate * block_align)
                         .map_err(|e| format!("SetUINT32 AVG_BYTES: {e}"))?;
                 }
             }

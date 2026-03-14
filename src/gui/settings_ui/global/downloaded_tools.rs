@@ -32,7 +32,7 @@ pub fn render_downloaded_tools_modal(
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .default_width(620.0)
+            .default_width(650.0)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
                 ui.add_space(8.0);

@@ -42,6 +42,14 @@ import androidx.graphics.shapes.CornerRounding
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
 
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.screengoated.toolbox.mobile.SgtMobileApplication
+import dev.screengoated.toolbox.mobile.downloader.DownloaderViewModel
+import dev.screengoated.toolbox.mobile.downloader.ui.DownloaderScreen
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
@@ -78,6 +86,7 @@ fun SgtMobileApp(
     onSessionToggle: () -> Unit,
 ) {
     var showTtsSettings by rememberSaveable { mutableStateOf(false) }
+    var showDownloader by rememberSaveable { mutableStateOf(false) }
 
     if (showTtsSettings) {
         GlobalTtsSettingsDialog(
@@ -96,10 +105,12 @@ fun SgtMobileApp(
         )
     }
 
+    val focusManager = LocalFocusManager.current
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface),
+            .background(MaterialTheme.colorScheme.surface)
+            .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) },
     ) {
         Scaffold(
             containerColor = Color.Transparent,
@@ -158,8 +169,20 @@ fun SgtMobileApp(
                         showTtsSettings = true
                     },
                     onSessionToggle = onSessionToggle,
+                    onDownloaderClick = { showDownloader = true },
                 )
             }
+        }
+    }
+
+    if (showDownloader) {
+        androidx.activity.compose.BackHandler { showDownloader = false }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surface),
+        ) {
+            DownloaderScreenWrapper(locale = locale, onBack = { showDownloader = false })
         }
     }
 }
@@ -400,3 +423,13 @@ private fun lerpColor(a: Color, b: Color, t: Float): Color = Color(
     blue = a.blue + (b.blue - a.blue) * t,
     alpha = 1f,
 )
+
+@Composable
+private fun DownloaderScreenWrapper(locale: MobileLocaleText, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val app = context.applicationContext as SgtMobileApplication
+    val vm: DownloaderViewModel = viewModel(
+        factory = DownloaderViewModel.factory(app.appContainer.downloaderRepository),
+    )
+    DownloaderScreen(viewModel = vm, locale = locale, onBack = onBack)
+}

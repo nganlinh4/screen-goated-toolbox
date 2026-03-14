@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const INSTALL_TITLE: &str = "Installing local AI runtime";
+const ONNX_RUNTIME_VERSION: &str = "1.22.0";
+const DIRECTML_VERSION: &str = "1.15.4";
 const ONNX_PACKAGE_URL: &str = "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.22.0/microsoft.ml.onnxruntime.directml.1.22.0.nupkg";
 const DIRECTML_PACKAGE_URL: &str = "https://api.nuget.org/v3-flatcontainer/microsoft.ai.directml/1.15.4/microsoft.ai.directml.1.15.4.nupkg";
 const ONNX_ARCHIVE_NAME: &str = "onnxruntime-directml-1.22.0.nupkg";
@@ -378,6 +380,13 @@ pub fn current_ai_runtime_status() -> AiRuntimeStatus {
         AiRuntimeStatus::Error(message) => AiRuntimeStatus::Error(message),
         _ => AiRuntimeStatus::Missing,
     }
+}
+
+pub fn ai_runtime_version_label() -> String {
+    format!(
+        "ONNX Runtime {} + DirectML {}",
+        ONNX_RUNTIME_VERSION, DIRECTML_VERSION
+    )
 }
 
 pub fn remove_ai_runtime() -> Result<()> {

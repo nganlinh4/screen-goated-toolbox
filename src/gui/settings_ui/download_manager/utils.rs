@@ -203,10 +203,18 @@ pub fn fetch_video_formats(
     let json_str = String::from_utf8_lossy(&output.stdout);
     let v: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
 
-    // 1. Extract resolutions
+    // 1. Extract resolutions — only from formats that have a real video codec
     let mut heights = std::collections::HashSet::new();
     if let Some(formats) = v.get("formats").and_then(|f| f.as_array()) {
         for f in formats {
+            // Skip audio-only and storyboard formats
+            let vcodec = f
+                .get("vcodec")
+                .and_then(|v| v.as_str())
+                .unwrap_or("none");
+            if vcodec == "none" || vcodec == "images" {
+                continue;
+            }
             if let Some(h) = f.get("height").and_then(|h| h.as_u64())
                 && h > 0
             {

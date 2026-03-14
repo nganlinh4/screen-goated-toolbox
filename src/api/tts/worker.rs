@@ -1,8 +1,8 @@
 use minimp3::{Decoder, Frame};
+use sha2::{Digest, Sha256};
 use std::io::{Cursor, Read};
 use std::sync::{Arc, atomic::Ordering};
 use std::time::{Duration, Instant};
-use sha2::{Sha256, Digest};
 use tungstenite::{Message, client};
 
 use super::manager::TtsManager;

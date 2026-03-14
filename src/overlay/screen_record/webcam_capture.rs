@@ -77,8 +77,7 @@ fn create_storage_file(path: &str) -> Result<StorageFile, String> {
 
     let async_file = StorageFile::GetFileFromPathAsync(&HSTRING::from(path))
         .map_err(|e| format!("GetFileFromPathAsync: {e}"))?;
-    block_on(async_file)
-        .map_err(|e| format!("Resolve webcam storage file: {e}"))
+    block_on(async_file).map_err(|e| format!("Resolve webcam storage file: {e}"))
 }
 
 fn initialize_media_capture() -> Result<MediaCapture, String> {
@@ -99,8 +98,7 @@ fn initialize_media_capture() -> Result<MediaCapture, String> {
     let init_action = capture
         .InitializeWithSettingsAsync(&settings)
         .map_err(|e| format!("InitializeWithSettingsAsync: {e}"))?;
-    block_on(init_action)
-        .map_err(|e| format!("Initialize webcam capture: {e}"))?;
+    block_on(init_action).map_err(|e| format!("Initialize webcam capture: {e}"))?;
     Ok(capture)
 }
 
@@ -119,7 +117,9 @@ fn start_recording(capture: &MediaCapture, file: &StorageFile) -> Result<(), Str
         let action = match capture.StartRecordToStorageFileAsync(&profile, file) {
             Ok(action) => action,
             Err(error) => {
-                last_error = Some(format!("StartRecordToStorageFileAsync({quality:?}): {error}"));
+                last_error = Some(format!(
+                    "StartRecordToStorageFileAsync({quality:?}): {error}"
+                ));
                 continue;
             }
         };
@@ -165,8 +165,7 @@ pub(crate) fn record_webcam_video_sidecar(
             let stop_action = capture
                 .StopRecordAsync()
                 .map_err(|e| format!("StopRecordAsync: {e}"))?;
-            block_on(stop_action)
-                .map_err(|e| format!("Stop webcam recording: {e}"))?;
+            block_on(stop_action).map_err(|e| format!("Stop webcam recording: {e}"))?;
             let _ = capture.Close();
 
             Ok(())

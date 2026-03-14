@@ -1303,7 +1303,9 @@ impl GpuCompositor {
 
     pub fn render_post_overlays(
         &self,
-        webcam_frame: Option<&crate::overlay::screen_record::native_export::config::BakedWebcamFrame>,
+        webcam_frame: Option<
+            &crate::overlay::screen_record::native_export::config::BakedWebcamFrame,
+        >,
         quads: &[OverlayQuad],
     ) {
         let shared = match shared_gpu_context() {

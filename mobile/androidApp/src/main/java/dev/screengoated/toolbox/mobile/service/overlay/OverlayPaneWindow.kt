@@ -157,6 +157,32 @@ internal class OverlayPaneWindow(
         paneHolder.onReady()
     }
 
+    /**
+     * Resize from a corner handle.
+     * @param corner "bl" (bottom-left) or "br" (bottom-right)
+     * @param dx horizontal drag delta in pixels
+     * @param dy vertical drag delta in pixels
+     */
+    fun resizeFromCorner(corner: String, dx: Int, dy: Int) {
+        val current = currentBounds()
+        val screen = screenBoundsProvider()
+        when (corner) {
+            "br" -> {
+                // Bottom-right: width grows with dx, height grows with dy, position unchanged
+                val nextWidth = (current.width + dx).coerceIn(minWidthPx, screen.width() - current.x)
+                val nextHeight = (current.height + dy).coerceIn(minHeightPx, screen.height() - current.y)
+                updateBounds(current.copy(width = nextWidth, height = nextHeight))
+            }
+            "bl" -> {
+                // Bottom-left: width shrinks with dx (x moves), height grows with dy
+                val nextWidth = (current.width - dx).coerceIn(minWidthPx, current.x + current.width)
+                val nextX = (current.x + current.width - nextWidth).coerceAtLeast(0)
+                val nextHeight = (current.height + dy).coerceIn(minHeightPx, screen.height() - current.y)
+                updateBounds(current.copy(x = nextX, width = nextWidth, height = nextHeight))
+            }
+        }
+    }
+
     private fun resizeByGesture(detector: ScaleGestureDetector) {
         val scaleX = axisScale(detector.currentSpanX, detector.previousSpanX)
         val scaleY = axisScale(detector.currentSpanY, detector.previousSpanY)

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -24,6 +25,8 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
@@ -32,6 +35,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -52,6 +56,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
@@ -81,7 +86,7 @@ internal fun CredentialsCard(
         ProviderDef("Ollama", Icons.Rounded.Computer, "Ollama URL"),
     )
     val enabledState = remember { mutableStateListOf(true, true, false, false, false) }
-    // Local state for providers not yet wired to ViewModel
+    val visibleState = remember { mutableStateListOf(false, false, false, false, false) }
     var groqKey by remember { mutableStateOf("") }
     var openRouterKey by remember { mutableStateOf("") }
     var ollamaUrl by remember { mutableStateOf("http://localhost:11434") }
@@ -97,7 +102,7 @@ internal fun CredentialsCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(ShellSpacing.innerPad),
-            verticalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -118,7 +123,6 @@ internal fun CredentialsCard(
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
-            // Provider toggle chips — compact connected buttons
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
@@ -148,65 +152,49 @@ internal fun CredentialsCard(
                     }
                 }
             }
-            // Gemini key
-            AnimatedVisibility(visible = enabledState[0]) {
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = apiKey,
-                    onValueChange = onApiKeyChanged,
-                    label = { Text(providers[0].keyLabel) },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    shape = MaterialTheme.shapes.large,
-                )
+
+            @Composable
+            fun ApiKeyField(
+                index: Int,
+                value: String,
+                onValueChange: (String) -> Unit,
+                isPassword: Boolean = true,
+            ) {
+                AnimatedVisibility(visible = enabledState[index]) {
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        value = value,
+                        onValueChange = onValueChange,
+                        label = { Text(providers[index].keyLabel, style = MaterialTheme.typography.labelSmall) },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        visualTransformation = if (isPassword && !visibleState[index]) {
+                            PasswordVisualTransformation()
+                        } else {
+                            VisualTransformation.None
+                        },
+                        trailingIcon = if (isPassword) {
+                            {
+                                IconButton(onClick = { visibleState[index] = !visibleState[index] }) {
+                                    Icon(
+                                        if (visibleState[index]) Icons.Rounded.VisibilityOff
+                                        else Icons.Rounded.Visibility,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+                        } else null,
+                        shape = MaterialTheme.shapes.medium,
+                    )
+                }
             }
-            // Cerebras key
-            AnimatedVisibility(visible = enabledState[1]) {
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = cerebrasApiKey,
-                    onValueChange = onCerebrasApiKeyChanged,
-                    label = { Text(providers[1].keyLabel) },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    shape = MaterialTheme.shapes.large,
-                )
-            }
-            // Groq key
-            AnimatedVisibility(visible = enabledState[2]) {
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = groqKey,
-                    onValueChange = { groqKey = it },
-                    label = { Text(providers[2].keyLabel) },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    shape = MaterialTheme.shapes.large,
-                )
-            }
-            // OpenRouter key
-            AnimatedVisibility(visible = enabledState[3]) {
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = openRouterKey,
-                    onValueChange = { openRouterKey = it },
-                    label = { Text(providers[3].keyLabel) },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    shape = MaterialTheme.shapes.large,
-                )
-            }
-            // Ollama URL
-            AnimatedVisibility(visible = enabledState[4]) {
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = ollamaUrl,
-                    onValueChange = { ollamaUrl = it },
-                    label = { Text(providers[4].keyLabel) },
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.large,
-                )
-            }
+
+            ApiKeyField(0, apiKey, onApiKeyChanged)
+            ApiKeyField(1, cerebrasApiKey, onCerebrasApiKeyChanged)
+            ApiKeyField(2, groqKey, { groqKey = it })
+            ApiKeyField(3, openRouterKey, { openRouterKey = it })
+            ApiKeyField(4, ollamaUrl, { ollamaUrl = it }, isPassword = false)
         }
     }
 }

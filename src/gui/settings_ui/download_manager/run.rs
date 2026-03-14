@@ -473,7 +473,8 @@ impl DownloadManager {
 
             // Check ffmpeg
             let ffmpeg_path = bin.join("ffmpeg.exe");
-            if ffmpeg_path.exists() {
+            let ffprobe_path = bin.join("ffprobe.exe");
+            if ffmpeg_path.exists() && ffprobe_path.exists() {
                 *ffmpeg_s.lock().unwrap() = InstallStatus::Installed;
             } else {
                 *ffmpeg_s.lock().unwrap() = InstallStatus::Missing;
@@ -666,6 +667,7 @@ impl DownloadManager {
     pub fn get_dependency_sizes(&self) -> (String, String, String) {
         let ytdlp_path = self.bin_dir.join("yt-dlp.exe");
         let ffmpeg_path = self.bin_dir.join("ffmpeg.exe");
+        let ffprobe_path = self.bin_dir.join("ffprobe.exe");
         let deno_path = self.bin_dir.join("deno.exe");
 
         let size_to_string = |path: PathBuf| -> String {
@@ -679,7 +681,15 @@ impl DownloadManager {
 
         (
             size_to_string(ytdlp_path),
-            size_to_string(ffmpeg_path),
+            {
+                let total = [ffmpeg_path, ffprobe_path]
+                    .into_iter()
+                    .filter_map(|path| fs::metadata(path).ok())
+                    .map(|metadata| metadata.len())
+                    .sum::<u64>();
+                let size_mb = total as f64 / 1024.0 / 1024.0;
+                format!("{:.1} MB", size_mb)
+            },
             size_to_string(deno_path),
         )
     }
@@ -687,11 +697,13 @@ impl DownloadManager {
     pub fn delete_dependencies(&self) {
         let ytdlp_path = self.bin_dir.join("yt-dlp.exe");
         let ffmpeg_path = self.bin_dir.join("ffmpeg.exe");
+        let ffprobe_path = self.bin_dir.join("ffprobe.exe");
         let ffmpeg_marker_path = self.bin_dir.join(FFMPEG_RELEASE_MARKER_FILE);
         let deno_path = self.bin_dir.join("deno.exe");
 
         let _ = fs::remove_file(ytdlp_path);
         let _ = fs::remove_file(ffmpeg_path);
+        let _ = fs::remove_file(ffprobe_path);
         let _ = fs::remove_file(ffmpeg_marker_path);
         let _ = fs::remove_file(deno_path);
 
@@ -1016,6 +1028,8 @@ impl DownloadManager {
 
             // Progress per line for potential parsing
             args.push("--newline".to_string());
+            // Always re-download if quality differs (don't skip based on filename)
+            args.push("--force-overwrites".to_string());
 
             if !use_playlist {
                 args.push("--no-playlist".to_string());
@@ -1087,9 +1101,9 @@ impl DownloadManager {
                     if let Some(fmt_str) = selected_format {
                         // fmt_str is like "1080p"
                         let height = fmt_str.trim_end_matches('p');
-                        // format: bestvideo[height=1080]+bestaudio/best[height=1080]
+                        // Use height<= for best available up to chosen quality
                         let selector =
-                            format!("bestvideo[height={0}]+bestaudio/best[height={0}]", height);
+                            format!("bestvideo[height<={0}]+bestaudio/best[height<={0}]", height);
                         args.push(selector);
                     } else {
                         args.push("bestvideo+bestaudio/best".to_string());

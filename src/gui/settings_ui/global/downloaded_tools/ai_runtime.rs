@@ -6,6 +6,7 @@ use super::utils::format_size;
 
 pub(super) fn render_ai_runtime_section(ui: &mut egui::Ui, text: &LocaleText) {
     let status = unpack_dlls::current_ai_runtime_status();
+    let version_label = unpack_dlls::ai_runtime_version_label();
 
     ui.group(|ui| {
         ui.horizontal(|ui| {
@@ -60,6 +61,13 @@ pub(super) fn render_ai_runtime_section(ui: &mut egui::Ui, text: &LocaleText) {
             );
         });
 
-        ui.label(text.tool_desc_ai_runtime);
+        ui.horizontal(|ui| {
+            ui.label(text.tool_desc_ai_runtime);
+            if matches!(status, AiRuntimeStatus::Installed { .. }) {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(egui::RichText::new(version_label).color(egui::Color32::GRAY));
+                });
+            }
+        });
     });
 }

@@ -108,7 +108,10 @@ pub(super) fn record_per_app_audio(
         let capture_client = match audio_client.get_audiocaptureclient() {
             Ok(client) => client,
             Err(error) => {
-                eprintln!("[AudioMux] failed to get per-app capture client: {:?}", error);
+                eprintln!(
+                    "[AudioMux] failed to get per-app capture client: {:?}",
+                    error
+                );
                 record_silence_only_audio(
                     audio_handle,
                     start_time,
@@ -188,8 +191,7 @@ pub(super) fn record_per_app_audio(
                                 eprintln!("Per-app audio mux send error: {}", error);
                                 break;
                             }
-                            audio_output_100ns =
-                                audio_output_100ns.saturating_add(duration_100ns);
+                            audio_output_100ns = audio_output_100ns.saturating_add(duration_100ns);
                             sent_audio = true;
                         }
                     }

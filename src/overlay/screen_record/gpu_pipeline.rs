@@ -284,11 +284,7 @@ fn apply_audio_volume_envelope(
         }
         for channel_idx in 0..channels {
             let sample_idx = ((frame_idx * channels) + channel_idx) * 4;
-            let sample = f32::from_le_bytes(
-                pcm[sample_idx..sample_idx + 4]
-                    .try_into()
-                    .unwrap(),
-            );
+            let sample = f32::from_le_bytes(pcm[sample_idx..sample_idx + 4].try_into().unwrap());
             pcm[sample_idx..sample_idx + 4]
                 .copy_from_slice(&(sample * volume).clamp(-1.0, 1.0).to_le_bytes());
         }
@@ -429,9 +425,7 @@ fn prepare_webcam_decode_setup(
         .ok_or_else(|| "Webcam zero-copy decode ring init failed".to_string())?;
     println!(
         "[Export] Zero-copy GPU webcam decode path ({}-slot ring, {}x{})",
-        DECODE_RING_SIZE,
-        render_width,
-        render_height
+        DECODE_RING_SIZE, render_width, render_height
     );
 
     Ok(Some(WebcamDecodeSetup {
@@ -912,7 +906,14 @@ pub fn run_zero_copy_export(
         .unwrap_or(&[]);
     let webcam_d3d_textures: Vec<ID3D11Texture2D> = webcam_setup
         .as_ref()
-        .map(|setup| setup.ring.shared_buffers.iter().map(|b| b.texture.clone()).collect())
+        .map(|setup| {
+            setup
+                .ring
+                .shared_buffers
+                .iter()
+                .map(|b| b.texture.clone())
+                .collect()
+        })
         .unwrap_or_default();
     let webcam_keyed_mutexes: &[IDXGIKeyedMutex] = webcam_setup
         .as_ref()
@@ -926,8 +927,9 @@ pub fn run_zero_copy_export(
         .as_ref()
         .map(|setup| setup.source_times.as_slice())
         .unwrap_or(&[]);
-    let webcam_active_mask: Option<&[bool]> =
-        webcam_setup.as_ref().map(|setup| setup.active_mask.as_slice());
+    let webcam_active_mask: Option<&[bool]> = webcam_setup
+        .as_ref()
+        .map(|setup| setup.active_mask.as_slice());
     let webcam_d3d_device: Option<&ID3D11Device> =
         webcam_setup.as_ref().map(|setup| &setup.d3d_device);
     let webcam_d3d_context: Option<&ID3D11DeviceContext> =
@@ -1156,11 +1158,15 @@ pub fn run_zero_copy_export(
         (Some(d), Some(w), Some(r), _) => Err(format!(
             "Primary decode thread: {d}\nWebcam decode thread: {w}\nRender thread: {r}"
         )),
-        (Some(d), Some(w), None, _) => {
-            Err(format!("Primary decode thread: {d}\nWebcam decode thread: {w}"))
+        (Some(d), Some(w), None, _) => Err(format!(
+            "Primary decode thread: {d}\nWebcam decode thread: {w}"
+        )),
+        (Some(d), None, Some(r), _) => {
+            Err(format!("Primary decode thread: {d}\nRender thread: {r}"))
         }
-        (Some(d), None, Some(r), _) => Err(format!("Primary decode thread: {d}\nRender thread: {r}")),
-        (None, Some(w), Some(r), _) => Err(format!("Webcam decode thread: {w}\nRender thread: {r}")),
+        (None, Some(w), Some(r), _) => {
+            Err(format!("Webcam decode thread: {w}\nRender thread: {r}"))
+        }
         (Some(d), None, None, _) => Err(format!("Primary decode thread: {d}")),
         (None, Some(w), None, _) => Err(format!("Webcam decode thread: {w}")),
         (None, None, Some(r), _) => Err(format!("Render thread: {r}")),
@@ -1256,10 +1262,7 @@ fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), String> {
         vp_out_w,
         vp_out_h,
     )?;
-    if crop_x != 0
-        || crop_y != 0
-        || source_rect_width != source_w
-        || source_rect_height != source_h
+    if crop_x != 0 || crop_y != 0 || source_rect_width != source_w || source_rect_height != source_h
     {
         decode_vp.set_source_rect(crop_x, crop_y, source_rect_width, source_rect_height);
     }
@@ -2020,12 +2023,15 @@ fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
                         unsafe {
                             webcam_keyed_mutexes[ring_idx]
                                 .AcquireSync(0, u32::MAX)
-                                .map_err(|e| format!("AcquireSync webcam render[{ring_idx}]: {e}"))?;
+                                .map_err(|e| {
+                                    format!("AcquireSync webcam render[{ring_idx}]: {e}")
+                                })?;
                         }
                     }
                     if let Some(fence) = webcam_d3d12_fence {
                         unsafe {
-                            if let Some(hal_dev) = compositor.device().as_hal::<wgpu::hal::api::Dx12>()
+                            if let Some(hal_dev) =
+                                compositor.device().as_hal::<wgpu::hal::api::Dx12>()
                             {
                                 let raw_queue: &d3d12::ID3D12CommandQueue =
                                     &*(hal_dev.raw_queue() as *const _);
@@ -2102,7 +2108,11 @@ fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
 
         if webcam_should_render || !overlay_quads.is_empty() {
             compositor.render_post_overlays(
-                if webcam_should_render { webcam_frame } else { None },
+                if webcam_should_render {
+                    webcam_frame
+                } else {
+                    None
+                },
                 overlay_quads,
             );
         }
@@ -2386,7 +2396,9 @@ fn run_encode_thread(context: EncodeThreadContext<'_>) -> Result<ZeroCopyExportR
     let mut audio_eof = false;
     let mut total_audio_samples_written: u64 = 0;
 
-    if let Some(dec) = &audio_decoder && !config.audio_is_preprocessed {
+    if let Some(dec) = &audio_decoder
+        && !config.audio_is_preprocessed
+    {
         let start_time = if config.trim_segments.is_empty() {
             config.trim_start
         } else {

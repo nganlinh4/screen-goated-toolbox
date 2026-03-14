@@ -17,11 +17,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use audio_mix::{ExportAudioSource, build_preprocessed_audio_mix};
 use config::{ExportConfig, ExportRuntimeDiagnostics};
 use cursor::{collect_used_cursor_slots, parse_baked_cursor_frames};
 use overlay::load_custom_background_rgba;
 use sampling::{sample_baked_path, sample_parsed_baked_cursor};
-use audio_mix::{build_preprocessed_audio_mix, ExportAudioSource};
 
 use super::SR_HWND;
 use super::gpu_export::{
@@ -460,7 +460,9 @@ pub(crate) fn run_native_export_with_staged(
             },
         ];
     }
-    let has_audible_device_audio = device_audio_points.iter().any(|point| point.volume > 0.0001);
+    let has_audible_device_audio = device_audio_points
+        .iter()
+        .any(|point| point.volume > 0.0001);
     let has_audible_mic_audio = mic_audio_points.iter().any(|point| point.volume > 0.0001);
     let mut speed_points = config.segment.speed_points.clone();
     speed_points.sort_by(|a, b| {

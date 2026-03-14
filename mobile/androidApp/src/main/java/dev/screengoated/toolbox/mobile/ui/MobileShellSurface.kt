@@ -20,12 +20,15 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.launch
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
@@ -44,6 +47,7 @@ internal fun MobileShellSurface(
     onCerebrasApiKeyChanged: (String) -> Unit,
     onVoiceSettingsClick: () -> Unit,
     onSessionToggle: () -> Unit,
+    onDownloaderClick: () -> Unit = {},
 ) {
     val isActive = state.phase in setOf(
         SessionPhase.STARTING,
@@ -90,6 +94,7 @@ internal fun MobileShellSurface(
                         onVoiceSettingsClick = onVoiceSettingsClick,
                         onSessionToggle = onSessionToggle,
                         canToggle = canToggle,
+                        onDownloaderClick = onDownloaderClick,
                     )
                 }
             }
@@ -98,17 +103,15 @@ internal fun MobileShellSurface(
             val pagerState = rememberPagerState { sections.size }
             val scope = rememberCoroutineScope()
 
-            // Sync pager → selectedSection
+            // Guard: suppress settledPage sync while a tab-tap navigation is in flight
+            var navigating by remember { mutableStateOf(false) }
+
+            // Sync pager settle → selectedSection (only from user swipes, not tab taps)
             LaunchedEffect(pagerState) {
-                snapshotFlow { pagerState.currentPage }.collect { page ->
-                    selectedSection = sections[page]
-                }
-            }
-            // Sync selectedSection → pager (from button taps)
-            LaunchedEffect(selectedSection) {
-                val target = selectedSection.ordinal
-                if (pagerState.currentPage != target) {
-                    pagerState.animateScrollToPage(target)
+                snapshotFlow { pagerState.settledPage }.collect { page ->
+                    if (!navigating) {
+                        selectedSection = sections[page]
+                    }
                 }
             }
 
@@ -116,15 +119,30 @@ internal fun MobileShellSurface(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 20.dp, vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(ShellSpacing.sectionGap),
             ) {
                 SectionSegmentedRow(
                     selectedSection = selectedSection,
-                    onSectionSelected = {
-                        selectedSection = it
-                        scope.launch { pagerState.animateScrollToPage(it.ordinal) }
+                    onSectionSelected = { section ->
+                        if (section != selectedSection) {
+                            selectedSection = section
+                            navigating = true
+                            scope.launch {
+                                val target = section.ordinal
+                                val current = pagerState.currentPage
+                                val distance = kotlin.math.abs(target - current)
+                                if (distance > 1) {
+                                    val neighbor = if (target > current) target - 1 else target + 1
+                                    pagerState.scrollToPage(neighbor)
+                                }
+                                pagerState.animateScrollToPage(target)
+                                navigating = false
+                            }
+                        }
                     },
                     locale = locale,
+                    pagerState = pagerState,
                     modifier = Modifier.pointerInput(Unit) {
                         var totalDrag = 0f
                         detectHorizontalDragGestures(
@@ -139,7 +157,9 @@ internal fun MobileShellSurface(
                                     else -> null
                                 }
                                 if (target != null) {
-                                    scope.launch { pagerState.animateScrollToPage(target) }
+                                    scope.launch {
+                                        pagerState.animateScrollToPage(target)
+                                    }
                                 }
                             },
                         )
@@ -150,13 +170,15 @@ internal fun MobileShellSurface(
                     modifier = Modifier
                         .fillMaxSize()
                         .weight(1f),
-                    beyondViewportPageCount = 1,
+                    beyondViewportPageCount = sections.size - 1,
                     pageSpacing = 16.dp,
+                    key = { sections[it].name },
                 ) { page ->
+                    val scrollState = rememberScrollState()
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(rememberScrollState()),
+                            .verticalScroll(scrollState),
                         verticalArrangement = Arrangement.spacedBy(ShellSpacing.sectionGap),
                     ) {
                         SectionDetail(
@@ -172,6 +194,7 @@ internal fun MobileShellSurface(
                             onVoiceSettingsClick = onVoiceSettingsClick,
                             onSessionToggle = onSessionToggle,
                             canToggle = canToggle,
+                            onDownloaderClick = onDownloaderClick,
                         )
                     }
                 }

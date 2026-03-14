@@ -3,6 +3,7 @@
 package dev.screengoated.toolbox.mobile.ui.theme
 
 import android.os.Build
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -78,6 +79,25 @@ fun SgtMobileTheme(
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> dynamicLightColorScheme(context)
         isDark -> DarkColors
         else -> LightColors
+    }
+
+    // Update status bar icons to match theme (light icons on dark, dark icons on light)
+    val activity = context as? androidx.activity.ComponentActivity
+    if (activity != null) {
+        androidx.compose.runtime.LaunchedEffect(isDark) {
+            activity.enableEdgeToEdge(
+                statusBarStyle = if (isDark) {
+                    androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                } else {
+                    androidx.activity.SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                },
+                navigationBarStyle = if (isDark) {
+                    androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                } else {
+                    androidx.activity.SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                },
+            )
+        }
     }
 
     MaterialTheme(
