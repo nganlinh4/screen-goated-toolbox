@@ -5,6 +5,8 @@ package dev.screengoated.toolbox.mobile.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,10 +18,16 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.automirrored.rounded.Note
@@ -27,7 +35,13 @@ import androidx.compose.material.icons.automirrored.rounded.TextSnippet
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.AutoFixHigh
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Download
@@ -68,7 +82,15 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FloatingActionButtonMenu
+import androidx.compose.material3.FloatingActionButtonMenuItem
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ToggleFloatingActionButton
+import androidx.compose.material3.ToggleFloatingActionButtonDefaults.animateIcon
+import androidx.compose.material3.animateFloatingActionButton
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.carousel.HorizontalUncontainedCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
@@ -87,6 +109,10 @@ import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.material3.toPath
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -98,6 +124,8 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -664,6 +692,8 @@ internal fun SectionDetail(
     onSessionToggle: () -> Unit,
     canToggle: Boolean,
     onDownloaderClick: () -> Unit = {},
+    onPresetClick: (String) -> Unit = {},
+    onPagerSwipeLockChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
 ) {
@@ -674,11 +704,17 @@ internal fun SectionDetail(
             onSessionToggle = onSessionToggle,
             canToggle = canToggle,
             onDownloaderClick = onDownloaderClick,
+            onPagerSwipeLockChanged = onPagerSwipeLockChanged,
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope,
         )
 
-        MobileShellSection.TOOLS -> ToolsSection(locale = locale)
+        MobileShellSection.TOOLS -> ToolsSection(
+            locale = locale,
+            onPresetClick = onPresetClick,
+            onPagerSwipeLockChanged = onPagerSwipeLockChanged,
+            modifier = Modifier.fillMaxSize(),
+        )
 
         MobileShellSection.SETTINGS -> GlobalSection(
             apiKey = apiKey,
@@ -716,13 +752,23 @@ internal fun AppsCarouselSection(
     onSessionToggle: () -> Unit,
     canToggle: Boolean,
     onDownloaderClick: () -> Unit = {},
+    onPagerSwipeLockChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
 ) {
     val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     if (isLandscape) {
-        AppsHorizontalCarousel(state, locale, onSessionToggle, canToggle, onDownloaderClick, sharedTransitionScope, animatedVisibilityScope)
+        AppsHorizontalCarousel(
+            state,
+            locale,
+            onSessionToggle,
+            canToggle,
+            onDownloaderClick,
+            onPagerSwipeLockChanged,
+            sharedTransitionScope,
+            animatedVisibilityScope,
+        )
     } else {
         AppsVerticalCarousel(state, locale, onSessionToggle, canToggle, onDownloaderClick, sharedTransitionScope, animatedVisibilityScope)
     }
@@ -810,20 +856,29 @@ private fun AppsHorizontalCarousel(
     onSessionToggle: () -> Unit,
     canToggle: Boolean,
     onDownloaderClick: () -> Unit,
+    onPagerSwipeLockChanged: (Boolean) -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
     val screenH = LocalConfiguration.current.screenHeightDp.dp
-    val itemWidth = 200.dp
+    val screenW = LocalConfiguration.current.screenWidthDp.dp
+    val itemWidth = ((screenW - 120.dp) / 3.2f).coerceIn(220.dp, 320.dp)
     val carouselHeight = (screenH - 100.dp).coerceIn(160.dp, 300.dp)
     val fadeSize = 24.dp
     val bgColor = MaterialTheme.colorScheme.background
+    val carouselState = rememberCarouselState { appSlots.size }
 
     Box(modifier = Modifier.fillMaxWidth().height(carouselHeight)) {
         HorizontalUncontainedCarousel(
-            state = rememberCarouselState { appSlots.size },
+            state = carouselState,
             itemWidth = itemWidth,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .lockPagerForCarouselDrag(
+                    canScrollBackward = { carouselState.canScrollBackward },
+                    canScrollForward = { carouselState.canScrollForward },
+                    onPagerSwipeLockChanged = onPagerSwipeLockChanged,
+                ),
             itemSpacing = 8.dp,
             contentPadding = PaddingValues(start = 4.dp, end = fadeSize),
         ) { index ->
@@ -852,6 +907,8 @@ private fun LiveTranslateCarouselTile(
     val isRunning = state.phase in setOf(
         SessionPhase.STARTING, SessionPhase.LISTENING, SessionPhase.TRANSLATING,
     )
+    val isLandscape =
+        LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val slot = appSlots[0]
     val morph = remember { Morph(slot.shape, slot.shape) }
     Box(
@@ -895,45 +952,34 @@ private fun LiveTranslateCarouselTile(
                 FontFamily.Default
             }
         }
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Rounded.Translate,
-                contentDescription = null,
-                tint = slot.color,
-                modifier = Modifier.size(44.dp),
-            )
-            Spacer(Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                val words = locale.shellLiveTitle.split(" ", limit = 2)
-                if (words.isNotEmpty()) {
+        if (isLandscape) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(
+                        Icons.Rounded.Translate,
+                        contentDescription = null,
+                        tint = slot.color,
+                        modifier = Modifier.size(40.dp),
+                    )
                     Text(
-                        text = words[0],
+                        text = locale.shellLiveTitle,
                         fontFamily = stretchedFamily,
                         fontWeight = FontWeight.Black,
-                        fontSize = 28.sp,
-                        lineHeight = 32.sp,
+                        fontSize = 22.sp,
+                        lineHeight = 24.sp,
                         color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 3,
+                        modifier = Modifier.weight(1f),
                     )
                 }
-                if (words.size > 1) {
-                    Text(
-                        text = words[1],
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 26.sp,
-                        lineHeight = 30.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
                 Button(
                     onClick = onSessionToggle,
                     enabled = canToggle,
@@ -943,6 +989,7 @@ private fun LiveTranslateCarouselTile(
                     } else {
                         ButtonDefaults.buttonColors()
                     },
+                    modifier = Modifier.align(Alignment.End),
                 ) {
                     Icon(
                         if (isRunning) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
@@ -951,6 +998,66 @@ private fun LiveTranslateCarouselTile(
                     )
                     Spacer(Modifier.width(ButtonDefaults.IconSpacing))
                     Text(if (isRunning) locale.turnOff else locale.turnOn)
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Rounded.Translate,
+                    contentDescription = null,
+                    tint = slot.color,
+                    modifier = Modifier.size(44.dp),
+                )
+                Spacer(Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    val words = locale.shellLiveTitle.split(" ", limit = 2)
+                    if (words.isNotEmpty()) {
+                        Text(
+                            text = words[0],
+                            fontFamily = stretchedFamily,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 28.sp,
+                            lineHeight = 32.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                    if (words.size > 1) {
+                        Text(
+                            text = words[1],
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 26.sp,
+                            lineHeight = 30.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Button(
+                        onClick = onSessionToggle,
+                        enabled = canToggle,
+                        shape = CircleShape,
+                        colors = if (isRunning) {
+                            ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        } else {
+                            ButtonDefaults.buttonColors()
+                        },
+                    ) {
+                        Icon(
+                            if (isRunning) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                        Text(if (isRunning) locale.turnOff else locale.turnOn)
+                    }
                 }
             }
         }
@@ -963,6 +1070,8 @@ private fun AppTile(
     title: String,
     icon: ImageVector?,
 ) {
+    val isLandscape =
+        LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val morph = remember(slot) { Morph(slot.shape, slot.shape) }
     Box(
         modifier = Modifier
@@ -988,28 +1097,54 @@ private fun AppTile(
             path.transform(matrix)
             drawPath(path, color = slot.color.copy(alpha = 0.28f))
         }
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (icon != null) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    tint = slot.color,
-                    modifier = Modifier.size(36.dp),
+        if (isLandscape) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                if (icon != null) {
+                    Icon(
+                        icon,
+                        contentDescription = null,
+                        tint = slot.color,
+                        modifier = Modifier.size(34.dp),
+                    )
+                }
+                Text(
+                    text = title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp,
+                    lineHeight = 24.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 3,
                 )
-                Spacer(Modifier.width(14.dp))
             }
-            Text(
-                text = title,
-                fontWeight = FontWeight.Bold,
-                fontSize = 22.sp,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-            )
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (icon != null) {
+                    Icon(
+                        icon,
+                        contentDescription = null,
+                        tint = slot.color,
+                        modifier = Modifier.size(36.dp),
+                    )
+                    Spacer(Modifier.width(14.dp))
+                }
+                Text(
+                    text = title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 22.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 }
@@ -1130,7 +1265,12 @@ private val toolCategories = listOf(
 )
 
 @Composable
-internal fun ToolsSection(locale: MobileLocaleText) {
+internal fun ToolsSection(
+    locale: MobileLocaleText,
+    onPresetClick: (String) -> Unit = {},
+    onPagerSwipeLockChanged: (Boolean) -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
     val lang = locale.languageOptions.firstOrNull { it.label.contains("English") }?.let { null }
         ?: locale.let {
             when {
@@ -1139,17 +1279,139 @@ internal fun ToolsSection(locale: MobileLocaleText) {
                 else -> "en"
             }
         }
-    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        toolCategories.forEach { category ->
-            ToolCategoryRow(
-                label = category.labelGetter(locale),
-                accentColor = category.accentColor,
-                presets = category.presets,
-                lang = lang,
+    var toolbarMode by remember { mutableStateOf(ToolbarMode.NONE) }
+    var fabMenuExpanded by rememberSaveable { mutableStateOf(false) }
+
+    if (fabMenuExpanded) {
+        androidx.activity.compose.BackHandler { fabMenuExpanded = false }
+    }
+
+    val isLandscape =
+        LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 0.dp),
+            contentPadding = PaddingValues(
+                bottom = 136.dp,
+                end = if (isLandscape) 24.dp else 0.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            items(toolCategories) { category ->
+                ToolCategoryRow(
+                    label = category.labelGetter(locale),
+                    accentColor = category.accentColor,
+                    presets = category.presets,
+                    lang = lang,
+                    onPresetClick = onPresetClick,
+                    onPagerSwipeLockChanged = onPagerSwipeLockChanged,
+                    toolbarMode = toolbarMode,
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+        ) {
+            HorizontalFloatingToolbar(
+                modifier = Modifier.align(Alignment.BottomStart),
+                expanded = true,
+                content = {
+                    IconButton(onClick = {
+                        toolbarMode = if (toolbarMode == ToolbarMode.DUPLICATE) ToolbarMode.NONE else ToolbarMode.DUPLICATE
+                    }) {
+                        Icon(
+                            Icons.Rounded.ContentCopy,
+                            contentDescription = "Duplicate",
+                            tint = if (toolbarMode == ToolbarMode.DUPLICATE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = {
+                        toolbarMode = if (toolbarMode == ToolbarMode.FAVORITE) ToolbarMode.NONE else ToolbarMode.FAVORITE
+                    }) {
+                        Icon(
+                            Icons.Rounded.Star,
+                            contentDescription = "Favorite",
+                            tint = if (toolbarMode == ToolbarMode.FAVORITE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = {
+                        toolbarMode = if (toolbarMode == ToolbarMode.DELETE) ToolbarMode.NONE else ToolbarMode.DELETE
+                    }) {
+                        Icon(
+                            Icons.Rounded.Delete,
+                            contentDescription = "Delete",
+                            tint = if (toolbarMode == ToolbarMode.DELETE) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = {
+                        toolbarMode = if (toolbarMode == ToolbarMode.RESET) ToolbarMode.NONE else ToolbarMode.RESET
+                    }) {
+                        Icon(
+                            Icons.Rounded.Refresh,
+                            contentDescription = "Reset",
+                            tint = if (toolbarMode == ToolbarMode.RESET) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
             )
+
+            FloatingActionButtonMenu(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(y = 8.dp),
+                expanded = fabMenuExpanded,
+                button = {
+                    ToggleFloatingActionButton(
+                        modifier = Modifier.animateFloatingActionButton(
+                            visible = true,
+                            alignment = Alignment.BottomEnd,
+                        ),
+                        checked = fabMenuExpanded,
+                        onCheckedChange = { fabMenuExpanded = !fabMenuExpanded },
+                    ) {
+                        val imageVector by remember {
+                            derivedStateOf {
+                                if (checkedProgress > 0.5f) Icons.Rounded.Close else Icons.Rounded.Add
+                            }
+                        }
+                        Icon(
+                            painter = rememberVectorPainter(imageVector),
+                            contentDescription = "Create",
+                            modifier = Modifier.animateIcon({ checkedProgress }),
+                        )
+                    }
+                },
+            ) {
+                FloatingActionButtonMenuItem(
+                    onClick = { fabMenuExpanded = false },
+                    icon = { Icon(Icons.Rounded.CameraAlt, contentDescription = null) },
+                    text = { Text("Image") },
+                )
+                FloatingActionButtonMenuItem(
+                    onClick = { fabMenuExpanded = false },
+                    icon = { Icon(Icons.Rounded.TextFields, contentDescription = null) },
+                    text = { Text("Text") },
+                )
+                FloatingActionButtonMenuItem(
+                    onClick = { fabMenuExpanded = false },
+                    icon = { Icon(Icons.Rounded.Mic, contentDescription = null) },
+                    text = { Text("Audio") },
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+            }
         }
     }
 }
+
+private enum class ToolbarMode { NONE, DUPLICATE, FAVORITE, DELETE, RESET }
 
 /** Font family at a specific wdth axis value. */
 private fun flexFontFamily(wdth: Int): FontFamily {
@@ -1257,7 +1519,12 @@ private fun ToolCategoryRow(
     accentColor: Color,
     presets: List<ToolPresetItem>,
     lang: String,
+    onPresetClick: (String) -> Unit = {},
+    onPagerSwipeLockChanged: (Boolean) -> Unit = {},
+    toolbarMode: ToolbarMode = ToolbarMode.NONE,
 ) {
+    val trailingClearance = 12.dp
+
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         // Category label
         Row(
@@ -1291,8 +1558,14 @@ private fun ToolCategoryRow(
             state = carouselState,
             itemWidth = 150.dp,
             itemSpacing = 8.dp,
+            contentPadding = PaddingValues(start = 4.dp, end = trailingClearance),
             modifier = Modifier
                 .fillMaxWidth()
+                .lockPagerForCarouselDrag(
+                    canScrollBackward = { carouselState.canScrollBackward },
+                    canScrollForward = { carouselState.canScrollForward },
+                    onPagerSwipeLockChanged = onPagerSwipeLockChanged,
+                )
                 .drawWithContent {
                     drawContent()
                     val rightAlpha = (1f - scrollFraction).coerceIn(0f, 1f)
@@ -1318,10 +1591,14 @@ private fun ToolCategoryRow(
                 },
         ) { index ->
             val preset = presets[index]
-            Card(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .maskClip(MaterialTheme.shapes.large),
+                    .maskClip(MaterialTheme.shapes.large)
+                    .clickable { onPresetClick("preset_${preset.id}") },
+            ) {
+            Card(
+                modifier = Modifier.fillMaxSize(),
                 shape = MaterialTheme.shapes.large,
                 colors = CardDefaults.cardColors(
                     containerColor = accentColor.copy(alpha = 0.15f),
@@ -1347,9 +1624,49 @@ private fun ToolCategoryRow(
                     )
                 }
             }
+            } // Box
         }
     }
 }
+
+private fun Modifier.lockPagerForCarouselDrag(
+    canScrollBackward: () -> Boolean,
+    canScrollForward: () -> Boolean,
+    onPagerSwipeLockChanged: (Boolean) -> Unit,
+): Modifier = pointerInput(onPagerSwipeLockChanged) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false)
+        onPagerSwipeLockChanged(
+            shouldLockPagerForCarouselTouch(
+                canScrollBackward = canScrollBackward(),
+                canScrollForward = canScrollForward(),
+            ),
+        )
+        try {
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull() ?: break
+                if (!change.pressed) break
+                val deltaX = change.positionChange().x
+                if (deltaX != 0f) {
+                    onPagerSwipeLockChanged(
+                        shouldLockPagerForCarouselTouch(
+                            canScrollBackward = canScrollBackward(),
+                            canScrollForward = canScrollForward(),
+                        ),
+                    )
+                }
+            }
+        } finally {
+            onPagerSwipeLockChanged(false)
+        }
+    }
+}
+
+internal fun shouldLockPagerForCarouselTouch(
+    canScrollBackward: Boolean,
+    canScrollForward: Boolean,
+): Boolean = canScrollBackward || canScrollForward
 
 @Composable
 internal fun GlobalSection(

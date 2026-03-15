@@ -57,6 +57,7 @@ import androidx.graphics.shapes.RoundedPolygon
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -100,6 +101,7 @@ fun SgtMobileApp(
 ) {
     var showTtsSettings by rememberSaveable { mutableStateOf(false) }
     var showDownloader by rememberSaveable { mutableStateOf(false) }
+    var activePresetId by rememberSaveable { mutableStateOf<String?>(null) }
 
     if (showTtsSettings) {
         GlobalTtsSettingsDialog(
@@ -119,6 +121,8 @@ fun SgtMobileApp(
     }
 
     val focusManager = LocalFocusManager.current
+    val isLandscape =
+        LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     Box(
         modifier = Modifier
@@ -129,40 +133,42 @@ fun SgtMobileApp(
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
-                CenterAlignedTopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                    ),
-                    title = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            SgtBrandBadge(
-                                size = 28.dp,
-                                showBackground = false,
+                if (!isLandscape) {
+                    CenterAlignedTopAppBar(
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                        ),
+                        title = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                SgtBrandBadge(
+                                    size = 28.dp,
+                                    showBackground = false,
+                                )
+                                Text(
+                                    text = locale.appHeaderTitle,
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                            }
+                        },
+                        navigationIcon = {
+                            LanguageMorphToggle(
+                                uiLanguage = uiPreferences.uiLanguage,
+                                languageOptions = locale.languageOptions,
+                                onLanguageSelected = onUiLanguageSelected,
                             )
-                            Text(
-                                text = locale.appHeaderTitle,
-                                style = MaterialTheme.typography.titleMedium,
+                        },
+                        actions = {
+                            ThemeMorphToggle(
+                                themeMode = uiPreferences.themeMode,
+                                onClick = onThemeCycleRequested,
+                                contentDescription = "${locale.themeCycleLabel}: ${locale.themeModeLabels[uiPreferences.themeMode]}",
                             )
-                        }
-                    },
-                    navigationIcon = {
-                        LanguageMorphToggle(
-                            uiLanguage = uiPreferences.uiLanguage,
-                            languageOptions = locale.languageOptions,
-                            onLanguageSelected = onUiLanguageSelected,
-                        )
-                    },
-                    actions = {
-                        ThemeMorphToggle(
-                            themeMode = uiPreferences.themeMode,
-                            onClick = onThemeCycleRequested,
-                            contentDescription = "${locale.themeCycleLabel}: ${locale.themeModeLabels[uiPreferences.themeMode]}",
-                        )
-                    },
-                )
+                        },
+                    )
+                }
             },
         ) { innerPadding ->
             Box(
@@ -182,8 +188,16 @@ fun SgtMobileApp(
                         onVoiceSettingsShown()
                         showTtsSettings = true
                     },
+                    showEmbeddedHeader = isLandscape,
+                    appHeaderTitle = locale.appHeaderTitle,
+                    uiLanguage = uiPreferences.uiLanguage,
+                    languageOptions = locale.languageOptions,
+                    onUiLanguageSelected = onUiLanguageSelected,
+                    themeMode = uiPreferences.themeMode,
+                    onThemeCycleRequested = onThemeCycleRequested,
                     onSessionToggle = onSessionToggle,
                     onDownloaderClick = { showDownloader = true },
+                    onPresetClick = { presetId -> activePresetId = presetId },
                 )
             }
         }
@@ -209,6 +223,38 @@ fun SgtMobileApp(
                     .background(MaterialTheme.colorScheme.surface),
             ) {
                 DownloaderScreenWrapper(locale = locale, onBack = { showDownloader = false })
+            }
+        }
+
+        // Preset editor overlay (opened from Tools tab)
+        val activePreset = activePresetId?.let { id ->
+            dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets.all.find { it.id == id }
+        }
+        if (activePreset != null) {
+            val presetLang = when {
+                locale.turnOn == "Bật" -> "vi"
+                locale.turnOn == "켜기" -> "ko"
+                else -> "en"
+            }
+            androidx.activity.compose.BackHandler { activePresetId = null }
+            androidx.compose.animation.AnimatedVisibility(
+                visible = true,
+                enter = fadeIn(tween(200)) + androidx.compose.animation.scaleIn(
+                    initialScale = 0.9f,
+                    animationSpec = tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                ),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface),
+                ) {
+                    dev.screengoated.toolbox.mobile.preset.ui.PresetEditorScreen(
+                        preset = activePreset,
+                        lang = presetLang,
+                        onBack = { activePresetId = null },
+                    )
+                }
             }
         }
     }
@@ -253,7 +299,7 @@ private val ThemeRotations = floatArrayOf(
 )
 
 @Composable
-private fun ThemeMorphToggle(
+internal fun ThemeMorphToggle(
     themeMode: MobileThemeMode,
     onClick: () -> Unit,
     contentDescription: String,
@@ -389,7 +435,7 @@ private val LanguageColors = arrayOf(
 private val LanguageRotations = floatArrayOf(0f, 0f, 0f)
 
 @Composable
-private fun LanguageMorphToggle(
+internal fun LanguageMorphToggle(
     uiLanguage: String,
     languageOptions: List<dev.screengoated.toolbox.mobile.ui.i18n.MobileUiLanguageOption>,
     onLanguageSelected: (String) -> Unit,

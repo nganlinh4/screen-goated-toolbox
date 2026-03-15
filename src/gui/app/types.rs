@@ -60,7 +60,6 @@ pub struct SettingsApp {
     // 0 = Init/Offscreen, 1 = Early init, 2..34 = Wait, 35 = Create splash, 36 = Show window, 37 = Ready
     pub(crate) startup_stage: u8,
 
-    pub(crate) cached_monitors: Vec<String>,
     pub(crate) cached_audio_devices: Arc<Mutex<Vec<(String, String)>>>,
 
     pub(crate) updater: Option<Updater>,

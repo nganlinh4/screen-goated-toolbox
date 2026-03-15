@@ -24,7 +24,6 @@ pub fn render_node_graph(
     ui: &mut egui::Ui,
     snarl: &mut Snarl<ChainNode>,
     ui_language: &str,
-    prompt_mode: &str,
     use_groq: bool,
     use_gemini: bool,
     use_openrouter: bool,
@@ -35,7 +34,6 @@ pub fn render_node_graph(
     let mut viewer = ChainViewer::new(
         text,
         ui_language,
-        prompt_mode,
         use_groq,
         use_gemini,
         use_openrouter,
