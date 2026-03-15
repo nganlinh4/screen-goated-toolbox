@@ -41,6 +41,37 @@
       "name": "mobile_branding_uses_windows_app_icon_pair",
       "expected_dark_asset": "assets/app-icon-small.png",
       "expected_light_asset": "assets/app-icon-small-light.png"
+    },
+    {
+      "name": "tools_tab_owns_scroll_and_uses_viewport_footer",
+      "section": "TOOLS",
+      "expected_outer_scroll_owner": false,
+      "expected_viewport_footer": true
+    },
+    {
+      "name": "nested_carousel_locks_outer_pager_for_the_full_touch_when_inner_scroll_exists",
+      "touch_cases": [
+        {
+          "can_scroll_backward": true,
+          "can_scroll_forward": false,
+          "expected_lock": true
+        },
+        {
+          "can_scroll_backward": false,
+          "can_scroll_forward": true,
+          "expected_lock": true
+        },
+        {
+          "can_scroll_backward": true,
+          "can_scroll_forward": true,
+          "expected_lock": true
+        },
+        {
+          "can_scroll_backward": false,
+          "can_scroll_forward": false,
+          "expected_lock": false
+        }
+      ]
     }
   ]
 }

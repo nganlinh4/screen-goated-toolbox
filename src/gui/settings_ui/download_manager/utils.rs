@@ -208,10 +208,7 @@ pub fn fetch_video_formats(
     if let Some(formats) = v.get("formats").and_then(|f| f.as_array()) {
         for f in formats {
             // Skip audio-only and storyboard formats
-            let vcodec = f
-                .get("vcodec")
-                .and_then(|v| v.as_str())
-                .unwrap_or("none");
+            let vcodec = f.get("vcodec").and_then(|v| v.as_str()).unwrap_or("none");
             if vcodec == "none" || vcodec == "images" {
                 continue;
             }

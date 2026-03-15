@@ -3,6 +3,9 @@ package dev.screengoated.toolbox.mobile
 import android.content.Context
 import dev.screengoated.toolbox.mobile.downloader.DownloaderPersistence
 import dev.screengoated.toolbox.mobile.downloader.DownloaderRepository
+import dev.screengoated.toolbox.mobile.preset.ApiKeys
+import dev.screengoated.toolbox.mobile.preset.PresetRepository
+import dev.screengoated.toolbox.mobile.preset.TextApiClient
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.PermissionSnapshotEvaluator
 import dev.screengoated.toolbox.mobile.service.GeminiLiveSocketClient
@@ -54,6 +57,17 @@ class AppContainer(
     val downloaderRepository = DownloaderRepository(appContext, downloaderPersistence).also {
         it.checkTools() // Check tool status on app startup so Settings UI shows correct state
     }
+
+    private val textApiClient = TextApiClient(httpClient)
+    val presetRepository = PresetRepository(
+        textApiClient = textApiClient,
+        apiKeys = {
+            ApiKeys(
+                geminiKey = repository.currentApiKey(),
+                cerebrasKey = repository.currentCerebrasApiKey(),
+            )
+        },
+    )
 
     val geminiLiveSocketClient = GeminiLiveSocketClient(httpClient)
     val realtimeTranslationClient = RealtimeTranslationClient(httpClient)

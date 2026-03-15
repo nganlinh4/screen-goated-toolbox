@@ -26,7 +26,6 @@ impl<'a> ChainViewer<'a> {
     pub fn new(
         text: &'a LocaleText,
         ui_language: &str,
-        _prompt_mode: &str,
         use_groq: bool,
         use_gemini: bool,
         use_openrouter: bool,

@@ -1,6 +1,6 @@
 use super::get_localized_preset_name;
 use super::node_graph::{
-    ChainNode, blocks_to_snarl, render_node_graph, request_node_graph_view_reset,
+    ChainNode, blocks_to_snarl, render_node_graph, request_node_graph_view_reset, snarl_to_graph,
 };
 use crate::config::{Config, ProcessingBlock};
 use crate::gui::locale::LocaleText;
@@ -15,8 +15,6 @@ pub fn render_preset_editor(
     ui: &mut egui::Ui,
     config: &mut Config,
     preset_idx: usize,
-    _search_query: &mut String,
-    _cached_monitors: &mut Vec<String>,
     recording_hotkey_for_preset: &mut Option<usize>,
     hotkey_conflict_msg: &Option<String>,
     text: &LocaleText,
@@ -164,10 +162,7 @@ pub fn render_preset_editor(
                             )
                             .clicked()
                         {
-                            if let Some(first) = preset.blocks.first_mut() {
-                                first.block_type = "image".to_string();
-                                first.model = "gemini-3.1-flash-lite-preview".to_string();
-                            }
+                            sync_graph_type(snarl, &preset.preset_type);
                             changed = true;
                         }
                         if ui
@@ -178,10 +173,7 @@ pub fn render_preset_editor(
                             )
                             .clicked()
                         {
-                            if let Some(first) = preset.blocks.first_mut() {
-                                first.block_type = "text".to_string();
-                                first.model = "text_accurate_kimi".to_string();
-                            }
+                            sync_graph_type(snarl, &preset.preset_type);
                             changed = true;
                         }
                         if ui
@@ -192,10 +184,7 @@ pub fn render_preset_editor(
                             )
                             .clicked()
                         {
-                            if let Some(first) = preset.blocks.first_mut() {
-                                first.block_type = "audio".to_string();
-                                first.model = "whisper-accurate".to_string();
-                            }
+                            sync_graph_type(snarl, &preset.preset_type);
                             changed = true;
                         }
                         ui.add_enabled_ui(false, |ui| {
@@ -640,7 +629,6 @@ pub fn render_preset_editor(
                         ui,
                         snarl,
                         &config.ui_language,
-                        &preset.prompt_mode,
                         config.use_groq,
                         config.use_gemini,
                         config.use_openrouter,
@@ -758,4 +746,29 @@ fn create_default_block_for_type(preset_type: &str) -> ProcessingBlock {
             ..Default::default()
         },
     }
+}
+
+fn sync_graph_type(snarl: &mut Snarl<ChainNode>, preset_type: &str) {
+    let (mut blocks, mut connections) = snarl_to_graph(snarl);
+    let default_block = create_default_block_for_type(preset_type);
+
+    if let Some(first_process) = blocks
+        .iter_mut()
+        .find(|block| block.block_type != "input_adapter")
+    {
+        first_process.block_type = default_block.block_type;
+        first_process.model = default_block.model;
+    } else {
+        let new_idx = blocks.len();
+        let input_idx = blocks
+            .iter()
+            .position(|block| block.block_type == "input_adapter");
+        blocks.push(default_block);
+
+        if let Some(input_idx) = input_idx {
+            connections.push((input_idx, new_idx));
+        }
+    }
+
+    *snarl = blocks_to_snarl(&blocks, &connections, preset_type);
 }

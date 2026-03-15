@@ -151,8 +151,6 @@ impl SettingsApp {
                 ui,
                 &mut self.config,
                 idx,
-                &mut self.search_query,
-                &mut self.cached_monitors,
                 &mut self.recording_hotkey_for_preset,
                 &self.hotkey_conflict_msg,
                 text,

@@ -1,7 +1,6 @@
 use super::types::{RESTORE_SIGNAL, SettingsApp, UserEvent};
 use crate::config::{Config, ThemeMode};
 use crate::gui::settings_ui::ViewMode;
-use crate::gui::utils::get_monitor_names;
 use crate::updater::{UpdateStatus, Updater};
 use auto_launch::{AutoLaunch, WindowsEnableMode};
 use eframe::egui;
@@ -242,7 +241,6 @@ impl SettingsApp {
             })
         };
 
-        let cached_monitors = get_monitor_names();
         let (up_tx, up_rx) = channel();
 
         // --- Init Audio Device Cache ---
@@ -315,7 +313,6 @@ impl SettingsApp {
             splash: None, // DELAYED CREATION to stage 35 for perfect $t=0$ timing
             fade_in_start: None,
             startup_stage: 0,
-            cached_monitors,
             cached_audio_devices,
             snarl: None,
             last_edited_preset_idx: None,
