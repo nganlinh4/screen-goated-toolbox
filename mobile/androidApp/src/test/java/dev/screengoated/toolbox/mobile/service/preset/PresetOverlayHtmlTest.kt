@@ -110,6 +110,39 @@ class PresetOverlayHtmlTest {
         assertTrue(html.contains("""column-count: 2;"""))
     }
 
+    @Test
+    fun textInputBuilderKeepsWindowsOverlayHooks() {
+        val html = PresetTextInputHtmlBuilder().build(
+            PresetTextInputHtmlSettings(
+                lang = "en",
+                title = "Ask AI",
+                placeholder = "Ready...",
+                isDark = true,
+            ),
+        )
+
+        assertTrue(html.contains("""<div class="editor-container">"""))
+        assertTrue(html.contains("""<div class="header" id="headerRegion">"""))
+        assertTrue(html.contains("""<textarea id="editor" placeholder="Ready..." autofocus></textarea>"""))
+        assertTrue(html.contains("window.ipc.postMessage('drag_window')"))
+        assertTrue(html.contains("window.ipc.postMessage('close_window')"))
+        assertTrue(html.contains("window.ipc.postMessage('submit:' + text)"))
+        assertTrue(html.contains("window.ipc.postMessage('history_up:' + editor.value)"))
+        assertTrue(html.contains("window.ipc.postMessage('history_down:' + editor.value)"))
+        assertTrue(html.contains("window.ipc.postMessage('mic')"))
+        assertTrue(html.contains("window.setEditorText = (text) =>"))
+        assertTrue(html.contains("window.updateTheme = (isDark) =>"))
+        assertTrue(html.contains("window.playEntry = () =>"))
+        assertTrue(html.contains("window.playExit = () =>"))
+        assertTrue(html.contains("window.clearInput = () =>"))
+        assertTrue(html.contains("""type: 'dragInputWindow'"""))
+        assertTrue(html.contains("const TOUCH_DRAG_GAIN = Math.max(window.devicePixelRatio || 1, 1.5);"))
+        assertTrue(html.contains("window.ipc.postMessage('dragAt:' + Math.round(touch.screenX) + ',' + Math.round(touch.screenY))"))
+        assertTrue(html.contains("window.ipc.postMessage('dragEnd:' + Math.round(point.screenX) + ',' + Math.round(point.screenY))"))
+        assertFalse(html.contains("applyInputBootstrap"))
+        assertFalse(html.contains("""id="footerRegion""""))
+    }
+
     private fun assetPath(): Path {
         val candidates = listOf(
             Paths.get("src", "main", "assets", "preset_overlay", "button_canvas.js"),

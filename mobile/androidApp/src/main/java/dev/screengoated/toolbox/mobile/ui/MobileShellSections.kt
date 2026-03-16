@@ -686,11 +686,17 @@ internal fun SectionDetail(
     state: LiveSessionState,
     apiKey: String,
     cerebrasApiKey: String,
+    groqApiKey: String,
+    openRouterApiKey: String,
+    ollamaUrl: String,
     globalTtsSettings: MobileGlobalTtsSettings,
     locale: MobileLocaleText,
     wideLayout: Boolean,
     onApiKeyChanged: (String) -> Unit,
     onCerebrasApiKeyChanged: (String) -> Unit,
+    onGroqApiKeyChanged: (String) -> Unit,
+    onOpenRouterApiKeyChanged: (String) -> Unit,
+    onOllamaUrlChanged: (String) -> Unit,
     onVoiceSettingsClick: () -> Unit,
     onSessionToggle: () -> Unit,
     canToggle: Boolean,
@@ -722,11 +728,17 @@ internal fun SectionDetail(
         MobileShellSection.SETTINGS -> GlobalSection(
             apiKey = apiKey,
             cerebrasApiKey = cerebrasApiKey,
+            groqApiKey = groqApiKey,
+            openRouterApiKey = openRouterApiKey,
+            ollamaUrl = ollamaUrl,
             globalTtsSettings = globalTtsSettings,
             locale = locale,
             wideLayout = wideLayout,
             onApiKeyChanged = onApiKeyChanged,
             onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
+            onGroqApiKeyChanged = onGroqApiKeyChanged,
+            onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
+            onOllamaUrlChanged = onOllamaUrlChanged,
             onVoiceSettingsClick = onVoiceSettingsClick,
         )
 
@@ -1714,11 +1726,17 @@ internal fun shouldLockPagerForCarouselTouch(
 internal fun GlobalSection(
     apiKey: String,
     cerebrasApiKey: String,
+    groqApiKey: String,
+    openRouterApiKey: String,
+    ollamaUrl: String,
     globalTtsSettings: MobileGlobalTtsSettings,
     locale: MobileLocaleText,
     wideLayout: Boolean,
     onApiKeyChanged: (String) -> Unit,
     onCerebrasApiKeyChanged: (String) -> Unit,
+    onGroqApiKeyChanged: (String) -> Unit,
+    onOpenRouterApiKeyChanged: (String) -> Unit,
+    onOllamaUrlChanged: (String) -> Unit,
     onVoiceSettingsClick: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap)) {
@@ -1730,9 +1748,15 @@ internal fun GlobalSection(
                 CredentialsCard(
                     apiKey = apiKey,
                     cerebrasApiKey = cerebrasApiKey,
+                    groqApiKey = groqApiKey,
+                    openRouterApiKey = openRouterApiKey,
+                    ollamaUrl = ollamaUrl,
                     locale = locale,
                     onApiKeyChanged = onApiKeyChanged,
                     onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
+                    onGroqApiKeyChanged = onGroqApiKeyChanged,
+                    onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
+                    onOllamaUrlChanged = onOllamaUrlChanged,
                     modifier = Modifier.weight(1.15f),
                 )
                 VoiceSettingsCard(
@@ -1746,9 +1770,15 @@ internal fun GlobalSection(
             CredentialsCard(
                 apiKey = apiKey,
                 cerebrasApiKey = cerebrasApiKey,
+                groqApiKey = groqApiKey,
+                openRouterApiKey = openRouterApiKey,
+                ollamaUrl = ollamaUrl,
                 locale = locale,
                 onApiKeyChanged = onApiKeyChanged,
                 onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
+                onGroqApiKeyChanged = onGroqApiKeyChanged,
+                onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
+                onOllamaUrlChanged = onOllamaUrlChanged,
                 modifier = Modifier.fillMaxWidth(),
             )
             VoiceSettingsCard(

@@ -84,6 +84,9 @@ class MainActivity : ComponentActivity() {
             val state by viewModel.sessionState.collectAsStateWithLifecycle()
             val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
             val cerebrasApiKey by viewModel.cerebrasApiKey.collectAsStateWithLifecycle()
+            val groqApiKey by viewModel.groqApiKey.collectAsStateWithLifecycle()
+            val openRouterApiKey by viewModel.openRouterApiKey.collectAsStateWithLifecycle()
+            val ollamaUrl by viewModel.ollamaUrl.collectAsStateWithLifecycle()
             val globalTtsSettings by viewModel.globalTtsSettings.collectAsStateWithLifecycle()
             val uiPreferences by viewModel.uiPreferences.collectAsStateWithLifecycle()
             val edgeVoiceCatalogState by viewModel.edgeVoiceCatalogState.collectAsStateWithLifecycle()
@@ -113,11 +116,17 @@ class MainActivity : ComponentActivity() {
                     state = state,
                     apiKey = apiKey,
                     cerebrasApiKey = cerebrasApiKey,
+                    groqApiKey = groqApiKey,
+                    openRouterApiKey = openRouterApiKey,
+                    ollamaUrl = ollamaUrl,
                     globalTtsSettings = globalTtsSettings,
                     uiPreferences = uiPreferences,
                     locale = locale,
                     onApiKeyChanged = viewModel::onApiKeyChanged,
                     onCerebrasApiKeyChanged = viewModel::onCerebrasApiKeyChanged,
+                    onGroqApiKeyChanged = viewModel::onGroqApiKeyChanged,
+                    onOpenRouterApiKeyChanged = viewModel::onOpenRouterApiKeyChanged,
+                    onOllamaUrlChanged = viewModel::onOllamaUrlChanged,
                     onUiLanguageSelected = viewModel::onUiLanguageSelected,
                     onThemeCycleRequested = viewModel::onThemeCycleRequested,
                     edgeVoiceCatalogState = edgeVoiceCatalogState,

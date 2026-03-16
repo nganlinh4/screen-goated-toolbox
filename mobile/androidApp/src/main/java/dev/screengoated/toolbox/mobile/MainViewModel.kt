@@ -39,6 +39,9 @@ class MainViewModel(
         repository.state
     val apiKey: StateFlow<String> = repository.apiKey
     val cerebrasApiKey: StateFlow<String> = repository.cerebrasApiKey
+    val groqApiKey: StateFlow<String> = repository.groqApiKey
+    val openRouterApiKey: StateFlow<String> = repository.openRouterApiKey
+    val ollamaUrl: StateFlow<String> = repository.ollamaUrl
     val realtimeTtsSettings: StateFlow<RealtimeTtsSettings> = repository.realtimeTtsSettings
     val globalTtsSettings: StateFlow<MobileGlobalTtsSettings> = repository.globalTtsSettings
     val uiPreferences: StateFlow<MobileUiPreferences> = repository.uiPreferences
@@ -83,6 +86,18 @@ class MainViewModel(
 
     fun onCerebrasApiKeyChanged(apiKey: String) {
         repository.updateCerebrasApiKey(apiKey)
+    }
+
+    fun onGroqApiKeyChanged(apiKey: String) {
+        repository.updateGroqApiKey(apiKey)
+    }
+
+    fun onOpenRouterApiKeyChanged(apiKey: String) {
+        repository.updateOpenRouterApiKey(apiKey)
+    }
+
+    fun onOllamaUrlChanged(url: String) {
+        repository.updateOllamaUrl(url)
     }
 
     fun onUiLanguageSelected(languageCode: String) {

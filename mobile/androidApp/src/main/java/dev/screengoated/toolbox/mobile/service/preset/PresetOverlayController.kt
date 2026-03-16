@@ -6,7 +6,10 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Rect
 import android.util.Log
+import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
+import android.widget.FrameLayout
 import android.widget.Toast
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
@@ -41,6 +44,7 @@ internal class PresetOverlayController(
     private val clipboardManager = context.getSystemService(ClipboardManager::class.java)
     private val renderer = PresetMarkdownRenderer()
     private val favoriteBubbleHtmlBuilder = FavoriteBubbleHtmlBuilder()
+    private val textInputHtmlBuilder = PresetTextInputHtmlBuilder()
     private val density = context.resources.displayMetrics.density
 
     private var panelWindow: PresetOverlayWindow? = null
@@ -53,6 +57,12 @@ internal class PresetOverlayController(
     private var bubbleBounds = OverlayBounds(x = 0, y = 0, width = dp(48), height = dp(48))
     private var panelPresetIds: List<String> = emptyList()
     private var panelClosing = false
+    private var inputClosing = false
+    private val inputHistory = mutableListOf<String>()
+    private var historyNavigationIndex: Int? = null
+    private var historyDraftText: String = ""
+    private var dismissBubbleView: View? = null
+    private var lastFingerDistSq = Int.MAX_VALUE
 
     private var catalogJob: Job? = null
     private var executionJob: Job? = null
@@ -118,6 +128,7 @@ internal class PresetOverlayController(
         inputWindow?.destroy()
         resultWindow?.destroy()
         canvasWindow?.destroy()
+        hideDismissZone()
         panelWindow = null
         inputWindow = null
         resultWindow = null
@@ -236,33 +247,45 @@ internal class PresetOverlayController(
     }
 
     private fun openInputWindow(resolvedPreset: ResolvedPreset) {
-        val spec = inputWindowSpec()
-        if (inputWindow == null) {
-            inputWindow = PresetOverlayWindow(
-                context = context,
-                windowManager = windowManager,
-                spec = spec,
-                onMessage = ::handleInputMessage,
-            )
+        closeInputWindow()
+        inputClosing = false
+        historyNavigationIndex = null
+        historyDraftText = ""
+        val spec = inputWindowSpec(buildInputHtml(resolvedPreset))
+        inputWindow = PresetOverlayWindow(
+            context = context,
+            windowManager = windowManager,
+            spec = spec,
+            onMessage = ::handleInputMessage,
+        ).also { window ->
+            window.show()
+            window.runScript("window.playEntry(); window.focusEditor();")
         }
-        inputWindow?.updateBounds(
-            OverlayBounds(
-                x = spec.x,
-                y = spec.y,
-                width = spec.width,
-                height = spec.height,
-            ),
-        )
-        inputWindow?.show()
-        inputWindow?.runScript(
-            jsCall(
-                "applyInputBootstrap",
-                buildInputBootstrap(resolvedPreset.preset, uiLanguage()),
-            ),
-        )
     }
 
     private fun closeInputWindow() {
+        hideDismissZone()
+        inputClosing = false
+        inputWindow?.destroy()
+        inputWindow = null
+    }
+
+    private fun requestCloseInputWindow(animate: Boolean) {
+        val window = inputWindow ?: return
+        if (!animate) {
+            finalizeInputWindowClose()
+            return
+        }
+        if (inputClosing) {
+            return
+        }
+        inputClosing = true
+        window.runScript("window.closeWithAnimation();")
+    }
+
+    private fun finalizeInputWindowClose() {
+        hideDismissZone()
+        inputClosing = false
         inputWindow?.destroy()
         inputWindow = null
     }
@@ -465,25 +488,68 @@ internal class PresetOverlayController(
     }
 
     private fun handleInputMessage(message: String) {
-        val payload = message.jsonOrNull() ?: return
-        when (payload.optString("type")) {
-            "dragInputWindow" -> {
-                inputWindow?.moveBy(
-                    dx = payload.optDouble("dx", 0.0).roundToInt(),
-                    dy = payload.optDouble("dy", 0.0).roundToInt(),
-                    screenBounds = screenBounds(),
-                )
-            }
-            "closeInputWindow" -> {
-                closeInputWindow()
+        when {
+            message == "close_window" || message == "cancel" -> {
+                requestCloseInputWindow(animate = true)
                 if (currentResultText.isEmpty()) {
                     activePreset = null
                 }
+                historyNavigationIndex = null
+                historyDraftText = ""
             }
-            "submitInput" -> {
-                val text = payload.optString("text").trim()
+            message == "input_exit_done" -> {
+                finalizeInputWindowClose()
+            }
+            message.startsWith("dragAt:") -> {
+                updateDismissZone(fingerBubbleProximity(message.removePrefix("dragAt:")))
+            }
+            message.startsWith("dragEnd:") -> {
+                val proximity = fingerBubbleProximity(message.removePrefix("dragEnd:"))
+                lastFingerDistSq = Int.MAX_VALUE
+                if (proximity >= 0.8f) {
+                    hideDismissZone()
+                    closeInputWindow()
+                    if (currentResultText.isEmpty()) {
+                        activePreset = null
+                    }
+                    historyNavigationIndex = null
+                    historyDraftText = ""
+                } else {
+                    hideDismissZone()
+                }
+            }
+            message == "mic" -> {
+                Toast.makeText(
+                    context,
+                    placeholderReasonLabel(PresetPlaceholderReason.AUDIO_CAPTURE_NOT_READY, uiLanguage()),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+            message.startsWith("submit:") -> {
+                val text = message.substringAfter("submit:", "").trim()
                 if (text.isNotEmpty()) {
                     submitInput(text)
+                }
+            }
+            message.startsWith("history_up:") -> {
+                val current = message.substringAfter("history_up:", "")
+                navigateInputHistory(current = current, upwards = true)
+            }
+            message.startsWith("history_down:") -> {
+                val current = message.substringAfter("history_down:", "")
+                navigateInputHistory(current = current, upwards = false)
+            }
+            message.startsWith("{") -> {
+                val payload = message.jsonOrNull() ?: return
+                when (payload.optString("type")) {
+                    "dragInputWindow" -> {
+                        ensureDismissBubble()
+                        inputWindow?.moveBy(
+                            dx = payload.optDouble("dx", 0.0).roundToInt(),
+                            dy = payload.optDouble("dy", 0.0).roundToInt(),
+                            screenBounds = screenBounds(),
+                        )
+                    }
                 }
             }
         }
@@ -523,13 +589,16 @@ internal class PresetOverlayController(
 
     private fun submitInput(text: String) {
         val resolved = activePreset ?: return
+        inputHistory.add(text)
+        historyNavigationIndex = null
+        historyDraftText = ""
         ensureResultWindow()
         presetRepository.resetState()
         presetRepository.executePreset(resolved.preset, PresetInput.Text(text))
         if (resolved.preset.continuousInput) {
             inputWindow?.runScript("window.clearInput();")
         } else {
-            closeInputWindow()
+            requestCloseInputWindow(animate = true)
         }
     }
 
@@ -566,6 +635,171 @@ internal class PresetOverlayController(
                 columnCount = panelColumnCount(favorites.size),
             ),
         )
+    }
+
+    private fun buildInputHtml(resolvedPreset: ResolvedPreset): String {
+        return textInputHtmlBuilder.build(
+            PresetTextInputHtmlSettings(
+                lang = uiLanguage(),
+                title = resolvedPreset.preset.name(uiLanguage()),
+                placeholder = localized("Type here...", "Nhập tại đây...", "여기에 입력하세요..."),
+                isDark = isDarkTheme(uiPreferencesProvider().themeMode),
+            ),
+        )
+    }
+
+    private fun navigateInputHistory(
+        current: String,
+        upwards: Boolean,
+    ) {
+        if (inputHistory.isEmpty()) {
+            return
+        }
+        val nextText = if (upwards) {
+            navigateHistoryUp(current)
+        } else {
+            navigateHistoryDown(current)
+        } ?: return
+        inputWindow?.runScript("window.setEditorText(${JSONObject.quote(nextText)});")
+    }
+
+    private fun navigateHistoryUp(current: String): String? {
+        if (inputHistory.isEmpty()) {
+            return null
+        }
+        if (historyNavigationIndex == null) {
+            historyDraftText = current
+            historyNavigationIndex = inputHistory.lastIndex
+            return inputHistory.lastOrNull()
+        }
+        val newIndex = (historyNavigationIndex!! - 1).coerceAtLeast(0)
+        historyNavigationIndex = newIndex
+        return inputHistory.getOrNull(newIndex)
+    }
+
+    private fun navigateHistoryDown(current: String): String? {
+        val index = historyNavigationIndex ?: return null
+        return if (index >= inputHistory.lastIndex) {
+            historyNavigationIndex = null
+            historyDraftText.ifEmpty { current }
+        } else {
+            val newIndex = index + 1
+            historyNavigationIndex = newIndex
+            inputHistory.getOrNull(newIndex)
+        }
+    }
+
+    private fun ensureDismissBubble() {
+        if (dismissBubbleView != null) return
+        val bubbleSize = dp(56)
+        val circle = View(context).apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(android.graphics.Color.argb(200, 60, 60, 60))
+            }
+            alpha = 0f
+            scaleX = 0.4f
+            scaleY = 0.4f
+        }
+        val icon = android.widget.TextView(context).apply {
+            text = "\u00D7"
+            textSize = 24f
+            setTextColor(android.graphics.Color.WHITE)
+            gravity = Gravity.CENTER
+        }
+        val container = FrameLayout(context).apply {
+            addView(circle, FrameLayout.LayoutParams(bubbleSize, bubbleSize).apply {
+                gravity = Gravity.CENTER
+            })
+            addView(icon, FrameLayout.LayoutParams(bubbleSize, bubbleSize).apply {
+                gravity = Gravity.CENTER
+            })
+        }
+        val params = WindowManager.LayoutParams(
+            bubbleSize * 2,
+            bubbleSize * 2,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            android.graphics.PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = dp(24)
+        }
+        dismissBubbleView = container
+        runCatching { windowManager.addView(container, params) }
+        circle.animate()
+            .alpha(1f).scaleX(1f).scaleY(1f)
+            .setDuration(250)
+            .setInterpolator(android.view.animation.OvershootInterpolator(1.5f))
+            .start()
+    }
+
+    private fun updateDismissZone(proximity: Float) {
+        ensureDismissBubble()
+        val circle = (dismissBubbleView as? FrameLayout)?.getChildAt(0) ?: return
+        val scale = 1f + proximity * 0.35f
+        circle.scaleX = scale
+        circle.scaleY = scale
+        val r = (60 + (160 * proximity)).toInt().coerceIn(0, 255)
+        val g = (60 - (10 * proximity)).toInt().coerceIn(0, 255)
+        val b = (60 - (10 * proximity)).toInt().coerceIn(0, 255)
+        val a = (200 + (20 * proximity)).toInt().coerceIn(0, 255)
+        (circle.background as? android.graphics.drawable.GradientDrawable)
+            ?.setColor(android.graphics.Color.argb(a, r, g, b))
+    }
+
+    private fun hideDismissZone() {
+        val view = dismissBubbleView ?: return
+        val circle = (view as? FrameLayout)?.getChildAt(0)
+        if (circle != null) {
+            circle.animate()
+                .alpha(0f)
+                .scaleX(0.3f)
+                .scaleY(0.3f)
+                .setDuration(200)
+                .withEndAction {
+                    runCatching { windowManager.removeView(view) }
+                    dismissBubbleView = null
+                }
+                .start()
+        } else {
+            runCatching { windowManager.removeView(view) }
+            dismissBubbleView = null
+        }
+    }
+
+    private fun fingerBubbleProximity(rawXY: String): Float {
+        val parts = rawXY.split(",")
+        if (parts.size != 2) return 0f
+        val fingerCssX = parts[0].toIntOrNull() ?: return 0f
+        val fingerCssY = parts[1].toIntOrNull() ?: return 0f
+        val density = context.resources.displayMetrics.density
+        val screen = screenBounds()
+        val bubbleCenterCssX = (screen.width() / density / 2).toInt()
+        val bubbleCenterCssY = ((screen.height() - statusBarHeight() - dp(24) - dp(28)) / density).toInt()
+        val dx = fingerCssX - bubbleCenterCssX
+        val dy = fingerCssY - bubbleCenterCssY
+        val distSq = dx * dx + dy * dy
+        val approaching = distSq < lastFingerDistSq
+        lastFingerDistSq = distSq
+        val hitRadius = 55f
+        val outerRadius = if (approaching) 140f else 110f
+        val dist = kotlin.math.sqrt(distSq.toFloat())
+        return if (dist <= hitRadius) {
+            1f
+        } else if (dist <= outerRadius) {
+            1f - (dist - hitRadius) / (outerRadius - hitRadius)
+        } else {
+            0f
+        }
+    }
+
+    private fun statusBarHeight(): Int {
+        val resourceId = context.resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (resourceId > 0) context.resources.getDimensionPixelSize(resourceId) else dp(24)
     }
 
     private fun syncPanelWindowState(window: PresetOverlayWindow) {
@@ -701,7 +935,7 @@ internal class PresetOverlayController(
         return (withBuffer / columnWidthCss).toInt().coerceAtLeast(1)
     }
 
-    private fun inputWindowSpec(): PresetOverlayWindowSpec {
+    private fun inputWindowSpec(htmlContent: String): PresetOverlayWindowSpec {
         val width = dp(340)
         val height = dp(228)
         val screen = screenBounds()
@@ -711,7 +945,8 @@ internal class PresetOverlayController(
             x = ((screen.width() - width) / 2).coerceAtLeast(0),
             y = (screen.height() * 0.14f).roundToInt(),
             focusable = true,
-            assetPage = "input.html",
+            htmlContent = htmlContent,
+            baseUrl = INPUT_WINDOW_BASE_URL,
         )
     }
 
@@ -813,6 +1048,7 @@ internal class PresetOverlayController(
     private companion object {
         private const val TAG = "PresetOverlay"
         private const val FAVORITE_PANEL_BASE_URL = "file:///android_asset/realtime_overlay/"
+        private const val INPUT_WINDOW_BASE_URL = "file:///android_asset/realtime_overlay/"
         private const val WINDOWS_ITEMS_PER_COLUMN = 15
         private const val PANEL_COLUMN_WIDTH_CSS = 200
         private const val PANEL_WIDTH_BUFFER_CSS = 40f

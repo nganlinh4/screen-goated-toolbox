@@ -1,0 +1,31 @@
+{
+  "canonical_windows_files": [
+    "src/overlay/text_input/styles.rs",
+    "src/overlay/text_input/messages.rs",
+    "src/overlay/text_input/window.rs"
+  ],
+  "android_contract": {
+    "surface": "shared-webview-builder",
+    "required_messages": [
+      "submit:<text>",
+      "cancel",
+      "close_window",
+      "history_up:<draft>",
+      "history_down:<draft>",
+      "mic"
+    ],
+    "required_js_hooks": [
+      "window.setEditorText",
+      "window.updateTheme",
+      "window.playEntry",
+      "window.playExit",
+      "window.clearInput"
+    ],
+    "accepted_mobile_shims": [
+      "touch_drag_delta_messages"
+    ]
+  },
+  "documented_deferred_behavior": [
+    "mic_button_runtime"
+  ]
+}

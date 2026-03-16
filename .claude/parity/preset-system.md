@@ -26,6 +26,12 @@
   - keep-open launches supported presets without dismissing the panel
 - The bubble size controls must persist and resize the actual floating bubble using the Windows min/max/step semantics.
 - Supported Android bubble launches open a floating text-input overlay first, then stream into a floating markdown result overlay with a separate floating button canvas.
+- The floating text-input overlay is a Windows-canonical web surface:
+  - Windows source of truth: [src/overlay/text_input/styles.rs](../../src/overlay/text_input/styles.rs), [src/overlay/text_input/messages.rs](../../src/overlay/text_input/messages.rs), and [src/overlay/text_input/window.rs](../../src/overlay/text_input/window.rs)
+  - Android must use the same DOM/CSS/JS contract through a builder/shim layer instead of a custom `input.html/css/js` redesign
+  - Android-specific changes are limited to bridge transport, touch drag shims, and explicitly documented unsupported controls
+  - Title, footer, placeholder, entry/exit animation, theme variables, and button layout must stay aligned with the Windows text-input surface
+  - The Android input overlay should accept the Windows message contract for `submit:*`, `cancel`, `close_window`, `history_up:*`, `history_down:*`, and `mic`
 - If the bubble is opened with zero favorite presets, Android must surface a localized empty-favorites message instead of crashing.
 - The favorite bubble panel is a Windows-canonical web surface:
   - Windows source of truth: [src/overlay/favorite_bubble/html.rs](../../src/overlay/favorite_bubble/html.rs)
@@ -56,5 +62,8 @@
 - Android wave 1 does not expose the Windows markdown/plain-text result toggle in the floating button canvas; the mobile overlay stays markdown-only until a real alternate render mode exists.
 - Android favorite bubble still has known parity gaps versus Windows:
   - panel `trigger_continuous` does not yet enter the Windows continuous-mode runtime; Android still routes that path through the normal preset launch flow
+- Android text-input overlay still has known parity gaps versus Windows:
+  - `mic` remains a placeholder until Android has the preset-linked recording/runtime path behind that control
+- On Android/touch, the text-input footer row may be omitted and the action buttons may be compacted inward so the overlay remains truthful and usable within the smaller mobile window. This is an accepted mobile interaction adaptation, not a parity bug.
 - On Android/touch, the keep-open row may remain visible instead of hover-revealed; this is an accepted mobile interaction adaptation, not a parity bug.
 - Android bubble opacity should stay fully active while the panel is expanded or within roughly one second of the last bubble/panel interaction, then return to the Windows inactive-opacity baseline.

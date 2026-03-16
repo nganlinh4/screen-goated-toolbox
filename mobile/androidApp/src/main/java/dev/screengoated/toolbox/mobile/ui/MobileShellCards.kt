@@ -43,11 +43,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -57,6 +54,8 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
@@ -67,29 +66,35 @@ private data class ProviderDef(
     val label: String,
     val icon: ImageVector,
     val keyLabel: String,
+    val getKeyUrl: String? = null,
+    val getKeyLabel: String? = null,
 )
 
 @Composable
 internal fun CredentialsCard(
     apiKey: String,
     cerebrasApiKey: String,
+    groqApiKey: String,
+    openRouterApiKey: String,
+    ollamaUrl: String,
     locale: MobileLocaleText,
     onApiKeyChanged: (String) -> Unit,
     onCerebrasApiKeyChanged: (String) -> Unit,
+    onGroqApiKeyChanged: (String) -> Unit,
+    onOpenRouterApiKeyChanged: (String) -> Unit,
+    onOllamaUrlChanged: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val uriHandler = LocalUriHandler.current
     val providers = listOf(
-        ProviderDef("Gemini", Icons.Rounded.AutoAwesome, locale.geminiKeyLabel),
-        ProviderDef("Cerebras", Icons.Rounded.LocalFireDepartment, locale.cerebrasKeyLabel),
-        ProviderDef("Groq", Icons.Rounded.Bolt, "Groq key"),
-        ProviderDef("OpenRouter", Icons.Rounded.Public, "OpenRouter key"),
-        ProviderDef("Ollama", Icons.Rounded.Computer, "Ollama URL"),
+        ProviderDef("Gemini", Icons.Rounded.AutoAwesome, locale.geminiKeyLabel, "https://aistudio.google.com/app/apikey", locale.geminiGetKeyLink),
+        ProviderDef("Cerebras", Icons.Rounded.LocalFireDepartment, locale.cerebrasKeyLabel, "https://cloud.cerebras.ai/", locale.cerebrasGetKeyLink),
+        ProviderDef("Groq", Icons.Rounded.Bolt, locale.groqKeyLabel, "https://console.groq.com/keys", locale.groqGetKeyLink),
+        ProviderDef("OpenRouter", Icons.Rounded.Public, locale.openRouterKeyLabel, "https://openrouter.ai/settings/keys", locale.openRouterGetKeyLink),
+        ProviderDef("Ollama", Icons.Rounded.Computer, locale.ollamaUrlLabel),
     )
-    val enabledState = remember { mutableStateListOf(true, true, false, false, false) }
+    val enabledState = remember { mutableStateListOf(true, true, true, false, false) }
     val visibleState = remember { mutableStateListOf(false, false, false, false, false) }
-    var groqKey by remember { mutableStateOf("") }
-    var openRouterKey by remember { mutableStateOf("") }
-    var ollamaUrl by remember { mutableStateOf("http://localhost:11434") }
 
     Card(
         modifier = modifier,
@@ -161,40 +166,53 @@ internal fun CredentialsCard(
                 isPassword: Boolean = true,
             ) {
                 AnimatedVisibility(visible = enabledState[index]) {
-                    OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth(),
-                        value = value,
-                        onValueChange = onValueChange,
-                        label = { Text(providers[index].keyLabel, style = MaterialTheme.typography.labelSmall) },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodySmall,
-                        visualTransformation = if (isPassword && !visibleState[index]) {
-                            PasswordVisualTransformation()
-                        } else {
-                            VisualTransformation.None
-                        },
-                        trailingIcon = if (isPassword) {
-                            {
-                                IconButton(onClick = { visibleState[index] = !visibleState[index] }) {
-                                    Icon(
-                                        if (visibleState[index]) Icons.Rounded.VisibilityOff
-                                        else Icons.Rounded.Visibility,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
-                                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        OutlinedTextField(
+                            modifier = Modifier.fillMaxWidth(),
+                            value = value,
+                            onValueChange = onValueChange,
+                            label = { Text(providers[index].keyLabel, style = MaterialTheme.typography.labelSmall) },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall,
+                            visualTransformation = if (isPassword && !visibleState[index]) {
+                                PasswordVisualTransformation()
+                            } else {
+                                VisualTransformation.None
+                            },
+                            trailingIcon = if (isPassword) {
+                                {
+                                    IconButton(onClick = { visibleState[index] = !visibleState[index] }) {
+                                        Icon(
+                                            if (visibleState[index]) Icons.Rounded.VisibilityOff
+                                            else Icons.Rounded.Visibility,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
                                 }
-                            }
-                        } else null,
-                        shape = MaterialTheme.shapes.medium,
-                    )
+                            } else null,
+                            shape = MaterialTheme.shapes.medium,
+                        )
+                        val provider = providers[index]
+                        if (provider.getKeyUrl != null && provider.getKeyLabel != null) {
+                            Text(
+                                text = provider.getKeyLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .clickable { uriHandler.openUri(provider.getKeyUrl) }
+                                    .padding(start = 4.dp),
+                            )
+                        }
+                    }
                 }
             }
 
             ApiKeyField(0, apiKey, onApiKeyChanged)
             ApiKeyField(1, cerebrasApiKey, onCerebrasApiKeyChanged)
-            ApiKeyField(2, groqKey, { groqKey = it })
-            ApiKeyField(3, openRouterKey, { openRouterKey = it })
-            ApiKeyField(4, ollamaUrl, { ollamaUrl = it }, isPassword = false)
+            ApiKeyField(2, groqApiKey, onGroqApiKeyChanged)
+            ApiKeyField(3, openRouterApiKey, onOpenRouterApiKeyChanged)
+            ApiKeyField(4, ollamaUrl, onOllamaUrlChanged, isPassword = false)
         }
     }
 }
