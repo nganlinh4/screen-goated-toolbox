@@ -122,6 +122,7 @@ class PresetRepositoryTest {
         return PresetRepository(
             textApiClient = TextApiClient(OkHttpClient()),
             apiKeys = { ApiKeys() },
+            uiLanguage = { "en" },
             overrideStore = store,
             mainDispatcher = dispatcher,
         )

@@ -9,7 +9,7 @@ fn default_image_to_text_priority_chain() -> Vec<String> {
 
 fn default_text_to_text_priority_chain() -> Vec<String> {
     vec![
-        "cerebras_gpt_oss".to_string(),
+        crate::model_config::DEFAULT_CEREBRAS_TEXT_MODEL_ID.to_string(),
         "text_accurate_kimi".to_string(),
         "text_gemini_3_1_flash_lite".to_string(),
     ]

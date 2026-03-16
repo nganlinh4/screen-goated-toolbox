@@ -499,7 +499,16 @@ private fun NodeGraphSection(
     onUpdate: (Preset) -> Unit,
 ) {
     var graphState by remember(editState.id) {
-        val nodes = editState.blocks.mapIndexed { idx, block ->
+        // Build node list from blocks, auto-inserting an Input node if none exists
+        // (mirrors Windows blocks_to_snarl behavior)
+        val hasInput = editState.blocks.any { it.blockType == BlockType.INPUT_ADAPTER }
+        val rawBlocks = if (hasInput) {
+            editState.blocks
+        } else {
+            listOf(dev.screengoated.toolbox.mobile.shared.preset.inputAdapter()) + editState.blocks
+        }
+
+        val nodes = rawBlocks.mapIndexed { idx, block ->
             NodePosition(
                 id = block.id.ifBlank { "block_$idx" },
                 x = 0f,
@@ -507,11 +516,41 @@ private fun NodeGraphSection(
                 block = block,
             )
         }
-        val connections = editState.blockConnections.mapNotNull { (from, to) ->
-            val fromId = nodes.getOrNull(from)?.id ?: return@mapNotNull null
-            val toId = nodes.getOrNull(to)?.id ?: return@mapNotNull null
-            Connection(fromId, toId)
+
+        // Normalize connections: if blockConnections is empty, create linear chain
+        // (same as Preset.normalizedConnections() in PresetRepository)
+        val indexOffset = if (hasInput) 0 else 1
+        val sourceEdges = if (editState.blockConnections.isNotEmpty()) {
+            editState.blockConnections
+        } else if (editState.blocks.size >= 2) {
+            // Linear chain: 0→1→2→...
+            (0 until editState.blocks.lastIndex).map { it to it + 1 }
+        } else {
+            emptyList()
         }
+
+        val connections = if (hasInput) {
+            sourceEdges.mapNotNull { (from, to) ->
+                val fromId = nodes.getOrNull(from)?.id ?: return@mapNotNull null
+                val toId = nodes.getOrNull(to)?.id ?: return@mapNotNull null
+                Connection(fromId, toId)
+            }
+        } else {
+            // Shift original connections by 1 (we prepended an input adapter)
+            val shifted = sourceEdges.mapNotNull { (from, to) ->
+                val fromId = nodes.getOrNull(from + indexOffset)?.id ?: return@mapNotNull null
+                val toId = nodes.getOrNull(to + indexOffset)?.id ?: return@mapNotNull null
+                Connection(fromId, toId)
+            }
+            // Auto-connect input to all nodes with no incoming edge
+            val hasIncoming = shifted.map { it.toNodeId }.toSet()
+            val inputId = nodes.first().id
+            val autoConns = nodes.drop(1)
+                .filter { it.id !in hasIncoming }
+                .map { Connection(inputId, it.id) }
+            autoConns + shifted
+        }
+
         mutableStateOf(NodeGraphState(nodes, connections))
     }
 

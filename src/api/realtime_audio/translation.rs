@@ -19,7 +19,7 @@ use super::state::SharedRealtimeState;
 use super::utils::{refresh_transcription_window, update_translation_text};
 use super::{TRANSLATION_INTERVAL_MS, WM_MODEL_SWITCH};
 
-/// Translation loop using Cerebras' gpt-oss-120b model
+/// Translation loop using the centralized realtime translation provider model.
 pub fn run_translation_loop(
     preset: Preset,
     stop_signal: Arc<AtomicBool>,
@@ -143,7 +143,7 @@ pub fn run_translation_loop(
                 let current_model = translation_model.as_str();
                 let mut primary_failed = false;
 
-                if current_model == "google-gtx" {
+                if current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GTX {
                     if let Some(text) = translate_with_google_gtx(&chunk, &target_language) {
                         if let Ok(mut s) = state.lock() {
                             s.append_translation(&text);
@@ -159,13 +159,21 @@ pub fn run_translation_loop(
                         primary_failed = true;
                     }
                 } else {
-                    let is_google = current_model == "google-gemma";
+                    let is_google =
+                        current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GEMMA;
                     let (url, model_name, api_key) = if is_google {
-                        ("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".to_string(), "gemma-3-27b-it".to_string(), gemini_key.clone())
+                        (
+                            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+                                .to_string(),
+                            crate::model_config::realtime_translation_api_model(current_model)
+                                .to_string(),
+                            gemini_key.clone(),
+                        )
                     } else {
                         (
                             "https://api.cerebras.ai/v1/chat/completions".to_string(),
-                            "gpt-oss-120b".to_string(),
+                            crate::model_config::realtime_translation_api_model(current_model)
+                                .to_string(),
                             cerebras_key.clone(),
                         )
                     };
@@ -209,7 +217,10 @@ pub fn run_translation_loop(
                                         .unwrap_or("?");
                                     if let Ok(mut app) = APP.lock() {
                                         app.model_usage_stats.insert(
-                                            "gpt-oss-120b".to_string(),
+                                            crate::model_config::realtime_translation_api_model(
+                                                current_model,
+                                            )
+                                            .to_string(),
                                             format!("{} / {}", remaining, limit),
                                         );
                                     }
@@ -312,12 +323,15 @@ fn handle_fallback_translation(request: FallbackTranslationRequest<'_>) {
         state,
         stop_signal,
     } = request;
-    let alt_model = if current_model == "cerebras-oss" {
-        "google-gtx"
-    } else if current_model == "google-gtx" {
-        "cerebras-oss"
+    let alt_model = if current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS {
+        crate::model_config::REALTIME_TRANSLATION_MODEL_GTX
+    } else if current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GTX {
+        crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS
     } else {
-        let pool = ["cerebras-oss", "google-gtx"];
+        let pool = [
+            crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS,
+            crate::model_config::REALTIME_TRANSLATION_MODEL_GTX,
+        ];
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -332,8 +346,8 @@ fn handle_fallback_translation(request: FallbackTranslationRequest<'_>) {
     }
     unsafe {
         let flag = match alt_model {
-            "google-gemma" => 1,
-            "google-gtx" => 2,
+            crate::model_config::REALTIME_TRANSLATION_MODEL_GEMMA => 1,
+            crate::model_config::REALTIME_TRANSLATION_MODEL_GTX => 2,
             _ => 0,
         };
         let _ = PostMessageW(
@@ -344,7 +358,7 @@ fn handle_fallback_translation(request: FallbackTranslationRequest<'_>) {
         );
     }
 
-    if alt_model == "google-gtx" {
+    if alt_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GTX {
         if let Some(text) = translate_with_google_gtx(chunk, target_language)
             && let Ok(mut s) = state.lock()
         {
@@ -357,18 +371,18 @@ fn handle_fallback_translation(request: FallbackTranslationRequest<'_>) {
             update_translation_text(translation_hwnd, &display);
         }
     } else {
-        let alt_is_google = alt_model == "google-gemma";
+        let alt_is_google = alt_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GEMMA;
         let (alt_url, alt_model_name, alt_key) = if alt_is_google {
             (
                 "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
                     .to_string(),
-                "gemma-3-27b-it".to_string(),
+                crate::model_config::realtime_translation_api_model(alt_model).to_string(),
                 gemini_key.to_string(),
             )
         } else {
             (
                 "https://api.cerebras.ai/v1/chat/completions".to_string(),
-                "gpt-oss-120b".to_string(),
+                crate::model_config::realtime_translation_api_model(alt_model).to_string(),
                 cerebras_key.to_string(),
             )
         };
@@ -407,7 +421,8 @@ fn handle_fallback_translation(request: FallbackTranslationRequest<'_>) {
                         .unwrap_or("?");
                     if let Ok(mut app) = APP.lock() {
                         app.model_usage_stats.insert(
-                            "gpt-oss-120b".to_string(),
+                            crate::model_config::realtime_translation_api_model(alt_model)
+                                .to_string(),
                             format!("{} / {}", remaining, limit),
                         );
                     }

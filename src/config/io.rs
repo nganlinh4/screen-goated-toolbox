@@ -123,7 +123,7 @@ fn migrate_config(config: &mut Config) {
         for block in &mut preset.blocks {
             match block.model.as_str() {
                 "cerebras_zai_glm_4_7" => {
-                    block.model = "cerebras_gpt_oss".to_string();
+                    block.model = crate::model_config::DEFAULT_CEREBRAS_TEXT_MODEL_ID.to_string();
                 }
                 "maverick" => {
                     block.model = "scout".to_string();
@@ -206,7 +206,10 @@ mod tests {
             config.presets[0].blocks[0].model,
             "gemini-3.1-flash-lite-preview"
         );
-        assert_eq!(config.presets[1].blocks[0].model, "cerebras_gpt_oss");
+        assert_eq!(
+            config.presets[1].blocks[0].model,
+            crate::model_config::DEFAULT_CEREBRAS_TEXT_MODEL_ID
+        );
     }
 
     #[test]

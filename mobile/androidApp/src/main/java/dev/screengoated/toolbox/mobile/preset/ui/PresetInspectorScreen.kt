@@ -444,6 +444,8 @@ private fun placeholderTitle(reason: PresetPlaceholderReason, lang: String): Str
         localized(lang, "Selected text capture", "Bắt text được chọn", "선택 텍스트 캡처")
     PresetPlaceholderReason.TEXT_INPUT_OVERLAY_NOT_READY ->
         localized(lang, "Overlay input", "Nhập overlay", "오버레이 입력")
+    PresetPlaceholderReason.MODEL_PROVIDER_NOT_READY ->
+        localized(lang, "Model/provider runtime", "Runtime model/provider", "모델/제공자 런타임")
     PresetPlaceholderReason.AUDIO_CAPTURE_NOT_READY ->
         localized(lang, "Audio capture", "Bắt âm thanh", "오디오 캡처")
     PresetPlaceholderReason.REALTIME_AUDIO_NOT_READY ->
@@ -473,6 +475,8 @@ private fun placeholderMessage(reason: PresetPlaceholderReason?, lang: String): 
             localized(lang, "Android does not have the Windows selected-text capture flow yet.", "Android chưa có luồng bắt text được chọn như Windows.", "Android에는 아직 Windows식 선택 텍스트 캡처 흐름이 없습니다.")
         PresetPlaceholderReason.TEXT_INPUT_OVERLAY_NOT_READY ->
             localized(lang, "Overlay-style text input is still a placeholder on Android.", "Nhập text kiểu overlay vẫn chỉ là placeholder trên Android.", "오버레이식 텍스트 입력은 아직 Android에서 플레이스홀더입니다.")
+        PresetPlaceholderReason.MODEL_PROVIDER_NOT_READY ->
+            localized(lang, "This preset points at a Windows model/provider runtime that Android does not implement yet.", "Preset này trỏ tới runtime model/provider của Windows mà Android chưa hỗ trợ.", "이 프리셋은 Android가 아직 구현하지 않은 Windows 모델/제공자 런타임을 가리킵니다.")
         PresetPlaceholderReason.AUDIO_CAPTURE_NOT_READY ->
             localized(lang, "Android does not have the Windows record-then-process audio runtime yet.", "Android chưa có runtime ghi âm rồi xử lý như Windows.", "Android에는 아직 Windows식 녹음 후 처리 런타임이 없습니다.")
         PresetPlaceholderReason.REALTIME_AUDIO_NOT_READY ->

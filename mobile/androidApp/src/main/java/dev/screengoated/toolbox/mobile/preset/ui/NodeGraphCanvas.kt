@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -457,17 +458,34 @@ fun NodeGraphCanvas(
     var dragWireEnd by remember { mutableStateOf(Offset.Zero) }
     var dragWireCumulative by remember { mutableStateOf(Offset.Zero) }
 
-    // BFS layout
-    val layoutNodes = remember(state.nodes, state.connections) {
-        val needsLayout = state.nodes.all { it.x == 0f && it.y == 0f }
-        if (needsLayout && state.nodes.isNotEmpty()) {
-            bfsLayout(state.nodes, state.connections)
-        } else {
-            state.nodes
+    // Internal mutable positions — avoids stale closure issue in pointerInput
+    val positions = remember { mutableStateMapOf<String, Offset>() }
+
+    // Seed positions from BFS layout or state on first load / node list change
+    val nodeIds = remember(state.nodes.map { it.id }) { state.nodes.map { it.id } }
+    val needsBfsLayout = remember(nodeIds) {
+        state.nodes.all { it.x == 0f && it.y == 0f } && state.nodes.isNotEmpty()
+    }
+    val bfsNodes = remember(nodeIds, state.connections) {
+        if (needsBfsLayout) bfsLayout(state.nodes, state.connections) else state.nodes
+    }
+    // Sync BFS results into mutable positions (only for new nodes)
+    bfsNodes.forEach { node ->
+        if (node.id !in positions) {
+            positions[node.id] = Offset(node.x, node.y)
         }
     }
+    // Remove stale entries
+    val currentIds = state.nodes.map { it.id }.toSet()
+    positions.keys.removeAll { it !in currentIds }
 
-    val nodeMap = remember(layoutNodes) { layoutNodes.associateBy { it.id } }
+    // Build display list from current state + mutable positions
+    val layoutNodes = state.nodes.map { node ->
+        val pos = positions[node.id] ?: Offset(node.x, node.y)
+        node.copy(x = pos.x, y = pos.y)
+    }
+
+    val nodeMap = layoutNodes.associateBy { it.id }
 
     // Pan/zoom gesture
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
@@ -551,9 +569,10 @@ fun NodeGraphCanvas(
                     isSelected = selectedNodeId == node.id,
                     onTap = { onNodeTapped(node.id) },
                     onDrag = { dx, dy ->
-                        val newX = node.x + dx / zoom
-                        val newY = node.y + dy / zoom
-                        onNodeMoved(node.id, newX, newY)
+                        val cur = positions[node.id] ?: Offset(node.x, node.y)
+                        val newPos = Offset(cur.x + dx / zoom, cur.y + dy / zoom)
+                        positions[node.id] = newPos
+                        onNodeMoved(node.id, newPos.x, newPos.y)
                     },
                     onLongPress = {
                         if (node.block.blockType != BlockType.INPUT_ADAPTER) {

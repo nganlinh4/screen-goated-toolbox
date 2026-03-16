@@ -67,8 +67,12 @@ class AppContainer(
             ApiKeys(
                 geminiKey = repository.currentApiKey(),
                 cerebrasKey = repository.currentCerebrasApiKey(),
+                groqKey = repository.currentGroqApiKey(),
+                openRouterKey = repository.currentOpenRouterApiKey(),
+                ollamaBaseUrl = repository.currentOllamaUrl(),
             )
         },
+        uiLanguage = { repository.currentUiPreferences().uiLanguage },
         overrideStore = presetPersistence,
     )
 

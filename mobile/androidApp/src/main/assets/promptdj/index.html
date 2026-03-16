@@ -44,8 +44,10 @@
           }\
           #content {\
             flex-direction: column !important;\
-            gap: 2vw !important;\
-            padding: 2vw !important;\
+            gap: 0 !important;\
+            padding: 0 2vw !important;\
+            justify-content: flex-start !important;\
+            align-items: center !important;\
           }\
           #gridWrap {\
             height: auto !important;\
@@ -55,29 +57,36 @@
             width: 96vw !important;\
             height: auto !important;\
             grid-template-columns: repeat(4, 1fr) !important;\
-            gap: 1.5vw !important;\
+            grid-auto-rows: 22vw !important;\
+            gap: 4vw 1vw !important;\
+            padding-bottom: 2vw !important;\
           }\
           #sideControls {\
             flex-direction: row !important;\
             height: auto !important;\
-            width: 100% !important;\
-            gap: 4vw !important;\
-            padding: 1vw 0 !important;\
+            width: 96vw !important;\
+            gap: 0 !important;\
+            padding: 3vw 0 4vw 0 !important;\
+            justify-content: center !important;\
+            align-items: center !important;\
           }\
           play-pause-morph {\
-            width: 16vw !important;\
-            height: 16vw !important;\
+            width: 14vw !important;\
+            height: 14vw !important;\
+            margin: 0 3vw !important;\
           }\
           .mini-controls {\
             margin-top: 0 !important;\
-            gap: 2vw !important;\
+            gap: 3vw !important;\
+            align-items: center !important;\
           }\
           .mini-btn {\
-            width: 10vw !important;\
-            height: 10vw !important;\
+            width: 11vw !important;\
+            height: 11vw !important;\
+            border-radius: 50% !important;\
           }\
           .mini-btn .material-symbols-rounded {\
-            font-size: 5vw !important;\
+            font-size: 5.5vw !important;\
           }\
           .volume-container { display: none !important; }\
           .rec-timer { font-size: 3.5vw !important; }\
@@ -122,27 +131,27 @@
 
       var CTRL_CSS_PORTRAIT = '\
         @media (orientation: portrait) {\
-          weight-knob { width: 65% !important; }\
+          weight-knob { width: 58% !important; }\
           .text-wrapper {\
-            width: 22vw !important;\
+            width: 23vw !important;\
             height: 5vw !important;\
-            margin-top: -6vw !important;\
+            margin-top: -4.5vw !important;\
           }\
           #text-svg text {\
-            font-size: 3.2vw !important;\
+            font-size: 2.8vw !important;\
           }\
           #text {\
-            font-size: 3vw !important;\
+            font-size: 2.6vw !important;\
             max-width: 22vw !important;\
           }\
           .pc-clear {\
-            width: 5vw !important;\
-            height: 5vw !important;\
-            top: -1vw !important;\
-            right: -1vw !important;\
+            width: 4.5vw !important;\
+            height: 4.5vw !important;\
+            top: -0.8vw !important;\
+            right: -0.8vw !important;\
           }\
           .pc-clear .material-symbols-rounded {\
-            font-size: 3vw !important;\
+            font-size: 2.8vw !important;\
           }\
         }\
         @media (orientation: landscape) {\

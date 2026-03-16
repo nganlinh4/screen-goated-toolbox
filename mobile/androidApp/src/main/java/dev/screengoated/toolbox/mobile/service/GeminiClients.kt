@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.service
 import android.util.Base64
 import android.util.Log
 import dev.screengoated.toolbox.mobile.model.LanguageCatalog
+import dev.screengoated.toolbox.mobile.shared.live.LiveTranslationModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.TranslationRequest
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -696,22 +697,34 @@ class RealtimeTranslationClient(
                 TranslationProvider(PROVIDER_GTX, "google-translate-gtx"),
             )
             PROVIDER_GTX -> listOf(
-                TranslationProvider(PROVIDER_CEREBRAS, "gpt-oss-120b"),
-                TranslationProvider(PROVIDER_GTX, "google-translate-gtx"), // self-retry as last resort
+                TranslationProvider(
+                    PROVIDER_CEREBRAS,
+                    LiveTranslationModelCatalog.CEREBRAS_API_MODEL,
+                ),
+                TranslationProvider(
+                    PROVIDER_GTX,
+                    LiveTranslationModelCatalog.GTX_API_MODEL,
+                ), // self-retry as last resort
             )
             else -> listOf(
-                TranslationProvider(PROVIDER_CEREBRAS, "gpt-oss-120b"),
-                TranslationProvider(PROVIDER_GTX, "google-translate-gtx"),
+                TranslationProvider(
+                    PROVIDER_CEREBRAS,
+                    LiveTranslationModelCatalog.CEREBRAS_API_MODEL,
+                ),
+                TranslationProvider(
+                    PROVIDER_GTX,
+                    LiveTranslationModelCatalog.GTX_API_MODEL,
+                ),
             )
         }
         return candidates.firstOrNull { isProviderAvailable(it.id, geminiApiKey, cerebrasApiKey) }
-            ?: TranslationProvider(PROVIDER_GTX, "google-translate-gtx") // GTX always works
+            ?: TranslationProvider(PROVIDER_GTX, LiveTranslationModelCatalog.GTX_API_MODEL) // GTX always works
     }
 
     private companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
-        private const val PROVIDER_CEREBRAS = "cerebras-oss"
-        private const val PROVIDER_GTX = "google-gtx"
+        private val PROVIDER_CEREBRAS = LiveTranslationModelCatalog.PROVIDER_CEREBRAS
+        private val PROVIDER_GTX = LiveTranslationModelCatalog.PROVIDER_GTX
     }
 
     private data class TranslationProvider(

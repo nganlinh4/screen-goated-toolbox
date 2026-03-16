@@ -6,6 +6,7 @@ import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionMetrics
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionPatch
+import dev.screengoated.toolbox.mobile.shared.live.LiveTranslationModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionStore
 import dev.screengoated.toolbox.mobile.shared.live.ProviderDescriptor
@@ -201,6 +202,12 @@ class AndroidLiveSessionRepository(
 
     fun currentCerebrasApiKey(): String = cerebrasApiKey.value.trim()
 
+    fun currentGroqApiKey(): String = groqApiKey.value.trim()
+
+    fun currentOpenRouterApiKey(): String = openRouterApiKey.value.trim()
+
+    fun currentOllamaUrl(): String = ollamaUrl.value.trim()
+
     fun currentConfig(): LiveSessionConfig = state.value.config
 
     fun currentPaneFontSizes(): RealtimePaneFontSizes = paneFontSizes.value
@@ -252,22 +259,7 @@ class AndroidLiveSessionRepository(
     }
 
     private fun translationProviderFor(modelId: String): ProviderDescriptor {
-        return when (modelId) {
-            RealtimeModelIds.TRANSLATION_CEREBRAS -> ProviderDescriptor(
-                id = RealtimeModelIds.TRANSLATION_CEREBRAS,
-                model = "gpt-oss-120b",
-            )
-
-            RealtimeModelIds.TRANSLATION_GTX -> ProviderDescriptor(
-                id = RealtimeModelIds.TRANSLATION_GTX,
-                model = "google-translate-gtx",
-            )
-
-            else -> ProviderDescriptor(
-                id = RealtimeModelIds.TRANSLATION_GEMMA,
-                model = "gemma-3-27b-it",
-            )
-        }
+        return LiveTranslationModelCatalog.providerDescriptor(modelId)
     }
 
     private fun transcriptionProviderFor(modelId: String): ProviderDescriptor {

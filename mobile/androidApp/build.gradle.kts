@@ -19,6 +19,7 @@ fun extractWindowsRawString(source: String, marker: String): String {
 }
 
 val generatedPresetOverlayAssets = layout.buildDirectory.dir("generated/presetOverlayAssets")
+val generatedPresetModelCatalogSources = layout.buildDirectory.dir("generated/presetModelCatalog")
 val generatePresetOverlayAssets by tasks.registering {
     val repoRoot = rootProject.projectDir.parentFile
     val fitSource = repoRoot.resolve("src/overlay/result/markdown_view/streaming/fit_impl.rs")
@@ -78,6 +79,33 @@ val generatePresetOverlayAssets by tasks.registering {
         outputDir.resolve("windows_button_canvas_theme_light.css").writeText(
             extractWindowsRawString(themeSource, "} else {"),
         )
+    }
+}
+
+val generatePresetModelCatalog by tasks.registering {
+    val repoRoot = rootProject.projectDir.parentFile
+    val source = repoRoot.resolve("src/model_config.rs")
+    val generator = repoRoot.resolve("scripts/generate_android_preset_model_catalog.py")
+    inputs.file(source)
+    inputs.file(generator)
+    outputs.dir(generatedPresetModelCatalogSources)
+
+    doLast {
+        val outputFile = generatedPresetModelCatalogSources.get()
+            .asFile
+            .resolve("dev/screengoated/toolbox/mobile/preset/GeneratedPresetModelCatalogData.kt")
+
+        providers.exec {
+            commandLine(
+                "py",
+                "-3",
+                generator.absolutePath,
+                "--source",
+                source.absolutePath,
+                "--output",
+                outputFile.absolutePath,
+            )
+        }.result.get().assertNormalExitValue()
     }
 }
 
@@ -143,6 +171,9 @@ android {
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
@@ -150,6 +181,7 @@ android {
 
     sourceSets.named("main") {
         assets.srcDir(generatedPresetOverlayAssets)
+        java.srcDir(generatedPresetModelCatalogSources)
     }
 }
 
@@ -157,6 +189,13 @@ tasks.matching {
     it.name != generatePresetOverlayAssets.name && it.name.contains("Assets", ignoreCase = false)
 }.configureEach {
     dependsOn(generatePresetOverlayAssets)
+}
+
+tasks.matching {
+    it.name != generatePresetModelCatalog.name &&
+        (it.name.contains("Kotlin", ignoreCase = false) || it.name.contains("Java", ignoreCase = false))
+}.configureEach {
+    dependsOn(generatePresetModelCatalog)
 }
 
 dependencies {

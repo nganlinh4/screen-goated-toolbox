@@ -1,0 +1,26 @@
+{
+  "cases": [
+    {
+      "name": "cerebras_preset_model_resolves_to_windows_api_name",
+      "model_id": "cerebras_gpt_oss",
+      "provider": "CEREBRAS",
+      "api_model": "qwen-3-235b-a22b-instruct-2507",
+      "supports_search": false
+    },
+    {
+      "name": "gemini_text_search_and_thinking_follow_windows_rules",
+      "model_id": "text_gemini_3_0_flash",
+      "provider": "GOOGLE",
+      "api_model": "gemini-3-flash-preview",
+      "supports_search": false,
+      "thinking_include_thoughts": true
+    },
+    {
+      "name": "compound_mini_uses_groq_compound_contract",
+      "model_id": "compound_mini",
+      "provider": "GROQ",
+      "api_model": "groq/compound-mini",
+      "supports_search": true
+    }
+  ]
+}

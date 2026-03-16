@@ -128,13 +128,17 @@ pub fn render_usage_modal(
                                 ui.end_row();
                             }
 
-                            // Add gpt-oss-120b (realtime translation model)
-                            if !shown_models.contains("gpt-oss-120b") {
-                                shown_models.insert("gpt-oss-120b".to_string());
-                                ui.label("gpt-oss-120b");
+                            let realtime_model =
+                                crate::model_config::DEFAULT_CEREBRAS_TEXT_API_MODEL;
+                            if !shown_models.contains(realtime_model) {
+                                shown_models.insert(realtime_model.to_string());
+                                ui.label(realtime_model);
                                 let static_limit = "14400";
                                 let default_status = format!("??? / {}", static_limit);
-                                let raw_status = usage_stats.get("gpt-oss-120b").cloned().unwrap_or(default_status);
+                                let raw_status = usage_stats
+                                    .get(realtime_model)
+                                    .cloned()
+                                    .unwrap_or(default_status);
                                 let display_status = if let Some((usage, limit)) = raw_status.split_once(" / ") {
                                     let final_limit = if limit == "?" { static_limit } else { limit };
                                     format!("{} / {}", usage, final_limit)
