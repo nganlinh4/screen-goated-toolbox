@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 class PresetRepository(
     private val textApiClient: TextApiClient,
     private val apiKeys: () -> ApiKeys,
+    private val uiLanguage: () -> String,
     private val overrideStore: PresetOverrideStore,
     mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
 ) {
@@ -217,12 +218,19 @@ class PresetRepository(
                     val resultWindowId = PresetResultWindowId(sessionId = sessionId, blockIdx = index)
                     val shouldSurfaceOverlay = index in overlayOrder
                     val result = textApiClient.executeStreaming(
-                        model = block.model,
+                        modelId = block.model,
                         prompt = block.resolvePrompt(),
                         inputText = sourceText,
                         apiKeys = apiKeys(),
+                        uiLanguage = uiLanguage(),
+                        searchLabel = preset.name(uiLanguage()),
                         onChunk = { chunk ->
-                            blockBuffer.append(chunk)
+                            if (chunk.startsWith(TextApiClient.WIPE_SIGNAL)) {
+                                blockBuffer.clear()
+                                blockBuffer.append(chunk.removePrefix(TextApiClient.WIPE_SIGNAL))
+                            } else {
+                                blockBuffer.append(chunk)
+                            }
                             if (shouldSurfaceOverlay) {
                                 _executionState.update {
                                     it.withWindowState(
@@ -300,6 +308,16 @@ class PresetRepository(
             )
         }
 
+        val unsupportedTextModel = preset.blocks.firstOrNull { block ->
+            block.blockType == BlockType.TEXT && !isTextModelSupported(block.model)
+        }
+        if (unsupportedTextModel != null) {
+            return PresetExecutionCapability(
+                supported = false,
+                reason = PresetPlaceholderReason.MODEL_PROVIDER_NOT_READY,
+            )
+        }
+
         if (preset.blocks.any { it.blockType !in setOf(BlockType.INPUT_ADAPTER, BlockType.TEXT) }) {
             return PresetExecutionCapability(
                 supported = false,
@@ -315,6 +333,21 @@ class PresetRepository(
         }
 
         return PresetExecutionCapability(supported = true)
+    }
+
+    private fun isTextModelSupported(modelId: String): Boolean {
+        val descriptor = PresetModelCatalog.getById(modelId) ?: return false
+        if (descriptor.modelType != PresetModelType.TEXT) {
+            return false
+        }
+        return descriptor.provider in setOf(
+            PresetModelProvider.GOOGLE,
+            PresetModelProvider.CEREBRAS,
+            PresetModelProvider.GROQ,
+            PresetModelProvider.OPENROUTER,
+            PresetModelProvider.GOOGLE_GTX,
+            PresetModelProvider.OLLAMA,
+        )
     }
 
     private fun resolvePlaceholderReasons(
@@ -405,6 +438,8 @@ private fun PresetPlaceholderReason.message(): String = when (this) {
         "Selected-text capture is not ready on Android yet."
     PresetPlaceholderReason.TEXT_INPUT_OVERLAY_NOT_READY ->
         "Overlay-style text input is not ready on Android yet."
+    PresetPlaceholderReason.MODEL_PROVIDER_NOT_READY ->
+        "This preset uses a text model/provider runtime that Android does not implement yet."
     PresetPlaceholderReason.AUDIO_CAPTURE_NOT_READY ->
         "Audio capture presets are not ready on Android yet."
     PresetPlaceholderReason.REALTIME_AUDIO_NOT_READY ->

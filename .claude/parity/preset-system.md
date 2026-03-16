@@ -9,6 +9,8 @@
 - Windows favorite bubble launcher: [src/overlay/favorite_bubble/mod.rs](../../src/overlay/favorite_bubble/mod.rs)
 - Windows markdown result runtime: [src/overlay/result/markdown_view/mod.rs](../../src/overlay/result/markdown_view/mod.rs)
 - Windows result button canvas: [src/overlay/result/button_canvas/mod.rs](../../src/overlay/result/button_canvas/mod.rs)
+- Windows model catalog: [src/model_config.rs](../../src/model_config.rs)
+- Windows text provider pipeline: [src/api/text/translate.rs](../../src/api/text/translate.rs)
 
 ## Behavior Contract
 - Android treats the Windows built-in preset catalog as canonical seed data.
@@ -45,6 +47,16 @@
   - Dragging the bubble must keep the panel open and reposition it with the bubble, matching the Windows expanded-panel behavior
   - The Android bubble may expose a live-translate-style drag-to-dismiss target, but dropping onto it must be equivalent to turning the Quick Settings bubble service off
 - Android preset overlays use markdown view only in wave 1. HTML-output presets remain placeholders until Android has the Windows-style raw HTML result runtime.
+- Android preset text execution must resolve every block model ID through the Windows-mirrored model catalog before making a provider request.
+- Android preset model catalog must be generated from the Windows Rust source file [src/model_config.rs](../../src/model_config.rs) during the Android build, rather than maintained as a separate handwritten copy.
+- Android preset text execution must use the resolved Windows provider + `full_name` API model, not Android prefix guessing or raw preset block IDs.
+- Android preset text execution must mirror the Windows text request contract for supported providers:
+  - Gemini uses the Gemini `models/{full_name}:streamGenerateContent` SSE endpoint, Windows thinking config rules, and Windows search-tool gating rules
+  - Cerebras, Groq, and OpenRouter use the OpenAI-compatible chat completions contract with the resolved Windows `full_name`
+  - Groq compound models use the Windows non-streaming `compound_custom.tools` request shape instead of the standard streaming chat payload
+  - Google GTX uses the translation endpoint as a non-LLM provider
+  - Android must emit the same wipe-on-first-content behavior after thinking placeholders that Windows uses for Gemini/Cerebras/Ollama-style streams
+- Android preset capability must not claim support for a text preset if one of its text blocks points at a model/provider runtime Android does not actually implement yet.
 - Android result overlays should reuse the Windows markdown CSS, fit script, and button-canvas web contract from the shared HTML/WebView layer instead of re-implementing the layout in Compose.
 - Android result overlays are multi-window:
   - each visible text block with `showOverlay = true` and `renderMode = markdown|markdown_stream` spawns its own result overlay
@@ -83,6 +95,8 @@
   - panel `trigger_continuous` does not yet enter the Windows continuous-mode runtime; Android still routes that path through the normal preset launch flow
 - Android text-input overlay still has known parity gaps versus Windows:
   - `mic` remains a placeholder until Android has the preset-linked recording/runtime path behind that control
+- Android preset text provider runtime still has a known parity gap versus Windows:
+  - `gemini-live-text` is not yet wired into the preset bubble runtime; Android must surface that as an explicit unsupported provider/runtime path instead of guessing
 - On Android/touch, the text-input footer row may be omitted and the action buttons may be compacted inward so the overlay remains truthful and usable within the smaller mobile window. This is an accepted mobile interaction adaptation, not a parity bug.
 - On Android/touch, the keep-open row may remain visible instead of hover-revealed; this is an accepted mobile interaction adaptation, not a parity bug.
 - Android bubble opacity should stay fully active while the panel is expanded or within roughly one second of the last bubble/panel interaction, then return to the Windows inactive-opacity baseline.

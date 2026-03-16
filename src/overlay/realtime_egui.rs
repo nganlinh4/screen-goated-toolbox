@@ -292,15 +292,22 @@ fn render_main_ui(ui: &mut egui::Ui, state: &mut RealtimeUiState) {
 
                 ui.menu_button(model_label, |ui| {
                     if ui
-                        .selectable_label(current_model == "cerebras-oss", "🔥 Cerebras")
+                        .selectable_label(
+                            current_model
+                                == crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS,
+                            "🔥 Cerebras",
+                        )
                         .clicked()
                     {
                         if let Ok(mut m) = NEW_TRANSLATION_MODEL.lock() {
-                            *m = "cerebras-oss".to_string();
+                            *m = crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS
+                                .to_string();
                         }
                         TRANSLATION_MODEL_CHANGE.store(true, Ordering::SeqCst);
                         if let Ok(mut app) = APP.lock() {
-                            app.config.realtime_translation_model = "cerebras-oss".to_string();
+                            app.config.realtime_translation_model =
+                                crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS
+                                    .to_string();
                         }
                         ui.close();
                     }

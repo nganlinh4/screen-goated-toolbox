@@ -1,5 +1,15 @@
 /// Centralized Model Configuration
 
+pub const DEFAULT_CEREBRAS_TEXT_MODEL_ID: &str = "cerebras_gpt_oss";
+pub const DEFAULT_CEREBRAS_TEXT_API_MODEL: &str = "qwen-3-235b-a22b-instruct-2507";
+
+pub const REALTIME_TRANSLATION_MODEL_CEREBRAS: &str = "cerebras-oss";
+pub const REALTIME_TRANSLATION_MODEL_GEMMA: &str = "google-gemma";
+pub const REALTIME_TRANSLATION_MODEL_GTX: &str = "google-gtx";
+
+pub const REALTIME_TRANSLATION_GEMMA_API_MODEL: &str = "gemma-3-27b-it";
+pub const REALTIME_TRANSLATION_GTX_API_MODEL: &str = "google-translate-gtx";
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ModelType {
     Vision,
@@ -288,7 +298,7 @@ lazy_static::lazy_static! {
             "C-Chính xác",
             "C-정확함",
             "C-Accurate",
-            "gpt-oss-120b",
+            DEFAULT_CEREBRAS_TEXT_API_MODEL,
             ModelType::Text,
             true,
             "14400 lượt/ngày",
@@ -600,6 +610,15 @@ pub fn model_supports_search_by_id(id: &str) -> bool {
     }
 
     false
+}
+
+pub fn realtime_translation_api_model(provider_id: &str) -> &'static str {
+    match provider_id {
+        REALTIME_TRANSLATION_MODEL_CEREBRAS => DEFAULT_CEREBRAS_TEXT_API_MODEL,
+        REALTIME_TRANSLATION_MODEL_GEMMA => REALTIME_TRANSLATION_GEMMA_API_MODEL,
+        REALTIME_TRANSLATION_MODEL_GTX => REALTIME_TRANSLATION_GTX_API_MODEL,
+        _ => DEFAULT_CEREBRAS_TEXT_API_MODEL,
+    }
 }
 
 // === OLLAMA MODEL CACHE ===

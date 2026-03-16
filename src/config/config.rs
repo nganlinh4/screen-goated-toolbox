@@ -54,7 +54,7 @@ fn default_model_priority_chains() -> ModelPriorityChains {
 }
 
 fn default_realtime_translation_model() -> String {
-    "cerebras-oss".to_string()
+    crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS.to_string()
 }
 
 fn default_realtime_font_size() -> u32 {
@@ -201,7 +201,7 @@ pub struct Config {
     // -------------------------------------------------------------------------
     // Realtime Audio Settings
     // -------------------------------------------------------------------------
-    /// Model for realtime translation: "cerebras-oss" or "google-gemma"
+    /// Model for realtime translation provider
     #[serde(default = "default_realtime_translation_model")]
     pub realtime_translation_model: String,
 
@@ -385,7 +385,8 @@ impl Default for Config {
             ollama_text_model: String::new(),
 
             // Realtime Audio
-            realtime_translation_model: "cerebras-oss".to_string(),
+            realtime_translation_model: crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS
+                .to_string(),
             realtime_transcription_model: "gemini".to_string(),
             realtime_font_size: 16,
             realtime_transcription_size: (500, 180),

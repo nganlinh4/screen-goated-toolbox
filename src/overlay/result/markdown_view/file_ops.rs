@@ -2,7 +2,7 @@
 
 use super::conversion::markdown_to_html;
 
-/// Generate a filename using Cerebras' gpt-oss-120b model
+/// Generate a filename using the centralized default Cerebras text model.
 pub fn generate_filename(content: &str) -> String {
     let default_name = "result.html".to_string();
 
@@ -33,7 +33,7 @@ pub fn generate_filename(content: &str) -> String {
     );
 
     let payload = serde_json::json!({
-        "model": "gpt-oss-120b",
+        "model": crate::model_config::DEFAULT_CEREBRAS_TEXT_API_MODEL,
         "messages": [
             { "role": "user", "content": prompt }
         ],

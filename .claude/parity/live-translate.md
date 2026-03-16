@@ -7,6 +7,7 @@
 - Windows shared realtime state: [src/api/realtime_audio/state.rs](../../src/api/realtime_audio/state.rs)
 - Windows transcription loop: [src/api/realtime_audio/transcription.rs](../../src/api/realtime_audio/transcription.rs)
 - Windows translation loop: [src/api/realtime_audio/translation.rs](../../src/api/realtime_audio/translation.rs)
+- Windows realtime model config: [src/model_config.rs](../../src/model_config.rs)
 - Windows realtime overlay state: [src/overlay/realtime_webview/state.rs](../../src/overlay/realtime_webview/state.rs)
 - Windows realtime overlay IPC + controls: [src/overlay/realtime_webview/webview.rs](../../src/overlay/realtime_webview/webview.rs)
 - Windows app selection popup: [src/overlay/realtime_webview/app_selection.rs](../../src/overlay/realtime_webview/app_selection.rs)
@@ -65,6 +66,7 @@
   - `cerebras-oss -> google-gtx`
   - `google-gtx -> cerebras-oss`
   - `google-gemma -> random(cerebras-oss, google-gtx)` as Windows currently does
+- The realtime provider IDs may stay stable, but their backing API model names must come from centralized model configuration rather than scattered raw strings.
 - Translation failure must not silently fall back to whole-transcript translation.
 - Timeout gating matches the Windows Gemini path:
   - user silence threshold: `800ms`

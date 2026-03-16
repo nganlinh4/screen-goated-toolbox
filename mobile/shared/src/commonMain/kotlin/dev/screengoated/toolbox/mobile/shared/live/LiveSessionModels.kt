@@ -60,10 +60,10 @@ data class LiveSessionConfig(
         id = "gemini",
         model = "gemini-2.5-flash-native-audio-preview-12-2025",
     ),
-    val translationProvider: ProviderDescriptor = ProviderDescriptor(
-        id = "cerebras-oss",
-        model = "gpt-oss-120b",
-    ),
+    val translationProvider: ProviderDescriptor =
+        LiveTranslationModelCatalog.providerDescriptor(
+            LiveTranslationModelCatalog.PROVIDER_CEREBRAS,
+        ),
     val authMode: AuthMode = AuthMode.BYOK,
     val engineKind: EngineKind = EngineKind.CLOUD,
     val keepOverlayOnTop: Boolean = true,

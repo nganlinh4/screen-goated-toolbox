@@ -3,7 +3,7 @@
 //! This module handles streaming audio to Gemini's native audio model
 //! and receives real-time transcriptions via WebSocket.
 //!
-//! Translation is handled separately via Cerebras' gpt-oss-120b model
+//! Translation is handled separately via the centralized realtime translation model mapping
 //! every 2 seconds for new sentence chunks.
 
 mod capture;
