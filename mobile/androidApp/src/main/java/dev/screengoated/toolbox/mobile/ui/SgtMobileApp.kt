@@ -108,7 +108,9 @@ fun SgtMobileApp(
 ) {
     var showTtsSettings by rememberSaveable { mutableStateOf(false) }
     var showDownloader by rememberSaveable { mutableStateOf(false) }
+    var showDj by rememberSaveable { mutableStateOf(false) }
     var activePresetId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingPresetId by rememberSaveable { mutableStateOf<String?>(null) }
     val presetRepository = (LocalContext.current.applicationContext as SgtMobileApplication)
         .appContainer
         .presetRepository
@@ -214,6 +216,7 @@ fun SgtMobileApp(
                     onThemeCycleRequested = onThemeCycleRequested,
                     onSessionToggle = onSessionToggle,
                     onDownloaderClick = { showDownloader = true },
+                    onDjClick = { showDj = true },
                     onPresetClick = { presetId -> activePresetId = presetId },
                 )
             }
@@ -243,6 +246,40 @@ fun SgtMobileApp(
             }
         }
 
+        // DJ overlay
+        if (showDj) {
+            androidx.activity.compose.BackHandler { showDj = false }
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showDj,
+            enter = fadeIn(tween(200)) + androidx.compose.animation.scaleIn(
+                initialScale = 0.8f,
+                animationSpec = tween(350, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            ),
+            exit = fadeOut(tween(150)) + androidx.compose.animation.scaleOut(
+                targetScale = 0.8f,
+                animationSpec = tween(250, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            ),
+        ) {
+            val isDjDark = when (uiPreferences.themeMode) {
+                MobileThemeMode.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
+                MobileThemeMode.DARK -> true
+                MobileThemeMode.LIGHT -> false
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surface),
+            ) {
+                DjScreen(
+                    apiKey = apiKey,
+                    isDark = isDjDark,
+                    lang = uiPreferences.uiLanguage,
+                    onBack = { showDj = false },
+                )
+            }
+        }
+
         val activePreset = activePresetId?.let { id -> presetCatalog.findPreset(id) }
         if (activePreset != null) {
             val presetLang = uiPreferences.uiLanguage
@@ -269,6 +306,35 @@ fun SgtMobileApp(
                         onRestoreDefault = {
                             presetRepository.restoreBuiltInPreset(activePreset.preset.id)
                         },
+                        onEdit = { editingPresetId = activePreset.preset.id },
+                    )
+                }
+            }
+        }
+
+        // Preset editor screen
+        val editingPreset = editingPresetId?.let { id ->
+            presetCatalog.findPreset(id)?.preset
+        }
+        if (editingPreset != null) {
+            val presetLang = uiPreferences.uiLanguage
+            androidx.activity.compose.BackHandler { editingPresetId = null }
+            androidx.compose.animation.AnimatedVisibility(
+                visible = true,
+                enter = fadeIn(tween(200)) + androidx.compose.animation.scaleIn(
+                    initialScale = 0.9f,
+                    animationSpec = tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                ),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface),
+                ) {
+                    dev.screengoated.toolbox.mobile.preset.ui.PresetEditorScreen(
+                        preset = editingPreset,
+                        lang = presetLang,
+                        onBack = { editingPresetId = null },
                     )
                 }
             }

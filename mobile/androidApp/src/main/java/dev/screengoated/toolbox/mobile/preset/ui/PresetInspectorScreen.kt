@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarOutline
 import androidx.compose.material3.AssistChip
@@ -43,6 +44,7 @@ fun PresetInspectorScreen(
     onBack: () -> Unit,
     onFavoriteToggle: () -> Unit,
     onRestoreDefault: () -> Unit,
+    onEdit: () -> Unit = {},
 ) {
     val preset = resolvedPreset.preset
 
@@ -62,6 +64,9 @@ fun PresetInspectorScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onEdit) {
+                        Icon(Icons.Rounded.Edit, contentDescription = null)
+                    }
                     IconButton(onClick = onFavoriteToggle) {
                         Icon(
                             imageVector = if (preset.isFavorite) {
@@ -293,9 +298,9 @@ private fun ChainSummaryCard(
         Text(
             text = localized(
                 lang,
-                "Editing is intentionally disabled until Android has a real graph editor and runtime.",
-                "Việc chỉnh sửa bị tắt có chủ ý cho đến khi Android có graph editor và runtime thật.",
-                "Android에 실제 그래프 편집기와 런타임이 생길 때까지 편집은 의도적으로 비활성화됩니다.",
+                "Tap the edit button (top-right) to open the graph editor.",
+                "Nhấn nút sửa (trên bên phải) để mở trình chỉnh sửa graph.",
+                "편집 버튼(오른쪽 상단)을 눌러 그래프 편집기를 열 수 있습니다.",
             ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -452,7 +457,7 @@ private fun placeholderTitle(reason: PresetPlaceholderReason, lang: String): Str
     PresetPlaceholderReason.HOTKEYS_NOT_READY ->
         localized(lang, "Hotkeys", "Phím tắt", "단축키")
     PresetPlaceholderReason.GRAPH_EDITING_NOT_READY ->
-        localized(lang, "Graph editing", "Chỉnh graph", "그래프 편집")
+        localized(lang, "Graph editor", "Trình chỉnh graph", "그래프 편집기")
     PresetPlaceholderReason.NON_TEXT_GRAPH_NOT_READY ->
         localized(lang, "Non-text graph runtime", "Runtime graph không phải text", "비텍스트 그래프 런타임")
 }
@@ -481,7 +486,7 @@ private fun placeholderMessage(reason: PresetPlaceholderReason?, lang: String): 
         PresetPlaceholderReason.HOTKEYS_NOT_READY ->
             localized(lang, "Hotkeys are kept visible for parity but are not wired on Android.", "Phím tắt được giữ để parity nhưng chưa được nối trên Android.", "단축키는 패리티를 위해 표시되지만 Android에서는 아직 연결되지 않았습니다.")
         PresetPlaceholderReason.GRAPH_EDITING_NOT_READY ->
-            localized(lang, "The graph is shown read-only until Android has a real editor and validator.", "Graph được hiển thị chỉ đọc cho đến khi Android có editor và validator thật.", "Android에 실제 편집기와 검증기가 생길 때까지 그래프는 읽기 전용으로 표시됩니다.")
+            localized(lang, "Use the edit button to open the full node graph editor.", "Dùng nút sửa để mở trình chỉnh sửa graph đầy đủ.", "편집 버튼을 사용하여 전체 노드 그래프 편집기를 열 수 있습니다.")
         PresetPlaceholderReason.NON_TEXT_GRAPH_NOT_READY ->
             localized(lang, "Only text-input graphs can execute on Android right now.", "Hiện tại Android chỉ chạy được graph text-input.", "현재 Android에서는 텍스트 입력 그래프만 실행할 수 있습니다.")
     }

@@ -701,6 +701,7 @@ internal fun SectionDetail(
     onSessionToggle: () -> Unit,
     canToggle: Boolean,
     onDownloaderClick: () -> Unit = {},
+    onDjClick: () -> Unit = {},
     onPresetClick: (String) -> Unit = {},
     onPagerSwipeLockChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
@@ -713,6 +714,7 @@ internal fun SectionDetail(
             onSessionToggle = onSessionToggle,
             canToggle = canToggle,
             onDownloaderClick = onDownloaderClick,
+            onDjClick = onDjClick,
             onPagerSwipeLockChanged = onPagerSwipeLockChanged,
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope,
@@ -767,6 +769,7 @@ internal fun AppsCarouselSection(
     onSessionToggle: () -> Unit,
     canToggle: Boolean,
     onDownloaderClick: () -> Unit = {},
+    onDjClick: () -> Unit = {},
     onPagerSwipeLockChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
@@ -780,12 +783,13 @@ internal fun AppsCarouselSection(
             onSessionToggle,
             canToggle,
             onDownloaderClick,
+            onDjClick,
             onPagerSwipeLockChanged,
             sharedTransitionScope,
             animatedVisibilityScope,
         )
     } else {
-        AppsVerticalCarousel(state, locale, onSessionToggle, canToggle, onDownloaderClick, sharedTransitionScope, animatedVisibilityScope)
+        AppsVerticalCarousel(state, locale, onSessionToggle, canToggle, onDownloaderClick, onDjClick, sharedTransitionScope, animatedVisibilityScope)
     }
 }
 
@@ -797,6 +801,7 @@ private fun AppsItemContent(
     onSessionToggle: () -> Unit,
     canToggle: Boolean,
     onDownloaderClick: () -> Unit,
+    onDjClick: () -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
@@ -817,6 +822,7 @@ private fun AppsItemContent(
                         } else Modifier
                         sharedMod.then(Modifier.clickable(onClick = onDownloaderClick))
                     }
+                    2 -> Modifier.clickable(onClick = onDjClick)
                     else -> Modifier
                 },
             ),
@@ -837,6 +843,7 @@ private fun AppsVerticalCarousel(
     onSessionToggle: () -> Unit,
     canToggle: Boolean,
     onDownloaderClick: () -> Unit,
+    onDjClick: () -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
@@ -856,7 +863,7 @@ private fun AppsVerticalCarousel(
             contentPadding = PaddingValues(top = 4.dp, bottom = fadeSize),
         ) { index ->
             Box(modifier = Modifier.fillMaxSize().maskClip(MaterialTheme.shapes.extraLarge)) {
-                AppsItemContent(index, state, locale, onSessionToggle, canToggle, onDownloaderClick, sharedTransitionScope, animatedVisibilityScope)
+                AppsItemContent(index, state, locale, onSessionToggle, canToggle, onDownloaderClick, onDjClick, sharedTransitionScope, animatedVisibilityScope)
             }
         }
         Box(modifier = Modifier.fillMaxWidth().height(fadeSize).background(Brush.verticalGradient(listOf(bgColor, Color.Transparent))))
@@ -871,6 +878,7 @@ private fun AppsHorizontalCarousel(
     onSessionToggle: () -> Unit,
     canToggle: Boolean,
     onDownloaderClick: () -> Unit,
+    onDjClick: () -> Unit,
     onPagerSwipeLockChanged: (Boolean) -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
@@ -902,7 +910,7 @@ private fun AppsHorizontalCarousel(
                 shape = MaterialTheme.shapes.extraLarge,
                 colors = CardDefaults.cardColors(containerColor = appSlots[index].color.copy(alpha = 0.15f)),
             ) {
-                AppsItemContent(index, state, locale, onSessionToggle, canToggle, onDownloaderClick, sharedTransitionScope, animatedVisibilityScope)
+                AppsItemContent(index, state, locale, onSessionToggle, canToggle, onDownloaderClick, onDjClick, sharedTransitionScope, animatedVisibilityScope)
             }
         }
         // Left fade

@@ -45,7 +45,20 @@
   - Dragging the bubble must keep the panel open and reposition it with the bubble, matching the Windows expanded-panel behavior
   - The Android bubble may expose a live-translate-style drag-to-dismiss target, but dropping onto it must be equivalent to turning the Quick Settings bubble service off
 - Android preset overlays use markdown view only in wave 1. HTML-output presets remain placeholders until Android has the Windows-style raw HTML result runtime.
-- Android result overlays should reuse the Windows markdown CSS and font-fit algorithm from the shared HTML/WebView layer instead of re-implementing the layout in Compose.
+- Android result overlays should reuse the Windows markdown CSS, fit script, and button-canvas web contract from the shared HTML/WebView layer instead of re-implementing the layout in Compose.
+- Android result overlays are multi-window:
+  - each visible text block with `showOverlay = true` and `renderMode = markdown|markdown_stream` spawns its own result overlay
+  - hidden text blocks still execute but do not create result windows
+  - the first visible result window uses the preset saved geometry; subsequent visible windows snake away from the previous visible result window
+- Android result windows must not use a fake title/status shell. The result window should be a Windows-derived markdown surface with touch shims only.
+- Android button canvas uses the shared Windows button-canvas web contract with an Android touch reveal model:
+  - tapping a result window reveals that window's controls
+  - controls linger for roughly 2 seconds after the last interaction, then fade
+  - Android may use a bounded active-window canvas instead of a fullscreen canvas if that is required to preserve reliable touch/click-through behavior on phone overlays
+  - any Android-bounded canvas must stay visually identical to the Windows button canvas and remain anchored to the currently active result window
+- On Android/touch, the markdown-mode button is omitted because mobile result overlays are markdown-only in this wave.
+- On Android/touch, the broom button is omitted and result-window dismissal uses the shared drag-to-dismiss `X` target instead.
+- Android keeps the Windows button-canvas chrome visible, but unsupported actions must be explicit placeholders rather than fake implementations.
 
 ## Failure And Recovery
 - Corrupt preset override storage falls back to canonical built-ins with no overrides applied.
@@ -60,6 +73,12 @@
 - Android wave 1 keeps custom preset create/clone/delete/reorder as placeholders.
 - Android wave 1 keeps hotkeys, controller/master invocation, image capture, selected-text capture, mic/device capture, realtime audio, raw HTML result rendering, and auto-paste as placeholders until real runtime exists.
 - Android wave 1 does not expose the Windows markdown/plain-text result toggle in the floating button canvas; the mobile overlay stays markdown-only until a real alternate render mode exists.
+- Android wave 1 keeps these result/button-canvas actions as visible placeholders:
+  - edit/refine
+  - undo/redo
+  - download
+  - speaker
+  - broom group/all mouse-button variants
 - Android favorite bubble still has known parity gaps versus Windows:
   - panel `trigger_continuous` does not yet enter the Windows continuous-mode runtime; Android still routes that path through the normal preset launch flow
 - Android text-input overlay still has known parity gaps versus Windows:
@@ -67,3 +86,4 @@
 - On Android/touch, the text-input footer row may be omitted and the action buttons may be compacted inward so the overlay remains truthful and usable within the smaller mobile window. This is an accepted mobile interaction adaptation, not a parity bug.
 - On Android/touch, the keep-open row may remain visible instead of hover-revealed; this is an accepted mobile interaction adaptation, not a parity bug.
 - Android bubble opacity should stay fully active while the panel is expanded or within roughly one second of the last bubble/panel interaction, then return to the Windows inactive-opacity baseline.
+- On Android/touch, full result-window dragging is implemented as long-press then drag anywhere on the result surface so normal taps and links remain usable.

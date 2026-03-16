@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.view.MotionEvent
 import android.view.Gravity
 import android.view.View
 import android.view.ViewOutlineProvider
@@ -27,6 +28,7 @@ internal data class PresetOverlayWindowSpec(
     val htmlContent: String? = null,
     val baseUrl: String = "file:///android_asset/preset_overlay/",
     val clipToOutline: Boolean = true,
+    val touchRegionsOnly: Boolean = false,
 )
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -58,7 +60,19 @@ internal class PresetOverlayWindow(
                 WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
         }
     }
-    private val rootView = FrameLayout(context).apply {
+    private val touchRegions = mutableListOf<Rect>()
+
+    private val rootView = object : FrameLayout(context) {
+        override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+            if (spec.touchRegionsOnly && ev.actionMasked != MotionEvent.ACTION_CANCEL && ev.actionMasked != MotionEvent.ACTION_UP) {
+                val hit = touchRegions.any { it.contains(ev.x.toInt(), ev.y.toInt()) }
+                if (!hit) {
+                    return false
+                }
+            }
+            return super.dispatchTouchEvent(ev)
+        }
+    }.apply {
         setBackgroundColor(Color.TRANSPARENT)
         clipToOutline = spec.clipToOutline
         clipChildren = spec.clipToOutline
@@ -75,6 +89,7 @@ internal class PresetOverlayWindow(
     private val pendingScripts = mutableListOf<String>()
     private var pageReady = false
     private var attached = false
+    private var layoutApplyScheduled = false
 
     private val webView = WebView(context).apply {
         overScrollMode = WebView.OVER_SCROLL_NEVER
@@ -160,9 +175,10 @@ internal class PresetOverlayWindow(
         layoutParams.width = bounds.width
         layoutParams.height = bounds.height
         if (attached) {
-            runCatching { windowManager.updateViewLayout(rootView, layoutParams) }
+            scheduleLayoutApply()
+        } else {
+            onBoundsChanged(currentBounds())
         }
-        onBoundsChanged(currentBounds())
     }
 
     fun moveBy(
@@ -215,6 +231,11 @@ internal class PresetOverlayWindow(
         }
     }
 
+    fun updateTouchRegions(regions: List<Rect>) {
+        touchRegions.clear()
+        touchRegions.addAll(regions)
+    }
+
     private fun flushPendingScripts() {
         if (!pageReady) {
             return
@@ -223,6 +244,20 @@ internal class PresetOverlayWindow(
         pendingScripts.clear()
         scripts.forEach { script ->
             webView.evaluateJavascript(script, null)
+        }
+    }
+
+    private fun scheduleLayoutApply() {
+        if (layoutApplyScheduled) {
+            return
+        }
+        layoutApplyScheduled = true
+        rootView.postOnAnimation {
+            layoutApplyScheduled = false
+            if (attached) {
+                runCatching { windowManager.updateViewLayout(rootView, layoutParams) }
+            }
+            onBoundsChanged(currentBounds())
         }
     }
 

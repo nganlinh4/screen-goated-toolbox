@@ -1,0 +1,203 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <style>
+    @font-face {
+      font-family: 'Google Sans Flex';
+      font-style: normal;
+      font-weight: 100 1000;
+      font-stretch: 25% 1000%;
+      font-display: swap;
+      src: url('GoogleSansFlex.ttf') format('truetype');
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif !important;
+      overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    @media (orientation: landscape) {
+      body { overflow: hidden; }
+    }
+  </style>
+  <script>
+    // Mobile layout fix — inject CSS into Shadow DOM components
+    (function() {
+      function injectOnce(root, id, css) {
+        if (root.querySelector('#' + id)) return;
+        var s = document.createElement('style');
+        s.id = id;
+        s.textContent = css;
+        root.appendChild(s);
+      }
+
+      var MAIN_CSS = '\
+        @media (orientation: portrait) {\
+          :host {\
+            height: auto !important;\
+            min-height: 100% !important;\
+            overflow: visible !important;\
+          }\
+          #content {\
+            flex-direction: column !important;\
+            gap: 2vw !important;\
+            padding: 2vw !important;\
+          }\
+          #gridWrap {\
+            height: auto !important;\
+            width: 100% !important;\
+          }\
+          #grid {\
+            width: 96vw !important;\
+            height: auto !important;\
+            grid-template-columns: repeat(4, 1fr) !important;\
+            gap: 1.5vw !important;\
+          }\
+          #sideControls {\
+            flex-direction: row !important;\
+            height: auto !important;\
+            width: 100% !important;\
+            gap: 4vw !important;\
+            padding: 1vw 0 !important;\
+          }\
+          play-pause-morph {\
+            width: 16vw !important;\
+            height: 16vw !important;\
+          }\
+          .mini-controls {\
+            margin-top: 0 !important;\
+            gap: 2vw !important;\
+          }\
+          .mini-btn {\
+            width: 10vw !important;\
+            height: 10vw !important;\
+          }\
+          .mini-btn .material-symbols-rounded {\
+            font-size: 5vw !important;\
+          }\
+          .volume-container { display: none !important; }\
+          .rec-timer { font-size: 3.5vw !important; }\
+        }\
+        @media (orientation: landscape) {\
+          #content {\
+            gap: 3vw !important;\
+            padding: 1vh 2vw !important;\
+          }\
+          #gridWrap {\
+            height: 90vh !important;\
+          }\
+          #grid {\
+            width: auto !important;\
+            height: 90vh !important;\
+            gap: 1.2vh !important;\
+          }\
+          #sideControls {\
+            height: 90vh !important;\
+            gap: 1.5vh !important;\
+            justify-content: center !important;\
+          }\
+          play-pause-morph {\
+            width: 18vh !important;\
+            height: 18vh !important;\
+          }\
+          .mini-controls {\
+            margin-top: 1.5vh !important;\
+            gap: 2vh !important;\
+          }\
+          .mini-btn {\
+            width: 7vh !important;\
+            height: 7vh !important;\
+          }\
+          .mini-btn .material-symbols-rounded {\
+            font-size: 3.5vh !important;\
+          }\
+          .volume-container { display: none !important; }\
+          .rec-timer { font-size: 2vh !important; }\
+        }\
+      ';
+
+      var CTRL_CSS_PORTRAIT = '\
+        @media (orientation: portrait) {\
+          weight-knob { width: 65% !important; }\
+          .text-wrapper {\
+            width: 22vw !important;\
+            height: 5vw !important;\
+            margin-top: -6vw !important;\
+          }\
+          #text-svg text {\
+            font-size: 3.2vw !important;\
+          }\
+          #text {\
+            font-size: 3vw !important;\
+            max-width: 22vw !important;\
+          }\
+          .pc-clear {\
+            width: 5vw !important;\
+            height: 5vw !important;\
+            top: -1vw !important;\
+            right: -1vw !important;\
+          }\
+          .pc-clear .material-symbols-rounded {\
+            font-size: 3vw !important;\
+          }\
+        }\
+        @media (orientation: landscape) {\
+          .text-wrapper {\
+            width: 14vh !important;\
+            height: 4.5vh !important;\
+            margin-top: -5.5vh !important;\
+          }\
+          #text-svg text {\
+            font-size: 2.2vh !important;\
+          }\
+          #text {\
+            font-size: 2vh !important;\
+          }\
+        }\
+      ';
+
+      function patch() {
+        var dj = document.querySelector('prompt-dj-midi');
+        if (!dj || !dj.shadowRoot) return false;
+        injectOnce(dj.shadowRoot, '_mob_main', MAIN_CSS);
+        var ctrls = dj.shadowRoot.querySelectorAll('prompt-controller');
+        ctrls.forEach(function(c) {
+          if (c.shadowRoot) injectOnce(c.shadowRoot, '_mob_ctrl', CTRL_CSS_PORTRAIT);
+        });
+        return ctrls.length > 0;
+      }
+
+      // Observe for component mount, then keep patching for dynamic additions
+      var attempts = 0;
+      var timer = setInterval(function() {
+        if (patch() || ++attempts > 60) clearInterval(timer);
+      }, 200);
+
+      // Also patch on orientation change
+      window.addEventListener('resize', function() { setTimeout(patch, 100); });
+    })();
+  </script>
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+
+  <script type="importmap">
+      {
+        "imports": {
+          "@google/genai": "https://esm.sh/@google/genai@^1.0.0",
+          "lit/": "https://esm.sh/lit@^3.3.0/",
+          "lit": "https://esm.sh/lit@^3.3.0"
+        }
+      }
+    </script>
+  <script type="module" src="assets/index.js"></script>
+  <link rel="stylesheet" href="assets/index.css">
+</head>
+
+<body>
+</body>
+
+</html>

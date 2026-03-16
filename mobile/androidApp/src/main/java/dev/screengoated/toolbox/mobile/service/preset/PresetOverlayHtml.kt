@@ -1,7 +1,10 @@
 package dev.screengoated.toolbox.mobile.service.preset
 
 import dev.screengoated.toolbox.mobile.preset.PresetPlaceholderReason
+import dev.screengoated.toolbox.mobile.preset.PresetResultWindowId
+import dev.screengoated.toolbox.mobile.preset.PresetResultWindowState
 import dev.screengoated.toolbox.mobile.preset.ResolvedPreset
+import dev.screengoated.toolbox.mobile.service.OverlayBounds
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetType
 import org.json.JSONArray
@@ -59,36 +62,52 @@ internal fun emptyFavoritesMessage(lang: String): String = localized(
     "아직 즐겨찾기 프리셋이 없습니다. 먼저 앱에서 별표를 추가하세요.",
 )
 
-internal fun buildResultBootstrap(
-    preset: Preset,
-    lang: String,
-    status: String,
-): String {
-    return JSONObject().apply {
-        put("title", preset.name(lang))
-        put("status", status)
-    }.toString()
-}
-
-internal fun buildResultUpdatePayload(
-    preset: Preset,
+internal fun buildResultStatePayload(
+    windowId: PresetResultWindowId,
     html: String,
-    status: String,
-    streaming: Boolean,
-    lang: String,
+    windowState: PresetResultWindowState,
 ): String {
     return JSONObject().apply {
-        put("title", preset.name(lang))
-        put("status", status)
+        put("windowId", windowId.wireValue())
         put("html", html)
-        put("streaming", streaming)
+        put("streaming", windowState.isStreaming)
     }.toString()
 }
 
-internal fun buildCanvasBootstrap(lang: String): String {
+internal fun buildCanvasPayload(
+    window: ActivePresetResultWindow,
+    vertical: Boolean,
+    lingerMs: Int,
+): String {
     return JSONObject().apply {
-        put("copyLabel", localized(lang, "Copy", "Sao chép", "복사"))
-        put("closeLabel", localized(lang, "Close", "Đóng", "닫기"))
+        put(
+            "window",
+            JSONObject().apply {
+                put("id", window.id.wireValue())
+                put("vertical", vertical)
+                put(
+                    "state",
+                    JSONObject().apply {
+                        put("copySuccess", window.runtimeState.copySuccess)
+                        put("opacityPercent", window.runtimeState.opacityPercent)
+                        put("navDepth", window.runtimeState.navDepth)
+                        put("maxNavDepth", window.runtimeState.maxNavDepth)
+                        put("isBrowsing", window.runtimeState.isBrowsing)
+                        put("isMarkdown", true)
+                        put("hasUndo", false)
+                        put("hasRedo", false)
+                        put("ttsLoading", false)
+                        put("ttsSpeaking", false)
+                        put(
+                            "disabledActions",
+                            JSONArray(window.runtimeState.disabledActions.toList()),
+                        )
+                    },
+                )
+            },
+        )
+        put("activeWindowId", window.id.wireValue())
+        put("lingerMs", lingerMs)
     }.toString()
 }
 
@@ -173,3 +192,5 @@ private fun localized(
     "ko" -> ko
     else -> en
 }
+
+internal fun PresetResultWindowId.wireValue(): String = "$sessionId:$blockIdx"
