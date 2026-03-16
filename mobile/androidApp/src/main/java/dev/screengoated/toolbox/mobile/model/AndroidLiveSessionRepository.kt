@@ -29,6 +29,9 @@ class AndroidLiveSessionRepository(
 ) {
     private val mutableApiKey = MutableStateFlow(settingsStore.loadApiKey())
     private val mutableCerebrasApiKey = MutableStateFlow(settingsStore.loadCerebrasApiKey())
+    private val mutableGroqApiKey = MutableStateFlow(settingsStore.loadGroqApiKey())
+    private val mutableOpenRouterApiKey = MutableStateFlow(settingsStore.loadOpenRouterApiKey())
+    private val mutableOllamaUrl = MutableStateFlow(settingsStore.loadOllamaUrl())
     private val mutablePaneFontSizes = MutableStateFlow(settingsStore.loadPaneFontSizes())
     private val mutableRealtimeTtsSettings = MutableStateFlow(settingsStore.loadRealtimeTtsSettings())
     private val mutableGlobalTtsSettings = MutableStateFlow(settingsStore.loadGlobalTtsSettings())
@@ -36,6 +39,9 @@ class AndroidLiveSessionRepository(
 
     val apiKey: StateFlow<String> = mutableApiKey.asStateFlow()
     val cerebrasApiKey: StateFlow<String> = mutableCerebrasApiKey.asStateFlow()
+    val groqApiKey: StateFlow<String> = mutableGroqApiKey.asStateFlow()
+    val openRouterApiKey: StateFlow<String> = mutableOpenRouterApiKey.asStateFlow()
+    val ollamaUrl: StateFlow<String> = mutableOllamaUrl.asStateFlow()
     val state: StateFlow<LiveSessionState> = store.state
     val projectionStore: ProjectionConsentStore = projectionConsentStore
     val paneFontSizes: StateFlow<RealtimePaneFontSizes> = mutablePaneFontSizes.asStateFlow()
@@ -73,6 +79,21 @@ class AndroidLiveSessionRepository(
     fun updateCerebrasApiKey(apiKey: String) {
         mutableCerebrasApiKey.value = apiKey
         settingsStore.saveCerebrasApiKey(apiKey.trim())
+    }
+
+    fun updateGroqApiKey(apiKey: String) {
+        mutableGroqApiKey.value = apiKey
+        settingsStore.saveGroqApiKey(apiKey.trim())
+    }
+
+    fun updateOpenRouterApiKey(apiKey: String) {
+        mutableOpenRouterApiKey.value = apiKey
+        settingsStore.saveOpenRouterApiKey(apiKey.trim())
+    }
+
+    fun updateOllamaUrl(url: String) {
+        mutableOllamaUrl.value = url
+        settingsStore.saveOllamaUrl(url.trim())
     }
 
     fun updatePaneFontSizes(fontSizes: RealtimePaneFontSizes) {

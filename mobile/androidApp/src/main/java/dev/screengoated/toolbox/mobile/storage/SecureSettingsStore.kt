@@ -60,6 +60,36 @@ class SecureSettingsStore(
             .apply()
     }
 
+    fun loadGroqApiKey(): String {
+        return prefs.getString(KEY_GROQ_API_KEY, "") ?: ""
+    }
+
+    fun saveGroqApiKey(apiKey: String) {
+        prefs.edit()
+            .putString(KEY_GROQ_API_KEY, apiKey)
+            .apply()
+    }
+
+    fun loadOpenRouterApiKey(): String {
+        return prefs.getString(KEY_OPENROUTER_API_KEY, "") ?: ""
+    }
+
+    fun saveOpenRouterApiKey(apiKey: String) {
+        prefs.edit()
+            .putString(KEY_OPENROUTER_API_KEY, apiKey)
+            .apply()
+    }
+
+    fun loadOllamaUrl(): String {
+        return prefs.getString(KEY_OLLAMA_URL, "http://localhost:11434") ?: "http://localhost:11434"
+    }
+
+    fun saveOllamaUrl(url: String) {
+        prefs.edit()
+            .putString(KEY_OLLAMA_URL, url)
+            .apply()
+    }
+
     fun loadPaneFontSizes(): RealtimePaneFontSizes {
         return RealtimePaneFontSizes(
             transcriptionSp = prefs.getInt(KEY_TRANSCRIPTION_FONT_SIZE, 16),
@@ -136,6 +166,9 @@ class SecureSettingsStore(
         private const val KEY_SESSION_CONFIG = "session_config"
         private const val KEY_GEMINI_API_KEY = "gemini_api_key"
         private const val KEY_CEREBRAS_API_KEY = "cerebras_api_key"
+        private const val KEY_GROQ_API_KEY = "groq_api_key"
+        private const val KEY_OPENROUTER_API_KEY = "openrouter_api_key"
+        private const val KEY_OLLAMA_URL = "ollama_url"
         private const val KEY_TRANSCRIPTION_FONT_SIZE = "transcription_font_size"
         private const val KEY_TRANSLATION_FONT_SIZE = "translation_font_size"
         private const val KEY_TTS_ENABLED = "realtime_tts_enabled"

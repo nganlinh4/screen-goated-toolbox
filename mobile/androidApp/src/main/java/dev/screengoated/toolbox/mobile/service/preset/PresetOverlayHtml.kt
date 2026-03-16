@@ -59,28 +59,6 @@ internal fun emptyFavoritesMessage(lang: String): String = localized(
     "아직 즐겨찾기 프리셋이 없습니다. 먼저 앱에서 별표를 추가하세요.",
 )
 
-internal fun buildInputBootstrap(
-    preset: Preset,
-    lang: String,
-): String {
-    return JSONObject().apply {
-        put("title", preset.name(lang))
-        put(
-            "footerHint",
-            if (preset.continuousInput) {
-                localized(lang, "Enter to submit, Shift+Enter for newline, stays open", "Enter để gửi, Shift+Enter xuống dòng, sẽ giữ mở", "Enter 전송, Shift+Enter 줄바꿈, 창 유지")
-            } else {
-                localized(lang, "Enter to submit, Shift+Enter for newline", "Enter để gửi, Shift+Enter xuống dòng", "Enter 전송, Shift+Enter 줄바꿈")
-            },
-        )
-        put("submitLabel", localized(lang, "Send", "Gửi", "전송"))
-        put(
-            "placeholder",
-            localized(lang, "Type here...", "Nhập tại đây...", "여기에 입력하세요..."),
-        )
-    }.toString()
-}
-
 internal fun buildResultBootstrap(
     preset: Preset,
     lang: String,
