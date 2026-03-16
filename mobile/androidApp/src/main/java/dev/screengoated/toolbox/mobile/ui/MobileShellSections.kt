@@ -42,6 +42,7 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarOutline
 import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Download
@@ -139,9 +140,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
+import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
@@ -1271,6 +1274,18 @@ internal fun ToolsSection(
     onPagerSwipeLockChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val presetRepository = (LocalContext.current.applicationContext as SgtMobileApplication)
+        .appContainer
+        .presetRepository
+    val presetCatalog by presetRepository.catalogState.collectAsState()
+    val favoritePresetIds by remember(presetCatalog) {
+        derivedStateOf {
+            presetCatalog.presets
+                .filter { it.preset.isFavorite }
+                .map { it.preset.id }
+                .toSet()
+        }
+    }
     val lang = locale.languageOptions.firstOrNull { it.label.contains("English") }?.let { null }
         ?: locale.let {
             when {
@@ -1309,6 +1324,10 @@ internal fun ToolsSection(
                     onPresetClick = onPresetClick,
                     onPagerSwipeLockChanged = onPagerSwipeLockChanged,
                     toolbarMode = toolbarMode,
+                    favoritePresetIds = favoritePresetIds,
+                    onFavoriteToggle = { presetId ->
+                        presetRepository.toggleFavorite(presetId)
+                    },
                 )
             }
         }
@@ -1522,6 +1541,8 @@ private fun ToolCategoryRow(
     onPresetClick: (String) -> Unit = {},
     onPagerSwipeLockChanged: (Boolean) -> Unit = {},
     toolbarMode: ToolbarMode = ToolbarMode.NONE,
+    favoritePresetIds: Set<String> = emptySet(),
+    onFavoriteToggle: (String) -> Unit = {},
 ) {
     val trailingClearance = 12.dp
 
@@ -1591,39 +1612,60 @@ private fun ToolCategoryRow(
                 },
         ) { index ->
             val preset = presets[index]
+            val presetId = "preset_${preset.id}"
+            val favoriteEditMode = toolbarMode == ToolbarMode.FAVORITE
+            val isFavorite = presetId in favoritePresetIds
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .maskClip(MaterialTheme.shapes.large)
-                    .clickable { onPresetClick("preset_${preset.id}") },
+                    .clickable(enabled = !favoriteEditMode) { onPresetClick(presetId) },
             ) {
-            Card(
-                modifier = Modifier.fillMaxSize(),
-                shape = MaterialTheme.shapes.large,
-                colors = CardDefaults.cardColors(
-                    containerColor = accentColor.copy(alpha = 0.15f),
-                ),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 10.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Card(
+                    modifier = Modifier.fillMaxSize(),
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(
+                        containerColor = accentColor.copy(alpha = 0.15f),
+                    ),
                 ) {
-                    Icon(
-                        preset.icon,
-                        contentDescription = null,
-                        tint = accentColor,
-                        modifier = Modifier.size(28.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    AutoFlexTwoLines(
-                        text = preset.balancedName(lang),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 10.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            preset.icon,
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(28.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        AutoFlexTwoLines(
+                            text = preset.balancedName(lang),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
-            }
+                if (favoriteEditMode) {
+                    IconButton(
+                        onClick = { onFavoriteToggle(presetId) },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                                shape = CircleShape,
+                            ),
+                    ) {
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarOutline,
+                            contentDescription = if (isFavorite) "Unfavorite preset" else "Favorite preset",
+                            tint = if (isFavorite) Color(0xFFFFC107) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             } // Box
         }
     }

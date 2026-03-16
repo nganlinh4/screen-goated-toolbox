@@ -36,6 +36,7 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.toPath
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -102,6 +103,10 @@ fun SgtMobileApp(
     var showTtsSettings by rememberSaveable { mutableStateOf(false) }
     var showDownloader by rememberSaveable { mutableStateOf(false) }
     var activePresetId by rememberSaveable { mutableStateOf<String?>(null) }
+    val presetRepository = (LocalContext.current.applicationContext as SgtMobileApplication)
+        .appContainer
+        .presetRepository
+    val presetCatalog by presetRepository.catalogState.collectAsState()
 
     if (showTtsSettings) {
         GlobalTtsSettingsDialog(
@@ -226,16 +231,9 @@ fun SgtMobileApp(
             }
         }
 
-        // Preset editor overlay (opened from Tools tab)
-        val activePreset = activePresetId?.let { id ->
-            dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets.all.find { it.id == id }
-        }
+        val activePreset = activePresetId?.let { id -> presetCatalog.findPreset(id) }
         if (activePreset != null) {
-            val presetLang = when {
-                locale.turnOn == "Bật" -> "vi"
-                locale.turnOn == "켜기" -> "ko"
-                else -> "en"
-            }
+            val presetLang = uiPreferences.uiLanguage
             androidx.activity.compose.BackHandler { activePresetId = null }
             androidx.compose.animation.AnimatedVisibility(
                 visible = true,
@@ -249,10 +247,16 @@ fun SgtMobileApp(
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.surface),
                 ) {
-                    dev.screengoated.toolbox.mobile.preset.ui.PresetEditorScreen(
-                        preset = activePreset,
+                    dev.screengoated.toolbox.mobile.preset.ui.PresetInspectorScreen(
+                        resolvedPreset = activePreset,
                         lang = presetLang,
                         onBack = { activePresetId = null },
+                        onFavoriteToggle = {
+                            presetRepository.toggleFavorite(activePreset.preset.id)
+                        },
+                        onRestoreDefault = {
+                            presetRepository.restoreBuiltInPreset(activePreset.preset.id)
+                        },
                     )
                 }
             }

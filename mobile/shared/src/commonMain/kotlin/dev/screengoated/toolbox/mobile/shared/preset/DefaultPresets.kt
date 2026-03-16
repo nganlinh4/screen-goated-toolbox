@@ -925,6 +925,7 @@ object DefaultPresets {
             nameKo = "\uc774\ubbf8\uc9c0 \ub9c8\uc2a4\ud130",
             presetType = PresetType.IMAGE,
             isMaster = true,
+            showControllerUi = true,
             isUpcoming = true,
             blocks = emptyList(),
         ),
@@ -936,6 +937,7 @@ object DefaultPresets {
             nameKo = "\uc120\ud0dd \ub9c8\uc2a4\ud130",
             presetType = PresetType.TEXT_SELECT,
             isMaster = true,
+            showControllerUi = true,
             blocks = emptyList(),
         ),
 
@@ -946,6 +948,7 @@ object DefaultPresets {
             nameKo = "\uc785\ub825 \ub9c8\uc2a4\ud130",
             presetType = PresetType.TEXT_INPUT,
             isMaster = true,
+            showControllerUi = true,
             blocks = emptyList(),
         ),
 
@@ -956,6 +959,7 @@ object DefaultPresets {
             nameKo = "\ub9c8\uc774\ud06c \ub9c8\uc2a4\ud130",
             presetType = PresetType.MIC,
             isMaster = true,
+            showControllerUi = true,
             autoStopRecording = true,
             blocks = emptyList(),
         ),
@@ -967,6 +971,7 @@ object DefaultPresets {
             nameKo = "\uc0ac\uc6b4\ub4dc \ub9c8\uc2a4\ud130",
             presetType = PresetType.DEVICE_AUDIO,
             isMaster = true,
+            showControllerUi = true,
             blocks = emptyList(),
         ),
     )
