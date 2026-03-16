@@ -7,6 +7,54 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+fun extractWindowsRawString(source: String, marker: String): String {
+    val markerIndex = source.indexOf(marker)
+    require(markerIndex >= 0) { "Missing marker: $marker" }
+    val start = source.indexOf("r#\"", markerIndex)
+    require(start >= 0) { "Missing raw string start for: $marker" }
+    val contentStart = start + 3
+    val end = source.indexOf("\"#;", contentStart)
+    require(end >= 0) { "Missing raw string end for: $marker" }
+    return source.substring(contentStart, end)
+}
+
+val generatedPresetOverlayAssets = layout.buildDirectory.dir("generated/presetOverlayAssets")
+val generatePresetOverlayAssets by tasks.registering {
+    val repoRoot = rootProject.projectDir.parentFile
+    val fitSource = repoRoot.resolve("src/overlay/result/markdown_view/streaming/fit_impl.rs")
+    val cssSource = repoRoot.resolve("src/overlay/result/markdown_view/css.rs")
+    inputs.file(fitSource)
+    inputs.file(cssSource)
+    outputs.dir(generatedPresetOverlayAssets)
+
+    doLast {
+        val outputDir = generatedPresetOverlayAssets.get().asFile.resolve("preset_overlay")
+        outputDir.mkdirs()
+
+        val fitScript = extractWindowsRawString(
+            fitSource.readText(),
+            "const FIT_FONT_SCRIPT: &str = r#\"",
+        )
+        outputDir.resolve("windows_markdown_fit.js").writeText(
+            """
+            window.runWindowsMarkdownFit = function(streamingMode, phase) {
+                const source = ${groovy.json.JsonOutput.toJson(fitScript)};
+                const resolved = source
+                    .replace(/__FIT_PHASE__/g, phase || "mobile_markdown_fit")
+                    .replace(/__STREAMING_MODE__/g, streamingMode ? "true" : "false");
+                return window.eval(resolved);
+            };
+            """.trimIndent(),
+        )
+
+        val markdownCss = extractWindowsRawString(
+            cssSource.readText(),
+            "pub const MARKDOWN_CSS: &str = r#\"",
+        )
+        outputDir.resolve("windows_markdown.css").writeText(markdownCss)
+    }
+}
+
 android {
     namespace = "dev.screengoated.toolbox.mobile"
     compileSdk = 36
@@ -73,6 +121,16 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    sourceSets.named("main") {
+        assets.srcDir(generatedPresetOverlayAssets)
+    }
+}
+
+tasks.matching {
+    it.name != generatePresetOverlayAssets.name && it.name.contains("Assets", ignoreCase = false)
+}.configureEach {
+    dependsOn(generatePresetOverlayAssets)
 }
 
 dependencies {
@@ -101,6 +159,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     implementation(libs.onnxruntime.android)
+    implementation("org.commonmark:commonmark:0.24.0")
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
 

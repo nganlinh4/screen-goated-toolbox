@@ -57,6 +57,12 @@ cargo test               # Run tests
 - For mobile parity work, use the repo-local skill at `.claude/skills/enforce-mobile-parity/SKILL.md`.
 - Before implementing or changing mobile parity behavior, update or create the matching spec under `.claude/parity/` and add or update shared fixtures under `parity-fixtures/`.
 - Mobile parity changes must not introduce undocumented behavioral deviations from Windows. If a deviation is unavoidable, document it in the feature parity spec before implementation.
+- If the Windows feature is rendered through HTML/CSS/JS/WebView, treat that web surface as the canonical UI contract.
+- For Windows WebView overlays, prefer the Live Translate pattern:
+  - preserve or extract the Windows HTML/CSS/JS into shared/mobile-consumable assets or templates
+  - build Android HTML from those assets with a thin platform bridge/shim only
+  - do not hand-redesign or “mobile simplify” the overlay chrome, motion, spacing, or DOM structure unless the parity spec explicitly allows it
+- Do not create ad hoc Android overlay assets for a Windows WebView feature when the Windows web contract can be shared, extracted, or ported verbatim.
 
 ## Model Catalog Workflow
 - **Adding/editing/removing a model** — use `/manage-model-catalog` (see `.claude/commands/manage-model-catalog.md`)

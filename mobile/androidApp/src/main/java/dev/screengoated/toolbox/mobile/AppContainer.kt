@@ -4,6 +4,7 @@ import android.content.Context
 import dev.screengoated.toolbox.mobile.downloader.DownloaderPersistence
 import dev.screengoated.toolbox.mobile.downloader.DownloaderRepository
 import dev.screengoated.toolbox.mobile.preset.ApiKeys
+import dev.screengoated.toolbox.mobile.preset.PresetPersistence
 import dev.screengoated.toolbox.mobile.preset.PresetRepository
 import dev.screengoated.toolbox.mobile.preset.TextApiClient
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
@@ -59,6 +60,7 @@ class AppContainer(
     }
 
     private val textApiClient = TextApiClient(httpClient)
+    private val presetPersistence = PresetPersistence(appContext, json)
     val presetRepository = PresetRepository(
         textApiClient = textApiClient,
         apiKeys = {
@@ -67,6 +69,7 @@ class AppContainer(
                 cerebrasKey = repository.currentCerebrasApiKey(),
             )
         },
+        overrideStore = presetPersistence,
     )
 
     val geminiLiveSocketClient = GeminiLiveSocketClient(httpClient)

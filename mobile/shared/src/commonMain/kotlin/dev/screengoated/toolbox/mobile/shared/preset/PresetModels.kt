@@ -9,6 +9,23 @@ enum class PresetType { IMAGE, TEXT_SELECT, TEXT_INPUT, MIC, DEVICE_AUDIO }
 enum class BlockType { INPUT_ADAPTER, IMAGE, TEXT, AUDIO }
 
 @Serializable
+data class PresetHotkey(
+    val key: String = "",
+    val ctrl: Boolean = false,
+    val alt: Boolean = false,
+    val shift: Boolean = false,
+    val win: Boolean = false,
+)
+
+@Serializable
+data class WindowGeometry(
+    val x: Int = 0,
+    val y: Int = 0,
+    val width: Int = 0,
+    val height: Int = 0,
+)
+
+@Serializable
 data class ProcessingBlock(
     val id: String,
     val blockType: BlockType,
@@ -34,11 +51,20 @@ data class Preset(
     val promptMode: String = "fixed",
     val textInputMode: String = "type",
     val audioSource: String = "mic",
+    val audioProcessingMode: String = "record_then_process",
+    val realtimeWindowMode: String = "standard",
+    val videoCaptureMethod: String = "region",
     val autoPaste: Boolean = false,
+    val autoPasteNewline: Boolean = false,
+    val hideRecordingUi: Boolean = false,
     val continuousInput: Boolean = false,
     val autoStopRecording: Boolean = false,
+    val hotkeys: List<PresetHotkey> = emptyList(),
     val isMaster: Boolean = false,
+    val showControllerUi: Boolean = false,
+    val isFavorite: Boolean = false,
     val isUpcoming: Boolean = false,
+    val windowGeometry: WindowGeometry? = null,
 ) {
     fun name(lang: String): String = when (lang) {
         "vi" -> nameVi

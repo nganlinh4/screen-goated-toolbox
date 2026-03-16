@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "favorite_override_merges_onto_builtin",
+      "preset_id": "preset_translate",
+      "override": {
+        "is_favorite": true
+      },
+      "expected": {
+        "is_favorite": true
+      }
+    },
+    {
+      "name": "restore_default_removes_override",
+      "preset_id": "preset_translate",
+      "override": {
+        "is_favorite": true,
+        "prompt_mode": "dynamic"
+      },
+      "expected_after_restore": {
+        "is_favorite": false,
+        "prompt_mode": "fixed"
+      }
+    },
+    {
+      "name": "image_preset_requires_placeholder_execution",
+      "preset_id": "preset_translate",
+      "expected_execution": {
+        "supported": false,
+        "reason": "IMAGE_CAPTURE_NOT_READY"
+      }
+    },
+    {
+      "name": "text_input_preset_can_execute_when_graph_is_text_only",
+      "preset_id": "preset_ask_ai",
+      "expected_execution": {
+        "supported": true,
+        "reason": null
+      }
+    },
+    {
+      "name": "master_preset_requires_placeholder_execution",
+      "preset_id": "preset_text_select_master",
+      "expected_execution": {
+        "supported": false,
+        "reason": "CONTROLLER_MODE_NOT_READY"
+      }
+    },
+    {
+      "name": "text_select_preset_requires_placeholder_execution",
+      "preset_id": "preset_translate_select",
+      "expected_execution": {
+        "supported": false,
+        "reason": "TEXT_SELECTION_NOT_READY"
+      }
+    },
+    {
+      "name": "overlay_only_text_input_requires_placeholder_execution",
+      "preset_id": "preset_quick_note",
+      "expected_execution": {
+        "supported": false,
+        "reason": "TEXT_INPUT_OVERLAY_NOT_READY"
+      }
+    },
+    {
+      "name": "html_output_text_input_requires_placeholder_execution",
+      "preset_id": "preset_make_game",
+      "expected_execution": {
+        "supported": false,
+        "reason": "HTML_RESULT_NOT_READY"
+      }
+    }
+  ]
+}

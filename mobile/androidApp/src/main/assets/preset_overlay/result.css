@@ -1,0 +1,72 @@
+:root {
+    color-scheme: dark;
+    --shell-bg: rgba(10, 12, 18, 0.94);
+    --shell-border: rgba(255, 255, 255, 0.12);
+    --shell-shadow: 0 22px 54px rgba(0, 0, 0, 0.36);
+    --shell-text: #f4f7fb;
+    --shell-muted: rgba(244, 247, 251, 0.64);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    overflow: hidden;
+    font-family: "Google Sans Flex", "Segoe UI", sans-serif;
+}
+
+body {
+    padding: 10px;
+}
+
+.result-shell {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-radius: 24px;
+    border: 1px solid var(--shell-border);
+    background: var(--shell-bg);
+    box-shadow: var(--shell-shadow);
+    backdrop-filter: blur(18px);
+    overflow: hidden;
+}
+
+.result-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px 0;
+    color: var(--shell-text);
+}
+
+.result-title {
+    font-size: 14px;
+    font-weight: 640;
+    letter-spacing: 0.04em;
+}
+
+.result-status {
+    color: var(--shell-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.result-body {
+    flex: 1;
+    overflow: hidden;
+    padding: 0 16px 16px;
+    color: var(--shell-text);
+}
+
+.result-body > * {
+    margin-top: 0;
+}
