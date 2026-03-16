@@ -71,6 +71,8 @@ internal fun buildResultStatePayload(
         put("windowId", windowId.wireValue())
         put("html", html)
         put("streaming", windowState.isStreaming)
+        put("sourceTextLen", windowState.markdownText.length)
+        put("sourceTrimmedLen", windowState.markdownText.trim().length)
     }.toString()
 }
 

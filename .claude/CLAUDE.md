@@ -44,6 +44,20 @@ cargo test               # Run tests
 - Test on Windows 10/11 for compatibility
 - For WSL validation, use `ORT_SKIP_DOWNLOAD=1 cargo check --target x86_64-pc-windows-gnu` (the `ort-sys` crate does not provide downloadable binaries for `x86_64-pc-windows-gnu`).
 
+## Android Build Workflow
+- For this repo, Android Gradle build/test/install is most reliable from Windows PowerShell, not WSL Gradle, because the WSL-visible Android SDK can report corrupted/missing build-tools binaries.
+- Known-good Windows paths on this machine:
+  - JDK: `C:\Users\user\scoop\apps\temurin17-jdk\17.0.18-8`
+  - Android SDK: `C:\Users\user\android-sdk`
+- Typical PowerShell env setup before `gradlew.bat`:
+  - `$env:JAVA_HOME = 'C:\Users\user\scoop\apps\temurin17-jdk\17.0.18-8'`
+  - `$env:ANDROID_HOME = 'C:\Users\user\android-sdk'`
+  - `$env:ANDROID_SDK_ROOT = 'C:\Users\user\android-sdk'`
+- Run Android tasks from `C:\WORK\screen-goated-toolbox\mobile` with `gradlew.bat`, often via a temporary PowerShell script under `C:\Windows\Temp\`.
+- APK install is typically done with:
+  - `C:\Users\user\android-sdk\platform-tools\adb.exe connect <host:port>`
+  - `adb.exe -s <host:port> install -r C:\WORK\screen-goated-toolbox\mobile\androidApp\build\outputs\apk\full\debug\androidApp-full-debug.apk`
+
 ## Claude Code Rules
 - **Never run `cargo build --release`** - the user will build manually when ready
 - Use `cargo check` or `cargo clippy` for verification instead

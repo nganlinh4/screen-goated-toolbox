@@ -118,6 +118,16 @@ class PresetRepositoryTest {
         assertEquals(420, store.load().builtInOverrides["preset_ask_ai"]?.windowGeometry?.width)
     }
 
+    @Test
+    fun htmlOutputTextPresetIsExecutable() {
+        val repository = createRepository(InMemoryPresetOverrideStore())
+
+        val resolved = requireNotNull(repository.getResolvedPreset("preset_make_game"))
+
+        assertTrue(resolved.executionCapability.supported)
+        assertFalse(resolved.placeholderReasons.contains(PresetPlaceholderReason.HTML_RESULT_NOT_READY))
+    }
+
     private fun createRepository(store: PresetOverrideStore): PresetRepository {
         return PresetRepository(
             textApiClient = TextApiClient(OkHttpClient()),

@@ -217,6 +217,7 @@ class PresetRepository(
                     val blockBuffer = StringBuilder()
                     val resultWindowId = PresetResultWindowId(sessionId = sessionId, blockIdx = index)
                     val shouldSurfaceOverlay = index in overlayOrder
+                    val shouldSurfaceStreaming = shouldSurfaceOverlay && !block.requestsHtmlOutput()
                     val result = textApiClient.executeStreaming(
                         modelId = block.model,
                         prompt = block.resolvePrompt(),
@@ -231,7 +232,7 @@ class PresetRepository(
                             } else {
                                 blockBuffer.append(chunk)
                             }
-                            if (shouldSurfaceOverlay) {
+                            if (shouldSurfaceStreaming) {
                                 _executionState.update {
                                     it.withWindowState(
                                         PresetResultWindowState(
@@ -322,13 +323,6 @@ class PresetRepository(
             return PresetExecutionCapability(
                 supported = false,
                 reason = PresetPlaceholderReason.NON_TEXT_GRAPH_NOT_READY,
-            )
-        }
-
-        if (preset.blocks.any { it.requestsHtmlOutput() }) {
-            return PresetExecutionCapability(
-                supported = false,
-                reason = PresetPlaceholderReason.HTML_RESULT_NOT_READY,
             )
         }
 
