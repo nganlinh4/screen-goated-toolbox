@@ -55,6 +55,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
@@ -158,61 +159,102 @@ internal fun CredentialsCard(
                 }
             }
 
+            val isLandscape = LocalConfiguration.current.orientation ==
+                android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+            data class FieldEntry(
+                val index: Int,
+                val value: String,
+                val onValueChange: (String) -> Unit,
+                val isPassword: Boolean = true,
+            )
+
+            val fields = listOf(
+                FieldEntry(0, apiKey, onApiKeyChanged),
+                FieldEntry(1, cerebrasApiKey, onCerebrasApiKeyChanged),
+                FieldEntry(2, groqApiKey, onGroqApiKeyChanged),
+                FieldEntry(3, openRouterApiKey, onOpenRouterApiKeyChanged),
+                FieldEntry(4, ollamaUrl, onOllamaUrlChanged, isPassword = false),
+            )
             @Composable
-            fun ApiKeyField(
-                index: Int,
-                value: String,
-                onValueChange: (String) -> Unit,
-                isPassword: Boolean = true,
+            fun ApiKeyFieldContent(
+                entry: FieldEntry,
+                fieldModifier: Modifier = Modifier,
             ) {
-                AnimatedVisibility(visible = enabledState[index]) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        OutlinedTextField(
-                            modifier = Modifier.fillMaxWidth(),
-                            value = value,
-                            onValueChange = onValueChange,
-                            label = { Text(providers[index].keyLabel, style = MaterialTheme.typography.labelSmall) },
-                            singleLine = true,
-                            textStyle = MaterialTheme.typography.bodySmall,
-                            visualTransformation = if (isPassword && !visibleState[index]) {
-                                PasswordVisualTransformation()
-                            } else {
-                                VisualTransformation.None
-                            },
-                            trailingIcon = if (isPassword) {
-                                {
-                                    IconButton(onClick = { visibleState[index] = !visibleState[index] }) {
-                                        Icon(
-                                            if (visibleState[index]) Icons.Rounded.VisibilityOff
-                                            else Icons.Rounded.Visibility,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    }
+                Column(
+                    modifier = fieldModifier,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = entry.value,
+                        onValueChange = entry.onValueChange,
+                        label = { Text(providers[entry.index].keyLabel, style = MaterialTheme.typography.labelSmall) },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        visualTransformation = if (entry.isPassword && !visibleState[entry.index]) {
+                            PasswordVisualTransformation()
+                        } else {
+                            VisualTransformation.None
+                        },
+                        trailingIcon = if (entry.isPassword) {
+                            {
+                                IconButton(onClick = { visibleState[entry.index] = !visibleState[entry.index] }) {
+                                    Icon(
+                                        if (visibleState[entry.index]) Icons.Rounded.VisibilityOff
+                                        else Icons.Rounded.Visibility,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
                                 }
-                            } else null,
-                            shape = MaterialTheme.shapes.medium,
+                            }
+                        } else null,
+                        shape = MaterialTheme.shapes.medium,
+                    )
+                    val provider = providers[entry.index]
+                    if (provider.getKeyUrl != null && provider.getKeyLabel != null) {
+                        Text(
+                            text = provider.getKeyLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clickable { uriHandler.openUri(provider.getKeyUrl) }
+                                .padding(start = 4.dp),
                         )
-                        val provider = providers[index]
-                        if (provider.getKeyUrl != null && provider.getKeyLabel != null) {
-                            Text(
-                                text = provider.getKeyLabel,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .clickable { uriHandler.openUri(provider.getKeyUrl) }
-                                    .padding(start = 4.dp),
-                            )
-                        }
                     }
                 }
             }
 
-            ApiKeyField(0, apiKey, onApiKeyChanged)
-            ApiKeyField(1, cerebrasApiKey, onCerebrasApiKeyChanged)
-            ApiKeyField(2, groqApiKey, onGroqApiKeyChanged)
-            ApiKeyField(3, openRouterApiKey, onOpenRouterApiKeyChanged)
-            ApiKeyField(4, ollamaUrl, onOllamaUrlChanged, isPassword = false)
+            if (isLandscape) {
+                // 2-column grid in landscape to save vertical space
+                fields.chunked(2).forEach { pair ->
+                    val anyVisible = pair.any { enabledState[it.index] }
+                    AnimatedVisibility(visible = anyVisible) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            pair.forEach { entry ->
+                                AnimatedVisibility(
+                                    visible = enabledState[entry.index],
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    ApiKeyFieldContent(entry = entry)
+                                }
+                            }
+                            if (pair.size == 1) {
+                                Spacer(Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            } else {
+                fields.forEach { entry ->
+                    AnimatedVisibility(visible = enabledState[entry.index]) {
+                        ApiKeyFieldContent(entry)
+                    }
+                }
+            }
         }
     }
 }

@@ -1,6 +1,5 @@
 package dev.screengoated.toolbox.mobile.preset
 
-import dev.screengoated.toolbox.mobile.shared.preset.BlockResult
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
@@ -16,15 +15,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
-data class PresetExecutionState(
-    val isExecuting: Boolean = false,
-    val activePreset: Preset? = null,
-    val streamingText: String = "",
-    val blockResults: List<BlockResult> = emptyList(),
-    val error: String? = null,
-    val isComplete: Boolean = false,
-)
 
 class PresetRepository(
     private val textApiClient: TextApiClient,
@@ -44,6 +34,7 @@ class PresetRepository(
 
     private var storedOverrides = overrideStore.load()
     private var executionJob: Job? = null
+    private var nextSessionOrdinal = 1L
 
     init {
         publishCatalog()
@@ -92,16 +83,18 @@ class PresetRepository(
         val capability = resolveExecutionCapability(preset)
         if (!capability.supported) {
             _executionState.value = PresetExecutionState(
-                activePreset = preset,
+                activePresetId = preset.id,
                 error = capability.reason?.message() ?: "Preset execution is not ready on Android yet.",
             )
             return
         }
 
         executionJob?.cancel()
+        val sessionId = "preset-session-${nextSessionOrdinal++}"
         _executionState.value = PresetExecutionState(
+            sessionId = sessionId,
             isExecuting = true,
-            activePreset = preset,
+            activePresetId = preset.id,
         )
 
         executionJob = scope.launch {
@@ -119,21 +112,16 @@ class PresetRepository(
                     }
                 }
 
-                val blockResults = executeTextGraph(
+                executeTextGraph(
+                    sessionId = sessionId,
                     preset = preset,
                     inputText = inputText,
-                )
-                val terminalText = resolveTerminalText(
-                    preset = preset,
-                    blockResults = blockResults,
                 )
 
                 _executionState.update {
                     it.copy(
                         isExecuting = false,
                         isComplete = true,
-                        streamingText = terminalText,
-                        blockResults = blockResults,
                     )
                 }
             } catch (e: Exception) {
@@ -188,9 +176,10 @@ class PresetRepository(
     }
 
     private suspend fun executeTextGraph(
+        sessionId: String,
         preset: Preset,
         inputText: String,
-    ): List<BlockResult> {
+    ) {
         val normalizedEdges = preset.normalizedConnections()
         val incoming = MutableList(preset.blocks.size) { mutableListOf<Int>() }
         val outgoing = MutableList(preset.blocks.size) { mutableListOf<Int>() }
@@ -204,9 +193,14 @@ class PresetRepository(
             edges = normalizedEdges,
         )
         val outputs = mutableMapOf<Int, String>()
-        val blockResults = mutableListOf<BlockResult>()
-        val textBlockCount = preset.blocks.count { it.blockType == BlockType.TEXT }
-        val canStreamToUi = textBlockCount == 1
+        val overlayIndexes = executionOrder
+            .filter { index ->
+                val block = preset.blocks[index]
+                block.blockType == BlockType.TEXT &&
+                    block.showOverlay &&
+                    block.renderMode in SUPPORTED_MARKDOWN_RENDER_MODES
+            }
+        val overlayOrder = overlayIndexes.withIndex().associate { it.value to it.index }
 
         executionOrder.forEach { index ->
             val block = preset.blocks[index]
@@ -220,6 +214,8 @@ class PresetRepository(
                         .ifBlank { inputText }
 
                     val blockBuffer = StringBuilder()
+                    val resultWindowId = PresetResultWindowId(sessionId = sessionId, blockIdx = index)
+                    val shouldSurfaceOverlay = index in overlayOrder
                     val result = textApiClient.executeStreaming(
                         model = block.model,
                         prompt = block.resolvePrompt(),
@@ -227,37 +223,44 @@ class PresetRepository(
                         apiKeys = apiKeys(),
                         onChunk = { chunk ->
                             blockBuffer.append(chunk)
-                            if (canStreamToUi) {
+                            if (shouldSurfaceOverlay) {
                                 _executionState.update {
-                                    it.copy(streamingText = blockBuffer.toString())
+                                    it.withWindowState(
+                                        PresetResultWindowState(
+                                            id = resultWindowId,
+                                            blockIdx = index,
+                                            title = preset.nameEn,
+                                            markdownText = blockBuffer.toString(),
+                                            isStreaming = true,
+                                            renderMode = block.renderMode,
+                                            overlayOrder = overlayOrder.getValue(index),
+                                        ),
+                                    )
                                 }
                             }
                         },
                     ).getOrThrow()
 
                     outputs[index] = result
-                    blockResults += BlockResult(
-                        blockIdx = index,
-                        text = result,
-                        model = block.model,
-                    )
+                    if (shouldSurfaceOverlay) {
+                        _executionState.update {
+                            it.withWindowState(
+                                PresetResultWindowState(
+                                    id = resultWindowId,
+                                    blockIdx = index,
+                                    title = preset.nameEn,
+                                    markdownText = result,
+                                    isStreaming = false,
+                                    renderMode = block.renderMode,
+                                    overlayOrder = overlayOrder.getValue(index),
+                                ),
+                            )
+                        }
+                    }
                 }
                 else -> error("Non-text block execution is not ready on Android yet.")
             }
         }
-
-        return blockResults
-    }
-
-    private fun resolveTerminalText(
-        preset: Preset,
-        blockResults: List<BlockResult>,
-    ): String {
-        val terminalIndexes = preset.terminalTextBlockIndexes()
-        return blockResults
-            .filter { it.blockIdx in terminalIndexes }
-            .joinToString(separator = "\n\n") { it.text }
-            .ifBlank { blockResults.lastOrNull()?.text.orEmpty() }
     }
 
     private fun resolveExecutionCapability(preset: Preset): PresetExecutionCapability {
@@ -328,10 +331,6 @@ class PresetRepository(
         if (preset.hotkeys.isNotEmpty()) {
             reasons += PresetPlaceholderReason.HOTKEYS_NOT_READY
         }
-        if (preset.blocks.isNotEmpty()) {
-            reasons += PresetPlaceholderReason.GRAPH_EDITING_NOT_READY
-        }
-
         return reasons
     }
 }
@@ -350,15 +349,17 @@ private fun Preset.normalizedConnections(): List<Pair<Int, Int>> {
     return (0 until blocks.lastIndex).map { index -> index to index + 1 }
 }
 
-private fun Preset.terminalTextBlockIndexes(): Set<Int> {
-    val outgoing = normalizedConnections().groupBy({ it.first }, { it.second })
-    return blocks.indices
-        .filter { index ->
-            blocks[index].blockType == BlockType.TEXT &&
-                outgoing[index].isNullOrEmpty()
-        }
-        .toSet()
+private fun PresetExecutionState.withWindowState(
+    windowState: PresetResultWindowState,
+): PresetExecutionState {
+    val updated = resultWindows
+        .filterNot { it.id == windowState.id }
+        .plus(windowState)
+        .sortedBy { it.overlayOrder }
+    return copy(resultWindows = updated)
 }
+
+private val SUPPORTED_MARKDOWN_RENDER_MODES = setOf("markdown", "markdown_stream")
 
 private fun topologicalOrder(
     blockCount: Int,
@@ -417,7 +418,7 @@ private fun PresetPlaceholderReason.message(): String = when (this) {
     PresetPlaceholderReason.HOTKEYS_NOT_READY ->
         "Hotkeys are not ready on Android yet."
     PresetPlaceholderReason.GRAPH_EDITING_NOT_READY ->
-        "Graph editing is still a placeholder on Android."
+        "Use the edit button to open the full node graph editor."
     PresetPlaceholderReason.NON_TEXT_GRAPH_NOT_READY ->
         "Only text-input preset graphs are executable on Android right now."
 }

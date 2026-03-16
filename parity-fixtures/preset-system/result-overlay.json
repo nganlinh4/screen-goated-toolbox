@@ -1,0 +1,37 @@
+{
+  "surface": "preset_result_overlay",
+  "render_mode": "markdown_only",
+  "windows": [
+    {
+      "block_idx": 1,
+      "show_overlay": true,
+      "render_mode": "markdown_stream",
+      "expected_window": true
+    },
+    {
+      "block_idx": 2,
+      "show_overlay": false,
+      "render_mode": "markdown_stream",
+      "expected_window": false
+    },
+    {
+      "block_idx": 3,
+      "show_overlay": true,
+      "render_mode": "markdown",
+      "expected_window": true
+    }
+  ],
+  "canvas": {
+    "reveal_model": "tap_and_linger",
+    "linger_ms": 2000,
+    "unsupported_actions": [
+      "edit",
+      "undo",
+      "redo",
+      "download",
+      "speaker",
+      "markdown_toggle",
+      "broom_group_all"
+    ]
+  }
+}

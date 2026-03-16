@@ -13,7 +13,7 @@ fun extractWindowsRawString(source: String, marker: String): String {
     val start = source.indexOf("r#\"", markerIndex)
     require(start >= 0) { "Missing raw string start for: $marker" }
     val contentStart = start + 3
-    val end = source.indexOf("\"#;", contentStart)
+    val end = source.indexOf("\"#", contentStart)
     require(end >= 0) { "Missing raw string end for: $marker" }
     return source.substring(contentStart, end)
 }
@@ -23,8 +23,14 @@ val generatePresetOverlayAssets by tasks.registering {
     val repoRoot = rootProject.projectDir.parentFile
     val fitSource = repoRoot.resolve("src/overlay/result/markdown_view/streaming/fit_impl.rs")
     val cssSource = repoRoot.resolve("src/overlay/result/markdown_view/css.rs")
+    val buttonCanvasCssSource = repoRoot.resolve("src/overlay/result/button_canvas/css.rs")
+    val buttonCanvasJsSource = repoRoot.resolve("src/overlay/result/button_canvas/js.rs")
+    val buttonCanvasThemeSource = repoRoot.resolve("src/overlay/result/button_canvas/theme.rs")
     inputs.file(fitSource)
     inputs.file(cssSource)
+    inputs.file(buttonCanvasCssSource)
+    inputs.file(buttonCanvasJsSource)
+    inputs.file(buttonCanvasThemeSource)
     outputs.dir(generatedPresetOverlayAssets)
 
     doLast {
@@ -52,6 +58,26 @@ val generatePresetOverlayAssets by tasks.registering {
             "pub const MARKDOWN_CSS: &str = r#\"",
         )
         outputDir.resolve("windows_markdown.css").writeText(markdownCss)
+
+        outputDir.resolve("windows_button_canvas.css").writeText(
+            extractWindowsRawString(
+                buttonCanvasCssSource.readText(),
+                "pub fn get_base_css() -> &'static str {",
+            ),
+        )
+        outputDir.resolve("windows_button_canvas.js").writeText(
+            extractWindowsRawString(
+                buttonCanvasJsSource.readText(),
+                "pub fn get_javascript() -> &'static str {",
+            ),
+        )
+        val themeSource = buttonCanvasThemeSource.readText()
+        outputDir.resolve("windows_button_canvas_theme_dark.css").writeText(
+            extractWindowsRawString(themeSource, "if is_dark {"),
+        )
+        outputDir.resolve("windows_button_canvas_theme_light.css").writeText(
+            extractWindowsRawString(themeSource, "} else {"),
+        )
     }
 }
 

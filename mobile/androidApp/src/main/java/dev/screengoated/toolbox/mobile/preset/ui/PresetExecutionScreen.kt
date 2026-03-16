@@ -208,6 +208,8 @@ private fun ResultArea(
     onCancel: () -> Unit,
     clipboard: androidx.compose.ui.platform.ClipboardManager,
 ) {
+    val combinedText = state.resultWindows.joinToString(separator = "\n\n") { it.markdownText }
+
     // Progress
     if (state.isExecuting) {
         LinearWavyProgressIndicator(
@@ -228,14 +230,14 @@ private fun ResultArea(
     }
 
     // Streaming result
-    if (state.streamingText.isNotBlank()) {
+    if (combinedText.isNotBlank()) {
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 Text(
-                    state.streamingText,
+                    combinedText,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -250,9 +252,9 @@ private fun ResultArea(
                             Text("Stop")
                         }
                     }
-                    if (state.isComplete || state.streamingText.isNotBlank()) {
+                    if (state.isComplete || combinedText.isNotBlank()) {
                         FilledTonalButton(onClick = {
-                            clipboard.setText(AnnotatedString(state.streamingText))
+                            clipboard.setText(AnnotatedString(combinedText))
                         }) {
                             Icon(Icons.Rounded.ContentCopy, contentDescription = null, Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))

@@ -42,6 +42,8 @@ import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
@@ -452,18 +454,55 @@ private fun AudioModeSelectors(
 // Section 3: Node graph
 // =============================================================================
 
+/** Convert graph state back to preset blocks + connections (BFS from input node). */
+private fun graphToPreset(graphState: NodeGraphState, currentPreset: Preset): Preset {
+    if (graphState.nodes.isEmpty()) {
+        return currentPreset.copy(blocks = emptyList(), blockConnections = emptyList())
+    }
+
+    val adjacency = mutableMapOf<String, MutableList<String>>()
+    graphState.nodes.forEach { adjacency[it.id] = mutableListOf() }
+    graphState.connections.forEach { c -> adjacency[c.fromNodeId]?.add(c.toNodeId) }
+
+    val hasIncoming = graphState.connections.map { it.toNodeId }.toSet()
+    val roots = graphState.nodes.filter { it.id !in hasIncoming }.map { it.id }
+        .ifEmpty { listOf(graphState.nodes.first().id) }
+
+    val visited = mutableSetOf<String>()
+    val ordered = mutableListOf<NodePosition>()
+    val queue = ArrayDeque<String>()
+    roots.forEach { queue.add(it); visited.add(it) }
+    while (queue.isNotEmpty()) {
+        val cur = queue.removeFirst()
+        val node = graphState.nodes.find { it.id == cur } ?: continue
+        ordered.add(node)
+        adjacency[cur]?.forEach { neighbor ->
+            if (neighbor !in visited) { visited.add(neighbor); queue.add(neighbor) }
+        }
+    }
+    graphState.nodes.filter { it.id !in visited }.forEach { ordered.add(it) }
+
+    val idToIdx = ordered.mapIndexed { idx, n -> n.id to idx }.toMap()
+    val blocks = ordered.map { it.block }
+    val connections = graphState.connections.mapNotNull { c ->
+        val fromIdx = idToIdx[c.fromNodeId] ?: return@mapNotNull null
+        val toIdx = idToIdx[c.toNodeId] ?: return@mapNotNull null
+        fromIdx to toIdx
+    }
+    return currentPreset.copy(blocks = blocks, blockConnections = connections)
+}
+
 @Composable
 private fun NodeGraphSection(
     editState: Preset,
     lang: String,
     onUpdate: (Preset) -> Unit,
 ) {
-    // Convert preset blocks to NodeGraphState
     var graphState by remember(editState.id) {
         val nodes = editState.blocks.mapIndexed { idx, block ->
             NodePosition(
                 id = block.id.ifBlank { "block_$idx" },
-                x = 0f, // BFS layout will auto-position
+                x = 0f,
                 y = 0f,
                 block = block,
             )
@@ -476,6 +515,18 @@ private fun NodeGraphSection(
         mutableStateOf(NodeGraphState(nodes, connections))
     }
 
+    var selectedNodeId by remember { mutableStateOf<String?>(null) }
+    var showPropertySheet by remember { mutableStateOf(false) }
+    var showAddMenu by remember { mutableStateOf(false) }
+
+    fun syncToPreset(newGraphState: NodeGraphState) {
+        graphState = newGraphState
+        onUpdate(graphToPreset(newGraphState, editState))
+    }
+
+    val editorTypeGroup = editState.presetType.editorGroup()
+    val canAddSpecial = editorTypeGroup != EditorTypeGroup.TEXT
+
     SectionCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -487,9 +538,19 @@ private fun NodeGraphSection(
                 )
                 Spacer(Modifier.width(8.dp))
                 SectionLabel(localized(lang, "Node Graph", "Biểu đồ nút", "노드 그래프"))
+                Spacer(Modifier.weight(1f))
+                Text(
+                    localized(
+                        lang,
+                        "Tap node to edit",
+                        "Chạm nút để sửa",
+                        "노드 탭하여 편집",
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                )
             }
 
-            // Real node graph canvas
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -502,13 +563,19 @@ private fun NodeGraphSection(
                     ),
             ) {
                 if (graphState.nodes.isEmpty()) {
-                    // Empty state
                     Box(
-                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLowest),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surfaceContainerLowest),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            localized(lang, "No blocks — tap + to add", "Chưa có khối — bấm + để thêm", "블록 없음 — +를 눌러 추가"),
+                            localized(
+                                lang,
+                                "No blocks \u2014 tap + to add",
+                                "Chưa có khối \u2014 bấm + để thêm",
+                                "블록 없음 \u2014 +를 눌러 추가",
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         )
@@ -517,68 +584,199 @@ private fun NodeGraphSection(
                     NodeGraphCanvas(
                         state = graphState,
                         onNodeMoved = { nodeId, x, y ->
-                            graphState = graphState.copy(
-                                nodes = graphState.nodes.map {
-                                    if (it.id == nodeId) it.copy(x = x, y = y) else it
-                                },
+                            syncToPreset(
+                                graphState.copy(
+                                    nodes = graphState.nodes.map {
+                                        if (it.id == nodeId) it.copy(x = x, y = y) else it
+                                    },
+                                ),
                             )
                         },
                         onConnectionAdded = { fromId, toId ->
-                            graphState = graphState.copy(
-                                connections = graphState.connections + Connection(fromId, toId),
+                            syncToPreset(
+                                graphState.copy(
+                                    connections = graphState.connections + Connection(fromId, toId),
+                                ),
                             )
                         },
                         onConnectionRemoved = { fromId, toId ->
-                            graphState = graphState.copy(
-                                connections = graphState.connections.filter {
-                                    !(it.fromNodeId == fromId && it.toNodeId == toId)
-                                },
+                            syncToPreset(
+                                graphState.copy(
+                                    connections = graphState.connections.filter {
+                                        !(it.fromNodeId == fromId && it.toNodeId == toId)
+                                    },
+                                ),
                             )
                         },
                         onNodeDeleted = { nodeId ->
-                            graphState = graphState.copy(
-                                nodes = graphState.nodes.filter { it.id != nodeId },
-                                connections = graphState.connections.filter {
-                                    it.fromNodeId != nodeId && it.toNodeId != nodeId
-                                },
+                            syncToPreset(
+                                graphState.copy(
+                                    nodes = graphState.nodes.filter { it.id != nodeId },
+                                    connections = graphState.connections.filter {
+                                        it.fromNodeId != nodeId && it.toNodeId != nodeId
+                                    },
+                                ),
                             )
+                            if (selectedNodeId == nodeId) selectedNodeId = null
                         },
                         onBlockUpdated = { nodeId, block ->
-                            graphState = graphState.copy(
-                                nodes = graphState.nodes.map {
-                                    if (it.id == nodeId) it.copy(block = block) else it
-                                },
+                            syncToPreset(
+                                graphState.copy(
+                                    nodes = graphState.nodes.map {
+                                        if (it.id == nodeId) it.copy(block = block) else it
+                                    },
+                                ),
                             )
+                        },
+                        onNodeTapped = { nodeId ->
+                            if (nodeId.isNotEmpty()) {
+                                selectedNodeId = nodeId
+                                showPropertySheet = true
+                            } else {
+                                selectedNodeId = null
+                            }
                         },
                         modifier = Modifier.fillMaxSize(),
                         lang = lang,
+                        selectedNodeId = selectedNodeId,
                     )
                 }
             }
 
-            // Add block button
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                FilledTonalButton(
-                    onClick = {
-                        val newBlock = dev.screengoated.toolbox.mobile.shared.preset.textBlock(
-                            "cerebras_gpt_oss",
-                            "Translate to {language1}. Output ONLY the translation.",
-                            "language1" to "Vietnamese",
+            // Add node button with dropdown
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                Box {
+                    FilledTonalButton(onClick = { showAddMenu = true }) {
+                        Icon(
+                            Icons.Rounded.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
                         )
-                        graphState = graphState.copy(
-                            nodes = graphState.nodes + NodePosition(
-                                id = "block_${System.currentTimeMillis()}",
-                                x = 0f, y = 0f,
-                                block = newBlock,
-                            ),
+                        Spacer(Modifier.width(6.dp))
+                        Text(localized(lang, "Add Node", "Thêm nút", "노드 추가"))
+                    }
+
+                    DropdownMenu(
+                        expanded = showAddMenu,
+                        onDismissRequest = { showAddMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(localized(lang, "Process Node", "Nút xử lý", "처리 노드"))
+                            },
+                            onClick = {
+                                showAddMenu = false
+                                val newBlock =
+                                    dev.screengoated.toolbox.mobile.shared.preset.textBlock(
+                                        "cerebras_gpt_oss",
+                                        "Translate to {language1}. Output ONLY the translation.",
+                                        "language1" to "Vietnamese",
+                                    )
+                                syncToPreset(
+                                    graphState.copy(
+                                        nodes = graphState.nodes + NodePosition(
+                                            id = "block_${System.currentTimeMillis()}",
+                                            x = 0f,
+                                            y = 0f,
+                                            block = newBlock,
+                                        ),
+                                    ),
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Rounded.TextFields,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            },
                         )
-                    },
-                ) {
-                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(localized(lang, "+ Add Block", "+ Thêm khối", "+ 블록 추가"))
+
+                        if (canAddSpecial) {
+                            val specialBlockType = when (editorTypeGroup) {
+                                EditorTypeGroup.IMAGE -> BlockType.IMAGE
+                                EditorTypeGroup.AUDIO -> BlockType.AUDIO
+                                else -> BlockType.TEXT
+                            }
+                            val defaultModel = when (editorTypeGroup) {
+                                EditorTypeGroup.IMAGE -> "gemini-3.1-flash-lite-preview"
+                                EditorTypeGroup.AUDIO -> "whisper-accurate"
+                                else -> "cerebras_gpt_oss"
+                            }
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        localized(
+                                            lang,
+                                            "Special Node",
+                                            "Nút đặc biệt",
+                                            "특수 노드",
+                                        ),
+                                    )
+                                },
+                                onClick = {
+                                    showAddMenu = false
+                                    val newBlock =
+                                        dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock(
+                                            id = "special_${System.currentTimeMillis()}",
+                                            blockType = specialBlockType,
+                                            model = defaultModel,
+                                            prompt = "",
+                                        )
+                                    syncToPreset(
+                                        graphState.copy(
+                                            nodes = graphState.nodes + NodePosition(
+                                                id = newBlock.id,
+                                                x = 0f,
+                                                y = 0f,
+                                                block = newBlock,
+                                            ),
+                                        ),
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        when (editorTypeGroup) {
+                                            EditorTypeGroup.IMAGE -> Icons.Rounded.Image
+                                            EditorTypeGroup.AUDIO -> Icons.Rounded.Mic
+                                            else -> Icons.Rounded.AutoAwesome
+                                        },
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                },
+                            )
+                        }
+                    }
                 }
             }
+        }
+    }
+
+    // Property sheet bottom sheet
+    if (showPropertySheet && selectedNodeId != null) {
+        val selectedNode = graphState.nodes.find { it.id == selectedNodeId }
+        if (selectedNode != null) {
+            NodePropertySheet(
+                block = selectedNode.block,
+                nodeId = selectedNode.id,
+                lang = lang,
+                onDismiss = { showPropertySheet = false },
+                onBlockUpdated = { updatedBlock ->
+                    val newNodes = graphState.nodes.map { node ->
+                        when {
+                            node.id == selectedNodeId -> node.copy(block = updatedBlock)
+                            updatedBlock.autoCopy && node.block.autoCopy ->
+                                node.copy(block = node.block.copy(autoCopy = false))
+                            else -> node
+                        }
+                    }
+                    syncToPreset(graphState.copy(nodes = newNodes))
+                },
+            )
         }
     }
 }
