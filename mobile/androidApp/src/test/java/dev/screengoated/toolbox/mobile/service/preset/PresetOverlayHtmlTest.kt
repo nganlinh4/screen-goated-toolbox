@@ -52,6 +52,8 @@ class PresetOverlayHtmlTest {
         assertTrue(html.contains("window.ipc.postMessage('submit:' + text)"))
         assertTrue(html.contains("window.ipc.postMessage('history_up:' + editor.value)"))
         assertTrue(html.contains("window.ipc.postMessage('history_down:' + editor.value)"))
+        assertTrue(html.contains("window.exportDraftState"))
+        assertTrue(html.contains("window.restoreDraftState"))
         assertTrue(html.contains("""type: 'dragInputWindow'"""))
     }
 
@@ -61,8 +63,18 @@ class PresetOverlayHtmlTest {
         val js = presetResultJavascript()
 
         assertTrue(html.contains("{{FIT_SCRIPT}}"))
-        assertTrue(html.contains("""<div id="markdown-shell"></div>"""))
+        assertTrue(html.contains("{{THEME_CSS}}"))
+        assertTrue(html.contains("{{GRIDJS_CSS_URL}}"))
+        assertTrue(html.contains("{{GRIDJS_INIT_SCRIPT}}"))
+        assertTrue(html.contains("""<body></body>"""))
+        assertTrue(js.contains("applyStreamingResultState"))
+        assertTrue(js.contains("applyFinalResultState"))
         assertTrue(js.contains("window.applyResultState"))
+        assertTrue(js.contains("document.body.innerHTML = data.html || ''"))
+        assertTrue(js.contains("window._streamWordCount = newWordCount"))
+        assertTrue(js.contains("window._streamRenderCount = prevRenderCount + 1"))
+        assertTrue(js.contains("wrapInteractiveWords(document.body)"))
+        assertTrue(js.contains("event.touches.length > 1"))
         assertTrue(js.contains("""type: 'dragResultWindow'"""))
         assertTrue(js.contains("""type: 'dragResultWindowAt'"""))
         assertTrue(js.contains("""type: 'dragResultWindowEnd'"""))
@@ -70,6 +82,17 @@ class PresetOverlayHtmlTest {
         assertTrue(js.contains("""type: 'resizeResultWindowEnd'"""))
         assertTrue(js.contains("window.ipc.postMessage('result_ready')"))
         assertFalse(js.contains("plainText"))
+    }
+
+    @Test
+    fun rawHtmlInteractionBridgeKeepsOverlayControls() {
+        val js = presetResultInteractionJavascript()
+
+        assertTrue(js.contains("window.configureResultWindow"))
+        assertTrue(js.contains("event.touches.length > 1"))
+        assertTrue(js.contains("""type: 'dragResultWindow'"""))
+        assertTrue(js.contains("""type: 'resizeResultWindow'"""))
+        assertTrue(js.contains("window.ipc.postMessage('result_ready')"))
     }
 
     @Test

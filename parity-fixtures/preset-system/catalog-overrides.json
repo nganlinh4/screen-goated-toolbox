@@ -67,8 +67,8 @@
       "name": "html_output_text_input_requires_placeholder_execution",
       "preset_id": "preset_make_game",
       "expected_execution": {
-        "supported": false,
-        "reason": "HTML_RESULT_NOT_READY"
+        "supported": true,
+        "reason": null
       }
     }
   ]

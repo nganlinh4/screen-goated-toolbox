@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Rect
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -24,6 +25,7 @@ import dev.screengoated.toolbox.mobile.shared.preset.WindowGeometry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -35,6 +37,7 @@ internal class PresetOverlayController(
     private val scope: CoroutineScope,
     private val windowManager: WindowManager,
     private val presetRepository: PresetRepository,
+    private val uiPreferencesFlow: StateFlow<MobileUiPreferences>,
     private val uiPreferencesProvider: () -> MobileUiPreferences,
     private val keepOpenProvider: () -> Boolean,
     private val onKeepOpenChanged: (Boolean) -> Unit,
@@ -48,7 +51,7 @@ internal class PresetOverlayController(
     private val textInputHtmlBuilder = PresetTextInputHtmlBuilder()
     private val resultHtmlBuilder = PresetResultHtmlBuilder(context)
     private val buttonCanvasHtmlBuilder = PresetButtonCanvasHtmlBuilder(context)
-    private val renderer = PresetMarkdownRenderer()
+    private val renderer = PresetMarkdownRenderer(context)
     private val density = context.resources.displayMetrics.density
 
     private var panelWindow: PresetOverlayWindow? = null
@@ -70,6 +73,8 @@ internal class PresetOverlayController(
 
     private var catalogJob: Job? = null
     private var executionJob: Job? = null
+    private var uiPreferencesJob: Job? = null
+    private var lastUiPreferences: MobileUiPreferences = uiPreferencesProvider()
 
     init {
         catalogJob = scope.launch(Dispatchers.Main.immediate) {
@@ -85,6 +90,16 @@ internal class PresetOverlayController(
         }
         executionJob = scope.launch(Dispatchers.Main.immediate) {
             presetRepository.executionState.collectLatest(::renderExecutionState)
+        }
+        uiPreferencesJob = scope.launch(Dispatchers.Main.immediate) {
+            uiPreferencesFlow.collectLatest { preferences ->
+                val previous = lastUiPreferences
+                lastUiPreferences = preferences
+                if (previous == preferences) {
+                    return@collectLatest
+                }
+                refreshOverlayPreferences(previous, preferences)
+            }
         }
     }
 
@@ -127,6 +142,7 @@ internal class PresetOverlayController(
     fun destroy() {
         catalogJob?.cancel()
         executionJob?.cancel()
+        uiPreferencesJob?.cancel()
         onPanelExpandedChanged(false)
         panelWindow?.destroy()
         inputWindow?.destroy()
@@ -140,6 +156,93 @@ internal class PresetOverlayController(
         activePreset = null
         activeResultWindowId = null
         presetRepository.resetState()
+    }
+
+    private fun refreshOverlayPreferences(
+        previous: MobileUiPreferences,
+        current: MobileUiPreferences,
+    ) {
+        val themeChanged = previous.themeMode != current.themeMode
+        val languageChanged = previous.uiLanguage != current.uiLanguage
+        if (!themeChanged && !languageChanged) {
+            return
+        }
+
+        activePreset?.preset?.id?.let { activeId ->
+            activePreset = presetRepository.getResolvedPreset(activeId) ?: activePreset
+        }
+
+        if (panelWindow != null) {
+            renderPanel(animate = false)
+        }
+
+        if (inputWindow != null) {
+            refreshInputWindowForPreferences()
+        }
+
+        if (themeChanged) {
+            refreshResultWindowsForTheme()
+        }
+        if (themeChanged || languageChanged) {
+            refreshCanvasWindowForTheme()
+        } else if (canvasWindow != null) {
+            ensureCanvasWindow()
+        }
+    }
+
+    private fun refreshInputWindowForPreferences() {
+        val window = inputWindow ?: return
+        val preset = activePreset ?: return
+        window.runScriptForResult("window.exportDraftState && window.exportDraftState();") { raw ->
+            val draftState = parseDraftState(raw)
+            window.loadHtmlContent(buildInputHtml(preset), INPUT_WINDOW_BASE_URL)
+            if (draftState.isNotEmpty()) {
+                window.runScript(
+                    "window.restoreDraftState(${JSONObject.quote(JSONObject().put("text", draftState).toString())});",
+                )
+            }
+            window.runScript("window.focusEditor && window.focusEditor();")
+        }
+    }
+
+    private fun refreshResultWindowsForTheme() {
+        val isDark = isDarkTheme(uiPreferencesProvider().themeMode)
+        resultWindows.values.forEach { active ->
+            if (active.runtimeState.isBrowsing || active.runtimeState.isRawHtml) {
+                return@forEach
+            }
+            active.window.loadHtmlContent(
+                resultHtmlBuilder.build(
+                    PresetResultHtmlSettings(
+                        isDark = isDark,
+                    ),
+                ),
+                RESULT_WINDOW_BASE_URL,
+            )
+            updateResultWindow(active)
+        }
+    }
+
+    private fun refreshCanvasWindowForTheme() {
+        val window = canvasWindow ?: return
+        window.loadHtmlContent(
+            buttonCanvasHtmlBuilder.build(
+                PresetButtonCanvasHtmlSettings(
+                    lang = uiLanguage(),
+                    isDark = isDarkTheme(uiPreferencesProvider().themeMode),
+                ),
+            ),
+            CANVAS_WINDOW_BASE_URL,
+        )
+        ensureCanvasWindow()
+    }
+
+    private fun parseDraftState(raw: String?): String {
+        if (raw.isNullOrBlank() || raw == "null") {
+            return ""
+        }
+        val json = raw.removeSurrounding("\"").replace("\\\\", "\\").replace("\\\"", "\"")
+        return json.jsonOrNull()?.optString("text").orEmpty()
     }
 
     private fun openPanel() {
@@ -554,9 +657,36 @@ internal class PresetOverlayController(
 
     private fun handleResultMessage(message: String) {
         val payload = message.jsonOrNull() ?: return
-        val id = payload.optString("windowId").toResultWindowIdOrNull() ?: return
-        val active = resultWindows[id] ?: return
         when (payload.optString("type")) {
+            "gestureDebug" -> {
+                Log.d(
+                    TAG,
+                    buildString {
+                        append("resultGesture ")
+                        append(payload.optString("phase"))
+                        append(" window=")
+                        append(payload.optString("windowId"))
+                        append(" active=")
+                        append(payload.optString("activeWindowId"))
+                        append(" target=")
+                        append(payload.optString("target"))
+                        append(" corner=")
+                        append(payload.optString("resizeCorner"))
+                        append(" dx=")
+                        append(payload.optString("dx"))
+                        append(" dy=")
+                        append(payload.optString("dy"))
+                        append(" selectionTarget=")
+                        append(payload.optString("selectionTarget"))
+                        append(" selection=")
+                        append(payload.optString("selectionText"))
+                    },
+                )
+            }
+            else -> {
+                val id = payload.optString("windowId").toResultWindowIdOrNull() ?: return
+                val active = resultWindows[id] ?: return
+                when (payload.optString("type")) {
             "activateResultWindow" -> {
                 setActiveResultWindow(id)
             }
@@ -618,6 +748,8 @@ internal class PresetOverlayController(
                     )
                 }
                 setActiveResultWindow(id)
+            }
+                }
             }
         }
     }
@@ -728,22 +860,42 @@ internal class PresetOverlayController(
     }
 
     private fun updateResultWindow(active: ActivePresetResultWindow) {
-        resultWindows[active.id] = active
-        val html = if (active.windowState.isError) {
-            errorHtml(active.windowState.markdownText)
+        val rendered = if (active.windowState.isError) {
+            PresetRenderedContent(
+                html = errorHtml(active.windowState.markdownText),
+                isRawHtmlDocument = false,
+            )
         } else {
             renderer.render(active.windowState.markdownText)
         }
-        active.window.runScript(
-            jsCall(
-                "applyResultState",
-                buildResultStatePayload(
-                    windowId = active.id,
-                    html = html,
-                    windowState = active.windowState,
+        val updatedRuntime = active.runtimeState.copy(isRawHtml = rendered.isRawHtmlDocument)
+        val updated = active.copy(runtimeState = updatedRuntime)
+        resultWindows[active.id] = updated
+        if (rendered.isRawHtmlDocument) {
+            active.window.loadHtmlContent(rendered.html, RESULT_WINDOW_BASE_URL)
+            active.window.runScript("window.configureResultWindow && window.configureResultWindow(${JSONObject.quote(active.id.wireValue())});")
+        } else {
+            if (active.runtimeState.isRawHtml) {
+                active.window.loadHtmlContent(
+                    resultHtmlBuilder.build(
+                        PresetResultHtmlSettings(
+                            isDark = isDarkTheme(uiPreferencesProvider().themeMode),
+                        ),
+                    ),
+                    RESULT_WINDOW_BASE_URL,
+                )
+            }
+            active.window.runScript(
+                jsCall(
+                    "applyResultState",
+                    buildResultStatePayload(
+                        windowId = active.id,
+                        html = rendered.html,
+                        windowState = active.windowState,
+                    ),
                 ),
-            ),
-        )
+            )
+        }
         if (activeResultWindowId == null) {
             activeResultWindowId = active.id
         }
@@ -798,8 +950,8 @@ internal class PresetOverlayController(
     ) {
         val current = active.window.currentBounds()
         val screen = screenBounds()
-        val minWidth = dp(220)
-        val minHeight = dp(180)
+        val minWidth = dp(110)
+        val minHeight = dp(90)
         val nextBounds = when (corner) {
             "br" -> current.copy(
                 width = (current.width + dx).coerceIn(minWidth, screen.width() - current.x),
@@ -1204,7 +1356,7 @@ internal class PresetOverlayController(
             height = bounds.height,
             x = bounds.x,
             y = bounds.y,
-            focusable = false,
+            focusable = true,
             htmlContent = resultHtmlBuilder.build(
                 PresetResultHtmlSettings(
                     isDark = isDarkTheme(uiPreferencesProvider().themeMode),
@@ -1406,6 +1558,7 @@ internal class PresetOverlayController(
     private fun cssToPhysical(value: Int): Int = cssToPhysical(value.toFloat())
 
     private companion object {
+        private const val TAG = "PresetOverlay"
         private const val FAVORITE_PANEL_BASE_URL = "file:///android_asset/realtime_overlay/"
         private const val INPUT_WINDOW_BASE_URL = "file:///android_asset/realtime_overlay/"
         private const val RESULT_WINDOW_BASE_URL = "file:///android_asset/preset_overlay/"

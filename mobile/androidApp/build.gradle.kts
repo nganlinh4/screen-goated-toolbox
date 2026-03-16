@@ -18,6 +18,15 @@ fun extractWindowsRawString(source: String, marker: String): String {
     return source.substring(contentStart, end)
 }
 
+fun extractQuotedStrings(source: String, marker: String, count: Int): List<String> {
+    val markerIndex = source.indexOf(marker)
+    require(markerIndex >= 0) { "Missing marker: $marker" }
+    val tail = source.substring(markerIndex)
+    val matches = "\"([^\"]*)\"".toRegex().findAll(tail).map { it.groupValues[1] }.take(count).toList()
+    require(matches.size == count) { "Missing quoted strings for: $marker" }
+    return matches
+}
+
 val generatedPresetOverlayAssets = layout.buildDirectory.dir("generated/presetOverlayAssets")
 val generatedPresetModelCatalogSources = layout.buildDirectory.dir("generated/presetModelCatalog")
 val generatePresetOverlayAssets by tasks.registering {
@@ -27,11 +36,15 @@ val generatePresetOverlayAssets by tasks.registering {
     val buttonCanvasCssSource = repoRoot.resolve("src/overlay/result/button_canvas/css.rs")
     val buttonCanvasJsSource = repoRoot.resolve("src/overlay/result/button_canvas/js.rs")
     val buttonCanvasThemeSource = repoRoot.resolve("src/overlay/result/button_canvas/theme.rs")
+    val gridJsSource = repoRoot.resolve("src/overlay/html_components/grid_js.rs")
+    val overlayFontAsset = projectDir.resolve("src/main/assets/realtime_overlay/GoogleSansFlex.ttf")
     inputs.file(fitSource)
     inputs.file(cssSource)
     inputs.file(buttonCanvasCssSource)
     inputs.file(buttonCanvasJsSource)
     inputs.file(buttonCanvasThemeSource)
+    inputs.file(gridJsSource)
+    inputs.file(overlayFontAsset)
     outputs.dir(generatedPresetOverlayAssets)
 
     doLast {
@@ -59,6 +72,39 @@ val generatePresetOverlayAssets by tasks.registering {
             "pub const MARKDOWN_CSS: &str = r#\"",
         )
         outputDir.resolve("windows_markdown.css").writeText(markdownCss)
+        val markdownThemeSource = cssSource.readText()
+        outputDir.resolve("windows_markdown_theme_dark.css").writeText(
+            extractWindowsRawString(markdownThemeSource, "if is_dark {"),
+        )
+        outputDir.resolve("windows_markdown_theme_light.css").writeText(
+            extractWindowsRawString(markdownThemeSource, "} else {"),
+        )
+        val (gridCssUrl, gridJsUrl) = extractQuotedStrings(
+            gridJsSource.readText(),
+            "pub fn get_lib_urls() -> (&'static str, &'static str) {",
+            2,
+        )
+        outputDir.resolve("windows_gridjs_urls.json").writeText(
+            """
+            {
+              "cssUrl": ${groovy.json.JsonOutput.toJson(gridCssUrl)},
+              "jsUrl": ${groovy.json.JsonOutput.toJson(gridJsUrl)}
+            }
+            """.trimIndent(),
+        )
+        outputDir.resolve("windows_gridjs.css").writeText(
+            extractWindowsRawString(
+                gridJsSource.readText(),
+                "pub fn get_css() -> &'static str {",
+            ),
+        )
+        outputDir.resolve("windows_gridjs_init.js").writeText(
+            extractWindowsRawString(
+                gridJsSource.readText(),
+                "pub fn get_init_script() -> &'static str {",
+            ),
+        )
+        overlayFontAsset.copyTo(outputDir.resolve("GoogleSansFlex.ttf"), overwrite = true)
 
         outputDir.resolve("windows_button_canvas.css").writeText(
             extractWindowsRawString(
@@ -225,6 +271,9 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.onnxruntime.android)
     implementation("org.commonmark:commonmark:0.24.0")
+    implementation("org.commonmark:commonmark-ext-gfm-tables:0.24.0")
+    implementation("org.commonmark:commonmark-ext-gfm-strikethrough:0.24.0")
+    implementation("org.commonmark:commonmark-ext-task-list-items:0.24.0")
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
 

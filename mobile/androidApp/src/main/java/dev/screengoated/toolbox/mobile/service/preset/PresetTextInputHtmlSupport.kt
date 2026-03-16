@@ -449,6 +449,19 @@ internal fun presetTextInputJavascript(): String {
             editor.focus();
         };
 
+        window.exportDraftState = () => {
+            return JSON.stringify({
+                text: editor.value || ''
+            });
+        };
+
+        window.restoreDraftState = (raw) => {
+            const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            editor.value = data && data.text ? data.text : '';
+            editor.focus();
+            editor.selectionStart = editor.selectionEnd = editor.value.length;
+        };
+
         window.focusEditor = () => {
             editor.focus();
             editor.selectionStart = editor.selectionEnd = editor.value.length;

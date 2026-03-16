@@ -8,7 +8,12 @@
 - Windows text-input overlay runtime: [src/overlay/text_input/mod.rs](../../src/overlay/text_input/mod.rs)
 - Windows favorite bubble launcher: [src/overlay/favorite_bubble/mod.rs](../../src/overlay/favorite_bubble/mod.rs)
 - Windows markdown result runtime: [src/overlay/result/markdown_view/mod.rs](../../src/overlay/result/markdown_view/mod.rs)
+- Windows markdown conversion: [src/overlay/result/markdown_view/conversion.rs](../../src/overlay/result/markdown_view/conversion.rs)
+- Windows markdown theme/css: [src/overlay/result/markdown_view/css.rs](../../src/overlay/result/markdown_view/css.rs)
+- Windows markdown HTML utilities: [src/overlay/result/markdown_view/html_utils.rs](../../src/overlay/result/markdown_view/html_utils.rs)
 - Windows result button canvas: [src/overlay/result/button_canvas/mod.rs](../../src/overlay/result/button_canvas/mod.rs)
+- Windows shared Grid.js helpers: [src/overlay/html_components/grid_js.rs](../../src/overlay/html_components/grid_js.rs)
+- Windows shared font manager: [src/overlay/html_components/font_manager.rs](../../src/overlay/html_components/font_manager.rs)
 - Windows model catalog: [src/model_config.rs](../../src/model_config.rs)
 - Windows text provider pipeline: [src/api/text/translate.rs](../../src/api/text/translate.rs)
 
@@ -46,7 +51,7 @@
   - If favorites change while the panel is open, Android must rebuild the panel contents and geometry so the visible pills stay in sync instead of disappearing or clipping
   - Dragging the bubble must keep the panel open and reposition it with the bubble, matching the Windows expanded-panel behavior
   - The Android bubble may expose a live-translate-style drag-to-dismiss target, but dropping onto it must be equivalent to turning the Quick Settings bubble service off
-- Android preset overlays use markdown view only in wave 1. HTML-output presets remain placeholders until Android has the Windows-style raw HTML result runtime.
+- Android preset overlays support both Windows-style markdown view and raw HTML result documents for text-output presets.
 - Android preset text execution must resolve every block model ID through the Windows-mirrored model catalog before making a provider request.
 - Android preset model catalog must be generated from the Windows Rust source file [src/model_config.rs](../../src/model_config.rs) during the Android build, rather than maintained as a separate handwritten copy.
 - Android preset text execution must use the resolved Windows provider + `full_name` API model, not Android prefix guessing or raw preset block IDs.
@@ -58,17 +63,28 @@
   - Android must emit the same wipe-on-first-content behavior after thinking placeholders that Windows uses for Gemini/Cerebras/Ollama-style streams
 - Android preset capability must not claim support for a text preset if one of its text blocks points at a model/provider runtime Android does not actually implement yet.
 - Android result overlays should reuse the Windows markdown CSS, fit script, and button-canvas web contract from the shared HTML/WebView layer instead of re-implementing the layout in Compose.
+- Android markdown result overlays must treat the Windows markdown-view web surface as the canonical contract:
+  - the Windows smart-fit algorithm from `streaming/fit_impl.rs` must be reused as-is
+  - the Windows streaming update path from `streaming.rs` should drive chunk-by-chunk markdown updates instead of rerunning only the final-fit path for every chunk
+  - the Windows markdown theme variables from `css.rs` must drive both dark and light mode on Android
+  - the Windows Google Sans Flex font contract must be preserved instead of substituting a different font stack
+  - the Windows Grid.js integration from `grid_js.rs` must be available for markdown tables on Android
+  - Android should keep the Windows body-level markdown DOM assumptions for fitting/styling, with only thin Android touch/IPC shims around them
+  - Windows uses outer WebView edge margins (4px left/right, 2px top/bottom) instead of body-side padding; Android should avoid inventing redundant inner side padding in the result page
 - Android result overlays are multi-window:
   - each visible text block with `showOverlay = true` and `renderMode = markdown|markdown_stream` spawns its own result overlay
   - hidden text blocks still execute but do not create result windows
   - the first visible result window uses the preset saved geometry; subsequent visible windows snake away from the previous visible result window
 - Android result windows must not use a fake title/status shell. The result window should be a Windows-derived markdown surface with touch shims only.
+- Android markdown conversion/theme/font/table behavior should stay aligned with the Windows markdown view, and raw-HTML text outputs should load as full HTML documents with the Android bridge/touch layer injected.
+- Android result overlays must keep one-finger long-press drag for window movement, while allowing two-finger content scrolling inside the overlay body.
+- Single-touch text/content targets inside a result overlay must preserve normal content interaction, including text selection, instead of arming the window drag hold timer.
 - Android button canvas uses the shared Windows button-canvas web contract with an Android touch reveal model:
   - tapping a result window reveals that window's controls
   - controls linger for roughly 2 seconds after the last interaction, then fade
   - Android may use a bounded active-window canvas instead of a fullscreen canvas if that is required to preserve reliable touch/click-through behavior on phone overlays
   - any Android-bounded canvas must stay visually identical to the Windows button canvas and remain anchored to the currently active result window
-- On Android/touch, the markdown-mode button is omitted because mobile result overlays are markdown-only in this wave.
+- On Android/touch, the markdown-mode button is omitted because mobile result overlays do not expose the Windows markdown/plain-text toggle in this wave.
 - On Android/touch, the broom button is omitted and result-window dismissal uses the shared drag-to-dismiss `X` target instead.
 - Android keeps the Windows button-canvas chrome visible, but unsupported actions must be explicit placeholders rather than fake implementations.
 
@@ -83,7 +99,7 @@
 
 ## Deviations
 - Android wave 1 keeps custom preset create/clone/delete/reorder as placeholders.
-- Android wave 1 keeps hotkeys, controller/master invocation, image capture, selected-text capture, mic/device capture, realtime audio, raw HTML result rendering, and auto-paste as placeholders until real runtime exists.
+- Android wave 1 keeps hotkeys, controller/master invocation, image capture, selected-text capture, mic/device capture, realtime audio, and auto-paste as placeholders until real runtime exists.
 - Android wave 1 does not expose the Windows markdown/plain-text result toggle in the floating button canvas; the mobile overlay stays markdown-only until a real alternate render mode exists.
 - Android wave 1 keeps these result/button-canvas actions as visible placeholders:
   - edit/refine
@@ -101,3 +117,7 @@
 - On Android/touch, the keep-open row may remain visible instead of hover-revealed; this is an accepted mobile interaction adaptation, not a parity bug.
 - Android bubble opacity should stay fully active while the panel is expanded or within roughly one second of the last bubble/panel interaction, then return to the Windows inactive-opacity baseline.
 - On Android/touch, full result-window dragging is implemented as long-press then drag anywhere on the result surface so normal taps and links remain usable.
+- On Android/touch, full result-window dragging is implemented as long-press then move anywhere on the result surface; stationary long-press on text should still be able to become text selection instead of immediately starting drag.
+- Preset overlays should follow the app theme live while open:
+  - bubble panel, text input, markdown result windows, and button canvas should update when the app theme changes
+  - if a result window is currently browsing an external page, Android may defer the theme refresh until the user returns to preset-generated content

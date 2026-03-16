@@ -33,5 +33,17 @@
       "markdown_toggle",
       "broom_group_all"
     ]
+  },
+  "markdown_view": {
+    "font_family": "Google Sans Flex",
+    "theme_source": "windows_markdown_css_rs",
+    "fit_script_source": "windows_streaming_fit_impl_rs",
+    "streaming_update_source": "windows_markdown_streaming_rs",
+    "gridjs_enabled_for_tables": true,
+    "dom_contract": "body_level_markdown_content",
+    "render_mode": "markdown_plus_raw_html",
+    "raw_html_supported": true,
+    "theme_sync_scope": "all_preset_overlays",
+    "touch_scroll_model": "two_finger_native_scroll"
   }
 }

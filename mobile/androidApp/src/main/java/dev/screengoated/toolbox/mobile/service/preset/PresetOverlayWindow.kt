@@ -231,6 +231,23 @@ internal class PresetOverlayWindow(
         }
     }
 
+    fun runScriptForResult(
+        script: String,
+        onResult: (String?) -> Unit,
+    ) {
+        if (pageReady) {
+            webView.evaluateJavascript(script, onResult)
+        } else {
+            rootView.post {
+                if (pageReady) {
+                    webView.evaluateJavascript(script, onResult)
+                } else {
+                    onResult(null)
+                }
+            }
+        }
+    }
+
     fun updateTouchRegions(regions: List<Rect>) {
         touchRegions.clear()
         touchRegions.addAll(regions)

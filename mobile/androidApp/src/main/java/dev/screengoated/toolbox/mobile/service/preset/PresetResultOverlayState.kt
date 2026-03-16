@@ -16,6 +16,7 @@ internal data class PresetResultWindowRuntimeState(
     val navDepth: Int = 0,
     val maxNavDepth: Int = 0,
     val isBrowsing: Boolean = false,
+    val isRawHtml: Boolean = false,
     val copySuccess: Boolean = false,
     val disabledActions: Set<String> = emptySet(),
 )

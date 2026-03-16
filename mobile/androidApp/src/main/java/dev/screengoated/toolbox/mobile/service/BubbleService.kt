@@ -95,6 +95,7 @@ class BubbleService : Service() {
                 scope = serviceScope,
                 windowManager = windowManager,
                 presetRepository = appContainer.presetRepository,
+                uiPreferencesFlow = appContainer.repository.uiPreferences,
                 uiPreferencesProvider = appContainer.repository::currentUiPreferences,
                 keepOpenProvider = ::isKeepOpenEnabled,
                 onKeepOpenChanged = ::setKeepOpenEnabled,
