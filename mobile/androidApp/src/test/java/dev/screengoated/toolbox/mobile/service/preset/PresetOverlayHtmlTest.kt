@@ -100,6 +100,7 @@ class PresetOverlayHtmlTest {
 
         assertTrue(js.contains("window.configureResultWindow"))
         assertTrue(js.contains("event.touches.length > 1"))
+        assertTrue(js.contains("elementCanScrollAxis"))
         assertTrue(js.contains("""type: 'dragResultWindow'"""))
         assertTrue(js.contains("""type: 'resizeResultWindow'"""))
         assertTrue(js.contains("""type: 'copySelectedText'"""))
@@ -109,6 +110,28 @@ class PresetOverlayHtmlTest {
         assertTrue(js.contains("edgeCaretRect"))
         assertTrue(js.contains("scheduleHandleUpdate"))
         assertTrue(js.contains("window.ipc.postMessage('result_ready')"))
+    }
+
+    @Test
+    fun hostedRawHtmlBootstrapReappliesOverlayShell() {
+        val script = presetHostedRawPageBootstrapScript(
+            windowId = "result:test",
+            isDark = true,
+        )
+
+        assertTrue(script.contains("__SGT_RESULT_INTERACTION_INSTALLED__"))
+        assertTrue(script.contains("sgt-result-hosted-page-style"))
+        assertTrue(script.contains("""window.configureResultWindow("result:test")"""))
+        assertTrue(script.contains("overflow-y: auto;"))
+        assertTrue(script.contains("overflow-x: auto;"))
+    }
+
+    @Test
+    fun rawHtmlInteractionPreventsSingleTouchScrollBeforeDragWins() {
+        val js = presetResultInteractionJavascript()
+
+        assertTrue(js.contains("pendingStart && !selectionHandleDrag && !selectionGestureActive"))
+        assertTrue(js.contains("event.preventDefault()"))
     }
 
     @Test

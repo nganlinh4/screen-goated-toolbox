@@ -31,10 +31,13 @@ internal class PresetMarkdownRenderer(
         .softbreak("<br />")
         .build()
 
-    fun render(markdown: String): PresetRenderedContent {
+    fun render(
+        markdown: String,
+        isDark: Boolean,
+    ): PresetRenderedContent {
         if (isHtmlContent(markdown)) {
             return PresetRenderedContent(
-                html = prepareRawHtmlDocument(markdown),
+                html = prepareRawHtmlDocument(markdown, isDark),
                 isRawHtmlDocument = true,
             )
         }
@@ -45,7 +48,10 @@ internal class PresetMarkdownRenderer(
         )
     }
 
-    private fun prepareRawHtmlDocument(content: String): String {
+    private fun prepareRawHtmlDocument(
+        content: String,
+        isDark: Boolean,
+    ): String {
         val wrapped = if (isHtmlFragment(content)) {
             wrapHtmlFragment(content)
         } else {
@@ -58,6 +64,7 @@ internal class PresetMarkdownRenderer(
             withScrollbars,
             """
             <style>
+            ${presetHostedRawPageCss(isDark)}
             html, body {
                 -webkit-tap-highlight-color: transparent;
                 scrollbar-width: none;
@@ -70,14 +77,7 @@ internal class PresetMarkdownRenderer(
             withBridge,
             """
             <script>
-            window.ipc = {
-                postMessage(message) {
-                    if (window.sgtAndroid && window.sgtAndroid.postMessage) {
-                        window.sgtAndroid.postMessage(String(message));
-                    }
-                }
-            };
-            ${presetResultInteractionJavascript()}
+            ${presetHostedRawPageBootstrapScript("__PENDING_RESULT_WINDOW_ID__", isDark)}
             </script>
             """.trimIndent(),
         )

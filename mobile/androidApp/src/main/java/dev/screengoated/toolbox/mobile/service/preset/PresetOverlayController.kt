@@ -504,12 +504,10 @@ internal class PresetOverlayController(
             val runtime = existing?.runtimeState ?: PresetResultWindowRuntimeState(
                 disabledActions = disabledActionsForWindow(),
             )
-            val window = existing?.window ?: PresetOverlayWindow(
-                context = context,
-                windowManager = windowManager,
+            val window = existing?.window ?: createResultOverlayWindow(
+                id = windowState.id,
                 spec = resultWindowSpec(resolvedPreset, windowState, placed),
-                onMessage = ::handleResultMessage,
-            ).also { it.show() }
+            )
             val bounds = window.currentBounds()
             placed += PresetResultWindowPlacement(windowState.id, bounds)
             val active = ActivePresetResultWindow(
@@ -854,20 +852,16 @@ internal class PresetOverlayController(
             }
             "back" -> {
                 val window = payload.optString("hwnd").toResultWindowIdOrNull()?.let(resultWindows::get) ?: return
-                window.window.runScript("history.back();")
-                updateRuntimeState(window.id) { runtime ->
-                    val nextDepth = (runtime.navDepth - 1).coerceAtLeast(0)
-                    runtime.copy(navDepth = nextDepth, isBrowsing = nextDepth > 0)
+                if (window.runtimeState.isBrowsing && window.runtimeState.navDepth <= 1) {
+                    restoreOriginalResultSurface(window.id)
+                } else {
+                    window.window.goBack()
                 }
                 setActiveResultWindow(window.id)
             }
             "forward" -> {
                 val window = payload.optString("hwnd").toResultWindowIdOrNull()?.let(resultWindows::get) ?: return
-                window.window.runScript("history.forward();")
-                updateRuntimeState(window.id) { runtime ->
-                    val nextDepth = (runtime.navDepth + 1).coerceAtMost(runtime.maxNavDepth)
-                    runtime.copy(navDepth = nextDepth, isBrowsing = nextDepth > 0)
-                }
+                window.window.goForward()
                 setActiveResultWindow(window.id)
             }
             "set_opacity" -> {
@@ -938,7 +932,10 @@ internal class PresetOverlayController(
                 isRawHtmlDocument = false,
             )
         } else {
-            renderer.render(active.windowState.markdownText)
+            renderer.render(
+                active.windowState.markdownText,
+                isDarkTheme(uiPreferencesProvider().themeMode),
+            )
         }
         val updatedRuntime = active.runtimeState.copy(isRawHtml = rendered.isRawHtmlDocument)
         val updated = active.copy(runtimeState = updatedRuntime)
@@ -986,6 +983,206 @@ internal class PresetOverlayController(
         if (!resultWindows.containsKey(id)) return
         activeResultWindowId = id
         ensureCanvasWindow()
+    }
+
+    private fun handleResultPageFinished(
+        id: PresetResultWindowId,
+        url: String?,
+    ) {
+        val active = resultWindows[id] ?: return
+        val currentUrl = url ?: active.window.currentUrl()
+        Log.d(
+            TAG,
+            "handleResultPageFinished id=${id.wireValue()} url=$currentUrl raw=${active.runtimeState.isRawHtml} browsing=${active.runtimeState.isBrowsing}",
+        )
+        if (active.runtimeState.isBrowsing && isInternalResultUrl(currentUrl)) {
+            restoreOriginalResultSurface(id)
+            return
+        }
+        val shouldInjectHostedShell =
+            active.runtimeState.isRawHtml ||
+                active.runtimeState.isBrowsing ||
+                isExternalNavigationUrl(currentUrl)
+        if (!shouldInjectHostedShell) {
+            return
+        }
+        active.window.runScript(
+            presetHostedRawPageBootstrapScript(
+                windowId = id.wireValue(),
+                isDark = isDarkTheme(uiPreferencesProvider().themeMode),
+            ),
+        )
+        syncResultNavigationState(id, currentUrl)
+    }
+
+    private fun handleResultNavigationFailure(
+        id: PresetResultWindowId,
+        failure: OverlayNavigationFailure,
+    ) {
+        val active = resultWindows[id] ?: return
+        Log.w(
+            TAG,
+            "handleResultNavigationFailure id=${id.wireValue()} url=${failure.url} desc=${failure.description} browsing=${active.runtimeState.isBrowsing}",
+        )
+        if (!active.runtimeState.isBrowsing) {
+            return
+        }
+        active.window.stopLoading()
+        restoreOriginalResultSurface(id)
+        Toast.makeText(
+            context,
+            localized(
+                "That page could not be opened in the overlay.",
+                "Trang đó không thể mở trong overlay.",
+                "해당 페이지를 오버레이에서 열 수 없습니다.",
+            ),
+            Toast.LENGTH_SHORT,
+        ).show()
+    }
+
+    private fun syncResultNavigationState(
+        id: PresetResultWindowId,
+        url: String?,
+    ) {
+        val active = resultWindows[id] ?: return
+        val history = active.window.historyState()
+        val currentUrl = url ?: history.currentUrl
+        if (isInternalResultUrl(currentUrl)) {
+            updateRuntimeState(id) { runtime ->
+                runtime.copy(
+                    navDepth = 0,
+                    maxNavDepth = 0,
+                    historyBaseIndex = history.currentIndex,
+                    isBrowsing = false,
+                )
+            }
+            return
+        }
+        val external = isExternalNavigationUrl(currentUrl)
+        val currentRuntime = active.runtimeState
+        val baseIndex = if (!currentRuntime.isBrowsing && !currentRuntime.isRawHtml && !external) {
+            history.currentIndex
+        } else {
+            currentRuntime.historyBaseIndex
+        }
+        val relativeDepth = (history.currentIndex - baseIndex).coerceAtLeast(0)
+        val shouldRestoreBaseExternalSurface =
+            external &&
+                history.currentIndex <= baseIndex &&
+                (currentRuntime.isBrowsing || currentRuntime.maxNavDepth > 0)
+        if (shouldRestoreBaseExternalSurface) {
+            Log.d(
+                TAG,
+                "syncResultNavigationState restoring base external surface id=${id.wireValue()} url=$currentUrl currentIndex=${history.currentIndex} baseIndex=$baseIndex",
+            )
+            restoreOriginalResultSurface(id)
+            return
+        }
+        val browsing = relativeDepth > 0 || (external && history.currentIndex > baseIndex)
+        Log.d(
+            TAG,
+            "syncResultNavigationState id=${id.wireValue()} url=$currentUrl currentIndex=${history.currentIndex} lastIndex=${history.lastIndex} baseIndex=$baseIndex depth=$relativeDepth external=$external browsing=$browsing",
+        )
+        updateRuntimeState(id) { runtime ->
+            runtime.copy(
+                navDepth = relativeDepth,
+                maxNavDepth = maxOf(runtime.maxNavDepth, relativeDepth),
+                historyBaseIndex = baseIndex,
+                isBrowsing = browsing,
+            )
+        }
+    }
+
+    private fun restoreOriginalResultSurface(id: PresetResultWindowId) {
+        val active = resultWindows[id] ?: return
+        Log.d(TAG, "restoreOriginalResultSurface id=${id.wireValue()} raw=${active.runtimeState.isRawHtml} browsing=${active.runtimeState.isBrowsing}")
+        active.window.stopLoading()
+        val replacementWindow = recreateResultOverlayWindow(active)
+        val rendered = if (active.windowState.isError) {
+            PresetRenderedContent(
+                html = errorHtml(active.windowState.markdownText),
+                isRawHtmlDocument = false,
+            )
+        } else {
+            renderer.render(
+                active.windowState.markdownText,
+                isDarkTheme(uiPreferencesProvider().themeMode),
+            )
+        }
+        val nextRuntime = active.runtimeState.copy(
+            navDepth = 0,
+            maxNavDepth = 0,
+            historyBaseIndex = 0,
+            isBrowsing = false,
+            isRawHtml = rendered.isRawHtmlDocument,
+        )
+        val updated = active.copy(runtimeState = nextRuntime, window = replacementWindow)
+        resultWindows[id] = updated
+        if (rendered.isRawHtmlDocument) {
+            replacementWindow.loadHtmlContent(
+                rendered.html,
+                RESULT_WINDOW_BASE_URL,
+                clearHistoryAfterLoad = true,
+            )
+            replacementWindow.runScript("window.configureResultWindow && window.configureResultWindow(${JSONObject.quote(id.wireValue())});")
+        } else {
+            replacementWindow.loadHtmlContent(
+                resultHtmlBuilder.build(
+                    PresetResultHtmlSettings(
+                        isDark = isDarkTheme(uiPreferencesProvider().themeMode),
+                    ),
+                ),
+                RESULT_WINDOW_BASE_URL,
+                clearHistoryAfterLoad = true,
+            )
+            replacementWindow.runScript(
+                jsCall(
+                    "applyResultState",
+                    buildResultStatePayload(
+                        windowId = id,
+                        html = rendered.html,
+                        windowState = active.windowState,
+                    ),
+                ),
+            )
+        }
+        ensureCanvasWindow()
+    }
+
+    private fun createResultOverlayWindow(
+        id: PresetResultWindowId,
+        spec: PresetOverlayWindowSpec,
+    ): PresetOverlayWindow {
+        return PresetOverlayWindow(
+            context = context,
+            windowManager = windowManager,
+            spec = spec,
+            onMessage = ::handleResultMessage,
+        ).also { window ->
+            window.setOnPageFinishedListener { url -> handleResultPageFinished(id, url) }
+            window.setOnNavigationFailureListener { failure ->
+                handleResultNavigationFailure(id, failure)
+            }
+            window.show()
+        }
+    }
+
+    private fun recreateResultOverlayWindow(active: ActivePresetResultWindow): PresetOverlayWindow {
+        val bounds = active.window.currentBounds()
+        active.window.setOnPageFinishedListener(null)
+        active.window.setOnNavigationFailureListener(null)
+        active.window.destroy()
+        return createResultOverlayWindow(
+            id = active.id,
+            spec = PresetOverlayWindowSpec(
+                width = bounds.width,
+                height = bounds.height,
+                x = bounds.x,
+                y = bounds.y,
+                focusable = true,
+                baseUrl = RESULT_WINDOW_BASE_URL,
+            ),
+        )
     }
 
     private fun syncCanvasWindow(
@@ -1659,6 +1856,16 @@ internal class PresetOverlayController(
         private const val PANEL_EDGE_GUTTER_CSS = 10f
         private const val PANEL_MAX_HEIGHT_SCREEN_RATIO = 0.62f
     }
+}
+
+private fun isExternalNavigationUrl(url: String?): Boolean {
+    if (url.isNullOrBlank()) return false
+    return url.startsWith("http://") || url.startsWith("https://")
+}
+
+private fun isInternalResultUrl(url: String?): Boolean {
+    if (url.isNullOrBlank()) return false
+    return url.startsWith("file:///android_asset/preset_overlay/") || url.startsWith("about:")
 }
 
 private fun String.jsonOrNull(): JSONObject? = runCatching { JSONObject(this) }.getOrNull()

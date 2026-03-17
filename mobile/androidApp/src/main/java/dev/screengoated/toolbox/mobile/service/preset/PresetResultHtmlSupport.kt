@@ -35,6 +35,14 @@ internal fun presetResultBaseHtmlTemplate(): String {
 internal fun presetResultCss(isDark: Boolean): String {
     val shellBg = if (isDark) "rgba(18, 20, 28, 0.86)" else "rgba(252, 252, 255, 0.88)"
     val shellBorder = if (isDark) "rgba(255, 255, 255, 0.12)" else "rgba(10, 18, 28, 0.10)"
+    val selectionActionBg = if (isDark) "rgba(12, 16, 24, 0.90)" else "rgba(255, 255, 255, 0.96)"
+    val selectionActionBorder = if (isDark) "rgba(255, 255, 255, 0.18)" else "rgba(28, 34, 44, 0.14)"
+    val selectionActionColor = if (isDark) "rgba(255, 255, 255, 0.96)" else "rgba(18, 20, 28, 0.92)"
+    val selectionActionShadow = if (isDark) "0 10px 26px rgba(0, 0, 0, 0.22)" else "0 10px 24px rgba(24, 36, 54, 0.14)"
+    val handleBorder = if (isDark) "rgba(255, 255, 255, 0.90)" else "rgba(255, 255, 255, 0.96)"
+    val handleFill = if (isDark) "rgba(43, 122, 255, 0.96)" else "rgba(38, 112, 245, 0.94)"
+    val handleInner = if (isDark) "rgba(255, 255, 255, 0.96)" else "rgba(248, 250, 255, 0.98)"
+    val handleShadow = if (isDark) "0 6px 18px rgba(0, 0, 0, 0.22)" else "0 6px 16px rgba(24, 36, 54, 0.16)"
     return """
         html {
             width: 100%;
@@ -80,13 +88,13 @@ internal fun presetResultCss(isDark: Boolean): String {
             min-width: 68px;
             height: 34px;
             padding: 0 14px;
-            border: 1px solid rgba(255, 255, 255, 0.18);
+            border: 1px solid $selectionActionBorder;
             border-radius: 17px;
-            background: rgba(12, 16, 24, 0.90);
-            color: rgba(255, 255, 255, 0.96);
+            background: $selectionActionBg;
+            color: $selectionActionColor;
             font: 600 14px/1 "Google Sans Flex", system-ui, sans-serif;
             letter-spacing: 0.01em;
-            box-shadow: 0 10px 26px rgba(0, 0, 0, 0.22);
+            box-shadow: $selectionActionShadow;
             opacity: 0;
             pointer-events: none;
             transform: translateY(6px);
@@ -109,9 +117,9 @@ internal fun presetResultCss(isDark: Boolean): String {
             margin-left: -12px;
             margin-top: -12px;
             border-radius: 50%;
-            border: 2px solid rgba(255, 255, 255, 0.9);
-            background: rgba(43, 122, 255, 0.96);
-            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+            border: 2px solid $handleBorder;
+            background: $handleFill;
+            box-shadow: $handleShadow;
             opacity: 0;
             pointer-events: none;
             transition: opacity 80ms ease;
@@ -128,7 +136,7 @@ internal fun presetResultCss(isDark: Boolean): String {
             height: 16px;
             margin-left: -2px;
             border-radius: 999px;
-            background: rgba(43, 122, 255, 0.96);
+            background: $handleFill;
         }
         .sgt-selection-handle::after {
             content: "";
@@ -140,13 +148,84 @@ internal fun presetResultCss(isDark: Boolean): String {
             margin-left: -4px;
             margin-top: -4px;
             border-radius: 50%;
-            background: rgba(255, 255, 255, 0.96);
+            background: $handleInner;
         }
         .sgt-selection-handle.visible {
             opacity: 1;
             pointer-events: auto;
         }
     """.trimIndent()
+}
+
+internal fun presetHostedRawPageCss(isDark: Boolean): String {
+    return presetResultCss(isDark)
+        .replace("overflow-y: hidden;", "overflow-y: auto;")
+        .replace("overflow-x: hidden;", "overflow-x: auto;")
+        .plus(
+            """
+            html, body, body * {
+                touch-action: none !important;
+                overscroll-behavior: none !important;
+            }
+            """.trimIndent(),
+        )
+}
+
+internal fun presetHostedRawPageBootstrapScript(
+    windowId: String,
+    isDark: Boolean,
+): String {
+    val quotedCss = jsStringLiteral(presetHostedRawPageCss(isDark))
+    val quotedWindowId = jsStringLiteral(windowId)
+    return """
+        (function() {
+            window.ipc = window.ipc || {
+                postMessage(message) {
+                    if (window.sgtAndroid && window.sgtAndroid.postMessage) {
+                        window.sgtAndroid.postMessage(String(message));
+                    }
+                }
+            };
+            const styleId = 'sgt-result-hosted-page-style';
+            let style = document.getElementById(styleId);
+            if (!style) {
+                style = document.createElement('style');
+                style.id = styleId;
+                (document.head || document.documentElement).appendChild(style);
+            }
+            style.textContent = $quotedCss;
+            document.documentElement.setAttribute('data-sgt-result-hosted', '1');
+            if (document.body) {
+                document.body.setAttribute('data-sgt-result-hosted', '1');
+            }
+            if (!window.__SGT_RESULT_INTERACTION_INSTALLED__) {
+                window.__SGT_RESULT_INTERACTION_INSTALLED__ = true;
+                ${presetResultInteractionJavascript()}
+            }
+            if (typeof window.configureResultWindow === 'function') {
+                window.configureResultWindow($quotedWindowId);
+            }
+        })();
+    """.trimIndent()
+}
+
+private fun jsStringLiteral(value: String): String {
+    return buildString(value.length + 16) {
+        append('"')
+        value.forEach { ch ->
+            when (ch) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                '\b' -> append("\\b")
+                '\u000C' -> append("\\f")
+                else -> append(ch)
+            }
+        }
+        append('"')
+    }
 }
 
 private fun presetResultSelectionJavascriptHelpers(): String {
@@ -939,18 +1018,7 @@ internal fun presetResultJavascript(): String {
             }
         }
 
-        function debugGesture(phase, extra) {
-            try {
-                postJson({
-                    type: 'gestureDebug',
-                    phase: phase,
-                    activeWindowId: activeWindowId,
-                    ...extra
-                });
-            } catch (error) {
-                window.ipc.postMessage('gesture_debug_error:' + String(error));
-            }
-        }
+        function debugGesture(_phase, _extra) {}
 
         window.configureResultWindow = function(windowId) {
             activeWindowId = windowId;
@@ -1040,22 +1108,116 @@ internal fun presetResultJavascript(): String {
             return true;
         }
 
-        function findScrollableContainer(target) {
-            let element = normalizeTarget(target);
+        function axisAllowsScroll(style, axis) {
+            const axisValue = axis === 'x' ? (style.overflowX || style.overflow) : (style.overflowY || style.overflow);
+            return axisValue !== 'hidden' && axisValue !== 'clip';
+        }
+
+        function elementCanScrollAxis(element, axis) {
+            if (!element) {
+                return false;
+            }
+            const style = window.getComputedStyle(element);
+            if (!axisAllowsScroll(style, axis)) {
+                return false;
+            }
+            return axis === 'x'
+                ? element.scrollWidth > element.clientWidth + 1
+                : element.scrollHeight > element.clientHeight + 1;
+        }
+
+        function collectPointElements(clientX, clientY) {
+            if (typeof document.elementsFromPoint === 'function') {
+                return document.elementsFromPoint(clientX, clientY) || [];
+            }
+            const single = document.elementFromPoint(clientX, clientY);
+            return single ? [single] : [];
+        }
+
+        function scrollabilityScore(element) {
+            if (!element) {
+                return 0;
+            }
+            let score = 0;
+            if (elementCanScrollAxis(element, 'x')) {
+                score += Math.max(1, (element.scrollWidth || 0) - (element.clientWidth || 0));
+            }
+            if (elementCanScrollAxis(element, 'y')) {
+                score += Math.max(1, (element.scrollHeight || 0) - (element.clientHeight || 0));
+            }
+            return score;
+        }
+
+        function collectScrollableCandidatesFromNode(node, output, seen) {
+            let element = normalizeTarget(node);
             while (element && element !== document.body && element !== document.documentElement) {
-                const style = window.getComputedStyle(element);
-                const canScrollY =
-                    (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
-                    element.scrollHeight > element.clientHeight + 1;
-                const canScrollX =
-                    (style.overflowX === 'auto' || style.overflowX === 'scroll') &&
-                    element.scrollWidth > element.clientWidth + 1;
-                if (canScrollY || canScrollX) {
-                    return element;
+                if (!seen.has(element) && scrollabilityScore(element) > 0) {
+                    seen.add(element);
+                    output.push(element);
                 }
                 element = element.parentElement;
             }
-            return document.scrollingElement || document.documentElement;
+        }
+
+        function collectScrollableCandidates(clientX, clientY, target) {
+            const output = [];
+            const seen = new Set();
+            collectScrollableCandidatesFromNode(target, output, seen);
+            collectPointElements(clientX, clientY).forEach(element => {
+                collectScrollableCandidatesFromNode(element, output, seen);
+            });
+            const scroller = document.scrollingElement || document.documentElement;
+            if (scroller && !seen.has(scroller)) {
+                output.push(scroller);
+            }
+            output.sort((left, right) => {
+                const leftIsRoot = left === scroller;
+                const rightIsRoot = right === scroller;
+                if (leftIsRoot !== rightIsRoot) {
+                    return leftIsRoot ? 1 : -1;
+                }
+                return scrollabilityScore(right) - scrollabilityScore(left);
+            });
+            return output;
+        }
+
+        function findScrollableContainer(target, clientX, clientY) {
+            const candidates = collectScrollableCandidates(clientX, clientY, target);
+            return candidates.length > 0 ? candidates[0] : (document.scrollingElement || document.documentElement);
+        }
+
+        function tryScrollContainer(container, dx, dy) {
+            const target = container && typeof container.scrollBy === 'function'
+                ? container
+                : window;
+            const beforeX = container && target !== window ? container.scrollLeft : (window.scrollX || window.pageXOffset || 0);
+            const beforeY = container && target !== window ? container.scrollTop : (window.scrollY || window.pageYOffset || 0);
+            target.scrollBy(-dx, -dy);
+            const afterX = container && target !== window ? container.scrollLeft : (window.scrollX || window.pageXOffset || 0);
+            const afterY = container && target !== window ? container.scrollTop : (window.scrollY || window.pageYOffset || 0);
+            return Math.abs(afterX - beforeX) > 0.5 || Math.abs(afterY - beforeY) > 0.5;
+        }
+
+        function scrollWithBestContainer(clientX, clientY, fallbackTarget, dx, dy, preferredContainer) {
+            const candidates = [];
+            const seen = new Set();
+            if (preferredContainer) {
+                candidates.push(preferredContainer);
+                seen.add(preferredContainer);
+            }
+            collectScrollableCandidates(clientX, clientY, fallbackTarget).forEach(candidate => {
+                if (!seen.has(candidate)) {
+                    candidates.push(candidate);
+                    seen.add(candidate);
+                }
+            });
+            for (const candidate of candidates) {
+                if (tryScrollContainer(candidate, dx, dy)) {
+                    return candidate;
+                }
+            }
+            tryScrollContainer(null, dx, dy);
+            return preferredContainer || candidates[0] || null;
         }
 
         function startTwoFingerScroll(event) {
@@ -1067,10 +1229,12 @@ internal fun presetResultJavascript(): String {
             const first = event.touches[0];
             const second = event.touches[1];
             const now = performance.now();
+            const midX = (first.clientX + second.clientX) / 2;
+            const midY = (first.clientY + second.clientY) / 2;
             twoFingerScrollState = {
-                x: (first.clientX + second.clientX) / 2,
-                y: (first.clientY + second.clientY) / 2,
-                container: findScrollableContainer(event.target),
+                x: midX,
+                y: midY,
+                container: findScrollableContainer(event.target, midX, midY),
                 vx: 0,
                 vy: 0,
                 lastTs: now
@@ -1094,14 +1258,17 @@ internal fun presetResultJavascript(): String {
             const dy = nextY - twoFingerScrollState.y;
             const now = performance.now();
             const dt = Math.max(1, now - (twoFingerScrollState.lastTs || now));
-            const container = twoFingerScrollState.container || findScrollableContainer(event.target);
-            if (container && typeof container.scrollBy === 'function') {
-                container.scrollBy(-dx, -dy);
-            } else {
-                window.scrollBy(-dx, -dy);
-            }
+            const container = scrollWithBestContainer(
+                nextX,
+                nextY,
+                event.target,
+                dx,
+                dy,
+                twoFingerScrollState.container || findScrollableContainer(event.target, nextX, nextY)
+            );
             twoFingerScrollState.x = nextX;
             twoFingerScrollState.y = nextY;
+            twoFingerScrollState.container = container;
             twoFingerScrollState.vx = dx / dt;
             twoFingerScrollState.vy = dy / dt;
             twoFingerScrollState.lastTs = now;
@@ -1122,11 +1289,7 @@ internal fun presetResultJavascript(): String {
                 lastTs = now;
                 const moveX = vx * dt;
                 const moveY = vy * dt;
-                if (container && typeof container.scrollBy === 'function') {
-                    container.scrollBy(-moveX, -moveY);
-                } else {
-                    window.scrollBy(-moveX, -moveY);
-                }
+                tryScrollContainer(container, moveX, moveY);
                 vx *= Math.pow(INERTIA_FRICTION, dt / 16.0);
                 vy *= Math.pow(INERTIA_FRICTION, dt / 16.0);
                 if (Math.hypot(vx, vy) < INERTIA_MIN_VELOCITY) {
@@ -1540,6 +1703,9 @@ internal fun presetResultJavascript(): String {
             }
             const point = touchPoint(event);
             const target = normalizeTarget(event.target);
+            if (pendingStart && !selectionHandleDrag && !selectionGestureActive && event.cancelable) {
+                event.preventDefault();
+            }
             if (resizeState) {
                 const dx = Math.round((point.screenX - resizeState.x) * RESIZE_GAIN);
                 const dy = Math.round((point.screenY - resizeState.y) * RESIZE_GAIN);
@@ -1662,471 +1828,5 @@ internal fun presetResultJavascript(): String {
 }
 
 internal fun presetResultInteractionJavascript(): String {
-    return """
-        let activeWindowId = null;
-        let dragState = null;
-        let resizeState = null;
-        let holdTimer = null;
-        let pendingStart = null;
-        let twoFingerScrollState = null;
-        const DRAG_THRESHOLD_PX = 6;
-        const RESIZE_ZONE_PX = 48;
-        const DRAG_GAIN = 2.25;
-        const RESIZE_GAIN = 1.85;
-        const INERTIA_MIN_VELOCITY = 0.15;
-        const INERTIA_FRICTION = 0.92;
-        let inertiaFrame = null;
-        ${presetResultSelectionJavascriptHelpers()}
-
-        function postJson(payload) {
-            window.ipc.postMessage(JSON.stringify(payload));
-        }
-
-        function stopInertiaScroll() {
-            if (inertiaFrame) {
-                cancelAnimationFrame(inertiaFrame);
-                inertiaFrame = null;
-            }
-        }
-
-        function debugGesture(phase, extra) {
-            try {
-                postJson({
-                    type: 'gestureDebug',
-                    phase: phase,
-                    activeWindowId: activeWindowId,
-                    ...extra
-                });
-            } catch (error) {
-                window.ipc.postMessage('gesture_debug_error:' + String(error));
-            }
-        }
-
-        window.configureResultWindow = function(windowId) {
-            activeWindowId = windowId;
-            if (document.body) {
-                document.body.setAttribute('data-window-id', windowId);
-            }
-        };
-
-        function activateWindow() {
-            if (!activeWindowId) return;
-            postJson({ type: 'activateResultWindow', windowId: activeWindowId });
-        }
-
-        function sendNavigationState(navDepth, maxNavDepth, isBrowsing) {
-            if (!activeWindowId) return;
-            postJson({
-                type: 'navigationState',
-                windowId: activeWindowId,
-                navDepth: navDepth,
-                maxNavDepth: maxNavDepth,
-                isBrowsing: !!isBrowsing
-            });
-        }
-
-        function touchPoint(event) {
-            if (event.touches && event.touches.length > 0) return event.touches[0];
-            if (event.changedTouches && event.changedTouches.length > 0) return event.changedTouches[0];
-            return event;
-        }
-
-        function bodyRect() {
-            return document.body.getBoundingClientRect();
-        }
-
-        function detectResizeCorner(clientX, clientY) {
-            const localX = clientX;
-            const localY = clientY;
-            if (localY < window.innerHeight - RESIZE_ZONE_PX) {
-                return null;
-            }
-            if (localX < RESIZE_ZONE_PX) return 'bl';
-            if (localX > window.innerWidth - RESIZE_ZONE_PX) return 'br';
-            return null;
-        }
-
-        function clearHoldTimer() {
-            if (holdTimer) {
-                clearTimeout(holdTimer);
-                holdTimer = null;
-            }
-        }
-
-        function normalizeTarget(target) {
-            if (!target) return null;
-            return target.nodeType === Node.TEXT_NODE ? target.parentElement : target;
-        }
-
-        function isSelectionTarget(target) {
-            if (!target) {
-                return false;
-            }
-            if (target.nodeType === Node.TEXT_NODE) {
-                return true;
-            }
-            const element = normalizeTarget(target);
-            if (!element || !element.closest) {
-                return false;
-            }
-            if (element.closest('a, button, input, textarea, select, canvas, video, audio, iframe, [contenteditable="true"]')) {
-                return true;
-            }
-            if (element.closest('span.word, code, pre, td, th')) {
-                return true;
-            }
-            const text = (element.textContent || '').trim();
-            if (text.length < 2) {
-                return false;
-            }
-            const computed = window.getComputedStyle(element);
-            const userSelect = computed.userSelect || computed.webkitUserSelect || '';
-            if (userSelect === 'none') {
-                return false;
-            }
-            if (element === document.body || element === document.documentElement) {
-                return false;
-            }
-            return true;
-        }
-
-        function findScrollableContainer(target) {
-            let element = normalizeTarget(target);
-            while (element && element !== document.body && element !== document.documentElement) {
-                const style = window.getComputedStyle(element);
-                const canScrollY =
-                    (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
-                    element.scrollHeight > element.clientHeight + 1;
-                const canScrollX =
-                    (style.overflowX === 'auto' || style.overflowX === 'scroll') &&
-                    element.scrollWidth > element.clientWidth + 1;
-                if (canScrollY || canScrollX) {
-                    return element;
-                }
-                element = element.parentElement;
-            }
-            return document.scrollingElement || document.documentElement;
-        }
-
-        function startTwoFingerScroll(event) {
-            stopInertiaScroll();
-            if (event.touches.length < 2) {
-                twoFingerScrollState = null;
-                return;
-            }
-            const first = event.touches[0];
-            const second = event.touches[1];
-            const now = performance.now();
-            twoFingerScrollState = {
-                x: (first.clientX + second.clientX) / 2,
-                y: (first.clientY + second.clientY) / 2,
-                container: findScrollableContainer(event.target),
-                vx: 0,
-                vy: 0,
-                lastTs: now
-            };
-        }
-
-        function updateTwoFingerScroll(event) {
-            if (event.touches.length < 2) {
-                twoFingerScrollState = null;
-                return false;
-            }
-            const first = event.touches[0];
-            const second = event.touches[1];
-            const nextX = (first.clientX + second.clientX) / 2;
-            const nextY = (first.clientY + second.clientY) / 2;
-            if (!twoFingerScrollState) {
-                startTwoFingerScroll(event);
-                return false;
-            }
-            const dx = nextX - twoFingerScrollState.x;
-            const dy = nextY - twoFingerScrollState.y;
-            const now = performance.now();
-            const dt = Math.max(1, now - (twoFingerScrollState.lastTs || now));
-            const container = twoFingerScrollState.container || findScrollableContainer(event.target);
-            if (container && typeof container.scrollBy === 'function') {
-                container.scrollBy(-dx, -dy);
-            } else {
-                window.scrollBy(-dx, -dy);
-            }
-            twoFingerScrollState.x = nextX;
-            twoFingerScrollState.y = nextY;
-            twoFingerScrollState.vx = dx / dt;
-            twoFingerScrollState.vy = dy / dt;
-            twoFingerScrollState.lastTs = now;
-            return Math.abs(dx) > 0 || Math.abs(dy) > 0;
-        }
-
-        function startInertiaScroll(state) {
-            if (!state) return;
-            const container = state.container;
-            let vx = state.vx || 0;
-            let vy = state.vy || 0;
-            if (Math.hypot(vx, vy) < INERTIA_MIN_VELOCITY) {
-                return;
-            }
-            let lastTs = performance.now();
-            function tick(now) {
-                const dt = Math.max(1, now - lastTs);
-                lastTs = now;
-                const moveX = vx * dt;
-                const moveY = vy * dt;
-                if (container && typeof container.scrollBy === 'function') {
-                    container.scrollBy(-moveX, -moveY);
-                } else {
-                    window.scrollBy(-moveX, -moveY);
-                }
-                vx *= Math.pow(INERTIA_FRICTION, dt / 16.0);
-                vy *= Math.pow(INERTIA_FRICTION, dt / 16.0);
-                if (Math.hypot(vx, vy) < INERTIA_MIN_VELOCITY) {
-                    inertiaFrame = null;
-                    return;
-                }
-                inertiaFrame = requestAnimationFrame(tick);
-            }
-            inertiaFrame = requestAnimationFrame(tick);
-        }
-
-        function beginDrag(point) {
-            if (!pendingStart) return;
-            dragState = { x: point.screenX, y: point.screenY };
-            activateWindow();
-        }
-
-        function hasActiveSelection() {
-            if (!window.getSelection) return false;
-            const selection = window.getSelection();
-            return !!selection && String(selection).trim().length > 0;
-        }
-
-        document.addEventListener('click', event => {
-            if (!document.body.contains(event.target)) return;
-            activateWindow();
-            const link = event.target && event.target.closest && event.target.closest('a[href]');
-            if (link) {
-                sendNavigationState(1, 1, true);
-            }
-        }, true);
-
-        document.addEventListener('dragstart', event => {
-            event.preventDefault();
-        }, true);
-
-        document.addEventListener('touchstart', event => {
-            if (event.touches.length > 1) {
-                dragState = null;
-                resizeState = null;
-                pendingStart = null;
-                selectionGestureActive = false;
-                clearHoldTimer();
-                startTwoFingerScroll(event);
-                debugGesture('touchstart_multi', { touches: event.touches.length });
-                return;
-            }
-            if (event.touches.length !== 1) return;
-            const point = touchPoint(event);
-            activeWindowId = activeWindowId || document.body.getAttribute('data-window-id');
-            stopInertiaScroll();
-            twoFingerScrollState = null;
-            const target = normalizeTarget(event.target);
-            const handle = target && target.closest && target.closest('.sgt-selection-handle');
-            const interactive = target && target.closest && target.closest('a, button, input, textarea, select, canvas');
-            const resizeCorner = detectResizeCorner(point.clientX, point.clientY);
-            if (handle) {
-                selectionHandleDrag = handle.dataset.kind || null;
-                selectionGestureActive = true;
-                selectionHandleFixedPoint = selectionHandleDrag === 'start'
-                    ? (selectionState && selectionState.focus ? selectionState.focus : null)
-                    : (selectionState && selectionState.anchor ? selectionState.anchor : null);
-                pendingStart = null;
-                clearHoldTimer();
-                activateWindow();
-                debugGesture('touchstart_selection_handle', {
-                    handle: selectionHandleDrag,
-                    selectedText: currentSelectedText()
-                });
-                if (event.cancelable) event.preventDefault();
-                return;
-            }
-            if (resizeCorner) {
-                clearCustomSelection(true);
-                resizeState = { corner: resizeCorner, x: point.screenX, y: point.screenY };
-                pendingStart = null;
-                clearHoldTimer();
-                activateWindow();
-                debugGesture('touchstart_resize', {
-                    x: Math.round(point.screenX),
-                    y: Math.round(point.screenY),
-                    target: target ? target.tagName || target.nodeName : null,
-                    resizeCorner: resizeCorner
-                });
-                return;
-            }
-            if (interactive) {
-                if (!(target && target.closest && target.closest('.sgt-selection-action'))) {
-                    clearCustomSelection(false);
-                }
-                pendingStart = null;
-                clearHoldTimer();
-                debugGesture('touchstart_interactive', {
-                    target: target ? target.tagName || target.nodeName : null
-                });
-                return;
-            }
-            if (selectionState && !(target && target.closest && target.closest('.sgt-selection-action'))) {
-                clearCustomSelection(false);
-            }
-            const selectionTarget = isSelectionTarget(target);
-            pendingStart = {
-                x: point.screenX,
-                clientX: point.clientX,
-                clientY: point.clientY,
-                y: point.screenY,
-                selectionTarget: selectionTarget,
-                startedAt: Date.now(),
-            };
-            clearHoldTimer();
-            if (selectionTarget) {
-                scheduleCustomSelection(point.clientX, point.clientY);
-            }
-            debugGesture('touchstart_pending', {
-                x: Math.round(point.screenX),
-                y: Math.round(point.screenY),
-                target: target ? target.tagName || target.nodeName : null,
-                selectionTarget: selectionTarget
-            });
-        }, { passive: true });
-
-        document.addEventListener('touchmove', event => {
-            if (event.touches.length > 1) {
-                dragState = null;
-                resizeState = null;
-                pendingStart = null;
-                clearHoldTimer();
-                if (updateTwoFingerScroll(event) && event.cancelable) event.preventDefault();
-                debugGesture('touchmove_multi', { touches: event.touches.length });
-                return;
-            }
-            const point = touchPoint(event);
-            const target = normalizeTarget(event.target);
-            if (resizeState) {
-                const dx = Math.round((point.screenX - resizeState.x) * RESIZE_GAIN);
-                const dy = Math.round((point.screenY - resizeState.y) * RESIZE_GAIN);
-                if (dx !== 0 || dy !== 0) {
-                    debugGesture('touchmove_resize', { dx: dx, dy: dy, corner: resizeState.corner });
-                    postJson({ type: 'resizeResultWindow', windowId: activeWindowId, corner: resizeState.corner, dx, dy });
-                    resizeState.x = point.screenX;
-                    resizeState.y = point.screenY;
-                    activateWindow();
-                    if (event.cancelable) event.preventDefault();
-                }
-                return;
-            }
-            if (selectionHandleDrag) {
-                scheduleHandleUpdate(point.clientX, point.clientY);
-                if (event.cancelable) event.preventDefault();
-                return;
-            }
-            if (selectionState && selectionGestureActive && !(target && target.closest && target.closest('.sgt-selection-action'))) {
-                if (updateCustomSelection(point.clientX, point.clientY)) {
-                    if (event.cancelable) event.preventDefault();
-                }
-                return;
-            }
-            if (!pendingStart && !dragState) return;
-            const movedEnough = pendingStart &&
-                (Math.abs(point.screenX - pendingStart.x) > DRAG_THRESHOLD_PX || Math.abs(point.screenY - pendingStart.y) > DRAG_THRESHOLD_PX);
-            if (!dragState && movedEnough) {
-                clearHoldTimer();
-                clearCustomSelection(true);
-                debugGesture('touchmove_begin_drag', {
-                    dx: Math.round(point.screenX - pendingStart.x),
-                    dy: Math.round(point.screenY - pendingStart.y),
-                    selectionTarget: pendingStart.selectionTarget
-                });
-                beginDrag(point);
-            }
-            if (!dragState) return;
-            const dx = Math.round((point.screenX - dragState.x) * DRAG_GAIN);
-            const dy = Math.round((point.screenY - dragState.y) * DRAG_GAIN);
-            if (dx !== 0 || dy !== 0) {
-                debugGesture('touchmove_drag', { dx: dx, dy: dy });
-                postJson({ type: 'dragResultWindow', windowId: activeWindowId, dx, dy });
-                postJson({ type: 'dragResultWindowAt', windowId: activeWindowId, x: Math.round(point.screenX), y: Math.round(point.screenY) });
-                dragState.x = point.screenX;
-                dragState.y = point.screenY;
-                if (event.cancelable) event.preventDefault();
-            }
-        }, { passive: false });
-
-        document.addEventListener('touchend', event => {
-            const point = touchPoint(event);
-            const inertiaState = twoFingerScrollState;
-            if (dragState) {
-                debugGesture('touchend_drag', { x: Math.round(point.screenX), y: Math.round(point.screenY) });
-                postJson({ type: 'dragResultWindowEnd', windowId: activeWindowId, x: Math.round(point.screenX), y: Math.round(point.screenY) });
-            } else if (resizeState) {
-                debugGesture('touchend_resize', { corner: resizeState.corner });
-                postJson({ type: 'resizeResultWindowEnd', windowId: activeWindowId });
-            } else if (selectionState) {
-                selectionGestureActive = false;
-                selectionHandleDrag = null;
-                selectionHandleFixedPoint = null;
-                updateSelectionAction();
-                debugGesture('touchend_selection', {
-                    selectionText: currentSelectedText()
-                });
-            } else {
-                debugGesture('touchend_idle', {
-                    selectionText: window.getSelection ? String(window.getSelection()) : ''
-                });
-            }
-            dragState = null;
-            resizeState = null;
-            pendingStart = null;
-            twoFingerScrollState = null;
-            clearHoldTimer();
-            if (inertiaState) {
-                startInertiaScroll(inertiaState);
-            }
-        }, { passive: true });
-
-        document.addEventListener('touchcancel', () => {
-            debugGesture('touchcancel', {});
-            postJson({ type: 'cancelResultGesture', windowId: activeWindowId });
-            dragState = null;
-            resizeState = null;
-            pendingStart = null;
-            twoFingerScrollState = null;
-            clearHoldTimer();
-            if (selectionState) {
-                selectionGestureActive = false;
-                selectionHandleDrag = null;
-                selectionHandleFixedPoint = null;
-                updateSelectionAction();
-            }
-        }, { passive: true });
-
-        document.addEventListener('selectionchange', () => {
-            if (selectionHandleDrag) {
-                return;
-            }
-            const selectionText = window.getSelection ? String(window.getSelection()) : '';
-            if (selectionText && selectionText.trim().length > 0) {
-                debugGesture('selectionchange', { selectionText: selectionText });
-                updateSelectionAction();
-            } else if (selectionState) {
-                hideSelectionAction();
-            }
-        });
-
-        window.addEventListener('popstate', () => {
-            if (window.history.length <= 1) {
-                sendNavigationState(0, 0, false);
-            }
-        });
-
-        window.ipc.postMessage('result_ready');
-    """.trimIndent()
+    return presetResultJavascript()
 }

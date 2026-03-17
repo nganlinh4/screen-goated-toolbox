@@ -44,6 +44,10 @@
     "render_mode": "markdown_plus_raw_html",
     "raw_html_supported": true,
     "theme_sync_scope": "all_preset_overlays",
-    "touch_scroll_model": "two_finger_native_scroll"
+    "touch_scroll_model": "two_finger_bidirectional_native_scroll",
+    "raw_html_host_contract": "page_load_reinjected_overlay_shell",
+    "navigation_model": "native_history_plus_restore_original_surface",
+    "navigation_internal_entry_policy": "restore_original_surface_and_clear_history",
+    "failed_external_navigation_policy": "restore_original_surface"
   }
 }
