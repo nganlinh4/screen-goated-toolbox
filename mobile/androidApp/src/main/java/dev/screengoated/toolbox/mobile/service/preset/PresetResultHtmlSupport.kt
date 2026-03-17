@@ -69,6 +69,843 @@ internal fun presetResultCss(isDark: Boolean): String {
         html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
         body > *:first-child { margin-top: 0; }
         a { cursor: pointer; }
+        .sgt-selection-action {
+            position: fixed;
+            z-index: 2147483646;
+            left: -9999px;
+            top: -9999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 68px;
+            height: 34px;
+            padding: 0 14px;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 17px;
+            background: rgba(12, 16, 24, 0.90);
+            color: rgba(255, 255, 255, 0.96);
+            font: 600 14px/1 "Google Sans Flex", system-ui, sans-serif;
+            letter-spacing: 0.01em;
+            box-shadow: 0 10px 26px rgba(0, 0, 0, 0.22);
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(6px);
+            transition: opacity 120ms ease, transform 120ms ease;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .sgt-selection-action.visible {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(0);
+        }
+        .sgt-selection-handle {
+            position: fixed;
+            z-index: 2147483646;
+            left: -9999px;
+            top: -9999px;
+            width: 24px;
+            height: 24px;
+            margin-left: -12px;
+            margin-top: -12px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.9);
+            background: rgba(43, 122, 255, 0.96);
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 80ms ease;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .sgt-selection-handle::before {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: -14px;
+            width: 4px;
+            height: 16px;
+            margin-left: -2px;
+            border-radius: 999px;
+            background: rgba(43, 122, 255, 0.96);
+        }
+        .sgt-selection-handle::after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 8px;
+            height: 8px;
+            margin-left: -4px;
+            margin-top: -4px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.96);
+        }
+        .sgt-selection-handle.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+    """.trimIndent()
+}
+
+private fun presetResultSelectionJavascriptHelpers(): String {
+    return """
+        const CUSTOM_SELECTION_DELAY_MS = 380;
+        let selectionState = null;
+        let selectionGestureActive = false;
+        let selectionHandleDrag = null;
+        let selectionHandleFixedPoint = null;
+        let selectionHandleFrame = null;
+        let pendingHandlePoint = null;
+        let selectionHandleLayoutCache = { start: null, end: null };
+
+        function selectionOverlayRoot() {
+            let root = document.documentElement.querySelector('.sgt-selection-overlay-root');
+            if (root) {
+                return root;
+            }
+            root = document.createElement('div');
+            root.className = 'sgt-selection-overlay-root';
+            root.style.position = 'fixed';
+            root.style.left = '0';
+            root.style.top = '0';
+            root.style.width = '100%';
+            root.style.height = '100%';
+            root.style.pointerEvents = 'none';
+            root.style.zIndex = '2147483646';
+            document.documentElement.appendChild(root);
+            return root;
+        }
+
+        function currentSelectedText() {
+            if (!window.getSelection) return '';
+            return String(window.getSelection() || '').trim();
+        }
+
+        function describePoint(point) {
+            if (!point || !point.node) {
+                return null;
+            }
+            const node = point.node;
+            const parent = node.parentElement || node.parentNode;
+            const text = node.nodeType === Node.TEXT_NODE ? (node.textContent || '') : '';
+            return {
+                nodeType: node.nodeType,
+                offset: point.offset,
+                textSample: text ? text.slice(0, 40) : '',
+                parentTag: parent && parent.tagName ? parent.tagName : null,
+            };
+        }
+
+        function selectionActionElement() {
+            let action = document.querySelector('.sgt-selection-action');
+            if (action) {
+                return action;
+            }
+            action = document.createElement('button');
+            action.type = 'button';
+            action.className = 'sgt-selection-action';
+            action.textContent = 'Copy';
+            action.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                copyCustomSelection();
+            });
+            selectionOverlayRoot().appendChild(action);
+            return action;
+        }
+
+        function selectionHandleElement(kind) {
+            let handle = document.querySelector('.sgt-selection-handle[data-kind="' + kind + '"]');
+            if (handle) {
+                return handle;
+            }
+            handle = document.createElement('div');
+            handle.className = 'sgt-selection-handle';
+            handle.dataset.kind = kind;
+            selectionOverlayRoot().appendChild(handle);
+            return handle;
+        }
+
+        function hideSelectionAction() {
+            const action = document.querySelector('.sgt-selection-action');
+            if (action) {
+                action.classList.remove('visible');
+            }
+        }
+
+        function hideSelectionHandles() {
+            document.querySelectorAll('.sgt-selection-handle').forEach(handle => {
+                handle.classList.remove('visible');
+                handle.style.left = '-9999px';
+                handle.style.top = '-9999px';
+            });
+        }
+
+        function isUsableCaretRect(rect) {
+            if (!rect) {
+                return false;
+            }
+            const left = Number(rect.left);
+            const top = Number(rect.top);
+            const right = Number(rect.right);
+            const bottom = Number(rect.bottom);
+            if (![left, top, right, bottom].every(Number.isFinite)) {
+                return false;
+            }
+            const width = Math.abs(right - left);
+            const height = Math.abs(bottom - top);
+            return width > 0.5 || height > 0.5;
+        }
+
+        function rectSnapshot(rect) {
+            if (!isUsableCaretRect(rect)) {
+                return null;
+            }
+            return {
+                left: Number(rect.left),
+                top: Number(rect.top),
+                right: Number(rect.right),
+                bottom: Number(rect.bottom),
+                width: Number(rect.width || (rect.right - rect.left)),
+                height: Number(rect.height || (rect.bottom - rect.top))
+            };
+        }
+
+        function resolveHandleRect(kind, point, range, edgeKind) {
+            const pointRect = rectSnapshot(pointCaretRect(point));
+            if (pointRect) {
+                selectionHandleLayoutCache[kind] = pointRect;
+                return pointRect;
+            }
+            const edgeRect = rectSnapshot(edgeCaretRect(range, edgeKind));
+            if (edgeRect) {
+                selectionHandleLayoutCache[kind] = edgeRect;
+                return edgeRect;
+            }
+            if (selectionHandleLayoutCache[kind]) {
+                return selectionHandleLayoutCache[kind];
+            }
+            const rangeRect = rectSnapshot(range ? range.getBoundingClientRect() : null);
+            if (rangeRect) {
+                selectionHandleLayoutCache[kind] = rangeRect;
+                return rangeRect;
+            }
+            return null;
+        }
+
+        function edgeCaretRect(range, kind) {
+            if (!range) {
+                return null;
+            }
+            const caret = range.cloneRange();
+            caret.collapse(kind === 'start');
+            const rects = Array.from(caret.getClientRects());
+            return rects[0] || caret.getBoundingClientRect();
+        }
+
+        function pointCaretRect(point) {
+            if (!point) {
+                return null;
+            }
+            try {
+                const caret = document.createRange();
+                caret.setStart(point.node, point.offset);
+                caret.collapse(true);
+                const rects = Array.from(caret.getClientRects());
+                return rects[0] || caret.getBoundingClientRect();
+            } catch (error) {
+                debugGesture('selection_point_rect_error', { error: String(error) });
+                return null;
+            }
+        }
+
+        function updateSelectionHandles() {
+            const text = currentSelectedText();
+            if (!text || !window.getSelection) {
+                hideSelectionHandles();
+                return;
+            }
+            const selection = window.getSelection();
+            if (!selection || selection.rangeCount === 0) {
+                hideSelectionHandles();
+                return;
+            }
+            const range = selection.getRangeAt(0);
+            const semanticStart = selectionState && selectionState.anchor ? selectionState.anchor : null;
+            const semanticEnd = selectionState && selectionState.focus ? selectionState.focus : null;
+            const startRect = resolveHandleRect('start', semanticStart, range, 'start');
+            const endRect = resolveHandleRect('end', semanticEnd, range, 'end');
+            if (!startRect || !endRect) {
+                debugGesture('selection_handles_missing_rect', {
+                    selectedText: text
+                });
+                hideSelectionHandles();
+                return;
+            }
+            const startHandle = selectionHandleElement('start');
+            const endHandle = selectionHandleElement('end');
+            debugGesture('selection_handles_layout', {
+                scrollX: Math.round(window.scrollX || window.pageXOffset || 0),
+                scrollY: Math.round(window.scrollY || window.pageYOffset || 0),
+                startLeft: Math.round(startRect.left),
+                startTop: Math.round(startRect.top),
+                startBottom: Math.round(startRect.bottom),
+                endLeft: Math.round(endRect.left),
+                endTop: Math.round(endRect.top),
+                endBottom: Math.round(endRect.bottom),
+                innerWidth: Math.round(window.innerWidth || 0),
+                innerHeight: Math.round(window.innerHeight || 0),
+                selectedText: text
+            });
+            startHandle.style.left = Math.round(startRect.left) + 'px';
+            startHandle.style.top = Math.round(startRect.bottom + 2) + 'px';
+            endHandle.style.left = Math.round(endRect.right) + 'px';
+            endHandle.style.top = Math.round(endRect.bottom + 2) + 'px';
+            startHandle.classList.add('visible');
+            endHandle.classList.add('visible');
+        }
+
+        function updateSelectionAction() {
+            const text = currentSelectedText();
+            if (!text) {
+                hideSelectionAction();
+                hideSelectionHandles();
+                return;
+            }
+            const action = selectionActionElement();
+            let top = 10;
+            let left = 10;
+            if (window.getSelection) {
+                const selection = window.getSelection();
+                if (selection && selection.rangeCount > 0) {
+                    const rect = selection.getRangeAt(0).getBoundingClientRect();
+                    if (rect && Number.isFinite(rect.left) && Number.isFinite(rect.top)) {
+                        const actionWidth = action.offsetWidth || 68;
+                        const actionHeight = action.offsetHeight || 34;
+                        left = Math.min(
+                            Math.max(8, rect.left + (rect.width / 2) - (actionWidth / 2)),
+                            Math.max(8, window.innerWidth - actionWidth - 8),
+                        );
+                        const preferredTop = rect.top - actionHeight - 10;
+                        top = preferredTop >= 8
+                            ? preferredTop
+                            : Math.min(
+                                Math.max(8, rect.bottom + 10),
+                                Math.max(8, window.innerHeight - actionHeight - 8),
+                            );
+                    }
+                }
+            }
+            action.style.left = Math.round(left) + 'px';
+            action.style.top = Math.round(top) + 'px';
+            action.classList.add('visible');
+            updateSelectionHandles();
+        }
+
+        function clearCustomSelection(keepTextSelection) {
+            debugGesture('selection_clear', {
+                keepTextSelection: !!keepTextSelection,
+                hadSelectionState: !!selectionState,
+                selectedText: currentSelectedText()
+            });
+            selectionState = null;
+            selectionGestureActive = false;
+            selectionHandleDrag = null;
+            selectionHandleFixedPoint = null;
+            selectionHandleLayoutCache = { start: null, end: null };
+            clearHoldTimer();
+            hideSelectionAction();
+            hideSelectionHandles();
+            if (!keepTextSelection && window.getSelection) {
+                const selection = window.getSelection();
+                if (selection) {
+                    selection.removeAllRanges();
+                }
+            }
+        }
+
+        function caretPointFromClient(clientX, clientY) {
+            function firstTextDescendant(node) {
+                if (!node) return null;
+                if (node.nodeType === Node.TEXT_NODE) {
+                    return node;
+                }
+                let child = node.firstChild;
+                while (child) {
+                    const found = firstTextDescendant(child);
+                    if (found) {
+                        return found;
+                    }
+                    child = child.nextSibling;
+                }
+                return null;
+            }
+
+            function lastTextDescendant(node) {
+                if (!node) return null;
+                if (node.nodeType === Node.TEXT_NODE) {
+                    return node;
+                }
+                let child = node.lastChild;
+                while (child) {
+                    const found = lastTextDescendant(child);
+                    if (found) {
+                        return found;
+                    }
+                    child = child.previousSibling;
+                }
+                return null;
+            }
+
+            function normalizeCaretPoint(point) {
+                if (!point || !point.node) {
+                    return null;
+                }
+                if (point.node.nodeType === Node.TEXT_NODE) {
+                    const text = point.node.textContent || '';
+                    return {
+                        node: point.node,
+                        offset: Math.max(0, Math.min(point.offset, text.length))
+                    };
+                }
+                const container = point.node;
+                const children = container.childNodes || [];
+                if (children.length === 0) {
+                    return null;
+                }
+                const clampedOffset = Math.max(0, Math.min(point.offset, children.length));
+                if (clampedOffset < children.length) {
+                    const nextText = firstTextDescendant(children[clampedOffset]);
+                    if (nextText) {
+                        return {
+                            node: nextText,
+                            offset: 0
+                        };
+                    }
+                }
+                if (clampedOffset > 0) {
+                    const previousText = lastTextDescendant(children[clampedOffset - 1]);
+                    if (previousText) {
+                        return {
+                            node: previousText,
+                            offset: (previousText.textContent || '').length
+                        };
+                    }
+                }
+                return null;
+            }
+
+            if (document.caretPositionFromPoint) {
+                const pos = document.caretPositionFromPoint(clientX, clientY);
+                if (pos && pos.offsetNode) {
+                    const normalized = normalizeCaretPoint({ node: pos.offsetNode, offset: pos.offset });
+                    debugGesture('selection_caret_point', {
+                        source: 'caretPositionFromPoint',
+                        clientX: Math.round(clientX),
+                        clientY: Math.round(clientY),
+                        nodeType: pos.offsetNode.nodeType,
+                        normalizedNodeType: normalized ? normalized.node.nodeType : null
+                    });
+                    if (normalized) {
+                        return normalized;
+                    }
+                    if (pos.offsetNode.nodeType === Node.TEXT_NODE) {
+                        return { node: pos.offsetNode, offset: pos.offset };
+                    }
+                    debugGesture('selection_caret_rejected_non_text', {
+                        source: 'caretPositionFromPoint',
+                        nodeType: pos.offsetNode.nodeType
+                    });
+                    return null;
+                }
+            }
+            if (document.caretRangeFromPoint) {
+                const range = document.caretRangeFromPoint(clientX, clientY);
+                if (range && range.startContainer) {
+                    const normalized = normalizeCaretPoint({ node: range.startContainer, offset: range.startOffset });
+                    debugGesture('selection_caret_point', {
+                        source: 'caretRangeFromPoint',
+                        clientX: Math.round(clientX),
+                        clientY: Math.round(clientY),
+                        nodeType: range.startContainer.nodeType,
+                        normalizedNodeType: normalized ? normalized.node.nodeType : null
+                    });
+                    if (normalized) {
+                        return normalized;
+                    }
+                    if (range.startContainer.nodeType === Node.TEXT_NODE) {
+                        return { node: range.startContainer, offset: range.startOffset };
+                    }
+                    debugGesture('selection_caret_rejected_non_text', {
+                        source: 'caretRangeFromPoint',
+                        nodeType: range.startContainer.nodeType
+                    });
+                    return null;
+                }
+            }
+            debugGesture('selection_caret_missing', {
+                clientX: Math.round(clientX),
+                clientY: Math.round(clientY)
+            });
+            return null;
+        }
+
+        function comparePoints(a, b) {
+            if (!a || !b) return 0;
+            try {
+                const probe = document.createRange();
+                probe.setStart(a.node, a.offset);
+                probe.collapse(true);
+                return probe.comparePoint(b.node, b.offset);
+            } catch (error) {
+                return 0;
+            }
+        }
+
+        function buildRangeBetween(a, b) {
+            if (!a || !b) return null;
+            try {
+                const order = comparePoints(a, b);
+                const range = document.createRange();
+                if (order > 0) {
+                    range.setStart(a.node, a.offset);
+                    range.setEnd(b.node, b.offset);
+                } else if (order < 0) {
+                    range.setStart(b.node, b.offset);
+                    range.setEnd(a.node, a.offset);
+                } else {
+                    range.setStart(a.node, a.offset);
+                    range.setEnd(b.node, b.offset);
+                }
+                return range;
+            } catch (error) {
+                return null;
+            }
+        }
+
+        function applySelectionPoints(anchorPoint, focusPoint) {
+            if (!anchorPoint || !focusPoint || !window.getSelection) {
+                debugGesture('selection_apply_points_skipped', {
+                    hasAnchor: !!anchorPoint,
+                    hasFocus: !!focusPoint,
+                    hasSelectionApi: !!window.getSelection
+                });
+                return false;
+            }
+            try {
+                const selection = window.getSelection();
+                if (!selection) {
+                    debugGesture('selection_apply_points_missing_selection', {});
+                    return false;
+                }
+                selection.removeAllRanges();
+                if (typeof selection.setBaseAndExtent === 'function') {
+                    selection.setBaseAndExtent(
+                        anchorPoint.node,
+                        anchorPoint.offset,
+                        focusPoint.node,
+                        focusPoint.offset,
+                    );
+                } else {
+                    const fallbackRange = buildRangeBetween(anchorPoint, focusPoint);
+                    if (!fallbackRange) {
+                        debugGesture('selection_apply_points_no_range', {
+                            anchorPoint: describePoint(anchorPoint),
+                            focusPoint: describePoint(focusPoint)
+                        });
+                        return false;
+                    }
+                    selection.addRange(fallbackRange);
+                }
+                const appliedRange = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+                debugGesture('selection_apply_points_success', {
+                    selectedText: currentSelectedText(),
+                    anchorPoint: describePoint(anchorPoint),
+                    focusPoint: describePoint(focusPoint),
+                    rangeStart: appliedRange ? describePoint({ node: appliedRange.startContainer, offset: appliedRange.startOffset }) : null,
+                    rangeEnd: appliedRange ? describePoint({ node: appliedRange.endContainer, offset: appliedRange.endOffset }) : null
+                });
+                if (selectionHandleDrag) {
+                    hideSelectionAction();
+                    updateSelectionHandles();
+                } else {
+                    updateSelectionAction();
+                }
+                return true;
+            } catch (error) {
+                debugGesture('selection_apply_points_error', {
+                    error: String(error),
+                    anchorPoint: describePoint(anchorPoint),
+                    focusPoint: describePoint(focusPoint)
+                });
+                return false;
+            }
+        }
+
+        function expandCollapsedRangeToWord(range) {
+            if (!range || !range.collapsed) {
+                return range;
+            }
+            const node = range.startContainer;
+            if (!node || node.nodeType !== Node.TEXT_NODE) {
+                return range;
+            }
+            const text = node.textContent || '';
+            if (!text) {
+                return range;
+            }
+            let start = Math.max(0, Math.min(range.startOffset, text.length));
+            let end = start;
+            while (start > 0 && !/\s/.test(text.charAt(start - 1))) {
+                start -= 1;
+            }
+            while (end < text.length && !/\s/.test(text.charAt(end))) {
+                end += 1;
+            }
+            if (start === end) {
+                return range;
+            }
+            const expanded = document.createRange();
+            expanded.setStart(node, start);
+            expanded.setEnd(node, end);
+            return expanded;
+        }
+
+        function applySelectionRange(range) {
+            if (!range || !window.getSelection) {
+                debugGesture('selection_apply_skipped', {
+                    hasRange: !!range,
+                    hasSelectionApi: !!window.getSelection
+                });
+                return false;
+            }
+            try {
+                const selection = window.getSelection();
+                if (!selection) {
+                    debugGesture('selection_apply_missing_selection', {});
+                    return false;
+                }
+                selection.removeAllRanges();
+                selection.addRange(range);
+                debugGesture('selection_apply_success', {
+                    selectedText: currentSelectedText(),
+                    collapsed: !!range.collapsed,
+                    rangeStart: describePoint({ node: range.startContainer, offset: range.startOffset }),
+                    rangeEnd: describePoint({ node: range.endContainer, offset: range.endOffset })
+                });
+                if (selectionHandleDrag) {
+                    hideSelectionAction();
+                    updateSelectionHandles();
+                } else {
+                    updateSelectionAction();
+                }
+                return true;
+            } catch (error) {
+                debugGesture('selection_apply_error', {
+                    error: String(error)
+                });
+                return false;
+            }
+        }
+
+        function beginCustomSelection(clientX, clientY) {
+            const point = caretPointFromClient(clientX, clientY);
+            if (!point) {
+                debugGesture('selection_begin_failed_no_point', {
+                    clientX: Math.round(clientX),
+                    clientY: Math.round(clientY)
+                });
+                return false;
+            }
+            const collapsed = buildRangeBetween(point, point);
+            const initialRange = expandCollapsedRangeToWord(collapsed);
+            const nextAnchor = initialRange ? {
+                node: initialRange.startContainer,
+                offset: initialRange.startOffset
+            } : null;
+            const nextFocus = initialRange ? {
+                node: initialRange.endContainer,
+                offset: initialRange.endOffset
+            } : null;
+            if (!applySelectionPoints(nextAnchor, nextFocus)) {
+                debugGesture('selection_begin_failed_apply', {
+                    clientX: Math.round(clientX),
+                    clientY: Math.round(clientY)
+                });
+                return false;
+            }
+            selectionState = {
+                anchor: nextAnchor,
+                focus: nextFocus
+            };
+            selectionGestureActive = true;
+            selectionHandleDrag = null;
+            selectionHandleFixedPoint = null;
+            pendingStart = null;
+            clearHoldTimer();
+            activateWindow();
+            debugGesture('selection_mode_begin', { selectionText: currentSelectedText() });
+            return true;
+        }
+
+        function updateCustomSelection(clientX, clientY) {
+            if (!selectionState || !selectionGestureActive) {
+                debugGesture('selection_update_no_state', {});
+                return false;
+            }
+            const point = caretPointFromClient(clientX, clientY);
+            if (!point) {
+                debugGesture('selection_update_failed_no_point', {
+                    clientX: Math.round(clientX),
+                    clientY: Math.round(clientY)
+                });
+                return false;
+            }
+            let range = buildRangeBetween(selectionState.anchor, point);
+            if (range && range.collapsed) {
+                range = expandCollapsedRangeToWord(range);
+            }
+            const nextAnchor = selectionState.anchor;
+            const nextFocus = range ? {
+                node: range.endContainer,
+                offset: range.endOffset
+            } : point;
+            if (!applySelectionPoints(nextAnchor, nextFocus)) {
+                debugGesture('selection_update_failed_apply', {
+                    clientX: Math.round(clientX),
+                    clientY: Math.round(clientY)
+                });
+                return false;
+            }
+            selectionState.focus = nextFocus;
+            debugGesture('selection_update_success', {
+                clientX: Math.round(clientX),
+                clientY: Math.round(clientY),
+                selectedText: currentSelectedText()
+            });
+            return true;
+        }
+
+        function currentRangePoints() {
+            if (!window.getSelection) return null;
+            const selection = window.getSelection();
+            if (!selection || selection.rangeCount === 0) return null;
+            const range = selection.getRangeAt(0);
+            return {
+                start: { node: range.startContainer, offset: range.startOffset },
+                end: { node: range.endContainer, offset: range.endOffset }
+            };
+        }
+
+        function updateSelectionFromHandle(clientX, clientY) {
+            if (!selectionState || !selectionHandleDrag || !selectionHandleFixedPoint) {
+                return false;
+            }
+            const point = caretPointFromClient(clientX, clientY);
+            if (!point) {
+                return false;
+            }
+            const nextAnchor = selectionHandleDrag === 'start' ? point : selectionHandleFixedPoint;
+            const nextFocus = selectionHandleDrag === 'start' ? selectionHandleFixedPoint : point;
+            debugGesture('selection_handle_candidate', {
+                handle: selectionHandleDrag,
+                candidatePoint: describePoint(point),
+                fixedPoint: describePoint(selectionHandleFixedPoint),
+                nextAnchor: describePoint(nextAnchor),
+                nextFocus: describePoint(nextFocus)
+            });
+            if (!applySelectionPoints(nextAnchor, nextFocus)) {
+                debugGesture('selection_handle_apply_failed', {
+                    handle: selectionHandleDrag,
+                    clientX: Math.round(clientX),
+                    clientY: Math.round(clientY)
+                });
+                return false;
+            }
+            if (selectionHandleDrag === 'start') {
+                selectionState.anchor = nextAnchor;
+                selectionState.focus = selectionHandleFixedPoint;
+            } else {
+                selectionState.anchor = selectionHandleFixedPoint;
+                selectionState.focus = nextFocus;
+            }
+            debugGesture('selection_handle_update', {
+                handle: selectionHandleDrag,
+                clientX: Math.round(clientX),
+                clientY: Math.round(clientY),
+                selectedText: currentSelectedText()
+            });
+            return true;
+        }
+
+        function scheduleHandleUpdate(clientX, clientY) {
+            pendingHandlePoint = { x: clientX, y: clientY };
+            if (selectionHandleFrame) {
+                return;
+            }
+            selectionHandleFrame = requestAnimationFrame(() => {
+                selectionHandleFrame = null;
+                const point = pendingHandlePoint;
+                pendingHandlePoint = null;
+                if (!point) {
+                    return;
+                }
+                updateSelectionFromHandle(point.x, point.y);
+            });
+        }
+
+        function scheduleCustomSelection(clientX, clientY) {
+            clearHoldTimer();
+            debugGesture('selection_schedule', {
+                clientX: Math.round(clientX),
+                clientY: Math.round(clientY),
+                delayMs: CUSTOM_SELECTION_DELAY_MS
+            });
+            holdTimer = setTimeout(() => {
+                holdTimer = null;
+                if (!pendingStart || dragState || resizeState) {
+                    debugGesture('selection_schedule_aborted', {
+                        hasPendingStart: !!pendingStart,
+                        hasDrag: !!dragState,
+                        hasResize: !!resizeState
+                    });
+                    return;
+                }
+                debugGesture('selection_schedule_fire', {
+                    clientX: Math.round(clientX),
+                    clientY: Math.round(clientY)
+                });
+                beginCustomSelection(clientX, clientY);
+            }, CUSTOM_SELECTION_DELAY_MS);
+        }
+
+        function copyCustomSelection() {
+            const text = currentSelectedText();
+            if (!text || !activeWindowId) {
+                debugGesture('selection_copy_skipped', {
+                    hasText: !!text,
+                    hasWindowId: !!activeWindowId
+                });
+                return;
+            }
+            debugGesture('selection_copy', {
+                selectedText: text
+            });
+            postJson({
+                type: 'copySelectedText',
+                windowId: activeWindowId,
+                text: text
+            });
+            hideSelectionAction();
+        }
+
+        document.addEventListener('scroll', () => {
+            if (selectionState) {
+                updateSelectionAction();
+            }
+        }, true);
     """.trimIndent()
 }
 
@@ -86,10 +923,10 @@ internal fun presetResultJavascript(): String {
         const RESIZE_GAIN = 1.85;
         const INTERACTIVE_WORD_WRAP_CHAR_LIMIT = 6000;
         const INTERACTIVE_WORD_WRAP_WORD_LIMIT = 900;
-        const SELECTION_GUARD_MS = 260;
         const INERTIA_MIN_VELOCITY = 0.15;
         const INERTIA_FRICTION = 0.92;
         let inertiaFrame = null;
+        ${presetResultSelectionJavascriptHelpers()}
 
         function postJson(payload) {
             window.ipc.postMessage(JSON.stringify(payload));
@@ -194,7 +1031,13 @@ internal fun presetResultJavascript(): String {
             }
             const computed = window.getComputedStyle(element);
             const userSelect = computed.userSelect || computed.webkitUserSelect || '';
-            return userSelect !== 'none' && text.length <= 80;
+            if (userSelect === 'none') {
+                return false;
+            }
+            if (element === document.body || element === document.documentElement) {
+                return false;
+            }
+            return true;
         }
 
         function findScrollableContainer(target) {
@@ -597,11 +1440,16 @@ internal fun presetResultJavascript(): String {
             }
         }, true);
 
+        document.addEventListener('dragstart', event => {
+            event.preventDefault();
+        }, true);
+
         document.addEventListener('touchstart', event => {
             if (event.touches.length > 1) {
                 dragState = null;
                 resizeState = null;
                 pendingStart = null;
+                selectionGestureActive = false;
                 clearHoldTimer();
                 startTwoFingerScroll(event);
                 debugGesture('touchstart_multi', { touches: event.touches.length });
@@ -612,9 +1460,27 @@ internal fun presetResultJavascript(): String {
             stopInertiaScroll();
             twoFingerScrollState = null;
             const target = normalizeTarget(event.target);
+            const handle = target && target.closest && target.closest('.sgt-selection-handle');
             const interactive = target && target.closest && target.closest('a, button, input, textarea, select');
             const resizeCorner = detectResizeCorner(point.clientX, point.clientY);
+            if (handle) {
+                selectionHandleDrag = handle.dataset.kind || null;
+                selectionGestureActive = true;
+                selectionHandleFixedPoint = selectionHandleDrag === 'start'
+                    ? (selectionState && selectionState.focus ? selectionState.focus : null)
+                    : (selectionState && selectionState.anchor ? selectionState.anchor : null);
+                pendingStart = null;
+                clearHoldTimer();
+                activateWindow();
+                debugGesture('touchstart_selection_handle', {
+                    handle: selectionHandleDrag,
+                    selectedText: currentSelectedText()
+                });
+                if (event.cancelable) event.preventDefault();
+                return;
+            }
             if (resizeCorner) {
+                clearCustomSelection(true);
                 resizeState = { corner: resizeCorner, x: point.screenX, y: point.screenY };
                 pendingStart = null;
                 clearHoldTimer();
@@ -628,6 +1494,9 @@ internal fun presetResultJavascript(): String {
                 return;
             }
             if (interactive) {
+                if (!(target && target.closest && target.closest('.sgt-selection-action'))) {
+                    clearCustomSelection(false);
+                }
                 pendingStart = null;
                 clearHoldTimer();
                 debugGesture('touchstart_interactive', {
@@ -635,14 +1504,22 @@ internal fun presetResultJavascript(): String {
                 });
                 return;
             }
+            if (selectionState && !(target && target.closest && target.closest('.sgt-selection-action'))) {
+                clearCustomSelection(false);
+            }
             const selectionTarget = isSelectionTarget(target);
             pendingStart = {
                 x: point.screenX,
+                clientX: point.clientX,
+                clientY: point.clientY,
                 y: point.screenY,
                 selectionTarget: selectionTarget,
                 startedAt: Date.now(),
             };
             clearHoldTimer();
+            if (selectionTarget) {
+                scheduleCustomSelection(point.clientX, point.clientY);
+            }
             debugGesture('touchstart_pending', {
                 x: Math.round(point.screenX),
                 y: Math.round(point.screenY),
@@ -662,6 +1539,7 @@ internal fun presetResultJavascript(): String {
                 return;
             }
             const point = touchPoint(event);
+            const target = normalizeTarget(event.target);
             if (resizeState) {
                 const dx = Math.round((point.screenX - resizeState.x) * RESIZE_GAIN);
                 const dy = Math.round((point.screenY - resizeState.y) * RESIZE_GAIN);
@@ -675,25 +1553,23 @@ internal fun presetResultJavascript(): String {
                 }
                 return;
             }
+            if (selectionHandleDrag) {
+                scheduleHandleUpdate(point.clientX, point.clientY);
+                if (event.cancelable) event.preventDefault();
+                return;
+            }
+            if (selectionState && selectionGestureActive && !(target && target.closest && target.closest('.sgt-selection-action'))) {
+                if (updateCustomSelection(point.clientX, point.clientY)) {
+                    if (event.cancelable) event.preventDefault();
+                }
+                return;
+            }
             if (!pendingStart && !dragState) return;
             const movedEnough = pendingStart &&
                 (Math.abs(point.screenX - pendingStart.x) > DRAG_THRESHOLD_PX || Math.abs(point.screenY - pendingStart.y) > DRAG_THRESHOLD_PX);
             if (!dragState && movedEnough) {
                 clearHoldTimer();
-                if (pendingStart.selectionTarget && hasActiveSelection()) {
-                    debugGesture('touchmove_selection_active', {
-                        selectionText: window.getSelection ? String(window.getSelection()) : ''
-                    });
-                    pendingStart = null;
-                    return;
-                }
-                if (pendingStart.selectionTarget && (Date.now() - pendingStart.startedAt) >= SELECTION_GUARD_MS) {
-                    debugGesture('touchmove_selection_guard', {
-                        heldMs: Date.now() - pendingStart.startedAt
-                    });
-                    pendingStart = null;
-                    return;
-                }
+                clearCustomSelection(true);
                 debugGesture('touchmove_begin_drag', {
                     dx: Math.round(point.screenX - pendingStart.x),
                     dy: Math.round(point.screenY - pendingStart.y),
@@ -723,6 +1599,14 @@ internal fun presetResultJavascript(): String {
             } else if (resizeState) {
                 debugGesture('touchend_resize', { corner: resizeState.corner });
                 postJson({ type: 'resizeResultWindowEnd', windowId: activeWindowId });
+            } else if (selectionState) {
+                selectionGestureActive = false;
+                selectionHandleDrag = null;
+                selectionHandleFixedPoint = null;
+                updateSelectionAction();
+                debugGesture('touchend_selection', {
+                    selectionText: currentSelectedText()
+                });
             } else {
                 debugGesture('touchend_idle', {
                     selectionText: window.getSelection ? String(window.getSelection()) : ''
@@ -746,12 +1630,24 @@ internal fun presetResultJavascript(): String {
             pendingStart = null;
             twoFingerScrollState = null;
             clearHoldTimer();
+            if (selectionState) {
+                selectionGestureActive = false;
+                selectionHandleDrag = null;
+                selectionHandleFixedPoint = null;
+                updateSelectionAction();
+            }
         }, { passive: true });
 
         document.addEventListener('selectionchange', () => {
+            if (selectionHandleDrag) {
+                return;
+            }
             const selectionText = window.getSelection ? String(window.getSelection()) : '';
             if (selectionText && selectionText.trim().length > 0) {
                 debugGesture('selectionchange', { selectionText: selectionText });
+                updateSelectionAction();
+            } else if (selectionState) {
+                hideSelectionAction();
             }
         });
 
@@ -777,10 +1673,10 @@ internal fun presetResultInteractionJavascript(): String {
         const RESIZE_ZONE_PX = 48;
         const DRAG_GAIN = 2.25;
         const RESIZE_GAIN = 1.85;
-        const SELECTION_GUARD_MS = 260;
         const INERTIA_MIN_VELOCITY = 0.15;
         const INERTIA_FRICTION = 0.92;
         let inertiaFrame = null;
+        ${presetResultSelectionJavascriptHelpers()}
 
         function postJson(payload) {
             window.ipc.postMessage(JSON.stringify(payload));
@@ -885,7 +1781,13 @@ internal fun presetResultInteractionJavascript(): String {
             }
             const computed = window.getComputedStyle(element);
             const userSelect = computed.userSelect || computed.webkitUserSelect || '';
-            return userSelect !== 'none' && text.length <= 80;
+            if (userSelect === 'none') {
+                return false;
+            }
+            if (element === document.body || element === document.documentElement) {
+                return false;
+            }
+            return true;
         }
 
         function findScrollableContainer(target) {
@@ -1007,11 +1909,16 @@ internal fun presetResultInteractionJavascript(): String {
             }
         }, true);
 
+        document.addEventListener('dragstart', event => {
+            event.preventDefault();
+        }, true);
+
         document.addEventListener('touchstart', event => {
             if (event.touches.length > 1) {
                 dragState = null;
                 resizeState = null;
                 pendingStart = null;
+                selectionGestureActive = false;
                 clearHoldTimer();
                 startTwoFingerScroll(event);
                 debugGesture('touchstart_multi', { touches: event.touches.length });
@@ -1023,9 +1930,27 @@ internal fun presetResultInteractionJavascript(): String {
             stopInertiaScroll();
             twoFingerScrollState = null;
             const target = normalizeTarget(event.target);
+            const handle = target && target.closest && target.closest('.sgt-selection-handle');
             const interactive = target && target.closest && target.closest('a, button, input, textarea, select, canvas');
             const resizeCorner = detectResizeCorner(point.clientX, point.clientY);
+            if (handle) {
+                selectionHandleDrag = handle.dataset.kind || null;
+                selectionGestureActive = true;
+                selectionHandleFixedPoint = selectionHandleDrag === 'start'
+                    ? (selectionState && selectionState.focus ? selectionState.focus : null)
+                    : (selectionState && selectionState.anchor ? selectionState.anchor : null);
+                pendingStart = null;
+                clearHoldTimer();
+                activateWindow();
+                debugGesture('touchstart_selection_handle', {
+                    handle: selectionHandleDrag,
+                    selectedText: currentSelectedText()
+                });
+                if (event.cancelable) event.preventDefault();
+                return;
+            }
             if (resizeCorner) {
+                clearCustomSelection(true);
                 resizeState = { corner: resizeCorner, x: point.screenX, y: point.screenY };
                 pendingStart = null;
                 clearHoldTimer();
@@ -1039,6 +1964,9 @@ internal fun presetResultInteractionJavascript(): String {
                 return;
             }
             if (interactive) {
+                if (!(target && target.closest && target.closest('.sgt-selection-action'))) {
+                    clearCustomSelection(false);
+                }
                 pendingStart = null;
                 clearHoldTimer();
                 debugGesture('touchstart_interactive', {
@@ -1046,14 +1974,22 @@ internal fun presetResultInteractionJavascript(): String {
                 });
                 return;
             }
+            if (selectionState && !(target && target.closest && target.closest('.sgt-selection-action'))) {
+                clearCustomSelection(false);
+            }
             const selectionTarget = isSelectionTarget(target);
             pendingStart = {
                 x: point.screenX,
+                clientX: point.clientX,
+                clientY: point.clientY,
                 y: point.screenY,
                 selectionTarget: selectionTarget,
                 startedAt: Date.now(),
             };
             clearHoldTimer();
+            if (selectionTarget) {
+                scheduleCustomSelection(point.clientX, point.clientY);
+            }
             debugGesture('touchstart_pending', {
                 x: Math.round(point.screenX),
                 y: Math.round(point.screenY),
@@ -1073,6 +2009,7 @@ internal fun presetResultInteractionJavascript(): String {
                 return;
             }
             const point = touchPoint(event);
+            const target = normalizeTarget(event.target);
             if (resizeState) {
                 const dx = Math.round((point.screenX - resizeState.x) * RESIZE_GAIN);
                 const dy = Math.round((point.screenY - resizeState.y) * RESIZE_GAIN);
@@ -1086,25 +2023,23 @@ internal fun presetResultInteractionJavascript(): String {
                 }
                 return;
             }
+            if (selectionHandleDrag) {
+                scheduleHandleUpdate(point.clientX, point.clientY);
+                if (event.cancelable) event.preventDefault();
+                return;
+            }
+            if (selectionState && selectionGestureActive && !(target && target.closest && target.closest('.sgt-selection-action'))) {
+                if (updateCustomSelection(point.clientX, point.clientY)) {
+                    if (event.cancelable) event.preventDefault();
+                }
+                return;
+            }
             if (!pendingStart && !dragState) return;
             const movedEnough = pendingStart &&
                 (Math.abs(point.screenX - pendingStart.x) > DRAG_THRESHOLD_PX || Math.abs(point.screenY - pendingStart.y) > DRAG_THRESHOLD_PX);
             if (!dragState && movedEnough) {
                 clearHoldTimer();
-                if (pendingStart.selectionTarget && hasActiveSelection()) {
-                    debugGesture('touchmove_selection_active', {
-                        selectionText: window.getSelection ? String(window.getSelection()) : ''
-                    });
-                    pendingStart = null;
-                    return;
-                }
-                if (pendingStart.selectionTarget && (Date.now() - pendingStart.startedAt) >= SELECTION_GUARD_MS) {
-                    debugGesture('touchmove_selection_guard', {
-                        heldMs: Date.now() - pendingStart.startedAt
-                    });
-                    pendingStart = null;
-                    return;
-                }
+                clearCustomSelection(true);
                 debugGesture('touchmove_begin_drag', {
                     dx: Math.round(point.screenX - pendingStart.x),
                     dy: Math.round(point.screenY - pendingStart.y),
@@ -1134,6 +2069,14 @@ internal fun presetResultInteractionJavascript(): String {
             } else if (resizeState) {
                 debugGesture('touchend_resize', { corner: resizeState.corner });
                 postJson({ type: 'resizeResultWindowEnd', windowId: activeWindowId });
+            } else if (selectionState) {
+                selectionGestureActive = false;
+                selectionHandleDrag = null;
+                selectionHandleFixedPoint = null;
+                updateSelectionAction();
+                debugGesture('touchend_selection', {
+                    selectionText: currentSelectedText()
+                });
             } else {
                 debugGesture('touchend_idle', {
                     selectionText: window.getSelection ? String(window.getSelection()) : ''
@@ -1157,12 +2100,24 @@ internal fun presetResultInteractionJavascript(): String {
             pendingStart = null;
             twoFingerScrollState = null;
             clearHoldTimer();
+            if (selectionState) {
+                selectionGestureActive = false;
+                selectionHandleDrag = null;
+                selectionHandleFixedPoint = null;
+                updateSelectionAction();
+            }
         }, { passive: true });
 
         document.addEventListener('selectionchange', () => {
+            if (selectionHandleDrag) {
+                return;
+            }
             const selectionText = window.getSelection ? String(window.getSelection()) : '';
             if (selectionText && selectionText.trim().length > 0) {
                 debugGesture('selectionchange', { selectionText: selectionText });
+                updateSelectionAction();
+            } else if (selectionState) {
+                hideSelectionAction();
             }
         });
 
