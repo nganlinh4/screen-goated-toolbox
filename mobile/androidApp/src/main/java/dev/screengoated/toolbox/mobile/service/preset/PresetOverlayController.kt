@@ -680,6 +680,68 @@ internal class PresetOverlayController(
                         append(payload.optString("selectionTarget"))
                         append(" selection=")
                         append(payload.optString("selectionText"))
+                        append(" keep=")
+                        append(payload.optString("keepTextSelection"))
+                        append(" point=(")
+                        append(payload.optString("clientX"))
+                        append(",")
+                        append(payload.optString("clientY"))
+                        append(")")
+                        append(" delay=")
+                        append(payload.optString("delayMs"))
+                        append(" error=")
+                        append(payload.optString("error"))
+                        append(" scroll=(")
+                        append(payload.optString("scrollX"))
+                        append(",")
+                        append(payload.optString("scrollY"))
+                        append(")")
+                        append(" start=(")
+                        append(payload.optString("startLeft"))
+                        append(",")
+                        append(payload.optString("startTop"))
+                        append("..")
+                        append(payload.optString("startBottom"))
+                        append(")")
+                        append(" end=(")
+                        append(payload.optString("endLeft"))
+                        append(",")
+                        append(payload.optString("endTop"))
+                        append("..")
+                        append(payload.optString("endBottom"))
+                        append(")")
+                        if (payload.has("candidatePoint")) {
+                            append(" candidate=")
+                            append(payload.opt("candidatePoint"))
+                        }
+                        if (payload.has("fixedPoint")) {
+                            append(" fixed=")
+                            append(payload.opt("fixedPoint"))
+                        }
+                        if (payload.has("nextAnchor")) {
+                            append(" nextAnchor=")
+                            append(payload.opt("nextAnchor"))
+                        }
+                        if (payload.has("nextFocus")) {
+                            append(" nextFocus=")
+                            append(payload.opt("nextFocus"))
+                        }
+                        if (payload.has("anchorPoint")) {
+                            append(" anchor=")
+                            append(payload.opt("anchorPoint"))
+                        }
+                        if (payload.has("focusPoint")) {
+                            append(" focus=")
+                            append(payload.opt("focusPoint"))
+                        }
+                        if (payload.has("rangeStart")) {
+                            append(" rangeStart=")
+                            append(payload.opt("rangeStart"))
+                        }
+                        if (payload.has("rangeEnd")) {
+                            append(" rangeEnd=")
+                            append(payload.opt("rangeEnd"))
+                        }
                     },
                 )
             }
@@ -746,6 +808,16 @@ internal class PresetOverlayController(
                         maxNavDepth = payload.optInt("maxNavDepth", runtime.maxNavDepth),
                         isBrowsing = payload.optBoolean("isBrowsing", runtime.isBrowsing),
                     )
+                }
+                setActiveResultWindow(id)
+            }
+            "copySelectedText" -> {
+                val text = payload.optString("text").trim()
+                if (text.isNotEmpty()) {
+                    clipboardManager.setPrimaryClip(
+                        ClipData.newPlainText("preset_result_selection", text),
+                    )
+                    Toast.makeText(context, copyStatusText(), Toast.LENGTH_SHORT).show()
                 }
                 setActiveResultWindow(id)
             }

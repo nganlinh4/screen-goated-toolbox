@@ -117,13 +117,22 @@ private val WIRE_DRAG_COLOR = Color(0xFFFFAB40)
 
 /**
  * BFS-based layer layout matching the Windows `blocks_to_snarl` algorithm.
- * Each layer is vertically centered around [LAYOUT_CENTER_Y].
+ * Each layer is vertically centered. Spacing is proportional to actual node size.
+ *
+ * @param nodeWidthPx  actual node card width in px
+ * @param nodeHeightPx estimated node card height in px
  */
 internal fun bfsLayout(
     nodes: List<NodePosition>,
     connections: List<Connection>,
+    nodeWidthPx: Float,
+    nodeHeightPx: Float,
 ): List<NodePosition> {
     if (nodes.isEmpty()) return nodes
+
+    val spacingX = nodeWidthPx * (1f + LAYOUT_GAP_X_RATIO)
+    val spacingY = nodeHeightPx * (1f + LAYOUT_GAP_Y_RATIO)
+    val startX = nodeWidthPx * 0.15f
 
     // Build adjacency
     val adjacency = mutableMapOf<String, MutableList<String>>()
@@ -153,32 +162,33 @@ internal fun bfsLayout(
 
     // Group by layer
     val layerNodes = mutableMapOf<Int, MutableList<NodePosition>>()
-    val posMap = mutableMapOf<String, Offset>()
-
     nodes.forEach { node ->
         val depth = depthOf[node.id] ?: 0
         layerNodes.getOrPut(depth) { mutableListOf() }.add(node)
     }
 
-    // Assign positions — each layer vertically centered around LAYOUT_CENTER_Y
+    // Find total height to center everything
+    val maxLayerCount = layerNodes.values.maxOfOrNull { it.size } ?: 1
+    val centerY = (maxLayerCount * spacingY) / 2f
+
+    val posMap = mutableMapOf<String, Offset>()
+
+    // Assign positions — each layer vertically centered
     for ((depth, nodesInLayer) in layerNodes) {
         val count = nodesInLayer.size
-        val layerHeight = count.toFloat() * LAYOUT_SPACING_Y
-        val layerStartY = LAYOUT_CENTER_Y - (layerHeight / 2f) + (LAYOUT_SPACING_Y / 2f)
+        val layerHeight = count * spacingY
+        val layerStartY = centerY - layerHeight / 2f + spacingY / 2f - nodeHeightPx / 2f
 
         nodesInLayer.forEachIndexed { i, node ->
-            val x = LAYOUT_START_X + depth.toFloat() * LAYOUT_SPACING_X
-            val y = layerStartY + i.toFloat() * LAYOUT_SPACING_Y
+            val x = startX + depth * spacingX
+            val y = layerStartY + i * spacingY
             posMap[node.id] = Offset(x, y)
         }
     }
 
     // Fallback for unreachable nodes
     nodes.filter { it.id !in visited }.forEachIndexed { i, node ->
-        posMap[node.id] = Offset(
-            LAYOUT_START_X + i * LAYOUT_SPACING_X,
-            LAYOUT_CENTER_Y + 300f,
-        )
+        posMap[node.id] = Offset(startX + i * spacingX, centerY + spacingY * 2f)
     }
 
     return nodes.map { node ->
@@ -463,8 +473,12 @@ fun NodeGraphCanvas(
     val needsBfsLayout = remember(nodeIds) {
         state.nodes.all { it.x == 0f && it.y == 0f } && state.nodes.isNotEmpty()
     }
-    val bfsNodes = remember(nodeIds, state.connections) {
-        if (needsBfsLayout) bfsLayout(state.nodes, state.connections) else state.nodes
+    val bfsNodes = remember(nodeIds, state.connections, nodeWidthPx) {
+        if (needsBfsLayout) {
+            bfsLayout(state.nodes, state.connections, nodeWidthPx, DEFAULT_NODE_HEIGHT_PX)
+        } else {
+            state.nodes
+        }
     }
     bfsNodes.forEach { node ->
         if (node.id !in positions) {
