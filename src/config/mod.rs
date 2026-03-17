@@ -20,7 +20,7 @@
 //! let preset = PresetBuilder::new("my_preset", "My Preset")
 //!     .image()
 //!     .blocks(vec![
-//!         BlockBuilder::image("gemini-3.1-flash-lite-preview")
+//!         BlockBuilder::image(crate::model_config::DEFAULT_IMAGE_MODEL_ID)
 //!             .prompt("Extract text.")
 //!             .language("Vietnamese")
 //!             .build()

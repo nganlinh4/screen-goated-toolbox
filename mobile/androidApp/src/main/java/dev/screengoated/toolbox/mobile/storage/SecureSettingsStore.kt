@@ -8,6 +8,7 @@ import androidx.security.crypto.MasterKey
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
+import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.model.RealtimePaneFontSizes
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.service.tts.CachedEdgeVoiceCatalog
@@ -90,6 +91,22 @@ class SecureSettingsStore(
             .apply()
     }
 
+    fun loadPresetRuntimeSettings(): PresetRuntimeSettings {
+        val payload = prefs.getString(KEY_PRESET_RUNTIME_SETTINGS, null) ?: return PresetRuntimeSettings()
+        return runCatching {
+            json.decodeFromString<PresetRuntimeSettings>(payload)
+        }.getOrDefault(PresetRuntimeSettings())
+    }
+
+    fun savePresetRuntimeSettings(settings: PresetRuntimeSettings) {
+        prefs.edit()
+            .putString(
+                KEY_PRESET_RUNTIME_SETTINGS,
+                json.encodeToString(PresetRuntimeSettings.serializer(), settings),
+            )
+            .apply()
+    }
+
     fun loadPaneFontSizes(): RealtimePaneFontSizes {
         return RealtimePaneFontSizes(
             transcriptionSp = prefs.getInt(KEY_TRANSCRIPTION_FONT_SIZE, 16),
@@ -169,6 +186,7 @@ class SecureSettingsStore(
         private const val KEY_GROQ_API_KEY = "groq_api_key"
         private const val KEY_OPENROUTER_API_KEY = "openrouter_api_key"
         private const val KEY_OLLAMA_URL = "ollama_url"
+        private const val KEY_PRESET_RUNTIME_SETTINGS = "preset_runtime_settings"
         private const val KEY_TRANSCRIPTION_FONT_SIZE = "transcription_font_size"
         private const val KEY_TRANSLATION_FONT_SIZE = "translation_font_size"
         private const val KEY_TTS_ENABLED = "realtime_tts_enabled"

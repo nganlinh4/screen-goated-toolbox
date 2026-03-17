@@ -72,6 +72,7 @@ class AppContainer(
                 ollamaBaseUrl = repository.currentOllamaUrl(),
             )
         },
+        runtimeSettings = { settingsStore.loadPresetRuntimeSettings() },
         uiLanguage = { repository.currentUiPreferences().uiLanguage },
         overrideStore = presetPersistence,
     )

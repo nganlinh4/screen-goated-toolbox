@@ -70,6 +70,7 @@ class PresetOverlayHtmlTest {
         assertTrue(js.contains("applyStreamingResultState"))
         assertTrue(js.contains("applyFinalResultState"))
         assertTrue(js.contains("window.applyResultState"))
+        assertTrue(js.contains("if (data.loading)"))
         assertTrue(js.contains("document.body.innerHTML = data.html || ''"))
         assertTrue(js.contains("window._streamWordCount = newWordCount"))
         assertTrue(js.contains("window._streamRenderCount = prevRenderCount + 1"))

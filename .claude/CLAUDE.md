@@ -77,6 +77,13 @@ cargo test               # Run tests
   - build Android HTML from those assets with a thin platform bridge/shim only
   - do not hand-redesign or “mobile simplify” the overlay chrome, motion, spacing, or DOM structure unless the parity spec explicitly allows it
 - Do not create ad hoc Android overlay assets for a Windows WebView feature when the Windows web contract can be shared, extracted, or ported verbatim.
+- If an Android parity port grows around simplified, guessed, or hand-maintained core logic that diverges from the Windows state model, stop patching it incrementally.
+- In that case, prefer a deliberate rewrite from the canonical Windows architecture over preserving compatibility with faulty Android glue.
+- Treat these as rewrite triggers:
+  - Android files that become large monoliths because they absorbed multiple Windows modules/state machines into one class
+  - repeated bug-fixing in the same parity area without converging on the Windows behavior model
+  - Android-owned request/overlay/runtime logic that duplicates Windows rules instead of generating or porting them from the canonical source
+- The goal for parity work is lower future wrestling, not short-term patch count. A smaller rewrite that restores the Windows architecture is preferred over stacking more fixes onto a bad port.
 
 ## Model Catalog Workflow
 - **Adding/editing/removing a model** — use `/manage-model-catalog` (see `.claude/commands/manage-model-catalog.md`)

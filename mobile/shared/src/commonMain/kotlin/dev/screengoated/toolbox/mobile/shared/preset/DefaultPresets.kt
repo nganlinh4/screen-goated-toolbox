@@ -10,6 +10,9 @@ package dev.screengoated.toolbox.mobile.shared.preset
  * Localized names come from `src/gui/settings_ui/sidebar.rs`
  * (`get_localized_preset_name`).
  */
+/** Default image-to-text model ID — mirrors `DEFAULT_IMAGE_MODEL_ID` in Rust `model_config.rs`. */
+const val DEFAULT_IMAGE_MODEL_ID = "scout"
+
 object DefaultPresets {
 
     // =====================================================================
@@ -28,7 +31,7 @@ object DefaultPresets {
             isUpcoming = true,
             blocks = listOf(
                 imageBlock(
-                    "gemini-3.1-flash-lite-preview",
+                    DEFAULT_IMAGE_MODEL_ID,
                     "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.",
                     "language1" to "Vietnamese",
                 ),
@@ -44,7 +47,7 @@ object DefaultPresets {
             isUpcoming = true,
             blocks = listOf(
                 imageBlock(
-                    "gemini-3.1-flash-lite-preview",
+                    DEFAULT_IMAGE_MODEL_ID,
                     "Extract all text from this image exactly as it appears. Output ONLY the text.",
                     "language1" to "English",
                 ).copy(showOverlay = false),
@@ -66,7 +69,7 @@ object DefaultPresets {
             isUpcoming = true,
             blocks = listOf(
                 imageBlock(
-                    "gemini-3.1-flash-lite-preview",
+                    DEFAULT_IMAGE_MODEL_ID,
                     "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.",
                     "language1" to "Vietnamese",
                 ).copy(showOverlay = false, autoCopy = true),
@@ -82,7 +85,7 @@ object DefaultPresets {
             isUpcoming = true,
             blocks = listOf(
                 imageBlock(
-                    "gemini-3.1-flash-lite-preview",
+                    DEFAULT_IMAGE_MODEL_ID,
                     "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.",
                     "language1" to "Korean",
                 ).copy(renderMode = "markdown", autoCopy = true),
@@ -103,7 +106,7 @@ object DefaultPresets {
             isUpcoming = true,
             blocks = listOf(
                 imageBlock(
-                    "gemini-3.1-flash-lite-preview",
+                    DEFAULT_IMAGE_MODEL_ID,
                     "Extract all text from this image exactly as it appears. Output ONLY the text.",
                     "language1" to "English",
                 ).copy(showOverlay = false),
@@ -131,7 +134,7 @@ object DefaultPresets {
             isUpcoming = true,
             blocks = listOf(
                 imageBlock(
-                    "gemini-3.1-flash-lite-preview",
+                    DEFAULT_IMAGE_MODEL_ID,
                     "Extract all text from this image exactly as it appears. Output ONLY the text.",
                     "language1" to "English",
                 ).copy(showOverlay = false, renderMode = "markdown", autoCopy = true),
@@ -147,7 +150,7 @@ object DefaultPresets {
             isUpcoming = true,
             blocks = listOf(
                 imageBlock(
-                    "gemini-3.1-flash-lite-preview",
+                    DEFAULT_IMAGE_MODEL_ID,
                     "Extract all text from this image exactly as it appears. Output ONLY the text.",
                     "language1" to "English",
                 ).copy(showOverlay = false, renderMode = "markdown", autoSpeak = true),
@@ -175,7 +178,7 @@ object DefaultPresets {
             isUpcoming = true,
             blocks = listOf(
                 imageBlock(
-                    "gemini-3.1-flash-lite-preview",
+                    DEFAULT_IMAGE_MODEL_ID,
                     "Extract all data from any tables, forms, or structured content in this image. Format the output as a markdown table. Output ONLY the table, no explanations.",
                     "language1" to "Vietnamese",
                 ).copy(renderMode = "markdown", autoCopy = true),
@@ -220,7 +223,7 @@ object DefaultPresets {
             isUpcoming = true,
             blocks = listOf(
                 imageBlock(
-                    "gemini-3.1-flash-lite-preview",
+                    DEFAULT_IMAGE_MODEL_ID,
                     "Analyze this image and summarize its content in {language1}. Only return the summary text, super concisely. Format the output as a markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.",
                     "language1" to "Vietnamese",
                 ),
@@ -236,7 +239,7 @@ object DefaultPresets {
             isUpcoming = true,
             blocks = listOf(
                 imageBlock(
-                    "gemini-3.1-flash-lite-preview",
+                    DEFAULT_IMAGE_MODEL_ID,
                     "Describe this image in {language1}. Format the output as a markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.",
                     "language1" to "Vietnamese",
                 ),
@@ -271,7 +274,7 @@ object DefaultPresets {
             isUpcoming = true,
             blocks = listOf(
                 imageBlock(
-                    "gemini-3.1-flash-lite-preview",
+                    DEFAULT_IMAGE_MODEL_ID,
                     "Extract and describe all text, claims, statements, and information visible in this image. Include any context that might be relevant for fact-checking. Output the content clearly.",
                     "language1" to "Vietnamese",
                 ).copy(showOverlay = false),
@@ -293,7 +296,7 @@ object DefaultPresets {
             blocks = listOf(
                 // Node 0: Extract from image
                 imageBlock(
-                    "gemini-3.1-flash-lite-preview",
+                    DEFAULT_IMAGE_MODEL_ID,
                     "Analyze this image and extract all text, claims, and key information. Be detailed and comprehensive.",
                     "language1" to "English",
                 ).copy(renderMode = "markdown"),

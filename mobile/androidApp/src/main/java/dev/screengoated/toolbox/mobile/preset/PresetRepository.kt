@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 class PresetRepository(
     private val textApiClient: TextApiClient,
     private val apiKeys: () -> ApiKeys,
+    private val runtimeSettings: () -> PresetRuntimeSettings,
     private val uiLanguage: () -> String,
     private val overrideStore: PresetOverrideStore,
     mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
@@ -194,19 +195,68 @@ class PresetRepository(
             edges = normalizedEdges,
         )
         val outputs = mutableMapOf<Int, String>()
-        val overlayIndexes = executionOrder
-            .filter { index ->
-                val block = preset.blocks[index]
-                block.blockType == BlockType.TEXT &&
-                    block.showOverlay &&
-                    block.renderMode in SUPPORTED_MARKDOWN_RENDER_MODES
+        val overlayIndexes = executionOrder.filter { index ->
+            val block = preset.blocks[index]
+            if (!block.showOverlay) {
+                return@filter false
             }
+            when (block.blockType) {
+                BlockType.TEXT ->
+                    block.renderMode in SUPPORTED_MARKDOWN_RENDER_MODES
+                BlockType.INPUT_ADAPTER -> true
+                else -> false
+            }
+        }
         val overlayOrder = overlayIndexes.withIndex().associate { it.value to it.index }
+
+        overlayIndexes.forEach { index ->
+            val block = preset.blocks[index]
+            val resultWindowId = PresetResultWindowId(sessionId = sessionId, blockIdx = index)
+            val initialText = if (block.blockType == BlockType.INPUT_ADAPTER) inputText else ""
+            val initialLoading = block.blockType != BlockType.INPUT_ADAPTER
+            _executionState.update {
+                it.withWindowState(
+                    PresetResultWindowState(
+                        id = resultWindowId,
+                        blockIdx = index,
+                        title = preset.nameEn,
+                        markdownText = initialText,
+                        isLoading = initialLoading,
+                        loadingStatusText = if (initialLoading) loadingStatusText() else null,
+                        isStreaming = false,
+                        renderMode = if (block.blockType == BlockType.INPUT_ADAPTER) "markdown" else block.renderMode,
+                        overlayOrder = overlayOrder.getOrElse(index) { 0 },
+                    ),
+                )
+            }
+        }
 
         executionOrder.forEach { index ->
             val block = preset.blocks[index]
+            val shouldSurfaceOverlay = index in overlayOrder
             when (block.blockType) {
-                BlockType.INPUT_ADAPTER -> outputs[index] = inputText
+                BlockType.INPUT_ADAPTER -> {
+                    outputs[index] = inputText
+                    if (shouldSurfaceOverlay) {
+                        val resultWindowId =
+                            PresetResultWindowId(sessionId = sessionId, blockIdx = index)
+                        _executionState.update {
+                            it.withWindowState(
+                                PresetResultWindowState(
+                                    id = resultWindowId,
+                                    blockIdx = index,
+                                    title = preset.nameEn,
+                                    markdownText = inputText,
+                                    isLoading = false,
+                                    loadingStatusText = null,
+                                    isStreaming = false,
+                                    renderMode = "markdown",
+                                    overlayOrder = overlayOrder.getOrElse(index) { 0 },
+                                ),
+                            )
+                        }
+                    }
+                }
                 BlockType.TEXT -> {
                     val sourceText = incoming[index]
                         .mapNotNull(outputs::get)
@@ -216,41 +266,148 @@ class PresetRepository(
 
                     val blockBuffer = StringBuilder()
                     val resultWindowId = PresetResultWindowId(sessionId = sessionId, blockIdx = index)
-                    val shouldSurfaceOverlay = index in overlayOrder
-                    val shouldSurfaceStreaming = shouldSurfaceOverlay && !block.requestsHtmlOutput()
-                    val result = textApiClient.executeStreaming(
-                        modelId = block.model,
-                        prompt = block.resolvePrompt(),
-                        inputText = sourceText,
-                        apiKeys = apiKeys(),
-                        uiLanguage = uiLanguage(),
-                        searchLabel = preset.name(uiLanguage()),
-                        onChunk = { chunk ->
-                            if (chunk.startsWith(TextApiClient.WIPE_SIGNAL)) {
-                                blockBuffer.clear()
-                                blockBuffer.append(chunk.removePrefix(TextApiClient.WIPE_SIGNAL))
-                            } else {
-                                blockBuffer.append(chunk)
+                    val actualStreamingEnabled = if (block.renderMode == "markdown") {
+                        false
+                    } else {
+                        block.streamingEnabled
+                    }
+                    val shouldSurfaceStreaming =
+                        shouldSurfaceOverlay &&
+                            actualStreamingEnabled &&
+                            !block.requestsHtmlOutput()
+                    val retryChainKind = retryChainKindForBlockType(block.blockType)
+                        ?.takeUnless { PresetModelCatalog.isNonLlm(block.model) }
+                    var currentModelId = block.model
+                    val failedModelIds = mutableListOf<String>()
+                    val blockedProviders = linkedSetOf<PresetModelProvider>()
+                    val currentApiKeys = apiKeys()
+                    val currentRuntimeSettings = runtimeSettings()
+                    var result: String? = null
+                    while (result == null) {
+                        val descriptor = PresetModelCatalog.getById(currentModelId)
+                            ?: error("Unknown model config: $currentModelId")
+
+                        val preflight = preflightSkipReason(
+                            modelId = currentModelId,
+                            provider = descriptor.provider,
+                            apiKeys = currentApiKeys,
+                            blockedProviders = blockedProviders,
+                            settings = currentRuntimeSettings,
+                        )
+                        if (preflight != null) {
+                            if (shouldBlockRetryProvider(preflight)) {
+                                blockedProviders += descriptor.provider
                             }
-                            if (shouldSurfaceStreaming) {
+                            failedModelIds += currentModelId
+                            val next = resolveNextRetryModel(
+                                currentModelId = currentModelId,
+                                failedModelIds = failedModelIds,
+                                blockedProviders = blockedProviders,
+                                chainKind = retryChainKind ?: throw IllegalStateException(preflight),
+                                apiKeys = currentApiKeys,
+                                settings = currentRuntimeSettings,
+                            ) ?: throw IllegalStateException(preflight)
+                            currentModelId = next.id
+                            if (shouldSurfaceOverlay) {
                                 _executionState.update {
                                     it.withWindowState(
                                         PresetResultWindowState(
                                             id = resultWindowId,
                                             blockIdx = index,
                                             title = preset.nameEn,
-                                            markdownText = blockBuffer.toString(),
-                                            isStreaming = true,
+                                            markdownText = "",
+                                            isLoading = true,
+                                            loadingStatusText = retryStatusText(next.fullName),
+                                            isStreaming = false,
                                             renderMode = block.renderMode,
                                             overlayOrder = overlayOrder.getValue(index),
                                         ),
                                     )
                                 }
                             }
-                        },
-                    ).getOrThrow()
+                            continue
+                        }
 
-                    outputs[index] = result
+                        val attempt = textApiClient.executeStreaming(
+                            modelId = currentModelId,
+                            prompt = block.resolvePrompt(),
+                            inputText = sourceText,
+                            apiKeys = currentApiKeys,
+                            uiLanguage = uiLanguage(),
+                            searchLabel = preset.name(uiLanguage()),
+                            streamingEnabled = actualStreamingEnabled,
+                            onChunk = { chunk ->
+                                if (chunk.startsWith(TextApiClient.WIPE_SIGNAL)) {
+                                    blockBuffer.clear()
+                                    blockBuffer.append(chunk.removePrefix(TextApiClient.WIPE_SIGNAL))
+                                } else {
+                                    blockBuffer.append(chunk)
+                                }
+                                if (shouldSurfaceStreaming) {
+                                    _executionState.update {
+                                        it.withWindowState(
+                                            PresetResultWindowState(
+                                                id = resultWindowId,
+                                                blockIdx = index,
+                                                title = preset.nameEn,
+                                                markdownText = blockBuffer.toString(),
+                                                isLoading = false,
+                                                loadingStatusText = null,
+                                                isStreaming = true,
+                                                renderMode = block.renderMode,
+                                                overlayOrder = overlayOrder.getValue(index),
+                                            ),
+                                        )
+                                    }
+                                }
+                            },
+                        )
+
+                        val error = attempt.exceptionOrNull()
+                        if (error != null) {
+                            val message = error.message ?: "Execution failed"
+                            if (!shouldAdvanceRetryChain(message)) {
+                                throw error
+                            }
+                            if (shouldBlockRetryProvider(message)) {
+                                blockedProviders += descriptor.provider
+                            }
+                            failedModelIds += currentModelId
+                            val next = resolveNextRetryModel(
+                                currentModelId = currentModelId,
+                                failedModelIds = failedModelIds,
+                                blockedProviders = blockedProviders,
+                                chainKind = retryChainKind ?: throw error,
+                                apiKeys = currentApiKeys,
+                                settings = currentRuntimeSettings,
+                            ) ?: throw error
+                            currentModelId = next.id
+                            blockBuffer.clear()
+                            if (shouldSurfaceOverlay) {
+                                _executionState.update {
+                                    it.withWindowState(
+                                        PresetResultWindowState(
+                                            id = resultWindowId,
+                                            blockIdx = index,
+                                            title = preset.nameEn,
+                                            markdownText = "",
+                                            isLoading = true,
+                                            loadingStatusText = retryStatusText(next.fullName),
+                                            isStreaming = false,
+                                            renderMode = block.renderMode,
+                                            overlayOrder = overlayOrder.getValue(index),
+                                        ),
+                                    )
+                                }
+                            }
+                            continue
+                        }
+
+                        result = attempt.getOrThrow()
+                    }
+
+                    val finalResult = requireNotNull(result)
+                    outputs[index] = finalResult
                     if (shouldSurfaceOverlay) {
                         _executionState.update {
                             it.withWindowState(
@@ -258,7 +415,9 @@ class PresetRepository(
                                     id = resultWindowId,
                                     blockIdx = index,
                                     title = preset.nameEn,
-                                    markdownText = result,
+                                    markdownText = finalResult,
+                                    isLoading = false,
+                                    loadingStatusText = null,
                                     isStreaming = false,
                                     renderMode = block.renderMode,
                                     overlayOrder = overlayOrder.getValue(index),
@@ -270,6 +429,18 @@ class PresetRepository(
                 else -> error("Non-text block execution is not ready on Android yet.")
             }
         }
+    }
+
+    private fun loadingStatusText(): String = when (uiLanguage()) {
+        "vi" -> "Đang tải"
+        "ko" -> "로딩"
+        else -> "Loading"
+    }
+
+    private fun retryStatusText(modelName: String): String = when (uiLanguage()) {
+        "vi" -> "(Đang thử lại $modelName...)"
+        "ko" -> "($modelName 재시도 중...)"
+        else -> "(Retrying $modelName...)"
     }
 
     private fun resolveExecutionCapability(preset: Preset): PresetExecutionCapability {
@@ -302,7 +473,11 @@ class PresetRepository(
     }
 
     private fun resolveTextInputCapability(preset: Preset): PresetExecutionCapability {
-        if (preset.blocks.none { it.blockType == BlockType.TEXT }) {
+        val hasTextBlocks = preset.blocks.any { it.blockType == BlockType.TEXT }
+        val hasInputAdapterOverlay = preset.blocks.any {
+            it.blockType == BlockType.INPUT_ADAPTER && it.showOverlay
+        }
+        if (!hasTextBlocks && !hasInputAdapterOverlay) {
             return PresetExecutionCapability(
                 supported = false,
                 reason = PresetPlaceholderReason.TEXT_INPUT_OVERLAY_NOT_READY,

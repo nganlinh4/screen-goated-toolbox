@@ -30,6 +30,8 @@ The default rule is hard parity: mobile follows the Windows behavior contract un
 - Do not collapse committed/uncommitted or pending/final states if the Windows feature keeps them separate.
 - Do not replace a chunk-based pipeline with whole-buffer replacement.
 - Do not leave parity assumptions implicit. If behavior differs, document it in the feature spec first.
+- If the current Android implementation is already a simplified or hand-maintained core port that diverges from the Windows architecture, do not preserve it out of convenience.
+- Prefer rewriting the Android core around the Windows module/state-machine boundaries instead of stacking more fixes onto a bad parity port.
 
 ## Repo Files To Read
 

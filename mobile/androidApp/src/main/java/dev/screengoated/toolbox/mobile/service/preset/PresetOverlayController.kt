@@ -341,10 +341,11 @@ internal class PresetOverlayController(
         }
 
         closeInputWindow()
-        closeAllResults(resetExecution = false)
+        presetRepository.cancelExecution()
         presetRepository.resetState()
         activePreset = resolved
         activeResultWindowId = null
+        ensureCanvasWindow()
         openInputWindow(resolved)
         if (!closePanel) {
             onRequestBubbleFront()
@@ -364,6 +365,7 @@ internal class PresetOverlayController(
             onMessage = ::handleInputMessage,
         ).also { window ->
             window.show()
+            window.bringToFront(refocusIme = true)
             window.runScript("window.playEntry(); window.focusEditor();")
         }
     }
@@ -463,6 +465,7 @@ internal class PresetOverlayController(
                         blockIdx = 0,
                         title = activePreset?.preset?.name(uiLanguage()).orEmpty(),
                         markdownText = state.error,
+                        isLoading = false,
                         isStreaming = false,
                         isError = true,
                         renderMode = "markdown",
@@ -482,12 +485,15 @@ internal class PresetOverlayController(
 
         syncResultWindows(windowsToRender)
         ensureCanvasWindow()
+        inputWindow?.bringToFront(refocusIme = true)
     }
 
     private fun syncResultWindows(windowStates: List<PresetResultWindowState>) {
         val resolvedPreset = activePreset ?: return
+        val sessionId = windowStates.firstOrNull()?.id?.sessionId ?: return
         val targetIds = windowStates.map { it.id }.toSet()
         resultWindows.keys
+            .filter { it.sessionId == sessionId }
             .filterNot(targetIds::contains)
             .toList()
             .forEach { id ->
@@ -512,6 +518,7 @@ internal class PresetOverlayController(
             placed += PresetResultWindowPlacement(windowState.id, bounds)
             val active = ActivePresetResultWindow(
                 id = windowState.id,
+                presetId = resolvedPreset.preset.id,
                 runtimeState = runtime,
                 windowState = windowState,
                 window = window,
@@ -909,24 +916,29 @@ internal class PresetOverlayController(
         id: PresetResultWindowId,
         bounds: OverlayBounds,
     ) {
-        if (resultWindows.keys.firstOrNull() != id) {
+        val active = resultWindows[id] ?: return
+        if (active.windowState.overlayOrder != 0) {
             ensureCanvasWindow()
             return
         }
-        val presetId = activePreset?.preset?.id ?: return
         val geometry = WindowGeometry(
             x = bounds.x,
             y = bounds.y,
             width = bounds.width,
             height = bounds.height,
         )
-        presetRepository.updateBuiltInOverride(presetId) { preset ->
+        presetRepository.updateBuiltInOverride(active.presetId) { preset ->
             preset.copy(windowGeometry = geometry)
         }
     }
 
     private fun updateResultWindow(active: ActivePresetResultWindow) {
-        val rendered = if (active.windowState.isError) {
+        val rendered = if (active.windowState.isLoading) {
+            PresetRenderedContent(
+                html = loadingHtml(active.windowState.loadingStatusText ?: loadingStatusText()),
+                isRawHtmlDocument = false,
+            )
+        } else if (active.windowState.isError) {
             PresetRenderedContent(
                 html = errorHtml(active.windowState.markdownText),
                 isRawHtmlDocument = false,
@@ -1585,6 +1597,7 @@ internal class PresetOverlayController(
             x = ((screen.width() - width) / 2).coerceAtLeast(0),
             y = (screen.height() * 0.14f).roundToInt(),
             focusable = true,
+            showImeOnFocus = true,
             htmlContent = htmlContent,
             baseUrl = INPUT_WINDOW_BASE_URL,
         )
@@ -1781,8 +1794,13 @@ internal class PresetOverlayController(
         return "window.$functionName(${JSONObject.quote(jsonPayload)});"
     }
 
-    private fun loadingHtml(): String {
-        return "<p>${localized("Waiting for result...", "Đang đợi kết quả...", "결과를 기다리는 중...")}</p>"
+    private fun loadingHtml(statusText: String): String {
+        return """
+            <div class="sgt-loading-shell">
+                <div class="sgt-loading-indicator" aria-hidden="true"></div>
+                <div class="sgt-loading-label">${escapeHtml(statusText)}</div>
+            </div>
+        """.trimIndent()
     }
 
     private fun errorHtml(error: String): String {

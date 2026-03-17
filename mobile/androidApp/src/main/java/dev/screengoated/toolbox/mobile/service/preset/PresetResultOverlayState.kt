@@ -6,6 +6,7 @@ import dev.screengoated.toolbox.mobile.service.OverlayBounds
 
 internal data class ActivePresetResultWindow(
     val id: PresetResultWindowId,
+    val presetId: String,
     val runtimeState: PresetResultWindowRuntimeState,
     val windowState: PresetResultWindowState,
     val window: PresetOverlayWindow,

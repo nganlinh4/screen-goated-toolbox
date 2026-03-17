@@ -146,6 +146,7 @@ import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
+import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
@@ -690,6 +691,7 @@ internal fun SectionDetail(
     openRouterApiKey: String,
     ollamaUrl: String,
     globalTtsSettings: MobileGlobalTtsSettings,
+    presetRuntimeSettings: PresetRuntimeSettings,
     locale: MobileLocaleText,
     wideLayout: Boolean,
     onApiKeyChanged: (String) -> Unit,
@@ -697,6 +699,7 @@ internal fun SectionDetail(
     onGroqApiKeyChanged: (String) -> Unit,
     onOpenRouterApiKeyChanged: (String) -> Unit,
     onOllamaUrlChanged: (String) -> Unit,
+    onPresetRuntimeSettingsClick: () -> Unit,
     onVoiceSettingsClick: () -> Unit,
     onSessionToggle: () -> Unit,
     canToggle: Boolean,
@@ -734,6 +737,7 @@ internal fun SectionDetail(
             openRouterApiKey = openRouterApiKey,
             ollamaUrl = ollamaUrl,
             globalTtsSettings = globalTtsSettings,
+            presetRuntimeSettings = presetRuntimeSettings,
             locale = locale,
             wideLayout = wideLayout,
             onApiKeyChanged = onApiKeyChanged,
@@ -741,6 +745,7 @@ internal fun SectionDetail(
             onGroqApiKeyChanged = onGroqApiKeyChanged,
             onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
             onOllamaUrlChanged = onOllamaUrlChanged,
+            onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
             onVoiceSettingsClick = onVoiceSettingsClick,
         )
 
@@ -1738,6 +1743,7 @@ internal fun GlobalSection(
     openRouterApiKey: String,
     ollamaUrl: String,
     globalTtsSettings: MobileGlobalTtsSettings,
+    presetRuntimeSettings: PresetRuntimeSettings,
     locale: MobileLocaleText,
     wideLayout: Boolean,
     onApiKeyChanged: (String) -> Unit,
@@ -1745,6 +1751,7 @@ internal fun GlobalSection(
     onGroqApiKeyChanged: (String) -> Unit,
     onOpenRouterApiKeyChanged: (String) -> Unit,
     onOllamaUrlChanged: (String) -> Unit,
+    onPresetRuntimeSettingsClick: () -> Unit,
     onVoiceSettingsClick: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap)) {
@@ -1774,6 +1781,11 @@ internal fun GlobalSection(
                     modifier = Modifier.weight(0.85f),
                 )
             }
+            PresetRuntimeCard(
+                settings = presetRuntimeSettings,
+                locale = locale,
+                onClick = onPresetRuntimeSettingsClick,
+            )
         } else {
             CredentialsCard(
                 apiKey = apiKey,
@@ -1793,6 +1805,11 @@ internal fun GlobalSection(
                 globalTtsSettings = globalTtsSettings,
                 locale = locale,
                 onVoiceSettingsClick = onVoiceSettingsClick,
+            )
+            PresetRuntimeCard(
+                settings = presetRuntimeSettings,
+                locale = locale,
+                onClick = onPresetRuntimeSettingsClick,
             )
         }
         DownloadedToolsSection(locale = locale)

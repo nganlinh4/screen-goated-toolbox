@@ -75,6 +75,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
+import dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_IMAGE_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetType
 
@@ -741,7 +742,7 @@ private fun NodeGraphSection(
                                 else -> BlockType.TEXT
                             }
                             val defaultModel = when (editorTypeGroup) {
-                                EditorTypeGroup.IMAGE -> "gemini-3.1-flash-lite-preview"
+                                EditorTypeGroup.IMAGE -> DEFAULT_IMAGE_MODEL_ID
                                 EditorTypeGroup.AUDIO -> "whisper-accurate"
                                 else -> "cerebras_gpt_oss"
                             }

@@ -126,7 +126,7 @@ fn migrate_config(config: &mut Config) {
                     block.model = crate::model_config::DEFAULT_CEREBRAS_TEXT_MODEL_ID.to_string();
                 }
                 "maverick" => {
-                    block.model = "scout".to_string();
+                    block.model = crate::model_config::DEFAULT_IMAGE_MODEL_ID.to_string();
                 }
                 _ => {}
             }
@@ -139,8 +139,10 @@ fn migrate_config(config: &mut Config) {
         }
 
         for block in &mut preset.blocks {
-            if block.block_type == "image" && block.model == "scout" {
-                block.model = "gemini-3.1-flash-lite-preview".to_string();
+            if block.block_type == "image"
+                && block.model == "gemini-3.1-flash-lite-preview"
+            {
+                block.model = crate::model_config::DEFAULT_IMAGE_MODEL_ID.to_string();
             }
         }
     }
@@ -204,7 +206,7 @@ mod tests {
 
         assert_eq!(
             config.presets[0].blocks[0].model,
-            "gemini-3.1-flash-lite-preview"
+            crate::model_config::DEFAULT_IMAGE_MODEL_ID
         );
         assert_eq!(
             config.presets[1].blocks[0].model,
@@ -213,12 +215,12 @@ mod tests {
     }
 
     #[test]
-    fn migrate_config_updates_builtin_scout_image_blocks_only() {
+    fn migrate_config_updates_builtin_gemini_image_blocks_to_default() {
         let builtin = Preset {
             id: "preset_translate".to_string(),
             blocks: vec![ProcessingBlock {
                 block_type: "image".to_string(),
-                model: "scout".to_string(),
+                model: "gemini-3.1-flash-lite-preview".to_string(),
                 ..Default::default()
             }],
             ..Default::default()
@@ -228,7 +230,7 @@ mod tests {
             id: "custom_image_preset".to_string(),
             blocks: vec![ProcessingBlock {
                 block_type: "image".to_string(),
-                model: "scout".to_string(),
+                model: "gemini-3.1-flash-lite-preview".to_string(),
                 ..Default::default()
             }],
             ..Default::default()
@@ -243,9 +245,12 @@ mod tests {
 
         assert_eq!(
             config.presets[0].blocks[0].model,
+            crate::model_config::DEFAULT_IMAGE_MODEL_ID
+        );
+        assert_eq!(
+            config.presets[1].blocks[0].model,
             "gemini-3.1-flash-lite-preview"
         );
-        assert_eq!(config.presets[1].blocks[0].model, "scout");
     }
 
     #[test]

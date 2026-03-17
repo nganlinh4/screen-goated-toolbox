@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
+import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileUiLanguageOption
@@ -72,12 +73,14 @@ internal fun MobileShellSurface(
     openRouterApiKey: String,
     ollamaUrl: String,
     globalTtsSettings: MobileGlobalTtsSettings,
+    presetRuntimeSettings: PresetRuntimeSettings,
     locale: MobileLocaleText,
     onApiKeyChanged: (String) -> Unit,
     onCerebrasApiKeyChanged: (String) -> Unit,
     onGroqApiKeyChanged: (String) -> Unit,
     onOpenRouterApiKeyChanged: (String) -> Unit,
     onOllamaUrlChanged: (String) -> Unit,
+    onPresetRuntimeSettingsClick: () -> Unit,
     onVoiceSettingsClick: () -> Unit,
     showEmbeddedHeader: Boolean = false,
     appHeaderTitle: String = "",
@@ -149,6 +152,7 @@ internal fun MobileShellSurface(
                             openRouterApiKey = openRouterApiKey,
                             ollamaUrl = ollamaUrl,
                             globalTtsSettings = globalTtsSettings,
+                            presetRuntimeSettings = presetRuntimeSettings,
                             locale = locale,
                             wideLayout = true,
                             onApiKeyChanged = onApiKeyChanged,
@@ -156,6 +160,7 @@ internal fun MobileShellSurface(
                             onGroqApiKeyChanged = onGroqApiKeyChanged,
                             onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
                             onOllamaUrlChanged = onOllamaUrlChanged,
+                            onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
                             onVoiceSettingsClick = onVoiceSettingsClick,
                             onSessionToggle = onSessionToggle,
                             canToggle = canToggle,
@@ -182,6 +187,7 @@ internal fun MobileShellSurface(
                             openRouterApiKey = openRouterApiKey,
                             ollamaUrl = ollamaUrl,
                             globalTtsSettings = globalTtsSettings,
+                            presetRuntimeSettings = presetRuntimeSettings,
                             locale = locale,
                             wideLayout = true,
                             onApiKeyChanged = onApiKeyChanged,
@@ -189,6 +195,7 @@ internal fun MobileShellSurface(
                             onGroqApiKeyChanged = onGroqApiKeyChanged,
                             onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
                             onOllamaUrlChanged = onOllamaUrlChanged,
+                            onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
                             onVoiceSettingsClick = onVoiceSettingsClick,
                             onSessionToggle = onSessionToggle,
                             canToggle = canToggle,
@@ -352,6 +359,7 @@ internal fun MobileShellSurface(
                                 openRouterApiKey = openRouterApiKey,
                                 ollamaUrl = ollamaUrl,
                                 globalTtsSettings = globalTtsSettings,
+                                presetRuntimeSettings = presetRuntimeSettings,
                                 locale = locale,
                                 wideLayout = false,
                                 onApiKeyChanged = onApiKeyChanged,
@@ -359,6 +367,7 @@ internal fun MobileShellSurface(
                                 onGroqApiKeyChanged = onGroqApiKeyChanged,
                                 onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
                                 onOllamaUrlChanged = onOllamaUrlChanged,
+                                onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
                                 onVoiceSettingsClick = onVoiceSettingsClick,
                                 onSessionToggle = onSessionToggle,
                                 canToggle = canToggle,
@@ -381,6 +390,7 @@ internal fun MobileShellSurface(
                                 openRouterApiKey = openRouterApiKey,
                                 ollamaUrl = ollamaUrl,
                                 globalTtsSettings = globalTtsSettings,
+                                presetRuntimeSettings = presetRuntimeSettings,
                                 locale = locale,
                                 wideLayout = false,
                                 onApiKeyChanged = onApiKeyChanged,
@@ -388,6 +398,7 @@ internal fun MobileShellSurface(
                                 onGroqApiKeyChanged = onGroqApiKeyChanged,
                                 onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
                                 onOllamaUrlChanged = onOllamaUrlChanged,
+                                onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
                                 onVoiceSettingsClick = onVoiceSettingsClick,
                                 onSessionToggle = onSessionToggle,
                                 canToggle = canToggle,

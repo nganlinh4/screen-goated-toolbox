@@ -10,6 +10,8 @@ data class PresetResultWindowState(
     val blockIdx: Int,
     val title: String,
     val markdownText: String = "",
+    val isLoading: Boolean = false,
+    val loadingStatusText: String? = null,
     val isStreaming: Boolean = false,
     val isError: Boolean = false,
     val renderMode: String = "markdown_stream",

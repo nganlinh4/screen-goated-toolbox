@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.Visibility
@@ -59,6 +60,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
+import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
@@ -304,6 +306,83 @@ internal fun VoiceSettingsCard(
                     style = MaterialTheme.typography.labelMediumEmphasized,
                 )
             }
+        }
+    }
+}
+
+@Composable
+internal fun PresetRuntimeCard(
+    settings: PresetRuntimeSettings,
+    locale: MobileLocaleText,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val enabledProviders = listOf(
+        settings.providerSettings.useGemini,
+        settings.providerSettings.useCerebras,
+        settings.providerSettings.useGroq,
+        settings.providerSettings.useOpenRouter,
+        settings.providerSettings.useOllama,
+    ).count { it }
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = ShellSpacing.innerPad, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
+            ) {
+                GradientMaskedIcon(
+                    Icons.Rounded.Settings,
+                    Brush.linearGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.tertiary,
+                            MaterialTheme.colorScheme.primary,
+                        ),
+                    ),
+                    modifier = Modifier.size(22.dp),
+                )
+                Text(
+                    text = locale.presetRuntimeTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                FilledTonalButton(
+                    onClick = onClick,
+                    shape = CircleShape,
+                ) {
+                    Text(
+                        text = locale.presetRuntimeButton,
+                        style = MaterialTheme.typography.labelMediumEmphasized,
+                    )
+                }
+            }
+            Text(
+                text = locale.presetRuntimeDescription,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "${locale.presetRuntimeProvidersLabel}: $enabledProviders/5",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "${locale.presetRuntimeTextChainLabel}: ${settings.modelPriorityChains.textToText.joinToString(", ")}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+            )
         }
     }
 }

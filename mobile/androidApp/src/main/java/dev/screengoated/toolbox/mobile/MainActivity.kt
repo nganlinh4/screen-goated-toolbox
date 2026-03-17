@@ -89,6 +89,7 @@ class MainActivity : ComponentActivity() {
             val ollamaUrl by viewModel.ollamaUrl.collectAsStateWithLifecycle()
             val globalTtsSettings by viewModel.globalTtsSettings.collectAsStateWithLifecycle()
             val uiPreferences by viewModel.uiPreferences.collectAsStateWithLifecycle()
+            val presetRuntimeSettings by viewModel.presetRuntimeSettings.collectAsStateWithLifecycle()
             val edgeVoiceCatalogState by viewModel.edgeVoiceCatalogState.collectAsStateWithLifecycle()
             val context = LocalContext.current
             val locale = MobileLocaleText.forLanguage(uiPreferences.uiLanguage)
@@ -120,6 +121,7 @@ class MainActivity : ComponentActivity() {
                     openRouterApiKey = openRouterApiKey,
                     ollamaUrl = ollamaUrl,
                     globalTtsSettings = globalTtsSettings,
+                    presetRuntimeSettings = presetRuntimeSettings,
                     uiPreferences = uiPreferences,
                     locale = locale,
                     onApiKeyChanged = viewModel::onApiKeyChanged,
@@ -127,6 +129,7 @@ class MainActivity : ComponentActivity() {
                     onGroqApiKeyChanged = viewModel::onGroqApiKeyChanged,
                     onOpenRouterApiKeyChanged = viewModel::onOpenRouterApiKeyChanged,
                     onOllamaUrlChanged = viewModel::onOllamaUrlChanged,
+                    onPresetRuntimeSettingsChanged = viewModel::onPresetRuntimeSettingsChanged,
                     onUiLanguageSelected = viewModel::onUiLanguageSelected,
                     onThemeCycleRequested = viewModel::onThemeCycleRequested,
                     edgeVoiceCatalogState = edgeVoiceCatalogState,

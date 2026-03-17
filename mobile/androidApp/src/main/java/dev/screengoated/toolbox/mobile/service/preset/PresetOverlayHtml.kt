@@ -70,6 +70,8 @@ internal fun buildResultStatePayload(
     return JSONObject().apply {
         put("windowId", windowId.wireValue())
         put("html", html)
+        put("loading", windowState.isLoading)
+        put("loadingStatusText", windowState.loadingStatusText ?: JSONObject.NULL)
         put("streaming", windowState.isStreaming)
         put("sourceTextLen", windowState.markdownText.length)
         put("sourceTrimmedLen", windowState.markdownText.trim().length)
