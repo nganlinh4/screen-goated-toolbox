@@ -78,7 +78,21 @@
 - Android result windows must not use a fake title/status shell. The result window should be a Windows-derived markdown surface with touch shims only.
 - Android markdown conversion/theme/font/table behavior should stay aligned with the Windows markdown view, and raw-HTML text outputs should load as full HTML documents with the Android bridge/touch layer injected.
 - Android result overlays must keep one-finger long-press drag for window movement, while allowing two-finger content scrolling inside the overlay body.
+- Android result overlays must keep two-finger content scrolling bidirectional, not vertical-only:
+  - horizontal overflow like wide tables must remain scrollable with the same two-finger gesture
+  - scroll-container detection must be based on real overflow dimensions in either axis, not only explicit `overflow-y: auto|scroll`
 - Single-touch text/content targets inside a result overlay must preserve normal content interaction, including text selection, instead of arming the window drag hold timer.
+- Android raw-HTML result pages and later navigated pages must not be left as unmanaged standalone documents:
+  - the Android result host must reapply the overlay interaction shell after each page load
+  - page-level drag, resize, selection, and button-canvas activation must continue to work in raw-HTML/web-navigation mode
+  - this may be done by reinjecting the hosted overlay CSS/JS contract on every navigation rather than leaving the loaded page outside the overlay runtime
+- Android result-window back/forward behavior must follow the Windows markdown-view browsing model:
+- Android result-window external navigation failures (HTTP 4xx/5xx or main-frame load errors) must not strand the user on a dead page:
+  - failed external loads should restore the original result surface
+  - the overlay must keep its drag/resize/canvas functionality instead of remaining on a broken browser page
+  - browsing depth may be observed from embedded history, but internal result-host entries (`file:///android_asset/preset_overlay/...`, `about:blank`) must never trap navigation
+  - when browsing returns to an internal result-host URL, Android must recreate the original result surface and clear stale WebView history like Windows instead of leaving the user on a blank/internal page
+  - returning from the first browsed page to the original preset result should restore the original result surface and reset browse depth like Windows
 - Android button canvas uses the shared Windows button-canvas web contract with an Android touch reveal model:
   - tapping a result window reveals that window's controls
   - controls linger for roughly 2 seconds after the last interaction, then fade

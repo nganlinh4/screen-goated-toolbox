@@ -1,11 +1,15 @@
 package dev.screengoated.toolbox.mobile.service.preset
 
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
+import android.util.Log
 import android.view.MotionEvent
 import android.view.Gravity
 import android.view.View
@@ -13,6 +17,10 @@ import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebViewRenderProcess
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -31,6 +39,11 @@ internal data class PresetOverlayWindowSpec(
     val touchRegionsOnly: Boolean = false,
 )
 
+internal data class OverlayNavigationFailure(
+    val url: String?,
+    val description: String,
+)
+
 @SuppressLint("SetJavaScriptEnabled")
 internal class PresetOverlayWindow(
     context: Context,
@@ -39,6 +52,7 @@ internal class PresetOverlayWindow(
     private val onMessage: (String) -> Unit,
     private val onBoundsChanged: (OverlayBounds) -> Unit = {},
 ) {
+    private val logTag: String = "PresetOverlay"
     private val appContext = context.applicationContext
     private val focusable = spec.focusable
     private val cornerRadiusPx = context.resources.displayMetrics.density * 18f
@@ -90,6 +104,11 @@ internal class PresetOverlayWindow(
     private var pageReady = false
     private var attached = false
     private var layoutApplyScheduled = false
+    private var onPageFinishedListener: ((String?) -> Unit)? = null
+    private var onNavigationFailureListener: ((OverlayNavigationFailure) -> Unit)? = null
+    private var clearHistoryOnNextPageFinished = false
+    private var managedLoadInFlight = false
+    private var managedLoadPrefix: String? = null
 
     private val webView = WebView(context).apply {
         overScrollMode = WebView.OVER_SCROLL_NEVER
@@ -108,12 +127,112 @@ internal class PresetOverlayWindow(
         setLayerType(View.LAYER_TYPE_HARDWARE, null)
         webChromeClient = object : WebChromeClient() {}
         webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(
+                view: WebView?,
+                request: WebResourceRequest?,
+            ): Boolean {
+                val url = request?.url?.toString().orEmpty()
+                if (url.isBlank()) {
+                    return false
+                }
+                if (isManagedWebViewUrl(url)) {
+                    return false
+                }
+                if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    return try {
+                        appContext.startActivity(intent)
+                        true
+                    } catch (_: ActivityNotFoundException) {
+                        Log.w(logTag, "No activity found for external url=$url")
+                        true
+                    }
+                }
+                return false
+            }
+
+            override fun onPageStarted(
+                view: WebView?,
+                url: String?,
+                favicon: android.graphics.Bitmap?,
+            ) {
+                Log.d(logTag, "pageStarted url=${url ?: "null"}")
+            }
+
             override fun onPageFinished(
                 view: WebView?,
                 url: String?,
             ) {
+                Log.d(logTag, "pageFinished url=${url ?: "null"}")
+                if (managedLoadInFlight && !matchesManagedLoad(url)) {
+                    Log.d(logTag, "pageFinished ignored stale url=${url ?: "null"} managedPrefix=${managedLoadPrefix ?: "null"}")
+                    return
+                }
+                managedLoadInFlight = false
+                managedLoadPrefix = null
+                if (clearHistoryOnNextPageFinished) {
+                    clearHistoryOnNextPageFinished = false
+                    runCatching { view?.clearHistory() }
+                }
                 pageReady = true
                 flushPendingScripts()
+                onPageFinishedListener?.invoke(url)
+            }
+
+            override fun onReceivedError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                error: WebResourceError?,
+            ) {
+                Log.e(
+                    logTag,
+                    "receivedError url=${request?.url ?: "null"}" +
+                        " code=${error?.errorCode ?: "null"}" +
+                        " desc=${error?.description ?: "null"}",
+                )
+                if (request?.isForMainFrame == true) {
+                    onNavigationFailureListener?.invoke(
+                        OverlayNavigationFailure(
+                            url = request.url?.toString(),
+                            description = "network:${error?.errorCode}:${error?.description}",
+                        ),
+                    )
+                }
+            }
+
+            override fun onReceivedHttpError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                errorResponse: WebResourceResponse?,
+            ) {
+                Log.e(
+                    logTag,
+                    "receivedHttpError url=${request?.url ?: "null"}" +
+                        " status=${errorResponse?.statusCode ?: "null"}" +
+                        " reason=${errorResponse?.reasonPhrase ?: "null"}",
+                )
+                if (request?.isForMainFrame == true && (errorResponse?.statusCode ?: 0) >= 400) {
+                    onNavigationFailureListener?.invoke(
+                        OverlayNavigationFailure(
+                            url = request.url?.toString(),
+                            description = "http:${errorResponse?.statusCode}:${errorResponse?.reasonPhrase.orEmpty()}",
+                        ),
+                    )
+                }
+            }
+
+            override fun onRenderProcessGone(
+                view: WebView?,
+                detail: android.webkit.RenderProcessGoneDetail?,
+            ): Boolean {
+                Log.e(
+                    logTag,
+                    "renderProcessGone crashed=${detail?.didCrash() ?: "null"}" +
+                        " priority=${detail?.rendererPriorityAtExit() ?: "null"}",
+                )
+                return false
             }
         }
         addJavascriptInterface(
@@ -206,14 +325,21 @@ internal class PresetOverlayWindow(
 
     fun loadAssetPage(assetPage: String) {
         pageReady = false
+        managedLoadInFlight = true
+        managedLoadPrefix = "file:///android_asset/preset_overlay/"
         webView.loadUrl("file:///android_asset/preset_overlay/$assetPage")
     }
 
     fun loadHtmlContent(
         htmlContent: String,
         baseUrl: String = "file:///android_asset/preset_overlay/",
+        clearHistoryAfterLoad: Boolean = false,
     ) {
+        Log.d(logTag, "loadHtmlContent baseUrl=$baseUrl len=${htmlContent.length}")
         pageReady = false
+        clearHistoryOnNextPageFinished = clearHistoryAfterLoad
+        managedLoadInFlight = true
+        managedLoadPrefix = baseUrl
         webView.loadDataWithBaseURL(
             baseUrl,
             htmlContent,
@@ -221,6 +347,10 @@ internal class PresetOverlayWindow(
             "utf-8",
             null,
         )
+    }
+
+    fun stopLoading() {
+        runCatching { webView.stopLoading() }
     }
 
     fun runScript(script: String) {
@@ -251,6 +381,50 @@ internal class PresetOverlayWindow(
     fun updateTouchRegions(regions: List<Rect>) {
         touchRegions.clear()
         touchRegions.addAll(regions)
+    }
+
+    fun setOnPageFinishedListener(listener: ((String?) -> Unit)?) {
+        onPageFinishedListener = listener
+    }
+
+    fun setOnNavigationFailureListener(listener: ((OverlayNavigationFailure) -> Unit)?) {
+        onNavigationFailureListener = listener
+    }
+
+    fun currentUrl(): String? = webView.url
+
+    fun goBack() {
+        Log.d(logTag, "goBack canGoBack=${webView.canGoBack()} url=${webView.url}")
+        if (webView.canGoBack()) {
+            webView.goBack()
+        }
+    }
+
+    fun goForward() {
+        Log.d(logTag, "goForward canGoForward=${webView.canGoForward()} url=${webView.url}")
+        if (webView.canGoForward()) {
+            webView.goForward()
+        }
+    }
+
+    fun goBackInPageHistory() {
+        Log.d(logTag, "goBackInPageHistory url=${webView.url}")
+        runScript("history.back();")
+    }
+
+    fun goForwardInPageHistory() {
+        Log.d(logTag, "goForwardInPageHistory url=${webView.url}")
+        runScript("history.forward();")
+    }
+
+    fun historyState(): OverlayHistoryState {
+        val list = runCatching { webView.copyBackForwardList() }.getOrNull()
+        val currentItem = list?.currentItem
+        return OverlayHistoryState(
+            currentIndex = list?.currentIndex ?: 0,
+            lastIndex = ((list?.size ?: 1) - 1).coerceAtLeast(0),
+            currentUrl = currentItem?.url ?: webView.url,
+        )
     }
 
     private fun flushPendingScripts() {
@@ -287,6 +461,19 @@ internal class PresetOverlayWindow(
         }
     }
 
+    private fun matchesManagedLoad(url: String?): Boolean {
+        val prefix = managedLoadPrefix ?: return true
+        val currentUrl = url ?: return false
+        return currentUrl.startsWith(prefix)
+    }
+
+    private fun isManagedWebViewUrl(url: String): Boolean {
+        return url.startsWith("http://") ||
+            url.startsWith("https://") ||
+            url.startsWith("file:///android_asset/") ||
+            url.startsWith("about:")
+    }
+
     private fun hideKeyboard() {
         if (!focusable) {
             return
@@ -306,3 +493,9 @@ internal class PresetOverlayWindow(
         }
     }
 }
+
+internal data class OverlayHistoryState(
+    val currentIndex: Int,
+    val lastIndex: Int,
+    val currentUrl: String?,
+)
