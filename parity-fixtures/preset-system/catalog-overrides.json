@@ -56,11 +56,11 @@
       }
     },
     {
-      "name": "overlay_only_text_input_requires_placeholder_execution",
+      "name": "overlay_only_text_input_is_executable_when_input_adapter_shows_overlay",
       "preset_id": "preset_quick_note",
       "expected_execution": {
-        "supported": false,
-        "reason": "TEXT_INPUT_OVERLAY_NOT_READY"
+        "supported": true,
+        "reason": null
       }
     },
     {

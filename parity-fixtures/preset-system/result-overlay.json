@@ -1,6 +1,7 @@
 {
   "surface": "preset_result_overlay",
   "render_mode": "markdown_only",
+  "window_creation": "precreate_before_result_text",
   "windows": [
     {
       "block_idx": 1,

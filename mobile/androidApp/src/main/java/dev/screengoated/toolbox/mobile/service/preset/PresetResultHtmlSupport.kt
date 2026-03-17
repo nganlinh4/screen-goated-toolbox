@@ -154,6 +154,34 @@ internal fun presetResultCss(isDark: Boolean): String {
             opacity: 1;
             pointer-events: auto;
         }
+        .sgt-loading-shell {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 14px;
+            font: 600 15px/1.2 "Google Sans Flex", system-ui, sans-serif;
+            letter-spacing: 0.01em;
+            color: inherit;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .sgt-loading-indicator {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 3px solid rgba(127, 127, 127, 0.18);
+            border-top-color: rgba(67, 124, 255, 0.96);
+            animation: sgt-loading-spin 0.9s linear infinite;
+        }
+        .sgt-loading-label {
+            opacity: 0.78;
+        }
+        @keyframes sgt-loading-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
     """.trimIndent()
 }
 
@@ -1403,6 +1431,12 @@ internal fun presetResultJavascript(): String {
         function applyFinalResultState(raw) {
             const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
             activeWindowId = data.windowId;
+            if (data.loading) {
+                document.body.innerHTML = data.html || '';
+                document.body.style.opacity = '1';
+                resetStreamCounters();
+                return;
+            }
             applyBodyHtml(data.html);
             resetStreamCounters();
             runFit(!!data.streaming);
@@ -1412,6 +1446,12 @@ internal fun presetResultJavascript(): String {
         function applyStreamingResultState(raw) {
             const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
             activeWindowId = data.windowId;
+            if (data.loading) {
+                document.body.innerHTML = data.html || '';
+                document.body.style.opacity = '1';
+                resetStreamCounters();
+                return;
+            }
             const sourceTextLen = Number.isFinite(data.sourceTextLen) ? data.sourceTextLen : 0;
             const sourceTrimmedLen = Number.isFinite(data.sourceTrimmedLen) ? data.sourceTrimmedLen : sourceTextLen;
             const prevWordCount = window._streamWordCount || 0;

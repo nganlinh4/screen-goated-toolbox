@@ -97,6 +97,19 @@ class TextApiClientTest {
         assertEquals(listOf("web_search", "visit_website"), tools)
     }
 
+    @Test
+    fun geminiRequestRespectsStreamingToggle() {
+        val payload = json.parseToJsonElement(
+            client.debugBuildRequestBody(
+                modelId = "text_gemini_3_0_flash",
+                prompt = "Summarize this.",
+                inputText = "Hello",
+                streamingEnabled = false,
+            ),
+        ).jsonObject
+        assertFalse(payload.getValue("stream").jsonPrimitive.boolean)
+    }
+
     private fun fixtureCases(): List<FixtureCase> {
         val root = json.parseToJsonElement(Files.readAllBytes(fixturePath()).decodeToString()).jsonObject
         return root.getValue("cases").jsonArray.map { element ->

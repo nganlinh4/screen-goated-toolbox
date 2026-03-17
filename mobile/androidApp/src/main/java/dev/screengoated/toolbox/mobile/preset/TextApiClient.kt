@@ -41,6 +41,7 @@ class TextApiClient(private val httpClient: OkHttpClient) {
         uiLanguage: String,
         searchLabel: String?,
         onChunk: (String) -> Unit,
+        streamingEnabled: Boolean = true,
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val model = resolveModel(modelId)
@@ -52,6 +53,7 @@ class TextApiClient(private val httpClient: OkHttpClient) {
                     apiKey = apiKeys.geminiKey,
                     uiLanguage = uiLanguage,
                     onChunk = onChunk,
+                    streamingEnabled = streamingEnabled,
                 )
                 PresetModelProvider.CEREBRAS -> streamCerebras(
                     model = model,
@@ -60,6 +62,7 @@ class TextApiClient(private val httpClient: OkHttpClient) {
                     apiKey = apiKeys.cerebrasKey,
                     uiLanguage = uiLanguage,
                     onChunk = onChunk,
+                    streamingEnabled = streamingEnabled,
                 )
                 PresetModelProvider.GROQ -> {
                     if (model.fullName.startsWith("groq/compound")) {
@@ -81,6 +84,7 @@ class TextApiClient(private val httpClient: OkHttpClient) {
                             inputText = inputText,
                             uiLanguage = uiLanguage,
                             onChunk = onChunk,
+                            streamingEnabled = streamingEnabled,
                         )
                     }
                 }
@@ -93,6 +97,7 @@ class TextApiClient(private val httpClient: OkHttpClient) {
                     inputText = inputText,
                     uiLanguage = uiLanguage,
                     onChunk = onChunk,
+                    streamingEnabled = streamingEnabled,
                 )
                 PresetModelProvider.GOOGLE_GTX -> translateGoogleGtx(
                     inputText = inputText,
@@ -106,6 +111,7 @@ class TextApiClient(private val httpClient: OkHttpClient) {
                     inputText = inputText,
                     uiLanguage = uiLanguage,
                     onChunk = onChunk,
+                    streamingEnabled = streamingEnabled,
                 )
                 PresetModelProvider.GEMINI_LIVE ->
                     throw IOException("PROVIDER_NOT_READY:gemini-live")
@@ -128,42 +134,39 @@ class TextApiClient(private val httpClient: OkHttpClient) {
         apiKey: String,
         uiLanguage: String,
         onChunk: (String) -> Unit,
+        streamingEnabled: Boolean,
     ): String {
-        if (apiKey.isBlank()) throw IOException("NO_API_KEY:gemini")
-
-        val payload = JSONObject().put(
-            "contents",
-            JSONArray().put(
-                JSONObject()
-                    .put("role", "user")
-                    .put(
-                        "parts",
-                        JSONArray().put(
-                            JSONObject().put("text", "$prompt\n\n$inputText"),
-                        ),
-                    ),
-            ),
-        )
-
-        PresetModelCatalog.geminiThinkingConfig(model.fullName)?.let { thinking ->
-            payload.put(
-                "generationConfig",
-                JSONObject().put(
-                    "thinkingConfig",
-                    JSONObject(thinking),
-                ),
+        return if (streamingEnabled) {
+            streamGeminiStreaming(
+                model = model,
+                prompt = prompt,
+                inputText = inputText,
+                apiKey = apiKey,
+                uiLanguage = uiLanguage,
+                onChunk = onChunk,
+            )
+        } else {
+            generateGeminiBlocking(
+                model = model,
+                prompt = prompt,
+                inputText = inputText,
+                apiKey = apiKey,
+                uiLanguage = uiLanguage,
             )
         }
+    }
 
-        if (PresetModelCatalog.supportsSearchByName(model.fullName)) {
-            payload.put(
-                "tools",
-                JSONArray()
-                    .put(JSONObject().put("url_context", JSONObject()))
-                    .put(JSONObject().put("google_search", JSONObject())),
-            )
-        }
+    private suspend fun streamGeminiStreaming(
+        model: PresetModelDescriptor,
+        prompt: String,
+        inputText: String,
+        apiKey: String,
+        uiLanguage: String,
+        onChunk: (String) -> Unit,
+    ): String {
+        if (apiKey.isBlank()) throw IOException("NO_API_KEY:google")
 
+        val payload = buildGeminiPayload(model, prompt, inputText)
         val url = "$GEMINI_ENDPOINT/${model.fullName}:streamGenerateContent?alt=sse"
         val requestBody = payload.toString().toRequestBody(JSON_MEDIA_TYPE)
         val request = Request.Builder()
@@ -216,6 +219,92 @@ class TextApiClient(private val httpClient: OkHttpClient) {
         return fullContent.toString()
     }
 
+    private suspend fun generateGeminiBlocking(
+        model: PresetModelDescriptor,
+        prompt: String,
+        inputText: String,
+        apiKey: String,
+        uiLanguage: String,
+    ): String {
+        if (apiKey.isBlank()) throw IOException("NO_API_KEY:google")
+        val payload = buildGeminiPayload(model, prompt, inputText)
+        val url = "$GEMINI_ENDPOINT/${model.fullName}:generateContent"
+        val requestBody = payload.toString().toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url(url)
+            .header("x-goog-api-key", apiKey)
+            .header("Content-Type", "application/json")
+            .post(requestBody)
+            .build()
+
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                val code = response.code
+                if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+                throw IOException("Gemini request failed with $code")
+            }
+
+            val body = response.body ?: throw IOException("Gemini response body was empty.")
+            val root = JSONObject(body.string())
+            val parts = root.optJSONArray("candidates")
+                ?.optJSONObject(0)
+                ?.optJSONObject("content")
+                ?.optJSONArray("parts") ?: return ""
+
+            val result = StringBuilder()
+            for (index in 0 until parts.length()) {
+                val part = parts.optJSONObject(index) ?: continue
+                if (part.optBoolean("thought", false)) continue
+                result.append(part.optString("text", ""))
+            }
+            return result.toString()
+        }
+    }
+
+    private fun buildGeminiPayload(
+        model: PresetModelDescriptor,
+        prompt: String,
+        inputText: String,
+    ): JSONObject {
+        val payload = JSONObject().put(
+            "contents",
+            JSONArray().put(
+                JSONObject()
+                    .put("role", "user")
+                    .put(
+                        "parts",
+                        JSONArray().put(
+                            JSONObject().put("text", "$prompt\n\n$inputText"),
+                        ),
+                    ),
+            ),
+        )
+        PresetModelCatalog.geminiThinkingConfig(model.fullName)?.let { thinking ->
+            val thinkingConfig = JSONObject().apply {
+                thinking.forEach { (key, value) ->
+                    when (value) {
+                        is Boolean -> put(key, value)
+                        is Number -> put(key, value)
+                        else -> put(key, value.toString())
+                    }
+                }
+            }
+            payload.put(
+                "generationConfig",
+                JSONObject().put("thinkingConfig", thinkingConfig),
+            )
+        }
+        if (PresetModelCatalog.supportsSearchByName(model.fullName)) {
+            payload.put(
+                "tools",
+                JSONArray()
+                    .put(JSONObject().put("url_context", JSONObject()))
+                    .put(JSONObject().put("google_search", JSONObject())),
+            )
+        }
+        return payload
+    }
+
     private fun extractGeminiDelta(payload: String): GeminiDelta {
         return try {
             val root = JSONObject(payload)
@@ -250,8 +339,20 @@ class TextApiClient(private val httpClient: OkHttpClient) {
         inputText: String,
         uiLanguage: String,
         onChunk: (String) -> Unit,
+        streamingEnabled: Boolean,
     ): String {
         if (apiKey.isBlank()) throw IOException("NO_API_KEY:${providerName.lowercase()}")
+        if (!streamingEnabled) {
+            return generateOpenAiCompatibleBlocking(
+                endpoint = endpoint,
+                apiKey = apiKey,
+                providerName = providerName,
+                model = model,
+                prompt = prompt,
+                inputText = inputText,
+                onChunk = onChunk,
+            )
+        }
 
         val payload = JSONObject()
             .put("model", model.fullName)
@@ -324,8 +425,18 @@ class TextApiClient(private val httpClient: OkHttpClient) {
         apiKey: String,
         uiLanguage: String,
         onChunk: (String) -> Unit,
+        streamingEnabled: Boolean,
     ): String {
         if (apiKey.isBlank()) throw IOException("NO_API_KEY:cerebras")
+        if (!streamingEnabled) {
+            return generateCerebrasBlocking(
+                model = model,
+                prompt = prompt,
+                inputText = inputText,
+                apiKey = apiKey,
+                onChunk = onChunk,
+            )
+        }
 
         val payload = JSONObject()
             .put("model", model.fullName)
@@ -504,8 +615,18 @@ class TextApiClient(private val httpClient: OkHttpClient) {
         inputText: String,
         uiLanguage: String,
         onChunk: (String) -> Unit,
+        streamingEnabled: Boolean,
     ): String {
         if (baseUrl.isBlank()) throw IOException("OLLAMA_URL_MISSING")
+        if (!streamingEnabled) {
+            return generateOllamaBlocking(
+                baseUrl = baseUrl,
+                model = model,
+                prompt = prompt,
+                inputText = inputText,
+                onChunk = onChunk,
+            )
+        }
 
         val payload = JSONObject()
             .put("model", model.fullName)
@@ -565,6 +686,151 @@ class TextApiClient(private val httpClient: OkHttpClient) {
         return fullContent.toString()
     }
 
+    private suspend fun generateOpenAiCompatibleBlocking(
+        endpoint: String,
+        apiKey: String,
+        providerName: String,
+        model: PresetModelDescriptor,
+        prompt: String,
+        inputText: String,
+        onChunk: (String) -> Unit,
+    ): String {
+        val payload = JSONObject()
+            .put("model", model.fullName)
+            .put(
+                "messages",
+                JSONArray().put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put("content", "$prompt\n\n$inputText"),
+                ),
+            )
+            .put("stream", false)
+
+        val request = Request.Builder()
+            .url(endpoint)
+            .header("Authorization", "Bearer $apiKey")
+            .header("Content-Type", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                val code = response.code
+                if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+                throw IOException("$providerName request failed with $code")
+            }
+
+            val content = try {
+                JSONObject(response.body?.string().orEmpty())
+                    .optJSONArray("choices")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("message")
+                    ?.optString("content", "")
+                    .orEmpty()
+            } catch (_: JSONException) {
+                ""
+            }
+            if (content.isBlank()) {
+                throw IOException("$providerName returned blank content.")
+            }
+            onChunk(content)
+            return content
+        }
+    }
+
+    private suspend fun generateCerebrasBlocking(
+        model: PresetModelDescriptor,
+        prompt: String,
+        inputText: String,
+        apiKey: String,
+        onChunk: (String) -> Unit,
+    ): String {
+        val payload = JSONObject()
+            .put("model", model.fullName)
+            .put(
+                "messages",
+                JSONArray().put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put("content", "$prompt\n\n$inputText"),
+                ),
+            )
+            .put("stream", false)
+
+        val request = Request.Builder()
+            .url(CEREBRAS_ENDPOINT)
+            .header("Authorization", "Bearer $apiKey")
+            .header("Content-Type", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                val code = response.code
+                val errorBody = response.body?.string().orEmpty()
+                Log.e(
+                    "TextApiClient",
+                    "Cerebras request failed code=$code model=${model.fullName} body=$errorBody",
+                )
+                if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
+                throw IOException("Cerebras request failed with $code")
+            }
+
+            val content = try {
+                JSONObject(response.body?.string().orEmpty())
+                    .optJSONArray("choices")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("message")
+                    ?.optString("content", "")
+                    .orEmpty()
+            } catch (_: JSONException) {
+                ""
+            }
+            if (content.isBlank()) {
+                throw IOException("Cerebras returned blank content.")
+            }
+            onChunk(content)
+            return content
+        }
+    }
+
+    private fun generateOllamaBlocking(
+        baseUrl: String,
+        model: PresetModelDescriptor,
+        prompt: String,
+        inputText: String,
+        onChunk: (String) -> Unit,
+    ): String {
+        val payload = JSONObject()
+            .put("model", model.fullName)
+            .put("prompt", "$prompt\n\n$inputText")
+            .put("stream", false)
+
+        val request = Request.Builder()
+            .url("${baseUrl.trimEnd('/')}/api/generate")
+            .header("Content-Type", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("Ollama request failed with ${response.code}")
+            }
+
+            val content = try {
+                JSONObject(response.body?.string().orEmpty()).optString("response", "")
+            } catch (_: JSONException) {
+                ""
+            }
+            if (content.isBlank()) {
+                throw IOException("Ollama returned blank content.")
+            }
+            onChunk(content)
+            return content
+        }
+    }
+
     private fun translateGoogleGtx(
         inputText: String,
         prompt: String,
@@ -619,6 +885,7 @@ class TextApiClient(private val httpClient: OkHttpClient) {
         modelId: String,
         prompt: String,
         inputText: String,
+        streamingEnabled: Boolean = true,
     ): String {
         val model = resolveModel(modelId)
         return when (model.provider) {
@@ -627,6 +894,7 @@ class TextApiClient(private val httpClient: OkHttpClient) {
                     fullName = model.fullName,
                     prompt = prompt,
                     inputText = inputText,
+                    streamingEnabled = streamingEnabled,
                 )
             }
             PresetModelProvider.GROQ -> {
@@ -656,6 +924,7 @@ class TextApiClient(private val httpClient: OkHttpClient) {
         fullName: String,
         prompt: String,
         inputText: String,
+        streamingEnabled: Boolean,
     ): String {
         val payload = buildJsonObject {
             putJsonArray("contents") {
@@ -687,6 +956,7 @@ class TextApiClient(private val httpClient: OkHttpClient) {
                     add(buildJsonObject { putJsonObject("google_search") {} })
                 }
             }
+            put("stream", streamingEnabled)
         }
         return debugJson.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), payload)
     }

@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.preset
 
+import dev.screengoated.toolbox.mobile.preset.PresetPlaceholderReason
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.serialization.json.Json
@@ -128,10 +129,21 @@ class PresetRepositoryTest {
         assertFalse(resolved.placeholderReasons.contains(PresetPlaceholderReason.HTML_RESULT_NOT_READY))
     }
 
+    @Test
+    fun quickNotePresetIsSupported() {
+        val repository = createRepository(InMemoryPresetOverrideStore())
+
+        val resolved = requireNotNull(repository.getResolvedPreset("preset_quick_note"))
+
+        assertTrue(resolved.executionCapability.supported)
+        assertFalse(resolved.placeholderReasons.contains(PresetPlaceholderReason.TEXT_INPUT_OVERLAY_NOT_READY))
+    }
+
     private fun createRepository(store: PresetOverrideStore): PresetRepository {
         return PresetRepository(
             textApiClient = TextApiClient(OkHttpClient()),
             apiKeys = { ApiKeys() },
+            runtimeSettings = { PresetRuntimeSettings() },
             uiLanguage = { "en" },
             overrideStore = store,
             mainDispatcher = dispatcher,

@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 fn default_image_to_text_priority_chain() -> Vec<String> {
     vec![
+        crate::model_config::DEFAULT_IMAGE_MODEL_ID.to_string(),
         "gemini-3.1-flash-lite-preview".to_string(),
-        "scout".to_string(),
     ]
 }
 

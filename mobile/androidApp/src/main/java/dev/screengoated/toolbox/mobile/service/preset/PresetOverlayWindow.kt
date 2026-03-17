@@ -32,6 +32,7 @@ internal data class PresetOverlayWindowSpec(
     val x: Int,
     val y: Int,
     val focusable: Boolean,
+    val showImeOnFocus: Boolean = false,
     val assetPage: String? = null,
     val htmlContent: String? = null,
     val baseUrl: String = "file:///android_asset/preset_overlay/",
@@ -69,12 +70,13 @@ internal class PresetOverlayWindow(
         gravity = Gravity.TOP or Gravity.START
         x = spec.x
         y = spec.y
-        if (focusable) {
+        if (focusable && spec.showImeOnFocus) {
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN or
                 WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
         }
     }
     private val touchRegions = mutableListOf<Rect>()
+    private val showImeOnFocus = spec.showImeOnFocus
 
     private val rootView = object : FrameLayout(context) {
         override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -274,6 +276,23 @@ internal class PresetOverlayWindow(
         }
     }
 
+    fun bringToFront(refocusIme: Boolean = false) {
+        if (!attached) {
+            return
+        }
+        runCatching { windowManager.removeViewImmediate(rootView) }
+        attached = false
+        windowManager.addView(rootView, layoutParams)
+        attached = true
+        if (focusable) {
+            if (refocusIme) {
+                requestInputFocus()
+            } else {
+                focusWebView(showKeyboard = false)
+            }
+        }
+    }
+
     fun hide() {
         if (!attached) {
             return
@@ -453,11 +472,25 @@ internal class PresetOverlayWindow(
     }
 
     private fun requestInputFocus() {
+        focusWebView(showKeyboard = showImeOnFocus)
+        if (showImeOnFocus) {
+            webView.postDelayed({ focusWebView(showKeyboard = true) }, 120L)
+            webView.postDelayed({ focusWebView(showKeyboard = true) }, 260L)
+        }
+    }
+
+    private fun focusWebView(showKeyboard: Boolean) {
         webView.post {
             webView.requestFocusFromTouch()
             webView.requestFocus()
-            val inputMethodManager = appContext.getSystemService(InputMethodManager::class.java)
-            inputMethodManager?.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
+            if (showKeyboard) {
+                webView.evaluateJavascript(
+                    "window.focusEditor && window.focusEditor();",
+                    null,
+                )
+                val inputMethodManager = appContext.getSystemService(InputMethodManager::class.java)
+                inputMethodManager?.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
+            }
         }
     }
 

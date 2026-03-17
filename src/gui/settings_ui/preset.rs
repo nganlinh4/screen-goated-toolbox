@@ -738,7 +738,7 @@ fn create_default_block_for_type(preset_type: &str) -> ProcessingBlock {
         },
         _ => ProcessingBlock {
             block_type: "image".to_string(),
-            model: "gemini-3.1-flash-lite-preview".to_string(),
+            model: crate::model_config::DEFAULT_IMAGE_MODEL_ID.to_string(),
             prompt: "Extract text from this image.".to_string(),
             selected_language: "Vietnamese".to_string(),
             show_overlay: true,

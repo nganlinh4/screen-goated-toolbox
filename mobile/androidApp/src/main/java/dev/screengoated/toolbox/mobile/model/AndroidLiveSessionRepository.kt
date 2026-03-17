@@ -14,6 +14,7 @@ import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.shared.live.TranscriptionMethod
 import dev.screengoated.toolbox.mobile.shared.live.TranslationRequest
+import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
 import dev.screengoated.toolbox.mobile.storage.SecureSettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +38,7 @@ class AndroidLiveSessionRepository(
     private val mutableRealtimeTtsSettings = MutableStateFlow(settingsStore.loadRealtimeTtsSettings())
     private val mutableGlobalTtsSettings = MutableStateFlow(settingsStore.loadGlobalTtsSettings())
     private val mutableUiPreferences = MutableStateFlow(settingsStore.loadUiPreferences())
+    private val mutablePresetRuntimeSettings = MutableStateFlow(settingsStore.loadPresetRuntimeSettings())
 
     val apiKey: StateFlow<String> = mutableApiKey.asStateFlow()
     val cerebrasApiKey: StateFlow<String> = mutableCerebrasApiKey.asStateFlow()
@@ -49,6 +51,7 @@ class AndroidLiveSessionRepository(
     val realtimeTtsSettings: StateFlow<RealtimeTtsSettings> = mutableRealtimeTtsSettings.asStateFlow()
     val globalTtsSettings: StateFlow<MobileGlobalTtsSettings> = mutableGlobalTtsSettings.asStateFlow()
     val uiPreferences: StateFlow<MobileUiPreferences> = mutableUiPreferences.asStateFlow()
+    val presetRuntimeSettings: StateFlow<PresetRuntimeSettings> = mutablePresetRuntimeSettings.asStateFlow()
 
     val supportedLanguages: List<String> = LanguageCatalog.names
 
@@ -122,6 +125,11 @@ class AndroidLiveSessionRepository(
         }
         mutableUiPreferences.value = preferences.copy(uiLanguage = normalizedLanguage)
         settingsStore.saveUiPreferences(mutableUiPreferences.value)
+    }
+
+    fun updatePresetRuntimeSettings(settings: PresetRuntimeSettings) {
+        mutablePresetRuntimeSettings.value = settings
+        settingsStore.savePresetRuntimeSettings(settings)
     }
 
     fun runtimePermissions(): Array<String> = permissionEvaluator.runtimePermissions()
@@ -217,6 +225,8 @@ class AndroidLiveSessionRepository(
     fun currentGlobalTtsSettings(): MobileGlobalTtsSettings = globalTtsSettings.value
 
     fun currentUiPreferences(): MobileUiPreferences = uiPreferences.value
+
+    fun currentPresetRuntimeSettings(): PresetRuntimeSettings = presetRuntimeSettings.value
 
     fun translationModelId(): String = state.value.config.translationProvider.id
 

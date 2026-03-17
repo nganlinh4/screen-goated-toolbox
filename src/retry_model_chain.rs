@@ -251,7 +251,11 @@ mod tests {
 
     #[test]
     fn explicit_chain_respects_failed_models() {
-        let config = Config::default();
+        let config = Config {
+            api_key: "test-groq-key".to_string(),
+            gemini_api_key: "test-gemini-key".to_string(),
+            ..Default::default()
+        };
         let failed = vec!["scout".to_string()];
 
         let next = resolve_next_retry_model(

@@ -72,6 +72,7 @@ import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
+import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
@@ -85,6 +86,7 @@ fun SgtMobileApp(
     openRouterApiKey: String,
     ollamaUrl: String,
     globalTtsSettings: MobileGlobalTtsSettings,
+    presetRuntimeSettings: PresetRuntimeSettings,
     uiPreferences: MobileUiPreferences,
     locale: MobileLocaleText,
     edgeVoiceCatalogState: EdgeVoiceCatalogState,
@@ -93,6 +95,7 @@ fun SgtMobileApp(
     onGroqApiKeyChanged: (String) -> Unit,
     onOpenRouterApiKeyChanged: (String) -> Unit,
     onOllamaUrlChanged: (String) -> Unit,
+    onPresetRuntimeSettingsChanged: (PresetRuntimeSettings) -> Unit,
     onUiLanguageSelected: (String) -> Unit,
     onThemeCycleRequested: () -> Unit,
     onGlobalTtsMethodChanged: (MobileTtsMethod) -> Unit,
@@ -107,6 +110,7 @@ fun SgtMobileApp(
     onSessionToggle: () -> Unit,
 ) {
     var showTtsSettings by rememberSaveable { mutableStateOf(false) }
+    var showPresetRuntimeSettings by rememberSaveable { mutableStateOf(false) }
     var showDownloader by rememberSaveable { mutableStateOf(false) }
     var showDj by rememberSaveable { mutableStateOf(false) }
     var activePresetId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -130,6 +134,18 @@ fun SgtMobileApp(
             onRetryEdgeVoiceCatalog = onRetryEdgeVoiceCatalog,
             onPreviewGeminiVoice = onPreviewGeminiVoice,
             onPreviewEdgeVoice = onPreviewEdgeVoice,
+        )
+    }
+
+    if (showPresetRuntimeSettings) {
+        PresetRuntimeSettingsDialog(
+            settings = presetRuntimeSettings,
+            locale = locale,
+            onDismiss = { showPresetRuntimeSettings = false },
+            onSave = {
+                onPresetRuntimeSettingsChanged(it)
+                showPresetRuntimeSettings = false
+            },
         )
     }
 
@@ -197,12 +213,14 @@ fun SgtMobileApp(
                     openRouterApiKey = openRouterApiKey,
                     ollamaUrl = ollamaUrl,
                     globalTtsSettings = globalTtsSettings,
+                    presetRuntimeSettings = presetRuntimeSettings,
                     locale = locale,
                     onApiKeyChanged = onApiKeyChanged,
                     onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
                     onGroqApiKeyChanged = onGroqApiKeyChanged,
                     onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
                     onOllamaUrlChanged = onOllamaUrlChanged,
+                    onPresetRuntimeSettingsClick = { showPresetRuntimeSettings = true },
                     onVoiceSettingsClick = {
                         onVoiceSettingsShown()
                         showTtsSettings = true

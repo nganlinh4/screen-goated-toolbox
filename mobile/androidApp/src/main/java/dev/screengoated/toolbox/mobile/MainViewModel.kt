@@ -15,6 +15,7 @@ import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
 import dev.screengoated.toolbox.mobile.model.next
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.model.withMethod
+import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.service.LiveTranslateService
 import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
 import dev.screengoated.toolbox.mobile.service.tts.TtsConsumer
@@ -45,6 +46,7 @@ class MainViewModel(
     val realtimeTtsSettings: StateFlow<RealtimeTtsSettings> = repository.realtimeTtsSettings
     val globalTtsSettings: StateFlow<MobileGlobalTtsSettings> = repository.globalTtsSettings
     val uiPreferences: StateFlow<MobileUiPreferences> = repository.uiPreferences
+    val presetRuntimeSettings: StateFlow<PresetRuntimeSettings> = repository.presetRuntimeSettings
     val edgeVoiceCatalogState: StateFlow<EdgeVoiceCatalogState> = ttsRuntimeService.edgeVoiceCatalogState
 
     init {
@@ -118,6 +120,10 @@ class MainViewModel(
         repository.updateUiPreferences(
             repository.currentUiPreferences().copy(themeMode = themeMode),
         )
+    }
+
+    fun onPresetRuntimeSettingsChanged(settings: PresetRuntimeSettings) {
+        repository.updatePresetRuntimeSettings(settings)
     }
 
     fun onRealtimeTtsEnabledChanged(enabled: Boolean) {

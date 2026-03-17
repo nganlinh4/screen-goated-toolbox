@@ -1,0 +1,20 @@
+{
+  "provider_settings": {
+    "use_groq": true,
+    "use_gemini": true,
+    "use_openrouter": false,
+    "use_cerebras": true,
+    "use_ollama": false
+  },
+  "model_priority_chains": {
+    "image_to_text": [
+      "scout",
+      "gemini-3.1-flash-lite-preview"
+    ],
+    "text_to_text": [
+      "cerebras_gpt_oss",
+      "text_accurate_kimi",
+      "text_gemini_3_1_flash_lite"
+    ]
+  }
+}
