@@ -73,25 +73,70 @@ export function Placeholder({
 // ============================================================================
 export function SeekIndicator({ dir, showKey }: { dir: 'left' | 'right'; showKey: number }) {
   const [isVisible, setIsVisible] = useState(false);
+  const [accumulatedSec, setAccumulatedSec] = useState(5);
+  const [animKey, setAnimKey] = useState(0);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastDirRef = useRef(dir);
 
   useEffect(() => {
-    if (showKey > 0) {
-      setIsVisible(true);
-      const timer = setTimeout(() => setIsVisible(false), 500);
-      return () => clearTimeout(timer);
+    if (showKey <= 0) return;
+
+    // Reset accumulation if direction changed or too much time passed
+    if (dir !== lastDirRef.current) {
+      setAccumulatedSec(5);
+    } else if (isVisible) {
+      setAccumulatedSec((prev) => prev + 5);
+    } else {
+      setAccumulatedSec(5);
     }
-  }, [showKey]);
+    lastDirRef.current = dir;
+
+    setIsVisible(true);
+    setAnimKey((k) => k + 1);
+
+    // Reset hide timer on each press
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => {
+      setIsVisible(false);
+      setAccumulatedSec(5);
+    }, 700);
+
+    return () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
+  }, [showKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isVisible) return null;
 
+  const ArrowSvg = ({ flip }: { flip?: boolean }) => (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={flip ? { transform: 'scaleX(-1)' } : undefined}
+    >
+      <polyline points="13 17 18 12 13 7" />
+      <polyline points="6 17 11 12 6 7" />
+    </svg>
+  );
+
   return (
     <div className="seek-indicator absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] pointer-events-none">
-      <div className="seek-indicator-badge bg-black/80 text-white px-4 py-3 rounded-2xl flex items-center gap-2 shadow-2xl animate-in fade-in zoom-in slide-out-to-top-4 duration-500">
-        {dir === 'left' ? (
-          <><span className="text-xl">⏪</span><span className="font-bold">5s</span></>
-        ) : (
-          <><span className="font-bold">5s</span><span className="text-xl">⏩</span></>
-        )}
+      <div
+        key={animKey}
+        className="seek-indicator-badge bg-black/75 backdrop-blur-sm text-white px-4 py-2.5 rounded-2xl flex items-center gap-1.5 shadow-2xl"
+        style={{
+          animation: 'seek-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
+        }}
+      >
+        {dir === 'left' && <ArrowSvg flip />}
+        <span className="font-bold text-sm tabular-nums">{accumulatedSec}s</span>
+        {dir === 'right' && <ArrowSvg />}
       </div>
     </div>
   );

@@ -167,6 +167,8 @@ def generate_kotlin(
 
         model_id = match.group("id")
         display_name = match.group("name_en")
+        name_vi = match.group("name_vi")
+        name_ko = match.group("name_ko")
         full_name = match.group("full_name_literal")
         if full_name is None:
             const_name = match.group("full_name_const")
@@ -185,6 +187,8 @@ def generate_kotlin(
                 f"            fullName = {kotlin_string(full_name)},",
                 f"            modelType = PresetModelType.{MODEL_TYPE_MAP[model_type]},",
                 f"            displayName = {kotlin_string(display_name)},",
+                f"            nameVi = {kotlin_string(name_vi)},",
+                f"            nameKo = {kotlin_string(name_ko)},",
                 f"            isNonLlm = {str(model_id in non_llm_ids).lower()},",
                 "        ),",
             ]

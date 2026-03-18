@@ -34,6 +34,7 @@ interface VideoControllerOptions {
   onTimeUpdate?: (time: number) => void;
   onPlayingChange?: (isPlaying: boolean) => void;
   onVideoReady?: (ready: boolean) => void;
+  onBufferingChange?: (isBuffering: boolean) => void;
   onError?: (error: string) => void;
   onDurationChange?: (duration: number) => void;
   onMetadataLoaded?: (metadata: {
@@ -307,6 +308,7 @@ export class VideoController {
   private handlePause = () => {
     this.playRequestSeq += 1;
     this.clearPlaybackRecoveryAnchor();
+    this.options.onBufferingChange?.(false);
     this.pauseAudioElement(this.webcamVideo, this.webcamVideoPlayPromise);
     this.pauseAudioElement(this.deviceAudio, this.deviceAudioPlayPromise);
     this.pauseAudioElement(this.micAudio, this.micAudioPlayPromise);
@@ -327,22 +329,90 @@ export class VideoController {
   // Without this handler, the UI shows the pause button but nothing happens.
   private waitingStallTimer: ReturnType<typeof setTimeout> | null = null;
 
+  private waitingStartedAt: number = 0;
+
+  private waitingRecoveryAttempts: number = 0;
+
   private handleWaiting = () => {
     if (this.isGeneratingThumbnail) return;
-    // Give the decoder a chance to recover (3s). If it doesn't, pause cleanly.
+    // Reset per-episode state so a new waiting event always starts fresh,
+    // even if a previous stall forced a pause and the user pressed play again.
+    this.waitingStartedAt = performance.now();
+    this.waitingRecoveryAttempts = 0;
+    this.options.onBufferingChange?.(true);
+    console.warn(
+      `[VideoController] WAITING started: readyState=${this.video.readyState} ` +
+      `currentTime=${this.video.currentTime.toFixed(3)} paused=${this.video.paused} ` +
+      `networkState=${this.video.networkState}`
+    );
     if (this.waitingStallTimer !== null) clearTimeout(this.waitingStallTimer);
-    this.waitingStallTimer = setTimeout(() => {
-      this.waitingStallTimer = null;
-      // If still not playing after 3s, force a clean pause
-      if (!this.video.paused && this.video.readyState < 3) {
-        console.warn("[VideoController] Decoder stall detected — forcing pause");
-        this.video.pause();
-      }
-    }, 3000);
+    this.scheduleStallCheck(3000);
   };
 
+  // Stall-check tick called every 3s while the video is waiting.
+  // Strategy:
+  //   networkState=2 (NETWORK_LOADING): browser is already fetching — never re-seek
+  //     (that would cancel and restart the range request). Just wait up to 25s total.
+  //   networkState≠2 (IDLE): browser stopped fetching — nudge it with a re-seek,
+  //     then allow up to 15s for the resulting load to complete.
+  private scheduleStallCheck(delayMs: number) {
+    this.waitingStallTimer = setTimeout(() => {
+      this.waitingStallTimer = null;
+      if (this.video.paused || this.video.readyState >= 3) return;
+
+      const stallMs = performance.now() - this.waitingStartedAt;
+      const stallSec = (stallMs / 1000).toFixed(1);
+      const networkState = this.video.networkState;
+
+      if (networkState === 2 /* NETWORK_LOADING */) {
+        // Browser is actively fetching — keep waiting, check again shortly.
+        if (stallMs < 25_000) {
+          console.warn(
+            `[VideoController] Still loading at ${stallSec}s (networkState=LOADING, readyState=${this.video.readyState}) — waiting`
+          );
+          this.scheduleStallCheck(3000);
+        } else {
+          console.error(
+            `[VideoController] STALL for ${stallSec}s: load timed out (networkState=LOADING) — forcing pause`
+          );
+          this.video.pause();
+        }
+      } else {
+        // Browser went idle — a re-seek will restart the range request.
+        if (this.waitingRecoveryAttempts < 2) {
+          this.waitingRecoveryAttempts++;
+          const rescueTime = this.video.currentTime;
+          console.warn(
+            `[VideoController] STALL recovery attempt ${this.waitingRecoveryAttempts} at ${stallSec}s: ` +
+            `re-seeking to ${rescueTime.toFixed(3)} (readyState=${this.video.readyState})`
+          );
+          this.video.currentTime = rescueTime;
+          // After a re-seek the browser transitions to LOADING — give it 5s before
+          // the next tick so the networkState check above applies.
+          this.scheduleStallCheck(5000);
+        } else {
+          console.error(
+            `[VideoController] STALL for ${stallSec}s after ${this.waitingRecoveryAttempts} recovery attempts ` +
+            `(networkState=${networkState}) — forcing pause`
+          );
+          this.video.pause();
+        }
+      }
+    }, delayMs);
+  }
+
   private handlePlaying = () => {
-    // Decoder recovered from stall — cancel the stall timer
+    if (this.waitingStartedAt > 0) {
+      const recoveryMs = (performance.now() - this.waitingStartedAt).toFixed(0);
+      console.log(
+        `[VideoController] RECOVERED from waiting in ${recoveryMs}ms` +
+        `${this.waitingRecoveryAttempts > 0 ? ` (after ${this.waitingRecoveryAttempts} recovery attempt(s))` : ''}: ` +
+        `readyState=${this.video.readyState} currentTime=${this.video.currentTime.toFixed(3)}`
+      );
+      this.waitingStartedAt = 0;
+      this.waitingRecoveryAttempts = 0;
+    }
+    this.options.onBufferingChange?.(false);
     if (this.waitingStallTimer !== null) {
       clearTimeout(this.waitingStallTimer);
       this.waitingStallTimer = null;
@@ -485,7 +555,17 @@ export class VideoController {
     if (this.isGeneratingThumbnail) return;
     this.setSeeking(false);
 
-    // Render the just-decoded frame immediately
+    // If there's a pending seek (user is still dragging), skip the expensive
+    // renderFrame() and audio sync — just update currentTime for the playhead
+    // and immediately start the next seek. This prevents decoder thrashing
+    // and keeps the decoder working on the latest requested position.
+    if (this.pendingSeekTime !== null) {
+      this.setCurrentTime(this.video.currentTime);
+      this.startPendingSeek();
+      return;
+    }
+
+    // Final seek position — render the decoded frame and sync audio
     this.renderFrame();
     this.applyAudioTrackVolumes(this.video.currentTime);
 
@@ -530,37 +610,7 @@ export class VideoController {
     // If there's a queued seek (from drag moves while decoder was busy),
     // start the next seek immediately to keep the decoder maximally busy.
     if (this.pendingSeekTime !== null) {
-      const t = this.pendingSeekTime;
-      this.pendingSeekTime = null;
-      this.setSeeking(true);
-      const clamped = this.renderOptions?.segment
-        ? (getNextPlayableTime(
-            t,
-            this.renderOptions.segment,
-            this.getEffectiveDuration(t),
-          ) ??
-          clampToTrimSegments(
-            t,
-            this.renderOptions.segment,
-            this.getEffectiveDuration(t),
-          ))
-        : t;
-      this.maybeLogPlaybackReset("seeked-pending-reset", t, clamped, {
-        requestedTime: this.lastRequestedSeekTime,
-      });
-      this.setCurrentTime(clamped);
-      this.video.currentTime = clamped;
-      this.syncTimedMediaElementTime(
-        this.webcamVideo,
-        clamped,
-        this.getWebcamOffsetSec(),
-      );
-      this.syncAudioElementTime(this.deviceAudio, clamped);
-      this.syncTimedMediaElementTime(
-        this.micAudio,
-        clamped,
-        this.getMicAudioOffsetSec(),
-      );
+      this.startPendingSeek();
     } else {
       const clamped = this.renderOptions?.segment
         ? (getNextPlayableTime(
@@ -611,6 +661,31 @@ export class VideoController {
       this.setCurrentTime(displayTime);
     }
   };
+
+  /** Start the next queued seek from pendingSeekTime. Skips audio sync
+   *  during rapid scrubbing to minimize main thread work. */
+  private startPendingSeek() {
+    if (this.pendingSeekTime === null) return;
+    const t = this.pendingSeekTime;
+    this.pendingSeekTime = null;
+    this.setSeeking(true);
+    const clamped = this.renderOptions?.segment
+      ? (getNextPlayableTime(
+          t,
+          this.renderOptions.segment,
+          this.getEffectiveDuration(t),
+        ) ??
+        clampToTrimSegments(
+          t,
+          this.renderOptions.segment,
+          this.getEffectiveDuration(t),
+        ))
+      : t;
+    this.setCurrentTime(clamped);
+    this.video.currentTime = clamped;
+    // Skip audio sync during rapid scrubbing — only sync on final seek
+    // (flushPendingSeek or handleSeeked with no more pending seeks).
+  }
 
   private enforceSegmentPlaybackBounds(
     currentTime: number,
