@@ -37,6 +37,8 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarOutline
 import androidx.compose.material.icons.rounded.SpeakerPhone
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material3.ButtonGroupDefaults
@@ -140,9 +142,22 @@ fun PresetEditorScreen(
     preset: Preset,
     lang: String,
     onBack: () -> Unit,
+    onPresetChanged: (Preset) -> Unit = {},
+    onFavoriteToggle: () -> Unit = {},
+    onRestoreDefault: () -> Unit = {},
 ) {
     val isBuiltIn = preset.id.startsWith("preset_")
+    // Re-sync editState when preset changes externally (e.g., favorite toggle, restore)
     var editState by remember { mutableStateOf(preset.copy()) }
+    if (editState.isFavorite != preset.isFavorite) {
+        editState = editState.copy(isFavorite = preset.isFavorite)
+    }
+
+    // Auto-save: propagate every change immediately (like Windows)
+    fun autoSave(newState: Preset) {
+        editState = newState
+        onPresetChanged(newState)
+    }
 
     Scaffold(
         topBar = {
@@ -160,8 +175,18 @@ fun PresetEditorScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onFavoriteToggle) {
+                        Icon(
+                            if (editState.isFavorite) Icons.Rounded.Star
+                            else Icons.Rounded.StarOutline,
+                            contentDescription = null,
+                        )
+                    }
                     if (isBuiltIn) {
-                        IconButton(onClick = { editState = preset.copy() }) {
+                        IconButton(onClick = {
+                            onRestoreDefault()
+                            editState = preset.copy()
+                        }) {
                             Icon(
                                 Icons.Rounded.RestartAlt,
                                 contentDescription = localized(
@@ -195,38 +220,47 @@ fun PresetEditorScreen(
                 editState = editState,
                 lang = lang,
                 isBuiltIn = isBuiltIn,
-                onNameChanged = { editState = editState.copy(nameEn = it) },
+                onNameChanged = { autoSave(editState.copy(nameEn = it)) },
                 onTypeGroupChanged = { group ->
-                    val newType = group.defaultPresetType()
-                    editState = editState.copy(presetType = newType)
+                    autoSave(editState.copy(presetType = group.defaultPresetType()))
                 },
+                onControllerToggled = { autoSave(editState.copy(showControllerUi = it)) },
             )
 
             // --- Section 2: Mode selectors (conditional) ---------------------
             ModeSelectorsSection(
                 editState = editState,
                 lang = lang,
-                onUpdate = { editState = it },
+                onUpdate = { autoSave(it) },
             )
 
-            // --- Section 6 (early): Controller mode description for MASTER ---
-            if (editState.isMaster) {
+            // --- Controller mode description for MASTER ---
+            if (editState.showControllerUi || editState.isMaster) {
                 MasterDescriptionSection(lang = lang)
             }
 
-            // --- Section 3: Node graph ---------------------------------------
-            if (!editState.isMaster) {
-                NodeGraphSection(editState = editState, lang = lang, onUpdate = { editState = it })
+            // --- Section 3: Node graph ---
+            if (!editState.showControllerUi && !editState.isMaster) {
+                NodeGraphSection(
+                    editState = editState,
+                    lang = lang,
+                    onUpdate = { autoSave(it) },
+                )
             }
 
-            // --- Section 4: Auto-paste ---------------------------------------
-            AutoPasteSection(
-                editState = editState,
-                lang = lang,
-                onUpdate = { editState = it },
-            )
+            // --- Section 4: Auto-paste (only when a block has auto_copy) ---
+            val hasAnyCopy = editState.blocks.any {
+                it.blockType != BlockType.INPUT_ADAPTER && it.autoCopy
+            }
+            if (hasAnyCopy && !editState.showControllerUi) {
+                AutoPasteSection(
+                    editState = editState,
+                    lang = lang,
+                    onUpdate = { autoSave(it) },
+                )
+            }
 
-            // --- Section 5: Processing chain list ----------------------------
+            // --- Section 5: Processing chain list ---
             if (editState.blocks.isNotEmpty()) {
                 ProcessingChainSection(
                     editState = editState,
@@ -248,6 +282,7 @@ private fun HeaderSection(
     isBuiltIn: Boolean,
     onNameChanged: (String) -> Unit,
     onTypeGroupChanged: (EditorTypeGroup) -> Unit,
+    onControllerToggled: (Boolean) -> Unit,
 ) {
     SectionCard {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -310,6 +345,18 @@ private fun HeaderSection(
                         )
                     }
                 }
+            }
+
+            // Controller mode checkbox (hidden for realtime audio)
+            val isRealtimeAudio = editState.presetType.editorGroup() == EditorTypeGroup.AUDIO &&
+                editState.audioProcessingMode == "realtime"
+            if (!isRealtimeAudio) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                SwitchRow(
+                    label = localized(lang, "Controller mode", "Chế độ bộ điều khiển", "컨트롤러 모드"),
+                    checked = editState.showControllerUi,
+                    onCheckedChange = onControllerToggled,
+                )
             }
         }
     }
@@ -423,7 +470,17 @@ private fun AudioModeSelectors(
         optionA = localized(lang, "Record", "Ghi âm", "녹음"),
         optionB = localized(lang, "Realtime", "Thời gian thực", "실시간"),
         isB = isRealtime,
-        onChanged = { /* future: wire up processing mode */ },
+        onChanged = { isRealtimeMode ->
+            if (isRealtimeMode) {
+                onUpdate(editState.copy(
+                    presetType = PresetType.DEVICE_AUDIO,
+                    audioSource = "device",
+                    audioProcessingMode = "realtime",
+                ))
+            } else {
+                onUpdate(editState.copy(audioProcessingMode = "record_then_process"))
+            }
+        },
     )
 
     // Audio source: Mic / Device
@@ -804,6 +861,7 @@ private fun NodeGraphSection(
                 block = selectedNode.block,
                 nodeId = selectedNode.id,
                 lang = lang,
+                presetType = editState.presetType,
                 onDismiss = { showPropertySheet = false },
                 onBlockUpdated = { updatedBlock ->
                     val newNodes = graphState.nodes.map { node ->
@@ -831,8 +889,6 @@ private fun AutoPasteSection(
     lang: String,
     onUpdate: (Preset) -> Unit,
 ) {
-    var autoPasteNewline by remember { mutableStateOf(false) }
-
     SectionCard {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -858,14 +914,9 @@ private fun AutoPasteSection(
                 exit = fadeOut() + shrinkVertically(),
             ) {
                 SwitchRow(
-                    label = localized(
-                        lang,
-                        "Append newline",
-                        "Thêm dòng mới",
-                        "줄 바꿈 추가",
-                    ),
-                    checked = autoPasteNewline,
-                    onCheckedChange = { autoPasteNewline = it },
+                    label = localized(lang, "Append newline", "Thêm dòng mới", "줄 바꿈 추가"),
+                    checked = editState.autoPasteNewline,
+                    onCheckedChange = { onUpdate(editState.copy(autoPasteNewline = it)) },
                 )
             }
         }

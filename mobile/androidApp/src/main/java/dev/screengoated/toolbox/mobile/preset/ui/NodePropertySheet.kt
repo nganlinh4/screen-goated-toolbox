@@ -112,6 +112,8 @@ fun NodePropertySheet(
     block: ProcessingBlock,
     nodeId: String,
     lang: String,
+    presetType: dev.screengoated.toolbox.mobile.shared.preset.PresetType =
+        dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT,
     onDismiss: () -> Unit,
     onBlockUpdated: (ProcessingBlock) -> Unit,
 ) {
@@ -143,7 +145,7 @@ fun NodePropertySheet(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
             when (editBlock.blockType) {
-                BlockType.INPUT_ADAPTER -> InputNodeBody(editBlock, lang, ::update)
+                BlockType.INPUT_ADAPTER -> InputNodeBody(editBlock, lang, presetType, ::update)
                 else -> ProcessNodeBody(editBlock, lang, ::update)
             }
         }
@@ -194,8 +196,15 @@ private fun NodeSheetHeader(block: ProcessingBlock, lang: String) {
 private fun InputNodeBody(
     block: ProcessingBlock,
     lang: String,
+    presetType: dev.screengoated.toolbox.mobile.shared.preset.PresetType,
     onUpdate: (ProcessingBlock) -> Unit,
 ) {
+    val isTextInput = presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT ||
+        presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT
+    val isImage = presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE
+    val isAudio = presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC ||
+        presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO
+
     // Show overlay toggle
     SheetSwitchRow(
         icon = Icons.Rounded.RemoveRedEye,
@@ -215,21 +224,33 @@ private fun InputNodeBody(
 
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
-    // Auto-copy
-    SheetSwitchRow(
-        icon = Icons.Rounded.ContentCopy,
-        label = l(lang, "Auto-copy", "Tự sao chép", "자동 복사"),
-        checked = block.autoCopy,
-        onCheckedChange = { onUpdate(block.copy(autoCopy = it)) },
-    )
+    // Auto-copy: text input = locked ON; image = toggleable; audio = hidden
+    if (!isAudio) {
+        SheetSwitchRow(
+            icon = Icons.Rounded.ContentCopy,
+            label = if (isTextInput) {
+                l(lang, "Auto-copy (always on)", "Tự sao chép (luôn bật)", "자동 복사 (항상 켜짐)")
+            } else {
+                l(lang, "Auto-copy", "Tự sao chép", "자동 복사")
+            },
+            checked = if (isTextInput) true else block.autoCopy,
+            onCheckedChange = {
+                if (!isTextInput) onUpdate(block.copy(autoCopy = it))
+                // Text input: locked on, ignore toggle
+            },
+            enabled = !isTextInput,
+        )
+    }
 
-    // Auto-speak
-    SheetSwitchRow(
-        icon = Icons.Rounded.VolumeUp,
-        label = l(lang, "Auto-speak", "Tự phát âm", "자동 말하기"),
-        checked = block.autoSpeak,
-        onCheckedChange = { onUpdate(block.copy(autoSpeak = it)) },
-    )
+    // Auto-speak: only for text input presets
+    if (isTextInput) {
+        SheetSwitchRow(
+            icon = Icons.Rounded.VolumeUp,
+            label = l(lang, "Auto-speak", "Tự phát âm", "자동 말하기"),
+            checked = block.autoSpeak,
+            onCheckedChange = { onUpdate(block.copy(autoSpeak = it)) },
+        )
+    }
 }
 
 @Composable
@@ -747,6 +768,7 @@ private fun SheetSwitchRow(
     label: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -756,15 +778,16 @@ private fun SheetSwitchRow(
             icon,
             contentDescription = null,
             modifier = Modifier.size(20.dp),
-            tint = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = if (checked) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.4f),
         )
         Spacer(Modifier.width(10.dp))
         Text(
             label,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.5f),
             modifier = Modifier.weight(1f),
         )
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }

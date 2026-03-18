@@ -114,7 +114,6 @@ fun SgtMobileApp(
     var showDownloader by rememberSaveable { mutableStateOf(false) }
     var showDj by rememberSaveable { mutableStateOf(false) }
     var activePresetId by rememberSaveable { mutableStateOf<String?>(null) }
-    var editingPresetId by rememberSaveable { mutableStateOf<String?>(null) }
     val presetRepository = (LocalContext.current.applicationContext as SgtMobileApplication)
         .appContainer
         .presetRepository
@@ -298,6 +297,7 @@ fun SgtMobileApp(
             }
         }
 
+        // Preset editor — opens directly (no inspector intermediary)
         val activePreset = activePresetId?.let { id -> presetCatalog.findPreset(id) }
         if (activePreset != null) {
             val presetLang = uiPreferences.uiLanguage
@@ -314,45 +314,20 @@ fun SgtMobileApp(
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.surface),
                 ) {
-                    dev.screengoated.toolbox.mobile.preset.ui.PresetInspectorScreen(
-                        resolvedPreset = activePreset,
+                    dev.screengoated.toolbox.mobile.preset.ui.PresetEditorScreen(
+                        preset = activePreset.preset,
                         lang = presetLang,
                         onBack = { activePresetId = null },
+                        onPresetChanged = { updated ->
+                            presetRepository.updateBuiltInOverride(activePreset.preset.id) { updated }
+                        },
                         onFavoriteToggle = {
                             presetRepository.toggleFavorite(activePreset.preset.id)
                         },
                         onRestoreDefault = {
                             presetRepository.restoreBuiltInPreset(activePreset.preset.id)
+                            activePresetId = null
                         },
-                        onEdit = { editingPresetId = activePreset.preset.id },
-                    )
-                }
-            }
-        }
-
-        // Preset editor screen
-        val editingPreset = editingPresetId?.let { id ->
-            presetCatalog.findPreset(id)?.preset
-        }
-        if (editingPreset != null) {
-            val presetLang = uiPreferences.uiLanguage
-            androidx.activity.compose.BackHandler { editingPresetId = null }
-            androidx.compose.animation.AnimatedVisibility(
-                visible = true,
-                enter = fadeIn(tween(200)) + androidx.compose.animation.scaleIn(
-                    initialScale = 0.9f,
-                    animationSpec = tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                ),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.surface),
-                ) {
-                    dev.screengoated.toolbox.mobile.preset.ui.PresetEditorScreen(
-                        preset = editingPreset,
-                        lang = presetLang,
-                        onBack = { editingPresetId = null },
                     )
                 }
             }

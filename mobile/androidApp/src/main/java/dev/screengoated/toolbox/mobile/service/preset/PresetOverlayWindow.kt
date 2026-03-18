@@ -1,28 +1,19 @@
 package dev.screengoated.toolbox.mobile.service.preset
 
 import android.annotation.SuppressLint
-import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.Intent
 import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
-import android.net.Uri
 import android.util.Log
 import android.view.MotionEvent
 import android.view.Gravity
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.WindowManager
-import android.view.inputmethod.InputMethodManager
 import android.webkit.WebChromeClient
-import android.webkit.WebResourceError
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
-import android.webkit.WebViewRenderProcess
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
 
@@ -54,16 +45,16 @@ internal class PresetOverlayWindow(
     private val onBoundsChanged: (OverlayBounds) -> Unit = {},
 ) {
     private val logTag: String = "PresetOverlay"
-    private val appContext = context.applicationContext
     private val focusable = spec.focusable
     private val cornerRadiusPx = context.resources.displayMetrics.density * 18f
+    private val managedLoadTracker = OverlayManagedLoadTracker()
     private val layoutParams = WindowManager.LayoutParams().apply {
         copyFrom(
             WindowManager.LayoutParams(
                 spec.width,
                 spec.height,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                buildFlags(spec.focusable),
+                buildOverlayWindowFlags(spec.focusable),
                 android.graphics.PixelFormat.TRANSLUCENT,
             ),
         )
@@ -76,7 +67,6 @@ internal class PresetOverlayWindow(
         }
     }
     private val touchRegions = mutableListOf<Rect>()
-    private val showImeOnFocus = spec.showImeOnFocus
 
     private val rootView = object : FrameLayout(context) {
         override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -108,135 +98,24 @@ internal class PresetOverlayWindow(
     private var layoutApplyScheduled = false
     private var onPageFinishedListener: ((String?) -> Unit)? = null
     private var onNavigationFailureListener: ((OverlayNavigationFailure) -> Unit)? = null
-    private var clearHistoryOnNextPageFinished = false
-    private var managedLoadInFlight = false
-    private var managedLoadPrefix: String? = null
 
     private val webView = WebView(context).apply {
-        overScrollMode = WebView.OVER_SCROLL_NEVER
-        setBackgroundColor(Color.TRANSPARENT)
-        isVerticalScrollBarEnabled = false
-        isHorizontalScrollBarEnabled = false
-        isFocusable = this@PresetOverlayWindow.focusable
-        isFocusableInTouchMode = this@PresetOverlayWindow.focusable
-        settings.javaScriptEnabled = true
-        settings.domStorageEnabled = true
-        settings.allowFileAccess = true
-        settings.mediaPlaybackRequiresUserGesture = false
-        settings.builtInZoomControls = false
-        settings.displayZoomControls = false
-        settings.setSupportZoom(false)
-        setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        configureOverlayWebView(this, this@PresetOverlayWindow.focusable)
         webChromeClient = object : WebChromeClient() {}
-        webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(
-                view: WebView?,
-                request: WebResourceRequest?,
-            ): Boolean {
-                val url = request?.url?.toString().orEmpty()
-                if (url.isBlank()) {
-                    return false
-                }
-                if (isManagedWebViewUrl(url)) {
-                    return false
-                }
-                if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    return try {
-                        appContext.startActivity(intent)
-                        true
-                    } catch (_: ActivityNotFoundException) {
-                        Log.w(logTag, "No activity found for external url=$url")
-                        true
-                    }
-                }
-                return false
-            }
-
-            override fun onPageStarted(
-                view: WebView?,
-                url: String?,
-                favicon: android.graphics.Bitmap?,
-            ) {
-                Log.d(logTag, "pageStarted url=${url ?: "null"}")
-            }
-
-            override fun onPageFinished(
-                view: WebView?,
-                url: String?,
-            ) {
-                Log.d(logTag, "pageFinished url=${url ?: "null"}")
-                if (managedLoadInFlight && !matchesManagedLoad(url)) {
-                    Log.d(logTag, "pageFinished ignored stale url=${url ?: "null"} managedPrefix=${managedLoadPrefix ?: "null"}")
-                    return
-                }
-                managedLoadInFlight = false
-                managedLoadPrefix = null
-                if (clearHistoryOnNextPageFinished) {
-                    clearHistoryOnNextPageFinished = false
-                    runCatching { view?.clearHistory() }
-                }
+        webViewClient = createOverlayWebViewClient(
+            appContext = context.applicationContext,
+            logTag = logTag,
+            tracker = managedLoadTracker,
+            onMessageLog = { Log.d(logTag, it) },
+            onMainFrameNavigationFailure = { failure ->
+                onNavigationFailureListener?.invoke(failure)
+            },
+            onPageFinished = { url ->
                 pageReady = true
                 flushPendingScripts()
                 onPageFinishedListener?.invoke(url)
-            }
-
-            override fun onReceivedError(
-                view: WebView?,
-                request: WebResourceRequest?,
-                error: WebResourceError?,
-            ) {
-                Log.e(
-                    logTag,
-                    "receivedError url=${request?.url ?: "null"}" +
-                        " code=${error?.errorCode ?: "null"}" +
-                        " desc=${error?.description ?: "null"}",
-                )
-                if (request?.isForMainFrame == true) {
-                    onNavigationFailureListener?.invoke(
-                        OverlayNavigationFailure(
-                            url = request.url?.toString(),
-                            description = "network:${error?.errorCode}:${error?.description}",
-                        ),
-                    )
-                }
-            }
-
-            override fun onReceivedHttpError(
-                view: WebView?,
-                request: WebResourceRequest?,
-                errorResponse: WebResourceResponse?,
-            ) {
-                Log.e(
-                    logTag,
-                    "receivedHttpError url=${request?.url ?: "null"}" +
-                        " status=${errorResponse?.statusCode ?: "null"}" +
-                        " reason=${errorResponse?.reasonPhrase ?: "null"}",
-                )
-                if (request?.isForMainFrame == true && (errorResponse?.statusCode ?: 0) >= 400) {
-                    onNavigationFailureListener?.invoke(
-                        OverlayNavigationFailure(
-                            url = request.url?.toString(),
-                            description = "http:${errorResponse?.statusCode}:${errorResponse?.reasonPhrase.orEmpty()}",
-                        ),
-                    )
-                }
-            }
-
-            override fun onRenderProcessGone(
-                view: WebView?,
-                detail: android.webkit.RenderProcessGoneDetail?,
-            ): Boolean {
-                Log.e(
-                    logTag,
-                    "renderProcessGone crashed=${detail?.didCrash() ?: "null"}" +
-                        " priority=${detail?.rendererPriorityAtExit() ?: "null"}",
-                )
-                return false
-            }
-        }
+            },
+        )
         addJavascriptInterface(
             object {
                 @android.webkit.JavascriptInterface
@@ -247,6 +126,12 @@ internal class PresetOverlayWindow(
             "sgtAndroid",
         )
     }
+    private val inputFocusCoordinator = OverlayInputFocusCoordinator(
+        context = context,
+        webView = webView,
+        focusable = focusable,
+        showImeOnFocus = spec.showImeOnFocus,
+    )
 
     init {
         rootView.addView(
@@ -265,14 +150,14 @@ internal class PresetOverlayWindow(
     fun show() {
         if (attached) {
             if (focusable) {
-                requestInputFocus()
+                inputFocusCoordinator.requestInitialFocus()
             }
             return
         }
         windowManager.addView(rootView, layoutParams)
         attached = true
         if (focusable) {
-            requestInputFocus()
+            inputFocusCoordinator.requestInitialFocus()
         }
     }
 
@@ -285,11 +170,7 @@ internal class PresetOverlayWindow(
         windowManager.addView(rootView, layoutParams)
         attached = true
         if (focusable) {
-            if (refocusIme) {
-                requestInputFocus()
-            } else {
-                focusWebView(showKeyboard = false)
-            }
+            inputFocusCoordinator.refocus(refocusIme)
         }
     }
 
@@ -297,7 +178,7 @@ internal class PresetOverlayWindow(
         if (!attached) {
             return
         }
-        hideKeyboard()
+        inputFocusCoordinator.hideKeyboard()
         runCatching { windowManager.removeView(rootView) }
         attached = false
     }
@@ -344,8 +225,7 @@ internal class PresetOverlayWindow(
 
     fun loadAssetPage(assetPage: String) {
         pageReady = false
-        managedLoadInFlight = true
-        managedLoadPrefix = "file:///android_asset/preset_overlay/"
+        managedLoadTracker.begin(prefix = "file:///android_asset/preset_overlay/")
         webView.loadUrl("file:///android_asset/preset_overlay/$assetPage")
     }
 
@@ -356,9 +236,7 @@ internal class PresetOverlayWindow(
     ) {
         Log.d(logTag, "loadHtmlContent baseUrl=$baseUrl len=${htmlContent.length}")
         pageReady = false
-        clearHistoryOnNextPageFinished = clearHistoryAfterLoad
-        managedLoadInFlight = true
-        managedLoadPrefix = baseUrl
+        managedLoadTracker.begin(prefix = baseUrl, clearHistoryAfterLoad = clearHistoryAfterLoad)
         webView.loadDataWithBaseURL(
             baseUrl,
             htmlContent,
@@ -468,61 +346,6 @@ internal class PresetOverlayWindow(
                 runCatching { windowManager.updateViewLayout(rootView, layoutParams) }
             }
             onBoundsChanged(currentBounds())
-        }
-    }
-
-    private fun requestInputFocus() {
-        focusWebView(showKeyboard = showImeOnFocus)
-        if (showImeOnFocus) {
-            webView.postDelayed({ focusWebView(showKeyboard = true) }, 120L)
-            webView.postDelayed({ focusWebView(showKeyboard = true) }, 260L)
-        }
-    }
-
-    private fun focusWebView(showKeyboard: Boolean) {
-        webView.post {
-            webView.requestFocusFromTouch()
-            webView.requestFocus()
-            if (showKeyboard) {
-                webView.evaluateJavascript(
-                    "window.focusEditor && window.focusEditor();",
-                    null,
-                )
-                val inputMethodManager = appContext.getSystemService(InputMethodManager::class.java)
-                inputMethodManager?.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
-            }
-        }
-    }
-
-    private fun matchesManagedLoad(url: String?): Boolean {
-        val prefix = managedLoadPrefix ?: return true
-        val currentUrl = url ?: return false
-        return currentUrl.startsWith(prefix)
-    }
-
-    private fun isManagedWebViewUrl(url: String): Boolean {
-        return url.startsWith("http://") ||
-            url.startsWith("https://") ||
-            url.startsWith("file:///android_asset/") ||
-            url.startsWith("about:")
-    }
-
-    private fun hideKeyboard() {
-        if (!focusable) {
-            return
-        }
-        val inputMethodManager = appContext.getSystemService(InputMethodManager::class.java)
-        inputMethodManager?.hideSoftInputFromWindow(webView.windowToken, 0)
-    }
-
-    private companion object {
-        fun buildFlags(focusable: Boolean): Int {
-            var flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-            if (!focusable) {
-                flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            }
-            return flags
         }
     }
 }
