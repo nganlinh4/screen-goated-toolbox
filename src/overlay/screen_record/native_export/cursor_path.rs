@@ -413,15 +413,18 @@ fn smooth_mouse_positions(positions: &[MousePosition], bg: Option<&BackgroundCon
             .collect();
     }
 
-    // Gaussian blur passes
+    // Gaussian blur passes — only x/y are blurred; other fields are unchanged.
+    // Use separate x/y buffers to avoid per-element String clones.
     let smoothness = get_cursor_smoothness(bg);
     let window_size = (smoothness * 2.0 + 1.0) as usize;
     let passes = ((window_size as f64) / 2.0).ceil() as usize;
     let mut current = smoothed;
+    let inv_half_win = 0.5 / window_size as f64;
 
     for _ in 0..passes {
-        let mut pass: Vec<Pos> = Vec::with_capacity(current.len());
         let n = current.len();
+        let mut new_x = vec![0.0_f64; n];
+        let mut new_y = vec![0.0_f64; n];
         for i in 0..n {
             let j_start = i.saturating_sub(window_size);
             let j_end = (i + window_size).min(n - 1);
@@ -431,21 +434,18 @@ fn smooth_mouse_positions(positions: &[MousePosition], bg: Option<&BackgroundCon
             for (offset, point) in current[j_start..=j_end].iter().enumerate() {
                 let j = j_start + offset;
                 let dist = (i as isize - j as isize).unsigned_abs() as f64;
-                let w = (-dist * (0.5 / window_size as f64)).exp();
+                let w = (-dist * inv_half_win).exp();
                 sum_x += point.x * w;
                 sum_y += point.y * w;
                 total_w += w;
             }
-            pass.push(Pos {
-                x: sum_x / total_w,
-                y: sum_y / total_w,
-                timestamp: current[i].timestamp,
-                is_clicked: current[i].is_clicked,
-                cursor_type: current[i].cursor_type.clone(),
-                cursor_rotation: current[i].cursor_rotation,
-            });
+            new_x[i] = sum_x / total_w;
+            new_y[i] = sum_y / total_w;
         }
-        current = pass;
+        for (i, pos) in current.iter_mut().enumerate() {
+            pos.x = new_x[i];
+            pos.y = new_y[i];
+        }
     }
 
     // Dedup by distance threshold
@@ -645,18 +645,10 @@ fn process_cursor_positions(raw: &[MousePosition], bg: Option<&BackgroundConfig>
     apply_cursor_tilt_offset(wiggled, bg)
 }
 
-/// Interpolate processed positions at a given timestamp.
+/// Interpolate processed positions at a given timestamp using binary search.
 fn interpolate_pos(time: f64, positions: &[Pos]) -> Option<Pos> {
     if positions.is_empty() {
         return None;
-    }
-
-    // Exact match (within 1ms)
-    if let Some(p) = positions
-        .iter()
-        .find(|p| (p.timestamp - time).abs() < 0.001)
-    {
-        return Some(p.clone());
     }
 
     let next_idx = positions.partition_point(|p| p.timestamp <= time);
@@ -669,7 +661,16 @@ fn interpolate_pos(time: f64, positions: &[Pos]) -> Option<Pos> {
     }
 
     let prev = &positions[next_idx - 1];
+
+    // Exact match (within 1ms) — check the two nearest neighbors only
+    if (prev.timestamp - time).abs() < 0.001 {
+        return Some(prev.clone());
+    }
     let next = &positions[next_idx];
+    if (next.timestamp - time).abs() < 0.001 {
+        return Some(next.clone());
+    }
+
     let span = next.timestamp - prev.timestamp;
     let t = if span > 1e-10 {
         (time - prev.timestamp) / span
@@ -724,28 +725,30 @@ fn get_cursor_visibility(time: f64, segments: &Option<Vec<CursorVisibilitySegmen
         return (0.0, SCALE_HIDDEN);
     }
 
-    for seg in segs {
-        if time < seg.start_time || time > seg.end_time {
-            continue;
+    // Binary search: find the last segment whose start_time <= time
+    let idx = segs.partition_point(|s| s.start_time <= time);
+    // Check the candidate segment (idx-1) if it contains time
+    if idx > 0 {
+        let seg = &segs[idx - 1];
+        if time <= seg.end_time {
+            let (fade_in, fade_out) = segment_fade_durations(seg.start_time, seg.end_time);
+            let fade_in_end = seg.start_time + fade_in;
+            let fade_out_start = seg.end_time - fade_out;
+
+            if fade_in > 0.0 && time < fade_in_end {
+                let t = ((time - seg.start_time) / fade_in).clamp(0.0, 1.0);
+                let eased = ease_out_cubic(t);
+                return (eased, SCALE_HIDDEN + (1.0 - SCALE_HIDDEN) * eased);
+            }
+
+            if fade_out > 0.0 && time > fade_out_start {
+                let t = ((time - fade_out_start) / fade_out).clamp(0.0, 1.0);
+                let eased = 1.0 - ease_in_cubic(t);
+                return (eased, SCALE_HIDDEN + (1.0 - SCALE_HIDDEN) * eased);
+            }
+
+            return (1.0, 1.0);
         }
-
-        let (fade_in, fade_out) = segment_fade_durations(seg.start_time, seg.end_time);
-        let fade_in_end = seg.start_time + fade_in;
-        let fade_out_start = seg.end_time - fade_out;
-
-        if fade_in > 0.0 && time < fade_in_end {
-            let t = ((time - seg.start_time) / fade_in).clamp(0.0, 1.0);
-            let eased = ease_out_cubic(t);
-            return (eased, SCALE_HIDDEN + (1.0 - SCALE_HIDDEN) * eased);
-        }
-
-        if fade_out > 0.0 && time > fade_out_start {
-            let t = ((time - fade_out_start) / fade_out).clamp(0.0, 1.0);
-            let eased = 1.0 - ease_in_cubic(t);
-            return (eased, SCALE_HIDDEN + (1.0 - SCALE_HIDDEN) * eased);
-        }
-
-        return (1.0, 1.0);
     }
 
     (0.0, SCALE_HIDDEN)
@@ -779,63 +782,68 @@ fn to_mousedown_event(idx: usize, e: &super::config::KeystrokeEvent) -> MouseDow
     }
 }
 
-fn find_active_mousedown_event(
-    segment: &VideoSegment,
-    lookup_time: f64,
-) -> Option<MouseDownEventView> {
-    segment
+/// Pre-filtered and sorted list of mousedown events for O(log n) lookup.
+fn build_mousedown_events(segment: &VideoSegment) -> Vec<MouseDownEventView> {
+    let mut events: Vec<MouseDownEventView> = segment
         .keystroke_events
         .iter()
         .enumerate()
-        .find_map(|(idx, e)| {
-            if !e.event_type.eq_ignore_ascii_case("mousedown") {
-                return None;
-            }
-            let ev = to_mousedown_event(idx, e);
+        .filter(|(_, e)| e.event_type.eq_ignore_ascii_case("mousedown"))
+        .map(|(idx, e)| to_mousedown_event(idx, e))
+        .collect();
+    events.sort_by(|a, b| {
+        a.start_time
+            .partial_cmp(&b.start_time)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    events
+}
+
+fn find_active_mousedown_event_fast(
+    events: &[MouseDownEventView],
+    lookup_time: f64,
+) -> Option<MouseDownEventView> {
+    // Binary search to find the last event whose start_time <= lookup_time
+    let idx = events.partition_point(|e| e.start_time <= lookup_time);
+    // Check the event just before and at the partition point
+    for &check_idx in &[idx.wrapping_sub(1), idx] {
+        if check_idx < events.len() {
+            let ev = events[check_idx];
             let active_end = if ev.is_hold {
                 ev.end_time
             } else {
                 ev.start_time + QUICK_CLICK_WINDOW
             };
             if lookup_time >= ev.start_time && lookup_time <= active_end {
-                Some(ev)
-            } else {
-                None
+                return Some(ev);
             }
-        })
+        }
+    }
+    None
 }
 
-fn find_prev_mousedown_event(
-    segment: &VideoSegment,
+fn find_prev_mousedown_event_fast(
+    events: &[MouseDownEventView],
     before_time: f64,
 ) -> Option<MouseDownEventView> {
-    segment
-        .keystroke_events
-        .iter()
-        .enumerate()
-        .rev()
-        .find_map(|(idx, e)| {
-            if !e.event_type.eq_ignore_ascii_case("mousedown") || e.start_time >= before_time {
-                return None;
-            }
-            Some(to_mousedown_event(idx, e))
-        })
+    let idx = events.partition_point(|e| e.start_time < before_time);
+    if idx > 0 {
+        Some(events[idx - 1])
+    } else {
+        None
+    }
 }
 
-fn find_next_mousedown_event(
-    segment: &VideoSegment,
+fn find_next_mousedown_event_fast(
+    events: &[MouseDownEventView],
     after_time: f64,
 ) -> Option<MouseDownEventView> {
-    segment
-        .keystroke_events
-        .iter()
-        .enumerate()
-        .find_map(|(idx, e)| {
-            if !e.event_type.eq_ignore_ascii_case("mousedown") || e.start_time <= after_time {
-                return None;
-            }
-            Some(to_mousedown_event(idx, e))
-        })
+    let idx = events.partition_point(|e| e.start_time <= after_time);
+    if idx < events.len() {
+        Some(events[idx])
+    } else {
+        None
+    }
 }
 
 fn effective_event_end(event: MouseDownEventView) -> f64 {
@@ -929,6 +937,11 @@ pub fn generate_cursor_path(
     let mut sim_prev_fallback_clicked = false;
     let keystroke_delay_sec = get_keystroke_delay_sec(segment);
     let use_keystroke_clicks = has_mousedown_events(segment);
+    let mousedown_events = if use_keystroke_clicks {
+        build_mousedown_events(segment)
+    } else {
+        vec![]
+    };
 
     let mut t = full_start;
     loop {
@@ -938,7 +951,7 @@ pub fn generate_cursor_path(
         if let Some(ref pos) = pos {
             let lookup_t = t - keystroke_delay_sec;
             let active_event = if use_keystroke_clicks {
-                find_active_mousedown_event(segment, lookup_t)
+                find_active_mousedown_event_fast(&mousedown_events, lookup_t)
             } else {
                 None
             };
@@ -981,7 +994,7 @@ pub fn generate_cursor_path(
                     let gap_from_prev = if use_keystroke_clicks {
                         if let Some(active) = active_event {
                             let prev_event =
-                                find_prev_mousedown_event(segment, active.start_time - 0.01);
+                                find_prev_mousedown_event_fast(&mousedown_events, active.start_time - 0.01);
                             let prev_effective_end = prev_event
                                 .map(effective_event_end)
                                 .unwrap_or(f64::NEG_INFINITY);
@@ -1013,7 +1026,7 @@ pub fn generate_cursor_path(
                                 active_event.map(effective_event_end).unwrap_or(lookup_t);
                             let next_lookup_start =
                                 active_event.map(|e| e.start_time).unwrap_or(lookup_t) + 0.01;
-                            let next_event = find_next_mousedown_event(segment, next_lookup_start);
+                            let next_event = find_next_mousedown_event_fast(&mousedown_events, next_lookup_start);
                             next_event
                                 .map(|e| (e.start_time - active_effective_end).max(0.0))
                                 .unwrap_or(f64::INFINITY)

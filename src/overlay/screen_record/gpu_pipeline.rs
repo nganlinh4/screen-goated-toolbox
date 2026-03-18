@@ -744,6 +744,7 @@ pub fn run_zero_copy_export(
     // ─── Device creation (before thread::scope for shared texture init) ─────
     //
     // CRITICAL: Create D3D11 devices on the SAME adapter as wgpu (DX12).
+    let t_pipeline_setup = Instant::now();
     // On multi-GPU systems (iGPU + dGPU), D3D11CreateDevice(D3D_DRIVER_TYPE_HARDWARE)
     // picks the default adapter which may be the iGPU, while wgpu picks the dGPU.
     // Shared textures between different adapters don't share VRAM — D3D12 reads
@@ -804,10 +805,15 @@ pub fn run_zero_copy_export(
         }
     }
     let enc_device_manager = DxgiDeviceManager::new(&enc_device)?;
+    eprintln!(
+        "[Pipeline][Timing] D3D11 devices: {:.3}s",
+        t_pipeline_setup.elapsed().as_secs_f64()
+    );
 
     let force_cpu = std::env::var("SGT_FORCE_CPU_ENCODE").is_ok();
 
     // ─── Zero-copy decode input ring (decode → render) ──────────────────────
+    let t_rings = Instant::now();
 
     let decode_ring = if force_cpu {
         None
@@ -951,6 +957,11 @@ pub fn run_zero_copy_export(
         .map(|setup| setup.render_height)
         .unwrap_or(0);
 
+    eprintln!(
+        "[Pipeline][Timing] Rings + webcam setup: {:.3}s",
+        t_rings.elapsed().as_secs_f64()
+    );
+
     // ─── Channels ───────────────────────────────────────────────────────────
 
     // Forward channels (decode → render → encode).
@@ -1018,6 +1029,11 @@ pub fn run_zero_copy_export(
         config.blur_cursor_shutter,
         mb_enabled,
         config.trim_segments.len()
+    );
+
+    eprintln!(
+        "[Pipeline][Timing] Total pipeline setup: {:.3}s",
+        start.elapsed().as_secs_f64()
     );
 
     std::thread::scope(|s| {
@@ -1238,6 +1254,7 @@ fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), String> {
 
     let mut fence_value: u64 = 0;
 
+    let t_dec_init = Instant::now();
     let device_manager = DxgiDeviceManager::new(d3d11_device)?;
     let decoder = MfDecoder::new(source_video_path, &device_manager, true)?;
     let source_w = decoder.width();
@@ -1251,7 +1268,6 @@ fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), String> {
     if initial_seek > 0.0 {
         decoder.seek_seconds(initial_seek)?;
     }
-
     let vp_out_w = output_width;
     let vp_out_h = output_height;
     let decode_vp = VideoProcessor::new(
@@ -1356,6 +1372,11 @@ fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), String> {
         };
     }
 
+    eprintln!(
+        "[Decode:{label}] Init (MfDecoder + VP + pool): {:.3}s",
+        t_dec_init.elapsed().as_secs_f64()
+    );
+
     fill_reorder_queue!();
     let fa = reorder_queue.pop();
     fill_reorder_queue!();
@@ -1400,10 +1421,12 @@ fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), String> {
 
     let mut current_segment_idx: usize = 0;
     let mut frames_held: u32 = 0;
+    let mut slow_frame_count: u32 = 0;
     for (frame_idx, &source_time) in source_times.iter().enumerate() {
         if cancel_flag.load(Ordering::Relaxed) {
             break;
         }
+        let frame_t0 = Instant::now();
 
         let next_source_time = source_times
             .get(frame_idx + 1)
@@ -1549,6 +1572,15 @@ fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), String> {
             }
         }
 
+        let frame_dur = frame_t0.elapsed().as_secs_f64();
+        if frame_dur > 0.5 {
+            slow_frame_count += 1;
+            eprintln!(
+                "[Decode:{label}] SLOW f{frame_idx}/{} src_t={source_time:.3} took {frame_dur:.3}s",
+                source_times.len()
+            );
+        }
+
         if tx
             .send(DecodeOutput::Gpu {
                 ring_idx,
@@ -1563,14 +1595,25 @@ fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), String> {
         }
     }
 
+    if slow_frame_count > 0 {
+        eprintln!(
+            "[Decode:{label}] {slow_frame_count} slow frames (>0.5s each)"
+        );
+    }
     let elapsed = t_thread.elapsed().as_secs_f64();
+    let fps = if elapsed > 0.001 {
+        source_times.len() as f64 / elapsed
+    } else {
+        0.0
+    };
     println!(
-        "[Decode:{}] GPU: {} src → {} out ({} held) in {:.1}s",
+        "[Decode:{}] GPU: {} src → {} out ({} held) in {:.1}s ({:.1} out_fps)",
         label,
         src_decoded,
         source_times.len(),
         frames_held,
-        elapsed
+        elapsed,
+        fps
     );
     Ok(())
 }
@@ -1920,13 +1963,15 @@ fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
     let mut webcam_ring_recycle_queue: std::collections::VecDeque<Option<usize>> =
         std::collections::VecDeque::new();
 
+    let mut render_slow_count: u32 = 0;
     loop {
         let tw0 = Instant::now();
         let msg = match rx.recv() {
             Ok(m) => m,
             Err(_) => break,
         };
-        t_wait += tw0.elapsed().as_secs_f64();
+        let wait_dur = tw0.elapsed().as_secs_f64();
+        t_wait += wait_dur;
 
         if cancel_flag.load(Ordering::Relaxed) {
             match &msg {
@@ -1940,6 +1985,7 @@ fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
             break;
         }
 
+        let render_frame_t0 = Instant::now();
         let source_time = msg.source_time();
         let source_step = msg.source_step();
         let frame_idx = msg.frame_idx();
@@ -2183,6 +2229,14 @@ fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
             if tx.send(RenderOutput::Gpu { ring_idx }).is_err() {
                 break;
             }
+            let render_frame_dur = render_frame_t0.elapsed().as_secs_f64();
+            if render_frame_dur > 0.5 || wait_dur > 0.5 {
+                render_slow_count += 1;
+                eprintln!(
+                    "[Render] SLOW f{frame_idx} src_t={source_time:.3} \
+                     wait={wait_dur:.3}s render={render_frame_dur:.3}s"
+                );
+            }
             frames_rendered += 1;
         } else {
             // CPU path: pipelined readback (depth 2).
@@ -2257,6 +2311,9 @@ fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
         frames_rendered += 1;
     }
 
+    if render_slow_count > 0 {
+        eprintln!("[Render] {render_slow_count} slow frames (>0.5s each)");
+    }
     let n = frames_rendered.max(1) as f64;
     let label = if use_gpu_encode { "copy" } else { "readback" };
     println!(
@@ -2356,6 +2413,7 @@ fn run_encode_thread(context: EncodeThreadContext<'_>) -> Result<ZeroCopyExportR
         gpu_recycle_tx,
         cpu_recycle_tx,
     } = context;
+    let t_enc_init = Instant::now();
     let mut audio_decoder = None;
     let mut audio_config = None;
 
@@ -2408,6 +2466,11 @@ fn run_encode_thread(context: EncodeThreadContext<'_>) -> Result<ZeroCopyExportR
             let _ = dec.seek((start_time * 10_000_000.0) as i64);
         }
     }
+
+    eprintln!(
+        "[Encode] Init (audio decoder + MF encoder): {:.3}s",
+        t_enc_init.elapsed().as_secs_f64()
+    );
 
     let mut frames_encoded: u32 = 0;
     let mut t_encode = 0.0_f64;
@@ -2462,18 +2525,21 @@ fn run_encode_thread(context: EncodeThreadContext<'_>) -> Result<ZeroCopyExportR
             (None, None, None, None)
         };
 
+    let mut encode_slow_count: u32 = 0;
     loop {
         let tw0 = Instant::now();
         let msg = match rx.recv() {
             Ok(m) => m,
             Err(_) => break,
         };
-        t_wait += tw0.elapsed().as_secs_f64();
+        let enc_wait_dur = tw0.elapsed().as_secs_f64();
+        t_wait += enc_wait_dur;
 
         if cancel_flag.load(Ordering::Relaxed) {
             break;
         }
 
+        let enc_frame_t0 = Instant::now();
         let timestamp_100ns = frames_encoded as i64 * frame_duration_100ns;
 
         // Audio interleaving.
@@ -2673,6 +2739,15 @@ fn run_encode_thread(context: EncodeThreadContext<'_>) -> Result<ZeroCopyExportR
         }
         t_encode += te0.elapsed().as_secs_f64();
 
+        let enc_frame_dur = enc_frame_t0.elapsed().as_secs_f64();
+        if enc_frame_dur > 0.5 || enc_wait_dur > 0.5 {
+            encode_slow_count += 1;
+            eprintln!(
+                "[Encode] SLOW f{}/{total_frames} wait={enc_wait_dur:.3}s encode={enc_frame_dur:.3}s",
+                frames_encoded + 1
+            );
+        }
+
         frames_encoded += 1;
 
         if let Some(ref cb) = progress
@@ -2695,6 +2770,9 @@ fn run_encode_thread(context: EncodeThreadContext<'_>) -> Result<ZeroCopyExportR
     let fps = frames_encoded as f64 / elapsed;
     let n = frames_encoded.max(1) as f64;
 
+    if encode_slow_count > 0 {
+        eprintln!("[Encode] {encode_slow_count} slow frames (>0.5s each)");
+    }
     println!(
         "[Encode] {} frames: encode {:.1} + wait {:.1}ms avg",
         frames_encoded,

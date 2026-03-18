@@ -36,8 +36,10 @@ internal fun PresetOverlayResultModule.syncResultWindowsSupport(
     val placed = mutableListOf<PresetResultWindowPlacement>()
     windowStates.sortedBy { it.overlayOrder }.forEach { windowState ->
         val existing = resultWindows[windowState.id]
+        val defaultOpacity = overlayOpacityProvider()
         val runtime = existing?.runtimeState ?: PresetResultWindowRuntimeState(
             disabledActions = disabledActionsForWindowSupport(),
+            opacityPercent = defaultOpacity,
         )
         val window = existing?.window ?: createResultOverlayWindowSupport(
             context = context,
@@ -57,6 +59,9 @@ internal fun PresetOverlayResultModule.syncResultWindowsSupport(
             onPageFinished = ::handleResultPageFinished,
             onNavigationFailure = ::handleResultNavigationFailure,
         )
+        if (existing == null && runtime.opacityPercent < 100) {
+            window.setWindowAlpha(runtime.opacityPercent / 100f)
+        }
         val bounds = window.currentBounds()
         placed += PresetResultWindowPlacement(windowState.id, bounds)
         updateResultWindowSupport(
@@ -72,7 +77,13 @@ internal fun PresetOverlayResultModule.syncResultWindowsSupport(
 }
 
 internal fun PresetOverlayResultModule.closeResultWindowSupport(id: PresetResultWindowId) {
-    resultWindows.remove(id)?.window?.destroy()
+    val removed = resultWindows.remove(id)
+    if (removed != null) {
+        if (removed.runtimeState.ttsRequestId != 0L) {
+            ttsRuntimeService?.stopIfActive(removed.runtimeState.ttsRequestId)
+        }
+        removed.window.destroy()
+    }
     if (activeResultWindowId == id) {
         activeResultWindowId = resultWindows.keys.firstOrNull()
     }

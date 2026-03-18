@@ -9,11 +9,34 @@ struct CachedCustomBackground {
     rgba: Arc<Vec<u8>>,
     width: u32,
     height: u32,
+    file_len: Option<u64>,
 }
 
 fn custom_bg_cache() -> &'static Mutex<HashMap<String, CachedCustomBackground>> {
     static CACHE: OnceLock<Mutex<HashMap<String, CachedCustomBackground>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Normalize cache key: strip `?v=` query params and `#` fragments from
+/// file-backed `/bg-downloaded/` URLs. Data URLs are used as-is.
+fn normalize_cache_key(url: &str) -> &str {
+    if url.starts_with("data:") {
+        return url;
+    }
+    url.split(['?', '#']).next().unwrap_or(url)
+}
+
+/// Cheaply get the on-disk file size for a `/bg-downloaded/` URL.
+/// Returns `None` for data URLs or if the path can't be resolved.
+fn file_backed_len(url: &str) -> Option<u64> {
+    let pos = url.find("/bg-downloaded/")?;
+    let rel = &url[pos + "/bg-downloaded/".len()..];
+    let rel = rel.split(['?', '#']).next().unwrap_or(rel);
+    let file_path = dirs::data_local_dir()?
+        .join("screen-goated-toolbox")
+        .join("backgrounds")
+        .join(rel);
+    fs::metadata(&file_path).ok().map(|m| m.len())
 }
 
 pub fn decode_custom_background_bytes(custom_background: &str) -> Result<Vec<u8>, String> {
@@ -56,20 +79,31 @@ pub fn load_custom_background_rgba(
     custom_background: &str,
 ) -> Result<(Arc<Vec<u8>>, u32, u32), String> {
     let total_start = Instant::now();
+    let cache_key = normalize_cache_key(custom_background);
+
     if let Some(hit) = custom_bg_cache()
         .lock()
         .map_err(|_| "Custom background cache lock poisoned".to_string())?
-        .get(custom_background)
+        .get(cache_key)
         .cloned()
     {
-        eprintln!(
-            "[CustomBg] cache hit: {}x{} rgba={}B in {:.3}ms",
-            hit.width,
-            hit.height,
-            hit.rgba.len(),
-            total_start.elapsed().as_secs_f64() * 1000.0
-        );
-        return Ok((hit.rgba, hit.width, hit.height));
+        // For file-backed backgrounds, verify the file size hasn't changed
+        // (cheap stat check guards against content replacement on disk).
+        let stale = match (hit.file_len, file_backed_len(custom_background)) {
+            (Some(cached_len), Some(disk_len)) => cached_len != disk_len,
+            _ => false,
+        };
+        if !stale {
+            eprintln!(
+                "[CustomBg] cache hit: {}x{} rgba={}B in {:.3}ms",
+                hit.width,
+                hit.height,
+                hit.rgba.len(),
+                total_start.elapsed().as_secs_f64() * 1000.0
+            );
+            return Ok((hit.rgba, hit.width, hit.height));
+        }
+        eprintln!("[CustomBg] cache stale (file size changed), re-decoding");
     }
 
     let read_start = Instant::now();
@@ -149,11 +183,12 @@ pub fn load_custom_background_rgba(
             cache.clear();
         }
         cache.insert(
-            custom_background.to_string(),
+            cache_key.to_string(),
             CachedCustomBackground {
                 rgba: Arc::clone(&rgba),
                 width,
                 height,
+                file_len: file_backed_len(custom_background),
             },
         );
     }

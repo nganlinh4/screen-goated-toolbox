@@ -234,7 +234,6 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     showScrollbar,
     canvasWidth,
     canvasWidthPx,
-    handleWheel,
     handleScrollbarTrackPointerDown,
     handleScrollbarThumbPointerDown,
   } = useTimelineViewport({
@@ -370,7 +369,6 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
             ref={viewportRef}
             className="timeline-scroll-viewport"
             data-zoomed={zoom > 1 ? "true" : "false"}
-            onWheel={handleWheel}
           >
             <div className="timeline-canvas" style={{ width: canvasWidth }}>
               <div

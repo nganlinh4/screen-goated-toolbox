@@ -830,6 +830,13 @@ unsafe fn internal_create_sr_loop() {
         let port = ipc::start_global_media_server().unwrap_or(0);
         SERVER_PORT.store(port, std::sync::atomic::Ordering::SeqCst);
 
+        // Eagerly initialize the shared GPU context (wgpu device + pipelines) in
+        // the background. This takes ~8s on first run and is cached forever via
+        // OnceLock, so doing it early avoids blocking the first export.
+        thread::spawn(|| {
+            gpu_export::eager_init_gpu_context();
+        });
+
         // Prepare export GPU pipeline in the background once the recorder has been
         // idle long enough. Warm-up is useful for first export, but running it
         // during active capture steals GPU time from recording.

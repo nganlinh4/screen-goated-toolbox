@@ -21,6 +21,11 @@ internal data class PresetResultWindowRuntimeState(
     val isRawHtml: Boolean = false,
     val copySuccess: Boolean = false,
     val disabledActions: Set<String> = emptySet(),
+    val ttsRequestId: Long = 0L,
+    val ttsLoading: Boolean = false,
+    val isEditing: Boolean = false,
+    val textHistory: List<String> = emptyList(),
+    val redoHistory: List<String> = emptyList(),
 )
 
 internal data class PresetCanvasWindowPayload(

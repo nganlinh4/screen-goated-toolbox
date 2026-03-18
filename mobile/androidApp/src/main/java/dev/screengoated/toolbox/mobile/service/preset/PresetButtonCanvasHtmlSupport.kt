@@ -10,6 +10,22 @@ internal fun presetButtonCanvasBaseHtmlTemplate(): String {
             <style>{{FONT_CSS}}</style>
             <style id="theme-css">{{THEME_CSS}}</style>
             <style>{{BASE_CSS}}</style>
+            <style>
+                .opacity-btn-expandable.touch-expanded:not(.vertical-slider) {
+                    width: 110px !important;
+                    background: var(--btn-hover-bg) !important;
+                    transform: none !important;
+                }
+                .opacity-btn-expandable.touch-expanded.vertical-slider {
+                    height: 110px !important;
+                    background: var(--btn-hover-bg) !important;
+                    transform: none !important;
+                }
+                .opacity-btn-expandable.touch-expanded .opacity-slider-wrapper {
+                    opacity: 1;
+                    pointer-events: auto;
+                }
+            </style>
         </head>
         <body>
             <div id="button-container"></div>
@@ -35,11 +51,15 @@ internal fun mobileCanvasJavascript(): String {
         let revealDeadline = 0;
         let hideTimer = null;
         let renderedWindowId = null;
+        let canvasPinned = false;
+        let sliderActive = false;
 
         function scheduleCanvasHide() {
+            if (canvasPinned || sliderActive) return;
             if (hideTimer) clearTimeout(hideTimer);
             const remaining = Math.max(0, revealDeadline - Date.now());
             hideTimer = setTimeout(() => {
+                if (canvasPinned || sliderActive) return;
                 activeWindowId = null;
                 updateButtonVisibility();
             }, remaining || 1);
@@ -111,6 +131,23 @@ internal fun mobileCanvasJavascript(): String {
             renderedWindowId = hwnd;
             applyMobileCanvasAdaptations();
             applyDisabledActions();
+            canvasPinned = !!state.isEditing;
+            if (canvasPinned && hideTimer) {
+                clearTimeout(hideTimer);
+                hideTimer = null;
+            }
+            requestAnimationFrame(() => {
+                const dpr = window.devicePixelRatio || 1;
+                const groupEl = document.querySelector('.button-group');
+                if (groupEl) {
+                    const rect = groupEl.getBoundingClientRect();
+                    window.ipc.postMessage(JSON.stringify({
+                        action: 'canvas_content_size',
+                        w: Math.round(rect.width * dpr),
+                        h: Math.round(rect.height * dpr)
+                    }));
+                }
+            });
         }
 
         function updateButtonVisibility() {
@@ -122,19 +159,20 @@ internal fun mobileCanvasJavascript(): String {
                 }));
                 return;
             }
-            const visible = activeWindowId && Date.now() < revealDeadline && group.dataset.hwnd === activeWindowId;
+            const visible = canvasPinned || sliderActive || (activeWindowId && Date.now() < revealDeadline && group.dataset.hwnd === activeWindowId);
             group.style.opacity = visible ? '1' : '0';
             group.style.pointerEvents = visible ? 'auto' : 'none';
             lastVisibleState.set(group.dataset.hwnd, visible);
 
             const regions = [];
             if (visible) {
+                const dpr = window.devicePixelRatio || 1;
                 const rect = group.getBoundingClientRect();
                 regions.push({
-                    x: Math.round(rect.left),
-                    y: Math.round(rect.top),
-                    w: Math.round(rect.width),
-                    h: Math.round(rect.height)
+                    x: Math.round(rect.left * dpr),
+                    y: Math.round(rect.top * dpr),
+                    w: Math.round(rect.width * dpr),
+                    h: Math.round(rect.height * dpr)
                 });
             }
             window.ipc.postMessage(JSON.stringify({
@@ -161,12 +199,51 @@ internal fun mobileCanvasJavascript(): String {
             scheduleCanvasHide();
         };
 
+        let opacityExpanded = false;
+        let slidingRange = false;
+
+        function collapseOpacity() {
+            opacityExpanded = false;
+            sliderActive = false;
+            slidingRange = false;
+            document.querySelectorAll('.touch-expanded').forEach(el => el.classList.remove('touch-expanded'));
+        }
+
         document.addEventListener('touchstart', event => {
             const target = event.target;
             if (!(target instanceof Element)) return;
             const group = target.closest('.button-group');
             if (!group) return;
-            window.revealWindow(group.dataset.hwnd, 2000);
+
+            const opacityBtn = target.closest('.opacity-btn-expandable');
+
+            if (opacityBtn) {
+                if (opacityExpanded) {
+                    slidingRange = true;
+                    sliderActive = true;
+                    window.revealWindow(group.dataset.hwnd, 30000);
+                } else {
+                    opacityExpanded = true;
+                    sliderActive = true;
+                    opacityBtn.classList.add('touch-expanded');
+                    window.revealWindow(group.dataset.hwnd, 30000);
+                }
+                return;
+            }
+
+            collapseOpacity();
+            window.revealWindow(group.dataset.hwnd, 5000);
+        }, { passive: true });
+
+        document.addEventListener('touchend', () => {
+            if (slidingRange) {
+                slidingRange = false;
+                return;
+            }
+        }, { passive: true });
+
+        document.addEventListener('touchcancel', () => {
+            slidingRange = false;
         }, { passive: true });
     """.trimIndent()
 }

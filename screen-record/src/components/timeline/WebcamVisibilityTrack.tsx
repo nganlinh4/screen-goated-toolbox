@@ -58,7 +58,7 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
   return (
     <div
       className={`webcam-visibility-track timeline-lane relative h-7 ${
-        isAvailable ? "" : "timeline-lane-unavailable"
+        isAvailable ? "" : "timeline-lane-unavailable pointer-events-none"
       }`}
       onMouseMove={handleMouseMove}
       onMouseLeave={() => setHoverX(null)}

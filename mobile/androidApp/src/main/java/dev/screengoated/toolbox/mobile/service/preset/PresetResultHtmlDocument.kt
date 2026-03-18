@@ -15,8 +15,8 @@ internal fun presetResultBaseHtmlTemplate(): String {
             <style>{{GRIDJS_CSS}}</style>
         </head>
         <body></body>
-        <script src="{{GRIDJS_JS_URL}}"></script>
         <script>{{FIT_SCRIPT}}</script>
+        <script src="{{GRIDJS_JS_URL}}"></script>
         <script>
             window.ipc = {
                 postMessage(message) {

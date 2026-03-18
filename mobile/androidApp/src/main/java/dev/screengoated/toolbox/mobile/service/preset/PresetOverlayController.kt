@@ -11,6 +11,7 @@ import dev.screengoated.toolbox.mobile.preset.PresetPlaceholderReason
 import dev.screengoated.toolbox.mobile.preset.PresetRepository
 import dev.screengoated.toolbox.mobile.preset.ResolvedPreset
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
+import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +34,8 @@ internal class PresetOverlayController(
     private val onDecreaseBubbleSize: () -> Unit,
     private val onPanelExpandedChanged: (Boolean) -> Unit = {},
     private val onRequestBubbleFront: () -> Unit = {},
+    private val ttsRuntimeService: TtsRuntimeService? = null,
+    private val ttsSettingsSnapshotProvider: (() -> dev.screengoated.toolbox.mobile.service.tts.TtsRequestSettingsSnapshot)? = null,
 ) {
     private val favoriteBubbleHtmlBuilder = FavoriteBubbleHtmlBuilder()
     private val textInputHtmlBuilder = PresetTextInputHtmlBuilder()
@@ -69,6 +72,7 @@ internal class PresetOverlayController(
     private var catalogJob: Job? = null
     private var executionJob: Job? = null
     private var uiPreferencesJob: Job? = null
+    private var ttsEventsJob: Job? = null
     private var lastUiPreferences: MobileUiPreferences = uiPreferencesProvider()
 
     init {
@@ -91,6 +95,9 @@ internal class PresetOverlayController(
                     activePreset = null
                 }
             },
+            ttsRuntimeService = ttsRuntimeService,
+            ttsSettingsSnapshotProvider = ttsSettingsSnapshotProvider,
+            overlayOpacityProvider = { uiPreferencesProvider().overlayOpacityPercent.coerceIn(10, 100) },
         )
         inputModule = PresetOverlayInputModule(
             context = context,
@@ -125,6 +132,20 @@ internal class PresetOverlayController(
                 }
             }
         }
+        if (ttsRuntimeService != null) {
+            ttsEventsJob = scope.launch(Dispatchers.Main.immediate) {
+                launch {
+                    ttsRuntimeService.playbackEvents.collect { event ->
+                        resultModule.handleTtsPlaybackEvent(event.requestId, event.ownerToken, event.completionStatus)
+                    }
+                }
+                launch {
+                    ttsRuntimeService.runtimeState.collectLatest { state ->
+                        resultModule.handleTtsRuntimeStateChanged(state.isPlaying, state.activeRequestId)
+                    }
+                }
+            }
+        }
     }
 
     fun updateBubbleBounds(bounds: OverlayBounds) {
@@ -144,6 +165,7 @@ internal class PresetOverlayController(
         catalogJob?.cancel()
         executionJob?.cancel()
         uiPreferencesJob?.cancel()
+        ttsEventsJob?.cancel()
         panelModule.destroy()
         inputModule.destroy()
         resultModule.destroy()

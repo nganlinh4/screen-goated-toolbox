@@ -98,10 +98,11 @@ internal fun buildCanvasPayload(
                         put("maxNavDepth", window.runtimeState.maxNavDepth)
                         put("isBrowsing", window.runtimeState.isBrowsing)
                         put("isMarkdown", true)
-                        put("hasUndo", false)
-                        put("hasRedo", false)
-                        put("ttsLoading", false)
-                        put("ttsSpeaking", false)
+                        put("isEditing", window.runtimeState.isEditing)
+                        put("hasUndo", window.runtimeState.textHistory.isNotEmpty())
+                        put("hasRedo", window.runtimeState.redoHistory.isNotEmpty())
+                        put("ttsLoading", window.runtimeState.ttsLoading)
+                        put("ttsSpeaking", window.runtimeState.ttsRequestId != 0L && !window.runtimeState.ttsLoading)
                         put(
                             "disabledActions",
                             JSONArray(window.runtimeState.disabledActions.toList()),

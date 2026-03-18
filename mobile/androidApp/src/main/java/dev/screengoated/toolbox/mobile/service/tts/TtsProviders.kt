@@ -37,9 +37,11 @@ internal class GeminiTtsProvider(
         sink: LinkedBlockingDeque<ProviderAudioEvent>,
     ) {
         if (apiKey.isBlank()) {
+            android.util.Log.e("SgtTts", "[CANVAS-TTS] Gemini: API key is blank!")
             sink.offer(ProviderAudioEvent.Error("Add your Gemini API key before using Gemini TTS."))
             return
         }
+        android.util.Log.d("SgtTts", "[CANVAS-TTS] Gemini: connecting ws, keyLen=${apiKey.length}")
 
         val socketRequest = Request.Builder()
             .url("$LIVE_WS_ENDPOINT?key=$apiKey")
