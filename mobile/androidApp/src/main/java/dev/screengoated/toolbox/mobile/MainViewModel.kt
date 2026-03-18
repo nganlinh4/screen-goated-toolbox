@@ -122,6 +122,14 @@ class MainViewModel(
         )
     }
 
+    fun onOverlayOpacityChanged(opacityPercent: Int) {
+        repository.updateUiPreferences(
+            repository.currentUiPreferences().copy(
+                overlayOpacityPercent = opacityPercent.coerceIn(10, 100),
+            ),
+        )
+    }
+
     fun onPresetRuntimeSettingsChanged(settings: PresetRuntimeSettings) {
         repository.updatePresetRuntimeSettings(settings)
     }

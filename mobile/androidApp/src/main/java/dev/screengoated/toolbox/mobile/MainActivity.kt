@@ -143,6 +143,7 @@ class MainActivity : ComponentActivity() {
                     onPreviewGeminiVoice = viewModel::previewGeminiVoice,
                     onPreviewEdgeVoice = viewModel::previewEdgeVoice,
                     onSessionToggle = onSessionToggle,
+                    onOverlayOpacityChanged = viewModel::onOverlayOpacityChanged,
                 )
             }
         }

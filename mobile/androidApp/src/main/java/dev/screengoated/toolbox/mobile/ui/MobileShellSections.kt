@@ -37,6 +37,7 @@ import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
@@ -332,6 +333,20 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
     }
     val modelState by manager.state.collectAsState()
     val scope = rememberCoroutineScope()
+    var helpDialog by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    helpDialog?.let { (title, desc) ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { helpDialog = null },
+            title = { Text(title) },
+            text = { Text(desc) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { helpDialog = null }) {
+                    Text("OK")
+                }
+            },
+        )
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -352,6 +367,8 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
 
             DownloadedToolRow(
                 name = "Parakeet",
+                description = locale.toolDescParakeet,
+                onHelpClick = { helpDialog = "Parakeet" to locale.toolDescParakeet },
                 note = "(English only)",
                 icon = Icons.Rounded.Mic,
                 state = modelState,
@@ -368,6 +385,8 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
 
             VideoToolRow(
                 name = "yt-dlp + Python",
+                description = locale.toolDescYtdlp,
+                onHelpClick = { helpDialog = "yt-dlp + Python" to locale.toolDescYtdlp },
                 icon = Icons.Rounded.Download,
                 status = dlState.ytdlp.status,
                 version = dlState.ytdlp.version,
@@ -382,6 +401,8 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
 
             VideoToolRow(
                 name = "ffmpeg",
+                description = locale.toolDescFfmpeg,
+                onHelpClick = { helpDialog = "ffmpeg" to locale.toolDescFfmpeg },
                 icon = Icons.Rounded.GraphicEq,
                 status = dlState.ffmpeg.status,
                 version = null,
@@ -403,6 +424,8 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
 @Composable
 private fun DownloadedToolRow(
     name: String,
+    description: String,
+    onHelpClick: () -> Unit,
     note: String,
     icon: ImageVector,
     state: dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState,
@@ -422,7 +445,20 @@ private fun DownloadedToolRow(
             tint = MaterialTheme.colorScheme.primary,
         )
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                IconButton(
+                    onClick = onHelpClick,
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Info,
+                        contentDescription = description,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             Text(
                 text = when (state) {
                     is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Missing -> locale.dlDepsNotInstalled
@@ -484,6 +520,8 @@ private fun DownloadedToolRow(
 @Composable
 private fun VideoToolRow(
     name: String,
+    description: String,
+    onHelpClick: () -> Unit = {},
     icon: ImageVector,
     status: dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus,
     version: String?,
@@ -511,7 +549,20 @@ private fun VideoToolRow(
             },
         )
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                IconButton(
+                    onClick = onHelpClick,
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Info,
+                        contentDescription = description,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             Text(
                 text = when (status) {
                     dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.INSTALLED ->
@@ -701,6 +752,8 @@ internal fun SectionDetail(
     onOllamaUrlChanged: (String) -> Unit,
     onPresetRuntimeSettingsClick: () -> Unit,
     onVoiceSettingsClick: () -> Unit,
+    uiPreferences: dev.screengoated.toolbox.mobile.model.MobileUiPreferences = dev.screengoated.toolbox.mobile.model.MobileUiPreferences(),
+    onOverlayOpacityChanged: (Int) -> Unit = {},
     onSessionToggle: () -> Unit,
     canToggle: Boolean,
     onDownloaderClick: () -> Unit = {},
@@ -738,6 +791,7 @@ internal fun SectionDetail(
             ollamaUrl = ollamaUrl,
             globalTtsSettings = globalTtsSettings,
             presetRuntimeSettings = presetRuntimeSettings,
+            overlayOpacityPercent = uiPreferences.overlayOpacityPercent,
             locale = locale,
             wideLayout = wideLayout,
             onApiKeyChanged = onApiKeyChanged,
@@ -747,6 +801,7 @@ internal fun SectionDetail(
             onOllamaUrlChanged = onOllamaUrlChanged,
             onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
             onVoiceSettingsClick = onVoiceSettingsClick,
+            onOverlayOpacityChanged = onOverlayOpacityChanged,
         )
 
         MobileShellSection.HISTORY -> PlaceholderSection(
@@ -1744,6 +1799,7 @@ internal fun GlobalSection(
     ollamaUrl: String,
     globalTtsSettings: MobileGlobalTtsSettings,
     presetRuntimeSettings: PresetRuntimeSettings,
+    overlayOpacityPercent: Int,
     locale: MobileLocaleText,
     wideLayout: Boolean,
     onApiKeyChanged: (String) -> Unit,
@@ -1753,6 +1809,7 @@ internal fun GlobalSection(
     onOllamaUrlChanged: (String) -> Unit,
     onPresetRuntimeSettingsClick: () -> Unit,
     onVoiceSettingsClick: () -> Unit,
+    onOverlayOpacityChanged: (Int) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap)) {
         if (wideLayout) {
@@ -1812,6 +1869,11 @@ internal fun GlobalSection(
                 onClick = onPresetRuntimeSettingsClick,
             )
         }
+        OverlayOpacityCard(
+            opacityPercent = overlayOpacityPercent,
+            locale = locale,
+            onOpacityChanged = onOverlayOpacityChanged,
+        )
         DownloadedToolsSection(locale = locale)
     }
 }

@@ -1,5 +1,5 @@
 import type { SpeedPoint } from "@/types/video";
-import { videoTimeToWallClock } from "@/lib/exportEstimator";
+import { getSpeedAtTime } from "@/lib/exportEstimator";
 
 const MAJOR_TICK_TARGET_PX = 80;
 const RULER_STEP_OPTIONS_SEC = [
@@ -59,13 +59,30 @@ export function buildTimelineRulerTicks({
 
   const majorStep = getMajorStep(duration, widthPx);
   const ticks: TimelineRulerTick[] = [];
+  const hasSpeed = Boolean(speedPoints?.length);
+
+  // Incremental integration for speed-adjusted labels.
+  // The old approach called videoTimeToWallClock(t) per tick, which integrates
+  // from 0→t each time — O(N * duration/dt) = 7.7M iterations for 165 ticks
+  // on a 13-min video. Incremental integration: O(duration/dt) total = ~47K.
+  const DT = 0.01666;
+  let wallTime = 0;
+  let integrationT = 0;
+
+  const integrateToTime = (targetTime: number): number => {
+    if (!hasSpeed) return targetTime;
+    while (integrationT < targetTime) {
+      const dt = Math.min(DT, targetTime - integrationT);
+      const s = getSpeedAtTime(integrationT + dt * 0.5, speedPoints!);
+      wallTime += dt / Math.max(0.1, s);
+      integrationT += dt;
+    }
+    return wallTime;
+  };
 
   for (let time = 0; time <= duration + TICK_EPSILON; time += majorStep) {
     const clampedTime = clamp(time, 0, duration);
-    const displayTime =
-      speedPoints?.length && duration > 0
-        ? videoTimeToWallClock(clampedTime, speedPoints)
-        : clampedTime;
+    const displayTime = integrateToTime(clampedTime);
 
     ticks.push({
       time: clampedTime,
@@ -76,10 +93,7 @@ export function buildTimelineRulerTicks({
 
   const lastTick = ticks[ticks.length - 1];
   if (!lastTick || Math.abs(lastTick.time - duration) > TICK_EPSILON) {
-    const displayTime =
-      speedPoints?.length && duration > 0
-        ? videoTimeToWallClock(duration, speedPoints)
-        : duration;
+    const displayTime = integrateToTime(duration);
     ticks.push({
       time: duration,
       leftPct: 100,

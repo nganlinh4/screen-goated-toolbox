@@ -108,6 +108,7 @@ fun SgtMobileApp(
     onPreviewGeminiVoice: (String) -> Unit,
     onPreviewEdgeVoice: (String, String) -> Unit,
     onSessionToggle: () -> Unit,
+    onOverlayOpacityChanged: (Int) -> Unit = {},
 ) {
     var showTtsSettings by rememberSaveable { mutableStateOf(false) }
     var showPresetRuntimeSettings by rememberSaveable { mutableStateOf(false) }
@@ -224,6 +225,8 @@ fun SgtMobileApp(
                         onVoiceSettingsShown()
                         showTtsSettings = true
                     },
+                    uiPreferences = uiPreferences,
+                    onOverlayOpacityChanged = onOverlayOpacityChanged,
                     showEmbeddedHeader = isLandscape,
                     appHeaderTitle = locale.appHeaderTitle,
                     uiLanguage = uiPreferences.uiLanguage,
