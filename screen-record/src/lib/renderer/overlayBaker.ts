@@ -13,10 +13,14 @@ import {
   clamp01,
   rebuildKeystrokeRenderCache,
   getKeystrokeOverlayTransform,
+  getKeystrokeOverlayConfig,
   getCachedKeystrokeBubbleLayout,
   drawKeystrokeBubble,
   buildActiveKeystrokeFrameLayout,
   getKeystrokeDelaySec,
+  DEFAULT_KEYSTROKE_OVERLAY_X,
+  DEFAULT_KEYSTROKE_OVERLAY_Y,
+  DEFAULT_KEYSTROKE_OVERLAY_SCALE,
 } from './keystrokeRenderer';
 
 // ---------------------------------------------------------------------------
@@ -367,7 +371,7 @@ export async function bakeOverlayAtlasAndPaths(
   const atlasCtx = atlasCanvas.getContext('2d', { willReadFrequently: true });
   if (!atlasCtx) {
     atlasCanvas.remove();
-    return { atlasBase64: '', atlasWidth: 1, atlasHeight: 1, frames: [] };
+    return { atlasBase64: '', atlasWidth: 1, atlasHeight: 1, frames: [], totalFrameCount: 0 };
   }
 
   let packX = 0;
@@ -461,7 +465,124 @@ export async function bakeOverlayAtlasAndPaths(
   finalCanvas.getContext('2d')!.drawImage(atlasCanvas, 0, 0);
   const atlasBase64 = finalCanvas.toDataURL('image/png');
   atlasCanvas.remove();
+  finalCanvas.remove();
 
+  // Build compact atlas metadata for Rust-side frame quad generation.
+  // This eliminates the need to send 40K+ frame objects over IPC.
+  const overlayConfig = getKeystrokeOverlayConfig(segment);
+  const textEntries = Array.from(textMap.entries()).map(([id, m]) => {
+    const text = (segment.textSegments || []).find(t => t.id === id);
+    return {
+      id,
+      startTime: text?.startTime ?? 0,
+      endTime: text?.endTime ?? 0,
+      rectX: m.rect.x,
+      rectY: m.rect.y,
+      rectW: m.rect.w,
+      rectH: m.rect.h,
+      hitX: m.baseHitArea.x,
+      hitY: m.baseHitArea.y,
+      pad: m.pad,
+    };
+  });
+  const keystrokeEntries = Array.from(keystrokeUniqueMap.entries()).map(([uniqueKey, m]) => ({
+    uniqueKey,
+    normalRectX: m.rectNormal.x,
+    normalRectY: m.rectNormal.y,
+    normalRectW: m.rectNormal.w,
+    normalRectH: m.rectNormal.h,
+    heldRectX: m.rectHeld.x,
+    heldRectY: m.rectHeld.y,
+    heldRectW: m.rectHeld.w,
+    heldRectH: m.rectHeld.h,
+    layoutWidth: m.layout.width,
+    layoutHeight: m.layout.height,
+    layoutFontSize: m.layout.fontSize,
+    layoutMarginBottom: m.layout.marginBottom,
+    pad: m.pad,
+    bubbleWidth: m.layout.width,
+  }));
+
+  const atlasMetadata = cache ? {
+    atlasWidth: MAX_ATLAS_SIZE,
+    atlasHeight: actualAtlasHeight,
+    textEntries,
+    keystrokeEntries,
+    keystrokeMode: segment.keystrokeMode ?? 'off',
+    keystrokeDelaySec: segment.keystrokeDelaySec ?? 0,
+    overlayX: overlayConfig.x,
+    overlayY: overlayConfig.y,
+    overlayScale: overlayConfig.scale,
+    visibilitySegments: cache.visibilityRef ?? [],
+    displayEvents: cache.displayEvents.map(e => ({
+      id: e.id,
+      uniqueKey: keystrokeEventMap.get(e.id) ?? '',
+      type: e.type,
+      startTime: e.startTime,
+      endTime: e.endTime,
+      isHold: Boolean(e.isHold),
+    })),
+    keyboardStartTimes: cache.keyboardStartTimes,
+    keyboardIndices: cache.keyboardIndices,
+    mouseStartTimes: cache.mouseStartTimes,
+    mouseIndices: cache.mouseIndices,
+    keyboardMaxDuration: cache.keyboardMaxDuration,
+    mouseMaxDuration: cache.mouseMaxDuration,
+    eventSlots: cache.eventSlots,
+    eventIdentities: cache.eventIdentities,
+    keyboardSlotRepresentativeWidths: cache.keyboardSlotRepresentatives.map(idx => {
+      if (typeof idx !== 'number') return 0;
+      const ev = cache.displayEvents[idx];
+      if (!ev) return 0;
+      const layout = getCachedKeystrokeBubbleLayout(keystrokeState, atlasCtx, ev, outputHeight, overlayConfig.scale);
+      return layout.width;
+    }),
+    mouseSlotRepresentativeWidths: cache.mouseSlotRepresentatives.map(idx => {
+      if (typeof idx !== 'number') return 0;
+      const ev = cache.displayEvents[idx];
+      if (!ev) return 0;
+      const layout = getCachedKeystrokeBubbleLayout(keystrokeState, atlasCtx, ev, outputHeight, overlayConfig.scale);
+      return layout.width;
+    }),
+  } : (textEntries.length > 0 ? {
+    atlasWidth: MAX_ATLAS_SIZE,
+    atlasHeight: actualAtlasHeight,
+    textEntries,
+    keystrokeEntries: [],
+    keystrokeMode: 'off',
+    keystrokeDelaySec: 0,
+    overlayX: DEFAULT_KEYSTROKE_OVERLAY_X,
+    overlayY: DEFAULT_KEYSTROKE_OVERLAY_Y,
+    overlayScale: DEFAULT_KEYSTROKE_OVERLAY_SCALE,
+    visibilitySegments: [],
+    displayEvents: [],
+    keyboardStartTimes: [],
+    keyboardIndices: [],
+    mouseStartTimes: [],
+    mouseIndices: [],
+    keyboardMaxDuration: 0,
+    mouseMaxDuration: 0,
+    eventSlots: [],
+    eventIdentities: [],
+    keyboardSlotRepresentativeWidths: [],
+    mouseSlotRepresentativeWidths: [],
+  } : null);
+
+  // When metadata is available, skip the expensive JS frame loop entirely.
+  // Rust will generate overlay frames from the metadata in ~1ms.
+  if (atlasMetadata) {
+    return {
+      atlasBase64,
+      atlasWidth: MAX_ATLAS_SIZE,
+      atlasHeight: actualAtlasHeight,
+      frames: [],
+      totalFrameCount: 0,
+      atlasMetadata,
+    };
+  }
+
+  // Fallback: generate per-frame quad arrays in JS (used by composition export
+  // or when metadata is not available).
   // Generate per-frame quad arrays.
   // IMPORTANT: This loop must mirror gpu_pipeline.rs `build_frame_times` exactly so that
   // frames[i] corresponds to output frame i. The Rust compositor indexes overlay_frames by
@@ -577,7 +698,10 @@ export async function bakeOverlayAtlasAndPaths(
       drawPlacements(layout.mouse);
     }
 
-    frames.push({ time: t, quads });
+    // Only emit non-empty frames (sparse output) — Rust expands to dense array.
+    if (quads.length > 0) {
+      frames.push({ frameIndex: frameCount, quads });
+    }
     frameCount++;
     // Yield every 500 frames to keep the browser responsive during long exports.
     if (frameCount % 500 === 0) await new Promise(r => setTimeout(r, 0));
@@ -589,5 +713,5 @@ export async function bakeOverlayAtlasAndPaths(
     t += speed * outDt;
   }
 
-  return { atlasBase64, atlasWidth: MAX_ATLAS_SIZE, atlasHeight: actualAtlasHeight, frames };
+  return { atlasBase64, atlasWidth: MAX_ATLAS_SIZE, atlasHeight: actualAtlasHeight, frames, totalFrameCount: frameCount, atlasMetadata: null };
 }

@@ -67,10 +67,12 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
             val value = payload.optInt("value", 100)
             val id = payload.optString("hwnd").toResultWindowIdOrNull() ?: return
             val clamped = value.coerceIn(10, 100)
-            updateRuntimeState(id) { it.copy(opacityPercent = clamped) }
-            val window = resultWindows[id]?.window ?: return
-            applyWindowOpacity(window, clamped)
-            setActiveResultWindow(id)
+            val active = resultWindows[id] ?: return
+            resultWindows[id] = active.copy(runtimeState = active.runtimeState.copy(opacityPercent = clamped))
+            applyWindowOpacity(active.window, clamped)
+            if (activeResultWindowId != id) {
+                activeResultWindowId = id
+            }
         }
         "canvas_content_size" -> {
             val w = payload.optInt("w", 0)
@@ -117,20 +119,75 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
             canvasWindow?.setFocusable(nowEditing)
             setActiveResultWindow(window.id)
         }
-        "edit_submit" -> {
+        "submit_refine" -> {
             val window = payload.optString("hwnd").toResultWindowIdOrNull()?.let(resultWindows::get) ?: return
             val refineText = payload.optString("text").trim()
             if (refineText.isEmpty()) return
             val currentText = window.windowState.markdownText
+            val windowId = window.id
+            android.util.Log.d("SgtRefine", "[REFINE] submit refineText='${refineText.take(40)}' currentText='${currentText.take(40)}' windowId=$windowId presetId=${window.presetId}")
             canvasWindow?.setFocusable(false)
-            updateRuntimeState(window.id) { runtime ->
+            updateRuntimeState(windowId) { runtime ->
                 runtime.copy(
                     isEditing = false,
                     textHistory = runtime.textHistory + currentText,
                     redoHistory = emptyList(),
                 )
             }
-            setActiveResultWindow(window.id)
+            val resolved = presetRepository.getResolvedPreset(window.presetId) ?: return
+            android.util.Log.d("SgtRefine", "[REFINE] resolved preset=${resolved.preset.id} blocks=${resolved.preset.blocks.size} firstModel=${resolved.preset.blocks.firstOrNull()?.model}")
+            val loadingState = window.windowState.copy(
+                markdownText = "",
+                isLoading = true,
+                isStreaming = false,
+                isError = false,
+                loadingStatusText = overlayLocalized(uiLanguage(), "Refining...", "Đang tinh chỉnh...", "다듬는 중..."),
+            )
+            resultWindows[windowId] = resultWindows[windowId]!!.copy(windowState = loadingState)
+            updateResultWindowSupport(resultWindows[windowId]!!)
+            val accumulated = StringBuilder()
+            presetRepository.refineInPlace(
+                preset = resolved.preset,
+                previousText = currentText,
+                refinePrompt = refineText,
+                onChunk = { chunk ->
+                    android.util.Log.d("SgtRefine", "[REFINE] chunk len=${chunk.length} wipe=${chunk.startsWith("\u0000WIPE\u0000")} accumulated=${accumulated.length} chunk='${chunk.take(60)}'")
+                    if (chunk.startsWith("\u0000WIPE\u0000")) {
+                        accumulated.clear()
+                        accumulated.append(chunk.removePrefix("\u0000WIPE\u0000"))
+                    } else {
+                        accumulated.append(chunk)
+                    }
+                    val html = accumulated.toString()
+                    val active = resultWindows[windowId] ?: return@refineInPlace
+                    val streamState = active.windowState.copy(
+                        markdownText = html,
+                        isLoading = false,
+                        isStreaming = true,
+                        isError = false,
+                        loadingStatusText = null,
+                    )
+                    resultWindows[windowId] = active.copy(windowState = streamState)
+                    android.util.Log.d("SgtRefine", "[REFINE] updated window markdownText='${html.take(60)}'")
+                    updateResultWindowSupport(resultWindows[windowId] ?: return@refineInPlace)
+                },
+                onComplete = { result ->
+                    val active = resultWindows[windowId] ?: return@refineInPlace
+                    val finalText = result.getOrElse { it.message ?: "Refine failed" }
+                    android.util.Log.d("SgtRefine", "[REFINE] complete success=${result.isSuccess} finalText='${finalText.take(80)}'")
+                    val finalState = active.windowState.copy(
+                        markdownText = finalText,
+                        isLoading = false,
+                        isStreaming = false,
+                        isError = result.isFailure,
+                        loadingStatusText = null,
+                    )
+                    resultWindows[windowId] = active.copy(windowState = finalState)
+                    updateResultWindowSupport(resultWindows[windowId]!!)
+                    ensureCanvasWindowSupport()
+                },
+            )
+            setActiveResultWindow(windowId)
         }
         "cancel_refine" -> {
             val id = payload.optString("hwnd").toResultWindowIdOrNull() ?: return

@@ -732,7 +732,6 @@ export class VideoExporter {
       }
 
       // Camera and cursor baking now done in Rust — only stage text/keystroke overlays.
-      // Chunked at 50 per call: avoids per-overlay IPC overhead on long recordings.
       const t0Overlays = Date.now();
       if (prepared.overlayPayload) {
         await invoke('stage_export_data', {
@@ -741,13 +740,22 @@ export class VideoExporter {
           width: prepared.overlayPayload.atlasWidth,
           height: prepared.overlayPayload.atlasHeight,
         });
-        const FRAME_CHUNK = 1500;
-        const frames = prepared.overlayPayload.frames;
-        for (let i = 0; i < frames.length; i += FRAME_CHUNK) {
+        if (prepared.overlayPayload.atlasMetadata) {
+          // Send compact metadata (~few KB) — Rust generates 40K+ frames in ~1ms
           await invoke('stage_export_data', {
-            dataType: 'overlay_frames_chunk',
-            data: frames.slice(i, i + FRAME_CHUNK),
+            dataType: 'overlay_atlas_metadata',
+            data: prepared.overlayPayload.atlasMetadata,
           });
+        } else {
+          // Fallback: send pre-computed frame chunks (old path)
+          const FRAME_CHUNK = 1500;
+          const frames = prepared.overlayPayload.frames;
+          for (let i = 0; i < frames.length; i += FRAME_CHUNK) {
+            await invoke('stage_export_data', {
+              dataType: 'overlay_frames_chunk',
+              data: frames.slice(i, i + FRAME_CHUNK),
+            });
+          }
         }
       }
       if (prepared.bakedWebcamFrames.length > 0) {

@@ -144,6 +144,38 @@ class PresetRepository(
         }
     }
 
+    fun refineInPlace(
+        preset: Preset,
+        previousText: String,
+        refinePrompt: String,
+        onChunk: (String) -> Unit,
+        onComplete: (Result<String>) -> Unit,
+    ): Job {
+        val blockModel = preset.blocks.firstOrNull()?.model.orEmpty()
+        val modelId = blockModel.ifEmpty {
+            runtimeSettings().modelPriorityChains.textToText.firstOrNull()
+        } ?: return scope.launch { onComplete(Result.failure(Exception("No model configured"))) }
+        val keys = apiKeys()
+        val lang = uiLanguage()
+        android.util.Log.d("SgtRefine", "[REFINE] refineInPlace modelId=$modelId blockModel=$blockModel prevLen=${previousText.length} prompt='${refinePrompt.take(40)}'")
+        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        return scope.launch(Dispatchers.IO) {
+            val result = textApiClient.executeStreaming(
+                modelId = modelId,
+                prompt = "Content:\n$previousText\n\nInstruction:\n$refinePrompt\n\nOutput ONLY the result.",
+                inputText = previousText,
+                apiKeys = keys,
+                uiLanguage = lang,
+                searchLabel = null,
+                onChunk = { chunk -> mainHandler.post { onChunk(chunk) } },
+                streamingEnabled = true,
+            )
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                onComplete(result)
+            }
+        }
+    }
+
     fun cancelExecution() {
         executionJob?.cancel()
         _executionState.update {

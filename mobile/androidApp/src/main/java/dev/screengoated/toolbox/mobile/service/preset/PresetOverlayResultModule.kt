@@ -128,12 +128,15 @@ internal class PresetOverlayResultModule(
             "activateResultWindow" -> setActiveResultWindow(id)
             "dragResultWindow" -> {
                 dismissTarget.ensureShown()
+                canvasWindow?.hide()
                 active.window.moveBy(
                     dx = payload.optDouble("dx", 0.0).roundToInt(),
                     dy = payload.optDouble("dy", 0.0).roundToInt(),
                     screenBounds = screenBoundsProvider(),
                 )
-                setActiveResultWindow(id)
+                if (activeResultWindowId != id) {
+                    activeResultWindowId = id
+                }
             }
             "dragResultWindowAt" -> {
                 dismissTarget.update(
@@ -160,6 +163,7 @@ internal class PresetOverlayResultModule(
                 }
             }
             "resizeResultWindow" -> {
+                canvasWindow?.hide()
                 resizeResultWindowSupport(
                     active = active,
                     corner = payload.optString("corner"),
@@ -168,8 +172,9 @@ internal class PresetOverlayResultModule(
                     screenBounds = screenBoundsProvider(),
                     dp = dp,
                 )
-                setActiveResultWindow(id)
-                ensureCanvasWindowSupport()
+                if (activeResultWindowId != id) {
+                    activeResultWindowId = id
+                }
             }
             "resizeResultWindowEnd" -> {
                 active.window.runScript("""
@@ -194,6 +199,7 @@ internal class PresetOverlayResultModule(
             "cancelResultGesture" -> {
                 dismissTarget.resetTracking()
                 dismissTarget.hide()
+                ensureCanvasWindowSupport()
             }
             "navigationState" -> {
                 updateRuntimeState(id) { runtime ->

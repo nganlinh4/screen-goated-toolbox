@@ -11,6 +11,7 @@ use std::sync::{LazyLock, Mutex};
 use super::config::{
     AnimatedCursorSlotData, BakedCameraFrame, BakedCursorFrame, BakedWebcamFrame, OverlayFrame,
 };
+use super::overlay_frames::OverlayAtlasMetadata;
 
 #[derive(Clone)]
 pub struct CursorSlotOverride {
@@ -29,6 +30,8 @@ pub struct StagedExportData {
     pub atlas_h: u32,
     /// Pre-computed overlay quads per output frame (replaces CPU overlay compositing).
     pub overlay_frames: Vec<OverlayFrame>,
+    /// Atlas metadata for Rust-side frame quad generation (replaces JS frame loop).
+    pub overlay_metadata: Option<OverlayAtlasMetadata>,
 }
 
 impl StagedExportData {
@@ -42,6 +45,7 @@ impl StagedExportData {
             atlas_w: 1,
             atlas_h: 1,
             overlay_frames: Vec::new(),
+            overlay_metadata: None,
         }
     }
 }
@@ -155,6 +159,22 @@ pub fn set_atlas_for(session_id: &str, job_id: &str, rgba: Vec<u8>, w: u32, h: u
     staged.atlas_rgba = Some(rgba);
     staged.atlas_w = w;
     staged.atlas_h = h;
+}
+
+pub fn set_overlay_metadata(meta: OverlayAtlasMetadata) {
+    let mut guard = STAGED.lock().unwrap();
+    let staged = guard.get_or_insert_with(StagedExportData::new);
+    staged.overlay_metadata = Some(meta);
+}
+
+pub fn set_overlay_metadata_for(session_id: &str, job_id: &str, meta: OverlayAtlasMetadata) {
+    let mut guard = STAGED_SESSIONS.lock().unwrap();
+    let staged = guard
+        .entry(session_id.to_string())
+        .or_default()
+        .entry(job_id.to_string())
+        .or_insert_with(StagedExportData::new);
+    staged.overlay_metadata = Some(meta);
 }
 
 pub fn append_overlay_frames(frames: Vec<OverlayFrame>) {
