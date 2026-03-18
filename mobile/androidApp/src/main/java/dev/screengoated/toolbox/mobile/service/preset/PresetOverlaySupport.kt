@@ -39,11 +39,10 @@ internal fun escapeHtml(value: String): String {
         .replace("'", "&#39;")
 }
 
-internal fun loadingHtml(statusText: String): String {
+internal fun loadingHtml(@Suppress("UNUSED_PARAMETER") statusText: String): String {
     return """
         <div class="sgt-loading-shell">
-            <div class="sgt-loading-indicator" aria-hidden="true"></div>
-            <div class="sgt-loading-label">${escapeHtml(statusText)}</div>
+            <canvas id="sgt-m3e-canvas" aria-hidden="true"></canvas>
         </div>
     """.trimIndent()
 }

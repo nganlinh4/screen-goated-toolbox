@@ -459,6 +459,9 @@ export async function bakeOverlayAtlasAndPaths(
   }
 
   const actualAtlasHeight = Math.max(1, packY + rowH + 2);
+  // Extract raw RGBA for SharedBuffer zero-copy transfer.
+  // Also produce PNG base64 as fallback for older WebView2 runtimes.
+  const atlasRgba = atlasCtx.getImageData(0, 0, MAX_ATLAS_SIZE, actualAtlasHeight).data;
   const finalCanvas = document.createElement('canvas');
   finalCanvas.width = MAX_ATLAS_SIZE;
   finalCanvas.height = actualAtlasHeight;
@@ -573,6 +576,7 @@ export async function bakeOverlayAtlasAndPaths(
   if (atlasMetadata) {
     return {
       atlasBase64,
+      atlasRgba: new Uint8Array(atlasRgba.buffer),
       atlasWidth: MAX_ATLAS_SIZE,
       atlasHeight: actualAtlasHeight,
       frames: [],

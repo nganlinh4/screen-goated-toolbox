@@ -106,6 +106,13 @@ val generatePresetOverlayAssets by tasks.registering {
         )
         overlayFontAsset.copyTo(outputDir.resolve("GoogleSansFlex.ttf"), overwrite = true)
 
+        val staticAssetsDir = projectDir.resolve("src/main/assets/preset_overlay_static")
+        if (staticAssetsDir.isDirectory) {
+            staticAssetsDir.listFiles()?.forEach { file ->
+                file.copyTo(outputDir.resolve(file.name), overwrite = true)
+            }
+        }
+
         outputDir.resolve("windows_button_canvas.css").writeText(
             extractWindowsRawString(
                 buttonCanvasCssSource.readText(),

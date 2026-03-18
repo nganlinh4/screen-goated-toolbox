@@ -193,7 +193,6 @@ class AndroidTtsRuntimeService(
 
             val method = job.request.settingsSnapshot.method
             val apiKey = settingsStore.loadApiKey().trim()
-            android.util.Log.d("SgtTts", "[CANVAS-TTS] worker start method=$method consumer=${job.request.consumer} owner=${job.request.ownerToken} keyLen=${apiKey.length} text=${job.request.text.take(60)}")
             runCatching {
                 when (method) {
                     MobileTtsMethod.GEMINI_LIVE -> geminiProvider.stream(
@@ -214,9 +213,7 @@ class AndroidTtsRuntimeService(
                         sink = job.audioEvents,
                     )
                 }
-                android.util.Log.d("SgtTts", "[CANVAS-TTS] worker finished method=$method")
             }.onFailure { error ->
-                android.util.Log.e("SgtTts", "[CANVAS-TTS] worker exception method=$method", error)
                 job.audioEvents.offer(
                     ProviderAudioEvent.Error(
                         error.message ?: "TTS provider failed.",
@@ -266,7 +263,6 @@ class AndroidTtsRuntimeService(
                     }
 
                     is ProviderAudioEvent.Error -> {
-                        android.util.Log.e("SgtTts", "[CANVAS-TTS] player got error: ${event.message}")
                         audioPlayer.stopImmediate()
                         completion = TtsCompletionStatus.FAILED
                         done = true

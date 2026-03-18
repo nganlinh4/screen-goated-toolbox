@@ -157,7 +157,7 @@ class PresetRepository(
         } ?: return scope.launch { onComplete(Result.failure(Exception("No model configured"))) }
         val keys = apiKeys()
         val lang = uiLanguage()
-        android.util.Log.d("SgtRefine", "[REFINE] refineInPlace modelId=$modelId blockModel=$blockModel prevLen=${previousText.length} prompt='${refinePrompt.take(40)}'")
+
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
         return scope.launch(Dispatchers.IO) {
             val result = textApiClient.executeStreaming(
