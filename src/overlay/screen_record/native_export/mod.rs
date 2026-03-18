@@ -667,8 +667,8 @@ pub(crate) fn run_native_export_with_staged(
     );
 
     // Upload sprite atlas (text + keystroke overlays pre-rendered by frontend).
-    if let Some(rgba) = atlas_rgba {
-        compositor.upload_atlas(&rgba, atlas_w, atlas_h);
+    if let Some(ref rgba) = atlas_rgba {
+        compositor.upload_atlas(rgba, atlas_w, atlas_h);
     }
 
     let mut use_custom_background = false;

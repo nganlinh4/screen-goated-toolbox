@@ -117,6 +117,8 @@ export class VideoController {
     this.video.addEventListener("pause", this.handlePause);
     this.video.addEventListener("timeupdate", this.handleTimeUpdate);
     this.video.addEventListener("seeked", this.handleSeeked);
+    this.video.addEventListener("waiting", this.handleWaiting);
+    this.video.addEventListener("playing", this.handlePlaying);
     this.video.addEventListener("loadedmetadata", this.handleLoadedMetadata);
     this.video.addEventListener("durationchange", this.handleDurationChange);
     this.video.addEventListener("error", this.handleError);
@@ -318,6 +320,33 @@ export class VideoController {
     // Re-drawing on pause can cause a visual shift because the video decoder may
     // have advanced video.currentTime slightly beyond the last rendered frame.
     // Seeking (handleSeeked) and edits (updateRenderOptions) still trigger draws.
+  };
+
+  // Handle video decoder stall: the video element is still "playing" but
+  // no frames are being decoded (buffer underrun after seek on long videos).
+  // Without this handler, the UI shows the pause button but nothing happens.
+  private waitingStallTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private handleWaiting = () => {
+    if (this.isGeneratingThumbnail) return;
+    // Give the decoder a chance to recover (3s). If it doesn't, pause cleanly.
+    if (this.waitingStallTimer !== null) clearTimeout(this.waitingStallTimer);
+    this.waitingStallTimer = setTimeout(() => {
+      this.waitingStallTimer = null;
+      // If still not playing after 3s, force a clean pause
+      if (!this.video.paused && this.video.readyState < 3) {
+        console.warn("[VideoController] Decoder stall detected — forcing pause");
+        this.video.pause();
+      }
+    }, 3000);
+  };
+
+  private handlePlaying = () => {
+    // Decoder recovered from stall — cancel the stall timer
+    if (this.waitingStallTimer !== null) {
+      clearTimeout(this.waitingStallTimer);
+      this.waitingStallTimer = null;
+    }
   };
 
   private getSpeed(time: number): number {
@@ -1351,6 +1380,12 @@ export class VideoController {
     this.video.removeEventListener("pause", this.handlePause);
     this.video.removeEventListener("timeupdate", this.handleTimeUpdate);
     this.video.removeEventListener("seeked", this.handleSeeked);
+    this.video.removeEventListener("waiting", this.handleWaiting);
+    this.video.removeEventListener("playing", this.handlePlaying);
+    if (this.waitingStallTimer !== null) {
+      clearTimeout(this.waitingStallTimer);
+      this.waitingStallTimer = null;
+    }
     this.video.removeEventListener("loadedmetadata", this.handleLoadedMetadata);
     this.video.removeEventListener("durationchange", this.handleDurationChange);
     this.video.removeEventListener("error", this.handleError);

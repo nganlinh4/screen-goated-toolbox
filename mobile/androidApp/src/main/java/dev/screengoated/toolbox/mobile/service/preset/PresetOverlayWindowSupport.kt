@@ -223,6 +223,8 @@ internal fun configureOverlayWebView(
     webView.settings.javaScriptEnabled = true
     webView.settings.domStorageEnabled = true
     webView.settings.allowFileAccess = true
+    @Suppress("DEPRECATION")
+    webView.settings.allowFileAccessFromFileURLs = true
     webView.settings.mediaPlaybackRequiresUserGesture = false
     webView.settings.builtInZoomControls = false
     webView.settings.displayZoomControls = false

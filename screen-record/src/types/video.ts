@@ -329,6 +329,7 @@ export interface OverlayFrame {
 
 export interface BakedOverlayPayload {
   atlasBase64: string;
+  atlasRgba?: Uint8Array;
   atlasWidth: number;
   atlasHeight: number;
   frames: OverlayFrame[];

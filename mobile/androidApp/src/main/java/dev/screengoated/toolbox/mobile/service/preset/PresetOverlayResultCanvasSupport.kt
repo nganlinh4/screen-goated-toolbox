@@ -125,7 +125,7 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
             if (refineText.isEmpty()) return
             val currentText = window.windowState.markdownText
             val windowId = window.id
-            android.util.Log.d("SgtRefine", "[REFINE] submit refineText='${refineText.take(40)}' currentText='${currentText.take(40)}' windowId=$windowId presetId=${window.presetId}")
+
             canvasWindow?.setFocusable(false)
             updateRuntimeState(windowId) { runtime ->
                 runtime.copy(
@@ -135,7 +135,7 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
                 )
             }
             val resolved = presetRepository.getResolvedPreset(window.presetId) ?: return
-            android.util.Log.d("SgtRefine", "[REFINE] resolved preset=${resolved.preset.id} blocks=${resolved.preset.blocks.size} firstModel=${resolved.preset.blocks.firstOrNull()?.model}")
+
             val loadingState = window.windowState.copy(
                 markdownText = "",
                 isLoading = true,
@@ -151,7 +151,7 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
                 previousText = currentText,
                 refinePrompt = refineText,
                 onChunk = { chunk ->
-                    android.util.Log.d("SgtRefine", "[REFINE] chunk len=${chunk.length} wipe=${chunk.startsWith("\u0000WIPE\u0000")} accumulated=${accumulated.length} chunk='${chunk.take(60)}'")
+
                     if (chunk.startsWith("\u0000WIPE\u0000")) {
                         accumulated.clear()
                         accumulated.append(chunk.removePrefix("\u0000WIPE\u0000"))
@@ -168,13 +168,13 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
                         loadingStatusText = null,
                     )
                     resultWindows[windowId] = active.copy(windowState = streamState)
-                    android.util.Log.d("SgtRefine", "[REFINE] updated window markdownText='${html.take(60)}'")
+
                     updateResultWindowSupport(resultWindows[windowId] ?: return@refineInPlace)
                 },
                 onComplete = { result ->
                     val active = resultWindows[windowId] ?: return@refineInPlace
                     val finalText = result.getOrElse { it.message ?: "Refine failed" }
-                    android.util.Log.d("SgtRefine", "[REFINE] complete success=${result.isSuccess} finalText='${finalText.take(80)}'")
+
                     val finalState = active.windowState.copy(
                         markdownText = finalText,
                         isLoading = false,
@@ -249,7 +249,6 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
             context.startActivity(Intent.createChooser(shareIntent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             setActiveResultWindow(window.id)
         }
-        "_log" -> android.util.Log.d("SgtSlider", "[SLIDER] ${payload.optString("msg")}")
         "placeholder_action" -> showPlaceholderActionSupport(context, payload.optString("placeholder"), uiLanguage())
         "broom_drag_start" -> {
             val id = payload.optString("hwnd").toResultWindowIdOrNull() ?: return

@@ -273,6 +273,34 @@ internal class PresetOverlayResultModule(
     }
 
     internal fun handleResultPageFinished(id: PresetResultWindowId, url: String?) {
+        val active = resultWindows[id]
+        if (active != null && !active.runtimeState.isRawHtml) {
+            val cacheDir = resultHtmlBuilder.m3eCacheDir
+            val libPath = cacheDir.resolve("m3e_loading_indicator.js").absolutePath
+            val initPath = cacheDir.resolve("m3e_loading_init.js").absolutePath
+            active.window.runScript(
+                """
+                (function(){
+                    if(window._m3eLoaded) return;
+                    window._m3eLoaded = true;
+                    var s1 = document.createElement('script');
+                    s1.src = 'file://$libPath';
+                    s1.onload = function(){
+                        var s2 = document.createElement('script');
+                        s2.src = 'file://$initPath';
+                        s2.onload = function(){
+                            var c = document.getElementById('sgt-m3e-canvas');
+                            if (c && window.initM3ELoading) {
+                                window.initM3ELoading(c, {size:36, isDark:true, showContainer:false});
+                            }
+                        };
+                        document.head.appendChild(s2);
+                    };
+                    document.head.appendChild(s1);
+                })();
+                """.trimIndent(),
+            )
+        }
         handleResultPageFinishedSupport(id, url)
     }
 

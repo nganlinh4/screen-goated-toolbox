@@ -470,7 +470,6 @@ function App() {
     useState(false);
   const [isProjectInteractionShieldVisible, setIsProjectInteractionShieldVisible] =
     useState(false);
-  const [, setTimelineViewportZoom] = useState(1);
   const [timelineCanvasWidthPx, setTimelineCanvasWidthPx] = useState(0);
 
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -4496,7 +4495,6 @@ function App() {
               onAddKeystrokeSegment={handleAddKeystrokeSegment}
               onAddPointerSegment={handleAddPointerSegment}
               isPlaying={isPlaying}
-              onViewportZoomChange={setTimelineViewportZoom}
               onViewportCanvasWidthChange={setTimelineCanvasWidthPx}
               isDeviceAudioAvailable={
                 segment?.deviceAudioAvailable !== false

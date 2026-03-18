@@ -575,7 +575,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                         left: `${tick.leftPct}%`,
                         transform: "translateX(-50%)",
                         top: 0,
-                      }}
+                        contentVisibility: "auto",
+                        containIntrinsicSize: "auto 16px",
+                      } as React.CSSProperties}
                     >
                       <div className="timeline-tick-mark h-1.5 w-px bg-[var(--outline)]/40" />
                       <span className="timeline-tick-label mt-0.5 text-[9px] font-mono text-[var(--outline)] leading-none">

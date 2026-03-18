@@ -469,11 +469,17 @@ export function useTimelineViewport({
       if (releaseProgrammaticScrollRef.current !== null) {
         cancelAnimationFrame(releaseProgrammaticScrollRef.current);
       }
+      if (pendingZoomRafRef.current !== null) {
+        cancelAnimationFrame(pendingZoomRafRef.current);
+      }
     };
   }, []);
 
   // Wheel zoom handler — registered natively with { passive: false } so
   // preventDefault() works without triggering "passive event listener" warnings.
+  // setZoom is RAF-throttled to avoid 60+ React re-renders per second during
+  // continuous wheel scrolling (each re-render rebuilds ruler ticks + all tracks).
+  const pendingZoomRafRef = useRef<number | null>(null);
   const wheelHandlerRef = useRef<(event: globalThis.WheelEvent) => void>(() => {});
   wheelHandlerRef.current = (event: globalThis.WheelEvent) => {
     const viewport = viewportRef.current;
@@ -524,7 +530,15 @@ export function useTimelineViewport({
     };
     suppressFollow();
     zoomRef.current = nextZoom;
-    setZoom(nextZoom);
+    // RAF-throttle the React state update: zoomRef is updated immediately for
+    // scroll math, but setZoom (which triggers full timeline re-render) is
+    // batched to at most once per animation frame.
+    if (pendingZoomRafRef.current === null) {
+      pendingZoomRafRef.current = requestAnimationFrame(() => {
+        pendingZoomRafRef.current = null;
+        setZoom(zoomRef.current);
+      });
+    }
   };
 
   useEffect(() => {
