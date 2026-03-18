@@ -227,7 +227,6 @@ internal class PresetOverlayController(
         presetRepository.cancelExecution()
         presetRepository.resetState()
         activePreset = resolved
-        resultModule.resetExecution(resetRepository = false)
         inputModule.open(resolved)
         if (!closePanel) {
             onRequestBubbleFront()

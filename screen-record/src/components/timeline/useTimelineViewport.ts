@@ -446,8 +446,12 @@ export function useTimelineViewport({
     }
   }, [duration, segment, setProgrammaticScrollLeft, syncScrollbarThumb, zoom]);
 
+  // Schedule follow-frame on playback state changes.
+  // NOTE: syncScrollbarThumb() is NOT called here — it forces layout
+  // recalculation (getBoundingClientRect on the zoomed canvas) and causes
+  // massive lag at 60fps. The scrollbar is synced via the scroll event
+  // handler and setProgrammaticScrollLeft path instead.
   useEffect(() => {
-    syncScrollbarThumb();
     if (zoom <= MIN_TIMELINE_ZOOM || !segment || duration <= 0) return;
     scheduleFrame();
   }, [
@@ -457,7 +461,6 @@ export function useTimelineViewport({
     isPlaying,
     scheduleFrame,
     segment,
-    syncScrollbarThumb,
     zoom,
   ]);
 

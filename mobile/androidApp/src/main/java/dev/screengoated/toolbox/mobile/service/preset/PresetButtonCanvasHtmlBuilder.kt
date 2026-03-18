@@ -55,15 +55,15 @@ private fun buttonCanvasL10n(lang: String): String {
         "copy" to localize(lang, "Copy", "Sao chép", "복사"),
         "undo" to localize(lang, "Undo", "Hoàn tác", "실행 취소"),
         "redo" to localize(lang, "Redo", "Làm lại", "다시 실행"),
-        "edit" to localize(lang, "Refine", "Tinh chỉnh", "다듬기"),
-        "markdown" to localize(lang, "Markdown view", "Chế độ Markdown", "마크다운 보기"),
-        "download" to localize(lang, "Download", "Tải xuống", "다운로드"),
-        "speaker" to localize(lang, "Speak", "Đọc", "읽기"),
+        "edit" to localize(lang, "Edit / Refine", "Chỉnh sửa / Viết lại", "편집 / 다듬기"),
+        "markdown" to localize(lang, "Toggle Markdown", "Bật/Tắt Markdown", "마크다운 토글"),
+        "download" to localize(lang, "Save HTML", "Tải về HTML", "HTML 저장"),
+        "speaker" to localize(lang, "Speak (TTS)", "Đọc to (TTS)", "텍스트 읽기 (TTS)"),
         "broom" to localize(lang, "Dismiss", "Đóng", "닫기"),
         "back" to localize(lang, "Back", "Quay lại", "뒤로"),
-        "forward" to localize(lang, "Forward", "Tiến", "앞으로"),
-        "opacity" to localize(lang, "Opacity", "Độ mờ", "투명도"),
-        "overlay_refine_placeholder" to localize(lang, "Refine...", "Tinh chỉnh...", "다듬기..."),
+        "forward" to localize(lang, "Forward", "Tiếp theo", "앞으로"),
+        "opacity" to localize(lang, "Opacity", "Độ mờ", "불투명도"),
+        "overlay_refine_placeholder" to localize(lang, "Refine result...", "Chỉnh sửa kết quả...", "결과 수정..."),
     )
     return org.json.JSONObject(map).toString()
 }
