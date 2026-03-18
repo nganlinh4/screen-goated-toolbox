@@ -7,6 +7,7 @@ pub mod config;
 mod cursor;
 mod cursor_path;
 mod overlay;
+pub mod overlay_frames;
 mod progress;
 pub mod sampling;
 pub mod staging;
@@ -386,6 +387,7 @@ pub(crate) fn run_native_export_with_staged(
         baked_cursor.len()
     );
     let overlay_frames = staged.overlay_frames;
+    let overlay_metadata = staged.overlay_metadata;
     let mut webcam_frames = staged.webcam_frames;
     let webcam_unsorted = webcam_frames
         .windows(2)
@@ -852,7 +854,32 @@ pub(crate) fn run_native_export_with_staged(
         1
     };
 
-    let pipeline_config = gpu_pipeline::PipelineConfig {
+    // If atlas metadata was sent, generate overlay frames in Rust instead of using
+    // the JS-generated frames. This eliminates ~500ms of IPC frame chunk overhead.
+    let overlay_frames = if let Some(ref meta) = overlay_metadata
+        && overlay_frames.is_empty()
+    {
+        let t0 = Instant::now();
+        let generated = overlay_frames::generate_overlay_frames(
+            meta,
+            &config.segment.trim_segments,
+            &speed_points,
+            config.framerate,
+            out_w as f64,
+            out_h as f64,
+        );
+        eprintln!(
+            "[Export][Timing] Rust overlay frame gen: {:.3}s ({} frames, {} non-empty)",
+            t0.elapsed().as_secs_f64(),
+            generated.len(),
+            generated.iter().filter(|f| !f.quads.is_empty()).count()
+        );
+        generated
+    } else {
+        overlay_frames
+    };
+
+    let mut pipeline_config = gpu_pipeline::PipelineConfig {
         source_video_path: source_video_path.clone(),
         output_path: encode_output_path.to_str().unwrap().to_string(),
         audio_path: source_audio_path.clone(),
@@ -890,6 +917,30 @@ pub(crate) fn run_native_export_with_staged(
     let source_times = gpu_pipeline::build_frame_times(&pipeline_config);
     let total_frames = source_times.len() as u32;
     let planned_output_duration_sec = total_frames as f64 / config.framerate as f64;
+
+    // Expand sparse overlay frames (only non-empty quads sent from frontend) into
+    // a dense array indexed by frame_idx, matching the pipeline's frame count.
+    let is_sparse = !pipeline_config.overlay_frames.is_empty()
+        && pipeline_config
+            .overlay_frames
+            .iter()
+            .any(|f| f.frame_index.is_some());
+    if is_sparse {
+        let sparse = std::mem::take(&mut pipeline_config.overlay_frames);
+        let mut dense = Vec::with_capacity(total_frames as usize);
+        dense.resize_with(total_frames as usize, || config::OverlayFrame {
+            frame_index: None,
+            quads: Vec::new(),
+        });
+        for frame in sparse {
+            if let Some(idx) = frame.frame_index
+                && (idx as usize) < dense.len()
+            {
+                dense[idx as usize] = frame;
+            }
+        }
+        pipeline_config.overlay_frames = dense;
+    }
     eprintln!(
         "[Export][Timing] build_frame_times: {:.3}s ({} frames)",
         t_frame_times_start.elapsed().as_secs_f64(),

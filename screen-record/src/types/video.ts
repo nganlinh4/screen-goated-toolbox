@@ -322,7 +322,8 @@ export interface OverlayQuad {
 }
 
 export interface OverlayFrame {
-  time: number;
+  time?: number;
+  frameIndex?: number;
   quads: OverlayQuad[];
 }
 
@@ -331,6 +332,10 @@ export interface BakedOverlayPayload {
   atlasWidth: number;
   atlasHeight: number;
   frames: OverlayFrame[];
+  totalFrameCount?: number;
+  // Compact atlas metadata for Rust-side frame quad generation.
+  // When present, Rust generates overlay frames instead of JS.
+  atlasMetadata?: Record<string, unknown> | null;
 }
 
 export interface BakedWebcamFrame {

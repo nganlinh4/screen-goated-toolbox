@@ -282,7 +282,10 @@ pub struct OverlayQuad {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct OverlayFrame {
+    #[serde(default)]
+    pub frame_index: Option<u32>,
     pub quads: Vec<OverlayQuad>,
 }
 

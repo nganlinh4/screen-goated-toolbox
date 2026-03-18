@@ -666,6 +666,18 @@ pub fn handle_ipc_command(
                         native_export::staging::append_overlay_frames(frames);
                     }
                 }
+                "overlay_atlas_metadata" => {
+                    let meta: native_export::overlay_frames::OverlayAtlasMetadata =
+                        serde_json::from_value(args["data"].clone())
+                            .map_err(|e| format!("bad overlay metadata: {e}"))?;
+                    if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
+                        native_export::staging::set_overlay_metadata_for(
+                            session_id, job_id, meta,
+                        );
+                    } else {
+                        native_export::staging::set_overlay_metadata(meta);
+                    }
+                }
                 "cursor_slots_png" => {
                     #[derive(serde::Deserialize)]
                     #[serde(rename_all = "camelCase")]
@@ -1864,6 +1876,82 @@ pub fn start_global_media_server() -> Result<u16, String> {
                     .unwrap(),
                 );
                 let _ = request.respond(res);
+                continue;
+            }
+
+            // POST /stage-atlas?w=N&h=N — binary RGBA body staged directly for export.
+            // Eliminates PNG encode (JS) + base64 + PNG decode (Rust) round-trip.
+            if request.method() == &tiny_http::Method::Post
+                && request.url().starts_with("/stage-atlas")
+            {
+                let cors =
+                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
+                        .unwrap();
+                let url = request.url().to_string();
+                let qs = url.split_once('?').map(|(_, q)| q).unwrap_or("");
+                let find_param = |name: &str| -> Option<u32> {
+                    qs.split('&')
+                        .find_map(|kv| kv.strip_prefix(name)?.strip_prefix('='))
+                        .and_then(|v| v.parse().ok())
+                };
+                let w: u32 = find_param("w").unwrap_or(1);
+                let h: u32 = find_param("h").unwrap_or(1);
+                let mut body = Vec::new();
+                if request.as_reader().read_to_end(&mut body).is_ok() && !body.is_empty() {
+                    let find_str_param = |name: &str| -> Option<String> {
+                        let raw = qs
+                            .split('&')
+                            .find_map(|kv| kv.strip_prefix(name)?.strip_prefix('='))?;
+                        Some(urlencoding::decode(raw).unwrap_or_default().into_owned())
+                    };
+                    let session_job = find_str_param("session")
+                        .zip(find_str_param("job"));
+
+                    // Body is PNG binary — decode to RGBA (skips base64 layer).
+                    let expected_rgba = (w as usize) * (h as usize) * 4;
+                    let rgba = if body.len() == expected_rgba {
+                        // Raw RGBA — use directly
+                        body
+                    } else {
+                        // PNG binary — decode
+                        match image::load_from_memory(&body) {
+                            Ok(img) => {
+                                let rgba8 = img.to_rgba8();
+                                let actual_w = rgba8.width();
+                                let actual_h = rgba8.height();
+                                if actual_w != w || actual_h != h {
+                                    eprintln!(
+                                        "[stage-atlas] Decoded {}x{} but expected {}x{}",
+                                        actual_w, actual_h, w, h
+                                    );
+                                }
+                                rgba8.into_raw()
+                            }
+                            Err(e) => {
+                                let msg = format!("Atlas PNG decode failed: {e}");
+                                eprintln!("[stage-atlas] {msg}");
+                                let mut res = Response::from_string(msg).with_status_code(400);
+                                res.add_header(cors);
+                                let _ = request.respond(res);
+                                continue;
+                            }
+                        }
+                    };
+
+                    if let Some((sid, jid)) = session_job {
+                        native_export::staging::set_atlas_for(&sid, &jid, rgba, w, h);
+                    } else {
+                        native_export::staging::set_atlas(rgba, w, h);
+                    }
+                    let mut res =
+                        Response::from_string(r#"{"ok":true}"#).with_status_code(200);
+                    res.add_header(cors);
+                    let _ = request.respond(res);
+                } else {
+                    let mut res = Response::from_string("Empty body").with_status_code(400);
+                    res.add_header(cors);
+                    let _ = request.respond(res);
+                }
                 continue;
             }
 

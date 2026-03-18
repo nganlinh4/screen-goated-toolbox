@@ -68,12 +68,22 @@ internal class PresetOverlayWindow(
     }
     private val touchRegions = mutableListOf<Rect>()
 
+    private var touchAccepted = false
     private val rootView = object : FrameLayout(context) {
         override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-            if (spec.touchRegionsOnly && ev.actionMasked != MotionEvent.ACTION_CANCEL && ev.actionMasked != MotionEvent.ACTION_UP) {
-                val hit = touchRegions.any { it.contains(ev.x.toInt(), ev.y.toInt()) }
-                if (!hit) {
-                    return false
+            if (spec.touchRegionsOnly) {
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        val hit = touchRegions.any { it.contains(ev.x.toInt(), ev.y.toInt()) }
+                        touchAccepted = hit
+                        if (!hit) return false
+                    }
+                    MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
+                        touchAccepted = false
+                    }
+                    else -> {
+                        if (!touchAccepted) return false
+                    }
                 }
             }
             return super.dispatchTouchEvent(ev)
