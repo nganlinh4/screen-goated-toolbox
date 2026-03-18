@@ -658,6 +658,7 @@ function App() {
     duration: previewDuration,
     setDuration: setPreviewDuration,
     isPlaying: isPreviewPlaying,
+    isBuffering,
     isVideoReady,
     setIsVideoReady,
     thumbnails,
@@ -1150,42 +1151,19 @@ function App() {
           setCurrentWebcamVideo(webcamVideoObjectUrl || null);
         } else {
           setCurrentWebcamVideo(null);
+          // Explicitly clear the webcam video element so the old frame
+          // doesn't linger in renderFrame() compositing.
+          if (webcamVideoRef.current) {
+            webcamVideoRef.current.pause();
+            webcamVideoRef.current.removeAttribute("src");
+            webcamVideoRef.current.load();
+          }
         }
         if (!isLatestRequest()) return;
         setPreviewDuration(
           Math.max(videoControllerRef.current?.duration ?? 0, clipPreviewDuration),
         );
         setSegment(clip.segment);
-        // If the segment says webcam is available but the webcam video element
-        // failed to load (file deleted), mark it unavailable after a short delay
-        // so the track greys out correctly.
-        if (clip.segment?.webcamAvailable && webcamVideoRef.current) {
-          const wcEl = webcamVideoRef.current;
-          const markUnavailable = () => {
-            setCurrentWebcamVideo(null);
-            setSegment((prev) =>
-              prev?.webcamAvailable ? { ...prev, webcamAvailable: false } : prev,
-            );
-          };
-          // Race: if 'loadeddata' fires first the file exists; if the timer
-          // fires first or 'error' fires, it doesn't.
-          let resolved = false;
-          const onLoaded = () => { resolved = true; };
-          const onError = () => {
-            if (resolved) return;
-            resolved = true;
-            markUnavailable();
-          };
-          wcEl.addEventListener("loadeddata", onLoaded, { once: true });
-          wcEl.addEventListener("error", onError, { once: true });
-          setTimeout(() => {
-            wcEl.removeEventListener("loadeddata", onLoaded);
-            wcEl.removeEventListener("error", onError);
-            if (!resolved && wcEl.readyState === 0) {
-              markUnavailable();
-            }
-          }, 2000);
-        }
         if (clipThumbnailPlaceholder) {
           setThumbnails(clipThumbnailPlaceholder);
         }
@@ -1320,6 +1298,27 @@ function App() {
     currentMicAudio,
     currentWebcamVideo,
   });
+
+  // Detect webcam 404 / load error from any code path (clip-load, project-load, etc.)
+  // and automatically disable the webcam track so the UI reflects reality.
+  useEffect(() => {
+    if (!currentWebcamVideo || !webcamVideoRef.current) return;
+    const el = webcamVideoRef.current;
+    const disable = () => {
+      setCurrentWebcamVideo(null);
+      setSegment((prev) =>
+        prev?.webcamAvailable ? { ...prev, webcamAvailable: false } : prev,
+      );
+    };
+    // Handle the case where the error already fired before this effect ran.
+    if (el.error) {
+      disable();
+      return;
+    }
+    el.addEventListener("error", disable, { once: true });
+    return () => el.removeEventListener("error", disable);
+  }, [currentWebcamVideo]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!BACKGROUND_MUTATION_DEBUG) return;
     const nextSummary = summarizeBackgroundConfig(backgroundConfig);
@@ -4057,6 +4056,12 @@ function App() {
                           />
                         </div>
                       )}
+
+                    {isBuffering && isPreviewPlaying && currentVideo && (
+                      <div className="buffering-indicator absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+                        <div className="buffering-spinner w-10 h-10 rounded-full border-[3px] border-white/20 border-t-white/80 animate-spin" />
+                      </div>
+                    )}
 
                     {(!currentVideo || isLoadingVideo) && (
                       <Placeholder

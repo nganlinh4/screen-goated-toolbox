@@ -206,66 +206,127 @@ fun PresetEditorScreen(
             )
         },
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            // --- Section 1: Header -------------------------------------------
-            HeaderSection(
-                editState = editState,
-                lang = lang,
-                isBuiltIn = isBuiltIn,
-                onNameChanged = { autoSave(editState.copy(nameEn = it)) },
-                onTypeGroupChanged = { group ->
-                    autoSave(editState.copy(presetType = group.defaultPresetType()))
-                },
-                onControllerToggled = { autoSave(editState.copy(showControllerUi = it)) },
-            )
+        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+        val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
 
-            // --- Section 2: Mode selectors (conditional) ---------------------
-            ModeSelectorsSection(
-                editState = editState,
-                lang = lang,
-                onUpdate = { autoSave(it) },
-            )
-
-            // --- Controller mode description for MASTER ---
-            if (editState.showControllerUi || editState.isMaster) {
-                MasterDescriptionSection(lang = lang)
+        if (isLandscape) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                // Left column: Header + Mode selectors
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    HeaderSection(
+                        editState = editState,
+                        lang = lang,
+                        isBuiltIn = isBuiltIn,
+                        onNameChanged = { autoSave(editState.copy(nameEn = it)) },
+                        onTypeGroupChanged = { group ->
+                            autoSave(editState.copy(presetType = group.defaultPresetType()))
+                        },
+                        onControllerToggled = { autoSave(editState.copy(showControllerUi = it)) },
+                    )
+                    ModeSelectorsSection(
+                        editState = editState,
+                        lang = lang,
+                        onUpdate = { autoSave(it) },
+                    )
+                    if (editState.showControllerUi || editState.isMaster) {
+                        MasterDescriptionSection(lang = lang)
+                    }
+                }
+                // Right column: Node graph + Processing chain
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    if (!editState.showControllerUi && !editState.isMaster) {
+                        NodeGraphSection(
+                            editState = editState,
+                            lang = lang,
+                            onUpdate = { autoSave(it) },
+                        )
+                    }
+                    val hasAnyCopy = editState.blocks.any {
+                        it.blockType != BlockType.INPUT_ADAPTER && it.autoCopy
+                    }
+                    if (hasAnyCopy && !editState.showControllerUi) {
+                        AutoPasteSection(
+                            editState = editState,
+                            lang = lang,
+                            onUpdate = { autoSave(it) },
+                        )
+                    }
+                    if (editState.blocks.isNotEmpty()) {
+                        ProcessingChainSection(
+                            editState = editState,
+                            lang = lang,
+                        )
+                    }
+                }
             }
-
-            // --- Section 3: Node graph ---
-            if (!editState.showControllerUi && !editState.isMaster) {
-                NodeGraphSection(
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                HeaderSection(
+                    editState = editState,
+                    lang = lang,
+                    isBuiltIn = isBuiltIn,
+                    onNameChanged = { autoSave(editState.copy(nameEn = it)) },
+                    onTypeGroupChanged = { group ->
+                        autoSave(editState.copy(presetType = group.defaultPresetType()))
+                    },
+                    onControllerToggled = { autoSave(editState.copy(showControllerUi = it)) },
+                )
+                ModeSelectorsSection(
                     editState = editState,
                     lang = lang,
                     onUpdate = { autoSave(it) },
                 )
-            }
-
-            // --- Section 4: Auto-paste (only when a block has auto_copy) ---
-            val hasAnyCopy = editState.blocks.any {
-                it.blockType != BlockType.INPUT_ADAPTER && it.autoCopy
-            }
-            if (hasAnyCopy && !editState.showControllerUi) {
-                AutoPasteSection(
-                    editState = editState,
-                    lang = lang,
-                    onUpdate = { autoSave(it) },
-                )
-            }
-
-            // --- Section 5: Processing chain list ---
-            if (editState.blocks.isNotEmpty()) {
-                ProcessingChainSection(
-                    editState = editState,
-                    lang = lang,
-                )
+                if (editState.showControllerUi || editState.isMaster) {
+                    MasterDescriptionSection(lang = lang)
+                }
+                if (!editState.showControllerUi && !editState.isMaster) {
+                    NodeGraphSection(
+                        editState = editState,
+                        lang = lang,
+                        onUpdate = { autoSave(it) },
+                    )
+                }
+                val hasAnyCopy = editState.blocks.any {
+                    it.blockType != BlockType.INPUT_ADAPTER && it.autoCopy
+                }
+                if (hasAnyCopy && !editState.showControllerUi) {
+                    AutoPasteSection(
+                        editState = editState,
+                        lang = lang,
+                        onUpdate = { autoSave(it) },
+                    )
+                }
+                if (editState.blocks.isNotEmpty()) {
+                    ProcessingChainSection(
+                        editState = editState,
+                        lang = lang,
+                    )
+                }
             }
         }
     }

@@ -318,73 +318,21 @@ internal fun PresetRuntimeCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val enabledProviders = listOf(
-        settings.providerSettings.useGemini,
-        settings.providerSettings.useCerebras,
-        settings.providerSettings.useGroq,
-        settings.providerSettings.useOpenRouter,
-        settings.providerSettings.useOllama,
-    ).count { it }
-
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
+    FilledTonalButton(
+        onClick = onClick,
+        modifier = modifier,
+        shape = MaterialTheme.shapes.large,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = ShellSpacing.innerPad, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
-            ) {
-                GradientMaskedIcon(
-                    Icons.Rounded.Settings,
-                    Brush.linearGradient(
-                        listOf(
-                            MaterialTheme.colorScheme.tertiary,
-                            MaterialTheme.colorScheme.primary,
-                        ),
-                    ),
-                    modifier = Modifier.size(22.dp),
-                )
-                Text(
-                    text = locale.presetRuntimeTitle,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                FilledTonalButton(
-                    onClick = onClick,
-                    shape = CircleShape,
-                ) {
-                    Text(
-                        text = locale.presetRuntimeButton,
-                        style = MaterialTheme.typography.labelMediumEmphasized,
-                    )
-                }
-            }
-            Text(
-                text = locale.presetRuntimeDescription,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = "${locale.presetRuntimeProvidersLabel}: $enabledProviders/5",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = "${locale.presetRuntimeTextChainLabel}: ${settings.modelPriorityChains.textToText.joinToString(", ")}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-            )
-        }
+        Icon(
+            imageVector = Icons.Rounded.Settings,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.size(8.dp))
+        Text(
+            text = locale.presetRuntimeButton,
+            style = MaterialTheme.typography.labelLarge,
+        )
     }
 }
 

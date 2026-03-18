@@ -141,11 +141,9 @@ fun SgtMobileApp(
         PresetRuntimeSettingsDialog(
             settings = presetRuntimeSettings,
             locale = locale,
+            uiLanguage = uiPreferences.uiLanguage,
             onDismiss = { showPresetRuntimeSettings = false },
-            onSave = {
-                onPresetRuntimeSettingsChanged(it)
-                showPresetRuntimeSettings = false
-            },
+            onSave = { onPresetRuntimeSettingsChanged(it) },
         )
     }
 

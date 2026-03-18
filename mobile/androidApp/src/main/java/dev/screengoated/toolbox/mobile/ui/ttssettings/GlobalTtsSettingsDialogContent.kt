@@ -26,18 +26,12 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
-import androidx.compose.material3.WideNavigationRail
-import androidx.compose.material3.WideNavigationRailItem
-import androidx.compose.material3.WideNavigationRailValue
-import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,166 +76,122 @@ internal fun RenderGlobalTtsSettingsDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Surface(
+        Card(
             modifier = Modifier
                 .fillMaxWidth(0.985f)
-                .widthIn(max = 980.dp),
-            shape = MaterialTheme.shapes.extraLarge,
-            tonalElevation = 8.dp,
+                .widthIn(max = 980.dp)
+                .padding(16.dp),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+            colors = androidx.compose.material3.CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+            ),
         ) {
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight(0.96f)
                     .heightIn(max = 900.dp)
-                    .padding(20.dp),
+                    .padding(start = 24.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
             ) {
-                val railState = rememberWideNavigationRailState(
-                    if (maxWidth >= 760.dp) WideNavigationRailValue.Expanded else WideNavigationRailValue.Collapsed,
-                )
-                val railExpanded = maxWidth >= 760.dp
-                val compactLayout = maxWidth < 760.dp
+                val isLandscape = maxWidth > maxHeight
 
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    // Header: title + toggles (landscape) + close
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
-                            text = locale.ttsSettingsTitle,
-                            style = MaterialTheme.typography.titleLargeEmphasized,
+                            text = if (isLandscape) "TTS" else locale.ttsSettingsTitle,
+                            style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
                         )
+                        if (isLandscape) {
+                            Spacer(Modifier.weight(1f))
+                            MethodToggleRow(settings.method, locale, selectMethod)
+                        } else {
+                            Spacer(Modifier.weight(1f))
+                        }
                         IconButton(onClick = onDismiss) {
                             Icon(Icons.Rounded.Close, contentDescription = locale.closeLabel)
                         }
                     }
 
-                    HorizontalDivider(modifier = Modifier.padding(top = 8.dp, bottom = 16.dp))
+                    if (!isLandscape) {
+                        Spacer(Modifier.size(8.dp))
+                        MethodToggleRow(settings.method, locale, selectMethod)
+                    }
+                    Spacer(Modifier.size(12.dp))
 
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .fillMaxHeight(),
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
-                        if (!compactLayout) {
-                            Card {
-                                WideNavigationRail(
-                                    state = railState,
-                                    modifier = Modifier.fillMaxHeight(),
-                                    header = {
-                                        Text(
-                                            text = locale.ttsMethodLabel,
-                                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
-                                            style = MaterialTheme.typography.labelLargeEmphasized,
-                                        )
-                                    },
-                                ) {
-                                    WideNavigationRailItem(
-                                        selected = settings.method == MobileTtsMethod.GEMINI_LIVE,
-                                        onClick = { selectMethod(MobileTtsMethod.GEMINI_LIVE) },
-                                        icon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
-                                        label = { Text(locale.ttsMethodStandard) },
-                                        railExpanded = railExpanded,
-                                    )
-                                    WideNavigationRailItem(
-                                        selected = settings.method == MobileTtsMethod.EDGE_TTS,
-                                        onClick = { selectMethod(MobileTtsMethod.EDGE_TTS) },
-                                        icon = { Icon(Icons.Rounded.GraphicEq, contentDescription = null) },
-                                        label = { Text(locale.ttsMethodEdge) },
-                                        railExpanded = railExpanded,
-                                    )
-                                    WideNavigationRailItem(
-                                        selected = settings.method == MobileTtsMethod.GOOGLE_TRANSLATE,
-                                        onClick = { selectMethod(MobileTtsMethod.GOOGLE_TRANSLATE) },
-                                        icon = { Icon(Icons.Rounded.Language, contentDescription = null) },
-                                        label = { Text(locale.ttsMethodFast) },
-                                        railExpanded = railExpanded,
-                                    )
-                                }
-                            }
+                        when (settings.method) {
+                            MobileTtsMethod.GEMINI_LIVE -> GeminiLiveSection(
+                                settings = settings,
+                                locale = locale,
+                                onSpeedPresetChanged = onSpeedPresetChanged,
+                                onConditionsChanged = onConditionsChanged,
+                                onVoiceChanged = onVoiceChanged,
+                                onPreviewVoice = onPreviewGeminiVoice,
+                            )
+
+                            MobileTtsMethod.GOOGLE_TRANSLATE -> GoogleTranslateSection(
+                                selected = settings.speedPreset,
+                                locale = locale,
+                                onSpeedPresetChanged = onSpeedPresetChanged,
+                            )
+
+                            MobileTtsMethod.EDGE_TTS -> EdgeTtsSection(
+                                settings = settings.edgeSettings,
+                                locale = locale,
+                                catalogState = edgeVoiceCatalogState,
+                                onChanged = onEdgeSettingsChanged,
+                                onRetryCatalog = onRetryEdgeVoiceCatalog,
+                                onPreviewVoice = onPreviewEdgeVoice,
+                            )
                         }
-
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .verticalScroll(rememberScrollState()),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                        ) {
-                            if (compactLayout) {
-                                Card {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(16.dp),
-                                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                                    ) {
-                                        Text(
-                                            text = locale.ttsMethodLabel,
-                                            style = MaterialTheme.typography.labelLargeEmphasized,
-                                        )
-                                        val methods = listOf(
-                                            Triple(MobileTtsMethod.GEMINI_LIVE, locale.ttsMethodStandard, Icons.Rounded.AutoAwesome),
-                                            Triple(MobileTtsMethod.EDGE_TTS, locale.ttsMethodEdge, Icons.Rounded.GraphicEq),
-                                            Triple(MobileTtsMethod.GOOGLE_TRANSLATE, locale.ttsMethodFast, Icons.Rounded.Language),
-                                        )
-                                        FlowRow(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-                                            verticalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-                                        ) {
-                                            methods.forEachIndexed { index, (method, label, icon) ->
-                                                ToggleButton(
-                                                    checked = settings.method == method,
-                                                    onCheckedChange = { selectMethod(method) },
-                                                    shapes = when (index) {
-                                                        0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                                                        methods.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                                                        else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                                                    },
-                                                    modifier = Modifier.semantics { role = Role.RadioButton },
-                                                ) {
-                                                    Icon(icon, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-                                                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                                                    Text(label, style = MaterialTheme.typography.labelMediumEmphasized, maxLines = 2)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            when (settings.method) {
-                                MobileTtsMethod.GEMINI_LIVE -> GeminiLiveSection(
-                                    settings = settings,
-                                    locale = locale,
-                                    onSpeedPresetChanged = onSpeedPresetChanged,
-                                    onConditionsChanged = onConditionsChanged,
-                                    onVoiceChanged = onVoiceChanged,
-                                    onPreviewVoice = onPreviewGeminiVoice,
-                                )
-
-                                MobileTtsMethod.GOOGLE_TRANSLATE -> GoogleTranslateSection(
-                                    selected = settings.speedPreset,
-                                    locale = locale,
-                                    onSpeedPresetChanged = onSpeedPresetChanged,
-                                )
-
-                                MobileTtsMethod.EDGE_TTS -> EdgeTtsSection(
-                                    settings = settings.edgeSettings,
-                                    locale = locale,
-                                    catalogState = edgeVoiceCatalogState,
-                                    onChanged = onEdgeSettingsChanged,
-                                    onRetryCatalog = onRetryEdgeVoiceCatalog,
-                                    onPreviewVoice = onPreviewEdgeVoice,
-                                )
-                            }
-                        }
-
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MethodToggleRow(
+    currentMethod: MobileTtsMethod,
+    locale: MobileLocaleText,
+    onSelect: (MobileTtsMethod) -> Unit,
+) {
+    val methods = listOf(
+        Triple(MobileTtsMethod.GEMINI_LIVE, locale.ttsMethodStandard, Icons.Rounded.AutoAwesome),
+        Triple(MobileTtsMethod.EDGE_TTS, locale.ttsMethodEdge, Icons.Rounded.GraphicEq),
+        Triple(MobileTtsMethod.GOOGLE_TRANSLATE, locale.ttsMethodFast, Icons.Rounded.Language),
+    )
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+        verticalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+    ) {
+        methods.forEachIndexed { index, (method, label, icon) ->
+            ToggleButton(
+                checked = currentMethod == method,
+                onCheckedChange = { onSelect(method) },
+                shapes = when (index) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    methods.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                },
+                modifier = Modifier.semantics { role = Role.RadioButton },
+            ) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                Text(label, style = MaterialTheme.typography.labelMediumEmphasized, maxLines = 1)
             }
         }
     }

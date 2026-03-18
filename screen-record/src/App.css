@@ -372,6 +372,21 @@ body.dragging-seek * {
     cursor: grabbing !important;
 }
 
+@keyframes seek-pop {
+    0% {
+        opacity: 0.5;
+        transform: scale(0.85);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.05);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
 @keyframes recording-pill-breathe {
     0%, 100% {
         background-color: rgba(239, 68, 68, 0.08);

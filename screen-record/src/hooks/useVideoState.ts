@@ -357,6 +357,7 @@ export function useVideoPlayback({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
   const [isVideoReady, setIsVideoReady] = useState(false);
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [currentVideo, setCurrentVideo] = useState<string | null>(null);
@@ -403,6 +404,7 @@ export function useVideoPlayback({
       tempCanvasRef: tempCanvasRef.current,
       onTimeUpdate: setCurrentTime,
       onPlayingChange: setIsPlaying,
+      onBufferingChange: setIsBuffering,
       onVideoReady: setIsVideoReady,
       onDurationChange: setDuration,
       onError: console.error,
@@ -773,6 +775,7 @@ export function useVideoPlayback({
     duration,
     setDuration,
     isPlaying,
+    isBuffering,
     isVideoReady,
     setIsVideoReady,
     thumbnails,

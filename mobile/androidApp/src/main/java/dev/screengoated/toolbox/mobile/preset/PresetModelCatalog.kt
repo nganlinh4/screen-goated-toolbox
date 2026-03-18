@@ -26,8 +26,16 @@ data class PresetModelDescriptor(
     val fullName: String,
     val modelType: PresetModelType,
     val displayName: String,
+    val nameVi: String = displayName,
+    val nameKo: String = displayName,
     val isNonLlm: Boolean = false,
-)
+) {
+    fun localizedName(lang: String): String = when (lang) {
+        "vi" -> nameVi
+        "ko" -> nameKo
+        else -> displayName
+    }
+}
 
 object PresetModelCatalog {
     val models: List<PresetModelDescriptor> = GeneratedPresetModelCatalogData.models
