@@ -275,6 +275,47 @@ internal class PresetOverlayWindow(
         }
     }
 
+    fun setFocusable(focusable: Boolean) {
+        layoutParams.flags = buildOverlayWindowFlags(focusable)
+        if (focusable) {
+            layoutParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN or
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+        } else {
+            layoutParams.softInputMode = 0
+        }
+        if (attached) {
+            runCatching { windowManager.removeViewImmediate(rootView) }
+            attached = false
+            windowManager.addView(rootView, layoutParams)
+            attached = true
+        }
+        if (focusable) {
+            webView.isFocusable = true
+            webView.isFocusableInTouchMode = true
+            webView.post {
+                webView.requestFocusFromTouch()
+                webView.requestFocus()
+                val imm = webView.context.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                imm?.showSoftInput(webView, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            }
+            webView.postDelayed({
+                webView.requestFocusFromTouch()
+                val imm = webView.context.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                imm?.showSoftInput(webView, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            }, 200L)
+        } else {
+            val imm = webView.context.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+            imm?.hideSoftInputFromWindow(webView.windowToken, 0)
+        }
+    }
+
+    fun setWindowAlpha(alpha: Float) {
+        layoutParams.alpha = alpha.coerceIn(0.1f, 1.0f)
+        if (attached) {
+            scheduleLayoutApply()
+        }
+    }
+
     fun updateTouchRegions(regions: List<Rect>) {
         touchRegions.clear()
         touchRegions.addAll(regions)

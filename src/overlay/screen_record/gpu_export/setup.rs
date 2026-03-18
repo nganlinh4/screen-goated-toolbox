@@ -492,6 +492,12 @@ pub(super) fn shared_gpu_context() -> Result<&'static SharedGpuContext, String> 
     }
 }
 
+/// Eagerly initialize the shared GPU context in the background.
+/// Safe to call from any thread; OnceLock ensures single initialization.
+pub fn eager_init_gpu_context() {
+    let _ = SHARED_GPU_CONTEXT.get_or_init(create_shared_gpu_context);
+}
+
 pub struct CompositorUniformParams {
     pub video_offset: (f32, f32),
     pub video_scale: (f32, f32),

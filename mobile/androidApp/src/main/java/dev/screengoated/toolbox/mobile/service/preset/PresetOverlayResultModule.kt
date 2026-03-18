@@ -12,6 +12,8 @@ import dev.screengoated.toolbox.mobile.preset.PresetResultWindowId
 import dev.screengoated.toolbox.mobile.preset.PresetResultWindowState
 import dev.screengoated.toolbox.mobile.preset.ResolvedPreset
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
+import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
+import dev.screengoated.toolbox.mobile.service.tts.TtsRequestSettingsSnapshot
 import dev.screengoated.toolbox.mobile.shared.preset.WindowGeometry
 import org.json.JSONObject
 import java.util.LinkedHashMap
@@ -32,6 +34,9 @@ internal class PresetOverlayResultModule(
     internal val cssToPhysical: (Int) -> Int,
     internal val onRequestInputFront: () -> Unit,
     internal val onNoOverlaysRemaining: () -> Unit,
+    internal val ttsRuntimeService: TtsRuntimeService? = null,
+    internal val ttsSettingsSnapshotProvider: (() -> TtsRequestSettingsSnapshot)? = null,
+    internal val overlayOpacityProvider: () -> Int = { 100 },
 ) {
     internal val clipboardManager = context.getSystemService(ClipboardManager::class.java)
     internal val resultWindows = LinkedHashMap<PresetResultWindowId, ActivePresetResultWindow>()
@@ -41,8 +46,13 @@ internal class PresetOverlayResultModule(
     fun hasResults(): Boolean = resultWindows.isNotEmpty()
 
     fun destroy() {
+        resultWindows.values.forEach { active ->
+            if (active.runtimeState.ttsRequestId != 0L) {
+                ttsRuntimeService?.stopIfActive(active.runtimeState.ttsRequestId)
+            }
+            active.window.destroy()
+        }
         canvasWindow?.destroy()
-        resultWindows.values.forEach { it.window.destroy() }
         canvasWindow = null
         resultWindows.clear()
         activeResultWindowId = null
@@ -162,6 +172,22 @@ internal class PresetOverlayResultModule(
                 ensureCanvasWindowSupport()
             }
             "resizeResultWindowEnd" -> {
+                active.window.runScript("""
+                    (function() {
+                        window._streamRenderCount = 0;
+                        var html = document.body.innerHTML;
+                        if (typeof window.applyResultState === 'function' && typeof activeWindowId !== 'undefined') {
+                            window.applyResultState(JSON.stringify({
+                                windowId: activeWindowId,
+                                html: html,
+                                streaming: false,
+                                loading: false,
+                                sourceTextLen: html.length,
+                                sourceTrimmedLen: html.length
+                            }));
+                        }
+                    })();
+                """.trimIndent())
                 persistResultBoundsSupport(id, active.window.currentBounds())
                 ensureCanvasWindowSupport()
             }
@@ -209,6 +235,34 @@ internal class PresetOverlayResultModule(
         if (resultWindows.containsKey(id)) {
             activeResultWindowId = id
             ensureCanvasWindowSupport()
+        }
+    }
+
+    fun handleTtsRuntimeStateChanged(isPlaying: Boolean, activeRequestId: Long?) {
+        if (activeRequestId == null) return
+        resultWindows.values.forEach { active ->
+            if (active.runtimeState.ttsRequestId == activeRequestId && active.runtimeState.ttsLoading && isPlaying) {
+                updateRuntimeState(active.id) { it.copy(ttsLoading = false) }
+            }
+        }
+    }
+
+    fun handleTtsPlaybackEvent(
+        requestId: Long,
+        ownerToken: String,
+        completionStatus: dev.screengoated.toolbox.mobile.service.tts.TtsCompletionStatus,
+    ) {
+        val windowId = ownerToken.toResultWindowIdOrNull() ?: return
+        val window = resultWindows[windowId] ?: return
+        if (window.runtimeState.ttsRequestId == requestId) {
+            updateRuntimeState(windowId) { it.copy(ttsRequestId = 0L, ttsLoading = false) }
+            if (completionStatus == dev.screengoated.toolbox.mobile.service.tts.TtsCompletionStatus.FAILED) {
+                android.widget.Toast.makeText(
+                    context,
+                    overlayLocalized(uiLanguage(), "TTS failed. Check TTS settings.", "TTS thất bại. Kiểm tra cài đặt.", "TTS 실패. 설정을 확인하세요."),
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
         }
     }
 

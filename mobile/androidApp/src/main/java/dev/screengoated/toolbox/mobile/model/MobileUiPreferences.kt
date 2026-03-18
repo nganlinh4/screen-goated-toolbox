@@ -14,6 +14,7 @@ enum class MobileThemeMode {
 data class MobileUiPreferences(
     val themeMode: MobileThemeMode = MobileThemeMode.SYSTEM,
     val uiLanguage: String = defaultMobileUiLanguage(),
+    val overlayOpacityPercent: Int = 85,
 )
 
 fun MobileThemeMode.next(): MobileThemeMode {

@@ -27,6 +27,7 @@ import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.branding.MobileBrandAssets
+import dev.screengoated.toolbox.mobile.service.tts.toRuntimeSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -103,6 +104,11 @@ class BubbleService : Service() {
                 onDecreaseBubbleSize = ::decreaseBubbleSize,
                 onPanelExpandedChanged = ::setPanelExpanded,
                 onRequestBubbleFront = ::bringBubbleToFront,
+                ttsRuntimeService = appContainer.ttsRuntimeService,
+                ttsSettingsSnapshotProvider = {
+                    appContainer.repository.currentGlobalTtsSettings()
+                        .toRuntimeSnapshot()
+                },
             )
             bubbleView.setOnTouchListener(BubbleTouchListener())
             windowManager.addView(bubbleView, layoutParams)

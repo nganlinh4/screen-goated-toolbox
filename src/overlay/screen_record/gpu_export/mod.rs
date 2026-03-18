@@ -5,4 +5,4 @@ mod shader;
 mod webcam;
 
 pub use compositor::{CompositorUniforms, GpuCompositor};
-pub use setup::{CompositorUniformParams, create_uniforms};
+pub use setup::{CompositorUniformParams, create_uniforms, eager_init_gpu_context};

@@ -79,6 +79,8 @@ export class VideoController {
   private readonly SEGMENT_EPS = 0.03;
   private playbackMonitorRaf: number | null = null;
   private renderTimeout: number | null = null;
+  private seekSafetyTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly SEEK_SAFETY_TIMEOUT_MS = 3000;
   private lastResetLog: { signature: string; at: number } | null = null;
   private pendingSourceChangeLabel: string | null = null;
   private playRequestSeq = 0;
@@ -816,6 +818,28 @@ export class VideoController {
 
   private setSeeking(seeking: boolean) {
     this.state.isSeeking = seeking;
+
+    // Safety timeout: if the browser never fires 'seeked', unstick after 3s
+    // so the user can continue interacting.
+    if (this.seekSafetyTimer !== null) {
+      clearTimeout(this.seekSafetyTimer);
+      this.seekSafetyTimer = null;
+    }
+    if (seeking) {
+      this.seekSafetyTimer = setTimeout(() => {
+        this.seekSafetyTimer = null;
+        if (this.state.isSeeking) {
+          console.warn("[VideoController] Seek safety timeout — unsticking isSeeking");
+          this.state.isSeeking = false;
+          // Flush any pending seek that was waiting
+          if (this.pendingSeekTime !== null) {
+            const t = this.pendingSeekTime;
+            this.pendingSeekTime = null;
+            this.seek(t);
+          }
+        }
+      }, VideoController.SEEK_SAFETY_TIMEOUT_MS);
+    }
   }
 
   private setCurrentTime(time: number) {
@@ -1316,6 +1340,10 @@ export class VideoController {
       cancelAnimationFrame(this.renderTimeout);
       this.renderTimeout = null;
     }
+    if (this.seekSafetyTimer !== null) {
+      clearTimeout(this.seekSafetyTimer);
+      this.seekSafetyTimer = null;
+    }
     this.stopPlaybackMonitor();
     videoRenderer.stopAnimation();
     this.video.removeEventListener("loadeddata", this.handleLoadedData);
@@ -1446,11 +1474,15 @@ export class VideoController {
 
       if (audioBlob) {
         blob = audioBlob;
-      } else if (audioUrl?.startsWith("blob:") || isNativeMediaUrl(audioUrl)) {
-        const directAudioUrl = audioUrl!;
-        element.src = directAudioUrl;
+      } else if (audioUrl?.startsWith("blob:")) {
+        element.src = audioUrl;
         element.load();
-        return directAudioUrl;
+        return audioUrl;
+      } else if (isNativeMediaUrl(audioUrl)) {
+        const directUrl = audioUrl!;
+        element.src = directUrl;
+        element.load();
+        return directUrl;
       } else if (audioUrl) {
         const response = await fetch(audioUrl);
         if (!response.ok) throw new Error(`Failed to fetch ${label}`);

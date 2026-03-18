@@ -1330,7 +1330,11 @@ pub fn handle_ipc_command(
                 });
             let webcam_video_url = webcam_video_path
                 .as_ref()
-                .filter(|path| std::path::Path::new(path).exists())
+                .filter(|path| {
+                    std::fs::metadata(path)
+                        .map(|m| m.len() > 0)
+                        .unwrap_or(false)
+                })
                 .map(|path| {
                     let encoded = urlencoding::encode(path);
                     format!("http://localhost:{}/?path={}", port, encoded)
@@ -1345,7 +1349,10 @@ pub fn handle_ipc_command(
                 "mouseData": mouse_positions,
                 "deviceAudioPath": video_file_path,
                 "micAudioPath": mic_audio_path.unwrap_or_default(),
-                "webcamVideoPath": webcam_video_path.unwrap_or_default(),
+                "webcamVideoPath": webcam_video_path.as_ref()
+                    .filter(|p| std::fs::metadata(p).map(|m| m.len() > 0).unwrap_or(false))
+                    .cloned()
+                    .unwrap_or_default(),
                 "micAudioOffsetSec": mic_audio_offset_sec,
                 "webcamVideoOffsetSec": webcam_video_offset_sec,
                 "videoFilePath": video_file_path,

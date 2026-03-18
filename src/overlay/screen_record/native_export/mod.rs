@@ -316,7 +316,13 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let parse_start = Instant::now();
     let config: ExportConfig = serde_json::from_value(args).map_err(|e| e.to_string())?;
     let parse_secs = parse_start.elapsed().as_secs_f64();
+    eprintln!("[Export][Timing] JSON parse: {:.3}s", parse_secs);
+    let staged_start = Instant::now();
     let staged = staging::take_staged();
+    eprintln!(
+        "[Export][Timing] take_staged: {:.3}s",
+        staged_start.elapsed().as_secs_f64()
+    );
     let progress_cb: gpu_pipeline::ProgressCallback = Box::new(|pct, eta| {
         push_export_progress(pct, eta);
     });
@@ -496,6 +502,7 @@ pub(crate) fn run_native_export_with_staged(
     } else {
         final_output_path.clone()
     };
+    let t_audio_start = Instant::now();
     let use_preprocessed_audio =
         config.format != "gif" && !config.mic_audio_path.trim().is_empty() && has_audible_mic_audio;
     let mixed_audio_path = if use_preprocessed_audio {
@@ -534,14 +541,24 @@ pub(crate) fn run_native_export_with_staged(
         None
     };
     let audio_is_preprocessed = mixed_audio_path.is_some();
+    eprintln!(
+        "[Export][Timing] Audio preprocessing: {:.3}s (preprocessed={})",
+        t_audio_start.elapsed().as_secs_f64(),
+        audio_is_preprocessed
+    );
 
     // Get source dimensions via MF SourceReader (lightweight probe, no GPU)
+    let t_mf_start = Instant::now();
     mf_decode::mf_startup()?;
     let (src_w, src_h) = if config.source_width > 0 && config.source_height > 0 {
         (config.source_width, config.source_height)
     } else {
         mf_decode::probe_video_dimensions(&source_video_path)?
     };
+    eprintln!(
+        "[Export][Timing] MF startup + probe: {:.3}s",
+        t_mf_start.elapsed().as_secs_f64()
+    );
     println!("[Export] Source dimensions: {}x{}", src_w, src_h);
 
     // Generate camera path in Rust if not provided by frontend.
@@ -632,6 +649,7 @@ pub(crate) fn run_native_export_with_staged(
     let mut compositor = GpuCompositor::new(out_w, out_h, crop_w, crop_h, out_w, out_h)
         .map_err(|e| format!("GPU init failed: {}", e))?;
     let gpu_device_secs = gpu_init_start.elapsed().as_secs_f64();
+    eprintln!("[Export][Timing] GPU compositor init: {:.3}s", gpu_device_secs);
 
     let cursor_init_start = Instant::now();
     compositor.init_cursor_texture_fast(&used_cursor_slots);
@@ -641,6 +659,10 @@ pub(crate) fn run_native_export_with_staged(
         compositor.upload_cursor_slot_rgba(override_tile.slot_id, override_tile.rgba.as_slice());
     }
     let cursor_init_secs = cursor_init_start.elapsed().as_secs_f64();
+    eprintln!(
+        "[Export][Timing] Cursor texture init + overrides: {:.3}s",
+        cursor_init_secs
+    );
 
     // Upload sprite atlas (text + keystroke overlays pre-rendered by frontend).
     if let Some(rgba) = atlas_rgba {
@@ -864,9 +886,19 @@ pub(crate) fn run_native_export_with_staged(
         animated_cursor_slots,
     };
 
+    let t_frame_times_start = Instant::now();
     let source_times = gpu_pipeline::build_frame_times(&pipeline_config);
     let total_frames = source_times.len() as u32;
     let planned_output_duration_sec = total_frames as f64 / config.framerate as f64;
+    eprintln!(
+        "[Export][Timing] build_frame_times: {:.3}s ({} frames)",
+        t_frame_times_start.elapsed().as_secs_f64(),
+        total_frames
+    );
+    eprintln!(
+        "[Export][Timing] TOTAL preparation (Rust-side): {:.3}s",
+        export_total_start.elapsed().as_secs_f64()
+    );
 
     println!(
         "[Export] Pipeline config: {}x{} @ {} fps, bitrate={}k, trim_start={:.3}, dur={:.3}, output_dur={:.3}",

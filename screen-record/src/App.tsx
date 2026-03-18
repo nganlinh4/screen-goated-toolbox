@@ -1157,6 +1157,36 @@ function App() {
           Math.max(videoControllerRef.current?.duration ?? 0, clipPreviewDuration),
         );
         setSegment(clip.segment);
+        // If the segment says webcam is available but the webcam video element
+        // failed to load (file deleted), mark it unavailable after a short delay
+        // so the track greys out correctly.
+        if (clip.segment?.webcamAvailable && webcamVideoRef.current) {
+          const wcEl = webcamVideoRef.current;
+          const markUnavailable = () => {
+            setCurrentWebcamVideo(null);
+            setSegment((prev) =>
+              prev?.webcamAvailable ? { ...prev, webcamAvailable: false } : prev,
+            );
+          };
+          // Race: if 'loadeddata' fires first the file exists; if the timer
+          // fires first or 'error' fires, it doesn't.
+          let resolved = false;
+          const onLoaded = () => { resolved = true; };
+          const onError = () => {
+            if (resolved) return;
+            resolved = true;
+            markUnavailable();
+          };
+          wcEl.addEventListener("loadeddata", onLoaded, { once: true });
+          wcEl.addEventListener("error", onError, { once: true });
+          setTimeout(() => {
+            wcEl.removeEventListener("loadeddata", onLoaded);
+            wcEl.removeEventListener("error", onError);
+            if (!resolved && wcEl.readyState === 0) {
+              markUnavailable();
+            }
+          }, 2000);
+        }
         if (clipThumbnailPlaceholder) {
           setThumbnails(clipThumbnailPlaceholder);
         }
@@ -2811,8 +2841,8 @@ function App() {
     ] as const;
 
     const swallow = (event: Event) => {
-      const target = event.target as Element | null;
-      if (target?.closest(".projects-view")) {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".projects-view")) {
         return;
       }
       if ("cancelable" in event && event.cancelable) {

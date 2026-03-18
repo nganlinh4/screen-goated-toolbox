@@ -6,7 +6,6 @@ import {
   useState,
   type PointerEvent,
   type RefObject,
-  type WheelEvent,
 } from "react";
 import type { VideoSegment } from "@/types/video";
 import { clampToTrimSegments } from "@/lib/trimSegments";
@@ -62,7 +61,6 @@ interface UseTimelineViewportResult {
   showScrollbar: boolean;
   canvasWidth: string;
   canvasWidthPx: number;
-  handleWheel: (event: WheelEvent<HTMLDivElement>) => void;
   handleScrollbarTrackPointerDown: (
     event: PointerEvent<HTMLDivElement>,
   ) => void;
@@ -474,60 +472,71 @@ export function useTimelineViewport({
     };
   }, []);
 
-  const handleWheel = useCallback(
-    (event: WheelEvent<HTMLDivElement>) => {
-      const viewport = viewportRef.current;
-      const activeSegment = segmentRef.current;
-      const activeDuration = durationRef.current;
-      const activeZoom = zoomRef.current;
+  // Wheel zoom handler — registered natively with { passive: false } so
+  // preventDefault() works without triggering "passive event listener" warnings.
+  const wheelHandlerRef = useRef<(event: globalThis.WheelEvent) => void>(() => {});
+  wheelHandlerRef.current = (event: globalThis.WheelEvent) => {
+    const viewport = viewportRef.current;
+    const activeSegment = segmentRef.current;
+    const activeDuration = durationRef.current;
+    const activeZoom = zoomRef.current;
 
-      if (
-        !viewport ||
-        !activeSegment ||
-        activeDuration <= 0 ||
-        isInteractingRef.current
-      ) {
-        return;
-      }
+    if (
+      !viewport ||
+      !activeSegment ||
+      activeDuration <= 0 ||
+      isInteractingRef.current
+    ) {
+      return;
+    }
 
-      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
-        return;
-      }
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+      return;
+    }
 
-      event.preventDefault();
+    event.preventDefault();
 
-      const visibleWidth = getVisibleContentWidth(viewport);
-      const viewportRect = viewport.getBoundingClientRect();
-      const pointerContentX = clamp(
-        event.clientX - viewportRect.left - VIEWPORT_BLEED_PX,
-        0,
-        visibleWidth,
-      );
-      const contentWidth = getContentWidth(viewport, timelineRef.current, activeZoom);
-      const anchorTime = clamp(
-        ((viewport.scrollLeft + pointerContentX) / Math.max(contentWidth, 1)) *
-          activeDuration,
-        0,
+    const visibleWidth = getVisibleContentWidth(viewport);
+    const viewportRect = viewport.getBoundingClientRect();
+    const pointerContentX = clamp(
+      event.clientX - viewportRect.left - VIEWPORT_BLEED_PX,
+      0,
+      visibleWidth,
+    );
+    const contentWidth = getContentWidth(viewport, timelineRef.current, activeZoom);
+    const anchorTime = clamp(
+      ((viewport.scrollLeft + pointerContentX) / Math.max(contentWidth, 1)) *
         activeDuration,
-      );
-      const nextZoom = clamp(
-        activeZoom - event.deltaY * WHEEL_ZOOM_SENSITIVITY * activeZoom,
-        MIN_TIMELINE_ZOOM,
-        MAX_TIMELINE_ZOOM,
-      );
+      0,
+      activeDuration,
+    );
+    const nextZoom = clamp(
+      activeZoom - event.deltaY * WHEEL_ZOOM_SENSITIVITY * activeZoom,
+      MIN_TIMELINE_ZOOM,
+      MAX_TIMELINE_ZOOM,
+    );
 
-      if (Math.abs(nextZoom - activeZoom) < 0.001) return;
+    if (Math.abs(nextZoom - activeZoom) < 0.001) return;
 
-      pendingWheelAnchorRef.current = {
-        anchorTime,
-        pointerContentX,
-      };
-      suppressFollow();
-      zoomRef.current = nextZoom;
-      setZoom(nextZoom);
-    },
-    [suppressFollow, timelineRef],
-  );
+    pendingWheelAnchorRef.current = {
+      anchorTime,
+      pointerContentX,
+    };
+    suppressFollow();
+    zoomRef.current = nextZoom;
+    setZoom(nextZoom);
+  };
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const handler = (event: globalThis.WheelEvent) => {
+      wheelHandlerRef.current(event);
+    };
+    viewport.addEventListener("wheel", handler, { passive: false });
+    return () => viewport.removeEventListener("wheel", handler);
+  }, []);
 
   const handleScrollbarTrackPointerDown = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
@@ -605,7 +614,6 @@ export function useTimelineViewport({
     showScrollbar: showScrollbarState,
     canvasWidth: `${Math.max(zoom, MIN_TIMELINE_ZOOM) * 100}%`,
     canvasWidthPx: viewportWidth * Math.max(zoom, MIN_TIMELINE_ZOOM),
-    handleWheel,
     handleScrollbarTrackPointerDown,
     handleScrollbarThumbPointerDown,
   };
