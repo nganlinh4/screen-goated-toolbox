@@ -401,8 +401,8 @@ unsafe fn refresh_panel_layout_and_content(
         let panel_height = if fav_count == 0 {
             80 + buffer_y + keep_open_row_height
         } else {
-            (items_per_col as i32 * height_per_item) + 24 + buffer_y + keep_open_row_height + 100
-            // Extra buffer
+            (items_per_col as i32 * height_per_item) + 24 + buffer_y + keep_open_row_height + 16
+            // Tight bottom margin
         };
         let panel_height = panel_height.max(50);
 
@@ -873,9 +873,8 @@ fn resize_panel_height(content_height: i32) {
         let dpi = GetDpiForWindow(panel_hwnd);
         let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
 
-        // Add +100px buffer to ensure window is definitely taller than content
-        // This solves the 'click-through' issue at the bottom if DPI scaling is slightly off
-        let new_height_pixels = (content_height as f32 * scale).ceil() as i32 + 100;
+        // Small buffer for DPI rounding
+        let new_height_pixels = (content_height as f32 * scale).ceil() as i32 + 16;
 
         let mut panel_rect = RECT::default();
         let _ = GetWindowRect(panel_hwnd, &mut panel_rect);

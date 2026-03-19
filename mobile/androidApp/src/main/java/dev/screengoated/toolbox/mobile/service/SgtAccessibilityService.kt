@@ -33,22 +33,35 @@ class SgtAccessibilityService : AccessibilityService() {
         Log.d(TAG, "Accessibility service connected")
     }
 
-    /** Last text seen from a text selection change event. */
+    /** Last text seen from a text selection change event, with timestamp. */
     @Volatile
     var lastSelectedText: String? = null
+    @Volatile
+    private var lastSelectedTimestamp: Long = 0
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
-        // Capture text from selection change events (works for EditText, some apps)
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
             val text = event.text?.joinToString("") ?: return
             val from = event.fromIndex
             val to = event.toIndex
             if (from >= 0 && to > from && to <= text.length) {
                 lastSelectedText = text.substring(from, to)
+                lastSelectedTimestamp = System.currentTimeMillis()
                 Log.d(TAG, "Selection event captured: '${lastSelectedText?.take(50)}'")
             }
         }
+    }
+
+    /** Returns selection event text only if it's recent (within 5 seconds). */
+    fun getRecentSelectedEvent(): String? {
+        val text = lastSelectedText ?: return null
+        val age = System.currentTimeMillis() - lastSelectedTimestamp
+        if (age > 5000) {
+            lastSelectedText = null
+            return null
+        }
+        return text
     }
 
     override fun onInterrupt() {}
@@ -215,8 +228,8 @@ class SgtAccessibilityService : AccessibilityService() {
                     Log.d(TAG, "Got text from tree scan: ${treeSelected.take(50)}")
                     return treeSelected
                 }
-                // 2. Try last selection event (works for EditText selection changes)
-                val eventSelected = service.lastSelectedText
+                // 2. Try last selection event (only if recent — within 5 seconds)
+                val eventSelected = service.getRecentSelectedEvent()
                 if (!eventSelected.isNullOrBlank()) {
                     Log.d(TAG, "Got text from selection event: ${eventSelected.take(50)}")
                     service.lastSelectedText = null // consume it
