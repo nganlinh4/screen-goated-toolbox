@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useMemo,
   type MutableRefObject,
 } from "react";
@@ -157,6 +158,34 @@ export function useCanvasConfig({
     },
     [segment, setSegment, handleCancelCrop],
   );
+
+  // When canvasMode is "auto", keep canvasWidth/canvasHeight in sync with the
+  // current crop. This covers both the apply-crop path and undo/redo — undoing
+  // a crop changes segment.crop which triggers this effect and re-syncs the
+  // canvas dimensions automatically.
+  const cropX = segment?.crop?.x;
+  const cropY = segment?.crop?.y;
+  const cropW = segment?.crop?.width;
+  const cropH = segment?.crop?.height;
+  useEffect(() => {
+    if (backgroundConfig.canvasMode !== "auto") return;
+    const crop = segment?.crop ?? { x: 0, y: 0, width: 1, height: 1 };
+    const sourceWidth = videoRef.current?.videoWidth || canvasRef.current?.width || 0;
+    const sourceHeight = videoRef.current?.videoHeight || canvasRef.current?.height || 0;
+    if (!sourceWidth || !sourceHeight) return;
+    const derivedWidth = Math.max(2, Math.round(sourceWidth * crop.width));
+    const derivedHeight = Math.max(2, Math.round(sourceHeight * crop.height));
+    if (
+      derivedWidth === backgroundConfig.canvasWidth &&
+      derivedHeight === backgroundConfig.canvasHeight
+    ) return;
+    setBackgroundConfig((prev) => ({
+      ...prev,
+      canvasWidth: derivedWidth,
+      canvasHeight: derivedHeight,
+    }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cropX, cropY, cropW, cropH, backgroundConfig.canvasMode]);
 
   const handleToggleCrop = useCallback(() => {
     if (isCropping) {

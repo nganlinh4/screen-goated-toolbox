@@ -29,11 +29,20 @@ data class PresetModelDescriptor(
     val nameVi: String = displayName,
     val nameKo: String = displayName,
     val isNonLlm: Boolean = false,
+    val quotaEn: String = "",
+    val quotaVi: String = "",
+    val quotaKo: String = "",
 ) {
     fun localizedName(lang: String): String = when (lang) {
         "vi" -> nameVi
         "ko" -> nameKo
         else -> displayName
+    }
+
+    fun localizedQuota(lang: String): String = when (lang) {
+        "vi" -> quotaVi
+        "ko" -> quotaKo
+        else -> quotaEn
     }
 }
 

@@ -16,7 +16,10 @@ MODEL_ENTRY_RE = re.compile(
     r'"(?P<name_en>[^"]*)"\s*,\s*'
     r'(?:"(?P<full_name_literal>[^"]*)"|(?P<full_name_const>[A-Z0-9_]+))\s*,\s*'
     r'ModelType::(?P<model_type>\w+)\s*,\s*'
-    r'(?P<enabled>true|false)',
+    r'(?P<enabled>true|false)\s*,\s*'
+    r'"(?P<quota_vi>[^"]*)"\s*,\s*'
+    r'"(?P<quota_ko>[^"]*)"\s*,\s*'
+    r'"(?P<quota_en>[^"]*)"',
     re.MULTILINE | re.DOTALL,
 )
 
@@ -179,6 +182,10 @@ def generate_kotlin(
         if not enabled:
             continue
 
+        quota_vi = match.group("quota_vi")
+        quota_ko = match.group("quota_ko")
+        quota_en = match.group("quota_en")
+
         lines.extend(
             [
                 "        PresetModelDescriptor(",
@@ -190,6 +197,9 @@ def generate_kotlin(
                 f"            nameVi = {kotlin_string(name_vi)},",
                 f"            nameKo = {kotlin_string(name_ko)},",
                 f"            isNonLlm = {str(model_id in non_llm_ids).lower()},",
+                f"            quotaEn = {kotlin_string(quota_en)},",
+                f"            quotaVi = {kotlin_string(quota_vi)},",
+                f"            quotaKo = {kotlin_string(quota_ko)},",
                 "        ),",
             ]
         )

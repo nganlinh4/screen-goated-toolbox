@@ -751,6 +751,7 @@ internal fun SectionDetail(
     onOpenRouterApiKeyChanged: (String) -> Unit,
     onOllamaUrlChanged: (String) -> Unit,
     onPresetRuntimeSettingsClick: () -> Unit,
+    onUsageStatsClick: () -> Unit,
     onVoiceSettingsClick: () -> Unit,
     uiPreferences: dev.screengoated.toolbox.mobile.model.MobileUiPreferences = dev.screengoated.toolbox.mobile.model.MobileUiPreferences(),
     onOverlayOpacityChanged: (Int) -> Unit = {},
@@ -800,6 +801,7 @@ internal fun SectionDetail(
             onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
             onOllamaUrlChanged = onOllamaUrlChanged,
             onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
+            onUsageStatsClick = onUsageStatsClick,
             onVoiceSettingsClick = onVoiceSettingsClick,
             onOverlayOpacityChanged = onOverlayOpacityChanged,
         )
@@ -1808,6 +1810,7 @@ internal fun GlobalSection(
     onOpenRouterApiKeyChanged: (String) -> Unit,
     onOllamaUrlChanged: (String) -> Unit,
     onPresetRuntimeSettingsClick: () -> Unit,
+    onUsageStatsClick: () -> Unit,
     onVoiceSettingsClick: () -> Unit,
     onOverlayOpacityChanged: (Int) -> Unit,
 ) {
@@ -1843,6 +1846,10 @@ internal fun GlobalSection(
                 locale = locale,
                 onClick = onPresetRuntimeSettingsClick,
             )
+            UsageStatsCard(
+                locale = locale,
+                onClick = onUsageStatsClick,
+            )
         } else {
             CredentialsCard(
                 apiKey = apiKey,
@@ -1867,6 +1874,10 @@ internal fun GlobalSection(
                 settings = presetRuntimeSettings,
                 locale = locale,
                 onClick = onPresetRuntimeSettingsClick,
+            )
+            UsageStatsCard(
+                locale = locale,
+                onClick = onUsageStatsClick,
             )
         }
         OverlayOpacityCard(

@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class, androidx.compose.ui.text.ExperimentalTextApi::class)
 
 package dev.screengoated.toolbox.mobile.preset.ui
 
@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -99,7 +100,6 @@ data class NodeGraphState(
 // ---------------------------------------------------------------------------
 
 private val NODE_WIDTH_DP = 220.dp
-private val HEADER_HEIGHT_DP = 5.dp
 private val PIN_RADIUS_DP = 7.dp
 private val PIN_HIT_RADIUS_DP = 30.dp
 private val GRID_SPACING_DP = 24.dp
@@ -117,11 +117,31 @@ private const val LAYOUT_GAP_Y_RATIO = 0.25f // vertical gap = 25% of node heigh
 // Color helpers
 // ---------------------------------------------------------------------------
 
-private fun headerColor(blockType: BlockType): Color = when (blockType) {
-    BlockType.INPUT_ADAPTER -> Color(0xFF26A69A)
-    BlockType.IMAGE -> Color(0xFFFFA726)
-    BlockType.TEXT -> Color(0xFF42A5F5)
-    BlockType.AUDIO -> Color(0xFFAB47BC)
+// Node colors use Material 3 dynamic accent (Material You) —
+// 3 tonal variants from the device accent color.
+// These are @Composable getters since they read MaterialTheme.colorScheme.
+
+private data class NodeColors(
+    val bg: Color,
+    val title: Color,
+    val content: Color,
+    val pill: Color,
+)
+
+/** Google Sans Flex at wdth=75 for condensed descriptive text. */
+private val condensedFontFamily: androidx.compose.ui.text.font.FontFamily by lazy {
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        androidx.compose.ui.text.font.FontFamily(
+            androidx.compose.ui.text.font.Font(
+                resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
+                variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
+                    androidx.compose.ui.text.font.FontVariation.Setting("wdth", 75f),
+                ),
+            ),
+        )
+    } else {
+        androidx.compose.ui.text.font.FontFamily.Default
+    }
 }
 
 private val PIN_INPUT_COLOR = Color(0xFF66BB6A)
@@ -304,11 +324,28 @@ private fun isNearBezier(point: Offset, from: Offset, to: Offset, threshold: Flo
 // Localized node type label
 // ---------------------------------------------------------------------------
 
-private fun nodeTypeLabel(blockType: BlockType, lang: String): String = when (blockType) {
-    BlockType.INPUT_ADAPTER -> when (lang) { "vi" -> "Đầu vào"; "ko" -> "입력"; else -> "Input" }
-    BlockType.IMAGE -> when (lang) { "vi" -> "Đặc biệt"; "ko" -> "특수"; else -> "Special" }
-    BlockType.TEXT -> when (lang) { "vi" -> "Xử lý"; "ko" -> "처리"; else -> "Process" }
-    BlockType.AUDIO -> when (lang) { "vi" -> "Đặc biệt"; "ko" -> "특수"; else -> "Special" }
+private fun nodeTypeLabel(
+    blockType: BlockType,
+    lang: String,
+    presetType: dev.screengoated.toolbox.mobile.shared.preset.PresetType =
+        dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT,
+): String = when (blockType) {
+    BlockType.INPUT_ADAPTER -> {
+        val inputSuffix = when (presetType) {
+            dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE ->
+                when (lang) { "vi" -> "Hình ảnh"; "ko" -> "이미지"; else -> "Image" }
+            dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC,
+            dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO ->
+                when (lang) { "vi" -> "Âm thanh"; "ko" -> "오디오"; else -> "Audio" }
+            else ->
+                when (lang) { "vi" -> "Văn bản"; "ko" -> "텍스트"; else -> "Text" }
+        }
+        val prefix = when (lang) { "vi" -> "Đầu vào"; "ko" -> "입력"; else -> "Input" }
+        "$prefix: $inputSuffix"
+    }
+    BlockType.TEXT -> when (lang) { "vi" -> "Text -> Text"; "ko" -> "텍스트 -> 텍스트"; else -> "Text -> Text" }
+    BlockType.IMAGE -> when (lang) { "vi" -> "Ảnh -> Text"; "ko" -> "이미지 -> 텍스트"; else -> "Image -> Text" }
+    BlockType.AUDIO -> when (lang) { "vi" -> "Audio -> Text"; "ko" -> "오디오 -> 텍스트"; else -> "Audio -> Text" }
 }
 
 // ---------------------------------------------------------------------------
@@ -331,11 +368,35 @@ private fun NodeCard(
     onPromptEditRequest: () -> Unit = {},
     presetType: dev.screengoated.toolbox.mobile.shared.preset.PresetType =
         dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT,
+    providerSettings: dev.screengoated.toolbox.mobile.preset.PresetProviderSettings =
+        dev.screengoated.toolbox.mobile.preset.PresetProviderSettings(),
     modifier: Modifier = Modifier,
     lang: String = "en",
 ) {
     val block = node.block
-    val accentColor = headerColor(block.blockType)
+    val colors = MaterialTheme.colorScheme
+
+    // 3 accent-derived node styles via Material You dynamic color
+    // secondary = lightest/most muted (common Text->Text nodes)
+    // tertiary = mid tone (input adapter)
+    // primary = boldest (rare special nodes)
+    val (cardBg, titleCol, contentCol, pillBg) = when (block.blockType) {
+        BlockType.INPUT_ADAPTER -> NodeColors(
+            colors.tertiaryContainer, colors.onTertiaryContainer,
+            colors.onTertiaryContainer.copy(alpha = 0.75f),
+            colors.onTertiaryContainer.copy(alpha = 0.1f),
+        )
+        BlockType.TEXT -> NodeColors(
+            colors.secondaryContainer, colors.onSecondaryContainer,
+            colors.onSecondaryContainer.copy(alpha = 0.75f),
+            colors.onSecondaryContainer.copy(alpha = 0.1f),
+        )
+        BlockType.IMAGE, BlockType.AUDIO -> NodeColors(
+            colors.primaryContainer, colors.onPrimaryContainer,
+            colors.onPrimaryContainer.copy(alpha = 0.75f),
+            colors.onPrimaryContainer.copy(alpha = 0.1f),
+        )
+    }
 
     Card(
         modifier = modifier
@@ -357,21 +418,18 @@ private fun NodeCard(
                 )
             },
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            containerColor = cardBg,
         ),
-        border = null,
+        border = androidx.compose.foundation.BorderStroke(
+            0.5.dp,
+            titleCol.copy(alpha = 0.15f),
+        ),
         shape = MaterialTheme.shapes.medium,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column {
-            // Colored header bar
-            Surface(
-                modifier = Modifier.fillMaxWidth().height(HEADER_HEIGHT_DP),
-                color = accentColor,
-                content = {},
-            )
-
             Row(
-                modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 6.dp),
+                modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 // Input pin (not on INPUT_ADAPTER)
@@ -387,10 +445,10 @@ private fun NodeCard(
 
                 // Title
                 Text(
-                    text = nodeTypeLabel(block.blockType, lang),
+                    text = nodeTypeLabel(block.blockType, lang, presetType),
                     style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = accentColor,
+                    fontWeight = FontWeight.SemiBold,
+                    color = titleCol,
                     modifier = Modifier.weight(1f),
                 )
 
@@ -408,7 +466,7 @@ private fun NodeCard(
                             imageVector = Icons.Rounded.Close,
                             contentDescription = null,
                             modifier = Modifier.size(12.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            tint = contentCol.copy(alpha = 0.5f),
                         )
                     }
                 }
@@ -450,13 +508,26 @@ private fun NodeCard(
                     var showModelDropdown by remember { mutableStateOf(false) }
                     val catalog = dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
                     val descriptor = catalog.getById(block.model)
-                    val availableModels = remember(block.blockType) { catalog.forBlockType(block.blockType) }
+                    val availableModels = remember(block.blockType, providerSettings) {
+                        catalog.forBlockType(block.blockType).filter { model ->
+                            when (model.provider) {
+                                dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GROQ -> providerSettings.useGroq
+                                dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GOOGLE,
+                                dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GEMINI_LIVE,
+                                -> providerSettings.useGemini
+                                dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OPENROUTER -> providerSettings.useOpenRouter
+                                dev.screengoated.toolbox.mobile.preset.PresetModelProvider.CEREBRAS -> providerSettings.useCerebras
+                                dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OLLAMA -> providerSettings.useOllama
+                                else -> true
+                            }
+                        }
+                    }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(
                             modifier = Modifier.size(6.dp),
                             shape = CircleShape,
-                            color = androidx.compose.ui.graphics.Color(0xFF4CAF50),
+                            color = titleCol.copy(alpha = 0.5f),
                             content = {},
                         )
                         Spacer(Modifier.width(4.dp))
@@ -465,13 +536,13 @@ private fun NodeCard(
                                 modifier = Modifier
                                     .pointerInput(Unit) { detectTapGestures { showModelDropdown = true } },
                                 shape = RoundedCornerShape(4.dp),
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                color = pillBg,
                             ) {
                                 Text(
                                     text = descriptor?.localizedName(lang) ?: block.model,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurface,
+                                    color = contentCol,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -479,29 +550,37 @@ private fun NodeCard(
                             androidx.compose.material3.DropdownMenu(
                                 expanded = showModelDropdown,
                                 onDismissRequest = { showModelDropdown = false },
+                                modifier = Modifier.widthIn(min = 300.dp),
                             ) {
                                 availableModels.forEach { model ->
                                     val providerIcon = when (model.provider) {
                                         dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GOOGLE,
                                         dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GEMINI_LIVE,
-                                        -> androidx.compose.material.icons.Icons.Rounded.AutoAwesome
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GOOGLE_GTX -> androidx.compose.material.icons.Icons.Rounded.Translate
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GROQ -> androidx.compose.material.icons.Icons.Rounded.Bolt
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.CEREBRAS -> androidx.compose.material.icons.Icons.Rounded.LocalFireDepartment
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OPENROUTER -> androidx.compose.material.icons.Icons.Rounded.Public
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OLLAMA -> androidx.compose.material.icons.Icons.Rounded.Computer
-                                        else -> androidx.compose.material.icons.Icons.Rounded.AutoAwesome
+                                        -> Icons.Rounded.AutoAwesome
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GOOGLE_GTX -> Icons.Rounded.Translate
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GROQ -> Icons.Rounded.Bolt
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.CEREBRAS -> Icons.Rounded.LocalFireDepartment
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OPENROUTER -> Icons.Rounded.Public
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OLLAMA -> Icons.Rounded.Computer
+                                        else -> Icons.Rounded.AutoAwesome
                                     }
                                     val hasSearch = catalog.supportsSearchById(model.id)
                                     val isSelected = model.id == block.model
                                     androidx.compose.material3.DropdownMenuItem(
+                                        modifier = if (isSelected) Modifier
+                                            .padding(horizontal = 4.dp)
+                                            .background(
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                                                RoundedCornerShape(8.dp),
+                                            )
+                                        else Modifier,
                                         leadingIcon = {
                                             Icon(providerIcon, null, modifier = Modifier.size(16.dp))
                                         },
                                         trailingIcon = {
                                             if (hasSearch) {
                                                 Icon(
-                                                    androidx.compose.material.icons.Icons.Rounded.Search,
+                                                    Icons.Rounded.Search,
                                                     null,
                                                     modifier = Modifier.size(14.dp),
                                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -509,11 +588,25 @@ private fun NodeCard(
                                             }
                                         },
                                         text = {
+                                            val quota = model.localizedQuota(lang)
+                                            val suffix = if (quota.isNotBlank()) " - ${model.fullName} - $quota"
+                                                else " - ${model.fullName}"
                                             Text(
-                                                "${model.localizedName(lang)} - ${model.fullName}",
+                                                text = androidx.compose.ui.text.buildAnnotatedString {
+                                                    pushStyle(androidx.compose.ui.text.SpanStyle(
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                                    ))
+                                                    append(model.localizedName(lang))
+                                                    pop()
+                                                    pushStyle(androidx.compose.ui.text.SpanStyle(
+                                                        fontSize = 11.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        fontFamily = condensedFontFamily,
+                                                    ))
+                                                    append(suffix)
+                                                    pop()
+                                                },
                                                 style = MaterialTheme.typography.bodySmall,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                maxLines = 1,
                                             )
                                         },
                                         onClick = {
@@ -528,7 +621,7 @@ private fun NodeCard(
                         Surface(
                             modifier = Modifier.size(6.dp),
                             shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = titleCol.copy(alpha = 0.5f),
                             content = {},
                         )
                     }
@@ -541,15 +634,15 @@ private fun NodeCard(
                                 detectTapGestures { onPromptEditRequest() }
                             },
                         shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
+                        color = pillBg,
                     ) {
                         Text(
                             text = block.prompt.ifBlank { "Prompt…" },
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                             style = MaterialTheme.typography.bodySmall,
                             color = if (block.prompt.isBlank())
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                contentCol.copy(alpha = 0.4f)
+                            else contentCol,
                             maxLines = 4,
                             overflow = TextOverflow.Ellipsis,
                             lineHeight = 14.sp,
@@ -586,7 +679,7 @@ private fun NodeCard(
                             Box {
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    color = pillBg,
                                     modifier = Modifier.height(20.dp)
                                         .pointerInput(Unit) { detectTapGestures { showRenderModeMenu = true } },
                                 ) {
@@ -595,7 +688,7 @@ private fun NodeCard(
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                         style = MaterialTheme.typography.labelSmall,
                                         fontSize = 9.sp,
-                                        color = MaterialTheme.colorScheme.onSurface,
+                                        color = contentCol,
                                     )
                                 }
                                 androidx.compose.material3.DropdownMenu(
@@ -632,8 +725,8 @@ private fun NodeCard(
                                 imageVector = Icons.Rounded.ContentCopy,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
-                                tint = if (block.autoCopy) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                tint = if (block.autoCopy) titleCol
+                                else contentCol.copy(alpha = 0.4f),
                             )
                         }
 
@@ -647,8 +740,8 @@ private fun NodeCard(
                                 imageVector = Icons.AutoMirrored.Rounded.VolumeUp,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
-                                tint = if (block.autoSpeak) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                tint = if (block.autoSpeak) titleCol
+                                else contentCol.copy(alpha = 0.4f),
                             )
                         }
                     }
@@ -678,7 +771,7 @@ private fun NodeCard(
                             Box {
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    color = pillBg,
                                     modifier = Modifier.height(20.dp)
                                         .pointerInput(Unit) { detectTapGestures { showInputRenderMenu = true } },
                                 ) {
@@ -687,7 +780,7 @@ private fun NodeCard(
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                         style = MaterialTheme.typography.labelSmall,
                                         fontSize = 9.sp,
-                                        color = MaterialTheme.colorScheme.onSurface,
+                                        color = contentCol,
                                     )
                                 }
                                 androidx.compose.material3.DropdownMenu(
@@ -719,8 +812,8 @@ private fun NodeCard(
                                 imageVector = Icons.Rounded.ContentCopy,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
-                                tint = if (block.autoCopy) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                tint = if (block.autoCopy) titleCol
+                                else contentCol.copy(alpha = 0.4f),
                             )
                         }
 
@@ -734,8 +827,8 @@ private fun NodeCard(
                                 imageVector = Icons.AutoMirrored.Rounded.VolumeUp,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
-                                tint = if (block.autoSpeak) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                tint = if (block.autoSpeak) titleCol
+                                else contentCol.copy(alpha = 0.4f),
                             )
                         }
                     }
@@ -764,6 +857,8 @@ fun NodeGraphCanvas(
     selectedNodeId: String? = null,
     presetType: dev.screengoated.toolbox.mobile.shared.preset.PresetType =
         dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT,
+    providerSettings: dev.screengoated.toolbox.mobile.preset.PresetProviderSettings =
+        dev.screengoated.toolbox.mobile.preset.PresetProviderSettings(),
 ) {
     val density = LocalDensity.current
     val nodeWidthPx = with(density) { NODE_WIDTH_DP.toPx() }
@@ -1063,6 +1158,7 @@ fun NodeGraphCanvas(
                     onPromptEditRequest = {
                         onPromptEditRequest(node.id, node.block.prompt)
                     },
+                    providerSettings = providerSettings,
                     onMeasured = { heightPx ->
                         measuredHeights[node.id] = heightPx
                     },
