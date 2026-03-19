@@ -125,4 +125,5 @@ fun inputAdapter() = ProcessingBlock(
     id = "input",
     blockType = BlockType.INPUT_ADAPTER,
     model = "",
+    showOverlay = false,
 )
