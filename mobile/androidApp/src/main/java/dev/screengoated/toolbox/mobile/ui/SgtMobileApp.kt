@@ -112,6 +112,7 @@ fun SgtMobileApp(
 ) {
     var showTtsSettings by rememberSaveable { mutableStateOf(false) }
     var showPresetRuntimeSettings by rememberSaveable { mutableStateOf(false) }
+    var showUsageStats by rememberSaveable { mutableStateOf(false) }
     var showDownloader by rememberSaveable { mutableStateOf(false) }
     var showDj by rememberSaveable { mutableStateOf(false) }
     var activePresetId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -144,6 +145,15 @@ fun SgtMobileApp(
             uiLanguage = uiPreferences.uiLanguage,
             onDismiss = { showPresetRuntimeSettings = false },
             onSave = { onPresetRuntimeSettingsChanged(it) },
+        )
+    }
+
+    if (showUsageStats) {
+        UsageStatsDialog(
+            locale = locale,
+            providerSettings = presetRuntimeSettings.providerSettings,
+            lang = uiPreferences.uiLanguage,
+            onDismiss = { showUsageStats = false },
         )
     }
 
@@ -219,6 +229,7 @@ fun SgtMobileApp(
                     onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
                     onOllamaUrlChanged = onOllamaUrlChanged,
                     onPresetRuntimeSettingsClick = { showPresetRuntimeSettings = true },
+                    onUsageStatsClick = { showUsageStats = true },
                     onVoiceSettingsClick = {
                         onVoiceSettingsShown()
                         showTtsSettings = true
@@ -325,6 +336,7 @@ fun SgtMobileApp(
                         onRestoreDefault = {
                             presetRepository.restoreBuiltInPreset(activePreset.preset.id)
                         },
+                        providerSettings = presetRuntimeSettings.providerSettings,
                     )
                 }
             }

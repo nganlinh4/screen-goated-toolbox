@@ -54,6 +54,13 @@ internal suspend fun TextApiClient.streamOpenAiCompatible(
             throw IOException("$providerName request failed with $code")
         }
 
+        // Capture rate limit headers
+        val rlRemaining = response.header("x-ratelimit-remaining-requests")
+            ?: response.header("x-ratelimit-remaining-requests-day")
+        val rlLimit = response.header("x-ratelimit-limit-requests")
+            ?: response.header("x-ratelimit-limit-requests-day")
+        ModelUsageStats.update(model.fullName, rlRemaining, rlLimit)
+
         val body = response.body ?: throw IOException("$providerName response body was empty.")
         body.charStream().buffered().useLines { lines ->
             lines.forEach { rawLine ->
@@ -282,6 +289,12 @@ private suspend fun TextApiClient.generateOpenAiCompatibleBlocking(
             if (code == 401 || code == 403) throw IOException("INVALID_API_KEY")
             throw IOException("$providerName request failed with $code")
         }
+
+        val rlRemaining = response.header("x-ratelimit-remaining-requests")
+            ?: response.header("x-ratelimit-remaining-requests-day")
+        val rlLimit = response.header("x-ratelimit-limit-requests")
+            ?: response.header("x-ratelimit-limit-requests-day")
+        ModelUsageStats.update(model.fullName, rlRemaining, rlLimit)
 
         val content = try {
             JSONObject(response.body?.string().orEmpty())

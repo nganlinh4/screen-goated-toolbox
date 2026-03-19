@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Computer
@@ -102,7 +103,7 @@ internal fun CredentialsCard(
 
     Card(
         modifier = modifier,
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
@@ -271,7 +272,7 @@ internal fun VoiceSettingsCard(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
@@ -318,21 +319,45 @@ internal fun PresetRuntimeCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    FilledTonalButton(
-        onClick = onClick,
-        modifier = modifier,
+    Card(
+        modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
     ) {
-        Icon(
-            imageVector = Icons.Rounded.Settings,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(Modifier.size(8.dp))
-        Text(
-            text = locale.presetRuntimeButton,
-            style = MaterialTheme.typography.labelLarge,
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = ShellSpacing.innerPad, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
+        ) {
+            GradientMaskedIcon(
+                Icons.Rounded.Settings,
+                Brush.linearGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.tertiary,
+                        MaterialTheme.colorScheme.primary,
+                    ),
+                ),
+                modifier = Modifier.size(22.dp),
+            )
+            Text(
+                text = locale.presetRuntimeButton,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            FilledTonalButton(
+                onClick = onClick,
+                shape = CircleShape,
+            ) {
+                Text(
+                    text = locale.presetRuntimeSettingsAction,
+                    style = MaterialTheme.typography.labelMediumEmphasized,
+                )
+            }
+        }
     }
 }
 
@@ -345,7 +370,7 @@ internal fun OverlayOpacityCard(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
@@ -394,7 +419,7 @@ internal fun LiveControlCard(
     )
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = if (isRunning) {
                 MaterialTheme.colorScheme.primaryContainer
@@ -461,6 +486,54 @@ internal fun LiveControlCard(
                 Text(
                     text = if (state.phase in setOf(SessionPhase.STOPPED, SessionPhase.IDLE, SessionPhase.ERROR, SessionPhase.AWAITING_PERMISSIONS)) locale.turnOn else locale.turnOff,
                     style = MaterialTheme.typography.labelLargeEmphasized,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun UsageStatsCard(
+    locale: MobileLocaleText,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = ShellSpacing.innerPad, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
+        ) {
+            GradientMaskedIcon(
+                Icons.Rounded.BarChart,
+                Brush.linearGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.primary,
+                        MaterialTheme.colorScheme.secondary,
+                    ),
+                ),
+                modifier = Modifier.size(22.dp),
+            )
+            Text(
+                text = locale.usageStatsButton,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            FilledTonalButton(
+                onClick = onClick,
+                shape = CircleShape,
+            ) {
+                Text(
+                    text = locale.usageStatsSettingsAction,
+                    style = MaterialTheme.typography.labelMediumEmphasized,
                 )
             }
         }

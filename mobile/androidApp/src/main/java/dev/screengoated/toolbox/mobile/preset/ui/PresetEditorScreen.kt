@@ -118,7 +118,7 @@ private fun editorTypeLabel(group: EditorTypeGroup, lang: String): String = when
         else -> "Text"
     }
     EditorTypeGroup.AUDIO -> when (lang) {
-        "vi" -> "Audio"
+        "vi" -> "Âm thanh"
         "ko" -> "오디오"
         else -> "Audio"
     }
@@ -147,6 +147,8 @@ fun PresetEditorScreen(
     onBack: () -> Unit,
     onPresetChanged: (Preset) -> Unit = {},
     onRestoreDefault: () -> Unit = {},
+    providerSettings: dev.screengoated.toolbox.mobile.preset.PresetProviderSettings =
+        dev.screengoated.toolbox.mobile.preset.PresetProviderSettings(),
 ) {
     val isBuiltIn = preset.id.startsWith("preset_")
     var editState by remember(preset) { mutableStateOf(preset.copy()) }
@@ -258,6 +260,7 @@ fun PresetEditorScreen(
                             lang = lang,
                             onUpdate = { autoSave(it) },
                             resetCounter = resetCounter,
+                            providerSettings = providerSettings,
                         )
                     }
                     val hasAnyCopy = editState.blocks.any {
@@ -307,6 +310,7 @@ fun PresetEditorScreen(
                         lang = lang,
                         onUpdate = { autoSave(it) },
                         resetCounter = resetCounter,
+                        providerSettings = providerSettings,
                     )
                 }
                 val hasAnyCopy = editState.blocks.any {
@@ -583,6 +587,8 @@ private fun NodeGraphSection(
     lang: String,
     onUpdate: (Preset) -> Unit,
     resetCounter: Int = 0,
+    providerSettings: dev.screengoated.toolbox.mobile.preset.PresetProviderSettings =
+        dev.screengoated.toolbox.mobile.preset.PresetProviderSettings(),
 ) {
     var graphState by remember(editState.id, resetCounter) {
         // Build node list from blocks, auto-inserting an Input node if none exists
@@ -823,6 +829,7 @@ private fun NodeGraphSection(
                         lang = lang,
                         selectedNodeId = selectedNodeId,
                         presetType = editState.presetType,
+                        providerSettings = providerSettings,
                     )
                     }
                 }
@@ -856,7 +863,7 @@ private fun NodeGraphSection(
                     ) {
                         DropdownMenuItem(
                             text = {
-                                Text(localized(lang, "Add Text → Text Node", "Thêm node Text → Text", "텍스트 → 텍스트 노드 추가"))
+                                Text(localized(lang, "Add Text -> Text Node", "Thêm node Text -> Text", "텍스트 -> 텍스트 노드 추가"))
                             },
                             onClick = {
                                 showAddMenu = false
@@ -898,8 +905,8 @@ private fun NodeGraphSection(
                                 else -> "cerebras_gpt_oss"
                             }
                             val specialLabel = when (editorTypeGroup) {
-                                EditorTypeGroup.IMAGE -> localized(lang, "Add Image → Text Node", "Thêm node Ảnh → Text", "이미지 → 텍스트 노드 추가")
-                                EditorTypeGroup.AUDIO -> localized(lang, "Add Audio → Text Node", "Thêm node Audio → Text", "오디오 → 텍스트 노드 추가")
+                                EditorTypeGroup.IMAGE -> localized(lang, "Add Image -> Text Node", "Thêm node Ảnh -> Text", "이미지 -> 텍스트 노드 추가")
+                                EditorTypeGroup.AUDIO -> localized(lang, "Add Audio -> Text Node", "Thêm node Audio -> Text", "오디오 -> 텍스트 노드 추가")
                                 else -> localized(lang, "Add Special Node", "Thêm node đặc biệt", "특별 노드 추가")
                             }
                             DropdownMenuItem(
@@ -1006,7 +1013,7 @@ private fun MasterDescriptionSection(lang: String) {
                 )
                 Spacer(Modifier.width(8.dp))
                 SectionLabel(
-                    localized(lang, "Controller Mode", "Chế độ điều khiển", "컨트롤러 모드"),
+                    localized(lang, "Controller", "Bộ điều khiển", "컨트롤러"),
                 )
             }
 
