@@ -42,6 +42,7 @@ internal class PresetOverlayController(
     private val density = context.resources.displayMetrics.density
     private val dismissTarget = PresetOverlayDismissTarget(context, windowManager)
 
+    private val processingIndicator = PresetProcessingIndicator(context, windowManager)
     private var activePreset: ResolvedPreset? = null
     private var bubbleBounds = OverlayBounds(x = 0, y = 0, width = dp(48), height = dp(48))
 
@@ -286,6 +287,33 @@ internal class PresetOverlayController(
     }
 
     private fun renderExecutionState(state: PresetExecutionState) {
+        // Show processing indicator ONLY until the first result overlay appears.
+        // Once any result window exists (even loading), dismiss the indicator —
+        // the result overlay has its own loading animation inside.
+        // (matches Windows: processing animation closes on first streaming chunk)
+        val preset = activePreset?.preset
+        val hasAnyResultWindow = state.resultWindows.any { window ->
+            preset == null ||
+                preset.blocks.getOrNull(window.blockIdx)?.blockType != dev.screengoated.toolbox.mobile.shared.preset.BlockType.INPUT_ADAPTER
+        }
+        if (state.isExecuting && !hasAnyResultWindow) {
+            if (!processingIndicator.isShowing) {
+                val accentColor = when (activePreset?.preset?.presetType) {
+                    dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE ->
+                        androidx.compose.ui.graphics.Color(0xFF5C9CE6)
+                    dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT,
+                    dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT ->
+                        androidx.compose.ui.graphics.Color(0xFF5DB882)
+                    dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC,
+                    dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO ->
+                        androidx.compose.ui.graphics.Color(0xFFDCA850)
+                    else -> androidx.compose.ui.graphics.Color(0xFF5C9CE6)
+                }
+                processingIndicator.show(accentColor)
+            }
+        } else {
+            processingIndicator.dismiss()
+        }
         resultModule.renderExecutionState(state, activePreset)
     }
 
