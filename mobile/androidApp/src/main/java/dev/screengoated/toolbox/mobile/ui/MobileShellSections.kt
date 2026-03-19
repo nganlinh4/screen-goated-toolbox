@@ -2,6 +2,11 @@
 
 package dev.screengoated.toolbox.mobile.ui
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -754,6 +759,7 @@ internal fun SectionDetail(
     onOllamaUrlChanged: (String) -> Unit,
     onPresetRuntimeSettingsClick: () -> Unit,
     onUsageStatsClick: () -> Unit,
+    onResetDefaults: () -> Unit = {},
     onVoiceSettingsClick: () -> Unit,
     uiPreferences: dev.screengoated.toolbox.mobile.model.MobileUiPreferences = dev.screengoated.toolbox.mobile.model.MobileUiPreferences(),
     onOverlayOpacityChanged: (Int) -> Unit = {},
@@ -804,6 +810,7 @@ internal fun SectionDetail(
             onOllamaUrlChanged = onOllamaUrlChanged,
             onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
             onUsageStatsClick = onUsageStatsClick,
+            onResetDefaults = onResetDefaults,
             onVoiceSettingsClick = onVoiceSettingsClick,
             onOverlayOpacityChanged = onOverlayOpacityChanged,
         )
@@ -817,6 +824,150 @@ internal fun SectionDetail(
 }
 
 private data class AppSlot(val shape: RoundedPolygon, val color: Color)
+
+private data class ShapeInstance(
+    val shape: RoundedPolygon,
+    val xFrac: Float, val yFrac: Float,
+    val sizeFrac: Float, val alpha: Float,
+    val rotation: Float,
+)
+
+private val allDecoShapes by lazy { listOf(
+    MaterialShapes.Arch, MaterialShapes.Arrow, MaterialShapes.Boom, MaterialShapes.Bun,
+    MaterialShapes.Burst, MaterialShapes.Circle, MaterialShapes.ClamShell,
+    MaterialShapes.Clover4Leaf, MaterialShapes.Clover8Leaf,
+    MaterialShapes.Cookie12Sided, MaterialShapes.Cookie4Sided, MaterialShapes.Cookie6Sided,
+    MaterialShapes.Cookie7Sided, MaterialShapes.Cookie9Sided,
+    MaterialShapes.Diamond, MaterialShapes.Fan, MaterialShapes.Flower, MaterialShapes.Gem,
+    MaterialShapes.Ghostish, MaterialShapes.Heart, MaterialShapes.Oval, MaterialShapes.Pentagon,
+    MaterialShapes.Pill, MaterialShapes.PixelCircle, MaterialShapes.PixelTriangle,
+    MaterialShapes.Puffy, MaterialShapes.PuffyDiamond, MaterialShapes.SemiCircle,
+    MaterialShapes.Slanted, MaterialShapes.SoftBoom, MaterialShapes.SoftBurst,
+    MaterialShapes.Square, MaterialShapes.Sunny, MaterialShapes.Triangle, MaterialShapes.VerySunny,
+) }
+
+/** Place shapes with collision detection — no overlapping. */
+private fun generateNonOverlappingShapes(seed: Long): List<ShapeInstance> {
+    val rng = java.util.Random(seed)
+    val placed = mutableListOf<ShapeInstance>()
+    var attempts = 0
+    while (placed.size < 6 && attempts < 80) {
+        attempts++
+        val sizeFrac = 0.15f + rng.nextFloat() * 0.75f // tiny to huge
+        val xFrac = -0.05f + rng.nextFloat() * 1.10f   // allow overflow left/right
+        val yFrac = -0.10f + rng.nextFloat() * 1.20f    // allow overflow top/bottom
+        val collides = placed.any { other ->
+            val dx = xFrac - other.xFrac
+            val dy = yFrac - other.yFrac
+            val minDist = (sizeFrac + other.sizeFrac) * 0.32f
+            dx * dx + dy * dy < minDist * minDist
+        }
+        if (!collides) {
+            placed.add(ShapeInstance(
+                shape = allDecoShapes[rng.nextInt(allDecoShapes.size)],
+                xFrac = xFrac, yFrac = yFrac,
+                sizeFrac = sizeFrac,
+                alpha = 0.10f + rng.nextFloat() * 0.16f,
+                rotation = rng.nextFloat() * 360f,
+            ))
+        }
+    }
+    return placed
+}
+
+/**
+ * Non-overlapping shapes with smooth morphing + slight spin + spring bounce.
+ * Each shape periodically morphs to another MaterialShape via Morph(A,B).toPath(progress).
+ * During the morph, a slight rotation is applied (spring bounce).
+ * Idle: morph every 3-6s. Scrolling/active: morph every 0.8-1.6s.
+ */
+@Composable
+private fun AnimatedShapesCanvas(
+    color: Color,
+    seed: Long,
+    isScrolling: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    val placements = remember(seed) { generateNonOverlappingShapes(seed) }
+
+    // Per-shape morph state: tracks the current from→to morph pair + generation counter
+    // The generation counter drives the animateFloatAsState target flip (0f↔1f)
+    data class MorphPair(
+        val from: RoundedPolygon,
+        val to: RoundedPolygon,
+        val gen: Int,
+        val spinDelta: Float,
+    )
+
+    @Composable
+    fun rememberAnimatedShape(i: Int, inst: ShapeInstance): Triple<Morph, Float, Float> {
+        var pair by remember { mutableStateOf(MorphPair(inst.shape, inst.shape, 0, 0f)) }
+
+        val intervalMs = if (isScrolling) (800L + i * 200L) else (3000L + i * 1500L)
+        LaunchedEffect(isScrolling, i) {
+            val rng = java.util.Random(seed + i * 17L)
+            while (true) {
+                kotlinx.coroutines.delay(intervalMs)
+                val nextShape = allDecoShapes[rng.nextInt(allDecoShapes.size)]
+                val spinDelta = (rng.nextFloat() - 0.5f) * 30f // ±15° spin during morph
+                pair = MorphPair(pair.to, nextShape, pair.gen + 1, spinDelta)
+            }
+        }
+
+        // Morph progress: animate 0→1 each time gen changes (odd→1, even→0)
+        val morphTarget = if (pair.gen % 2 == 0) 0f else 1f
+        val morphProgress by animateFloatAsState(
+            targetValue = morphTarget,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessVeryLow,
+            ),
+            label = "morph-$i",
+        )
+        // Actual progress within the current pair: how far from→to
+        val t = if (pair.gen % 2 == 0) (1f - morphProgress) else morphProgress
+
+        // Spin: slight rotation during morph (spring bounce)
+        val spinTarget = inst.rotation + pair.spinDelta * pair.gen
+        val spin by animateFloatAsState(
+            targetValue = spinTarget,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessLow,
+            ),
+            label = "spin-$i",
+        )
+
+        val morph = remember(pair.from, pair.to) { Morph(pair.from, pair.to) }
+        return Triple(morph, t, spin)
+    }
+
+    val animated = placements.mapIndexed { i, inst ->
+        val (morph, progress, spin) = rememberAnimatedShape(i, inst)
+        Triple(inst, Triple(morph, progress, spin), Unit)
+    }
+
+    Canvas(modifier = modifier.fillMaxSize()) {
+        animated.forEach { (inst, anim, _) ->
+            val (morph, progress, spin) = anim
+            val path = morph.toPath(progress = progress)
+            val s = size.minDimension * inst.sizeFrac
+            if (s < 1f) return@forEach
+            val bounds = path.getBounds()
+            val pathSize = maxOf(bounds.width, bounds.height).takeIf { it > 0f } ?: 1f
+            val cx = bounds.left + bounds.width / 2f
+            val cy = bounds.top + bounds.height / 2f
+            val scale = s / pathSize
+            val matrix = Matrix()
+            matrix.translate(size.width * inst.xFrac, size.height * inst.yFrac)
+            matrix.rotateZ(spin)
+            matrix.scale(scale, scale)
+            matrix.translate(-cx, -cy)
+            path.transform(matrix)
+            drawPath(path, color = color.copy(alpha = inst.alpha))
+        }
+    }
+}
 
 private val appSlots = listOf(
     AppSlot(MaterialShapes.Sunny,        Color(0xFF4DB6AC)), // Live Translate — teal
@@ -895,7 +1046,7 @@ private fun AppsItemContent(
             0 -> LiveTranslateCarouselTile(state = state, locale = locale, onSessionToggle = onSessionToggle, canToggle = canToggle)
             1 -> AppTile(slot = appSlots[1], title = locale.appVideoDownloaderTitle, icon = Icons.Rounded.Download)
             2 -> AppTile(slot = appSlots[2], title = locale.appDjTitle, icon = Icons.Rounded.GraphicEq)
-            else -> AppTile(slot = appSlots[index], title = locale.comingSoonLabel, icon = null)
+            else -> EmptyAppTile(slot = appSlots[index])
         }
     }
 }
@@ -997,31 +1148,16 @@ private fun LiveTranslateCarouselTile(
     val isLandscape =
         LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val slot = appSlots[0]
-    val morph = remember { Morph(slot.shape, slot.shape) }
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(if (isRunning) slot.color.copy(alpha = 0.30f) else slot.color.copy(alpha = 0.15f)),
     ) {
-        Canvas(
-            modifier = Modifier
-                .size(130.dp)
-                .align(Alignment.CenterEnd),
-        ) {
-            val path = morph.toPath(progress = 0f)
-            val s = size.minDimension
-            val bounds = path.getBounds()
-            val pathSize = maxOf(bounds.width, bounds.height).takeIf { it > 0f } ?: 1f
-            val cx = bounds.left + bounds.width / 2f
-            val cy = bounds.top + bounds.height / 2f
-            val scale = s * 0.85f / pathSize
-            val matrix = Matrix()
-            matrix.translate(s / 2f, s / 2f)
-            matrix.scale(scale, scale)
-            matrix.translate(-cx, -cy)
-            path.transform(matrix)
-            drawPath(path, color = slot.color.copy(alpha = 0.28f))
-        }
+        AnimatedShapesCanvas(
+            color = slot.color,
+            seed = slot.color.hashCode().toLong() xor 0x42L,
+            isScrolling = isRunning, // morph faster when live translate is active
+        )
         val stretchedFamily = remember {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 FontFamily(
@@ -1159,30 +1295,31 @@ private fun AppTile(
 ) {
     val isLandscape =
         LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-    val morph = remember(slot) { Morph(slot.shape, slot.shape) }
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(slot.color.copy(alpha = 0.15f)),
     ) {
-        Canvas(
-            modifier = Modifier
-                .size(100.dp)
-                .align(Alignment.CenterEnd),
-        ) {
-            val path = morph.toPath(progress = 0f)
-            val s = size.minDimension
-            val bounds = path.getBounds()
-            val pathSize = maxOf(bounds.width, bounds.height).takeIf { it > 0f } ?: 1f
-            val cx = bounds.left + bounds.width / 2f
-            val cy = bounds.top + bounds.height / 2f
-            val scale = s * 0.85f / pathSize
-            val matrix = Matrix()
-            matrix.translate(s / 2f, s / 2f)
-            matrix.scale(scale, scale)
-            matrix.translate(-cx, -cy)
-            path.transform(matrix)
-            drawPath(path, color = slot.color.copy(alpha = 0.28f))
+        AnimatedShapesCanvas(
+            color = slot.color,
+            seed = slot.color.hashCode().toLong(),
+        )
+        val stretchedFamily = remember {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                FontFamily(
+                    androidx.compose.ui.text.font.Font(
+                        resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
+                        weight = FontWeight.Black,
+                        variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
+                            androidx.compose.ui.text.font.FontVariation.weight(FontWeight.Black.weight),
+                            androidx.compose.ui.text.font.FontVariation.Setting("ROND", 100f),
+                            androidx.compose.ui.text.font.FontVariation.Setting("wdth", 125f),
+                        ),
+                    ),
+                )
+            } else {
+                FontFamily.Default
+            }
         }
         if (isLandscape) {
             Column(
@@ -1196,13 +1333,14 @@ private fun AppTile(
                         icon,
                         contentDescription = null,
                         tint = slot.color,
-                        modifier = Modifier.size(34.dp),
+                        modifier = Modifier.size(40.dp),
                     )
                 }
                 Text(
                     text = title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
+                    fontFamily = stretchedFamily,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 22.sp,
                     lineHeight = 24.sp,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 3,
@@ -1220,17 +1358,32 @@ private fun AppTile(
                         icon,
                         contentDescription = null,
                         tint = slot.color,
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(44.dp),
                     )
                     Spacer(Modifier.width(14.dp))
                 }
-                Text(
-                    text = title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 22.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    val words = title.split(" ", limit = 2)
+                    if (words.isNotEmpty()) {
+                        Text(
+                            text = words[0],
+                            fontFamily = stretchedFamily,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 28.sp,
+                            lineHeight = 32.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                    if (words.size > 1) {
+                        Text(
+                            text = words[1],
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 26.sp,
+                            lineHeight = 30.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
             }
         }
     }
@@ -1240,12 +1393,28 @@ private fun AppTile(
 // Tools Section — mirrors Windows sidebar preset categories
 // ---------------------------------------------------------------------------
 
+@Composable
+private fun EmptyAppTile(slot: AppSlot) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(slot.color.copy(alpha = 0.15f)),
+    ) {
+        AnimatedShapesCanvas(
+            color = slot.color,
+            seed = slot.color.hashCode().toLong(),
+        )
+    }
+}
+
 private data class ToolPresetItem(
     val id: String,
     val nameEn: String,
     val nameVi: String,
     val nameKo: String,
     val icon: ImageVector,
+    /** If true, `id` is the full preset ID. If false, needs "preset_" prefix. */
+    val isFullId: Boolean = false,
 ) {
     fun name(lang: String): String = when (lang) {
         "vi" -> nameVi
@@ -1276,6 +1445,8 @@ private data class ToolCategory(
     val labelGetter: (MobileLocaleText) -> String,
     val accentColor: Color,
     val presets: List<ToolPresetItem>,
+    /** Preset types that belong to this category (for routing custom presets). */
+    val acceptsTypes: Set<dev.screengoated.toolbox.mobile.shared.preset.PresetType> = emptySet(),
 )
 
 private val toolCategories = listOf(
@@ -1283,6 +1454,7 @@ private val toolCategories = listOf(
     ToolCategory(
         labelGetter = { it.toolsCategoryImage },
         accentColor = Color(0xFF5C9CE6),
+        acceptsTypes = setOf(dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE),
         presets = listOf(
             ToolPresetItem("translate", "Translate region", "Dịch vùng", "영역 번역", Icons.Rounded.Translate),
             ToolPresetItem("extract_retranslate", "Trans (ACCURATE)", "Dịch vùng (CHUẨN)", "영역 번역 (정확)", Icons.Rounded.Verified),
@@ -1306,6 +1478,7 @@ private val toolCategories = listOf(
     ToolCategory(
         labelGetter = { it.toolsCategoryTextSelect },
         accentColor = Color(0xFF5DB882),
+        acceptsTypes = setOf(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT),
         presets = listOf(
             ToolPresetItem("read_aloud", "Read aloud", "Đọc to", "크게 읽기", Icons.Rounded.RecordVoiceOver),
             ToolPresetItem("translate_select", "Translate", "Dịch", "번역", Icons.Rounded.GTranslate),
@@ -1326,6 +1499,7 @@ private val toolCategories = listOf(
     ToolCategory(
         labelGetter = { it.toolsCategoryTextInput },
         accentColor = Color(0xFF5DB882),
+        acceptsTypes = setOf(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT),
         presets = listOf(
             ToolPresetItem("trans_retrans_typing", "Trans+Retrans (Type)", "Dịch+Dịch lại (Tự gõ)", "번역+재번역 (입력)", Icons.Rounded.Translate),
             ToolPresetItem("ask_ai", "Ask AI", "Hỏi AI", "AI 질문", Icons.Rounded.SmartToy),
@@ -1338,6 +1512,7 @@ private val toolCategories = listOf(
     ToolCategory(
         labelGetter = { it.toolsCategoryMicRecording },
         accentColor = Color(0xFFDCA850),
+        acceptsTypes = setOf(dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC),
         presets = listOf(
             ToolPresetItem("transcribe", "Transcribe speech", "Lời nói thành văn", "음성 받아쓰기", Icons.Rounded.Mic),
             ToolPresetItem("continuous_writing_online", "Continuous Writing", "Viết liên tục", "연속 입력", Icons.Rounded.Keyboard),
@@ -1353,6 +1528,7 @@ private val toolCategories = listOf(
     ToolCategory(
         labelGetter = { it.toolsCategoryDeviceAudio },
         accentColor = Color(0xFFDCA850),
+        acceptsTypes = setOf(dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO),
         presets = listOf(
             ToolPresetItem("study_language", "Study language", "Học ngoại ngữ", "언어 학습", Icons.Rounded.School),
             ToolPresetItem("record_device", "Device Record", "Thu âm máy", "시스템 녹음", Icons.Rounded.SpeakerPhone),
@@ -1410,10 +1586,27 @@ internal fun ToolsSection(
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             items(toolCategories) { category ->
+                // Merge static presets with custom presets from catalog
+                val customItems = presetCatalog.presets
+                    .filter { !it.isBuiltIn && it.preset.presetType in category.acceptsTypes }
+                    .map { resolved ->
+                        ToolPresetItem(
+                            id = resolved.preset.id,
+                            nameEn = resolved.preset.nameEn,
+                            nameVi = resolved.preset.nameVi,
+                            nameKo = resolved.preset.nameKo,
+                            icon = Icons.Rounded.AutoAwesome,
+                            isFullId = true,
+                        )
+                    }
+                // Filter out hidden/deleted built-in presets
+                val catalogIds = presetCatalog.presets.map { it.preset.id }.toSet()
+                val visibleBuiltIns = category.presets.filter { "preset_${it.id}" in catalogIds }
+                val effectivePresets = visibleBuiltIns + customItems
                 ToolCategoryRow(
                     label = category.labelGetter(locale),
                     accentColor = category.accentColor,
-                    presets = category.presets,
+                    presets = effectivePresets,
                     lang = lang,
                     onPresetClick = onPresetClick,
                     onPagerSwipeLockChanged = onPagerSwipeLockChanged,
@@ -1421,6 +1614,17 @@ internal fun ToolsSection(
                     favoritePresetIds = favoritePresetIds,
                     onFavoriteToggle = { presetId ->
                         presetRepository.toggleFavorite(presetId)
+                    },
+                    onDuplicate = { presetId ->
+                        val newId = presetRepository.duplicatePreset(presetId, lang)
+                        android.util.Log.d("PresetTools", "DUPLICATE preset=$presetId → newId=$newId")
+                        android.util.Log.d("PresetTools", "Catalog size after: ${presetRepository.catalogState.value.presets.size}")
+                        android.util.Log.d("PresetTools", "Custom presets: ${presetRepository.catalogState.value.presets.filter { !it.isBuiltIn }.map { it.preset.nameEn }}")
+                    },
+                    onDelete = { presetId ->
+                        android.util.Log.d("PresetTools", "DELETE preset=$presetId")
+                        presetRepository.deletePreset(presetId)
+                        android.util.Log.d("PresetTools", "Catalog size after: ${presetRepository.catalogState.value.presets.size}")
                     },
                 )
             }
@@ -1462,15 +1666,6 @@ internal fun ToolsSection(
                             Icons.Rounded.Delete,
                             contentDescription = "Delete",
                             tint = if (toolbarMode == ToolbarMode.DELETE) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    IconButton(onClick = {
-                        toolbarMode = if (toolbarMode == ToolbarMode.RESET) ToolbarMode.NONE else ToolbarMode.RESET
-                    }) {
-                        Icon(
-                            Icons.Rounded.Refresh,
-                            contentDescription = "Reset",
-                            tint = if (toolbarMode == ToolbarMode.RESET) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 },
@@ -1524,7 +1719,7 @@ internal fun ToolsSection(
     }
 }
 
-private enum class ToolbarMode { NONE, DUPLICATE, FAVORITE, DELETE, RESET }
+private enum class ToolbarMode { NONE, DUPLICATE, FAVORITE, DELETE }
 
 /** Font family at a specific wdth axis value. */
 private fun flexFontFamily(wdth: Int): FontFamily {
@@ -1637,6 +1832,8 @@ private fun ToolCategoryRow(
     toolbarMode: ToolbarMode = ToolbarMode.NONE,
     favoritePresetIds: Set<String> = emptySet(),
     onFavoriteToggle: (String) -> Unit = {},
+    onDuplicate: (String) -> Unit = {},
+    onDelete: (String) -> Unit = {},
 ) {
     val trailingClearance = 12.dp
 
@@ -1706,14 +1903,14 @@ private fun ToolCategoryRow(
                 },
         ) { index ->
             val preset = presets[index]
-            val presetId = "preset_${preset.id}"
-            val favoriteEditMode = toolbarMode == ToolbarMode.FAVORITE
+            val presetId = if (preset.isFullId) preset.id else "preset_${preset.id}"
+            val isActionMode = toolbarMode != ToolbarMode.NONE
             val isFavorite = presetId in favoritePresetIds
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .maskClip(MaterialTheme.shapes.large)
-                    .clickable(enabled = !favoriteEditMode) { onPresetClick(presetId) },
+                    .clickable(enabled = !isActionMode) { onPresetClick(presetId) },
             ) {
                 Card(
                     modifier = Modifier.fillMaxSize(),
@@ -1742,12 +1939,13 @@ private fun ToolCategoryRow(
                         )
                     }
                 }
-                if (favoriteEditMode) {
+                if (toolbarMode == ToolbarMode.FAVORITE) {
                     IconButton(
                         onClick = { onFavoriteToggle(presetId) },
                         modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(8.dp)
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 10.dp)
+                            .size(40.dp)
                             .background(
                                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
                                 shape = CircleShape,
@@ -1755,8 +1953,46 @@ private fun ToolCategoryRow(
                     ) {
                         Icon(
                             imageVector = if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarOutline,
-                            contentDescription = if (isFavorite) "Unfavorite preset" else "Favorite preset",
+                            contentDescription = null,
                             tint = if (isFavorite) Color(0xFFFFC107) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (toolbarMode == ToolbarMode.DUPLICATE) {
+                    IconButton(
+                        onClick = { onDuplicate(presetId) },
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 10.dp)
+                            .size(40.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                                shape = CircleShape,
+                            ),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.ContentCopy,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+                if (toolbarMode == ToolbarMode.DELETE) {
+                    IconButton(
+                        onClick = { onDelete(presetId) },
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 10.dp)
+                            .size(40.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.88f),
+                                shape = CircleShape,
+                            ),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Delete,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
                         )
                     }
                 }
@@ -1823,6 +2059,7 @@ internal fun GlobalSection(
     onOllamaUrlChanged: (String) -> Unit,
     onPresetRuntimeSettingsClick: () -> Unit,
     onUsageStatsClick: () -> Unit,
+    onResetDefaults: () -> Unit,
     onVoiceSettingsClick: () -> Unit,
     onOverlayOpacityChanged: (Int) -> Unit,
 ) {
@@ -1896,6 +2133,10 @@ internal fun GlobalSection(
             opacityPercent = overlayOpacityPercent,
             locale = locale,
             onOpacityChanged = onOverlayOpacityChanged,
+        )
+        ResetDefaultsCard(
+            locale = locale,
+            onClick = onResetDefaults,
         )
         DownloadedToolsSection(locale = locale)
     }

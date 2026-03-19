@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Slider
 import androidx.compose.material.icons.rounded.Stop
@@ -533,6 +534,59 @@ internal fun UsageStatsCard(
             ) {
                 Text(
                     text = locale.usageStatsSettingsAction,
+                    style = MaterialTheme.typography.labelMediumEmphasized,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ResetDefaultsCard(
+    locale: MobileLocaleText,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = ShellSpacing.innerPad, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
+        ) {
+            Icon(
+                Icons.Rounded.RestartAlt,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = MaterialTheme.colorScheme.error,
+            )
+            Text(
+                text = locale.resetDefaultsButton,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val doneMsg = when {
+                locale.resetDefaultsButton.contains("Khôi") -> "Đã khôi phục mặc định"
+                locale.resetDefaultsButton.contains("재설정") -> "기본값으로 재설정됨"
+                else -> "Defaults restored"
+            }
+            FilledTonalButton(
+                onClick = {
+                    onClick()
+                    android.widget.Toast.makeText(context, doneMsg, android.widget.Toast.LENGTH_SHORT).show()
+                },
+                shape = CircleShape,
+            ) {
+                Text(
+                    text = locale.resetDefaultsAction,
                     style = MaterialTheme.typography.labelMediumEmphasized,
                 )
             }

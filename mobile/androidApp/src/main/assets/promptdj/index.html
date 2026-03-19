@@ -66,19 +66,28 @@
             height: auto !important;\
             width: 96vw !important;\
             gap: 0 !important;\
-            padding: 3vw 0 4vw 0 !important;\
-            justify-content: center !important;\
-            align-items: center !important;\
+            padding: 3vw 4vw 4vw 4vw !important;\
+            justify-content: flex-start !important;\
+            align-items: flex-end !important;\
           }\
           play-pause-morph {\
             width: 14vw !important;\
             height: 14vw !important;\
-            margin: 0 3vw !important;\
+            margin: 0 0 0 6vw !important;\
           }\
           .mini-controls {\
             margin-top: 0 !important;\
             gap: 3vw !important;\
             align-items: center !important;\
+            margin-left: auto !important;\
+            margin-right: 4vw !important;\
+            margin-bottom: -5vw !important;\
+            align-self: flex-end !important;\
+          }\
+          .rec-timer-container {\
+            position: absolute !important;\
+            bottom: 100% !important;\
+            right: 4vw !important;\
           }\
           .mini-btn {\
             width: 11vw !important;\
@@ -93,39 +102,48 @@
         }\
         @media (orientation: landscape) {\
           #content {\
-            gap: 3vw !important;\
+            gap: 2vw !important;\
             padding: 1vh 2vw !important;\
           }\
           #gridWrap {\
             height: 90vh !important;\
+            width: auto !important;\
+            flex: 1 !important;\
           }\
           #grid {\
-            width: auto !important;\
+            width: 100% !important;\
             height: 90vh !important;\
-            gap: 1.2vh !important;\
+            grid-template-columns: repeat(8, 1fr) !important;\
+            gap: 1vh 1vw !important;\
           }\
           #sideControls {\
             height: 90vh !important;\
-            gap: 1.5vh !important;\
-            justify-content: center !important;\
+            gap: 0 !important;\
+            justify-content: flex-start !important;\
+            flex-shrink: 0 !important;\
+            width: 14vh !important;\
+            padding-top: 2vh !important;\
           }\
           play-pause-morph {\
-            width: 18vh !important;\
-            height: 18vh !important;\
+            width: 12vh !important;\
+            height: 12vh !important;\
           }\
           .mini-controls {\
-            margin-top: 1.5vh !important;\
-            gap: 2vh !important;\
+            margin-top: auto !important;\
+            gap: 1.5vh !important;\
+            align-self: flex-end !important;\
+            padding-bottom: 3vh !important;\
+            padding-right: 1vw !important;\
           }\
           .mini-btn {\
-            width: 7vh !important;\
-            height: 7vh !important;\
+            width: 5vh !important;\
+            height: 5vh !important;\
           }\
           .mini-btn .material-symbols-rounded {\
-            font-size: 3.5vh !important;\
+            font-size: 3vh !important;\
           }\
           .volume-container { display: none !important; }\
-          .rec-timer { font-size: 2vh !important; }\
+          .rec-timer-container { display: none !important; }\
         }\
       ';
 
@@ -161,10 +179,10 @@
             margin-top: -5.5vh !important;\
           }\
           #text-svg text {\
-            font-size: 2.2vh !important;\
+            font-size: 3vh !important;\
           }\
           #text {\
-            font-size: 2vh !important;\
+            font-size: 2.8vh !important;\
           }\
         }\
       ';

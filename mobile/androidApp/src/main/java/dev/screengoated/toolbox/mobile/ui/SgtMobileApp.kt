@@ -230,6 +230,10 @@ fun SgtMobileApp(
                     onOllamaUrlChanged = onOllamaUrlChanged,
                     onPresetRuntimeSettingsClick = { showPresetRuntimeSettings = true },
                     onUsageStatsClick = { showUsageStats = true },
+                    onResetDefaults = {
+                        presetRepository.resetAllToDefaults()
+                        onPresetRuntimeSettingsChanged(PresetRuntimeSettings())
+                    },
                     onVoiceSettingsClick = {
                         onVoiceSettingsShown()
                         showTtsSettings = true
