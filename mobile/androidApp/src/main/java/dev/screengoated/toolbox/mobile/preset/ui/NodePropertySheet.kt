@@ -193,7 +193,7 @@ private fun NodeSheetHeader(block: ProcessingBlock, lang: String) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun InputNodeBody(
+internal fun InputNodeBody(
     block: ProcessingBlock,
     lang: String,
     presetType: dev.screengoated.toolbox.mobile.shared.preset.PresetType,
@@ -254,7 +254,7 @@ private fun InputNodeBody(
 }
 
 @Composable
-private fun InputRenderModeSelector(
+internal fun InputRenderModeSelector(
     block: ProcessingBlock,
     lang: String,
     onUpdate: (ProcessingBlock) -> Unit,
@@ -295,7 +295,7 @@ private fun InputRenderModeSelector(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun ProcessNodeBody(
+internal fun ProcessNodeBody(
     block: ProcessingBlock,
     lang: String,
     onUpdate: (ProcessingBlock) -> Unit,
@@ -355,7 +355,7 @@ private fun ProcessNodeBody(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun ModelSelectorSection(
+internal fun ModelSelectorSection(
     block: ProcessingBlock,
     lang: String,
     onUpdate: (ProcessingBlock) -> Unit,
@@ -498,7 +498,7 @@ private fun ModelSelectorSection(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun PromptEditorSection(
+internal fun PromptEditorSection(
     block: ProcessingBlock,
     lang: String,
     onUpdate: (ProcessingBlock) -> Unit,
@@ -549,7 +549,7 @@ private fun PromptEditorSection(
 }
 
 @Composable
-private fun LanguageVariablesSection(
+internal fun LanguageVariablesSection(
     block: ProcessingBlock,
     lang: String,
     onUpdate: (ProcessingBlock) -> Unit,
@@ -589,7 +589,7 @@ private fun LanguageVariablesSection(
 }
 
 @Composable
-private fun LanguageVariableRow(
+internal fun LanguageVariableRow(
     varName: String,
     varValue: String,
     lang: String,
@@ -709,7 +709,7 @@ private fun LanguageVariableRow(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun RenderModeSelector(
+internal fun RenderModeSelector(
     block: ProcessingBlock,
     lang: String,
     onUpdate: (ProcessingBlock) -> Unit,
@@ -753,7 +753,7 @@ private fun RenderModeSelector(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun SheetLabel(text: String) {
+internal fun SheetLabel(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.titleSmall,
@@ -763,7 +763,7 @@ private fun SheetLabel(text: String) {
 }
 
 @Composable
-private fun SheetSwitchRow(
+internal fun SheetSwitchRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     checked: Boolean,

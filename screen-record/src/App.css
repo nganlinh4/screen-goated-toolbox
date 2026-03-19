@@ -151,14 +151,14 @@
         --on-surface-variant: #9fa1b2;
         --outline: #52536b;
         --outline-variant: #262834;
-        --primary-color: #7ab0ff;
-        --primary-light: #a8cfff;
+        --primary-color: #4a82c8;
+        --primary-light: #6da0de;
         --secondary-color: #3b82f6;
         --secondary-light: #60a5fa;
         --tertiary-color: #ef4444;
         --tertiary-light: #f87171;
-        --success-color: #2dd4bf;
-        --success-light: #67e8f9;
+        --success-color: #179e90;
+        --success-light: #35baad;
 
         /* Shared elevated surfaces - opaque material, not frosted glass */
         --glass-bg: #1b1d28;

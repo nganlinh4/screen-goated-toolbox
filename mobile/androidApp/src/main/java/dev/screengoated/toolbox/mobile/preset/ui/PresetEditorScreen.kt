@@ -9,7 +9,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,6 +31,8 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Description
@@ -37,8 +41,6 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.RestartAlt
-import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material.icons.rounded.StarOutline
 import androidx.compose.material.icons.rounded.SpeakerPhone
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material3.ButtonGroupDefaults
@@ -63,6 +65,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -105,7 +108,7 @@ private fun EditorTypeGroup.defaultPresetType(): PresetType = when (this) {
 
 private fun editorTypeLabel(group: EditorTypeGroup, lang: String): String = when (group) {
     EditorTypeGroup.IMAGE -> when (lang) {
-        "vi" -> "Hình ảnh"
+        "vi" -> "Ảnh"
         "ko" -> "이미지"
         else -> "Image"
     }
@@ -115,7 +118,7 @@ private fun editorTypeLabel(group: EditorTypeGroup, lang: String): String = when
         else -> "Text"
     }
     EditorTypeGroup.AUDIO -> when (lang) {
-        "vi" -> "Âm thanh"
+        "vi" -> "Audio"
         "ko" -> "오디오"
         else -> "Audio"
     }
@@ -143,66 +146,63 @@ fun PresetEditorScreen(
     lang: String,
     onBack: () -> Unit,
     onPresetChanged: (Preset) -> Unit = {},
-    onFavoriteToggle: () -> Unit = {},
     onRestoreDefault: () -> Unit = {},
 ) {
     val isBuiltIn = preset.id.startsWith("preset_")
-    // Re-sync editState when preset changes externally (e.g., favorite toggle, restore)
-    var editState by remember { mutableStateOf(preset.copy()) }
-    if (editState.isFavorite != preset.isFavorite) {
-        editState = editState.copy(isFavorite = preset.isFavorite)
-    }
+    var editState by remember(preset) { mutableStateOf(preset.copy()) }
+    var resetCounter by remember { mutableStateOf(0) }
 
-    // Auto-save: propagate every change immediately (like Windows)
     fun autoSave(newState: Preset) {
         editState = newState
         onPresetChanged(newState)
     }
 
+    var isRenamingPreset by remember { mutableStateOf(false) }
+    var renameText by remember(editState.nameEn) { mutableStateOf(editState.nameEn) }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        localized(lang, "Preset Editor", "Cấu hình preset", "프리셋 편집기"),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    if (isRenamingPreset && !isBuiltIn) {
+                        OutlinedTextField(
+                            value = renameText,
+                            onValueChange = { renameText = it },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = MaterialTheme.typography.titleMedium,
+                            trailingIcon = {
+                                IconButton(onClick = {
+                                    autoSave(editState.copy(nameEn = renameText))
+                                    isRenamingPreset = false
+                                }) { Icon(Icons.Rounded.Check, contentDescription = null) }
+                            },
+                        )
+                    } else {
+                        Text(
+                            text = editState.name(lang),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = if (!isBuiltIn) Modifier.clickable { isRenamingPreset = true } else Modifier,
+                        )
+                    }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = { if (isRenamingPreset) isRenamingPreset = false else onBack() }) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
                     }
                 },
                 actions = {
-                    IconButton(onClick = onFavoriteToggle) {
-                        Icon(
-                            if (editState.isFavorite) Icons.Rounded.Star
-                            else Icons.Rounded.StarOutline,
-                            contentDescription = null,
-                        )
-                    }
                     if (isBuiltIn) {
                         IconButton(onClick = {
                             onRestoreDefault()
-                            editState = preset.copy()
+                            resetCounter++
                         }) {
-                            Icon(
-                                Icons.Rounded.RestartAlt,
-                                contentDescription = localized(
-                                    lang,
-                                    "Restore defaults",
-                                    "Khôi phục mặc định",
-                                    "기본값 복원",
-                                ),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
+                            Icon(Icons.Rounded.RestartAlt, contentDescription = localized(lang, "Restore", "Khôi phục", "복원"), tint = MaterialTheme.colorScheme.primary)
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
             )
         },
     ) { padding ->
@@ -238,6 +238,7 @@ fun PresetEditorScreen(
                     ModeSelectorsSection(
                         editState = editState,
                         lang = lang,
+                        controllerOn = editState.showControllerUi || editState.isMaster,
                         onUpdate = { autoSave(it) },
                     )
                     if (editState.showControllerUi || editState.isMaster) {
@@ -256,6 +257,7 @@ fun PresetEditorScreen(
                             editState = editState,
                             lang = lang,
                             onUpdate = { autoSave(it) },
+                            resetCounter = resetCounter,
                         )
                     }
                     val hasAnyCopy = editState.blocks.any {
@@ -266,12 +268,6 @@ fun PresetEditorScreen(
                             editState = editState,
                             lang = lang,
                             onUpdate = { autoSave(it) },
-                        )
-                    }
-                    if (editState.blocks.isNotEmpty()) {
-                        ProcessingChainSection(
-                            editState = editState,
-                            lang = lang,
                         )
                     }
                 }
@@ -299,6 +295,7 @@ fun PresetEditorScreen(
                 ModeSelectorsSection(
                     editState = editState,
                     lang = lang,
+                    controllerOn = editState.showControllerUi || editState.isMaster,
                     onUpdate = { autoSave(it) },
                 )
                 if (editState.showControllerUi || editState.isMaster) {
@@ -309,6 +306,7 @@ fun PresetEditorScreen(
                         editState = editState,
                         lang = lang,
                         onUpdate = { autoSave(it) },
+                        resetCounter = resetCounter,
                     )
                 }
                 val hasAnyCopy = editState.blocks.any {
@@ -319,12 +317,6 @@ fun PresetEditorScreen(
                         editState = editState,
                         lang = lang,
                         onUpdate = { autoSave(it) },
-                    )
-                }
-                if (editState.blocks.isNotEmpty()) {
-                    ProcessingChainSection(
-                        editState = editState,
-                        lang = lang,
                     )
                 }
             }
@@ -345,41 +337,18 @@ private fun HeaderSection(
     onTypeGroupChanged: (EditorTypeGroup) -> Unit,
     onControllerToggled: (Boolean) -> Unit,
 ) {
+    // Type selector card
     SectionCard {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            // Preset name
-            SectionLabel(localized(lang, "Name", "Tên", "이름"))
-
-            if (isBuiltIn) {
-                Text(
-                    text = editState.name(lang),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            } else {
-                OutlinedTextField(
-                    value = editState.nameEn,
-                    onValueChange = onNameChanged,
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = {
-                        Text(localized(lang, "Preset name", "Tên preset", "프리셋 이름"))
-                    },
-                )
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-            // Preset type
-            SectionLabel(localized(lang, "Type", "Loại", "유형"))
+            SectionLabel(localized(lang, "Type", "Loại hình", "유형"))
 
             val currentGroup = editState.presetType.editorGroup()
             val groups = EditorTypeGroup.entries
 
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+                verticalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
             ) {
                 groups.forEachIndexed { index, group ->
                     ToggleButton(
@@ -407,14 +376,21 @@ private fun HeaderSection(
                     }
                 }
             }
+        }
+    }
 
-            // Controller mode checkbox (hidden for realtime audio)
-            val isRealtimeAudio = editState.presetType.editorGroup() == EditorTypeGroup.AUDIO &&
-                editState.audioProcessingMode == "realtime"
-            if (!isRealtimeAudio) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                SwitchRow(
-                    label = localized(lang, "Controller mode", "Chế độ bộ điều khiển", "컨트롤러 모드"),
+    // Controller toggle — separate card, hidden for realtime audio
+    val isRealtimeAudio = editState.presetType.editorGroup() == EditorTypeGroup.AUDIO &&
+        editState.audioProcessingMode == "realtime"
+    if (!isRealtimeAudio) {
+        SectionCard {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SectionLabel(localized(lang, "Controller", "Bộ điều khiển", "컨트롤러"))
+                Spacer(Modifier.weight(1f))
+                Switch(
                     checked = editState.showControllerUi,
                     onCheckedChange = onControllerToggled,
                 )
@@ -431,18 +407,19 @@ private fun HeaderSection(
 private fun ModeSelectorsSection(
     editState: Preset,
     lang: String,
+    controllerOn: Boolean = false,
     onUpdate: (Preset) -> Unit,
 ) {
     val group = editState.presetType.editorGroup()
-
-    SectionCard {
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            SectionLabel(localized(lang, "Mode", "Chế độ", "모드"))
-
-            when (group) {
-                EditorTypeGroup.IMAGE -> ImageModeSelectors(editState, lang, onUpdate)
-                EditorTypeGroup.TEXT -> TextModeSelectors(editState, lang, onUpdate)
-                EditorTypeGroup.AUDIO -> AudioModeSelectors(editState, lang, onUpdate)
+    val hideEntireSection = group == EditorTypeGroup.IMAGE && controllerOn
+    if (!hideEntireSection) {
+        SectionCard {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                when (group) {
+                    EditorTypeGroup.IMAGE -> ImageModeSelectors(editState, lang, onUpdate)
+                    EditorTypeGroup.TEXT -> TextModeSelectors(editState, lang, controllerOn, onUpdate)
+                    EditorTypeGroup.AUDIO -> AudioModeSelectors(editState, lang, controllerOn, onUpdate)
+                }
             }
         }
     }
@@ -454,11 +431,10 @@ private fun ImageModeSelectors(
     lang: String,
     onUpdate: (Preset) -> Unit,
 ) {
-    // Command mode: Fixed / Dynamic
     TogglePair(
-        label = localized(lang, "Command mode", "Chế độ lệnh", "명령 모드"),
-        optionA = localized(lang, "Fixed", "Cố định", "고정"),
-        optionB = localized(lang, "Dynamic", "Linh hoạt", "동적"),
+        label = localized(lang, "Command", "Lệnh", "명령"),
+        optionA = localized(lang, "Predefined Prompt", "Làm theo lệnh sẵn", "사전 정의된 프롬프트"),
+        optionB = localized(lang, "Write on the spot", "Viết lệnh tại chỗ", "즉석에서 작성"),
         isB = editState.promptMode == "dynamic",
         onChanged = { isDynamic ->
             onUpdate(editState.copy(promptMode = if (isDynamic) "dynamic" else "fixed"))
@@ -470,15 +446,15 @@ private fun ImageModeSelectors(
 private fun TextModeSelectors(
     editState: Preset,
     lang: String,
+    controllerOn: Boolean = false,
     onUpdate: (Preset) -> Unit,
 ) {
     val isInputMode = editState.presetType == PresetType.TEXT_INPUT
 
-    // Input mode: Select / Type
     TogglePair(
-        label = localized(lang, "Input mode", "Chế độ nhập", "입력 모드"),
-        optionA = localized(lang, "Select", "Chọn", "선택"),
-        optionB = localized(lang, "Type", "Nhập", "입력"),
+        label = localized(lang, "Mode", "Phương thức", "작동 방식"),
+        optionA = localized(lang, "Select text", "Bôi text", "텍스트 선택"),
+        optionB = localized(lang, "Type", "Gõ text", "입력"),
         isB = isInputMode,
         onChanged = { isType ->
             val newType = if (isType) PresetType.TEXT_INPUT else PresetType.TEXT_SELECT
@@ -486,33 +462,23 @@ private fun TextModeSelectors(
         },
     )
 
-    // Conditional sub-options
-    AnimatedVisibility(
-        visible = isInputMode,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
-    ) {
-        SwitchRow(
-            label = localized(lang, "Continuous input", "Nhập liên tục", "연속 입력"),
-            checked = editState.continuousInput,
-            onCheckedChange = { onUpdate(editState.copy(continuousInput = it)) },
-        )
-    }
-
-    AnimatedVisibility(
-        visible = !isInputMode,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
-    ) {
-        TogglePair(
-            label = localized(lang, "Command mode", "Chế độ lệnh", "명령 모드"),
-            optionA = localized(lang, "Fixed", "Cố định", "고정"),
-            optionB = localized(lang, "Dynamic", "Linh hoạt", "동적"),
-            isB = editState.promptMode == "dynamic",
-            onChanged = { isDynamic ->
-                onUpdate(editState.copy(promptMode = if (isDynamic) "dynamic" else "fixed"))
-            },
-        )
+    if (!controllerOn) {
+        AnimatedVisibility(visible = isInputMode, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            SwitchRow(
+                label = localized(lang, "Continuous input", "Nhập liên tục", "연속 입력"),
+                checked = editState.continuousInput,
+                onCheckedChange = { onUpdate(editState.copy(continuousInput = it)) },
+            )
+        }
+        AnimatedVisibility(visible = !isInputMode, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            TogglePair(
+                label = localized(lang, "Command", "Lệnh", "명령"),
+                optionA = localized(lang, "Predefined Prompt", "Làm theo lệnh sẵn", "사전 정의된 프롬프트"),
+                optionB = localized(lang, "Write on the spot", "Viết lệnh tại chỗ", "즉석에서 작성"),
+                isB = editState.promptMode == "dynamic",
+                onChanged = { isDynamic -> onUpdate(editState.copy(promptMode = if (isDynamic) "dynamic" else "fixed")) },
+            )
+        }
     }
 }
 
@@ -520,16 +486,34 @@ private fun TextModeSelectors(
 private fun AudioModeSelectors(
     editState: Preset,
     lang: String,
+    controllerOn: Boolean = false,
     onUpdate: (Preset) -> Unit,
 ) {
-    // Processing mode: Record / Realtime
+    // Audio source — always visible
+    val isMic = editState.presetType == PresetType.MIC || editState.audioSource == "mic"
+    TogglePair(
+        label = localized(lang, "Audio Source", "Nguồn", "오디오 소스"),
+        optionA = localized(lang, "Microphone", "Microphone", "마이크"),
+        optionB = localized(lang, "Device Audio", "Âm thanh máy tính", "컴퓨터 오디오"),
+        isB = !isMic,
+        iconA = Icons.Rounded.Mic,
+        iconB = Icons.Rounded.SpeakerPhone,
+        onChanged = { isDevice ->
+            val newType = if (isDevice) PresetType.DEVICE_AUDIO else PresetType.MIC
+            val newSource = if (isDevice) "device" else "mic"
+            onUpdate(editState.copy(presetType = newType, audioSource = newSource))
+        },
+    )
+
+    if (controllerOn) return
+
+    // Processing mode — hidden when controller on
     val isRealtime = editState.presetType == PresetType.DEVICE_AUDIO &&
         editState.audioSource == "device"
-
     TogglePair(
-        label = localized(lang, "Processing mode", "Chế độ xử lý", "처리 모드"),
-        optionA = localized(lang, "Record", "Ghi âm", "녹음"),
-        optionB = localized(lang, "Realtime", "Thời gian thực", "실시간"),
+        label = localized(lang, "Mode", "Phương thức", "작동 방식"),
+        optionA = localized(lang, "Record then Process", "Thu âm rồi xử lý", "녹음 후 처리"),
+        optionB = localized(lang, "Realtime Processing", "Xử lý thời gian thực", "실시간 처리"),
         isB = isRealtime,
         onChanged = { isRealtimeMode ->
             if (isRealtimeMode) {
@@ -544,24 +528,6 @@ private fun AudioModeSelectors(
         },
     )
 
-    // Audio source: Mic / Device
-    val isMic = editState.presetType == PresetType.MIC || editState.audioSource == "mic"
-
-    TogglePair(
-        label = localized(lang, "Audio source", "Nguồn âm thanh", "오디오 소스"),
-        optionA = localized(lang, "Mic", "Mic", "마이크"),
-        optionB = localized(lang, "Device", "Thiết bị", "기기"),
-        isB = !isMic,
-        iconA = Icons.Rounded.Mic,
-        iconB = Icons.Rounded.SpeakerPhone,
-        onChanged = { isDevice ->
-            val newType = if (isDevice) PresetType.DEVICE_AUDIO else PresetType.MIC
-            val newSource = if (isDevice) "device" else "mic"
-            onUpdate(editState.copy(presetType = newType, audioSource = newSource))
-        },
-    )
-
-    // Auto-stop recording
     SwitchRow(
         label = localized(lang, "Auto-stop recording", "Tự động dừng ghi", "자동 녹음 중지"),
         checked = editState.autoStopRecording,
@@ -616,8 +582,9 @@ private fun NodeGraphSection(
     editState: Preset,
     lang: String,
     onUpdate: (Preset) -> Unit,
+    resetCounter: Int = 0,
 ) {
-    var graphState by remember(editState.id) {
+    var graphState by remember(editState.id, resetCounter) {
         // Build node list from blocks, auto-inserting an Input node if none exists
         // (mirrors Windows blocks_to_snarl behavior)
         val hasInput = editState.blocks.any { it.blockType == BlockType.INPUT_ADAPTER }
@@ -627,55 +594,49 @@ private fun NodeGraphSection(
             listOf(dev.screengoated.toolbox.mobile.shared.preset.inputAdapter()) + editState.blocks
         }
 
+        val seenIds = mutableSetOf<String>()
         val nodes = rawBlocks.mapIndexed { idx, block ->
+            var nodeId = block.id.ifBlank { "block_$idx" }
+            if (nodeId in seenIds) {
+                nodeId = "${nodeId}_$idx"
+            }
+            seenIds.add(nodeId)
             NodePosition(
-                id = block.id.ifBlank { "block_$idx" },
+                id = nodeId,
                 x = 0f,
                 y = 0f,
                 block = block,
             )
         }
 
-        // Normalize connections: if blockConnections is empty, create linear chain
-        // (same as Preset.normalizedConnections() in PresetRepository)
-        val indexOffset = if (hasInput) 0 else 1
-        val sourceEdges = if (editState.blockConnections.isNotEmpty()) {
-            editState.blockConnections
-        } else if (editState.blocks.size >= 2) {
-            // Linear chain: 0→1→2→...
-            (0 until editState.blocks.lastIndex).map { it to it + 1 }
-        } else {
-            emptyList()
-        }
-
-        val connections = if (hasInput) {
-            sourceEdges.mapNotNull { (from, to) ->
-                val fromId = nodes.getOrNull(from)?.id ?: return@mapNotNull null
-                val toId = nodes.getOrNull(to)?.id ?: return@mapNotNull null
-                Connection(fromId, toId)
-            }
-        } else {
-            // Shift original connections by 1 (we prepended an input adapter)
-            val shifted = sourceEdges.mapNotNull { (from, to) ->
+        // Build connections directly in node-index space
+        val connections = if (editState.blockConnections.isNotEmpty()) {
+            // Explicit connections — shift indices if we inserted an input adapter
+            val indexOffset = if (hasInput) 0 else 1
+            editState.blockConnections.mapNotNull { (from, to) ->
                 val fromId = nodes.getOrNull(from + indexOffset)?.id ?: return@mapNotNull null
                 val toId = nodes.getOrNull(to + indexOffset)?.id ?: return@mapNotNull null
                 Connection(fromId, toId)
             }
-            // Auto-connect input to all nodes with no incoming edge
-            val hasIncoming = shifted.map { it.toNodeId }.toSet()
-            val inputId = nodes.first().id
-            val autoConns = nodes.drop(1)
-                .filter { it.id !in hasIncoming }
-                .map { Connection(inputId, it.id) }
-            autoConns + shifted
+        } else {
+            // No explicit connections — create linear chain through ALL nodes
+            // (input adapter → block0 → block1 → ...)
+            (0 until nodes.lastIndex).mapNotNull { i ->
+                val fromId = nodes[i].id
+                val toId = nodes[i + 1].id
+                Connection(fromId, toId)
+            }
         }
 
         mutableStateOf(NodeGraphState(nodes, connections))
     }
 
     var selectedNodeId by remember { mutableStateOf<String?>(null) }
-    var showPropertySheet by remember { mutableStateOf(false) }
     var showAddMenu by remember { mutableStateOf(false) }
+
+    // Prompt edit dialog state
+    var editingPromptNodeId by remember { mutableStateOf<String?>(null) }
+    var editingPromptText by remember { mutableStateOf("") }
 
     fun syncToPreset(newGraphState: NodeGraphState) {
         graphState = newGraphState
@@ -684,6 +645,70 @@ private fun NodeGraphSection(
 
     val editorTypeGroup = editState.presetType.editorGroup()
     val canAddSpecial = editorTypeGroup != EditorTypeGroup.TEXT
+
+    // Prompt edit dialog
+    if (editingPromptNodeId != null) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = {
+                val nodeId = editingPromptNodeId ?: return@Dialog
+                syncToPreset(
+                    graphState.copy(
+                        nodes = graphState.nodes.map {
+                            if (it.id == nodeId) it.copy(block = it.block.copy(prompt = editingPromptText))
+                            else it
+                        },
+                    ),
+                )
+                editingPromptNodeId = null
+            },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .padding(16.dp),
+                shape = RoundedCornerShape(20.dp),
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        localized(lang, "Edit Prompt", "Sửa lệnh", "프롬프트 편집"),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    OutlinedTextField(
+                        value = editingPromptText,
+                        onValueChange = { editingPromptText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3,
+                        maxLines = 10,
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        FilledTonalButton(onClick = {
+                            val nodeId = editingPromptNodeId ?: return@FilledTonalButton
+                            syncToPreset(
+                                graphState.copy(
+                                    nodes = graphState.nodes.map {
+                                        if (it.id == nodeId) it.copy(block = it.block.copy(prompt = editingPromptText))
+                                        else it
+                                    },
+                                ),
+                            )
+                            editingPromptNodeId = null
+                        }) {
+                            Text(localized(lang, "Done", "Xong", "완료"))
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     SectionCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -700,9 +725,9 @@ private fun NodeGraphSection(
                 Text(
                     localized(
                         lang,
-                        "Tap node to edit",
-                        "Chạm nút để sửa",
-                        "노드 탭하여 편집",
+                        "Drag pin to connect",
+                        "Kéo chấm để kết nối",
+                        "핀을 끌어 연결",
                     ),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
@@ -739,6 +764,7 @@ private fun NodeGraphSection(
                         )
                     }
                 } else {
+                    key(resetCounter) {
                     NodeGraphCanvas(
                         state = graphState,
                         onNodeMoved = { nodeId, x, y ->
@@ -787,25 +813,32 @@ private fun NodeGraphSection(
                             )
                         },
                         onNodeTapped = { nodeId ->
-                            if (nodeId.isNotEmpty()) {
-                                selectedNodeId = nodeId
-                                showPropertySheet = true
-                            } else {
-                                selectedNodeId = null
-                            }
+                            selectedNodeId = if (nodeId.isNotEmpty() && selectedNodeId != nodeId) nodeId else null
+                        },
+                        onPromptEditRequest = { nodeId, currentPrompt ->
+                            editingPromptNodeId = nodeId
+                            editingPromptText = currentPrompt
                         },
                         modifier = Modifier.fillMaxSize(),
                         lang = lang,
                         selectedNodeId = selectedNodeId,
+                        presetType = editState.presetType,
                     )
+                    }
                 }
             }
 
-            // Add node button with dropdown
+            // Add node button + hold-to-delete hint
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                Text(
+                    localized(lang, "Tap X to delete node", "Bấm X để xóa nút", "X를 눌러 노드 삭제"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                )
+                Spacer(Modifier.weight(1f))
                 Box {
                     FilledTonalButton(onClick = { showAddMenu = true }) {
                         Icon(
@@ -823,7 +856,7 @@ private fun NodeGraphSection(
                     ) {
                         DropdownMenuItem(
                             text = {
-                                Text(localized(lang, "Process Node", "Nút xử lý", "처리 노드"))
+                                Text(localized(lang, "Add Text → Text Node", "Thêm node Text → Text", "텍스트 → 텍스트 노드 추가"))
                             },
                             onClick = {
                                 showAddMenu = false
@@ -864,17 +897,13 @@ private fun NodeGraphSection(
                                 EditorTypeGroup.AUDIO -> "whisper-accurate"
                                 else -> "cerebras_gpt_oss"
                             }
+                            val specialLabel = when (editorTypeGroup) {
+                                EditorTypeGroup.IMAGE -> localized(lang, "Add Image → Text Node", "Thêm node Ảnh → Text", "이미지 → 텍스트 노드 추가")
+                                EditorTypeGroup.AUDIO -> localized(lang, "Add Audio → Text Node", "Thêm node Audio → Text", "오디오 → 텍스트 노드 추가")
+                                else -> localized(lang, "Add Special Node", "Thêm node đặc biệt", "특별 노드 추가")
+                            }
                             DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        localized(
-                                            lang,
-                                            "Special Node",
-                                            "Nút đặc biệt",
-                                            "특수 노드",
-                                        ),
-                                    )
-                                },
+                                text = { Text(specialLabel) },
                                 onClick = {
                                     showAddMenu = false
                                     val newBlock =
@@ -914,30 +943,6 @@ private fun NodeGraphSection(
         }
     }
 
-    // Property sheet bottom sheet
-    if (showPropertySheet && selectedNodeId != null) {
-        val selectedNode = graphState.nodes.find { it.id == selectedNodeId }
-        if (selectedNode != null) {
-            NodePropertySheet(
-                block = selectedNode.block,
-                nodeId = selectedNode.id,
-                lang = lang,
-                presetType = editState.presetType,
-                onDismiss = { showPropertySheet = false },
-                onBlockUpdated = { updatedBlock ->
-                    val newNodes = graphState.nodes.map { node ->
-                        when {
-                            node.id == selectedNodeId -> node.copy(block = updatedBlock)
-                            updatedBlock.autoCopy && node.block.autoCopy ->
-                                node.copy(block = node.block.copy(autoCopy = false))
-                            else -> node
-                        }
-                    }
-                    syncToPreset(graphState.copy(nodes = newNodes))
-                },
-            )
-        }
-    }
 }
 
 // =============================================================================
@@ -985,228 +990,7 @@ private fun AutoPasteSection(
 }
 
 // =============================================================================
-// Section 5: Processing chain list
-// =============================================================================
-
-@Composable
-private fun ProcessingChainSection(
-    editState: Preset,
-    lang: String,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(
-            modifier = Modifier.padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Rounded.AutoAwesome,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.width(8.dp))
-            SectionLabel(
-                localized(lang, "Processing Chain", "Chuỗi xử lý", "처리 체인"),
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                "${editState.blocks.size} ${localized(lang, "blocks", "khối", "블록")}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        editState.blocks.forEachIndexed { idx, block ->
-            ProcessingBlockCard(idx = idx, block = block, lang = lang)
-        }
-
-        // Connections
-        if (editState.blockConnections.isNotEmpty()) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                ),
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        Icons.Rounded.AccountTree,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        editState.blockConnections.joinToString("  \u2192  ") { (from, to) ->
-                            "${from + 1} \u2192 ${to + 1}"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProcessingBlockCard(
-    idx: Int,
-    block: dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock,
-    lang: String,
-) {
-    val blockColor = when (block.blockType) {
-        BlockType.INPUT_ADAPTER -> MaterialTheme.colorScheme.surfaceContainerLow
-        BlockType.IMAGE -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
-        BlockType.TEXT -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.25f)
-        BlockType.AUDIO -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f)
-    }
-
-    val badgeColor = when (block.blockType) {
-        BlockType.INPUT_ADAPTER -> MaterialTheme.colorScheme.outline
-        BlockType.IMAGE -> MaterialTheme.colorScheme.primary
-        BlockType.TEXT -> MaterialTheme.colorScheme.secondary
-        BlockType.AUDIO -> MaterialTheme.colorScheme.tertiary
-    }
-
-    val blockLabel = when (block.blockType) {
-        BlockType.INPUT_ADAPTER -> localized(lang, "Input", "Đầu vào", "입력")
-        BlockType.IMAGE -> localized(lang, "Image", "Hình ảnh", "이미지")
-        BlockType.TEXT -> localized(lang, "Text", "Văn bản", "텍스트")
-        BlockType.AUDIO -> localized(lang, "Audio", "Âm thanh", "오디오")
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = blockColor),
-        shape = MaterialTheme.shapes.medium,
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            // Header row: badge + model
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // Type badge
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = badgeColor.copy(alpha = 0.15f),
-                ) {
-                    Text(
-                        text = blockLabel,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = badgeColor,
-                    )
-                }
-
-                // Block number
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    modifier = Modifier.size(22.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                        Text(
-                            "${idx + 1}",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-
-                Spacer(Modifier.weight(1f))
-
-                // Model name
-                if (block.model.isNotBlank()) {
-                    Text(
-                        block.model,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-
-            // Prompt preview
-            if (block.prompt.isNotBlank()) {
-                Text(
-                    block.prompt,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-
-            // Language variables
-            if (block.languageVars.isNotEmpty()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Rounded.Language,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.tertiary,
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        block.languageVars.entries.joinToString(" \u00b7 ") { "${it.key}=${it.value}" },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.tertiary,
-                    )
-                }
-            }
-
-            // Auto-behaviors row
-            val behaviors = buildList {
-                if (block.autoCopy) add(
-                    localized(lang, "Auto-copy", "Tự sao chép", "자동 복사") to Icons.Rounded.ContentCopy
-                )
-                if (block.autoSpeak) add(
-                    localized(lang, "Auto-speak", "Tự phát âm", "자동 말하기") to Icons.Rounded.GraphicEq
-                )
-                if (block.streamingEnabled) add(
-                    localized(lang, "Streaming", "Phát trực tuyến", "스트리밍") to Icons.Rounded.AutoAwesome
-                )
-            }
-            if (behaviors.isNotEmpty()) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    behaviors.forEach { (label, icon) ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                icon,
-                                contentDescription = null,
-                                modifier = Modifier.size(12.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(Modifier.width(3.dp))
-                            Text(
-                                label,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// =============================================================================
-// Section 6: Master preset description
+// Section 5: Master preset description
 // =============================================================================
 
 @Composable

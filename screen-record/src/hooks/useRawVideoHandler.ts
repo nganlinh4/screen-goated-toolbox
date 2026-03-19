@@ -37,6 +37,7 @@ export interface UseRawVideoHandlerReturn {
   setRawButtonSavedFlash: (flash: boolean) => void;
   flashRawSavedButton: () => void;
   ensureRawVideoSaved: () => Promise<string>;
+  handleProjectRawVideoPathChange: (path: string) => void;
   handleOpenRawVideoDialog: () => Promise<void>;
   handleChangeRawSavePath: () => Promise<void>;
   handleCopyRawVideo: () => Promise<void>;
@@ -189,6 +190,11 @@ export function useRawVideoHandler(): UseRawVideoHandlerReturn {
     }
   }, [ensureRawVideoSaved, flashRawSavedButton]);
 
+  const handleProjectRawVideoPathChange = useCallback((path: string) => {
+    setCurrentRawVideoPath(path);
+    setLastRawSavedPath("");
+  }, []);
+
   const handleToggleRawAutoCopy = useCallback(async (enabled: boolean) => {
     setRawAutoCopyEnabled(enabled);
     if (!enabled) return;
@@ -222,6 +228,7 @@ export function useRawVideoHandler(): UseRawVideoHandlerReturn {
     setRawButtonSavedFlash,
     flashRawSavedButton,
     ensureRawVideoSaved,
+    handleProjectRawVideoPathChange,
     handleOpenRawVideoDialog,
     handleChangeRawSavePath,
     handleCopyRawVideo,

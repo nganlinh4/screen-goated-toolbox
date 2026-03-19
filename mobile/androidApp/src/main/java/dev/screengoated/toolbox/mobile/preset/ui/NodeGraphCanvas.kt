@@ -7,12 +7,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -22,6 +24,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Computer
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.LocalFireDepartment
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -52,6 +68,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock
 import kotlin.math.roundToInt
@@ -81,15 +98,15 @@ data class NodeGraphState(
 // Sizing / layout constants (dp)
 // ---------------------------------------------------------------------------
 
-private val NODE_WIDTH_DP = 140.dp
+private val NODE_WIDTH_DP = 220.dp
 private val HEADER_HEIGHT_DP = 5.dp
 private val PIN_RADIUS_DP = 7.dp
-private val PIN_HIT_RADIUS_DP = 20.dp
+private val PIN_HIT_RADIUS_DP = 30.dp
 private val GRID_SPACING_DP = 24.dp
 private const val GRID_DOT_RADIUS = 1.5f
 private const val MIN_ZOOM = 0.25f
 private const val MAX_ZOOM = 2.5f
-private const val DEFAULT_NODE_HEIGHT_PX = 280f // fallback before measurement
+private const val DEFAULT_NODE_HEIGHT_PX = 600f // generous estimate for nodes with prompts
 private const val FIT_PADDING = 40f // px padding around auto-fit content
 
 // Layout gap between nodes (fraction of node dimension)
@@ -201,12 +218,14 @@ internal fun bfsLayout(
 // Pin position helpers — use actual measured height per node
 // ---------------------------------------------------------------------------
 
+// Pin Y offset: header(5dp) + padding(6dp) + pin center(7dp) ≈ 18dp from node top
+private const val PIN_Y_OFFSET_PX = 50f // ~18dp at typical density, will be scaled
+
 private fun inputPinCenter(
     node: NodePosition,
     measuredHeights: Map<String, Float>,
 ): Offset {
-    val h = measuredHeights[node.id] ?: DEFAULT_NODE_HEIGHT_PX
-    return Offset(node.x, node.y + h / 2f)
+    return Offset(node.x + 10f, node.y + PIN_Y_OFFSET_PX)
 }
 
 private fun outputPinCenter(
@@ -214,8 +233,7 @@ private fun outputPinCenter(
     nodeWidthPx: Float,
     measuredHeights: Map<String, Float>,
 ): Offset {
-    val h = measuredHeights[node.id] ?: DEFAULT_NODE_HEIGHT_PX
-    return Offset(node.x + nodeWidthPx, node.y + h / 2f)
+    return Offset(node.x + nodeWidthPx - 10f, node.y + PIN_Y_OFFSET_PX)
 }
 
 // ---------------------------------------------------------------------------
@@ -303,11 +321,16 @@ private fun NodeCard(
     isSelected: Boolean,
     onTap: () -> Unit,
     onDrag: (dx: Float, dy: Float) -> Unit,
-    onLongPress: () -> Unit,
+    onDragEnd: () -> Unit,
+    onDelete: () -> Unit,
     onOutputPinDragStart: () -> Unit,
     onOutputPinDrag: (Offset) -> Unit,
     onOutputPinDragEnd: () -> Unit,
     onMeasured: (heightPx: Float) -> Unit,
+    onBlockUpdated: (ProcessingBlock) -> Unit = {},
+    onPromptEditRequest: () -> Unit = {},
+    presetType: dev.screengoated.toolbox.mobile.shared.preset.PresetType =
+        dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT,
     modifier: Modifier = Modifier,
     lang: String = "en",
 ) {
@@ -321,23 +344,22 @@ private fun NodeCard(
             .pointerInput(node.id) {
                 detectTapGestures(
                     onTap = { onTap() },
-                    onLongPress = { onLongPress() },
                 )
             }
             .pointerInput(node.id + "_drag") {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    onDrag(dragAmount.x, dragAmount.y)
-                }
+                detectDragGestures(
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        onDrag(dragAmount.x, dragAmount.y)
+                    },
+                    onDragEnd = { onDragEnd() },
+                    onDragCancel = { onDragEnd() },
+                )
             },
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         ),
-        border = if (isSelected) {
-            androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-        } else {
-            null
-        },
+        border = null,
         shape = MaterialTheme.shapes.medium,
     ) {
         Column {
@@ -349,7 +371,7 @@ private fun NodeCard(
             )
 
             Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 // Input pin (not on INPUT_ADAPTER)
@@ -363,36 +385,35 @@ private fun NodeCard(
                     Spacer(Modifier.width(6.dp))
                 }
 
-                // Content
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = nodeTypeLabel(block.blockType, lang),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = accentColor,
-                    )
-                    if (block.model.isNotBlank()) {
-                        Text(
-                            text = ModelCatalog.displayName(block.model),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    if (block.prompt.isNotBlank()) {
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            text = block.prompt,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
+                // Title
+                Text(
+                    text = nodeTypeLabel(block.blockType, lang),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = accentColor,
+                    modifier = Modifier.weight(1f),
+                )
+
+                // Delete button (not on input adapter)
+                if (block.blockType != BlockType.INPUT_ADAPTER) {
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .pointerInput(node.id + "_del") {
+                                detectTapGestures { onDelete() }
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         )
                     }
                 }
 
-                // Output pin (draggable to create connections)
+                // Output pin
                 Spacer(Modifier.width(6.dp))
                 Box(
                     modifier = Modifier
@@ -418,6 +439,308 @@ private fun NodeCard(
                     )
                 }
             }
+
+            // Always-visible inline editor (like Windows)
+            Column(
+                modifier = Modifier.padding(horizontal = 10.dp).padding(bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (block.blockType != BlockType.INPUT_ADAPTER) {
+                    // Model selector row with dropdown
+                    var showModelDropdown by remember { mutableStateOf(false) }
+                    val catalog = dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
+                    val descriptor = catalog.getById(block.model)
+                    val availableModels = remember(block.blockType) { catalog.forBlockType(block.blockType) }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            modifier = Modifier.size(6.dp),
+                            shape = CircleShape,
+                            color = androidx.compose.ui.graphics.Color(0xFF4CAF50),
+                            content = {},
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Box {
+                            Surface(
+                                modifier = Modifier
+                                    .pointerInput(Unit) { detectTapGestures { showModelDropdown = true } },
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            ) {
+                                Text(
+                                    text = descriptor?.localizedName(lang) ?: block.model,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            androidx.compose.material3.DropdownMenu(
+                                expanded = showModelDropdown,
+                                onDismissRequest = { showModelDropdown = false },
+                            ) {
+                                availableModels.forEach { model ->
+                                    val providerIcon = when (model.provider) {
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GOOGLE,
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GEMINI_LIVE,
+                                        -> androidx.compose.material.icons.Icons.Rounded.AutoAwesome
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GOOGLE_GTX -> androidx.compose.material.icons.Icons.Rounded.Translate
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GROQ -> androidx.compose.material.icons.Icons.Rounded.Bolt
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.CEREBRAS -> androidx.compose.material.icons.Icons.Rounded.LocalFireDepartment
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OPENROUTER -> androidx.compose.material.icons.Icons.Rounded.Public
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OLLAMA -> androidx.compose.material.icons.Icons.Rounded.Computer
+                                        else -> androidx.compose.material.icons.Icons.Rounded.AutoAwesome
+                                    }
+                                    val hasSearch = catalog.supportsSearchById(model.id)
+                                    val isSelected = model.id == block.model
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        leadingIcon = {
+                                            Icon(providerIcon, null, modifier = Modifier.size(16.dp))
+                                        },
+                                        trailingIcon = {
+                                            if (hasSearch) {
+                                                Icon(
+                                                    androidx.compose.material.icons.Icons.Rounded.Search,
+                                                    null,
+                                                    modifier = Modifier.size(14.dp),
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                        },
+                                        text = {
+                                            Text(
+                                                "${model.localizedName(lang)} - ${model.fullName}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                maxLines = 1,
+                                            )
+                                        },
+                                        onClick = {
+                                            onBlockUpdated(block.copy(model = model.id))
+                                            showModelDropdown = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        Surface(
+                            modifier = Modifier.size(6.dp),
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            content = {},
+                        )
+                    }
+
+                    // Tappable prompt preview — opens dialog for editing
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .pointerInput(node.id + "_prompt") {
+                                detectTapGestures { onPromptEditRequest() }
+                            },
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
+                    ) {
+                        Text(
+                            text = block.prompt.ifBlank { "Prompt…" },
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (block.prompt.isBlank())
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis,
+                            lineHeight = 14.sp,
+                        )
+                    }
+
+                    // Bottom icon toolbar row
+                    var showRenderModeMenu by remember { mutableStateOf(false) }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        // Eye toggle
+                        androidx.compose.material3.IconToggleButton(
+                            checked = block.showOverlay,
+                            onCheckedChange = { onBlockUpdated(block.copy(showOverlay = it)) },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (block.showOverlay) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
+
+                        // Render mode dropdown pill
+                        if (block.showOverlay) {
+                            val modeLabel = when {
+                                block.renderMode == "markdown_stream" -> "MD+Str"
+                                block.renderMode == "markdown" -> "MD"
+                                block.streamingEnabled -> "Stream"
+                                else -> "Normal"
+                            }
+                            Box {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    modifier = Modifier.height(20.dp)
+                                        .pointerInput(Unit) { detectTapGestures { showRenderModeMenu = true } },
+                                ) {
+                                    Text(
+                                        modeLabel,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 9.sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                                androidx.compose.material3.DropdownMenu(
+                                    expanded = showRenderModeMenu,
+                                    onDismissRequest = { showRenderModeMenu = false },
+                                ) {
+                                    listOf(
+                                        Triple("Normal", "plain", false),
+                                        Triple("Stream", "stream", true),
+                                        Triple("MD", "markdown", false),
+                                        Triple("MD+Str", "markdown_stream", true),
+                                    ).forEach { (label, mode, streaming) ->
+                                        androidx.compose.material3.DropdownMenuItem(
+                                            text = { Text(label, style = MaterialTheme.typography.bodySmall) },
+                                            onClick = {
+                                                onBlockUpdated(block.copy(renderMode = mode, streamingEnabled = streaming))
+                                                showRenderModeMenu = false
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.weight(1f))
+
+                        // Copy toggle
+                        androidx.compose.material3.IconToggleButton(
+                            checked = block.autoCopy,
+                            onCheckedChange = { onBlockUpdated(block.copy(autoCopy = it)) },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.ContentCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = if (block.autoCopy) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            )
+                        }
+
+                        // Speak toggle
+                        androidx.compose.material3.IconToggleButton(
+                            checked = block.autoSpeak,
+                            onCheckedChange = { onBlockUpdated(block.copy(autoSpeak = it)) },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.VolumeUp,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = if (block.autoSpeak) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            )
+                        }
+                    }
+                } else {
+                    // Input node: eye + render mode + copy + speak (like Windows)
+                    var showInputRenderMenu by remember { mutableStateOf(false) }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        // Eye toggle
+                        androidx.compose.material3.IconToggleButton(
+                            checked = block.showOverlay,
+                            onCheckedChange = { onBlockUpdated(block.copy(showOverlay = it)) },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (block.showOverlay) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
+
+                        // Render mode pill (if overlay visible)
+                        if (block.showOverlay) {
+                            val inputModeLabel = if (block.renderMode == "markdown" || block.renderMode == "markdown_stream") "MD" else "Normal"
+                            Box {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    modifier = Modifier.height(20.dp)
+                                        .pointerInput(Unit) { detectTapGestures { showInputRenderMenu = true } },
+                                ) {
+                                    Text(
+                                        inputModeLabel,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 9.sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                                androidx.compose.material3.DropdownMenu(
+                                    expanded = showInputRenderMenu,
+                                    onDismissRequest = { showInputRenderMenu = false },
+                                ) {
+                                    listOf("Normal" to "plain", "Markdown" to "markdown").forEach { (label, mode) ->
+                                        androidx.compose.material3.DropdownMenuItem(
+                                            text = { Text(label, style = MaterialTheme.typography.bodySmall) },
+                                            onClick = {
+                                                onBlockUpdated(block.copy(renderMode = mode))
+                                                showInputRenderMenu = false
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.weight(1f))
+
+                        // Copy toggle
+                        androidx.compose.material3.IconToggleButton(
+                            checked = block.autoCopy,
+                            onCheckedChange = { onBlockUpdated(block.copy(autoCopy = it)) },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.ContentCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = if (block.autoCopy) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            )
+                        }
+
+                        // Speak toggle
+                        androidx.compose.material3.IconToggleButton(
+                            checked = block.autoSpeak,
+                            onCheckedChange = { onBlockUpdated(block.copy(autoSpeak = it)) },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.VolumeUp,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = if (block.autoSpeak) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -435,9 +758,12 @@ fun NodeGraphCanvas(
     onNodeDeleted: (nodeId: String) -> Unit,
     onBlockUpdated: (nodeId: String, block: ProcessingBlock) -> Unit,
     onNodeTapped: (nodeId: String) -> Unit,
+    onPromptEditRequest: (nodeId: String, currentPrompt: String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
     lang: String = "en",
     selectedNodeId: String? = null,
+    presetType: dev.screengoated.toolbox.mobile.shared.preset.PresetType =
+        dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT,
 ) {
     val density = LocalDensity.current
     val nodeWidthPx = with(density) { NODE_WIDTH_DP.toPx() }
@@ -447,7 +773,7 @@ fun NodeGraphCanvas(
     val wireHitThreshold = with(density) { 16.dp.toPx() }
 
     val colorScheme = MaterialTheme.colorScheme
-    val gridDotColor = remember(colorScheme) { colorScheme.onSurface.copy(alpha = 0.06f) }
+    val gridDotColor = remember(colorScheme) { colorScheme.onSurface.copy(alpha = 0.15f) }
     val bezierColor = remember(colorScheme) { colorScheme.primary.copy(alpha = 0.55f) }
 
     // Pan & zoom state
@@ -482,22 +808,85 @@ fun NodeGraphCanvas(
     }
     bfsNodes.forEach { node ->
         if (node.id !in positions) {
-            positions[node.id] = Offset(node.x, node.y)
+            if (node.x == 0f && node.y == 0f && positions.isNotEmpty()) {
+                // New node with no layout position — place it to the right of existing nodes
+                val maxX = positions.values.maxOfOrNull { it.x } ?: 0f
+                val avgY = positions.values.map { it.y }.average().toFloat()
+                val newX = maxX + nodeWidthPx * 1.6f
+                android.util.Log.d("NodeGraph", "New node ${node.id} placed at ($newX, $avgY) — existing maxX=$maxX")
+                positions[node.id] = Offset(newX, avgY)
+            } else {
+                android.util.Log.d("NodeGraph", "Seed node ${node.id} at (${node.x}, ${node.y})")
+                positions[node.id] = Offset(node.x, node.y)
+            }
         }
     }
     val currentIds = state.nodes.map { it.id }.toSet()
     positions.keys.removeAll { it !in currentIds }
 
-    // Auto zoom-to-fit and center on first layout
+    // Layout state flags
     var hasAutoFit by remember { mutableStateOf(false) }
-    LaunchedEffect(nodeIds, canvasSize) {
-        if (canvasSize == Offset.Zero || positions.isEmpty() || hasAutoFit) return@LaunchedEffect
+    var hasResolvedCollisions by remember { mutableStateOf(false) }
+    LaunchedEffect(nodeIds) {
+        hasResolvedCollisions = false  // reset when nodes change
+        hasAutoFit = false
+    }
+    if (!hasResolvedCollisions && measuredHeights.size >= state.nodes.size && state.nodes.size > 1) {
+        // Group nodes by approximate X column (same BFS layer)
+        val columnThreshold = nodeWidthPx * 0.5f
+        val sortedByX = state.nodes.mapNotNull { node ->
+            val pos = positions[node.id] ?: return@mapNotNull null
+            Triple(node.id, pos, measuredHeights[node.id] ?: DEFAULT_NODE_HEIGHT_PX)
+        }.sortedBy { it.second.x }
 
-        val allPos = positions.values.toList()
-        val minX = allPos.minOf { it.x }
-        val minY = allPos.minOf { it.y }
-        val maxX = allPos.maxOf { it.x } + nodeWidthPx
-        val maxY = allPos.maxOf { it.y } + DEFAULT_NODE_HEIGHT_PX
+        // Group into columns
+        val columns = mutableListOf<MutableList<Triple<String, Offset, Float>>>()
+        for (entry in sortedByX) {
+            val lastCol = columns.lastOrNull()
+            if (lastCol != null && kotlin.math.abs(entry.second.x - lastCol.first().second.x) < columnThreshold) {
+                lastCol.add(entry)
+            } else {
+                columns.add(mutableListOf(entry))
+            }
+        }
+
+        // For each column, sort by Y and push apart if overlapping
+        var anyFixed = false
+        for (col in columns) {
+            if (col.size < 2) continue
+            val sorted = col.sortedBy { it.second.y }
+            for (i in 1 until sorted.size) {
+                val prevId = sorted[i - 1].first
+                val prevPos = positions[prevId] ?: continue
+                val prevHeight = measuredHeights[prevId] ?: DEFAULT_NODE_HEIGHT_PX
+                val curId = sorted[i].first
+                val curPos = positions[curId] ?: continue
+                val gap = 30f // minimum gap in px between nodes
+                val minY = prevPos.y + prevHeight + gap
+                if (curPos.y < minY) {
+                    positions[curId] = Offset(curPos.x, minY)
+                    anyFixed = true
+                }
+            }
+        }
+        hasResolvedCollisions = true
+    }
+
+    // Auto zoom-to-fit and center on first layout
+    LaunchedEffect(nodeIds, canvasSize, hasResolvedCollisions) {
+        if (canvasSize == Offset.Zero || positions.isEmpty() || hasAutoFit) return@LaunchedEffect
+        if (!hasResolvedCollisions && state.nodes.size > 1) return@LaunchedEffect
+
+        val allEntries = state.nodes.mapNotNull { node ->
+            val pos = positions[node.id] ?: return@mapNotNull null
+            val h = measuredHeights[node.id] ?: DEFAULT_NODE_HEIGHT_PX
+            Triple(pos, h, node.id)
+        }
+        if (allEntries.isEmpty()) return@LaunchedEffect
+        val minX = allEntries.minOf { it.first.x }
+        val minY = allEntries.minOf { it.first.y }
+        val maxX = allEntries.maxOf { it.first.x } + nodeWidthPx
+        val maxY = allEntries.maxOf { it.first.y + it.second }
 
         val contentW = (maxX - minX).coerceAtLeast(1f)
         val contentH = (maxY - minY).coerceAtLeast(1f)
@@ -608,15 +997,22 @@ fun NodeGraphCanvas(
                     node = node,
                     isSelected = selectedNodeId == node.id,
                     onTap = { onNodeTapped(node.id) },
+                    presetType = presetType,
                     onDrag = { dx, dy ->
-                        // graphicsLayer already transforms pointer coords by 1/zoom,
-                        // so dx/dy are already in canvas space — do NOT divide by zoom
+                        // graphicsLayer already scales pointer coords, so dx/dy are in canvas space
                         val cur = positions[node.id] ?: Offset(node.x, node.y)
                         val newPos = Offset(cur.x + dx, cur.y + dy)
                         positions[node.id] = newPos
-                        onNodeMoved(node.id, newPos.x, newPos.y)
                     },
-                    onLongPress = {
+                    onDragEnd = {
+                        // Commit final position to preset
+                        val pos = positions[node.id]
+                        if (pos != null) {
+                            android.util.Log.d("NodeGraph", "DragEnd node=${node.id} → pos=(${pos.x}, ${pos.y})")
+                            onNodeMoved(node.id, pos.x, pos.y)
+                        }
+                    },
+                    onDelete = {
                         if (node.block.blockType != BlockType.INPUT_ADAPTER) {
                             onNodeDeleted(node.id)
                         }
@@ -628,7 +1024,9 @@ fun NodeGraphCanvas(
                         dragWireCumulative = Offset.Zero
                     },
                     onOutputPinDrag = { delta ->
-                        dragWireCumulative += delta
+                        // delta is in card-local (canvas) space due to graphicsLayer; convert to screen space
+                        val screenDelta = Offset(delta.x * zoom, delta.y * zoom)
+                        dragWireCumulative += screenDelta
                         val fromNode = nodeMap[node.id] ?: return@NodeCard
                         val pinPos = outputPinCenter(fromNode, nodeWidthPx, measuredHeights)
                         val screenPin = Offset(pinPos.x * zoom + panOffset.x, pinPos.y * zoom + panOffset.y)
@@ -649,7 +1047,7 @@ fun NodeGraphCanvas(
                                     (dropCanvas.x - pin.x) * (dropCanvas.x - pin.x) +
                                         (dropCanvas.y - pin.y) * (dropCanvas.y - pin.y),
                                 )
-                                dist < pinHitRadiusPx / zoom * 2f
+                                dist < pinHitRadiusPx / zoom * 3f
                             }
                             if (target != null) {
                                 val fromNode = nodeMap[fromId]
@@ -660,6 +1058,10 @@ fun NodeGraphCanvas(
                         }
                         dragFromNodeId = null
                         dragWireCumulative = Offset.Zero
+                    },
+                    onBlockUpdated = { updatedBlock -> onBlockUpdated(node.id, updatedBlock) },
+                    onPromptEditRequest = {
+                        onPromptEditRequest(node.id, node.block.prompt)
                     },
                     onMeasured = { heightPx ->
                         measuredHeights[node.id] = heightPx
