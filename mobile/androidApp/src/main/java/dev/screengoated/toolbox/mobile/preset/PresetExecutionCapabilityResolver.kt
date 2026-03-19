@@ -18,10 +18,7 @@ internal class PresetExecutionCapabilityResolver {
                 supported = false,
                 reason = PresetPlaceholderReason.IMAGE_CAPTURE_NOT_READY,
             )
-            PresetType.TEXT_SELECT -> PresetExecutionCapability(
-                supported = false,
-                reason = PresetPlaceholderReason.TEXT_SELECTION_NOT_READY,
-            )
+            PresetType.TEXT_SELECT -> resolveTextSelectCapability(preset)
             PresetType.TEXT_INPUT -> resolveTextInputCapability(preset)
             PresetType.MIC,
             PresetType.DEVICE_AUDIO,
@@ -44,13 +41,17 @@ internal class PresetExecutionCapabilityResolver {
 
         executionCapability.reason?.let(reasons::add)
 
-        if (preset.autoPaste || preset.autoPasteNewline) {
-            reasons += PresetPlaceholderReason.AUTO_PASTE_NOT_READY
-        }
+        // auto_paste on Android = auto-copy to clipboard (user pastes manually)
+        // No longer blocked
         if (preset.hotkeys.isNotEmpty()) {
             reasons += PresetPlaceholderReason.HOTKEYS_NOT_READY
         }
         return reasons
+    }
+
+    private fun resolveTextSelectCapability(preset: Preset): PresetExecutionCapability {
+        // Same validation as text input — just different input source (clipboard/accessibility)
+        return resolveTextInputCapability(preset)
     }
 
     private fun resolveTextInputCapability(preset: Preset): PresetExecutionCapability {
