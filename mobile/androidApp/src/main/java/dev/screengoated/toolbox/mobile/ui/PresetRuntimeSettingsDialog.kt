@@ -87,7 +87,18 @@ fun PresetRuntimeSettingsDialog(
 ) {
     var imageChain by remember(settings) { mutableStateOf(settings.modelPriorityChains.imageToText.toMutableList()) }
     var textChain by remember(settings) { mutableStateOf(settings.modelPriorityChains.textToText.toMutableList()) }
-    val context = androidx.compose.ui.platform.LocalContext.current
+    var showHelpDialog by remember { mutableStateOf(false) }
+
+    if (showHelpDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showHelpDialog = false },
+            title = { Text(locale.presetRuntimeTitle) },
+            text = { Text(locale.presetRuntimeDescription) },
+            confirmButton = {
+                TextButton(onClick = { showHelpDialog = false }) { Text("OK") }
+            },
+        )
+    }
 
     fun applyChanges(img: List<String> = imageChain, txt: List<String> = textChain) {
         onSave(settings.copy(modelPriorityChains = PresetModelPriorityChains(
@@ -119,9 +130,7 @@ fun PresetRuntimeSettingsDialog(
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f),
                     )
-                    IconButton(onClick = {
-                        android.widget.Toast.makeText(context, locale.presetRuntimeDescription, android.widget.Toast.LENGTH_LONG).show()
-                    }) {
+                    IconButton(onClick = { showHelpDialog = true }) {
                         Icon(Icons.Rounded.Info, contentDescription = locale.presetRuntimeDescription)
                     }
                     IconButton(onClick = onDismiss) {

@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class, androidx.compose.ui.text.ExperimentalTextApi::class)
 
 package dev.screengoated.toolbox.mobile.preset.ui
 
@@ -83,6 +83,22 @@ import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_IMAGE_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetType
+
+// Google Sans Flex at wdth=80 — prevents long labels from wrapping in toggle buttons
+private val condensedButtonFont: androidx.compose.ui.text.font.FontFamily by lazy {
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        androidx.compose.ui.text.font.FontFamily(
+            androidx.compose.ui.text.font.Font(
+                resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
+                variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
+                    androidx.compose.ui.text.font.FontVariation.Setting("wdth", 80f),
+                ),
+            ),
+        )
+    } else {
+        androidx.compose.ui.text.font.FontFamily.Default
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Editor type grouping: the 5 PresetType variants collapse into 3 editor tabs
@@ -246,6 +262,9 @@ fun PresetEditorScreen(
                     if (editState.showControllerUi || editState.isMaster) {
                         MasterDescriptionSection(lang = lang)
                     }
+                    if (editState.audioProcessingMode == "realtime") {
+                        RealtimeDescriptionSection(lang = lang)
+                    }
                 }
                 // Right column: Node graph + Processing chain
                 Column(
@@ -254,7 +273,7 @@ fun PresetEditorScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    if (!editState.showControllerUi && !editState.isMaster) {
+                    if (!editState.showControllerUi && !editState.isMaster && editState.audioProcessingMode != "realtime") {
                         NodeGraphSection(
                             editState = editState,
                             lang = lang,
@@ -304,7 +323,10 @@ fun PresetEditorScreen(
                 if (editState.showControllerUi || editState.isMaster) {
                     MasterDescriptionSection(lang = lang)
                 }
-                if (!editState.showControllerUi && !editState.isMaster) {
+                if (editState.audioProcessingMode == "realtime") {
+                    RealtimeDescriptionSection(lang = lang)
+                }
+                if (!editState.showControllerUi && !editState.isMaster && editState.audioProcessingMode != "realtime") {
                     NodeGraphSection(
                         editState = editState,
                         lang = lang,
@@ -376,6 +398,9 @@ private fun HeaderSection(
                         Text(
                             editorTypeLabel(group, lang),
                             style = MaterialTheme.typography.labelMedium,
+                            fontFamily = condensedButtonFont,
+                            maxLines = 1,
+                            softWrap = false,
                         )
                     }
                 }
@@ -493,27 +518,29 @@ private fun AudioModeSelectors(
     controllerOn: Boolean = false,
     onUpdate: (Preset) -> Unit,
 ) {
-    // Audio source — always visible
-    val isMic = editState.presetType == PresetType.MIC || editState.audioSource == "mic"
-    TogglePair(
-        label = localized(lang, "Audio Source", "Nguồn", "오디오 소스"),
-        optionA = localized(lang, "Microphone", "Microphone", "마이크"),
-        optionB = localized(lang, "Device Audio", "Âm thanh máy tính", "컴퓨터 오디오"),
-        isB = !isMic,
-        iconA = Icons.Rounded.Mic,
-        iconB = Icons.Rounded.SpeakerPhone,
-        onChanged = { isDevice ->
-            val newType = if (isDevice) PresetType.DEVICE_AUDIO else PresetType.MIC
-            val newSource = if (isDevice) "device" else "mic"
-            onUpdate(editState.copy(presetType = newType, audioSource = newSource))
-        },
-    )
+    val isRealtime = editState.audioProcessingMode == "realtime"
+
+    // Audio source — hidden for realtime (always device audio)
+    if (!isRealtime) {
+        val isMic = editState.presetType == PresetType.MIC || editState.audioSource == "mic"
+        TogglePair(
+            label = localized(lang, "Audio Source", "Nguồn", "오디오 소스"),
+            optionA = localized(lang, "Microphone", "Microphone", "마이크"),
+            optionB = localized(lang, "Device Audio", "Âm thanh máy tính", "컴퓨터 오디오"),
+            isB = !isMic,
+            iconA = Icons.Rounded.Mic,
+            iconB = Icons.Rounded.SpeakerPhone,
+            onChanged = { isDevice ->
+                val newType = if (isDevice) PresetType.DEVICE_AUDIO else PresetType.MIC
+                val newSource = if (isDevice) "device" else "mic"
+                onUpdate(editState.copy(presetType = newType, audioSource = newSource))
+            },
+        )
+    }
 
     if (controllerOn) return
 
-    // Processing mode — hidden when controller on
-    val isRealtime = editState.presetType == PresetType.DEVICE_AUDIO &&
-        editState.audioSource == "device"
+    // Processing mode
     TogglePair(
         label = localized(lang, "Mode", "Phương thức", "작동 방식"),
         optionA = localized(lang, "Record then Process", "Thu âm rồi xử lý", "녹음 후 처리"),
@@ -531,6 +558,9 @@ private fun AudioModeSelectors(
             }
         },
     )
+
+    // Auto-stop and other options hidden for realtime
+    if (isRealtime) return
 
     SwitchRow(
         label = localized(lang, "Auto-stop recording", "Tự động dừng ghi", "자동 녹음 중지"),
@@ -619,10 +649,17 @@ private fun NodeGraphSection(
         val connections = if (editState.blockConnections.isNotEmpty()) {
             // Explicit connections — shift indices if we inserted an input adapter
             val indexOffset = if (hasInput) 0 else 1
-            editState.blockConnections.mapNotNull { (from, to) ->
+            val mapped = editState.blockConnections.mapNotNull { (from, to) ->
                 val fromId = nodes.getOrNull(from + indexOffset)?.id ?: return@mapNotNull null
                 val toId = nodes.getOrNull(to + indexOffset)?.id ?: return@mapNotNull null
                 Connection(fromId, toId)
+            }
+            // If input adapter was auto-inserted, connect it to the first real block
+            // (matches Windows blocks_to_snarl: virtual_input → node_ids[0])
+            if (!hasInput && nodes.size >= 2) {
+                listOf(Connection(nodes[0].id, nodes[1].id)) + mapped
+            } else {
+                mapped
             }
         } else {
             // No explicit connections — create linear chain through ALL nodes
@@ -821,9 +858,11 @@ private fun NodeGraphSection(
                         onNodeTapped = { nodeId ->
                             selectedNodeId = if (nodeId.isNotEmpty() && selectedNodeId != nodeId) nodeId else null
                         },
-                        onPromptEditRequest = { nodeId, currentPrompt ->
+                        onPromptEditRequest = { nodeId, _ ->
                             editingPromptNodeId = nodeId
-                            editingPromptText = currentPrompt
+                            // Read prompt from CURRENT graphState, not the stale callback param
+                            editingPromptText = graphState.nodes
+                                .find { it.id == nodeId }?.block?.prompt.orEmpty()
                         },
                         modifier = Modifier.fillMaxSize(),
                         lang = lang,
@@ -1037,6 +1076,47 @@ private fun MasterDescriptionSection(lang: String) {
     }
 }
 
+@Composable
+private fun RealtimeDescriptionSection(lang: String) {
+    SectionCard {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Rounded.GraphicEq,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(8.dp))
+                SectionLabel(
+                    localized(lang,
+                        "Realtime Audio Processing",
+                        "Xử lý âm thanh (Thời gian thực)",
+                        "실시간 오디오 처리",
+                    ),
+                )
+            }
+
+            Text(
+                localized(
+                    lang,
+                    "This mode provides real-time transcription and translation.\n" +
+                        "Gemini API key is required, works best on audio with clear speech like podcasts!\n\n" +
+                        "You can adjust font size, audio source, and translation language directly in the result window.",
+                    "Chế độ này cung cấp phụ đề và dịch thuật trực tiếp theo thời gian thực.\n" +
+                        "Mã API của Gemini là bắt buộc, tính năng chỉ hoạt động tốt trên âm thanh có lời nói to rõ như podcast!\n\n" +
+                        "Bạn có thể điều chỉnh cỡ chữ, nguồn âm thanh và ngôn ngữ dịch ngay trong cửa sổ kết quả.",
+                    "이 모드는 실시간 자막 및 번역을 제공합니다.\n" +
+                        "Gemini API 키가 필수이며, 명확한 음성이 있는 팟캐스트 같은 오디오에서 잘 작동합니다!\n\n" +
+                        "결과 창에서 글꼴 크기, 오디오 소스, 번역 언어를 직접 조정할 수 있습니다.",
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 // =============================================================================
 // Reusable components
 // =============================================================================
@@ -1121,7 +1201,8 @@ private fun TogglePair(
                     Icon(iconA, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                 }
-                Text(optionA, style = MaterialTheme.typography.labelMedium)
+                Text(optionA, style = MaterialTheme.typography.labelMedium,
+                    fontFamily = condensedButtonFont, maxLines = 1, softWrap = false)
             }
             ToggleButton(
                 checked = isB,
@@ -1135,7 +1216,8 @@ private fun TogglePair(
                     Icon(iconB, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                 }
-                Text(optionB, style = MaterialTheme.typography.labelMedium)
+                Text(optionB, style = MaterialTheme.typography.labelMedium,
+                    fontFamily = condensedButtonFont, maxLines = 1, softWrap = false)
             }
         }
     }

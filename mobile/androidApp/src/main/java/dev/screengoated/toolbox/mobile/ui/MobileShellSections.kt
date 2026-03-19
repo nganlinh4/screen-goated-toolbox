@@ -34,7 +34,9 @@ import androidx.compose.material.icons.automirrored.rounded.Note
 import androidx.compose.material.icons.automirrored.rounded.TextSnippet
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.AutoFixHigh
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
@@ -1277,6 +1279,7 @@ private data class ToolCategory(
 )
 
 private val toolCategories = listOf(
+    // Column 1: Image presets (matches Windows order exactly)
     ToolCategory(
         labelGetter = { it.toolsCategoryImage },
         accentColor = Color(0xFF5C9CE6),
@@ -1284,66 +1287,75 @@ private val toolCategories = listOf(
             ToolPresetItem("translate", "Translate region", "Dịch vùng", "영역 번역", Icons.Rounded.Translate),
             ToolPresetItem("extract_retranslate", "Trans (ACCURATE)", "Dịch vùng (CHUẨN)", "영역 번역 (정확)", Icons.Rounded.Verified),
             ToolPresetItem("translate_auto_paste", "Trans (Auto paste)", "Dịch vùng (Tự dán)", "영역 번역 (자동 붙.)", Icons.Rounded.ContentCut),
+            ToolPresetItem("extract_table", "Extract Table", "Trích bảng", "표 추출", Icons.Rounded.TableChart),
+            ToolPresetItem("translate_retranslate", "Trans+Retrans", "Dịch vùng+Dịch lại", "번역+재번역", Icons.Rounded.Translate),
+            ToolPresetItem("extract_retrans_retrans", "Trans (ACC)+Retrans", "D.vùng (CHUẨN)+D.lại", "번역(정확)+재번역", Icons.Rounded.Verified),
             ToolPresetItem("ocr", "Extract text", "Lấy text từ ảnh", "텍스트 추출", Icons.Rounded.TextFields),
             ToolPresetItem("ocr_read", "Read this region", "Đọc vùng này", "영역 읽기", Icons.AutoMirrored.Rounded.VolumeUp),
-            ToolPresetItem("desc", "Describe image", "Mô tả ảnh", "이미지 설명", Icons.Rounded.Description),
-            ToolPresetItem("ask_image", "Ask about image", "Hỏi về ảnh", "이미지 질문", Icons.Rounded.ImageSearch),
-            ToolPresetItem("summarize", "Summarize region", "Tóm tắt vùng", "영역 요약", Icons.Rounded.Summarize),
-            ToolPresetItem("extract_table", "Extract Table", "Trích bảng", "표 추출", Icons.Rounded.TableChart),
-            ToolPresetItem("fact_check", "Fact Check", "Kiểm chứng", "정보 확인", Icons.Rounded.Verified),
             ToolPresetItem("quick_screenshot", "Quick Screenshot", "Chụp MH nhanh", "빠른 스크린샷", Icons.Rounded.PhotoCamera),
             ToolPresetItem("qr_scanner", "QR Scanner", "Quét mã QR", "QR 스캔", Icons.Rounded.QrCodeScanner),
+            ToolPresetItem("summarize", "Summarize region", "Tóm tắt vùng", "영역 요약", Icons.Rounded.Summarize),
+            ToolPresetItem("desc", "Describe image", "Mô tả ảnh", "이미지 설명", Icons.Rounded.Description),
+            ToolPresetItem("ask_image", "Ask about image", "Hỏi về ảnh", "이미지 질문", Icons.Rounded.ImageSearch),
+            ToolPresetItem("fact_check", "Fact Check", "Kiểm chứng thông tin", "정보 확인", Icons.Rounded.Verified),
+            ToolPresetItem("omniscient_god", "Omniscient God", "Thần Trí tuệ", "전지전능", Icons.Rounded.AutoAwesome),
             ToolPresetItem("hang_image", "Image Overlay", "Treo ảnh", "이미지 오버레이", Icons.Rounded.CameraAlt),
         ),
     ),
+    // Column 2a: Text Select presets
     ToolCategory(
         labelGetter = { it.toolsCategoryTextSelect },
         accentColor = Color(0xFF5DB882),
         presets = listOf(
-            ToolPresetItem("translate_select", "Translate", "Dịch", "번역", Icons.Rounded.GTranslate),
             ToolPresetItem("read_aloud", "Read aloud", "Đọc to", "크게 읽기", Icons.Rounded.RecordVoiceOver),
+            ToolPresetItem("translate_select", "Translate", "Dịch", "번역", Icons.Rounded.GTranslate),
             ToolPresetItem("translate_arena", "Trans (Arena)", "Dịch (Arena)", "번역 (아레나)", Icons.Rounded.Translate),
+            ToolPresetItem("trans_retrans_select", "Trans+Retrans", "Dịch+Dịch lại", "번역+재번역", Icons.Rounded.Translate),
+            ToolPresetItem("select_translate_replace", "Trans & Replace", "Dịch và Thay", "번역 후 교체", Icons.Rounded.SwapHoriz),
             ToolPresetItem("fix_grammar", "Fix Grammar", "Sửa ngữ pháp", "문법 수정", Icons.Rounded.Spellcheck),
             ToolPresetItem("rephrase", "Rephrase", "Viết lại", "다시 쓰기", Icons.Rounded.FormatQuote),
             ToolPresetItem("make_formal", "Make Formal", "Chuyên nghiệp hóa", "공식적으로", Icons.Rounded.AutoFixHigh),
             ToolPresetItem("explain", "Explain", "Giải thích", "설명", Icons.Rounded.Lightbulb),
-            ToolPresetItem("ask_text", "Ask about text", "Hỏi về text", "텍스트 질문", Icons.Rounded.QuestionAnswer),
-            ToolPresetItem("edit_as_follows", "Edit as follows", "Sửa như sau", "다음과 같이 수정", Icons.Rounded.Edit),
+            ToolPresetItem("ask_text", "Ask about text...", "Hỏi về text...", "텍스트 질문", Icons.Rounded.QuestionAnswer),
+            ToolPresetItem("edit_as_follows", "Edit as follows:", "Sửa như sau:", "다음과 같이 수정:", Icons.Rounded.Edit),
             ToolPresetItem("101_on_this", "101 on this", "Tất tần tật", "이것의 모든 것", Icons.Rounded.School),
             ToolPresetItem("hang_text", "Text Overlay", "Treo text", "텍스트 오버레이", Icons.AutoMirrored.Rounded.TextSnippet),
         ),
     ),
+    // Column 2b: Text Input (Type) presets
     ToolCategory(
         labelGetter = { it.toolsCategoryTextInput },
         accentColor = Color(0xFF5DB882),
         presets = listOf(
+            ToolPresetItem("trans_retrans_typing", "Trans+Retrans (Type)", "Dịch+Dịch lại (Tự gõ)", "번역+재번역 (입력)", Icons.Rounded.Translate),
             ToolPresetItem("ask_ai", "Ask AI", "Hỏi AI", "AI 질문", Icons.Rounded.SmartToy),
             ToolPresetItem("internet_search", "Internet Search", "Tìm kiếm internet", "인터넷 검색", Icons.Rounded.Search),
             ToolPresetItem("make_game", "Make a Game", "Tạo con game", "게임 만들기", Icons.Rounded.Gamepad),
             ToolPresetItem("quick_note", "Quick Note", "Note nhanh", "빠른 메모", Icons.AutoMirrored.Rounded.Note),
-            ToolPresetItem("trans_retrans_typing", "Trans+Retrans", "Dịch+Dịch lại", "번역+재번역", Icons.Rounded.Translate),
         ),
     ),
+    // Column 3a: Mic presets
     ToolCategory(
         labelGetter = { it.toolsCategoryMicRecording },
         accentColor = Color(0xFFDCA850),
         presets = listOf(
             ToolPresetItem("transcribe", "Transcribe speech", "Lời nói thành văn", "음성 받아쓰기", Icons.Rounded.Mic),
+            ToolPresetItem("continuous_writing_online", "Continuous Writing", "Viết liên tục", "연속 입력", Icons.Rounded.Keyboard),
             ToolPresetItem("fix_pronunciation", "Fix pronunciation", "Chỉnh phát âm", "발음 교정", Icons.Rounded.RecordVoiceOver),
+            ToolPresetItem("transcribe_retranslate", "Quick 4NR reply 1", "Trả lời ng.nc.ngoài 1", "빠른 외국인 답변 1", Icons.Rounded.Translate),
+            ToolPresetItem("quicker_foreigner_reply", "Quick 4NR reply 2", "Trả lời ng.nc.ngoài 2", "빠른 외국인 답변 2", Icons.Rounded.Translate),
             ToolPresetItem("quick_ai_question", "Quick AI Question", "Hỏi nhanh AI", "빠른 AI 질문", Icons.Rounded.VoiceChat),
             ToolPresetItem("voice_search", "Voice Search", "Nói để search", "음성 검색", Icons.Rounded.Search),
             ToolPresetItem("quick_record", "Quick Record", "Thu âm nhanh", "빠른 녹음", Icons.Rounded.FiberSmartRecord),
-            ToolPresetItem("transcribe_retranslate", "Quick 4NR reply", "Trả lời ng.nc.ngoài", "빠른 외국인 답변", Icons.Rounded.Translate),
         ),
     ),
+    // Column 3b: Device Audio presets
     ToolCategory(
         labelGetter = { it.toolsCategoryDeviceAudio },
         accentColor = Color(0xFFDCA850),
         presets = listOf(
-            ToolPresetItem("realtime_audio_translate", "Live Translate", "Dịch cabin", "실시간 음성 번역", Icons.Rounded.Hearing),
             ToolPresetItem("study_language", "Study language", "Học ngoại ngữ", "언어 학습", Icons.Rounded.School),
             ToolPresetItem("record_device", "Device Record", "Thu âm máy", "시스템 녹음", Icons.Rounded.SpeakerPhone),
-            ToolPresetItem("continuous_writing_online", "Continuous Writing", "Viết liên tục", "연속 입력", Icons.Rounded.Keyboard),
             ToolPresetItem("transcribe_english_offline", "Transcribe English", "Chép lời TA", "영어 받아쓰기", Icons.Rounded.GraphicEq),
         ),
     ),
