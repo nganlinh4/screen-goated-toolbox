@@ -227,7 +227,59 @@ internal class PresetOverlayController(
         presetRepository.cancelExecution()
         presetRepository.resetState()
         activePreset = resolved
-        inputModule.open(resolved)
+
+        if (resolved.preset.presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT) {
+            // Gate: require accessibility service enabled
+            if (!dev.screengoated.toolbox.mobile.service.SgtAccessibilityService.isAvailable) {
+                val lang = uiLanguage()
+                val msg = when (lang) {
+                    "vi" -> "Cần bật Dịch vụ trợ năng để dùng preset này. Đang mở Cài đặt..."
+                    "ko" -> "이 프리셋을 사용하려면 접근성 서비스를 활성화해야 합니다. 설정을 여는 중..."
+                    else -> "Accessibility service required for this preset. Opening Settings..."
+                }
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                try {
+                    val intent = android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                } catch (_: Exception) {}
+                return
+            }
+
+            // TEXT_SELECT: read selected text or clipboard, then execute immediately
+            val svc = dev.screengoated.toolbox.mobile.service.SgtAccessibilityService.instance
+            android.util.Log.d("TextSelect", "Accessibility instance: ${svc != null}")
+            android.util.Log.d("TextSelect", "isAvailable: ${dev.screengoated.toolbox.mobile.service.SgtAccessibilityService.isAvailable}")
+            if (svc != null) {
+                val root = try { svc.rootInActiveWindow } catch (_: Exception) { null }
+                android.util.Log.d("TextSelect", "rootInActiveWindow: ${root != null}, pkg=${root?.packageName}")
+                val selectedDirect = svc.getSelectedText()
+                android.util.Log.d("TextSelect", "getSelectedText(): '${selectedDirect}'")
+                val clipText = svc.getClipboardText()
+                android.util.Log.d("TextSelect", "getClipboardText(): '${clipText?.take(50)}'")
+                root?.recycle()
+            }
+            val capturedText = dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
+                .getSelectedTextOrClipboard(context)
+            if (!capturedText.isNullOrBlank()) {
+                // Got text — execute immediately, no editor
+                presetRepository.executePreset(
+                    resolved.preset,
+                    dev.screengoated.toolbox.mobile.shared.preset.PresetInput.Text(capturedText),
+                )
+            } else {
+                // No text selected and clipboard empty — tell user to select text first
+                val lang = uiLanguage()
+                val msg = when (lang) {
+                    "vi" -> "Hãy bôi chọn text trước, sau đó bấm lại preset này"
+                    "ko" -> "먼저 텍스트를 선택한 후 이 프리셋을 다시 누르세요"
+                    else -> "Select text first, then tap this preset again"
+                }
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            }
+        } else {
+            inputModule.open(resolved)
+        }
         if (!closePanel) {
             onRequestBubbleFront()
         }

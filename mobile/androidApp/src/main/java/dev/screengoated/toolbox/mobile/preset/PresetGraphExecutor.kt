@@ -91,6 +91,18 @@ internal class PresetGraphExecutor(
                 else -> error("Non-text block execution is not ready on Android yet.")
             }
         }
+
+        // Auto-paste: after all blocks complete, if preset has autoPaste,
+        // paste the last auto-copied result into the source app's focused field
+        if (preset.autoPaste) {
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                val service = dev.screengoated.toolbox.mobile.service.SgtAccessibilityService.instance
+                if (service != null) {
+                    val pasted = service.pasteIntoFocusedField()
+                    android.util.Log.d("PresetGraphExec", "Auto-paste result: $pasted")
+                }
+            }, 200) // brief delay to let clipboard settle
+        }
     }
 
     private fun executeInputAdapterBlock(
@@ -272,6 +284,15 @@ internal class PresetGraphExecutor(
 
         val finalResult = requireNotNull(result)
         outputs[index] = finalResult
+
+        // Auto-copy to clipboard if block has autoCopy enabled
+        if (block.autoCopy && finalResult.isNotBlank()) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                val service = dev.screengoated.toolbox.mobile.service.SgtAccessibilityService.instance
+                service?.copyToClipboard(finalResult)
+            }
+        }
+
         if (!shouldSurfaceOverlay) {
             return
         }
