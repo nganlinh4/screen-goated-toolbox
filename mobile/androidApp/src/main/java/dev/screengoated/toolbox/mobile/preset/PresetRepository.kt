@@ -64,6 +64,55 @@ class PresetRepository(
         persistAll(builtInOverrides = emptyMap(), customPresets = emptyMap())
     }
 
+    fun createCustomPreset(type: PresetType, lang: String): String {
+        val newId = System.currentTimeMillis().toString(16)
+        val count = _catalogState.value.presets.size + 1
+        val typeName = when (type) {
+            PresetType.IMAGE -> when (lang) { "vi" -> "Ảnh"; "ko" -> "이미지"; else -> "Image" }
+            PresetType.TEXT_SELECT -> when (lang) { "vi" -> "Bôi text"; "ko" -> "텍스트 선택"; else -> "Text Select" }
+            PresetType.TEXT_INPUT -> when (lang) { "vi" -> "Nhập text"; "ko" -> "텍스트 입력"; else -> "Text Input" }
+            PresetType.MIC -> when (lang) { "vi" -> "Thu micro"; "ko" -> "마이크"; else -> "Mic" }
+            PresetType.DEVICE_AUDIO -> when (lang) { "vi" -> "Âm thanh máy"; "ko" -> "시스템 오디오"; else -> "Device Audio" }
+        }
+        val name = "$typeName $count"
+
+        val defaultBlock = when (type) {
+            PresetType.IMAGE -> dev.screengoated.toolbox.mobile.shared.preset.imageBlock(
+                dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_IMAGE_MODEL_ID,
+                "Extract text from this image.",
+            )
+            PresetType.TEXT_SELECT, PresetType.TEXT_INPUT -> dev.screengoated.toolbox.mobile.shared.preset.textBlock(
+                "text_accurate_kimi",
+                "Translate to {language1}. Output ONLY the translation.",
+                "language1" to "Vietnamese",
+            )
+            PresetType.MIC -> dev.screengoated.toolbox.mobile.shared.preset.audioBlock(
+                "whisper-fast",
+            )
+            PresetType.DEVICE_AUDIO -> dev.screengoated.toolbox.mobile.shared.preset.audioBlock(
+                "whisper-fast",
+            )
+        }
+
+        val newPreset = dev.screengoated.toolbox.mobile.shared.preset.Preset(
+            id = newId,
+            nameEn = name,
+            nameVi = name,
+            nameKo = name,
+            presetType = type,
+            blocks = listOf(defaultBlock),
+            textInputMode = if (type == PresetType.TEXT_INPUT) "type" else "select",
+            audioSource = if (type == PresetType.DEVICE_AUDIO) "device" else "mic",
+        )
+        val updatedCustom = storedOverrides.customPresets.toMutableMap()
+        updatedCustom[newId] = newPreset
+        persistAll(
+            builtInOverrides = storedOverrides.builtInOverrides,
+            customPresets = updatedCustom,
+        )
+        return newId
+    }
+
     fun duplicatePreset(id: String, lang: String): String? {
         val source = getResolvedPreset(id)?.preset ?: return null
         val newId = System.currentTimeMillis().toString(16)
