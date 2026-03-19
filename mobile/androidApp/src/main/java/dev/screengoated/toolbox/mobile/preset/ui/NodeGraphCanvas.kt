@@ -10,12 +10,15 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -37,6 +40,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -142,6 +146,84 @@ private val condensedFontFamily: androidx.compose.ui.text.font.FontFamily by laz
     } else {
         androidx.compose.ui.text.font.FontFamily.Default
     }
+}
+
+/** All ISO 639-1 language names, sorted — matches Windows get_all_languages() from isolang crate. */
+private val ALL_ISO_LANGUAGES: List<String> by lazy {
+    java.util.Locale.getISOLanguages()
+        .mapNotNull { code ->
+            val loc = java.util.Locale(code)
+            loc.getDisplayLanguage(java.util.Locale.ENGLISH).takeIf { it.isNotBlank() && it != code }
+        }
+        .distinct()
+        .sorted()
+}
+
+// Material Symbol: file_copy (rounded, 24px)
+// SVG path from viewBox="0 -960 960 960", all Y coords shifted by +960
+private val FileCopyIcon: androidx.compose.ui.graphics.vector.ImageVector by lazy {
+    androidx.compose.ui.graphics.vector.ImageVector.Builder(
+        name = "FileCopy", defaultWidth = 24.dp, defaultHeight = 24.dp,
+        viewportWidth = 960f, viewportHeight = 960f,
+    ).apply {
+        addPath(
+            pathData = androidx.compose.ui.graphics.vector.PathData {
+                // M760-200 → M760,760
+                moveTo(760f, 760f); horizontalLineTo(320f)
+                quadTo(287f, 760f, 263.5f, 736.5f); quadTo(240f, 713f, 240f, 680f)
+                verticalLineTo(120f)
+                quadTo(240f, 87f, 263.5f, 63.5f); quadTo(287f, 40f, 320f, 40f)
+                horizontalLineTo(600f); lineTo(840f, 280f); verticalLineTo(680f)
+                quadTo(840f, 713f, 816.5f, 736.5f); quadTo(793f, 760f, 760f, 760f)
+                close()
+                moveTo(560f, 320f); verticalLineTo(120f); horizontalLineTo(320f)
+                verticalLineTo(680f); horizontalLineTo(760f); verticalLineTo(320f)
+                horizontalLineTo(560f); close()
+                moveTo(160f, 920f)
+                quadTo(127f, 920f, 103.5f, 896.5f); quadTo(80f, 873f, 80f, 840f)
+                verticalLineTo(280f); horizontalLineTo(160f); verticalLineTo(840f)
+                horizontalLineTo(600f); verticalLineTo(920f); horizontalLineTo(160f)
+                close()
+                moveTo(320f, 120f); verticalLineTo(320f); verticalLineTo(120f)
+                verticalLineTo(680f); verticalLineTo(120f); close()
+            },
+            fill = androidx.compose.ui.graphics.SolidColor(Color.Black),
+        )
+    }.build()
+}
+
+// Material Symbol: file_copy_off (rounded, 24px)
+// SVG path from viewBox="0 -960 960 960", all Y coords shifted by +960
+private val FileCopyOffIcon: androidx.compose.ui.graphics.vector.ImageVector by lazy {
+    androidx.compose.ui.graphics.vector.ImageVector.Builder(
+        name = "FileCopyOff", defaultWidth = 24.dp, defaultHeight = 24.dp,
+        viewportWidth = 960f, viewportHeight = 960f,
+    ).apply {
+        addPath(
+            pathData = androidx.compose.ui.graphics.vector.PathData {
+                moveTo(840f, 726f); lineTo(760f, 646f); verticalLineTo(320f)
+                horizontalLineTo(560f); verticalLineTo(120f); horizontalLineTo(320f)
+                verticalLineTo(206f); lineTo(240f, 126f); verticalLineTo(120f)
+                quadTo(240f, 87f, 263.5f, 63.5f); quadTo(287f, 40f, 320f, 40f)
+                horizontalLineTo(600f); lineTo(840f, 280f); verticalLineTo(726f)
+                close()
+                moveTo(320f, 680f); horizontalLineTo(568f); lineTo(320f, 432f)
+                verticalLineTo(680f); close()
+                moveTo(820f, 932f); lineTo(648f, 760f); horizontalLineTo(320f)
+                quadTo(287f, 760f, 263.5f, 736.5f); quadTo(240f, 713f, 240f, 680f)
+                verticalLineTo(352f); lineTo(28f, 140f); lineTo(84f, 84f)
+                lineTo(876f, 876f); lineTo(820f, 932f); close()
+                moveTo(540f, 383f); close()
+                moveTo(444f, 556f); close()
+                moveTo(160f, 920f)
+                quadTo(127f, 920f, 103.5f, 896.5f); quadTo(80f, 873f, 80f, 840f)
+                verticalLineTo(320f); horizontalLineTo(160f); verticalLineTo(840f)
+                horizontalLineTo(640f); verticalLineTo(920f); horizontalLineTo(160f)
+                close()
+            },
+            fill = androidx.compose.ui.graphics.SolidColor(Color.Black),
+        )
+    }.build()
 }
 
 private val PIN_INPUT_COLOR = Color(0xFF66BB6A)
@@ -504,10 +586,11 @@ private fun NodeCard(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 if (block.blockType != BlockType.INPUT_ADAPTER) {
-                    // Model selector row with dropdown
+                    // Row 1: "Mô hình:" label + model dropdown (same row)
                     var showModelDropdown by remember { mutableStateOf(false) }
                     val catalog = dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
                     val descriptor = catalog.getById(block.model)
+                    val isNonLlm = descriptor?.isNonLlm == true
                     val availableModels = remember(block.blockType, providerSettings) {
                         catalog.forBlockType(block.blockType).filter { model ->
                             when (model.provider) {
@@ -524,11 +607,10 @@ private fun NodeCard(
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            modifier = Modifier.size(6.dp),
-                            shape = CircleShape,
-                            color = titleCol.copy(alpha = 0.5f),
-                            content = {},
+                        Text(
+                            text = when (lang) { "vi" -> "Mô hình:"; "ko" -> "모델:"; else -> "Model:" },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = contentCol.copy(alpha = 0.6f),
                         )
                         Spacer(Modifier.width(4.dp))
                         Box {
@@ -617,16 +699,51 @@ private fun NodeCard(
                                 }
                             }
                         }
-                        Spacer(Modifier.width(4.dp))
-                        Surface(
-                            modifier = Modifier.size(6.dp),
-                            shape = CircleShape,
-                            color = titleCol.copy(alpha = 0.5f),
-                            content = {},
-                        )
                     }
 
-                    // Tappable prompt preview — opens dialog for editing
+                    // Row 2: "Lệnh:" label + "+ Ngôn ngữ" button (only for LLM models)
+                    if (!isNonLlm) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = when (lang) { "vi" -> "Lệnh:"; "ko" -> "프롬프트:"; else -> "Prompt:" },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = contentCol.copy(alpha = 0.6f),
+                            )
+                            Spacer(Modifier.weight(1f))
+                            // "+ Ngôn ngữ" button
+                            Surface(
+                                modifier = Modifier
+                                    .pointerInput(node.id + "_addlang") {
+                                        detectTapGestures {
+                                            // Find next available language slot (max 10)
+                                            val existing = block.languageVars.keys
+                                                .mapNotNull { it.removePrefix("language").toIntOrNull() }
+                                                .toSet()
+                                            val nextN = (1..10).firstOrNull { it !in existing } ?: return@detectTapGestures
+                                            val newKey = "language$nextN"
+                                            val newPrompt = block.prompt + " {$newKey}"
+                                            val newVars = block.languageVars + (newKey to "Vietnamese")
+                                            onBlockUpdated(block.copy(prompt = newPrompt, languageVars = newVars))
+                                        }
+                                    },
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF5A8A90).copy(alpha = 0.8f),
+                            ) {
+                                Text(
+                                    text = when (lang) { "vi" -> "+ Ngôn ngữ"; "ko" -> "+ 언어"; else -> "+ Language" },
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                )
+                            }
+                        }
+                    }
+
+                    // Row 3: Prompt text preview
+                    if (!isNonLlm) {
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -648,6 +765,105 @@ private fun NodeCard(
                             lineHeight = 14.sp,
                         )
                     }
+                    } // end if (!isNonLlm) for prompt
+
+                    // Row 4+: Language variable rows — ONLY for tags found in prompt
+                    // (matches Windows utils.rs: scan prompt for {languageN}, ignore stale map entries)
+                    if (!isNonLlm) {
+                        val detectedVars = (1..10).filter { n ->
+                            block.prompt.contains("{language$n}")
+                        }
+                        detectedVars.forEach { num ->
+                            val key = "language$num"
+                            // Auto-insert default if tag exists but no map entry
+                            val currentValue = block.languageVars[key] ?: run {
+                                val newVars = block.languageVars + (key to "Vietnamese")
+                                onBlockUpdated(block.copy(languageVars = newVars))
+                                "Vietnamese"
+                            }
+                            var showLangDropdown by remember { mutableStateOf(false) }
+                            var langSearchQuery by remember { mutableStateOf("") }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = "{$key}:",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = contentCol.copy(alpha = 0.5f),
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Box {
+                                    Surface(
+                                        modifier = Modifier
+                                            .pointerInput(key) { detectTapGestures { showLangDropdown = true } },
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFF6E5AAF).copy(alpha = 0.25f),
+                                    ) {
+                                        Text(
+                                            text = currentValue,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = contentCol,
+                                        )
+                                    }
+                                    androidx.compose.material3.DropdownMenu(
+                                        expanded = showLangDropdown,
+                                        onDismissRequest = {
+                                            showLangDropdown = false
+                                            langSearchQuery = ""
+                                        },
+                                        modifier = Modifier.widthIn(min = 200.dp),
+                                        properties = androidx.compose.ui.window.PopupProperties(focusable = true),
+                                    ) {
+                                        // Sticky search box
+                                        androidx.compose.material3.OutlinedTextField(
+                                            value = langSearchQuery,
+                                            onValueChange = { langSearchQuery = it },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                            placeholder = { Text("Search...", style = MaterialTheme.typography.bodySmall) },
+                                            singleLine = true,
+                                            textStyle = MaterialTheme.typography.bodySmall,
+                                        )
+                                        androidx.compose.material3.HorizontalDivider()
+                                        // Scrollable language list
+                                        val filteredLangs = remember(langSearchQuery) {
+                                            val query = langSearchQuery.lowercase()
+                                            ALL_ISO_LANGUAGES.filter {
+                                                query.isEmpty() || it.lowercase().contains(query)
+                                            }
+                                        }
+                                        Column(
+                                            modifier = Modifier
+                                                .heightIn(max = 250.dp)
+                                                .verticalScroll(rememberScrollState()),
+                                        ) {
+                                        filteredLangs.forEach { language ->
+                                            androidx.compose.material3.DropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        language,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        fontWeight = if (language == currentValue) FontWeight.Bold else FontWeight.Normal,
+                                                    )
+                                                },
+                                                onClick = {
+                                                    val newVars = block.languageVars.toMutableMap()
+                                                    newVars[key] = language
+                                                    onBlockUpdated(block.copy(languageVars = newVars))
+                                                    showLangDropdown = false
+                                                    langSearchQuery = ""
+                                                },
+                                            )
+                                        }
+                                        } // end Column (scrollable)
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     // Bottom icon toolbar row
                     var showRenderModeMenu by remember { mutableStateOf(false) }
@@ -668,13 +884,13 @@ private fun NodeCard(
                             )
                         }
 
-                        // Render mode dropdown pill
+                        // Stream mode toggle pill (mobile always uses markdown)
                         if (block.showOverlay) {
-                            val modeLabel = when {
-                                block.renderMode == "markdown_stream" -> "MD+Str"
-                                block.renderMode == "markdown" -> "MD"
-                                block.streamingEnabled -> "Stream"
-                                else -> "Normal"
+                            val isStreaming = block.streamingEnabled
+                            val streamLabel = when (lang) {
+                                "vi" -> if (isStreaming) "Stream" else "Không stream"
+                                "ko" -> if (isStreaming) "스트림" else "스트림 없음"
+                                else -> if (isStreaming) "Stream" else "No Stream"
                             }
                             Box {
                                 Surface(
@@ -684,7 +900,7 @@ private fun NodeCard(
                                         .pointerInput(Unit) { detectTapGestures { showRenderModeMenu = true } },
                                 ) {
                                     Text(
-                                        modeLabel,
+                                        streamLabel,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                         style = MaterialTheme.typography.labelSmall,
                                         fontSize = 9.sp,
@@ -695,15 +911,16 @@ private fun NodeCard(
                                     expanded = showRenderModeMenu,
                                     onDismissRequest = { showRenderModeMenu = false },
                                 ) {
+                                    val streamOff = when (lang) { "vi" -> "Không stream"; "ko" -> "스트림 없음"; else -> "No Stream" }
+                                    val streamOn = "Stream"
                                     listOf(
-                                        Triple("Normal", "plain", false),
-                                        Triple("Stream", "stream", true),
-                                        Triple("MD", "markdown", false),
-                                        Triple("MD+Str", "markdown_stream", true),
-                                    ).forEach { (label, mode, streaming) ->
+                                        streamOff to false,
+                                        streamOn to true,
+                                    ).forEach { (label, streaming) ->
                                         androidx.compose.material3.DropdownMenuItem(
                                             text = { Text(label, style = MaterialTheme.typography.bodySmall) },
                                             onClick = {
+                                                val mode = if (streaming) "markdown_stream" else "markdown"
                                                 onBlockUpdated(block.copy(renderMode = mode, streamingEnabled = streaming))
                                                 showRenderModeMenu = false
                                             },
@@ -715,33 +932,31 @@ private fun NodeCard(
 
                         Spacer(Modifier.weight(1f))
 
-                        // Copy toggle
+                        // Copy toggle (distinct icons for on/off like eye)
                         androidx.compose.material3.IconToggleButton(
                             checked = block.autoCopy,
                             onCheckedChange = { onBlockUpdated(block.copy(autoCopy = it)) },
                             modifier = Modifier.size(24.dp),
                         ) {
                             Icon(
-                                imageVector = Icons.Rounded.ContentCopy,
+                                imageVector = if (block.autoCopy) FileCopyIcon
+                                    else FileCopyOffIcon,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
-                                tint = if (block.autoCopy) titleCol
-                                else contentCol.copy(alpha = 0.4f),
                             )
                         }
 
-                        // Speak toggle
+                        // Speak toggle (distinct icons for on/off like eye)
                         androidx.compose.material3.IconToggleButton(
                             checked = block.autoSpeak,
                             onCheckedChange = { onBlockUpdated(block.copy(autoSpeak = it)) },
                             modifier = Modifier.size(24.dp),
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.VolumeUp,
+                                imageVector = if (block.autoSpeak) Icons.AutoMirrored.Rounded.VolumeUp
+                                    else Icons.AutoMirrored.Rounded.VolumeOff,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
-                                tint = if (block.autoSpeak) titleCol
-                                else contentCol.copy(alpha = 0.4f),
                             )
                         }
                     }
@@ -765,9 +980,14 @@ private fun NodeCard(
                             )
                         }
 
-                        // Render mode pill (if overlay visible)
+                        // Stream mode pill for input node
                         if (block.showOverlay) {
-                            val inputModeLabel = if (block.renderMode == "markdown" || block.renderMode == "markdown_stream") "MD" else "Normal"
+                            val isStreaming = block.streamingEnabled || block.renderMode == "markdown_stream"
+                            val streamLabel = when (lang) {
+                                "vi" -> if (isStreaming) "Stream" else "Không stream"
+                                "ko" -> if (isStreaming) "스트림" else "스트림 없음"
+                                else -> if (isStreaming) "Stream" else "No Stream"
+                            }
                             Box {
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
@@ -776,7 +996,7 @@ private fun NodeCard(
                                         .pointerInput(Unit) { detectTapGestures { showInputRenderMenu = true } },
                                 ) {
                                     Text(
-                                        inputModeLabel,
+                                        streamLabel,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                         style = MaterialTheme.typography.labelSmall,
                                         fontSize = 9.sp,
@@ -787,11 +1007,16 @@ private fun NodeCard(
                                     expanded = showInputRenderMenu,
                                     onDismissRequest = { showInputRenderMenu = false },
                                 ) {
-                                    listOf("Normal" to "plain", "Markdown" to "markdown").forEach { (label, mode) ->
+                                    val streamOff = when (lang) { "vi" -> "Không stream"; "ko" -> "스트림 없음"; else -> "No Stream" }
+                                    listOf(
+                                        streamOff to false,
+                                        "Stream" to true,
+                                    ).forEach { (label, streaming) ->
                                         androidx.compose.material3.DropdownMenuItem(
                                             text = { Text(label, style = MaterialTheme.typography.bodySmall) },
                                             onClick = {
-                                                onBlockUpdated(block.copy(renderMode = mode))
+                                                val mode = if (streaming) "markdown_stream" else "markdown"
+                                                onBlockUpdated(block.copy(renderMode = mode, streamingEnabled = streaming))
                                                 showInputRenderMenu = false
                                             },
                                         )
@@ -802,33 +1027,31 @@ private fun NodeCard(
 
                         Spacer(Modifier.weight(1f))
 
-                        // Copy toggle
+                        // Copy toggle (distinct icons for on/off)
                         androidx.compose.material3.IconToggleButton(
                             checked = block.autoCopy,
                             onCheckedChange = { onBlockUpdated(block.copy(autoCopy = it)) },
                             modifier = Modifier.size(24.dp),
                         ) {
                             Icon(
-                                imageVector = Icons.Rounded.ContentCopy,
+                                imageVector = if (block.autoCopy) FileCopyIcon
+                                    else FileCopyOffIcon,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
-                                tint = if (block.autoCopy) titleCol
-                                else contentCol.copy(alpha = 0.4f),
                             )
                         }
 
-                        // Speak toggle
+                        // Speak toggle (distinct icons for on/off)
                         androidx.compose.material3.IconToggleButton(
                             checked = block.autoSpeak,
                             onCheckedChange = { onBlockUpdated(block.copy(autoSpeak = it)) },
                             modifier = Modifier.size(24.dp),
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.VolumeUp,
+                                imageVector = if (block.autoSpeak) Icons.AutoMirrored.Rounded.VolumeUp
+                                    else Icons.AutoMirrored.Rounded.VolumeOff,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
-                                tint = if (block.autoSpeak) titleCol
-                                else contentCol.copy(alpha = 0.4f),
                             )
                         }
                     }
