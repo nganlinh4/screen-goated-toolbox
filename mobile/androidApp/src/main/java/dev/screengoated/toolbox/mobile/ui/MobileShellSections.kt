@@ -6,7 +6,10 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -59,6 +62,8 @@ import androidx.compose.material.icons.rounded.FiberSmartRecord
 import androidx.compose.material.icons.rounded.FormatQuote
 import androidx.compose.material.icons.rounded.GTranslate
 import androidx.compose.material.icons.rounded.Gamepad
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Hearing
@@ -1699,20 +1704,64 @@ internal fun ToolsSection(
                 },
             ) {
                 FloatingActionButtonMenuItem(
-                    onClick = { fabMenuExpanded = false },
-                    icon = { Icon(Icons.Rounded.CameraAlt, contentDescription = null) },
-                    text = { Text("Image") },
+                    onClick = {
+                        fabMenuExpanded = false
+                        presetRepository.createCustomPreset(
+                            type = dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE,
+                            lang = lang,
+                        )
+                    },
+                    icon = { Icon(Icons.Rounded.Image, contentDescription = null, modifier = if (isLandscape) Modifier.size(18.dp) else Modifier) },
+                    text = { Text(locale.toolsCategoryImage, style = if (isLandscape) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelLarge) },
+                    modifier = if (isLandscape) Modifier.height(40.dp) else Modifier,
                 )
                 FloatingActionButtonMenuItem(
-                    onClick = { fabMenuExpanded = false },
-                    icon = { Icon(Icons.Rounded.TextFields, contentDescription = null) },
-                    text = { Text("Text") },
+                    onClick = {
+                        fabMenuExpanded = false
+                        presetRepository.createCustomPreset(
+                            type = dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT,
+                            lang = lang,
+                        )
+                    },
+                    icon = { Icon(Icons.Rounded.TextFields, contentDescription = null, modifier = if (isLandscape) Modifier.size(18.dp) else Modifier) },
+                    text = { Text(locale.toolsCategoryTextSelect, style = if (isLandscape) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelLarge) },
+                    modifier = if (isLandscape) Modifier.height(40.dp) else Modifier,
                 )
                 FloatingActionButtonMenuItem(
-                    onClick = { fabMenuExpanded = false },
-                    icon = { Icon(Icons.Rounded.Mic, contentDescription = null) },
-                    text = { Text("Audio") },
-                    modifier = Modifier.padding(bottom = 12.dp),
+                    onClick = {
+                        fabMenuExpanded = false
+                        presetRepository.createCustomPreset(
+                            type = dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT,
+                            lang = lang,
+                        )
+                    },
+                    icon = { Icon(Icons.Rounded.Keyboard, contentDescription = null, modifier = if (isLandscape) Modifier.size(18.dp) else Modifier) },
+                    text = { Text(locale.toolsCategoryTextInput, style = if (isLandscape) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelLarge) },
+                    modifier = if (isLandscape) Modifier.height(40.dp) else Modifier,
+                )
+                FloatingActionButtonMenuItem(
+                    onClick = {
+                        fabMenuExpanded = false
+                        presetRepository.createCustomPreset(
+                            type = dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC,
+                            lang = lang,
+                        )
+                    },
+                    icon = { Icon(Icons.Rounded.Mic, contentDescription = null, modifier = if (isLandscape) Modifier.size(18.dp) else Modifier) },
+                    text = { Text(locale.toolsCategoryMicRecording, style = if (isLandscape) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelLarge) },
+                    modifier = if (isLandscape) Modifier.height(40.dp) else Modifier,
+                )
+                FloatingActionButtonMenuItem(
+                    onClick = {
+                        fabMenuExpanded = false
+                        presetRepository.createCustomPreset(
+                            type = dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO,
+                            lang = lang,
+                        )
+                    },
+                    icon = { Icon(Icons.Rounded.SpeakerPhone, contentDescription = null, modifier = if (isLandscape) Modifier.size(18.dp) else Modifier) },
+                    text = { Text(locale.toolsCategoryDeviceAudio, style = if (isLandscape) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelLarge) },
+                    modifier = if (isLandscape) Modifier.height(40.dp).padding(bottom = 8.dp) else Modifier.padding(bottom = 12.dp),
                 )
             }
         }
@@ -1836,6 +1885,8 @@ private fun ToolCategoryRow(
     onDelete: (String) -> Unit = {},
 ) {
     val trailingClearance = 12.dp
+    // Track presets being deleted for fade-out animation
+    var deletingIds by remember { mutableStateOf(emptySet<String>()) }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         // Category label
@@ -1860,6 +1911,17 @@ private fun ToolCategoryRow(
         val bgColor = MaterialTheme.colorScheme.background
         val fadePx = with(androidx.compose.ui.platform.LocalDensity.current) { 24.dp.toPx() }
         val carouselState = rememberCarouselState { presets.size }
+        // Auto-scroll to end when a new preset is added
+        val prevCount = remember { mutableIntStateOf(presets.size) }
+        val scope = rememberCoroutineScope()
+        LaunchedEffect(presets.size) {
+            if (presets.size > prevCount.intValue) {
+                scope.launch {
+                    try { carouselState.animateScrollToItem(presets.lastIndex) } catch (_: Exception) {}
+                }
+            }
+            prevCount.intValue = presets.size
+        }
         val scrollFraction by remember {
             derivedStateOf {
                 val max = (presets.size - 1).coerceAtLeast(1)
@@ -1906,11 +1968,38 @@ private fun ToolCategoryRow(
             val presetId = if (preset.isFullId) preset.id else "preset_${preset.id}"
             val isActionMode = toolbarMode != ToolbarMode.NONE
             val isFavorite = presetId in favoritePresetIds
+            val isDeleting = presetId in deletingIds
+
+            // Animate fade-out + shrink when deleting
+            val deleteAlpha by animateFloatAsState(
+                targetValue = if (isDeleting) 0f else 1f,
+                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                label = "del-alpha-$index",
+                finishedListener = { value ->
+                    if (value == 0f) {
+                        deletingIds = deletingIds - presetId
+                        onDelete(presetId)
+                    }
+                },
+            )
+            val deleteScale by animateFloatAsState(
+                targetValue = if (isDeleting) 0.6f else 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+                label = "del-scale-$index",
+            )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = deleteAlpha
+                        scaleX = deleteScale
+                        scaleY = deleteScale
+                    }
                     .maskClip(MaterialTheme.shapes.large)
-                    .clickable(enabled = !isActionMode) { onPresetClick(presetId) },
+                    .clickable(enabled = !isActionMode && !isDeleting) { onPresetClick(presetId) },
             ) {
                 Card(
                     modifier = Modifier.fillMaxSize(),
@@ -1977,9 +2066,9 @@ private fun ToolCategoryRow(
                         )
                     }
                 }
-                if (toolbarMode == ToolbarMode.DELETE) {
+                if (toolbarMode == ToolbarMode.DELETE && !isDeleting) {
                     IconButton(
-                        onClick = { onDelete(presetId) },
+                        onClick = { deletingIds = deletingIds + presetId },
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
                             .padding(end = 10.dp)
