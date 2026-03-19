@@ -322,12 +322,8 @@ fun SgtMobileApp(
                         onPresetChanged = { updated ->
                             presetRepository.updateBuiltInOverride(activePreset.preset.id) { updated }
                         },
-                        onFavoriteToggle = {
-                            presetRepository.toggleFavorite(activePreset.preset.id)
-                        },
                         onRestoreDefault = {
                             presetRepository.restoreBuiltInPreset(activePreset.preset.id)
-                            activePresetId = null
                         },
                     )
                 }
