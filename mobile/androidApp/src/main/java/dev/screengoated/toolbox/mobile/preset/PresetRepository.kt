@@ -60,6 +60,56 @@ class PresetRepository(
         updateBuiltInOverride(id) { it.copy(isFavorite = !it.isFavorite) }
     }
 
+    fun resetAllToDefaults() {
+        persistAll(builtInOverrides = emptyMap(), customPresets = emptyMap())
+    }
+
+    fun duplicatePreset(id: String, lang: String): String? {
+        val source = getResolvedPreset(id)?.preset ?: return null
+        val newId = System.currentTimeMillis().toString(16)
+        val baseName = source.name(lang)
+        var newName = "$baseName Copy"
+        var counter = 1
+        val existingNames = _catalogState.value.presets.map { it.preset.nameEn }.toSet()
+        while (newName in existingNames) {
+            newName = "$baseName Copy $counter"
+            counter++
+        }
+        val newPreset = source.copy(
+            id = newId,
+            nameEn = newName,
+            nameVi = newName,
+            nameKo = newName,
+            isFavorite = false,
+        )
+        // Store as a full custom preset (not a built-in override)
+        val updatedCustom = storedOverrides.customPresets.toMutableMap()
+        updatedCustom[newId] = newPreset
+        persistAll(
+            builtInOverrides = storedOverrides.builtInOverrides,
+            customPresets = updatedCustom,
+        )
+        return newId
+    }
+
+    fun deletePreset(id: String) {
+        if (canonicalById.containsKey(id)) {
+            // Built-in: mark as hidden (will re-appear on reset)
+            val updatedOverrides = storedOverrides.builtInOverrides.toMutableMap()
+            val existing = updatedOverrides[id] ?: PresetOverride()
+            updatedOverrides[id] = existing.copy(isHidden = true)
+            persistOverrides(updatedOverrides)
+        } else {
+            // Custom: remove from custom presets
+            val updatedCustom = storedOverrides.customPresets.toMutableMap()
+            updatedCustom.remove(id)
+            persistAll(
+                builtInOverrides = storedOverrides.builtInOverrides,
+                customPresets = updatedCustom,
+            )
+        }
+    }
+
     fun restoreBuiltInPreset(id: String) {
         if (!canonicalById.containsKey(id)) {
             return
@@ -72,17 +122,30 @@ class PresetRepository(
         id: String,
         mutation: (Preset) -> Preset,
     ) {
-        val canonical = canonicalById[id] ?: return
-        val current = getResolvedPreset(id)?.preset ?: canonical
-        val updatedPreset = mutation(current)
-        val override = updatedPreset.toOverrideComparedTo(canonical)
-        val updatedOverrides = storedOverrides.builtInOverrides.toMutableMap()
-        if (override.isEmpty()) {
-            updatedOverrides.remove(id)
+        val canonical = canonicalById[id]
+        if (canonical != null) {
+            // Built-in preset: store as delta override
+            val current = getResolvedPreset(id)?.preset ?: canonical
+            val updatedPreset = mutation(current)
+            val override = updatedPreset.toOverrideComparedTo(canonical)
+            val updatedOverrides = storedOverrides.builtInOverrides.toMutableMap()
+            if (override.isEmpty()) {
+                updatedOverrides.remove(id)
+            } else {
+                updatedOverrides[id] = override
+            }
+            persistOverrides(updatedOverrides)
         } else {
-            updatedOverrides[id] = override
+            // Custom preset: update the full preset in customPresets
+            val existing = storedOverrides.customPresets[id] ?: return
+            val updatedPreset = mutation(existing)
+            val updatedCustom = storedOverrides.customPresets.toMutableMap()
+            updatedCustom[id] = updatedPreset
+            persistAll(
+                builtInOverrides = storedOverrides.builtInOverrides,
+                customPresets = updatedCustom,
+            )
         }
-        persistOverrides(updatedOverrides)
     }
 
     fun executePreset(
@@ -188,29 +251,52 @@ class PresetRepository(
     }
 
     private fun publishCatalog() {
-        _catalogState.value = PresetCatalogState(
-            presets = canonicalPresets.map { canonical ->
-                val override = storedOverrides.builtInOverrides[canonical.id]
-                val resolved = override?.let { canonical.applyOverride(it) } ?: canonical
-                val executionCapability = resolveExecutionCapability(resolved)
-                ResolvedPreset(
+        val builtInResolved = canonicalPresets.mapNotNull { canonical ->
+            val override = storedOverrides.builtInOverrides[canonical.id]
+            if (override?.isHidden == true) return@mapNotNull null
+            val resolved = override?.let { canonical.applyOverride(it) } ?: canonical
+            val executionCapability = resolveExecutionCapability(resolved)
+            ResolvedPreset(
+                preset = resolved,
+                hasOverride = override != null,
+                isBuiltIn = true,
+                executionCapability = executionCapability,
+                placeholderReasons = resolvePlaceholderReasons(
                     preset = resolved,
-                    hasOverride = override != null,
-                    isBuiltIn = true,
                     executionCapability = executionCapability,
-                    placeholderReasons = resolvePlaceholderReasons(
-                        preset = resolved,
-                        executionCapability = executionCapability,
-                    ),
-                )
-            },
+                ),
+            )
+        }
+        val customResolved = storedOverrides.customPresets.values.map { preset ->
+            val executionCapability = resolveExecutionCapability(preset)
+            ResolvedPreset(
+                preset = preset,
+                hasOverride = false,
+                isBuiltIn = false,
+                executionCapability = executionCapability,
+                placeholderReasons = resolvePlaceholderReasons(
+                    preset = preset,
+                    executionCapability = executionCapability,
+                ),
+            )
+        }
+        _catalogState.value = PresetCatalogState(
+            presets = builtInResolved + customResolved,
         )
     }
 
     private fun persistOverrides(updatedOverrides: Map<String, PresetOverride>) {
+        persistAll(builtInOverrides = updatedOverrides, customPresets = storedOverrides.customPresets)
+    }
+
+    private fun persistAll(
+        builtInOverrides: Map<String, PresetOverride>,
+        customPresets: Map<String, Preset>,
+    ) {
         storedOverrides = StoredPresetOverrides(
             version = storedOverrides.version,
-            builtInOverrides = updatedOverrides,
+            builtInOverrides = builtInOverrides,
+            customPresets = customPresets,
         )
         overrideStore.save(storedOverrides)
         publishCatalog()

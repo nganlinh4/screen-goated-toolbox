@@ -3,21 +3,19 @@ import { getTotalTrimDuration } from "@/lib/trimSegments";
 
 const MIN_TIMELINE_THUMBNAIL_COUNT = 6;
 const BASE_TIMELINE_THUMBNAIL_COUNT_CAP = 10;
-const ADAPTIVE_TIMELINE_THUMBNAIL_COUNT_CAP = 28;
+const ADAPTIVE_TIMELINE_THUMBNAIL_COUNT_CAP = 100;
+
+// Target ~150px per thumbnail — keeps visual density constant across all zoom levels.
+// Timeline zoom goes up to 12x, so a 1400px viewport → 16,800px canvas at max zoom.
+// At 150px/thumb that's 112 (capped at 100), giving ~9 visible thumbnails per viewport.
+const TARGET_PX_PER_THUMBNAIL = 150;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
 function getTimelineThumbnailWidthBucket(renderedWidthPx: number): number {
-  if (renderedWidthPx >= 5600) return 28;
-  if (renderedWidthPx >= 4200) return 24;
-  if (renderedWidthPx >= 3000) return 20;
-  if (renderedWidthPx >= 2200) return 16;
-  if (renderedWidthPx >= 1600) return 12;
-  if (renderedWidthPx >= 1200) return 10;
-  if (renderedWidthPx >= 900) return 8;
-  return 6;
+  return Math.ceil(renderedWidthPx / TARGET_PX_PER_THUMBNAIL);
 }
 
 export function getBaseTimelineThumbnailCount(

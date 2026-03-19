@@ -11,6 +11,7 @@ import kotlinx.serialization.Serializable
 data class StoredPresetOverrides(
     val version: Int = 1,
     val builtInOverrides: Map<String, PresetOverride> = emptyMap(),
+    val customPresets: Map<String, Preset> = emptyMap(),
 )
 
 @Serializable
@@ -38,6 +39,7 @@ data class PresetOverride(
     val isFavorite: Boolean? = null,
     val isUpcoming: Boolean? = null,
     val windowGeometry: WindowGeometry? = null,
+    val isHidden: Boolean? = null,
 ) {
     fun isEmpty(): Boolean {
         return nameEn == null &&
@@ -62,7 +64,8 @@ data class PresetOverride(
             showControllerUi == null &&
             isFavorite == null &&
             isUpcoming == null &&
-            windowGeometry == null
+            windowGeometry == null &&
+            isHidden == null
     }
 }
 
@@ -91,6 +94,22 @@ fun Preset.applyOverride(override: PresetOverride): Preset {
         isFavorite = override.isFavorite ?: isFavorite,
         isUpcoming = override.isUpcoming ?: isUpcoming,
         windowGeometry = override.windowGeometry ?: windowGeometry,
+    )
+}
+
+fun Preset.toFullOverride(): PresetOverride {
+    return PresetOverride(
+        nameEn = nameEn, nameVi = nameVi, nameKo = nameKo,
+        presetType = presetType, blocks = blocks, blockConnections = blockConnections,
+        promptMode = promptMode, textInputMode = textInputMode,
+        audioSource = audioSource, audioProcessingMode = audioProcessingMode,
+        realtimeWindowMode = realtimeWindowMode, videoCaptureMethod = videoCaptureMethod,
+        autoPaste = autoPaste, autoPasteNewline = autoPasteNewline,
+        hideRecordingUi = hideRecordingUi, continuousInput = continuousInput,
+        autoStopRecording = autoStopRecording, hotkeys = hotkeys,
+        isMaster = isMaster, showControllerUi = showControllerUi,
+        isFavorite = isFavorite, isUpcoming = isUpcoming,
+        windowGeometry = windowGeometry,
     )
 }
 

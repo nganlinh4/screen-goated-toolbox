@@ -82,6 +82,7 @@ internal fun MobileShellSurface(
     onOllamaUrlChanged: (String) -> Unit,
     onPresetRuntimeSettingsClick: () -> Unit,
     onUsageStatsClick: () -> Unit = {},
+    onResetDefaults: () -> Unit = {},
     onVoiceSettingsClick: () -> Unit,
     uiPreferences: dev.screengoated.toolbox.mobile.model.MobileUiPreferences = dev.screengoated.toolbox.mobile.model.MobileUiPreferences(),
     onOverlayOpacityChanged: (Int) -> Unit = {},
@@ -165,6 +166,7 @@ internal fun MobileShellSurface(
                             onOllamaUrlChanged = onOllamaUrlChanged,
                             onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
                             onUsageStatsClick = onUsageStatsClick,
+                            onResetDefaults = onResetDefaults,
                             onVoiceSettingsClick = onVoiceSettingsClick,
                             uiPreferences = uiPreferences,
                             onOverlayOpacityChanged = onOverlayOpacityChanged,
@@ -203,6 +205,7 @@ internal fun MobileShellSurface(
                             onOllamaUrlChanged = onOllamaUrlChanged,
                             onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
                             onUsageStatsClick = onUsageStatsClick,
+                            onResetDefaults = onResetDefaults,
                             onVoiceSettingsClick = onVoiceSettingsClick,
                             uiPreferences = uiPreferences,
                             onOverlayOpacityChanged = onOverlayOpacityChanged,
@@ -219,7 +222,8 @@ internal fun MobileShellSurface(
             }
         } else {
             val sections = MobileShellSection.entries
-            val pagerState = rememberPagerState { sections.size }
+            val initialPage = sections.indexOf(selectedSection).coerceAtLeast(0)
+            val pagerState = rememberPagerState(initialPage = initialPage) { sections.size }
             val scope = rememberCoroutineScope()
             var pagerSwipeLocked by remember { mutableStateOf(false) }
 
@@ -378,6 +382,7 @@ internal fun MobileShellSurface(
                                 onOllamaUrlChanged = onOllamaUrlChanged,
                                 onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
                                 onUsageStatsClick = onUsageStatsClick,
+                                onResetDefaults = onResetDefaults,
                                 onVoiceSettingsClick = onVoiceSettingsClick,
                             uiPreferences = uiPreferences,
                             onOverlayOpacityChanged = onOverlayOpacityChanged,
@@ -412,6 +417,7 @@ internal fun MobileShellSurface(
                                 onOllamaUrlChanged = onOllamaUrlChanged,
                                 onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
                                 onUsageStatsClick = onUsageStatsClick,
+                                onResetDefaults = onResetDefaults,
                                 onVoiceSettingsClick = onVoiceSettingsClick,
                             uiPreferences = uiPreferences,
                             onOverlayOpacityChanged = onOverlayOpacityChanged,
