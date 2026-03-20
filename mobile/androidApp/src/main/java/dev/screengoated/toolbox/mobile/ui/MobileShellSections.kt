@@ -4,6 +4,7 @@ package dev.screengoated.toolbox.mobile.ui
 
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -101,6 +102,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButtonMenu
 import androidx.compose.material3.FloatingActionButtonMenuItem
+import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ToggleFloatingActionButton
 import androidx.compose.material3.ToggleFloatingActionButtonDefaults.animateIcon
@@ -1635,134 +1637,141 @@ internal fun ToolsSection(
             }
         }
 
-        Box(
+        // Toolbar with FAB — single HorizontalFloatingToolbar, FAB in its slot
+        HorizontalFloatingToolbar(
             modifier = Modifier
-                .fillMaxWidth()
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(horizontal = 8.dp, vertical = 8.dp),
-        ) {
-            HorizontalFloatingToolbar(
-                modifier = Modifier.align(Alignment.BottomStart),
-                expanded = true,
-                content = {
-                    IconButton(onClick = {
-                        toolbarMode = if (toolbarMode == ToolbarMode.DUPLICATE) ToolbarMode.NONE else ToolbarMode.DUPLICATE
-                    }) {
-                        Icon(
-                            Icons.Rounded.ContentCopy,
-                            contentDescription = "Duplicate",
-                            tint = if (toolbarMode == ToolbarMode.DUPLICATE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+            expanded = true,
+            floatingActionButton = {
+                FloatingToolbarDefaults.VibrantFloatingActionButton(
+                    onClick = { fabMenuExpanded = !fabMenuExpanded },
+                    shape = MaterialTheme.shapes.large,
+                ) {
+                    Icon(
+                        if (fabMenuExpanded) Icons.Rounded.Close else Icons.Rounded.Add,
+                        contentDescription = "Create",
+                    )
+                }
+            },
+            content = {
+                // Each button: icon only when inactive, icon + label when active
+                data class ToolAction(
+                    val mode: ToolbarMode,
+                    val icon: ImageVector,
+                    val label: String,
+                    val activeTint: Color,
+                )
+                val actions = listOf(
+                    ToolAction(ToolbarMode.DUPLICATE, Icons.Rounded.ContentCopy,
+                        when (lang) { "vi" -> "Nhân bản"; "ko" -> "복제"; else -> "Duplicate" },
+                        MaterialTheme.colorScheme.primary),
+                    ToolAction(ToolbarMode.FAVORITE, Icons.Rounded.Star,
+                        when (lang) { "vi" -> "Yêu thích"; "ko" -> "즐겨찾기"; else -> "Favorite" },
+                        MaterialTheme.colorScheme.primary),
+                    ToolAction(ToolbarMode.DELETE, Icons.Rounded.Delete,
+                        when (lang) { "vi" -> "Xóa"; "ko" -> "삭제"; else -> "Delete" },
+                        MaterialTheme.colorScheme.error),
+                )
+                actions.forEach { action ->
+                    val isActive = toolbarMode == action.mode
+                    val tint by animateColorAsState(
+                        if (isActive) action.activeTint else MaterialTheme.colorScheme.onSurfaceVariant,
+                        label = "tint-${action.mode}",
+                    )
+                    val bgAlpha by animateFloatAsState(
+                        if (isActive) 0.12f else 0f,
+                        label = "bg-${action.mode}",
+                    )
+                    IconButton(
+                        onClick = {
+                            toolbarMode = if (isActive) ToolbarMode.NONE else action.mode
+                        },
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    action.activeTint.copy(alpha = bgAlpha),
+                                    MaterialTheme.shapes.medium,
+                                )
+                                .padding(8.dp),
+                        ) {
+                            Icon(
+                                action.icon,
+                                contentDescription = action.label,
+                                modifier = Modifier.size(20.dp),
+                                tint = tint,
+                            )
+                        }
                     }
-                    IconButton(onClick = {
-                        toolbarMode = if (toolbarMode == ToolbarMode.FAVORITE) ToolbarMode.NONE else ToolbarMode.FAVORITE
-                    }) {
-                        Icon(
-                            Icons.Rounded.Star,
-                            contentDescription = "Favorite",
-                            tint = if (toolbarMode == ToolbarMode.FAVORITE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    IconButton(onClick = {
-                        toolbarMode = if (toolbarMode == ToolbarMode.DELETE) ToolbarMode.NONE else ToolbarMode.DELETE
-                    }) {
-                        Icon(
-                            Icons.Rounded.Delete,
-                            contentDescription = "Delete",
-                            tint = if (toolbarMode == ToolbarMode.DELETE) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-            )
+                }
+            },
+        )
 
+        // FAB Menu — create preset options
+        if (fabMenuExpanded) {
+            androidx.activity.compose.BackHandler { fabMenuExpanded = false }
+        }
+
+        data class CreateOption(
+            val type: dev.screengoated.toolbox.mobile.shared.preset.PresetType,
+            val icon: ImageVector,
+            val label: String,
+        )
+        val createOptions = listOf(
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE, Icons.Rounded.Image, locale.toolsCategoryImage),
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT, Icons.Rounded.TextFields, locale.toolsCategoryTextSelect),
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT, Icons.Rounded.Keyboard, locale.toolsCategoryTextInput),
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC, Icons.Rounded.Mic, locale.toolsCategoryMicRecording),
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO, Icons.Rounded.SpeakerPhone, locale.toolsCategoryDeviceAudio),
+        )
+
+        if (isLandscape) {
+            // Landscape: DropdownMenu (handles overflow with scroll, no clipping)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(end = 8.dp, bottom = 56.dp),
+            ) {
+                androidx.compose.material3.DropdownMenu(
+                    expanded = fabMenuExpanded,
+                    onDismissRequest = { fabMenuExpanded = false },
+                ) {
+                    createOptions.forEach { opt ->
+                        androidx.compose.material3.DropdownMenuItem(
+                            onClick = {
+                                fabMenuExpanded = false
+                                presetRepository.createCustomPreset(type = opt.type, lang = lang)
+                            },
+                            leadingIcon = { Icon(opt.icon, null, modifier = Modifier.size(18.dp)) },
+                            text = { Text(opt.label, style = MaterialTheme.typography.labelLarge) },
+                        )
+                    }
+                }
+            }
+        } else {
+            // Portrait: M3E FloatingActionButtonMenu (full animation)
             FloatingActionButtonMenu(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .offset(y = 8.dp),
+                    .navigationBarsPadding()
+                    .padding(end = 8.dp, bottom = 72.dp),
                 expanded = fabMenuExpanded,
-                button = {
-                    ToggleFloatingActionButton(
-                        modifier = Modifier.animateFloatingActionButton(
-                            visible = true,
-                            alignment = Alignment.BottomEnd,
-                        ),
-                        checked = fabMenuExpanded,
-                        onCheckedChange = { fabMenuExpanded = !fabMenuExpanded },
-                    ) {
-                        val imageVector by remember {
-                            derivedStateOf {
-                                if (checkedProgress > 0.5f) Icons.Rounded.Close else Icons.Rounded.Add
-                            }
-                        }
-                        Icon(
-                            painter = rememberVectorPainter(imageVector),
-                            contentDescription = "Create",
-                            modifier = Modifier.animateIcon({ checkedProgress }),
-                        )
-                    }
-                },
+                button = {},
             ) {
-                FloatingActionButtonMenuItem(
-                    onClick = {
-                        fabMenuExpanded = false
-                        presetRepository.createCustomPreset(
-                            type = dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE,
-                            lang = lang,
-                        )
-                    },
-                    icon = { Icon(Icons.Rounded.Image, contentDescription = null, modifier = if (isLandscape) Modifier.size(18.dp) else Modifier) },
-                    text = { Text(locale.toolsCategoryImage, style = if (isLandscape) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelLarge) },
-                    modifier = if (isLandscape) Modifier.height(40.dp) else Modifier,
-                )
-                FloatingActionButtonMenuItem(
-                    onClick = {
-                        fabMenuExpanded = false
-                        presetRepository.createCustomPreset(
-                            type = dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT,
-                            lang = lang,
-                        )
-                    },
-                    icon = { Icon(Icons.Rounded.TextFields, contentDescription = null, modifier = if (isLandscape) Modifier.size(18.dp) else Modifier) },
-                    text = { Text(locale.toolsCategoryTextSelect, style = if (isLandscape) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelLarge) },
-                    modifier = if (isLandscape) Modifier.height(40.dp) else Modifier,
-                )
-                FloatingActionButtonMenuItem(
-                    onClick = {
-                        fabMenuExpanded = false
-                        presetRepository.createCustomPreset(
-                            type = dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT,
-                            lang = lang,
-                        )
-                    },
-                    icon = { Icon(Icons.Rounded.Keyboard, contentDescription = null, modifier = if (isLandscape) Modifier.size(18.dp) else Modifier) },
-                    text = { Text(locale.toolsCategoryTextInput, style = if (isLandscape) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelLarge) },
-                    modifier = if (isLandscape) Modifier.height(40.dp) else Modifier,
-                )
-                FloatingActionButtonMenuItem(
-                    onClick = {
-                        fabMenuExpanded = false
-                        presetRepository.createCustomPreset(
-                            type = dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC,
-                            lang = lang,
-                        )
-                    },
-                    icon = { Icon(Icons.Rounded.Mic, contentDescription = null, modifier = if (isLandscape) Modifier.size(18.dp) else Modifier) },
-                    text = { Text(locale.toolsCategoryMicRecording, style = if (isLandscape) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelLarge) },
-                    modifier = if (isLandscape) Modifier.height(40.dp) else Modifier,
-                )
-                FloatingActionButtonMenuItem(
-                    onClick = {
-                        fabMenuExpanded = false
-                        presetRepository.createCustomPreset(
-                            type = dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO,
-                            lang = lang,
-                        )
-                    },
-                    icon = { Icon(Icons.Rounded.SpeakerPhone, contentDescription = null, modifier = if (isLandscape) Modifier.size(18.dp) else Modifier) },
-                    text = { Text(locale.toolsCategoryDeviceAudio, style = if (isLandscape) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelLarge) },
-                    modifier = if (isLandscape) Modifier.height(40.dp).padding(bottom = 8.dp) else Modifier.padding(bottom = 12.dp),
-                )
+                createOptions.forEachIndexed { i, opt ->
+                    FloatingActionButtonMenuItem(
+                        onClick = {
+                            fabMenuExpanded = false
+                            presetRepository.createCustomPreset(type = opt.type, lang = lang)
+                        },
+                        icon = { Icon(opt.icon, null) },
+                        text = { Text(opt.label, style = MaterialTheme.typography.labelLarge) },
+                        modifier = if (i == createOptions.lastIndex) Modifier.padding(bottom = 12.dp) else Modifier,
+                    )
+                }
             }
         }
     }

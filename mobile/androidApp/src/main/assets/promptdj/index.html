@@ -85,9 +85,11 @@
             align-self: flex-end !important;\
           }\
           .rec-timer-container {\
-            position: absolute !important;\
-            bottom: 100% !important;\
+            position: fixed !important;\
+            bottom: 2vw !important;\
             right: 4vw !important;\
+            left: auto !important;\
+            top: auto !important;\
           }\
           .mini-btn {\
             width: 11vw !important;\
@@ -144,7 +146,13 @@
             font-size: 3vh !important;\
           }\
           .volume-container { display: none !important; }\
-          .rec-timer-container { display: none !important; }\
+          .rec-timer-container {\
+            position: fixed !important;\
+            bottom: 10vh !important;\
+            right: 6vw !important;\
+            left: auto !important;\
+            top: auto !important;\
+          }\
         }\
       ';
 
@@ -207,6 +215,40 @@
 
       // Also patch on orientation change
       window.addEventListener('resize', function() { setTimeout(patch, 100); });
+    })();
+  </script>
+  <script>
+    // Native media notification bridge — reports playback state to Android
+    // so the foreground service + notification stay in sync.
+    (function() {
+      if (typeof NativeDj === 'undefined') return; // not on Android
+
+      // Listen for playback state changes from the PromptDjMidi component
+      window.addEventListener('message', function(e) {
+        if (!e.data || !e.data.type) return;
+
+        // The index.tsx sets pdjMidi.playbackState which triggers 'playback-state-changed'.
+        // But postMessage-based IPC from parent is also used. Hook the relevant messages:
+        if (e.data.type === 'pm-dj-play') {
+          NativeDj.onPlaybackStateChanged('loading');
+        } else if (e.data.type === 'pm-dj-pause') {
+          NativeDj.onPlaybackStateChanged('paused');
+        } else if (e.data.type === 'pm-dj-stop-audio') {
+          NativeDj.onPlaybackStateChanged('stopped');
+        }
+      });
+
+      // Also hook into the component's playbackState property changes via MutationObserver
+      var lastState = '';
+      setInterval(function() {
+        var dj = document.querySelector('prompt-dj-midi');
+        if (!dj) return;
+        var state = dj.playbackState;
+        if (state && state !== lastState) {
+          lastState = state;
+          try { NativeDj.onPlaybackStateChanged(state); } catch(e) {}
+        }
+      }, 300);
     })();
   </script>
   <link rel="stylesheet"

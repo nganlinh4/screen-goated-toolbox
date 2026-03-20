@@ -33,4 +33,15 @@ pub fn init_tts() {
             worker::run_socket_worker(manager);
         });
     }
+
+    // Pre-connect Gemini TTS WebSocket for instant first use
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(2)); // let app settle first
+        if let Ok(app) = crate::APP.lock() {
+            let key = app.config.gemini_api_key.clone();
+            if !key.trim().is_empty() {
+                worker::start_warm_up_public(key);
+            }
+        }
+    });
 }

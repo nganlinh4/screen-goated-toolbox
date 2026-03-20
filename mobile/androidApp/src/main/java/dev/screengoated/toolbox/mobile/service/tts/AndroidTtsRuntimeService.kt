@@ -71,6 +71,13 @@ class AndroidTtsRuntimeService(
     override val edgeVoiceCatalogState: StateFlow<EdgeVoiceCatalogState> = edgeCatalogService.state
 
     init {
+        // Pre-connect Gemini TTS WebSocket for instant first use
+        val warmUpKey = settingsStore.loadApiKey().trim()
+        android.util.Log.d("TTS-Timing", "Init warmUp: key=${if (warmUpKey.isBlank()) "BLANK" else "present(${warmUpKey.length}chars)"}")
+        if (warmUpKey.isNotBlank()) {
+            geminiProvider.warmUp(warmUpKey)
+        }
+
         repeat(WORKER_COUNT) { workerIndex ->
             thread(
                 name = "sgt-tts-worker-$workerIndex",
@@ -157,6 +164,7 @@ class AndroidTtsRuntimeService(
             audioEvents = events,
         )
 
+        android.util.Log.d("TTS-Timing", "═══ ENQUEUE requestId=$requestId method=${request.settingsSnapshot.method} text='${request.text.take(30)}...' t=${android.os.SystemClock.elapsedRealtime()}")
         workQueue.offer(queued)
         playbackQueue.offer(
             PlaybackRequest(
@@ -191,6 +199,7 @@ class AndroidTtsRuntimeService(
             }
 
 
+            android.util.Log.d("TTS-Timing", "Worker picked up job: method=${job.request.settingsSnapshot.method} text='${job.request.text.take(30)}...'")
             val method = job.request.settingsSnapshot.method
             val apiKey = settingsStore.loadApiKey().trim()
             runCatching {
@@ -212,6 +221,11 @@ class AndroidTtsRuntimeService(
                         request = job.request,
                         sink = job.audioEvents,
                     )
+                }
+            }.also {
+                // Pre-connect next warm socket after each Gemini request
+                if (method == MobileTtsMethod.GEMINI_LIVE && apiKey.isNotBlank()) {
+                    geminiProvider.warmUp(apiKey)
                 }
             }.onFailure { error ->
                 job.audioEvents.offer(
@@ -236,9 +250,12 @@ class AndroidTtsRuntimeService(
             activePlayback.set(job)
             isPlaying.set(true)
             syncState(activeRequest = job.request)
+            val playerStart = android.os.SystemClock.elapsedRealtime()
+            android.util.Log.d("TTS-Timing", "  Player picked up requestId=${job.requestId} t=$playerStart")
 
             var completion = TtsCompletionStatus.COMPLETED
             var done = false
+            var firstPlayLogged = false
 
             while (!done) {
                 if (job.generation < interruptGeneration.get()) {
@@ -250,11 +267,17 @@ class AndroidTtsRuntimeService(
 
                 when (val event = job.audioEvents.poll(WAIT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)) {
                     null -> Unit
-                    is ProviderAudioEvent.PcmData -> audioPlayer.playPcm24k(
-                        pcm24k = event.payload,
-                        speedPercent = effectiveSpeedFor(job.request),
-                        volumePercent = effectiveVolumeFor(job.request),
-                    )
+                    is ProviderAudioEvent.PcmData -> {
+                        if (!firstPlayLogged) {
+                            firstPlayLogged = true
+                            android.util.Log.d("TTS-Timing", "  FIRST PLAYBACK: ${android.os.SystemClock.elapsedRealtime() - playerStart}ms after player pickup")
+                        }
+                        audioPlayer.playPcm24k(
+                            pcm24k = event.payload,
+                            speedPercent = effectiveSpeedFor(job.request),
+                            volumePercent = effectiveVolumeFor(job.request),
+                        )
+                    }
 
                     is ProviderAudioEvent.End -> {
                         audioPlayer.drain()

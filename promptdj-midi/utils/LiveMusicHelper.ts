@@ -248,6 +248,10 @@ export class LiveMusicHelper extends EventTarget {
     this.session = null;
     this.sessionPromise = null;
     if (this.loadingTimer) { clearTimeout(this.loadingTimer); this.loadingTimer = null; }
+    // Suspend AudioContext to fully release audio focus.
+    // This allows Bluetooth multipoint devices to switch audio to other devices.
+    // play() calls audioContext.resume() before starting, so this is safe.
+    try { this.audioContext.suspend(); } catch {}
   }
 
   public async playPause() {

@@ -293,6 +293,13 @@ function main() {
       liveMusicHelper?.stop();
       if (pdjMidi) pdjMidi.playbackState = 'stopped';
     }
+    if (data.type === 'pm-dj-play') {
+      liveMusicHelper?.play();
+    }
+    if (data.type === 'pm-dj-pause') {
+      liveMusicHelper?.stop();
+      if (pdjMidi) pdjMidi.playbackState = 'stopped';
+    }
   });
 
 }

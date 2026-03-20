@@ -281,45 +281,102 @@ internal class PresetOverlayController(
                 return
             }
 
-            // 1. Try accessibility tree scan first (instant, works for EditText)
+            // Capture selected text, then decide flow based on promptMode
             val svc = dev.screengoated.toolbox.mobile.service.SgtAccessibilityService.instance
             val treeText = svc?.getSelectedText()
             if (!treeText.isNullOrBlank()) {
-                android.util.Log.d("TextSelect", "Got text from tree scan: ${treeText.take(50)}")
-                presetRepository.executePreset(resolved.preset, PresetInput.Text(treeText))
+                executeTextSelectWithCapturedText(resolved, treeText)
             } else {
-                // 2. Click system "Copy" button to capture current selection into clipboard
-                //    MUST happen before ClipboardReaderActivity steals focus and dismisses toolbar
+                // Click system "Copy" button to put selection into clipboard
                 svc?.eagerCaptureSelection()
-
-                // 3. Async: launch ClipboardReaderActivity to read clipboard
-                //    Can't block main thread — Activity needs main looper to gain focus
-                android.util.Log.d("TextSelect", "Launching ClipboardReaderActivity")
                 processingIndicator.show(androidx.compose.ui.graphics.Color(0xFF5DB882))
-                dev.screengoated.toolbox.mobile.service.ClipboardReaderActivity.launch(context) { clipboardText ->
-                    android.util.Log.d("TextSelect", "ClipboardReaderActivity callback: '${clipboardText.take(50)}'")
-                    processingIndicator.dismiss()
-                    presetRepository.executePreset(resolved.preset, PresetInput.Text(clipboardText))
-                }
-                // If Activity fails to read clipboard within 5s, show fallback message
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    if (processingIndicator.isShowing) {
+
+                // Try reading clipboard via accessibility overlay (no visual artifact)
+                svc?.readClipboardAsync { overlayResult ->
+                    if (!overlayResult.isNullOrBlank()) {
                         processingIndicator.dismiss()
-                        val lang = uiLanguage()
-                        val msg = when (lang) {
-                            "vi" -> "Hãy copy text trước, sau đó bấm lại preset này"
-                            "ko" -> "먼저 텍스트를 복사한 후 이 프리셋을 다시 누르세요"
-                            else -> "Copy text first, then tap this preset again"
+                        executeTextSelectWithCapturedText(resolved, overlayResult)
+                    } else {
+                        // Fallback: transparent Activity (brief visual flash)
+                        dev.screengoated.toolbox.mobile.service.ClipboardReaderActivity.launch(context) { clipboardText ->
+                            processingIndicator.dismiss()
+                            executeTextSelectWithCapturedText(resolved, clipboardText)
                         }
-                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                            if (processingIndicator.isShowing) {
+                                processingIndicator.dismiss()
+                                val lang = uiLanguage()
+                                val msg = when (lang) {
+                                    "vi" -> "Hãy copy text trước, sau đó bấm lại preset này"
+                                    "ko" -> "먼저 텍스트를 복사한 후 이 프리셋을 다시 누르세요"
+                                    else -> "Copy text first, then tap this preset again"
+                                }
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            }
+                        }, 5000)
                     }
-                }, 5000)
+                }
             }
         } else {
             inputModule.open(resolved)
         }
         if (!closePanel) {
             onRequestBubbleFront()
+        }
+    }
+
+    /**
+     * Handle TEXT_SELECT after the selected text has been captured.
+     * Fixed prompt → execute immediately.
+     * Dynamic prompt → show input window, user types prompt, then execute with modified preset.
+     * Matches Windows pipeline.rs:299-358.
+     */
+    private fun executeTextSelectWithCapturedText(resolved: ResolvedPreset, capturedText: String) {
+        if (resolved.preset.promptMode == "dynamic") {
+            // Dynamic: show input window for user to type the prompt
+            // Store captured text for later — will combine with user's prompt on submit
+            pendingTextSelectInput = capturedText
+            inputModule.open(resolved)
+        } else {
+            // Fixed: execute immediately with preset's built-in prompt
+            presetRepository.executePreset(resolved.preset, PresetInput.Text(capturedText))
+        }
+    }
+
+    /** Captured text from TEXT_SELECT, waiting for dynamic prompt input. */
+    private var pendingTextSelectInput: String? = null
+
+    private fun submitInput(text: String) {
+        val resolved = activePreset ?: return
+        val pending = pendingTextSelectInput
+        if (pending != null) {
+            // TEXT_SELECT + dynamic prompt: inject user's prompt into preset, execute with captured text
+            // Matches Windows pipeline.rs:323-335
+            pendingTextSelectInput = null
+            val modifiedPreset = resolved.preset.let { preset ->
+                val modifiedBlocks = preset.blocks.toMutableList()
+                val targetIdx = modifiedBlocks.indexOfFirst {
+                    it.blockType != dev.screengoated.toolbox.mobile.shared.preset.BlockType.INPUT_ADAPTER
+                }
+                if (targetIdx >= 0) {
+                    val block = modifiedBlocks[targetIdx]
+                    val newPrompt = if (block.prompt.isBlank()) {
+                        text // No fixed prompt: use user's input as-is
+                    } else {
+                        "${block.prompt}\n\nUser request: $text" // Append to fixed prompt
+                    }
+                    modifiedBlocks[targetIdx] = block.copy(prompt = newPrompt)
+                }
+                preset.copy(blocks = modifiedBlocks)
+            }
+            presetRepository.resetState()
+            presetRepository.executePreset(modifiedPreset, PresetInput.Text(pending))
+            inputModule.recordSubmittedText(text)
+        } else {
+            // Normal TEXT_INPUT flow
+            presetRepository.resetState()
+            presetRepository.executePreset(resolved.preset, PresetInput.Text(text))
+            inputModule.recordSubmittedText(text)
         }
     }
 
@@ -353,13 +410,6 @@ internal class PresetOverlayController(
         }
 
         resultModule.renderExecutionState(state, activePreset)
-    }
-
-    private fun submitInput(text: String) {
-        val resolved = activePreset ?: return
-        presetRepository.resetState()
-        presetRepository.executePreset(resolved.preset, PresetInput.Text(text))
-        inputModule.recordSubmittedText(text)
     }
 
     private fun favoritePresets(): List<ResolvedPreset> {

@@ -20,6 +20,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import dev.screengoated.toolbox.mobile.service.dj.DjJsBridge
+import dev.screengoated.toolbox.mobile.service.dj.DjWebViewHolder
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -31,8 +33,12 @@ internal fun DjScreen(
 ) {
     val context = LocalContext.current
     val handler = remember { Handler(Looper.getMainLooper()) }
+    val jsBridge = remember { DjJsBridge(context) }
+
+    // Reuse or create the WebView via the holder singleton
+    val isReuse = DjWebViewHolder.webView != null
     val webView = remember {
-        WebView(context).apply {
+        DjWebViewHolder.webView ?: WebView(context).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -64,14 +70,20 @@ internal fun DjScreen(
                     return true
                 }
             }
+        }.also { wv ->
+            DjWebViewHolder.attach(wv)
         }
     }
 
-    // Inject API key, theme, and language after page finishes loading
     val escapedKey = remember(apiKey) { escapeJs(apiKey) }
     val theme = if (isDark) "dark" else "light"
 
     DisposableEffect(webView) {
+        // Re-add the JS bridge once per screen entry so the current
+        // DjJsBridge instance is active. addJavascriptInterface replaces
+        // any previous binding with the same name.
+        webView.addJavascriptInterface(jsBridge, "NativeDj")
+        jsBridge.wireNotificationCallbacks(webView)
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
@@ -86,28 +98,40 @@ internal fun DjScreen(
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                // Allow all loads within the WebView (CDN imports, etc.)
                 return false
             }
         }
-        webView.loadUrl("file:///android_asset/promptdj/index.html")
+
+        if (!isReuse) {
+            webView.loadUrl("file:///android_asset/promptdj/index.html")
+        } else {
+            // Already loaded — only push theme/lang, NOT api key.
+            // Re-sending pm-dj-set-api-key would create a new LiveMusicHelper,
+            // orphaning the old one that's still playing audio.
+            val script = """
+                window.postMessage({ type: 'pm-dj-set-theme', theme: '$theme' }, '*');
+                window.postMessage({ type: 'pm-dj-set-lang', lang: '$lang' }, '*');
+            """.trimIndent()
+            webView.evaluateJavascript(script, null)
+        }
 
         onDispose {
             handler.removeCallbacksAndMessages(null)
-            webView.evaluateJavascript(
-                "window.postMessage({ type: 'pm-dj-stop-audio' }, '*')",
-                null,
-            )
-            webView.stopLoading()
-            webView.destroy()
+            // DON'T destroy the WebView — just detach from the view hierarchy.
+            // Audio keeps playing via DjWebViewHolder + foreground service.
+            (webView.parent as? ViewGroup)?.removeView(webView)
         }
     }
 
     BackHandler {
-        webView.evaluateJavascript(
-            "window.postMessage({ type: 'pm-dj-stop-audio' }, '*')",
-            null,
-        )
+        // If audio is playing, just navigate back — audio continues via service.
+        // If stopped, send stop signal first.
+        if (!DjWebViewHolder.isPlaying) {
+            webView.evaluateJavascript(
+                "window.postMessage({ type: 'pm-dj-stop-audio' }, '*')",
+                null,
+            )
+        }
         onBack()
     }
 
@@ -117,7 +141,11 @@ internal fun DjScreen(
             .background(MaterialTheme.colorScheme.surface),
     ) {
         AndroidView(
-            factory = { webView },
+            factory = {
+                // If the WebView still has a parent, detach it first before re-attaching.
+                (webView.parent as? ViewGroup)?.removeView(webView)
+                webView
+            },
             modifier = Modifier.fillMaxSize(),
         )
     }
