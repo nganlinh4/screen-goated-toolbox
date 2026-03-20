@@ -37,13 +37,18 @@ class PresetRepository(
     private var storedOverrides = overrideStore.load()
     private var executionJob: Job? = null
     private var nextSessionOrdinal = 1L
-    private val graphExecutor = PresetGraphExecutor(
-        textApiClient = textApiClient,
-        apiKeys = apiKeys,
-        runtimeSettings = runtimeSettings,
-        uiLanguage = uiLanguage,
-        executionState = _executionState,
-    )
+    var postProcessActions: PresetPostProcessActions = NoOpPostProcessActions
+
+    private val graphExecutor by lazy {
+        PresetGraphExecutor(
+            textApiClient = textApiClient,
+            apiKeys = apiKeys,
+            runtimeSettings = runtimeSettings,
+            uiLanguage = uiLanguage,
+            executionState = _executionState,
+            postProcessActions = postProcessActions,
+        )
+    }
 
     init {
         publishCatalog()

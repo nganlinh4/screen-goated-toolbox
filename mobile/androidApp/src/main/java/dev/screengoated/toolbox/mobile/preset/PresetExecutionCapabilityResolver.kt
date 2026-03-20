@@ -50,8 +50,35 @@ internal class PresetExecutionCapabilityResolver {
     }
 
     private fun resolveTextSelectCapability(preset: Preset): PresetExecutionCapability {
-        // Same validation as text input — just different input source (clipboard/accessibility)
-        return resolveTextInputCapability(preset)
+        // TEXT_SELECT presets can work with just an input adapter (e.g., read_aloud)
+        // or with text processing blocks. More permissive than TEXT_INPUT.
+        if (preset.blocks.isEmpty()) {
+            return PresetExecutionCapability(
+                supported = false,
+                reason = PresetPlaceholderReason.TEXT_INPUT_OVERLAY_NOT_READY,
+            )
+        }
+
+        // Check for unsupported text models
+        val unsupportedTextModel = preset.blocks.firstOrNull { block ->
+            block.blockType == BlockType.TEXT && !isTextModelSupported(block.model)
+        }
+        if (unsupportedTextModel != null) {
+            return PresetExecutionCapability(
+                supported = false,
+                reason = PresetPlaceholderReason.MODEL_PROVIDER_NOT_READY,
+            )
+        }
+
+        // Block non-text block types (image/audio blocks not ready on Android)
+        if (preset.blocks.any { it.blockType !in setOf(BlockType.INPUT_ADAPTER, BlockType.TEXT) }) {
+            return PresetExecutionCapability(
+                supported = false,
+                reason = PresetPlaceholderReason.NON_TEXT_GRAPH_NOT_READY,
+            )
+        }
+
+        return PresetExecutionCapability(supported = true)
     }
 
     private fun resolveTextInputCapability(preset: Preset): PresetExecutionCapability {
