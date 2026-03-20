@@ -66,6 +66,13 @@
             </intent-filter>
         </service>
 
+        <activity
+            android:name=".service.ClipboardReaderActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:exported="false" />
+
         <service
             android:name=".service.SgtAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"

@@ -18,6 +18,15 @@ import android.view.accessibility.AccessibilityNodeInfo
  */
 class SgtAccessibilityService : AccessibilityService() {
 
+    private var clipboardListener: android.content.ClipboardManager.OnPrimaryClipChangedListener? = null
+
+    /** Last clipboard text detected via listener. Updated in real-time. */
+    @Volatile
+    var lastClipboardText: String? = null
+        private set
+    @Volatile
+    private var lastClipboardTimestamp: Long = 0
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
@@ -30,6 +39,28 @@ class SgtAccessibilityService : AccessibilityService() {
                 AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
             notificationTimeout = 100
         }
+
+        // Listen for clipboard changes — this works even for services
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        if (cm != null) {
+            clipboardListener = android.content.ClipboardManager.OnPrimaryClipChangedListener {
+                try {
+                    val clip = cm.primaryClip
+                    if (clip != null && clip.itemCount > 0) {
+                        val text = clip.getItemAt(0)?.text?.toString()
+                        if (!text.isNullOrBlank()) {
+                            lastClipboardText = text
+                            lastClipboardTimestamp = System.currentTimeMillis()
+                            Log.d(TAG, "Clipboard changed: '${text.take(50)}'")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.d(TAG, "Clipboard listener error: ${e.message}")
+                }
+            }
+            cm.addPrimaryClipChangedListener(clipboardListener)
+        }
+
         Log.d(TAG, "Accessibility service connected")
     }
 
@@ -68,6 +99,10 @@ class SgtAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        clipboardListener?.let {
+            (getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)
+                ?.removePrimaryClipChangedListener(it)
+        }
         if (instance === this) instance = null
         Log.d(TAG, "Accessibility service destroyed")
     }
@@ -140,34 +175,92 @@ class SgtAccessibilityService : AccessibilityService() {
      * Perform a global COPY action to capture currently selected text into clipboard.
      * This simulates what Ctrl+C does on Windows — copies whatever is selected.
      */
-    fun performGlobalCopy(): Boolean {
-        // Search all windows, skip our own overlay
+    /**
+     * Eagerly capture text by clicking the "Copy" button in the selection toolbar.
+     * Must be called BEFORE any UI interaction dismisses the toolbar.
+     * Stores result in [eagerClipboardCapture] for later retrieval.
+     */
+    fun eagerCaptureSelection() {
+        Log.d(TAG, "eagerCaptureSelection: searching ${windows.size} windows for Copy button")
+        // Clear previous capture so we can detect new clipboard change
+        val clipBefore = lastClipboardText
+
         for (window in windows) {
             val root = window.root ?: continue
-            val pkg = root.packageName?.toString()
-            if (pkg == packageName) {
+            val pkg = root.packageName?.toString() ?: "?"
+
+            val copyNode = findNodeByText(root, "Copy")
+                ?: findNodeByText(root, "COPY")
+                ?: findNodeByContentDescription(root, "Copy")
+            if (copyNode != null) {
+                // Use ACTION_CLICK — it reports success on the Copy button
+                val clicked = copyNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                Log.d(TAG, "eagerCaptureSelection ACTION_CLICK Copy on $pkg: $clicked")
+                copyNode.recycle()
                 root.recycle()
-                continue
-            }
-            val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            if (focused != null) {
-                val result = focused.performAction(AccessibilityNodeInfo.ACTION_COPY)
-                Log.d(TAG, "performGlobalCopy on $pkg focused input: $result")
-                focused.recycle()
-                root.recycle()
-                return result
-            }
-            val accFocused = root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
-            if (accFocused != null) {
-                val result = accFocused.performAction(AccessibilityNodeInfo.ACTION_COPY)
-                Log.d(TAG, "performGlobalCopy on $pkg accessibility focus: $result")
-                accFocused.recycle()
-                root.recycle()
-                return result
+
+                if (clicked) {
+                    // Wait for clipboard listener to fire with new content
+                    for (attempt in 1..10) {
+                        Thread.sleep(50)
+                        if (lastClipboardText != clipBefore && !lastClipboardText.isNullOrBlank()) {
+                            Log.d(TAG, "eagerCaptureSelection got new clipboard (attempt $attempt): '${lastClipboardText?.take(50)}'")
+                            return
+                        }
+                    }
+                    Log.d(TAG, "eagerCaptureSelection: clicked Copy but no new clipboard after 500ms")
+                }
+                return
             }
             root.recycle()
         }
-        return false
+
+        // Fallback: ACTION_COPY on focused node
+        for (window in windows) {
+            val root = window.root ?: continue
+            val pkg = root.packageName?.toString()
+            if (pkg == packageName) { root.recycle(); continue }
+            val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                ?: root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
+            if (focused != null) {
+                focused.performAction(AccessibilityNodeInfo.ACTION_COPY)
+                Log.d(TAG, "eagerCaptureSelection ACTION_COPY on $pkg")
+                focused.recycle()
+                root.recycle()
+                Thread.sleep(200)
+                return
+            }
+            root.recycle()
+        }
+    }
+
+    /** Text captured by [eagerCaptureSelection], consumed on first read. */
+    @Volatile
+    var eagerClipboardCapture: String? = null
+
+    private fun findNodeByText(root: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {
+        val nodes = root.findAccessibilityNodeInfosByText(text)
+        for (node in nodes) {
+            if (node.isClickable && node.text?.toString()?.trim().equals(text, ignoreCase = true)) {
+                // Recycle other matches
+                nodes.filter { it !== node }.forEach { it.recycle() }
+                return node
+            }
+        }
+        nodes.forEach { it.recycle() }
+        return null
+    }
+
+    private fun findNodeByContentDescription(root: AccessibilityNodeInfo, desc: String): AccessibilityNodeInfo? {
+        val nodes = root.findAccessibilityNodeInfosByText(desc)
+        for (node in nodes) {
+            if (node.isClickable && node.contentDescription?.toString()?.trim().equals(desc, ignoreCase = true)) {
+                nodes.filter { it !== node }.forEach { it.recycle() }
+                return node
+            }
+        }
+        nodes.forEach { it.recycle() }
+        return null
     }
 
     /**
@@ -228,22 +321,26 @@ class SgtAccessibilityService : AccessibilityService() {
                     Log.d(TAG, "Got text from tree scan: ${treeSelected.take(50)}")
                     return treeSelected
                 }
-                // 2. Try last selection event (only if recent — within 5 seconds)
+            }
+
+            // 2. Read clipboard via transparent Activity (only way on Android 12+)
+            //    The Activity briefly gains foreground → reads clipboard → finishes
+            // Check clipboard via the transparent Activity that was launched
+            // by eagerCaptureSelection earlier (it runs async and stores result)
+            val clipText = ClipboardReaderActivity.getRecentText()
+            if (!clipText.isNullOrBlank()) {
+                Log.d(TAG, "Got text from ClipboardReaderActivity: ${clipText.take(50)}")
+                ClipboardReaderActivity.consume()
+                return clipText
+            }
+
+            if (service != null) {
+                // 3. Last resort: selection event (may be partial for WebView)
                 val eventSelected = service.getRecentSelectedEvent()
                 if (!eventSelected.isNullOrBlank()) {
-                    Log.d(TAG, "Got text from selection event: ${eventSelected.take(50)}")
-                    service.lastSelectedText = null // consume it
+                    Log.d(TAG, "Got text from selection event (fallback): ${eventSelected.take(50)}")
+                    service.lastSelectedText = null
                     return eventSelected
-                }
-                // 3. Try performing a global COPY to capture current selection into clipboard
-                service.performGlobalCopy()
-                Thread.sleep(100) // brief wait for clipboard to populate
-
-                // 4. Read clipboard (works for WebView after copy, or user's manual copy)
-                val clip = service.getClipboardText()
-                if (!clip.isNullOrBlank()) {
-                    Log.d(TAG, "Got text from clipboard: ${clip.take(50)}")
-                    return clip
                 }
                 return null
             }

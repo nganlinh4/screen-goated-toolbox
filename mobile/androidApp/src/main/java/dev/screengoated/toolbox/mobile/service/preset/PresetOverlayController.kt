@@ -113,6 +113,40 @@ internal class PresetOverlayController(
             onInputClosedWithoutResults = { activePreset = null },
             hasResults = { resultModule.hasResults() },
         )
+        // Wire centralized post-processing actions (matches Windows step.rs)
+        presetRepository.postProcessActions = object : dev.screengoated.toolbox.mobile.preset.PresetPostProcessActions {
+            override fun handleAutoCopy(block: dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock, resultText: String) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    val svc = dev.screengoated.toolbox.mobile.service.SgtAccessibilityService.instance
+                    svc?.copyToClipboard(resultText)
+                }
+            }
+
+            override fun handleAutoSpeak(block: dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock, resultText: String, blockIdx: Int) {
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    val tts = ttsRuntimeService ?: return@postDelayed
+                    val snapshot = ttsSettingsSnapshotProvider?.invoke() ?: return@postDelayed
+                    tts.enqueue(
+                        dev.screengoated.toolbox.mobile.service.tts.TtsRequest(
+                            text = resultText,
+                            consumer = dev.screengoated.toolbox.mobile.service.tts.TtsConsumer.RESULT_OVERLAY,
+                            priority = dev.screengoated.toolbox.mobile.service.tts.TtsPriority.USER,
+                            requestMode = dev.screengoated.toolbox.mobile.service.tts.TtsRequestMode.NORMAL,
+                            settingsSnapshot = snapshot,
+                            ownerToken = "autospeak_block_$blockIdx",
+                        ),
+                    )
+                }, 200)
+            }
+
+            override fun handleAutoPaste() {
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    val svc = dev.screengoated.toolbox.mobile.service.SgtAccessibilityService.instance
+                    svc?.pasteIntoFocusedField()
+                }, 200)
+            }
+        }
+
         catalogJob = scope.launch(Dispatchers.Main.immediate) {
             presetRepository.catalogState.collectLatest {
                 panelModule.refresh()
@@ -247,36 +281,39 @@ internal class PresetOverlayController(
                 return
             }
 
-            // TEXT_SELECT: read selected text or clipboard, then execute immediately
+            // 1. Try accessibility tree scan first (instant, works for EditText)
             val svc = dev.screengoated.toolbox.mobile.service.SgtAccessibilityService.instance
-            android.util.Log.d("TextSelect", "Accessibility instance: ${svc != null}")
-            android.util.Log.d("TextSelect", "isAvailable: ${dev.screengoated.toolbox.mobile.service.SgtAccessibilityService.isAvailable}")
-            if (svc != null) {
-                val root = try { svc.rootInActiveWindow } catch (_: Exception) { null }
-                android.util.Log.d("TextSelect", "rootInActiveWindow: ${root != null}, pkg=${root?.packageName}")
-                val selectedDirect = svc.getSelectedText()
-                android.util.Log.d("TextSelect", "getSelectedText(): '${selectedDirect}'")
-                val clipText = svc.getClipboardText()
-                android.util.Log.d("TextSelect", "getClipboardText(): '${clipText?.take(50)}'")
-                root?.recycle()
-            }
-            val capturedText = dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
-                .getSelectedTextOrClipboard(context)
-            if (!capturedText.isNullOrBlank()) {
-                // Got text — execute immediately, no editor
-                presetRepository.executePreset(
-                    resolved.preset,
-                    dev.screengoated.toolbox.mobile.shared.preset.PresetInput.Text(capturedText),
-                )
+            val treeText = svc?.getSelectedText()
+            if (!treeText.isNullOrBlank()) {
+                android.util.Log.d("TextSelect", "Got text from tree scan: ${treeText.take(50)}")
+                presetRepository.executePreset(resolved.preset, PresetInput.Text(treeText))
             } else {
-                // No text selected and clipboard empty — tell user to select text first
-                val lang = uiLanguage()
-                val msg = when (lang) {
-                    "vi" -> "Hãy bôi chọn text trước, sau đó bấm lại preset này"
-                    "ko" -> "먼저 텍스트를 선택한 후 이 프리셋을 다시 누르세요"
-                    else -> "Select text first, then tap this preset again"
+                // 2. Click system "Copy" button to capture current selection into clipboard
+                //    MUST happen before ClipboardReaderActivity steals focus and dismisses toolbar
+                svc?.eagerCaptureSelection()
+
+                // 3. Async: launch ClipboardReaderActivity to read clipboard
+                //    Can't block main thread — Activity needs main looper to gain focus
+                android.util.Log.d("TextSelect", "Launching ClipboardReaderActivity")
+                processingIndicator.show(androidx.compose.ui.graphics.Color(0xFF5DB882))
+                dev.screengoated.toolbox.mobile.service.ClipboardReaderActivity.launch(context) { clipboardText ->
+                    android.util.Log.d("TextSelect", "ClipboardReaderActivity callback: '${clipboardText.take(50)}'")
+                    processingIndicator.dismiss()
+                    presetRepository.executePreset(resolved.preset, PresetInput.Text(clipboardText))
                 }
-                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                // If Activity fails to read clipboard within 5s, show fallback message
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    if (processingIndicator.isShowing) {
+                        processingIndicator.dismiss()
+                        val lang = uiLanguage()
+                        val msg = when (lang) {
+                            "vi" -> "Hãy copy text trước, sau đó bấm lại preset này"
+                            "ko" -> "먼저 텍스트를 복사한 후 이 프리셋을 다시 누르세요"
+                            else -> "Copy text first, then tap this preset again"
+                        }
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    }
+                }, 5000)
             }
         } else {
             inputModule.open(resolved)
@@ -314,6 +351,7 @@ internal class PresetOverlayController(
         } else {
             processingIndicator.dismiss()
         }
+
         resultModule.renderExecutionState(state, activePreset)
     }
 

@@ -11,6 +11,7 @@ internal class PresetGraphExecutor(
     private val runtimeSettings: () -> PresetRuntimeSettings,
     private val uiLanguage: () -> String,
     private val executionState: MutableStateFlow<PresetExecutionState>,
+    private val postProcessActions: PresetPostProcessActions = NoOpPostProcessActions,
 ) {
     suspend fun executeTextGraph(
         sessionId: String,
@@ -90,18 +91,22 @@ internal class PresetGraphExecutor(
 
                 else -> error("Non-text block execution is not ready on Android yet.")
             }
+
+            // ── Centralized per-block post-processing (matches Windows step.rs) ──
+            val blockOutput = outputs[index] ?: ""
+            if (blockOutput.isNotBlank()) {
+                if (block.autoCopy) {
+                    postProcessActions.handleAutoCopy(block, blockOutput)
+                }
+                if (block.autoSpeak) {
+                    postProcessActions.handleAutoSpeak(block, blockOutput, index)
+                }
+            }
         }
 
-        // Auto-paste: after all blocks complete, if preset has autoPaste,
-        // paste the last auto-copied result into the source app's focused field
+        // Auto-paste after ALL blocks complete (matches Windows post_process.rs)
         if (preset.autoPaste) {
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                val service = dev.screengoated.toolbox.mobile.service.SgtAccessibilityService.instance
-                if (service != null) {
-                    val pasted = service.pasteIntoFocusedField()
-                    android.util.Log.d("PresetGraphExec", "Auto-paste result: $pasted")
-                }
-            }, 200) // brief delay to let clipboard settle
+            postProcessActions.handleAutoPaste()
         }
     }
 
@@ -284,14 +289,6 @@ internal class PresetGraphExecutor(
 
         val finalResult = requireNotNull(result)
         outputs[index] = finalResult
-
-        // Auto-copy to clipboard if block has autoCopy enabled
-        if (block.autoCopy && finalResult.isNotBlank()) {
-            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                val service = dev.screengoated.toolbox.mobile.service.SgtAccessibilityService.instance
-                service?.copyToClipboard(finalResult)
-            }
-        }
 
         if (!shouldSurfaceOverlay) {
             return
