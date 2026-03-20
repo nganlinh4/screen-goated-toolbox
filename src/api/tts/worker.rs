@@ -16,6 +16,82 @@ use crate::api::client::UREQ_AGENT;
 use crate::APP;
 use isolang::Language;
 
+// ── Warm socket pool for instant TTS ──────────────────────────────────────
+use std::sync::Mutex;
+use tungstenite::WebSocket;
+use native_tls::TlsStream;
+use std::net::TcpStream;
+
+struct WarmSocket {
+    socket: WebSocket<TlsStream<TcpStream>>,
+    created_at: Instant,
+    api_key: String,
+}
+
+lazy_static::lazy_static! {
+    static ref WARM_SOCKET: Mutex<Option<WarmSocket>> = Mutex::new(None);
+}
+
+const WARM_SOCKET_MAX_AGE: Duration = Duration::from_secs(86400); // effectively forever — re-warm on failure
+
+fn acquire_warm_socket(api_key: &str) -> Option<WebSocket<TlsStream<TcpStream>>> {
+    let mut guard = WARM_SOCKET.lock().ok()?;
+    let mut warm = guard.take()?;
+    if warm.api_key != api_key || warm.created_at.elapsed() > WARM_SOCKET_MAX_AGE {
+        let _ = warm.socket.close(None);
+        return None;
+    }
+    eprintln!("[TTS Worker] Using WARM socket (0ms connect+setup)");
+    Some(warm.socket)
+}
+
+pub fn start_warm_up_public(api_key: String) {
+    start_warm_up(api_key);
+}
+
+fn start_warm_up(api_key: String) {
+    std::thread::spawn(move || {
+        let start = Instant::now();
+        match connect_tts_websocket(&api_key) {
+            Ok(mut socket) => {
+                // Send generic setup
+                if send_tts_setup(&mut socket, "Kore", "Normal", None).is_err() {
+                    let _ = socket.close(None);
+                    return;
+                }
+                // Wait for setupComplete
+                let deadline = Instant::now() + Duration::from_secs(10);
+                loop {
+                    if Instant::now() > deadline { let _ = socket.close(None); return; }
+                    match socket.read() {
+                        Ok(Message::Text(msg)) if msg.as_str().contains("setupComplete") => break,
+                        Ok(Message::Binary(data)) => {
+                            if String::from_utf8_lossy(&data).contains("setupComplete") { break; }
+                        }
+                        Err(_) => { return; }
+                        _ => { std::thread::sleep(Duration::from_millis(10)); }
+                    }
+                }
+                let elapsed = start.elapsed().as_millis();
+                eprintln!("[TTS Worker] Warm socket ready in {}ms", elapsed);
+                if let Ok(mut guard) = WARM_SOCKET.lock() {
+                    if let Some(mut old) = guard.take() {
+                        let _ = old.socket.close(None);
+                    }
+                    *guard = Some(WarmSocket {
+                        socket,
+                        created_at: Instant::now(),
+                        api_key,
+                    });
+                }
+            }
+            Err(e) => {
+                eprintln!("[TTS Worker] Warm-up connect failed: {}", e);
+            }
+        }
+    });
+}
+
 /// Socket Worker thread - fetches audio data and pipes it to the player
 pub fn run_socket_worker(manager: Arc<TtsManager>) {
     // Delay start slightly to stagger connections if multiple workers start at once
@@ -110,26 +186,30 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
             continue;
         }
 
-        eprintln!("[TTS Worker] Connecting to Gemini WebSocket...");
-
-        // Attempt to connect
-        let socket_result = connect_tts_websocket(&api_key);
-        let mut socket = match socket_result {
-            Ok(s) => {
-                eprintln!("[TTS Worker] WebSocket connected successfully");
-                s
-            }
-            Err(e) => {
-                eprintln!("[TTS Worker] ERROR: WebSocket connection failed: {}", e);
-                let _ = tx.send(AudioEvent::End);
-                clear_tts_loading_state(request.req.hwnd);
-                clear_tts_state(request.req.hwnd);
-                std::thread::sleep(Duration::from_secs(3));
-                continue;
+        // Try warm socket first (saves ~800ms)
+        let mut socket = if let Some(warm) = acquire_warm_socket(&api_key) {
+            warm
+        } else {
+            eprintln!("[TTS Worker] Connecting to Gemini WebSocket...");
+            let socket_result = connect_tts_websocket(&api_key);
+            match socket_result {
+                Ok(s) => {
+                    eprintln!("[TTS Worker] WebSocket connected successfully");
+                    s
+                }
+                Err(e) => {
+                    eprintln!("[TTS Worker] ERROR: WebSocket connection failed: {}", e);
+                    let _ = tx.send(AudioEvent::End);
+                    clear_tts_loading_state(request.req.hwnd);
+                    clear_tts_state(request.req.hwnd);
+                    std::thread::sleep(Duration::from_secs(3));
+                    continue;
+                }
             }
         };
 
-        // Read config for setup
+        // Read config for setup (only needed for fresh connections)
+        let needs_setup = WARM_SOCKET.lock().map(|g| g.is_none()).unwrap_or(true);
         let (current_voice, current_speed, language_instruction) = {
             let app = APP.lock().unwrap();
             let voice = app.config.tts_voice.clone();
@@ -144,7 +224,15 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
             }
         };
 
-        // Send setup
+        // Send setup (skip if using warm socket — already setup)
+        let mut setup_complete = needs_setup; // warm socket is already setup
+        if !setup_complete {
+            // Fresh connection — need to setup
+        } else {
+            // Warm socket — skip setup
+        }
+
+        if !setup_complete {
         if let Err(e) = send_tts_setup(
             &mut socket,
             &current_voice,
@@ -161,7 +249,6 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
 
         // Wait for setup acknowledgment
         let setup_start = Instant::now();
-        let mut setup_complete = false;
         loop {
             if request.generation < manager.interrupt_generation.load(Ordering::SeqCst)
                 || manager.shutdown.load(Ordering::SeqCst)
@@ -212,6 +299,8 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
         if manager.shutdown.load(Ordering::SeqCst) {
             return;
         }
+
+        } // end if !setup_complete (fresh connection setup block)
 
         if !setup_complete {
             let _ = socket.close(None);
@@ -281,6 +370,9 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
         }
 
         let _ = socket.close(None);
+
+        // Pre-connect next warm socket for subsequent requests
+        start_warm_up(api_key.clone());
     }
 }
 
