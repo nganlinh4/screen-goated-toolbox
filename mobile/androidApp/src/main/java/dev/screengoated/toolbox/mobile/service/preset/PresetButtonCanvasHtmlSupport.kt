@@ -208,6 +208,8 @@ internal fun mobileCanvasJavascript(): String {
         let activeSliderEl = null;
         let sliderRect = null;
         let sliderHwnd = null;
+        let openerTouchActive = false;
+        let openerTouchMoved = false;
 
         function collapseOpacity() {
             opacityOpen = false;
@@ -215,14 +217,26 @@ internal fun mobileCanvasJavascript(): String {
             activeSliderEl = null;
             sliderRect = null;
             sliderHwnd = null;
+            openerTouchActive = false;
+            openerTouchMoved = false;
             if (opacityCollapseTimer) { clearTimeout(opacityCollapseTimer); opacityCollapseTimer = null; }
             document.querySelectorAll('.touch-expanded').forEach(el => el.classList.remove('touch-expanded'));
             window.revealWindow(renderedWindowId || activeWindowId, 2000);
         }
 
+        window.collapseOpacitySlider = collapseOpacity;
+
         function scheduleOpacityCollapse() {
             if (opacityCollapseTimer) clearTimeout(opacityCollapseTimer);
             opacityCollapseTimer = setTimeout(collapseOpacity, 3000);
+        }
+
+        function prepSliderForDrag(opacityBtn, hwnd) {
+            activeSliderEl = opacityBtn.querySelector('.opacity-slider-inline');
+            sliderHwnd = hwnd;
+            if (activeSliderEl) {
+                sliderRect = activeSliderEl.getBoundingClientRect();
+            }
         }
 
         function updateSliderFromTouch(clientX) {
@@ -249,20 +263,20 @@ internal fun mobileCanvasJavascript(): String {
                 if (!opacityOpen) {
                     opacityOpen = true;
                     sliderActive = true;
+                    openerTouchActive = true;
+                    openerTouchMoved = false;
                     opacityBtn.classList.add('touch-expanded');
                     window.revealWindow(group.dataset.hwnd, 30000);
-                    scheduleOpacityCollapse();
+                    prepSliderForDrag(opacityBtn, group.dataset.hwnd);
                 } else if (!target.closest('.opacity-slider-inline') && !target.closest('.opacity-slider-wrapper')) {
                     collapseOpacity();
                 } else {
                     sliderActive = true;
-                    activeSliderEl = opacityBtn.querySelector('.opacity-slider-inline');
-                    sliderHwnd = group.dataset.hwnd;
-                    if (activeSliderEl) {
-                        sliderRect = activeSliderEl.getBoundingClientRect();
-                        const touch = event.touches[0];
-                        if (touch) updateSliderFromTouch(touch.clientX);
-                    }
+                    openerTouchActive = false;
+                    openerTouchMoved = false;
+                    prepSliderForDrag(opacityBtn, group.dataset.hwnd);
+                    const touch = event.touches[0];
+                    if (touch && activeSliderEl) updateSliderFromTouch(touch.clientX);
                     if (opacityCollapseTimer) { clearTimeout(opacityCollapseTimer); opacityCollapseTimer = null; }
                     window.revealWindow(group.dataset.hwnd, 30000);
                 }
@@ -275,18 +289,25 @@ internal fun mobileCanvasJavascript(): String {
 
         document.addEventListener('touchmove', event => {
             if (opacityOpen && activeSliderEl && event.touches.length > 0) {
+                openerTouchMoved = true;
                 updateSliderFromTouch(event.touches[0].clientX);
             }
         }, { passive: true });
 
         document.addEventListener('touchend', () => {
-            if (opacityOpen && activeSliderEl) {
+            if (!opacityOpen) return;
+            if (openerTouchActive && !openerTouchMoved) {
+                // Simple tap to open — keep open, start auto-collapse timer
+                openerTouchActive = false;
+                scheduleOpacityCollapse();
+            } else {
+                // Dragged the slider or second touch — collapse
                 collapseOpacity();
             }
         }, { passive: true });
 
         document.addEventListener('touchcancel', () => {
-            if (opacityOpen && activeSliderEl) {
+            if (opacityOpen) {
                 collapseOpacity();
             }
         }, { passive: true });

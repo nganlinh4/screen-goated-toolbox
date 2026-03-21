@@ -118,7 +118,7 @@ internal fun syncPanelWindowStateScriptSupport(
     val bubbleCenterY = bubbleBounds.y + (bubbleBounds.height / 2)
     val bubbleCenterCssX = ((bubbleCenterX - panelBounds.x) / density).roundToInt()
     val bubbleCenterCssY = ((bubbleCenterY - panelBounds.y) / density).roundToInt()
-    val bubbleOverlapCssPx = ((bubbleBounds.width / density) + 4f).roundToInt()
+    val bubbleOverlapCssPx = 0
     val side = if (bubbleBounds.x > screenBounds.width() / 2) {
         FavoriteBubbleSide.RIGHT
     } else {
@@ -167,7 +167,9 @@ internal fun panelWindowSpecSupport(
             .coerceAtMost((screenCssWidth - overlapCssWidth - PANEL_EDGE_GUTTER_CSS).coerceAtLeast(columnWidthCss))
     }
     val panelBodyWidth = cssToPhysical(panelBodyWidthCss)
-    val width = panelBodyWidth + overlapWidth
+    // Panel window must NOT overlap the bubble — otherwise we need bringBubbleToFront
+    // (remove + re-add) which causes a visible blink on every panel open.
+    val width = panelBodyWidth
     val contentHeightCss = if (itemCount == 0) {
         EMPTY_PANEL_HEIGHT_CSS + PANEL_HEIGHT_BUFFER_CSS + KEEP_OPEN_ROW_HEIGHT_CSS
     } else {
@@ -176,10 +178,11 @@ internal fun panelWindowSpecSupport(
     }
     val maxHeightCss = screenCssHeight * PANEL_MAX_HEIGHT_SCREEN_RATIO
     val height = cssToPhysical(contentHeightCss.toFloat().coerceAtMost(maxHeightCss))
+    val gap = dp(1)
     val x = if (bubbleBounds.x > screenBounds.width() / 2) {
-        (bubbleBounds.x - panelBodyWidth - dp(4)).coerceAtLeast(0)
+        (bubbleBounds.x - panelBodyWidth - gap).coerceAtLeast(0)
     } else {
-        bubbleBounds.x.coerceAtMost((screenBounds.width() - width).coerceAtLeast(0))
+        (bubbleBounds.x + bubbleBounds.width + gap).coerceAtMost((screenBounds.width() - width).coerceAtLeast(0))
     }
     val y = (bubbleBounds.y - (height / 2) + (bubbleBounds.height / 2))
         .coerceIn(0, (screenBounds.height() - height).coerceAtLeast(0))

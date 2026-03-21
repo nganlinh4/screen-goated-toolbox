@@ -128,7 +128,7 @@ internal class PresetOverlayResultModule(
             "activateResultWindow" -> setActiveResultWindow(id)
             "dragResultWindow" -> {
                 dismissTarget.ensureShown()
-                canvasWindow?.hide()
+                canvasWindow?.runScript("if(window.collapseOpacitySlider)collapseOpacitySlider()")
                 active.window.moveBy(
                     dx = payload.optDouble("dx", 0.0).roundToInt(),
                     dy = payload.optDouble("dy", 0.0).roundToInt(),
@@ -163,7 +163,6 @@ internal class PresetOverlayResultModule(
                 }
             }
             "resizeResultWindow" -> {
-                canvasWindow?.hide()
                 resizeResultWindowSupport(
                     active = active,
                     corner = payload.optString("corner"),
