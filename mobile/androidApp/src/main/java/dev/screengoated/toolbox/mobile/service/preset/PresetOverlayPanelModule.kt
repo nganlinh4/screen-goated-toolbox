@@ -91,7 +91,7 @@ internal class PresetOverlayPanelModule(
     fun handleMessage(message: String) {
         when {
             message == "dismiss" || message == "close_now" -> close(animate = false)
-            message == "focus_bubble" || message == "panel_ready" -> onRequestBubbleFront()
+            message == "focus_bubble" || message == "panel_ready" -> {}
             message.startsWith("resize:") -> {
                 val window = panelWindow ?: return
                 val measuredHeight = message.substringAfter("resize:", "").toIntOrNull() ?: return
@@ -113,20 +113,17 @@ internal class PresetOverlayPanelModule(
                     false,
                 )
                 if (message.startsWith("trigger_only:") || message.startsWith("trigger_continuous_only:")) {
-                    onRequestBubbleFront()
+                    // Panel doesn't overlap bubble, no z-reorder needed
                 }
             }
             message.startsWith("set_keep_open:") -> {
                 onKeepOpenChanged(message.substringAfter("set_keep_open:", "") == "1")
-                onRequestBubbleFront()
             }
             message == "increase_size" -> {
                 onIncreaseBubbleSize()
-                onRequestBubbleFront()
             }
             message == "decrease_size" -> {
                 onDecreaseBubbleSize()
-                onRequestBubbleFront()
             }
             message.startsWith("{") -> {
                 val payload = message.jsonOrNull() ?: return
@@ -168,7 +165,6 @@ internal class PresetOverlayPanelModule(
             onPanelExpandedChanged(true)
             syncPanelWindowState(window)
             window.runScript(openPanelScriptSupport(window.currentBounds(), bubbleBoundsProvider(), density))
-            onRequestBubbleFront()
         }
     }
 
@@ -198,7 +194,6 @@ internal class PresetOverlayPanelModule(
                 showPanelImmediatelyScriptSupport()
             },
         )
-        onRequestBubbleFront()
     }
 
     private fun close(animate: Boolean) {

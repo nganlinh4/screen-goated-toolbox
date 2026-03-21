@@ -47,6 +47,7 @@ class BubbleService : Service() {
     private var presetOverlayController: dev.screengoated.toolbox.mobile.service.preset.PresetOverlayController? = null
 
     private var attached = false
+    private var bubbleFrontPending = false
     private var dismissBubbleView: View? = null
     private var lastFingerDistSq = Int.MAX_VALUE
     private var isPanelExpanded = false
@@ -291,18 +292,23 @@ class BubbleService : Service() {
         if (!attached) {
             return
         }
-        recordBubbleInteraction()
-        runCatching { windowManager.removeView(bubbleView) }
-            .onSuccess { attached = false }
-            .onFailure { Log.w(TAG, "Could not remove bubble before front reorder", it) }
-        runCatching { windowManager.addView(bubbleView, layoutParams) }
-            .onSuccess {
-                attached = true
-            }
-            .onFailure {
-                attached = false
-                Log.w(TAG, "Could not bring bubble to front", it)
-            }
+        // Debounce: coalesce rapid calls into a single remove+add per frame
+        if (bubbleFrontPending) return
+        bubbleFrontPending = true
+        bubbleView.post {
+            bubbleFrontPending = false
+            if (!attached) return@post
+            recordBubbleInteraction()
+            runCatching { windowManager.removeViewImmediate(bubbleView) }
+                .onSuccess { attached = false }
+                .onFailure { Log.w(TAG, "Could not remove bubble before front reorder", it) }
+            runCatching { windowManager.addView(bubbleView, layoutParams) }
+                .onSuccess { attached = true }
+                .onFailure {
+                    attached = false
+                    Log.w(TAG, "Could not bring bubble to front", it)
+                }
+        }
     }
 
     private fun isKeepOpenEnabled(): Boolean {

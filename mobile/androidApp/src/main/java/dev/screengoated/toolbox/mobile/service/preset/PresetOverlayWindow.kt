@@ -193,6 +193,14 @@ internal class PresetOverlayWindow(
         attached = false
     }
 
+    /**
+     * Visually suppress/unsuppress the window without removing from WindowManager.
+     * Avoids the removeView/addView cycle that causes all overlays to blink.
+     */
+    fun setSuppressed(suppressed: Boolean) {
+        rootView.visibility = if (suppressed) View.INVISIBLE else View.VISIBLE
+    }
+
     fun destroy() {
         hide()
         webView.destroy()
@@ -320,10 +328,10 @@ internal class PresetOverlayWindow(
     }
 
     fun setWindowAlpha(alpha: Float) {
-        layoutParams.alpha = alpha.coerceIn(0.1f, 1.0f)
-        if (attached) {
-            scheduleLayoutApply()
-        }
+        // Apply opacity on the View layer, NOT layoutParams.alpha.
+        // Android's tapjacking protection blocks touch on windows with
+        // layoutParams.alpha < ~0.5, making the overlay uninteractable.
+        rootView.alpha = alpha.coerceIn(0.1f, 1.0f)
     }
 
     fun updateTouchRegions(regions: List<Rect>) {

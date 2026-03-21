@@ -321,7 +321,7 @@ internal class PresetOverlayController(
             inputModule.open(resolved)
         }
         if (!closePanel) {
-            onRequestBubbleFront()
+            // Panel doesn't overlap bubble — no z-reorder needed
         }
     }
 
