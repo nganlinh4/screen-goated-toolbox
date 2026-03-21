@@ -65,6 +65,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.downloader.DownloaderViewModel
 import dev.screengoated.toolbox.mobile.downloader.ui.DownloaderScreen
+import dev.screengoated.toolbox.mobile.history.HistoryUiState
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
@@ -89,6 +90,8 @@ fun SgtMobileApp(
     presetRuntimeSettings: PresetRuntimeSettings,
     uiPreferences: MobileUiPreferences,
     locale: MobileLocaleText,
+    historyState: HistoryUiState,
+    historySearchQuery: String,
     edgeVoiceCatalogState: EdgeVoiceCatalogState,
     onApiKeyChanged: (String) -> Unit,
     onCerebrasApiKeyChanged: (String) -> Unit,
@@ -108,6 +111,11 @@ fun SgtMobileApp(
     onPreviewGeminiVoice: (String) -> Unit,
     onPreviewEdgeVoice: (String, String) -> Unit,
     onSessionToggle: () -> Unit,
+    onHistorySearchQueryChanged: (String) -> Unit,
+    onClearHistorySearchQuery: () -> Unit,
+    onHistoryMaxItemsChanged: (Int) -> Unit,
+    onDeleteHistoryItem: (Long) -> Unit,
+    onClearHistoryItems: () -> Unit,
     onOverlayOpacityChanged: (Int) -> Unit = {},
 ) {
     var showTtsSettings by rememberSaveable { mutableStateOf(false) }
@@ -223,6 +231,8 @@ fun SgtMobileApp(
                     globalTtsSettings = globalTtsSettings,
                     presetRuntimeSettings = presetRuntimeSettings,
                     locale = locale,
+                    historyState = historyState,
+                    historySearchQuery = historySearchQuery,
                     onApiKeyChanged = onApiKeyChanged,
                     onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
                     onGroqApiKeyChanged = onGroqApiKeyChanged,
@@ -251,6 +261,11 @@ fun SgtMobileApp(
                     onDownloaderClick = { showDownloader = true },
                     onDjClick = { showDj = true },
                     onPresetClick = { presetId -> activePresetId = presetId },
+                    onHistorySearchQueryChanged = onHistorySearchQueryChanged,
+                    onClearHistorySearchQuery = onClearHistorySearchQuery,
+                    onHistoryMaxItemsChanged = onHistoryMaxItemsChanged,
+                    onDeleteHistoryItem = onDeleteHistoryItem,
+                    onClearHistoryItems = onClearHistoryItems,
                 )
             }
         }

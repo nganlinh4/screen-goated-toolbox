@@ -118,7 +118,7 @@ internal fun syncPanelWindowStateScriptSupport(
     val bubbleCenterY = bubbleBounds.y + (bubbleBounds.height / 2)
     val bubbleCenterCssX = ((bubbleCenterX - panelBounds.x) / density).roundToInt()
     val bubbleCenterCssY = ((bubbleCenterY - panelBounds.y) / density).roundToInt()
-    val bubbleOverlapCssPx = 0
+    val bubbleOverlapCssPx = panelBubbleOverlapCssWidthSupport(bubbleBounds, density).roundToInt()
     val side = if (bubbleBounds.x > screenBounds.width() / 2) {
         FavoriteBubbleSide.RIGHT
     } else {
@@ -148,11 +148,10 @@ internal fun panelWindowSpecSupport(
     density: Float,
     screenBounds: Rect,
     cssToPhysical: (Float) -> Int,
-    dp: (Int) -> Int,
 ): PresetOverlayWindowSpec {
     val screenCssWidth = screenBounds.width() / density
     val screenCssHeight = screenBounds.height() / density
-    val overlapCssWidth = (bubbleBounds.width / density) + PANEL_OVERLAP_MARGIN_CSS
+    val overlapCssWidth = panelBubbleOverlapCssWidthSupport(bubbleBounds, density)
     val overlapWidth = cssToPhysical(overlapCssWidth)
     val columns = panelColumnCountSupport(itemCount, bubbleBounds, density, screenBounds)
     val columnWidthCss = panelColumnWidthCss(columns)
@@ -167,9 +166,9 @@ internal fun panelWindowSpecSupport(
             .coerceAtMost((screenCssWidth - overlapCssWidth - PANEL_EDGE_GUTTER_CSS).coerceAtLeast(columnWidthCss))
     }
     val panelBodyWidth = cssToPhysical(panelBodyWidthCss)
-    // Panel window must NOT overlap the bubble — otherwise we need bringBubbleToFront
-    // (remove + re-add) which causes a visible blink on every panel open.
-    val width = panelBodyWidth
+    // Match Windows: panel content stays beside the bubble, but the window extends
+    // behind it so bloom/collapse animations originate from the bubble itself.
+    val width = panelBodyWidth + overlapWidth
     val contentHeightCss = if (itemCount == 0) {
         EMPTY_PANEL_HEIGHT_CSS + PANEL_HEIGHT_BUFFER_CSS + KEEP_OPEN_ROW_HEIGHT_CSS
     } else {
@@ -178,11 +177,11 @@ internal fun panelWindowSpecSupport(
     }
     val maxHeightCss = screenCssHeight * PANEL_MAX_HEIGHT_SCREEN_RATIO
     val height = cssToPhysical(contentHeightCss.toFloat().coerceAtMost(maxHeightCss))
-    val gap = dp(1)
+    val gap = cssToPhysical(PANEL_OVERLAP_MARGIN_CSS)
     val x = if (bubbleBounds.x > screenBounds.width() / 2) {
         (bubbleBounds.x - panelBodyWidth - gap).coerceAtLeast(0)
     } else {
-        (bubbleBounds.x + bubbleBounds.width + gap).coerceAtMost((screenBounds.width() - width).coerceAtLeast(0))
+        bubbleBounds.x.coerceAtMost((screenBounds.width() - width).coerceAtLeast(0))
     }
     val y = (bubbleBounds.y - (height / 2) + (bubbleBounds.height / 2))
         .coerceIn(0, (screenBounds.height() - height).coerceAtLeast(0))
@@ -221,7 +220,7 @@ internal fun panelColumnCountSupport(
 ): Int {
     val screenCssWidth = screenBounds.width() / density
     val screenCssHeight = screenBounds.height() / density
-    val overlapCssWidth = (bubbleBounds.width / density) + PANEL_OVERLAP_MARGIN_CSS
+    val overlapCssWidth = panelBubbleOverlapCssWidthSupport(bubbleBounds, density)
     val desiredColumns = desiredPanelColumnCount(itemCount)
     val maxItemsPerColumn = maxItemsPerColumn(screenCssHeight).coerceAtLeast(1)
     val heightDrivenColumns = if (itemCount > 0) itemCount.divCeil(maxItemsPerColumn) else 1
@@ -248,6 +247,13 @@ private fun maxItemsPerColumn(screenCssHeight: Float): Int {
 
 private fun panelColumnWidthCss(columnCount: Int): Float {
     return if (columnCount > 1) MOBILE_MULTI_COLUMN_WIDTH_CSS else PANEL_COLUMN_WIDTH_CSS.toFloat()
+}
+
+internal fun panelBubbleOverlapCssWidthSupport(
+    bubbleBounds: OverlayBounds,
+    density: Float,
+): Float {
+    return (bubbleBounds.width / density) + PANEL_OVERLAP_MARGIN_CSS
 }
 
 private fun maxColumnsForScreen(screenCssWidth: Float, overlapCssWidth: Float, columnWidthCss: Float): Int {

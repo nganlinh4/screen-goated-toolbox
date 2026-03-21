@@ -160,6 +160,7 @@ import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
+import dev.screengoated.toolbox.mobile.history.HistoryUiState
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
@@ -757,6 +758,8 @@ internal fun SectionDetail(
     ollamaUrl: String,
     globalTtsSettings: MobileGlobalTtsSettings,
     presetRuntimeSettings: PresetRuntimeSettings,
+    historyState: HistoryUiState,
+    historySearchQuery: String,
     locale: MobileLocaleText,
     wideLayout: Boolean,
     onApiKeyChanged: (String) -> Unit,
@@ -771,6 +774,11 @@ internal fun SectionDetail(
     uiPreferences: dev.screengoated.toolbox.mobile.model.MobileUiPreferences = dev.screengoated.toolbox.mobile.model.MobileUiPreferences(),
     onOverlayOpacityChanged: (Int) -> Unit = {},
     onSessionToggle: () -> Unit,
+    onHistorySearchQueryChanged: (String) -> Unit = {},
+    onClearHistorySearchQuery: () -> Unit = {},
+    onHistoryMaxItemsChanged: (Int) -> Unit = {},
+    onDeleteHistoryItem: (Long) -> Unit = {},
+    onClearHistoryItems: () -> Unit = {},
     canToggle: Boolean,
     onDownloaderClick: () -> Unit = {},
     onDjClick: () -> Unit = {},
@@ -822,10 +830,15 @@ internal fun SectionDetail(
             onOverlayOpacityChanged = onOverlayOpacityChanged,
         )
 
-        MobileShellSection.HISTORY -> PlaceholderSection(
-            label = locale.shellHistoryLabel,
-            description = locale.shellHistoryDescription,
+        MobileShellSection.HISTORY -> HistorySection(
+            state = historyState,
+            searchQuery = historySearchQuery,
             locale = locale,
+            onSearchQueryChanged = onHistorySearchQueryChanged,
+            onClearSearchQuery = onClearHistorySearchQuery,
+            onMaxItemsChanged = onHistoryMaxItemsChanged,
+            onDeleteItem = onDeleteHistoryItem,
+            onClearAll = onClearHistoryItems,
         )
     }
 }
@@ -2160,8 +2173,12 @@ internal fun GlobalSection(
     onResetDefaults: () -> Unit,
     onVoiceSettingsClick: () -> Unit,
     onOverlayOpacityChanged: (Int) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap)) {
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap),
+    ) {
         if (wideLayout) {
             Row(
                 modifier = Modifier.fillMaxWidth(),

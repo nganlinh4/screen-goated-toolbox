@@ -3,10 +3,14 @@ package dev.screengoated.toolbox.mobile
 import android.content.Context
 import dev.screengoated.toolbox.mobile.downloader.DownloaderPersistence
 import dev.screengoated.toolbox.mobile.downloader.DownloaderRepository
+import dev.screengoated.toolbox.mobile.history.HistoryBackedPresetHistoryRecorder
+import dev.screengoated.toolbox.mobile.history.HistoryPersistence
+import dev.screengoated.toolbox.mobile.history.HistoryRepository
 import dev.screengoated.toolbox.mobile.preset.ApiKeys
 import dev.screengoated.toolbox.mobile.preset.PresetPersistence
 import dev.screengoated.toolbox.mobile.preset.PresetRepository
 import dev.screengoated.toolbox.mobile.preset.TextApiClient
+import dev.screengoated.toolbox.mobile.preset.VisionApiClient
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.PermissionSnapshotEvaluator
 import dev.screengoated.toolbox.mobile.service.GeminiLiveSocketClient
@@ -42,6 +46,8 @@ class AppContainer(
     private val permissionEvaluator = PermissionSnapshotEvaluator(projectionConsentStore)
     private val sessionStore = LiveSessionStore()
     private val edgeVoiceCatalogService = EdgeVoiceCatalogService(httpClient, settingsStore, json)
+    private val historyPersistence = HistoryPersistence(appContext, json)
+    val historyRepository = HistoryRepository(historyPersistence)
 
     val repository = AndroidLiveSessionRepository(
         context = appContext,
@@ -50,6 +56,7 @@ class AppContainer(
         permissionEvaluator = permissionEvaluator,
         projectionConsentStore = projectionConsentStore,
         overlaySupported = BuildConfig.OVERLAY_SUPPORTED,
+        historyRepository = historyRepository,
     )
 
     val parakeetModelManager = ParakeetModelManager(appContext)
@@ -60,9 +67,11 @@ class AppContainer(
     }
 
     private val textApiClient = TextApiClient(httpClient)
+    private val visionApiClient = VisionApiClient(httpClient)
     private val presetPersistence = PresetPersistence(appContext, json)
     val presetRepository = PresetRepository(
         textApiClient = textApiClient,
+        visionApiClient = visionApiClient,
         apiKeys = {
             ApiKeys(
                 geminiKey = repository.currentApiKey(),
@@ -75,6 +84,7 @@ class AppContainer(
         runtimeSettings = { settingsStore.loadPresetRuntimeSettings() },
         uiLanguage = { repository.currentUiPreferences().uiLanguage },
         overrideStore = presetPersistence,
+        historyRecorder = HistoryBackedPresetHistoryRecorder(historyRepository),
     )
 
     val geminiLiveSocketClient = GeminiLiveSocketClient(httpClient)

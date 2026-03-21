@@ -103,6 +103,7 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
 
     private fun stopSession() {
         runtime.stop()
+        repository.commitPendingLiveHistory()
         repository.stop()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()

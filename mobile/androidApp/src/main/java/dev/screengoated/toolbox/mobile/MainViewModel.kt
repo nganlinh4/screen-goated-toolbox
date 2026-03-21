@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import dev.screengoated.toolbox.mobile.history.HistoryRepository
+import dev.screengoated.toolbox.mobile.history.HistoryUiState
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
@@ -28,13 +30,17 @@ import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionPatch
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class MainViewModel(
     private val repository: AndroidLiveSessionRepository,
+    private val historyRepository: HistoryRepository,
     private val ttsRuntimeService: TtsRuntimeService,
 ) : ViewModel() {
     private var lastPreviewIndex = -1
+    private val mutableHistorySearchQuery = MutableStateFlow("")
 
     val sessionState: StateFlow<dev.screengoated.toolbox.mobile.shared.live.LiveSessionState> =
         repository.state
@@ -48,6 +54,8 @@ class MainViewModel(
     val uiPreferences: StateFlow<MobileUiPreferences> = repository.uiPreferences
     val presetRuntimeSettings: StateFlow<PresetRuntimeSettings> = repository.presetRuntimeSettings
     val edgeVoiceCatalogState: StateFlow<EdgeVoiceCatalogState> = ttsRuntimeService.edgeVoiceCatalogState
+    val historyState: StateFlow<HistoryUiState> = historyRepository.state
+    val historySearchQuery: StateFlow<String> = mutableHistorySearchQuery.asStateFlow()
 
     init {
         repository.updateConfig(
@@ -251,6 +259,26 @@ class MainViewModel(
         repository.syncStoppedState()
     }
 
+    fun onHistorySearchQueryChanged(query: String) {
+        mutableHistorySearchQuery.value = query
+    }
+
+    fun clearHistorySearchQuery() {
+        mutableHistorySearchQuery.value = ""
+    }
+
+    fun onHistoryMaxItemsChanged(value: Int) {
+        historyRepository.updateMaxItems(value)
+    }
+
+    fun deleteHistoryItem(id: Long) {
+        historyRepository.delete(id)
+    }
+
+    fun clearHistoryItems() {
+        historyRepository.clearAll()
+    }
+
     fun hasApiKey(): Boolean = repository.currentApiKey().isNotBlank()
 
     fun fail(message: String) {
@@ -270,11 +298,12 @@ class MainViewModel(
     companion object {
         fun factory(application: SgtMobileApplication): ViewModelProvider.Factory {
             val repository = application.appContainer.repository
+            val historyRepository = application.appContainer.historyRepository
             val ttsRuntimeService = application.appContainer.ttsRuntimeService
             return object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return MainViewModel(repository, ttsRuntimeService) as T
+                    return MainViewModel(repository, historyRepository, ttsRuntimeService) as T
                 }
             }
         }

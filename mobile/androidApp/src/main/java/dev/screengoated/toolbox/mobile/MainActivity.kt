@@ -91,6 +91,8 @@ class MainActivity : ComponentActivity() {
             val uiPreferences by viewModel.uiPreferences.collectAsStateWithLifecycle()
             val presetRuntimeSettings by viewModel.presetRuntimeSettings.collectAsStateWithLifecycle()
             val edgeVoiceCatalogState by viewModel.edgeVoiceCatalogState.collectAsStateWithLifecycle()
+            val historyState by viewModel.historyState.collectAsStateWithLifecycle()
+            val historySearchQuery by viewModel.historySearchQuery.collectAsStateWithLifecycle()
             val context = LocalContext.current
             val locale = MobileLocaleText.forLanguage(uiPreferences.uiLanguage)
             val onSessionToggle by rememberUpdatedState {
@@ -124,6 +126,8 @@ class MainActivity : ComponentActivity() {
                     presetRuntimeSettings = presetRuntimeSettings,
                     uiPreferences = uiPreferences,
                     locale = locale,
+                    historyState = historyState,
+                    historySearchQuery = historySearchQuery,
                     onApiKeyChanged = viewModel::onApiKeyChanged,
                     onCerebrasApiKeyChanged = viewModel::onCerebrasApiKeyChanged,
                     onGroqApiKeyChanged = viewModel::onGroqApiKeyChanged,
@@ -144,6 +148,11 @@ class MainActivity : ComponentActivity() {
                     onPreviewEdgeVoice = viewModel::previewEdgeVoice,
                     onSessionToggle = onSessionToggle,
                     onOverlayOpacityChanged = viewModel::onOverlayOpacityChanged,
+                    onHistorySearchQueryChanged = viewModel::onHistorySearchQueryChanged,
+                    onClearHistorySearchQuery = viewModel::clearHistorySearchQuery,
+                    onHistoryMaxItemsChanged = viewModel::onHistoryMaxItemsChanged,
+                    onDeleteHistoryItem = viewModel::deleteHistoryItem,
+                    onClearHistoryItems = viewModel::clearHistoryItems,
                 )
             }
         }

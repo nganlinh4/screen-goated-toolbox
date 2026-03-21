@@ -57,6 +57,12 @@ cargo test               # Run tests
 - APK install is typically done with:
   - `C:\Users\user\android-sdk\platform-tools\adb.exe connect <host:port>`
   - `adb.exe -s <host:port> install -r C:\WORK\screen-goated-toolbox\mobile\androidApp\build\outputs\apk\full\debug\androidApp-full-debug.apk`
+- From WSL, the stable path is the repo wrapper `mobile/scripts/sgtp-wsl.sh`, which shells out to Windows PowerShell with the known-good JDK/SDK and then reuses `mobile/scripts/sgtp.ps1` for ADB connect/install/launch.
+- Preferred WSL commands:
+  - `./mobile/scripts/sgtp-wsl.sh build`
+  - `./mobile/scripts/sgtp-wsl.sh install`
+  - `./mobile/scripts/sgtp-wsl.sh run`
+  - `./mobile/scripts/sgtp-wsl.sh gradle :androidApp:testFullDebugUnitTest --console=plain`
 
 ## Claude Code Rules
 - **Never run `cargo build --release`** - the user will build manually when ready

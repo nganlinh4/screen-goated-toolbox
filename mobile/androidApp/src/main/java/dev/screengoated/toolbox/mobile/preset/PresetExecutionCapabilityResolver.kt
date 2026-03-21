@@ -14,10 +14,7 @@ internal class PresetExecutionCapabilityResolver {
         }
 
         return when (preset.presetType) {
-            PresetType.IMAGE -> PresetExecutionCapability(
-                supported = false,
-                reason = PresetPlaceholderReason.IMAGE_CAPTURE_NOT_READY,
-            )
+            PresetType.IMAGE -> resolveImageCapability(preset)
             PresetType.TEXT_SELECT -> resolveTextSelectCapability(preset)
             PresetType.TEXT_INPUT -> resolveTextInputCapability(preset)
             PresetType.MIC,
@@ -113,6 +110,46 @@ internal class PresetExecutionCapabilityResolver {
         return PresetExecutionCapability(supported = true)
     }
 
+    private fun resolveImageCapability(preset: Preset): PresetExecutionCapability {
+        if (preset.blocks.isEmpty()) {
+            return PresetExecutionCapability(
+                supported = false,
+                reason = PresetPlaceholderReason.IMAGE_CAPTURE_NOT_READY,
+            )
+        }
+        val unsupportedVisionModel = preset.blocks.firstOrNull { block ->
+            block.blockType == BlockType.IMAGE && !isVisionModelSupported(block.model)
+        }
+        if (unsupportedVisionModel != null) {
+            return PresetExecutionCapability(
+                supported = false,
+                reason = PresetPlaceholderReason.MODEL_PROVIDER_NOT_READY,
+            )
+        }
+        val unsupportedTextModel = preset.blocks.firstOrNull { block ->
+            block.blockType == BlockType.TEXT && !isTextModelSupported(block.model)
+        }
+        if (unsupportedTextModel != null) {
+            return PresetExecutionCapability(
+                supported = false,
+                reason = PresetPlaceholderReason.MODEL_PROVIDER_NOT_READY,
+            )
+        }
+        return PresetExecutionCapability(supported = true)
+    }
+
+    private fun isVisionModelSupported(modelId: String): Boolean {
+        val descriptor = PresetModelCatalog.getById(modelId) ?: return false
+        if (descriptor.modelType != PresetModelType.VISION) return false
+        return descriptor.provider in setOf(
+            PresetModelProvider.GOOGLE,
+            PresetModelProvider.GROQ,
+            PresetModelProvider.OPENROUTER,
+            PresetModelProvider.OLLAMA,
+            PresetModelProvider.QRSERVER,
+        )
+    }
+
     private fun isTextModelSupported(modelId: String): Boolean {
         val descriptor = PresetModelCatalog.getById(modelId) ?: return false
         if (descriptor.modelType != PresetModelType.TEXT) {
@@ -153,5 +190,5 @@ internal fun PresetPlaceholderReason.message(): String = when (this) {
     PresetPlaceholderReason.GRAPH_EDITING_NOT_READY ->
         "Use the edit button to open the full node graph editor."
     PresetPlaceholderReason.NON_TEXT_GRAPH_NOT_READY ->
-        "Only text-input preset graphs are executable on Android right now."
+        "This preset graph still uses Android-unsupported block types."
 }

@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.model
 
 import android.content.Context
 import android.content.Intent
+import dev.screengoated.toolbox.mobile.history.HistoryRepository
 import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionMetrics
@@ -14,6 +15,7 @@ import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.shared.live.TranscriptionMethod
 import dev.screengoated.toolbox.mobile.shared.live.TranslationRequest
+import dev.screengoated.toolbox.mobile.shared.live.LiveTextState
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
 import dev.screengoated.toolbox.mobile.storage.SecureSettingsStore
@@ -28,6 +30,7 @@ class AndroidLiveSessionRepository(
     private val permissionEvaluator: PermissionSnapshotEvaluator,
     private val projectionConsentStore: ProjectionConsentStore,
     private val overlaySupported: Boolean,
+    private val historyRepository: HistoryRepository,
 ) {
     private val mutableApiKey = MutableStateFlow(settingsStore.loadApiKey())
     private val mutableCerebrasApiKey = MutableStateFlow(settingsStore.loadCerebrasApiKey())
@@ -183,11 +186,18 @@ class AndroidLiveSessionRepository(
     }
 
     fun finalizeTranslation(bytesToCommit: Int) {
+        val previousLiveText = state.value.liveText
         store.finalizeTranslation(bytesToCommit)
+        persistCommittedSegment(previousLiveText, state.value.liveText)
     }
 
     fun forceCommitIfDue(nowMs: Long): Boolean {
-        return store.forceCommitIfDue(nowMs)
+        val previousLiveText = state.value.liveText
+        val committed = store.forceCommitIfDue(nowMs)
+        if (committed) {
+            persistCommittedSegment(previousLiveText, state.value.liveText)
+        }
+        return committed
     }
 
     fun updateMetrics(metrics: LiveSessionMetrics) {
@@ -204,6 +214,12 @@ class AndroidLiveSessionRepository(
 
     fun stop() {
         store.stop()
+    }
+
+    fun commitPendingLiveHistory() {
+        val previousLiveText = state.value.liveText
+        store.forceCommitAll()
+        persistCommittedSegment(previousLiveText, state.value.liveText)
     }
 
     fun currentApiKey(): String = apiKey.value.trim()
@@ -283,6 +299,44 @@ class AndroidLiveSessionRepository(
                 id = RealtimeModelIds.TRANSCRIPTION_GEMINI,
                 model = "gemini-2.5-flash-native-audio-preview-12-2025",
             )
+        }
+    }
+
+    private fun persistCommittedSegment(
+        previous: LiveTextState,
+        current: LiveTextState,
+    ) {
+        if (current.lastCommittedPos <= previous.lastCommittedPos) {
+            return
+        }
+        val sourceSegment = current.fullTranscript
+            .substring(previous.lastCommittedPos, current.lastCommittedPos)
+            .trim()
+        val translationSegment = committedTranslationDelta(
+            previous = previous.committedTranslation,
+            current = current.committedTranslation,
+        )
+        if (sourceSegment.isBlank() || translationSegment.isBlank()) {
+            return
+        }
+        historyRepository.saveText(
+            resultText = translationSegment,
+            inputText = sourceSegment,
+        )
+    }
+
+    private fun committedTranslationDelta(
+        previous: String,
+        current: String,
+    ): String {
+        if (previous.isBlank()) {
+            return current.trim()
+        }
+        val prefixed = "$previous "
+        return when {
+            current == previous -> ""
+            current.startsWith(prefixed) -> current.removePrefix(prefixed).trim()
+            else -> current.removePrefix(previous).trim()
         }
     }
 }

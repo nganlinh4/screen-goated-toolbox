@@ -75,6 +75,10 @@ internal class PresetOverlayInputModule(
         inputWindow?.bringToFront(refocusIme = true)
     }
 
+    fun setSuppressed(suppressed: Boolean) {
+        inputWindow?.setSuppressed(suppressed)
+    }
+
     fun refreshForPreferences() {
         val window = inputWindow ?: return
         val preset = activePreset ?: return
