@@ -35,6 +35,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.screengoated.toolbox.mobile.history.HistoryUiState
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
@@ -58,8 +59,12 @@ internal fun MobileShellSection.layoutBehavior(): ShellSectionLayoutBehavior = w
         usesOuterScroll = false,
         usesViewportFooter = true,
     )
-    MobileShellSection.SETTINGS, MobileShellSection.HISTORY -> ShellSectionLayoutBehavior(
-        usesOuterScroll = true,
+    MobileShellSection.SETTINGS -> ShellSectionLayoutBehavior(
+        usesOuterScroll = false,
+        usesViewportFooter = false,
+    )
+    MobileShellSection.HISTORY -> ShellSectionLayoutBehavior(
+        usesOuterScroll = false,
         usesViewportFooter = false,
     )
 }
@@ -74,6 +79,8 @@ internal fun MobileShellSurface(
     ollamaUrl: String,
     globalTtsSettings: MobileGlobalTtsSettings,
     presetRuntimeSettings: PresetRuntimeSettings,
+    historyState: HistoryUiState,
+    historySearchQuery: String,
     locale: MobileLocaleText,
     onApiKeyChanged: (String) -> Unit,
     onCerebrasApiKeyChanged: (String) -> Unit,
@@ -94,6 +101,11 @@ internal fun MobileShellSurface(
     themeMode: MobileThemeMode = MobileThemeMode.SYSTEM,
     onThemeCycleRequested: () -> Unit = {},
     onSessionToggle: () -> Unit,
+    onHistorySearchQueryChanged: (String) -> Unit = {},
+    onClearHistorySearchQuery: () -> Unit = {},
+    onHistoryMaxItemsChanged: (Int) -> Unit = {},
+    onDeleteHistoryItem: (Long) -> Unit = {},
+    onClearHistoryItems: () -> Unit = {},
     onDownloaderClick: () -> Unit = {},
     onDjClick: () -> Unit = {},
     onPresetClick: (String) -> Unit = {},
@@ -157,6 +169,8 @@ internal fun MobileShellSurface(
                             ollamaUrl = ollamaUrl,
                             globalTtsSettings = globalTtsSettings,
                             presetRuntimeSettings = presetRuntimeSettings,
+                            historyState = historyState,
+                            historySearchQuery = historySearchQuery,
                             locale = locale,
                             wideLayout = true,
                             onApiKeyChanged = onApiKeyChanged,
@@ -171,6 +185,11 @@ internal fun MobileShellSurface(
                             uiPreferences = uiPreferences,
                             onOverlayOpacityChanged = onOverlayOpacityChanged,
                             onSessionToggle = onSessionToggle,
+                            onHistorySearchQueryChanged = onHistorySearchQueryChanged,
+                            onClearHistorySearchQuery = onClearHistorySearchQuery,
+                            onHistoryMaxItemsChanged = onHistoryMaxItemsChanged,
+                            onDeleteHistoryItem = onDeleteHistoryItem,
+                            onClearHistoryItems = onClearHistoryItems,
                             canToggle = canToggle,
                             onDownloaderClick = onDownloaderClick,
                             onDjClick = onDjClick,
@@ -196,6 +215,8 @@ internal fun MobileShellSurface(
                             ollamaUrl = ollamaUrl,
                             globalTtsSettings = globalTtsSettings,
                             presetRuntimeSettings = presetRuntimeSettings,
+                            historyState = historyState,
+                            historySearchQuery = historySearchQuery,
                             locale = locale,
                             wideLayout = true,
                             onApiKeyChanged = onApiKeyChanged,
@@ -210,6 +231,11 @@ internal fun MobileShellSurface(
                             uiPreferences = uiPreferences,
                             onOverlayOpacityChanged = onOverlayOpacityChanged,
                             onSessionToggle = onSessionToggle,
+                            onHistorySearchQueryChanged = onHistorySearchQueryChanged,
+                            onClearHistorySearchQuery = onClearHistorySearchQuery,
+                            onHistoryMaxItemsChanged = onHistoryMaxItemsChanged,
+                            onDeleteHistoryItem = onDeleteHistoryItem,
+                            onClearHistoryItems = onClearHistoryItems,
                             canToggle = canToggle,
                             onDownloaderClick = onDownloaderClick,
                             onDjClick = onDjClick,
@@ -251,12 +277,11 @@ internal fun MobileShellSurface(
                         scope.launch {
                             val target = section.ordinal
                             val current = pagerState.currentPage
-                            val distance = kotlin.math.abs(target - current)
-                            if (distance > 1) {
-                                val neighbor = if (target > current) target - 1 else target + 1
-                                pagerState.scrollToPage(neighbor)
+                            if (kotlin.math.abs(target - current) > 1) {
+                                pagerState.scrollToPage(target)
+                            } else {
+                                pagerState.animateScrollToPage(target)
                             }
-                            pagerState.animateScrollToPage(target)
                             navigating = false
                         }
                     }
@@ -349,7 +374,7 @@ internal fun MobileShellSurface(
                         .fillMaxSize()
                         .weight(1f),
                     userScrollEnabled = !pagerSwipeLocked,
-                    beyondViewportPageCount = 1,
+                    beyondViewportPageCount = 0,
                     pageSpacing = 16.dp,
                     key = { sections[it].name },
                 ) { page ->
@@ -373,6 +398,8 @@ internal fun MobileShellSurface(
                                 ollamaUrl = ollamaUrl,
                                 globalTtsSettings = globalTtsSettings,
                                 presetRuntimeSettings = presetRuntimeSettings,
+                                historyState = historyState,
+                                historySearchQuery = historySearchQuery,
                                 locale = locale,
                                 wideLayout = false,
                                 onApiKeyChanged = onApiKeyChanged,
@@ -384,9 +411,14 @@ internal fun MobileShellSurface(
                                 onUsageStatsClick = onUsageStatsClick,
                                 onResetDefaults = onResetDefaults,
                                 onVoiceSettingsClick = onVoiceSettingsClick,
-                            uiPreferences = uiPreferences,
-                            onOverlayOpacityChanged = onOverlayOpacityChanged,
+                                uiPreferences = uiPreferences,
+                                onOverlayOpacityChanged = onOverlayOpacityChanged,
                                 onSessionToggle = onSessionToggle,
+                                onHistorySearchQueryChanged = onHistorySearchQueryChanged,
+                                onClearHistorySearchQuery = onClearHistorySearchQuery,
+                                onHistoryMaxItemsChanged = onHistoryMaxItemsChanged,
+                                onDeleteHistoryItem = onDeleteHistoryItem,
+                                onClearHistoryItems = onClearHistoryItems,
                                 canToggle = canToggle,
                                 onDownloaderClick = onDownloaderClick,
                                 onDjClick = onDjClick,
@@ -408,6 +440,8 @@ internal fun MobileShellSurface(
                                 ollamaUrl = ollamaUrl,
                                 globalTtsSettings = globalTtsSettings,
                                 presetRuntimeSettings = presetRuntimeSettings,
+                                historyState = historyState,
+                                historySearchQuery = historySearchQuery,
                                 locale = locale,
                                 wideLayout = false,
                                 onApiKeyChanged = onApiKeyChanged,
@@ -419,9 +453,14 @@ internal fun MobileShellSurface(
                                 onUsageStatsClick = onUsageStatsClick,
                                 onResetDefaults = onResetDefaults,
                                 onVoiceSettingsClick = onVoiceSettingsClick,
-                            uiPreferences = uiPreferences,
-                            onOverlayOpacityChanged = onOverlayOpacityChanged,
+                                uiPreferences = uiPreferences,
+                                onOverlayOpacityChanged = onOverlayOpacityChanged,
                                 onSessionToggle = onSessionToggle,
+                                onHistorySearchQueryChanged = onHistorySearchQueryChanged,
+                                onClearHistorySearchQuery = onClearHistorySearchQuery,
+                                onHistoryMaxItemsChanged = onHistoryMaxItemsChanged,
+                                onDeleteHistoryItem = onDeleteHistoryItem,
+                                onClearHistoryItems = onClearHistoryItems,
                                 canToggle = canToggle,
                                 onDownloaderClick = onDownloaderClick,
                                 onDjClick = onDjClick,

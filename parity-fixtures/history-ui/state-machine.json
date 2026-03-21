@@ -1,0 +1,106 @@
+{
+  "defaultMaxItems": 50,
+  "maxItemsRange": {
+    "min": 10,
+    "max": 200
+  },
+  "cases": [
+    {
+      "name": "save_text_newest_first",
+      "operations": [
+        {
+          "type": "save_text",
+          "resultText": "Bonjour",
+          "sourceText": "Hello"
+        },
+        {
+          "type": "save_text",
+          "resultText": "Xin chao",
+          "sourceText": "Hello again"
+        }
+      ],
+      "expectedOrder": [
+        "Xin chao",
+        "Bonjour"
+      ]
+    },
+    {
+      "name": "text_item_keeps_source_in_backing_file",
+      "operations": [
+        {
+          "type": "save_text",
+          "resultText": "Hola",
+          "sourceText": "Hello"
+        }
+      ],
+      "expectedItemType": "TEXT",
+      "expectedVisibleText": "Hola",
+      "expectedBackingText": "Hello"
+    },
+    {
+      "name": "search_matches_text_and_timestamp_only",
+      "query": "2026-03-21 10:00:00",
+      "items": [
+        {
+          "id": 1,
+          "timestamp": "2026-03-21 10:00:00",
+          "itemType": "TEXT",
+          "text": "Saved result",
+          "mediaPath": "text_1.txt"
+        }
+      ],
+      "expectedMatchCount": 1
+    },
+    {
+      "name": "prune_removes_oldest",
+      "operations": [
+        {
+          "type": "save_text",
+          "resultText": "one",
+          "sourceText": "one"
+        },
+        {
+          "type": "save_text",
+          "resultText": "two",
+          "sourceText": "two"
+        },
+        {
+          "type": "save_text",
+          "resultText": "three",
+          "sourceText": "three"
+        },
+        {
+          "type": "set_max_items",
+          "value": 2
+        }
+      ],
+      "expectedOrder": [
+        "three",
+        "two"
+      ]
+    },
+    {
+      "name": "delete_and_clear_all_remove_items",
+      "operations": [
+        {
+          "type": "save_text",
+          "resultText": "keep",
+          "sourceText": "keep"
+        },
+        {
+          "type": "save_text",
+          "resultText": "drop",
+          "sourceText": "drop"
+        },
+        {
+          "type": "delete_by_result_text",
+          "resultText": "drop"
+        },
+        {
+          "type": "clear_all"
+        }
+      ],
+      "expectedCount": 0
+    }
+  ]
+}

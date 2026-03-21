@@ -17,10 +17,13 @@ import kotlinx.coroutines.launch
 
 class PresetRepository(
     private val textApiClient: TextApiClient,
+    private val visionApiClient: VisionApiClient,
     private val apiKeys: () -> ApiKeys,
     private val runtimeSettings: () -> PresetRuntimeSettings,
     private val uiLanguage: () -> String,
     private val overrideStore: PresetOverrideStore,
+    private val historyRecorder: dev.screengoated.toolbox.mobile.history.PresetHistoryRecorder =
+        dev.screengoated.toolbox.mobile.history.NoOpPresetHistoryRecorder,
     mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + mainDispatcher)
@@ -42,11 +45,13 @@ class PresetRepository(
     private val graphExecutor by lazy {
         PresetGraphExecutor(
             textApiClient = textApiClient,
+            visionApiClient = visionApiClient,
             apiKeys = apiKeys,
             runtimeSettings = runtimeSettings,
             uiLanguage = uiLanguage,
             executionState = _executionState,
             postProcessActions = postProcessActions,
+            historyRecorder = historyRecorder,
         )
     }
 
@@ -225,8 +230,10 @@ class PresetRepository(
 
         executionJob = scope.launch {
             try {
-                val inputText = when (input) {
-                    is PresetInput.Text -> input.text
+                when (input) {
+                    is PresetInput.Text,
+                    is PresetInput.Image,
+                    -> Unit
                     else -> {
                         _executionState.update {
                             it.copy(
@@ -238,10 +245,10 @@ class PresetRepository(
                     }
                 }
 
-                graphExecutor.executeTextGraph(
+                graphExecutor.executeGraph(
                     sessionId = sessionId,
                     preset = preset,
-                    inputText = inputText,
+                    input = input,
                 )
 
                 _executionState.update {

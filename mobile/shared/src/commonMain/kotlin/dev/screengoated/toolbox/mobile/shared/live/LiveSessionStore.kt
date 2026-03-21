@@ -180,6 +180,16 @@ class LiveSessionStore(
         }
     }
 
+    fun forceCommitAll(): Boolean {
+        var changed = false
+        mutableState.update { current ->
+            val liveText = LiveTranslateParity.forceCommitAll(current.liveText)
+            changed = liveText != current.liveText
+            current.copy(liveText = liveText)
+        }
+        return changed
+    }
+
     fun setOverlayVisible(visible: Boolean) {
         mutableState.update { current ->
             if (current.overlayVisible == visible) {

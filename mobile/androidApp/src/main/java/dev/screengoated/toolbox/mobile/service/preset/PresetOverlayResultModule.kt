@@ -74,6 +74,13 @@ internal class PresetOverlayResultModule(
         refreshCanvasWindowForPreferencesSupport()
     }
 
+    fun setSuppressed(suppressed: Boolean) {
+        resultWindows.values.forEach { active ->
+            active.window.setSuppressed(suppressed)
+        }
+        canvasWindow?.setSuppressed(suppressed)
+    }
+
     fun renderExecutionState(
         state: PresetExecutionState,
         activePreset: ResolvedPreset?,

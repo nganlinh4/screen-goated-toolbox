@@ -24,11 +24,11 @@
       }
     },
     {
-      "name": "image_preset_requires_placeholder_execution",
+      "name": "image_preset_is_repository_executable",
       "preset_id": "preset_translate",
       "expected_execution": {
-        "supported": false,
-        "reason": "IMAGE_CAPTURE_NOT_READY"
+        "supported": true,
+        "reason": null
       }
     },
     {

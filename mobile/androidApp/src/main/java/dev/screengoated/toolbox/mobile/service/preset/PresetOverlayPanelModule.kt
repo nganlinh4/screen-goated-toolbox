@@ -26,7 +26,7 @@ internal class PresetOverlayPanelModule(
     private val dp: (Int) -> Int,
     private val favoritePanelPresets: () -> List<ResolvedPreset>,
     private val resolvedPresetById: (String) -> ResolvedPreset?,
-    private val launchPreset: (String, Boolean) -> Unit,
+    private val launchPreset: (String, Boolean, Boolean) -> Unit,
 ) {
     private var panelWindow: PresetOverlayWindow? = null
     private var panelPresetIds: List<String> = emptyList()
@@ -88,6 +88,10 @@ internal class PresetOverlayPanelModule(
         }
     }
 
+    fun setSuppressed(suppressed: Boolean) {
+        panelWindow?.setSuppressed(suppressed)
+    }
+
     fun handleMessage(message: String) {
         when {
             message == "dismiss" || message == "close_now" -> close(animate = false)
@@ -108,9 +112,12 @@ internal class PresetOverlayPanelModule(
                 message.startsWith("trigger_continuous_only:") -> {
                 val index = message.substringAfter(':').toIntOrNull() ?: return
                 val presetId = panelPresetIds.getOrNull(index) ?: return
+                val continuous = message.startsWith("trigger_continuous:")
+                    || message.startsWith("trigger_continuous_only:")
                 launchPreset(
                     presetId,
                     false,
+                    continuous,
                 )
                 if (message.startsWith("trigger_only:") || message.startsWith("trigger_continuous_only:")) {
                     // Panel doesn't overlap bubble, no z-reorder needed
@@ -129,7 +136,7 @@ internal class PresetOverlayPanelModule(
                 val payload = message.jsonOrNull() ?: return
                 when (payload.optString("type")) {
                     "closePanel" -> close(animate = true)
-                    "launchPreset" -> launchPreset(payload.optString("presetId"), true)
+                    "launchPreset" -> launchPreset(payload.optString("presetId"), true, false)
                     "panelRendered" -> Unit
                     "showUnsupported" -> {
                         val presetId = payload.optString("presetId")
@@ -165,6 +172,7 @@ internal class PresetOverlayPanelModule(
             onPanelExpandedChanged(true)
             syncPanelWindowState(window)
             window.runScript(openPanelScriptSupport(window.currentBounds(), bubbleBoundsProvider(), density))
+            onRequestBubbleFront()
         }
     }
 
@@ -239,7 +247,6 @@ internal class PresetOverlayPanelModule(
             density = density,
             screenBounds = screenBoundsProvider(),
             cssToPhysical = cssToPhysical,
-            dp = dp,
         )
     }
 

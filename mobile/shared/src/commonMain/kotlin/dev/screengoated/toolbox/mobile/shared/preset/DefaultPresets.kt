@@ -28,7 +28,6 @@ object DefaultPresets {
             nameVi = "D\u1ecbch v\u00f9ng",
             nameKo = "\uc601\uc5ed \ubc88\uc5ed",
             presetType = PresetType.IMAGE,
-            isUpcoming = true,
             blocks = listOf(
                 imageBlock(
                     DEFAULT_IMAGE_MODEL_ID,
@@ -44,7 +43,6 @@ object DefaultPresets {
             nameVi = "D\u1ecbch v\u00f9ng (CHU\u1ea8N)",
             nameKo = "\uc601\uc5ed \ubc88\uc5ed (\uc815\ud655)",
             presetType = PresetType.IMAGE,
-            isUpcoming = true,
             blocks = listOf(
                 imageBlock(
                     DEFAULT_IMAGE_MODEL_ID,
@@ -66,7 +64,6 @@ object DefaultPresets {
             nameKo = "\uc601\uc5ed \ubc88\uc5ed (\uc790\ub3d9 \ubd99.)",
             presetType = PresetType.IMAGE,
             autoPaste = true,
-            isUpcoming = true,
             blocks = listOf(
                 imageBlock(
                     DEFAULT_IMAGE_MODEL_ID,
@@ -82,7 +79,6 @@ object DefaultPresets {
             nameVi = "D\u1ecbch v\u00f9ng+D\u1ecbch l\u1ea1i",
             nameKo = "\uc601\uc5ed \ubc88\uc5ed+\uc7ac\ubc88\uc5ed",
             presetType = PresetType.IMAGE,
-            isUpcoming = true,
             blocks = listOf(
                 imageBlock(
                     DEFAULT_IMAGE_MODEL_ID,
@@ -103,7 +99,6 @@ object DefaultPresets {
             nameVi = "D.v\u00f9ng (CHU\u1ea8N)+D.l\u1ea1i",
             nameKo = "\uc601.\ubc88\uc5ed (\uc815\ud655)+\uc7ac\ubc88\uc5ed",
             presetType = PresetType.IMAGE,
-            isUpcoming = true,
             blocks = listOf(
                 imageBlock(
                     DEFAULT_IMAGE_MODEL_ID,
@@ -131,7 +126,6 @@ object DefaultPresets {
             nameVi = "L\u1ea5y text t\u1eeb \u1ea3nh",
             nameKo = "\ud14d\uc2a4\ud2b8 \ucd94\ucd9c",
             presetType = PresetType.IMAGE,
-            isUpcoming = true,
             blocks = listOf(
                 imageBlock(
                     DEFAULT_IMAGE_MODEL_ID,
@@ -147,7 +141,6 @@ object DefaultPresets {
             nameVi = "\u0110\u1ecdc v\u00f9ng n\u00e0y",
             nameKo = "\uc601\uc5ed \uc77d\uae30",
             presetType = PresetType.IMAGE,
-            isUpcoming = true,
             blocks = listOf(
                 imageBlock(
                     DEFAULT_IMAGE_MODEL_ID,
@@ -163,7 +156,6 @@ object DefaultPresets {
             nameVi = "Ch\u1ee5p MH nhanh",
             nameKo = "\ube60\ub978 \uc2a4\ud06c\ub9b0\uc0f7",
             presetType = PresetType.IMAGE,
-            isUpcoming = true,
             blocks = listOf(
                 inputAdapter().copy(autoCopy = true),
             ),
@@ -175,7 +167,6 @@ object DefaultPresets {
             nameVi = "Tr\u00edch b\u1ea3ng",
             nameKo = "\ud45c \ucd94\ucd9c",
             presetType = PresetType.IMAGE,
-            isUpcoming = true,
             blocks = listOf(
                 imageBlock(
                     DEFAULT_IMAGE_MODEL_ID,
@@ -191,7 +182,6 @@ object DefaultPresets {
             nameVi = "Qu\u00e9t m\u00e3 QR",
             nameKo = "QR \uc2a4\uce94",
             presetType = PresetType.IMAGE,
-            isUpcoming = true,
             blocks = listOf(
                 imageBlock(
                     "qr-scanner",
@@ -220,7 +210,6 @@ object DefaultPresets {
             nameVi = "T\u00f3m t\u1eaft v\u00f9ng",
             nameKo = "\uc601\uc5ed \uc694\uc57d",
             presetType = PresetType.IMAGE,
-            isUpcoming = true,
             blocks = listOf(
                 imageBlock(
                     DEFAULT_IMAGE_MODEL_ID,
@@ -236,7 +225,6 @@ object DefaultPresets {
             nameVi = "M\u00f4 t\u1ea3 \u1ea3nh",
             nameKo = "\uc774\ubbf8\uc9c0 \uc124\uba85",
             presetType = PresetType.IMAGE,
-            isUpcoming = true,
             blocks = listOf(
                 imageBlock(
                     DEFAULT_IMAGE_MODEL_ID,
@@ -253,7 +241,6 @@ object DefaultPresets {
             nameKo = "\uc774\ubbf8\uc9c0 \uc9c8\ubb38",
             presetType = PresetType.IMAGE,
             promptMode = "dynamic",
-            isUpcoming = true,
             blocks = listOf(
                 imageBlock(
                     "gemini-3-flash-preview",
@@ -271,7 +258,6 @@ object DefaultPresets {
             nameVi = "Ki\u1ec3m ch\u1ee9ng th\u00f4ng tin",
             nameKo = "\uc815\ubcf4 \ud655\uc778",
             presetType = PresetType.IMAGE,
-            isUpcoming = true,
             blocks = listOf(
                 imageBlock(
                     DEFAULT_IMAGE_MODEL_ID,
@@ -292,7 +278,6 @@ object DefaultPresets {
             nameVi = "Th\u1ea7n Tr\u00ed tu\u1ec7",
             nameKo = "\uc804\uc9c0\uc804\ub2a5\ud55c \uc2e0",
             presetType = PresetType.IMAGE,
-            isUpcoming = true,
             blocks = listOf(
                 // Node 0: Extract from image
                 imageBlock(

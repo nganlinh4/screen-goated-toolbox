@@ -143,7 +143,12 @@ internal fun placeholderReasonLabel(
     PresetPlaceholderReason.GRAPH_EDITING_NOT_READY ->
         localized(lang, "Graph editing placeholder", "Chỉnh sửa graph hiện chỉ là placeholder", "그래프 편집 플레이스홀더")
     PresetPlaceholderReason.NON_TEXT_GRAPH_NOT_READY ->
-        localized(lang, "Only text graphs supported", "Chỉ hỗ trợ graph văn bản", "텍스트 그래프만 지원")
+        localized(
+            lang,
+            "This graph still uses Android-unsupported block types",
+            "Graph này vẫn dùng các block Android chưa hỗ trợ",
+            "이 그래프는 아직 Android에서 지원되지 않는 블록을 사용합니다",
+        )
 }
 
 private fun presetTypeLabel(

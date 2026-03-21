@@ -1,7 +1,7 @@
 ﻿{
     "mode":  "wireless-debugging",
     "packageName":  "dev.screengoated.toolbox.mobile.debug",
-    "host":  "192.168.219.201",
-    "port":  37077,
+    "host":  "192.168.219.236",
+    "port":  36661,
     "apkPath":  "C:\\WORK\\screen-goated-toolbox\\mobile\\androidApp\\build\\outputs\\apk\\full\\debug\\androidApp-full-debug.apk"
 }

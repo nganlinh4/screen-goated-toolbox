@@ -142,6 +142,7 @@ class PresetRepositoryTest {
     private fun createRepository(store: PresetOverrideStore): PresetRepository {
         return PresetRepository(
             textApiClient = TextApiClient(OkHttpClient()),
+            visionApiClient = VisionApiClient(OkHttpClient()),
             apiKeys = { ApiKeys() },
             runtimeSettings = { PresetRuntimeSettings() },
             uiLanguage = { "en" },

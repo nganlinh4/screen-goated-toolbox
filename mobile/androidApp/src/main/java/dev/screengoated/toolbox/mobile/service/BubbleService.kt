@@ -104,6 +104,7 @@ class BubbleService : Service() {
                 onIncreaseBubbleSize = ::increaseBubbleSize,
                 onDecreaseBubbleSize = ::decreaseBubbleSize,
                 onPanelExpandedChanged = ::setPanelExpanded,
+                onBubbleSuppressedChanged = ::setBubbleSuppressed,
                 onRequestBubbleFront = ::bringBubbleToFront,
                 ttsRuntimeService = appContainer.ttsRuntimeService,
                 ttsSettingsSnapshotProvider = {
@@ -329,6 +330,13 @@ class BubbleService : Service() {
             applyBubbleOpacity(animated = true)
             scheduleOpacityDecay()
         }
+    }
+
+    private fun setBubbleSuppressed(suppressed: Boolean) {
+        if (!::bubbleView.isInitialized) {
+            return
+        }
+        bubbleView.visibility = if (suppressed) View.INVISIBLE else View.VISIBLE
     }
 
     private fun currentBubbleSizeDp(): Int {

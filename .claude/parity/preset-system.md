@@ -46,7 +46,9 @@
   - keep-open row, size controls, DOM structure, pill spacing, icon treatment, text-fit behavior, and panel motion/animations should come from the Windows web contract unless this spec explicitly documents a deviation
   - Android-specific changes are limited to bridge transport, touch/mobile interaction shims, and explicitly unsupported controls
   - for larger favorite counts, the panel should follow the Windows multi-column rule instead of degenerating into a single very tall column; on mobile, column count may be capped by available screen width
+  - panel geometry should follow the Windows overlap model: the panel window extends behind the bubble by roughly `bubble width + 4px`, while the visible preset content stays in the non-overlap gutter
   - The floating bubble itself must remain tappable and draggable while the panel is open; panel z-order or hit handling must not block bubble interaction
+  - Android must explicitly restore the bubble above the panel window whenever the panel is shown so the overlap model does not hide or block the bubble
   - Closing the panel from the bubble should use the Windows-style web close animation and only destroy the Android overlay window after the web surface emits its close completion signal
   - If favorites change while the panel is open, Android must rebuild the panel contents and geometry so the visible pills stay in sync instead of disappearing or clipping
   - Dragging the bubble must keep the panel open and reposition it with the bubble, matching the Windows expanded-panel behavior

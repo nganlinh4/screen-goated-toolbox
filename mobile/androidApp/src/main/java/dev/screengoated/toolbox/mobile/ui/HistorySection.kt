@@ -1,0 +1,337 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:Suppress("DEPRECATION")
+
+package dev.screengoated.toolbox.mobile.ui
+
+import android.widget.Toast
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.TextSnippet
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import dev.screengoated.toolbox.mobile.history.HistoryExternalActions
+import dev.screengoated.toolbox.mobile.history.HistoryItem
+import dev.screengoated.toolbox.mobile.history.HistoryType
+import dev.screengoated.toolbox.mobile.history.HistoryUiState
+import dev.screengoated.toolbox.mobile.history.MAX_HISTORY_LIMIT
+import dev.screengoated.toolbox.mobile.history.MIN_HISTORY_LIMIT
+import dev.screengoated.toolbox.mobile.history.filterHistoryItems
+import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+import java.io.File
+import kotlin.math.roundToInt
+
+@Composable
+internal fun HistorySection(
+    state: HistoryUiState,
+    searchQuery: String,
+    locale: MobileLocaleText,
+    onSearchQueryChanged: (String) -> Unit,
+    onClearSearchQuery: () -> Unit,
+    onMaxItemsChanged: (Int) -> Unit,
+    onDeleteItem: (Long) -> Unit,
+    onClearAll: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val filteredItems = filterHistoryItems(state.items, searchQuery)
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
+                shape = RoundedCornerShape(24.dp),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(Icons.Rounded.History, contentDescription = null)
+                            Text(
+                                text = locale.historyTitle,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        Text(
+                            text = "${locale.historyMaxItemsLabel} ${state.maxItems}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Slider(
+                            value = state.maxItems.toFloat(),
+                            onValueChange = { onMaxItemsChanged(it.roundToInt()) },
+                            valueRange = MIN_HISTORY_LIMIT.toFloat()..MAX_HISTORY_LIMIT.toFloat(),
+                        )
+                        Text(
+                            text = locale.historyRetentionHint,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedTextField(
+                            modifier = Modifier.weight(1f),
+                            value = searchQuery,
+                            onValueChange = onSearchQueryChanged,
+                            singleLine = true,
+                            label = { Text(locale.historySearchLabel) },
+                            placeholder = { Text(locale.historySearchPlaceholder) },
+                        )
+                        if (searchQuery.isNotBlank()) {
+                            IconButton(onClick = onClearSearchQuery) {
+                                Icon(Icons.Rounded.Close, contentDescription = locale.historyClearSearch)
+                            }
+                        }
+                    }
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        FilledTonalButton(
+                            onClick = {
+                                val opened = HistoryExternalActions.openFolder(
+                                    context = context,
+                                    folder = File(state.mediaDirectoryPath.orEmpty()),
+                                    supportsFolderOpen = state.supportsFolderOpen,
+                                )
+                                if (!opened) {
+                                    Toast.makeText(
+                                        context,
+                                        locale.historyFolderUnavailable,
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
+                        ) {
+                            Icon(Icons.Rounded.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(6.dp))
+                            Text(locale.historyOpenFolder)
+                        }
+                        Button(
+                            onClick = onClearAll,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                            ),
+                        ) {
+                            Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(6.dp))
+                            Text(locale.historyClearAll)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (filteredItems.isEmpty()) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    ),
+                    shape = RoundedCornerShape(24.dp),
+                ) {
+                    Text(
+                        text = locale.historyEmpty,
+                        modifier = Modifier.padding(20.dp),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        } else {
+            items(filteredItems, key = { it.id }) { item ->
+                HistoryItemCard(
+                    item = item,
+                    mediaDirectoryPath = state.mediaDirectoryPath,
+                    locale = locale,
+                    onCopy = {
+                        clipboard.setText(AnnotatedString(item.text))
+                        Toast.makeText(context, locale.historyCopiedText, Toast.LENGTH_SHORT).show()
+                    },
+                    onOpen = {
+                        val file = state.mediaDirectoryPath
+                            ?.takeIf { item.mediaPath.isNotBlank() }
+                            ?.let { File(it, item.mediaPath) }
+                        if (file == null || !HistoryExternalActions.openItem(context, file)) {
+                            Toast.makeText(context, locale.historyOpenFailed, Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onDelete = { onDeleteItem(item.id) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryItemCard(
+    item: HistoryItem,
+    mediaDirectoryPath: String?,
+    locale: MobileLocaleText,
+    onCopy: () -> Unit,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val (containerColor, contentColor) = historyColors(item.itemType)
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+        ),
+        shape = RoundedCornerShape(22.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(historyIcon(item.itemType), contentDescription = null)
+                    Text(
+                        text = item.timestamp,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Text(
+                text = item.text,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 6,
+                overflow = TextOverflow.Ellipsis,
+            )
+
+            HorizontalDivider()
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilledTonalButton(onClick = onCopy) {
+                    Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(6.dp))
+                    Text(locale.historyCopyText)
+                }
+                if (!mediaDirectoryPath.isNullOrBlank() && item.mediaPath.isNotBlank()) {
+                        FilledTonalButton(onClick = onOpen) {
+                        Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(6.dp))
+                            Text(historyOpenLabel(item.itemType, locale))
+                        }
+                }
+                Button(
+                    onClick = onDelete,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ),
+                ) {
+                    Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(6.dp))
+                    Text(locale.historyDelete)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun historyColors(type: HistoryType): Pair<androidx.compose.ui.graphics.Color, androidx.compose.ui.graphics.Color> {
+    return when (type) {
+        HistoryType.IMAGE -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+        HistoryType.AUDIO -> MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
+        HistoryType.TEXT -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+    }
+}
+
+private fun historyIcon(type: HistoryType) = when (type) {
+    HistoryType.IMAGE -> Icons.Rounded.Image
+    HistoryType.AUDIO -> Icons.Rounded.GraphicEq
+    HistoryType.TEXT -> Icons.AutoMirrored.Rounded.TextSnippet
+}
+
+private fun historyOpenLabel(
+    type: HistoryType,
+    locale: MobileLocaleText,
+): String {
+    return when (type) {
+        HistoryType.IMAGE -> locale.historyViewImage
+        HistoryType.AUDIO -> locale.historyListenAudio
+        HistoryType.TEXT -> locale.historyViewText
+    }
+}
