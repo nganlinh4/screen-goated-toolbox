@@ -1596,9 +1596,7 @@ fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), String> {
     }
 
     if slow_frame_count > 0 {
-        eprintln!(
-            "[Decode:{label}] {slow_frame_count} slow frames (>0.5s each)"
-        );
+        eprintln!("[Decode:{label}] {slow_frame_count} slow frames (>0.5s each)");
     }
     let elapsed = t_thread.elapsed().as_secs_f64();
     let fps = if elapsed > 0.001 {

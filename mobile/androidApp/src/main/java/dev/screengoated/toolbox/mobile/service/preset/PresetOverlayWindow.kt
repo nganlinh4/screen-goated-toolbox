@@ -139,7 +139,11 @@ internal class PresetOverlayWindow(
             object {
                 @android.webkit.JavascriptInterface
                 fun postMessage(message: String) {
-                    post { onMessage(message) }
+                    post {
+                        if (!handleOverlayHostMessage(context.applicationContext, message, logTag)) {
+                            onMessage(message)
+                        }
+                    }
                 }
             },
             "sgtAndroid",

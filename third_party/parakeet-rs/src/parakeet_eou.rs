@@ -1,8 +1,8 @@
 use crate::error::{Error, Result};
 use crate::execution::ModelConfig as ExecutionConfig;
 use crate::model_eou::{EncoderCache, ParakeetEOUModel};
-use ndarray::{s, Array2, Array3};
-use rustfft::{num_complex::Complex, FftPlanner};
+use ndarray::{Array2, Array3, s};
+use rustfft::{FftPlanner, num_complex::Complex};
 use std::collections::VecDeque;
 use std::f32::consts::PI;
 use std::path::Path;

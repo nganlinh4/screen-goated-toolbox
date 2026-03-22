@@ -30,10 +30,20 @@
   "streaming_capture_contract": {
     "gemini-live-audio": "partial_transcript_during_capture",
     "parakeet-local": "partial_transcript_during_capture",
-    "final_transcript_handoff": "first_audio_block_uses_precomputed_transcript"
+    "final_transcript_handoff": "first_audio_block_uses_precomputed_transcript",
+    "streaming_auto_paste": "inject_deltas_during_capture_and_skip_final_paste_when_already_written"
   },
   "realtime_contract": {
     "launch_path": "transient_live_service_override",
     "restore_saved_config_on_stop": true
+  },
+  "bubble_capture_host_contract": {
+    "default_foreground_mode": "specialUse",
+    "mic_presets": "promote_to_microphone_then_restore",
+    "device_audio_presets": "promote_to_mediaProjection_then_restore"
+  },
+  "auto_speak_contract": {
+    "consumer": "AUTO_SPEAK",
+    "first_failure_recovery": "single_retry_then_surface_error"
   }
 }

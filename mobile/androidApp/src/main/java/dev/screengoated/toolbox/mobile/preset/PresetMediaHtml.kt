@@ -78,14 +78,19 @@ private fun generateAudioPlayerHtml(audioBytes: ByteArray, uiLanguage: String): 
     val base64Audio = Base64.getEncoder().encodeToString(audioBytes)
     val mimeType = sniffAudioMimeType(audioBytes)
     val downloadedToast = when (uiLanguage) {
-        "vi" -> "Da tai xuong"
+        "vi" -> "Đã tải xuống"
         "ko" -> "다운로드됨"
         else -> "Downloaded"
     }
     val downloadTooltip = when (uiLanguage) {
-        "vi" -> "Tai xuong"
+        "vi" -> "Tải xuống"
         "ko" -> "다운로드"
         else -> "Download"
+    }
+    val downloadFailedToast = when (uiLanguage) {
+        "vi" -> "Không thể tải xuống"
+        "ko" -> "다운로드할 수 없음"
+        else -> "Could not download"
     }
     return """
         <!DOCTYPE html>
@@ -350,12 +355,16 @@ private fun generateAudioPlayerHtml(audioBytes: ByteArray, uiLanguage: String): 
             };
 
             downloadBtn.onclick = function() {
-                const link = document.createElement('a');
-                link.href = audio.querySelector('source').src;
-                link.download = 'recording.wav';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
+                if (window.sgtAndroid && window.sgtAndroid.postMessage) {
+                    window.sgtAndroid.postMessage(JSON.stringify({
+                        type: 'saveMediaToDownloads',
+                        filename: 'recording.wav',
+                        mimeType: '$mimeType',
+                        base64: '$base64Audio',
+                        successMessage: '$downloadedToast',
+                        failureMessage: '$downloadFailedToast'
+                    }));
+                }
 
                 const originalIcon = downloadBtn.innerHTML;
                 downloadBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';

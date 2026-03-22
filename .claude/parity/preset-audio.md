@@ -27,13 +27,17 @@
 - Audio-only input-adapter presets such as `preset_quick_record` and `preset_record_device` open the Windows-style audio-player result document rather than a text placeholder.
 - Audio result/media documents stay under the normal result-window runtime and preserve the Windows media markers and raw-html bridge contract.
 - `gemini-live-audio` and `parakeet-local` stream partial transcript updates during capture and hand the final transcript into the first Android `AUDIO` block without forcing a second full transcription pass.
+- When a streamed audio preset has `autoPaste = true`, Android incrementally injects transcript deltas into the currently focused editable target during capture and suppresses the final preset-level auto-paste to avoid double insertion.
 - Realtime audio presets use the existing Android live-translate service through a transient preset-backed session config. The user’s saved launcher config must be restored after the session ends.
 - Device-audio presets use inline permission/MediaProjection handoff through the app, then resume the pending preset launch automatically.
+- The bubble host must temporarily promote itself into `microphone` or `mediaProjection` foreground-service mode before starting preset audio capture, then restore normal bubble mode after stop/cancel/failure.
 
 ## Failure And Recovery
 - Missing `RECORD_AUDIO` permission or missing MediaProjection consent must route through the app permission flow instead of leaving the preset on a placeholder toast.
 - Missing provider keys should surface as execution errors on the preset result path rather than crashing the bubble runtime.
 - Realtime preset stop must clear the transient preset override and the tracked active realtime preset id.
+- Capture failures must retain the concrete error detail for logging instead of collapsing everything into a generic preset toast.
+- Preset auto-speak uses the dedicated auto-speak TTS consumer and retries one first-use playback failure before surfacing a user-visible error.
 
 ## Fixtures
 - Shared fixture: [parity-fixtures/preset-system/audio-runtime.json](../../parity-fixtures/preset-system/audio-runtime.json)

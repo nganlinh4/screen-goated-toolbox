@@ -101,7 +101,7 @@ class AudioCaptureController(
             val projectionManager = context.getSystemService(MediaProjectionManager::class.java)
                 ?: error("MediaProjectionManager unavailable on this device.")
             projectionConsentStore.createMediaProjection(projectionManager)
-                ?: error("Playback capture consent is missing.")
+                ?: throw ProjectionConsentInvalidException("Playback capture consent is missing.")
         }
         cachedProjection = null // consumed — will be re-cached in awaitClose if preserveConsentOnClose
 
@@ -177,6 +177,10 @@ class AudioCaptureController(
         private const val SAMPLE_RATE_HZ = 16_000
     }
 }
+
+internal class ProjectionConsentInvalidException(
+    message: String,
+) : IllegalStateException(message)
 
 private fun ShortArray.rmsLevel(): Float {
     if (isEmpty()) {

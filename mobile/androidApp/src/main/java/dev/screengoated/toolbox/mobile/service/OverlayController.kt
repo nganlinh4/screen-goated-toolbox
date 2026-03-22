@@ -12,7 +12,7 @@ import android.util.Log
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
-import dev.screengoated.toolbox.mobile.MainActivity
+import dev.screengoated.toolbox.mobile.ProjectionConsentProxyActivity
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
@@ -372,16 +372,7 @@ class OverlayController(
     }
 
     private fun launchActivityStartFlow() {
-        context.startActivity(
-            Intent(context, MainActivity::class.java).apply {
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP,
-                )
-                putExtra(MainActivity.EXTRA_AUTO_START, true)
-            },
-        )
+        context.startActivity(ProjectionConsentProxyActivity.startSessionIntent(context))
     }
 
     private fun updateTargetLanguage(language: String) {
@@ -709,7 +700,7 @@ class OverlayController(
     private companion object {
         private const val OVERLAY_MIN_WIDTH_PX = 420
         private const val OVERLAY_MIN_HEIGHT_PX = 180
-        private const val DRAG_WINDOW_GAIN = 1.8f
+        private const val DRAG_WINDOW_GAIN = 1f
         private const val DISMISS_ZONE_PX = 120
         private const val PERF_TAG = "SGTOverlayPerf"
     }

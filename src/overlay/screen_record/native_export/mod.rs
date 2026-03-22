@@ -651,7 +651,10 @@ pub(crate) fn run_native_export_with_staged(
     let mut compositor = GpuCompositor::new(out_w, out_h, crop_w, crop_h, out_w, out_h)
         .map_err(|e| format!("GPU init failed: {}", e))?;
     let gpu_device_secs = gpu_init_start.elapsed().as_secs_f64();
-    eprintln!("[Export][Timing] GPU compositor init: {:.3}s", gpu_device_secs);
+    eprintln!(
+        "[Export][Timing] GPU compositor init: {:.3}s",
+        gpu_device_secs
+    );
 
     let cursor_init_start = Instant::now();
     compositor.init_cursor_texture_fast(&used_cursor_slots);

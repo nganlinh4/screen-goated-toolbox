@@ -1,10 +1,14 @@
 package dev.screengoated.toolbox.mobile.service.preset
 
 import android.content.ActivityNotFoundException
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Environment
+import android.provider.MediaStore
 import android.util.Log
+import android.widget.Toast
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
@@ -13,6 +17,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import org.json.JSONObject
+import java.util.Base64
 
 internal class OverlayManagedLoadTracker {
     private var clearHistoryOnNextPageFinished = false
@@ -201,6 +207,53 @@ internal fun createOverlayWebViewClient(
     }
 }
 
+internal fun handleOverlayHostMessage(
+    appContext: Context,
+    message: String,
+    logTag: String,
+): Boolean {
+    val payload = runCatching { JSONObject(message) }.getOrNull() ?: return false
+    if (payload.optString("type") != "saveMediaToDownloads") {
+        return false
+    }
+
+    val filename = payload.optString("filename").ifBlank { "download.bin" }
+    val mimeType = payload.optString("mimeType").ifBlank { "application/octet-stream" }
+    val base64 = payload.optString("base64")
+    val successMessage = payload.optString("successMessage").ifBlank { "Downloaded" }
+    val failureMessage = payload.optString("failureMessage").ifBlank { "Could not download" }
+    if (base64.isBlank()) {
+        Toast.makeText(appContext, failureMessage, Toast.LENGTH_SHORT).show()
+        return true
+    }
+
+    val bytes = runCatching { Base64.getDecoder().decode(base64) }
+        .onFailure { error -> Log.e(logTag, "Failed to decode media download payload", error) }
+        .getOrNull()
+    if (bytes == null) {
+        Toast.makeText(appContext, failureMessage, Toast.LENGTH_SHORT).show()
+        return true
+    }
+
+    val saved = runCatching {
+        saveMediaToDownloads(
+            appContext = appContext,
+            filename = filename,
+            mimeType = mimeType,
+            bytes = bytes,
+        )
+    }.onFailure { error ->
+        Log.e(logTag, "Failed to save media download", error)
+    }.isSuccess
+
+    Toast.makeText(
+        appContext,
+        if (saved) successMessage else failureMessage,
+        Toast.LENGTH_SHORT,
+    ).show()
+    return true
+}
+
 internal fun buildOverlayWindowFlags(focusable: Boolean): Int {
     var flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
@@ -240,4 +293,34 @@ private fun isManagedWebViewUrl(url: String): Boolean {
         url.startsWith("https://") ||
         url.startsWith("file:///android_asset/") ||
         url.startsWith("about:")
+}
+
+private fun saveMediaToDownloads(
+    appContext: Context,
+    filename: String,
+    mimeType: String,
+    bytes: ByteArray,
+) {
+    val resolver = appContext.contentResolver
+    val values = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+        put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Screen Goated Toolbox")
+        put(MediaStore.MediaColumns.IS_PENDING, 1)
+    }
+    var insertedUri: Uri? = null
+    try {
+        insertedUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: error("Could not create download row.")
+        resolver.openOutputStream(insertedUri)?.use { output ->
+            output.write(bytes)
+        } ?: error("Could not open download output stream.")
+        val finalizeValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.IS_PENDING, 0)
+        }
+        resolver.update(insertedUri, finalizeValues, null, null)
+    } catch (error: Throwable) {
+        insertedUri?.let { resolver.delete(it, null, null) }
+        throw error
+    }
 }

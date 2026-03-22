@@ -139,9 +139,7 @@ fn migrate_config(config: &mut Config) {
         }
 
         for block in &mut preset.blocks {
-            if block.block_type == "image"
-                && block.model == "gemini-3.1-flash-lite-preview"
-            {
+            if block.block_type == "image" && block.model == "gemini-3.1-flash-lite-preview" {
                 block.model = crate::model_config::DEFAULT_IMAGE_MODEL_ID.to_string();
             }
         }

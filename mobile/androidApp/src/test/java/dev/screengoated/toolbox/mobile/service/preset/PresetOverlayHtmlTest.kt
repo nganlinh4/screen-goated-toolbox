@@ -197,6 +197,31 @@ class PresetOverlayHtmlTest {
         assertTrue(audioHtml.contains("""data-sgt-input-adapter-media="audio""""))
         assertTrue(audioHtml.contains("""class="audio-player""""))
         assertTrue(audioHtml.contains("""class="waveform""""))
+        assertTrue(audioHtml.contains("saveMediaToDownloads"))
+    }
+
+    @Test
+    fun audioInputAdapterUsesAccentedVietnameseDownloadLabels() {
+        val audioHtml = inputAdapterOverlayContent(
+            PresetInput.Audio(
+                byteArrayOf(
+                    'R'.code.toByte(),
+                    'I'.code.toByte(),
+                    'F'.code.toByte(),
+                    'F'.code.toByte(),
+                    0, 0, 0, 0,
+                    'W'.code.toByte(),
+                    'A'.code.toByte(),
+                    'V'.code.toByte(),
+                    'E'.code.toByte(),
+                ),
+            ),
+            "vi",
+        ).orEmpty()
+
+        assertTrue(audioHtml.contains("Đã tải xuống"))
+        assertTrue(audioHtml.contains("Tải xuống"))
+        assertTrue(audioHtml.contains("Không thể tải xuống"))
     }
 
     @Test

@@ -671,9 +671,7 @@ pub fn handle_ipc_command(
                         serde_json::from_value(args["data"].clone())
                             .map_err(|e| format!("bad overlay metadata: {e}"))?;
                     if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
-                        native_export::staging::set_overlay_metadata_for(
-                            session_id, job_id, meta,
-                        );
+                        native_export::staging::set_overlay_metadata_for(session_id, job_id, meta);
                     } else {
                         native_export::staging::set_overlay_metadata(meta);
                     }
@@ -1904,8 +1902,7 @@ pub fn start_global_media_server() -> Result<u16, String> {
                             .find_map(|kv| kv.strip_prefix(name)?.strip_prefix('='))?;
                         Some(urlencoding::decode(raw).unwrap_or_default().into_owned())
                     };
-                    let session_job = find_str_param("session")
-                        .zip(find_str_param("job"));
+                    let session_job = find_str_param("session").zip(find_str_param("job"));
 
                     // Body is PNG binary — decode to RGBA (skips base64 layer).
                     let expected_rgba = (w as usize) * (h as usize) * 4;
@@ -1943,8 +1940,7 @@ pub fn start_global_media_server() -> Result<u16, String> {
                     } else {
                         native_export::staging::set_atlas(rgba, w, h);
                     }
-                    let mut res =
-                        Response::from_string(r#"{"ok":true}"#).with_status_code(200);
+                    let mut res = Response::from_string(r#"{"ok":true}"#).with_status_code(200);
                     res.add_header(cors);
                     let _ = request.respond(res);
                 } else {
@@ -2049,8 +2045,7 @@ pub fn start_global_media_server() -> Result<u16, String> {
                 let file_size = match std::fs::metadata(&media_path_str) {
                     Ok(m) => m.len(),
                     Err(_) => {
-                        let mut res =
-                            Response::from_string("File error").with_status_code(500);
+                        let mut res = Response::from_string("File error").with_status_code(500);
                         res.add_header(
                             tiny_http::Header::from_bytes(
                                 &b"Access-Control-Allow-Origin"[..],
@@ -2107,9 +2102,8 @@ pub fn start_global_media_server() -> Result<u16, String> {
                 }
 
                 if start > end || start >= file_size {
-                    let mut res =
-                        Response::from_string("Requested range not satisfiable")
-                            .with_status_code(416);
+                    let mut res = Response::from_string("Requested range not satisfiable")
+                        .with_status_code(416);
                     res.add_header(
                         tiny_http::Header::from_bytes(
                             &b"Access-Control-Allow-Origin"[..],
@@ -2164,11 +2158,8 @@ pub fn start_global_media_server() -> Result<u16, String> {
                             // Tell the client to close the connection after each response
                             // so keepalive connections don't accumulate while old streams
                             // are in-flight (which would starve new seek requests).
-                            tiny_http::Header::from_bytes(
-                                &b"Connection"[..],
-                                &b"close"[..],
-                            )
-                            .unwrap(),
+                            tiny_http::Header::from_bytes(&b"Connection"[..], &b"close"[..])
+                                .unwrap(),
                         ],
                         Box::new(f.take(content_len)) as Box<dyn Read + Send>,
                         Some(content_len as usize),
@@ -2185,8 +2176,7 @@ pub fn start_global_media_server() -> Result<u16, String> {
                     }
                     let _ = request.respond(res);
                 } else {
-                    let mut res =
-                        Response::from_string("File not found").with_status_code(404);
+                    let mut res = Response::from_string("File not found").with_status_code(404);
                     res.add_header(
                         tiny_http::Header::from_bytes(
                             &b"Access-Control-Allow-Origin"[..],

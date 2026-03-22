@@ -17,10 +17,10 @@ use crate::APP;
 use isolang::Language;
 
 // ── Warm socket pool for instant TTS ──────────────────────────────────────
-use std::sync::Mutex;
-use tungstenite::WebSocket;
 use native_tls::TlsStream;
 use std::net::TcpStream;
+use std::sync::Mutex;
+use tungstenite::WebSocket;
 
 struct WarmSocket {
     socket: WebSocket<TlsStream<TcpStream>>,
@@ -62,14 +62,23 @@ fn start_warm_up(api_key: String) {
                 // Wait for setupComplete
                 let deadline = Instant::now() + Duration::from_secs(10);
                 loop {
-                    if Instant::now() > deadline { let _ = socket.close(None); return; }
+                    if Instant::now() > deadline {
+                        let _ = socket.close(None);
+                        return;
+                    }
                     match socket.read() {
                         Ok(Message::Text(msg)) if msg.as_str().contains("setupComplete") => break,
                         Ok(Message::Binary(data)) => {
-                            if String::from_utf8_lossy(&data).contains("setupComplete") { break; }
+                            if String::from_utf8_lossy(&data).contains("setupComplete") {
+                                break;
+                            }
                         }
-                        Err(_) => { return; }
-                        _ => { std::thread::sleep(Duration::from_millis(10)); }
+                        Err(_) => {
+                            return;
+                        }
+                        _ => {
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
                     }
                 }
                 let elapsed = start.elapsed().as_millis();
@@ -233,73 +242,72 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
         }
 
         if !setup_complete {
-        if let Err(e) = send_tts_setup(
-            &mut socket,
-            &current_voice,
-            &current_speed,
-            language_instruction.as_deref(),
-        ) {
-            eprintln!("TTS: Failed to send setup: {}", e);
-            let _ = socket.close(None);
-            let _ = tx.send(AudioEvent::End);
-            clear_tts_state(request.req.hwnd);
-            std::thread::sleep(Duration::from_secs(2));
-            continue;
-        }
-
-        // Wait for setup acknowledgment
-        let setup_start = Instant::now();
-        loop {
-            if request.generation < manager.interrupt_generation.load(Ordering::SeqCst)
-                || manager.shutdown.load(Ordering::SeqCst)
-            {
+            if let Err(e) = send_tts_setup(
+                &mut socket,
+                &current_voice,
+                &current_speed,
+                language_instruction.as_deref(),
+            ) {
+                eprintln!("TTS: Failed to send setup: {}", e);
                 let _ = socket.close(None);
                 let _ = tx.send(AudioEvent::End);
-                break;
+                clear_tts_state(request.req.hwnd);
+                std::thread::sleep(Duration::from_secs(2));
+                continue;
             }
 
-            match socket.read() {
-                Ok(Message::Text(msg)) => {
-                    let msg = msg.as_str();
-                    if msg.contains("setupComplete") {
-                        setup_complete = true;
-                        break;
-                    }
-                    if msg.contains("error") || msg.contains("Error") {
-                        eprintln!("TTS: Setup error: {}", msg);
-                        break;
-                    }
-                }
-                Ok(Message::Close(_)) => {
-                    break;
-                }
-                Ok(Message::Binary(data)) => {
-                    if let Ok(text) = String::from_utf8(data.to_vec())
-                        && text.contains("setupComplete")
-                    {
-                        setup_complete = true;
-                        break;
-                    }
-                }
-                Ok(_) => {}
-                Err(tungstenite::Error::Io(ref e))
-                    if e.kind() == std::io::ErrorKind::WouldBlock =>
+            // Wait for setup acknowledgment
+            let setup_start = Instant::now();
+            loop {
+                if request.generation < manager.interrupt_generation.load(Ordering::SeqCst)
+                    || manager.shutdown.load(Ordering::SeqCst)
                 {
-                    if setup_start.elapsed() > Duration::from_secs(10) {
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-                Err(_) => {
+                    let _ = socket.close(None);
+                    let _ = tx.send(AudioEvent::End);
                     break;
                 }
+
+                match socket.read() {
+                    Ok(Message::Text(msg)) => {
+                        let msg = msg.as_str();
+                        if msg.contains("setupComplete") {
+                            setup_complete = true;
+                            break;
+                        }
+                        if msg.contains("error") || msg.contains("Error") {
+                            eprintln!("TTS: Setup error: {}", msg);
+                            break;
+                        }
+                    }
+                    Ok(Message::Close(_)) => {
+                        break;
+                    }
+                    Ok(Message::Binary(data)) => {
+                        if let Ok(text) = String::from_utf8(data.to_vec())
+                            && text.contains("setupComplete")
+                        {
+                            setup_complete = true;
+                            break;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(tungstenite::Error::Io(ref e))
+                        if e.kind() == std::io::ErrorKind::WouldBlock =>
+                    {
+                        if setup_start.elapsed() > Duration::from_secs(10) {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    Err(_) => {
+                        break;
+                    }
+                }
             }
-        }
 
-        if manager.shutdown.load(Ordering::SeqCst) {
-            return;
-        }
-
+            if manager.shutdown.load(Ordering::SeqCst) {
+                return;
+            }
         } // end if !setup_complete (fresh connection setup block)
 
         if !setup_complete {

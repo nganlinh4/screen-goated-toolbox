@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 internal class PresetAudioBlockExecutor(
     private val audioApiClient: AudioApiClient,
     private val apiKeys: () -> ApiKeys,
+    private val runtimeSettings: () -> PresetRuntimeSettings,
     private val uiLanguage: () -> String,
     private val executionState: MutableStateFlow<PresetExecutionState>,
     private val historyRecorder: dev.screengoated.toolbox.mobile.history.PresetHistoryRecorder,
@@ -34,6 +35,17 @@ internal class PresetAudioBlockExecutor(
         val resultWindowId = PresetResultWindowId(sessionId = sessionId, blockIdx = index)
         val actualStreamingEnabled = if (block.renderMode == "markdown") false else block.streamingEnabled
         val shouldSurfaceStreaming = shouldSurfaceOverlay && actualStreamingEnabled && !block.requestsHtmlOutput()
+        val descriptor = PresetModelCatalog.getById(block.model)
+            ?: error("Unknown model config: ${block.model}")
+        preflightSkipReason(
+            modelId = block.model,
+            provider = descriptor.provider,
+            apiKeys = apiKeys(),
+            blockedProviders = emptySet(),
+            settings = runtimeSettings(),
+        )?.let { reason ->
+            throw IllegalStateException(reason)
+        }
 
         val result = input.precomputedTranscript
             ?.takeIf { incoming[index].isEmpty() }

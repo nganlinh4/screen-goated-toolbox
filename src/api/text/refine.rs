@@ -80,8 +80,8 @@ where
         RefineContext::Image(_) => (original_model_id.to_string(), original_provider.to_string()),
         _ => {
             if !original_model_id.trim().is_empty()
-                    && original_model_id != crate::model_config::DEFAULT_IMAGE_MODEL_ID
-                {
+                && original_model_id != crate::model_config::DEFAULT_IMAGE_MODEL_ID
+            {
                 (original_model_id.to_string(), original_provider.to_string())
             } else if !gemini_api_key.trim().is_empty() {
                 ("gemini-flash-lite".to_string(), "google".to_string())

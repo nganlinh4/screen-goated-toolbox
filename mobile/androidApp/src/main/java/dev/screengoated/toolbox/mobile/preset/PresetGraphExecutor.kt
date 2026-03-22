@@ -24,6 +24,7 @@ internal class PresetGraphExecutor(
                 "AudioApiClient is required before executing AUDIO blocks."
             },
             apiKeys = apiKeys,
+            runtimeSettings = runtimeSettings,
             uiLanguage = uiLanguage,
             executionState = executionState,
             historyRecorder = historyRecorder,
@@ -160,7 +161,8 @@ internal class PresetGraphExecutor(
         }
 
         // Auto-paste after ALL blocks complete (matches Windows post_process.rs)
-        if (preset.autoPaste) {
+        val shouldSkipFinalAutoPaste = (input as? PresetInput.Audio)?.isStreamingResult == true
+        if (preset.autoPaste && !shouldSkipFinalAutoPaste) {
             postProcessActions.handleAutoPaste()
         }
     }
