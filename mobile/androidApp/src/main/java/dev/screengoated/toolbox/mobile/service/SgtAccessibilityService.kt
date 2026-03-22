@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.os.Bundle
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -12,6 +13,7 @@ import android.util.Log
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import java.io.File
 import java.util.concurrent.Executors
@@ -67,9 +69,8 @@ class SgtAccessibilityService : AccessibilityService() {
         for (window in windows) {
             val root = window.root ?: continue
             val pkg = root.packageName?.toString()
-            if (pkg == packageName) { root.recycle(); continue }
+            if (pkg == packageName) { continue }
             val result = findSelectedTextInTree(root)
-            root.recycle()
             if (result != null) return result
         }
         return null
@@ -91,26 +92,20 @@ class SgtAccessibilityService : AccessibilityService() {
             if (copyNode != null) {
                 val clicked = copyNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 Log.d(TAG, "eagerCaptureSelection clicked Copy on $pkg: $clicked")
-                copyNode.recycle()
-                root.recycle()
                 return
             }
-            root.recycle()
         }
         // Fallback: ACTION_COPY on focused node (works for EditText)
         for (window in windows) {
             val root = window.root ?: continue
             val pkg = root.packageName?.toString()
-            if (pkg == packageName) { root.recycle(); continue }
+            if (pkg == packageName) { continue }
             val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             if (focused != null) {
                 focused.performAction(AccessibilityNodeInfo.ACTION_COPY)
                 Log.d(TAG, "eagerCaptureSelection ACTION_COPY on $pkg")
-                focused.recycle()
-                root.recycle()
                 return
             }
-            root.recycle()
         }
     }
 
@@ -191,17 +186,38 @@ class SgtAccessibilityService : AccessibilityService() {
         for (window in windows) {
             val root = window.root ?: continue
             val pkg = root.packageName?.toString()
-            if (pkg == packageName) { root.recycle(); continue }
+            if (pkg == packageName) { continue }
             val focused = findFocusedEditableNode(root)
             if (focused != null) {
                 val result = focused.performAction(AccessibilityNodeInfo.ACTION_PASTE)
                 Log.d(TAG, "pasteIntoFocusedField on $pkg: $result")
-                focused.recycle()
-                root.recycle()
                 return result
             }
-            root.recycle()
         }
+        return false
+    }
+
+    fun appendTextToFocusedField(
+        text: String,
+        uiLanguage: String,
+    ): Boolean {
+        if (text.isEmpty()) {
+            return false
+        }
+        for (window in windows) {
+            val root = window.root ?: continue
+            val pkg = root.packageName?.toString()
+            if (pkg == packageName) {
+                continue
+            }
+            val focused = findFocusedEditableNode(root)
+            if (focused != null) {
+                val result = appendTextToNode(focused, text)
+                Log.d(TAG, "appendTextToFocusedField on $pkg: $result")
+                return result
+            }
+        }
+        warnNoWritableTarget(uiLanguage)
         return false
     }
 
@@ -219,7 +235,6 @@ class SgtAccessibilityService : AccessibilityService() {
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             val found = findSelectedTextInTree(child)
-            child.recycle()
             if (found != null) return found
         }
         return null
@@ -229,11 +244,9 @@ class SgtAccessibilityService : AccessibilityService() {
         val nodes = root.findAccessibilityNodeInfosByText(text)
         for (node in nodes) {
             if (node.isClickable && node.text?.toString()?.trim().equals(text, ignoreCase = true)) {
-                nodes.filter { it !== node }.forEach { it.recycle() }
                 return node
             }
         }
-        nodes.forEach { it.recycle() }
         return null
     }
 
@@ -241,11 +254,9 @@ class SgtAccessibilityService : AccessibilityService() {
         val nodes = root.findAccessibilityNodeInfosByText(desc)
         for (node in nodes) {
             if (node.isClickable && node.contentDescription?.toString()?.trim().equals(desc, ignoreCase = true)) {
-                nodes.filter { it !== node }.forEach { it.recycle() }
                 return node
             }
         }
-        nodes.forEach { it.recycle() }
         return null
     }
 
@@ -257,8 +268,77 @@ class SgtAccessibilityService : AccessibilityService() {
         if (focused.className?.toString()?.contains("WebView") == true) {
             return focused
         }
-        focused.recycle()
         return null
+    }
+
+    private fun appendTextToNode(
+        node: AccessibilityNodeInfo,
+        text: String,
+    ): Boolean {
+        val appendPlan = buildAccessibilityAppendPlan(
+            existingText = node.text,
+            selectionStart = node.textSelectionStart,
+            selectionEnd = node.textSelectionEnd,
+            appendText = text,
+        )
+        val setTextResult = node.performAction(
+            AccessibilityNodeInfo.ACTION_SET_TEXT,
+            Bundle().apply {
+                putCharSequence(
+                    AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                    appendPlan.updatedText,
+                )
+            },
+        )
+        if (setTextResult) {
+            node.performAction(
+                AccessibilityNodeInfo.ACTION_SET_SELECTION,
+                Bundle().apply {
+                    putInt(
+                        AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT,
+                        appendPlan.selectionIndex,
+                    )
+                    putInt(
+                        AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT,
+                        appendPlan.selectionIndex,
+                    )
+                },
+            )
+            return true
+        }
+        return appendTextViaClipboardPaste(node, text)
+    }
+
+    private fun appendTextViaClipboardPaste(
+        node: AccessibilityNodeInfo,
+        text: String,
+    ): Boolean {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return false
+        val originalClip = cm.primaryClip
+        return try {
+            cm.setPrimaryClip(ClipData.newPlainText("SGT Stream", text))
+            node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+        } finally {
+            if (originalClip != null) {
+                cm.setPrimaryClip(originalClip)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                cm.clearPrimaryClip()
+            }
+        }
+    }
+
+    private fun warnNoWritableTarget(uiLanguage: String) {
+        val nowMs = SystemClock.elapsedRealtime()
+        if (nowMs - lastNoWritableTargetToastAtMs < NO_WRITABLE_TARGET_COOLDOWN_MS) {
+            return
+        }
+        lastNoWritableTargetToastAtMs = nowMs
+        val message = when (uiLanguage) {
+            "vi" -> "Tự động gõ đang bật nhưng chưa chọn ô nhập text."
+            "ko" -> "자동 입력이 켜져 있지만 텍스트 입력 칸이 선택되지 않았습니다."
+            else -> "Auto writing is active, but no text field is selected."
+        }
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     // ── Screenshot capture ─────────────────────────────────────────────────
@@ -381,6 +461,9 @@ class SgtAccessibilityService : AccessibilityService() {
         private const val TAG = "SgtAccessibility"
         private const val IMAGE_CLIPBOARD_DIR = "clipboard-images"
         private const val IMAGE_CLIPBOARD_FILE = "latest-screenshot.png"
+        private const val NO_WRITABLE_TARGET_COOLDOWN_MS = 3_000L
+        @Volatile
+        private var lastNoWritableTargetToastAtMs: Long = 0L
 
         @Volatile
         var instance: SgtAccessibilityService? = null

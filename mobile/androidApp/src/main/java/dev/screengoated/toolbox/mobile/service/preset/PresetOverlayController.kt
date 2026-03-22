@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Rect
 import android.os.SystemClock
+import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
 import dev.screengoated.toolbox.mobile.MainActivity
@@ -45,6 +46,7 @@ internal class PresetOverlayController(
     private val onPanelExpandedChanged: (Boolean) -> Unit = {},
     private val onBubbleSuppressedChanged: (Boolean) -> Unit = {},
     private val onRequestBubbleFront: () -> Unit = {},
+    private val onAudioCaptureForegroundModeChanged: (PresetAudioForegroundMode) -> Unit = {},
     private val ttsRuntimeService: TtsRuntimeService? = null,
     private val ttsSettingsSnapshotProvider: (() -> dev.screengoated.toolbox.mobile.service.tts.TtsRequestSettingsSnapshot)? = null,
 ) {
@@ -72,7 +74,18 @@ internal class PresetOverlayController(
         isDarkTheme = ::isDarkTheme,
         permissionSnapshotProvider = { appContainer.repository.state.value.permissions },
         screenBoundsProvider = ::screenBounds,
+        onStreamingTextChunk = ::appendStreamingTextChunk,
     )
+    private val autoSpeakCoordinator = if (ttsRuntimeService != null && ttsSettingsSnapshotProvider != null) {
+        PresetAutoSpeakCoordinator(
+            context = context,
+            ttsRuntimeService = ttsRuntimeService,
+            snapshotProvider = ttsSettingsSnapshotProvider,
+            uiLanguage = ::uiLanguage,
+        )
+    } else {
+        null
+    }
     private var activePreset: ResolvedPreset? = null
     private var bubbleBounds = OverlayBounds(x = 0, y = 0, width = dp(48), height = dp(48))
     private var imageContinuousPresetId: String? = null
@@ -186,20 +199,7 @@ internal class PresetOverlayController(
             }
 
             override fun handleAutoSpeak(block: dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock, resultText: String, blockIdx: Int) {
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    val tts = ttsRuntimeService ?: return@postDelayed
-                    val snapshot = ttsSettingsSnapshotProvider?.invoke() ?: return@postDelayed
-                    tts.enqueue(
-                        dev.screengoated.toolbox.mobile.service.tts.TtsRequest(
-                            text = resultText,
-                            consumer = dev.screengoated.toolbox.mobile.service.tts.TtsConsumer.RESULT_OVERLAY,
-                            priority = dev.screengoated.toolbox.mobile.service.tts.TtsPriority.USER,
-                            requestMode = dev.screengoated.toolbox.mobile.service.tts.TtsRequestMode.NORMAL,
-                            settingsSnapshot = snapshot,
-                            ownerToken = "autospeak_block_$blockIdx",
-                        ),
-                    )
-                }, 200)
+                autoSpeakCoordinator?.schedule(resultText, blockIdx)
             }
 
             override fun handleAutoPaste() {
@@ -234,6 +234,7 @@ internal class PresetOverlayController(
             ttsEventsJob = scope.launch(Dispatchers.Main.immediate) {
                 launch {
                     ttsRuntimeService.playbackEvents.collect { event ->
+                        autoSpeakCoordinator?.handlePlaybackEvent(event)
                         resultModule.handleTtsPlaybackEvent(event.requestId, event.ownerToken, event.completionStatus)
                     }
                 }
@@ -267,9 +268,11 @@ internal class PresetOverlayController(
         panelModule.destroy()
         imageCaptureSession.destroy()
         audioCaptureSession.destroy()
+        onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
         inputModule.destroy()
         resultModule.destroy()
         dismissTarget.hide()
+        autoSpeakCoordinator?.clear()
         activePreset = null
         imageContinuousPresetId = null
         imageContinuousRearmPending = false
@@ -428,12 +431,20 @@ internal class PresetOverlayController(
 
     private fun launchAudioPreset(resolved: ResolvedPreset) {
         if (resolved.preset.audioProcessingMode == "realtime") {
+            onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
             launchRealtimeAudioPreset(resolved)
             return
         }
+        val foregroundMode = if (resolved.preset.audioSource == "device") {
+            PresetAudioForegroundMode.MEDIA_PROJECTION
+        } else {
+            PresetAudioForegroundMode.MICROPHONE
+        }
+        onAudioCaptureForegroundModeChanged(foregroundMode)
         audioCaptureSession.start(
             resolvedPreset = resolved,
             onRecordingComplete = { capture ->
+                onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
                 presetRepository.resetState()
                 presetRepository.executePreset(
                     resolved.preset,
@@ -445,12 +456,14 @@ internal class PresetOverlayController(
                 )
             },
             onCancelled = {
+                onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
                 if (!resultModule.hasResults()) {
                     activePreset = null
                 }
             },
-            onFailure = { reason ->
-                handleAudioCaptureFailure(resolved, reason)
+            onFailure = { failure ->
+                onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
+                handleAudioCaptureFailure(resolved, failure)
             },
         )
     }
@@ -470,11 +483,10 @@ internal class PresetOverlayController(
 
     private fun handleAudioCaptureFailure(
         resolved: ResolvedPreset,
-        reason: PresetAudioCaptureFailureReason,
+        failure: PresetAudioCaptureFailure,
     ) {
-        when (reason) {
+        when (failure.reason) {
             PresetAudioCaptureFailureReason.RECORD_PERMISSION_REQUIRED,
-            PresetAudioCaptureFailureReason.PROJECTION_CONSENT_REQUIRED,
             -> {
                 appContainer.audioPresetLaunchStore.set(
                     AudioPresetLaunchRequest(
@@ -493,6 +505,17 @@ internal class PresetOverlayController(
                     },
                 )
             }
+            PresetAudioCaptureFailureReason.PROJECTION_CONSENT_REQUIRED -> {
+                appContainer.audioPresetLaunchStore.set(
+                    AudioPresetLaunchRequest(
+                        presetId = resolved.preset.id,
+                        kind = AudioPresetLaunchKind.CAPTURE,
+                    ),
+                )
+                context.startActivity(
+                    dev.screengoated.toolbox.mobile.ProjectionConsentProxyActivity.resumeCapturePresetIntent(context),
+                )
+            }
             PresetAudioCaptureFailureReason.CAPTURE_FAILED -> {
                 Toast.makeText(
                     context,
@@ -502,10 +525,21 @@ internal class PresetOverlayController(
                         "오디오 캡처에 실패했습니다.",
                     ),
                     Toast.LENGTH_SHORT,
-                ).show()
+                    ).show()
                 activePreset = null
             }
         }
+    }
+
+    private fun appendStreamingTextChunk(chunk: String): Boolean {
+        if (chunk.isBlank()) {
+            return false
+        }
+        val service = SgtAccessibilityService.instance ?: return false
+        return service.appendTextToFocusedField(
+            text = chunk,
+            uiLanguage = uiLanguage(),
+        )
     }
 
     private fun launchRealtimeAudioPreset(resolved: ResolvedPreset) {
@@ -899,6 +933,10 @@ internal class PresetOverlayController(
         dismissTarget.hide()
         panelModule.dismiss()
         stopImageContinuousMode(showToast = false)
+        if (audioCaptureSession.isActive) {
+            audioCaptureSession.cancel()
+        }
+        onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
         inputModule.close()
         resultModule.resetExecution(resetRepository = true)
         pendingImageBytes = null

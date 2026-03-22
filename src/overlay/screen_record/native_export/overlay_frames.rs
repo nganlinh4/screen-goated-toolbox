@@ -7,9 +7,7 @@
 // Input: OverlayAtlasMetadata (few KB) sent once from JS after atlas baking.
 // Output: Vec<OverlayFrame> indexed by frame_idx.
 
-use super::config::{
-    CursorVisibilitySegment, OverlayFrame, OverlayQuad, SpeedPoint, TrimSegment,
-};
+use super::config::{CursorVisibilitySegment, OverlayFrame, OverlayQuad, SpeedPoint, TrimSegment};
 
 // --- Constants (mirror keystrokeTypes.ts) ---
 const KEYSTROKE_ANIM_ENTER_SEC: f64 = 0.18;
@@ -351,9 +349,11 @@ fn find_active_events(
     }
 
     active.sort_by(|a, b| {
-        a.slot
-            .cmp(&b.slot)
-            .then_with(|| b.start_time.partial_cmp(&a.start_time).unwrap_or(std::cmp::Ordering::Equal))
+        a.slot.cmp(&b.slot).then_with(|| {
+            b.start_time
+                .partial_cmp(&a.start_time)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     });
     active
 }
@@ -383,7 +383,9 @@ fn get_keystroke_lane_bubble_gap_px(font_size: f64) -> f64 {
 }
 
 fn get_keystroke_pair_gap_px(primary_font_size: f64, secondary_font_size: f64) -> f64 {
-    (primary_font_size.max(secondary_font_size) * 0.58).max(14.0).round()
+    (primary_font_size.max(secondary_font_size) * 0.58)
+        .max(14.0)
+        .round()
 }
 
 fn get_slot_advance_px(
@@ -418,7 +420,10 @@ fn layout_keystroke_lane(
         return Vec::new();
     }
 
-    let max_font = items.iter().map(|i| i.layout_font_size).fold(16.0_f64, f64::max);
+    let max_font = items
+        .iter()
+        .map(|i| i.layout_font_size)
+        .fold(16.0_f64, f64::max);
     let margin_x = (max_font * 0.34).max(10.0).round();
     let left_bound = margin_x;
     let right_bound = (canvas_width - margin_x).max(left_bound);
@@ -467,7 +472,8 @@ fn layout_keystroke_lane(
         .iter()
         .enumerate()
         .map(|(idx, item)| {
-            let y = (baseline_y_px - item.layout_height as f64 - item.layout_margin_bottom as f64).round();
+            let y = (baseline_y_px - item.layout_height as f64 - item.layout_margin_bottom as f64)
+                .round();
             let slot_offset = slot_offsets.get(item.slot).copied().unwrap_or(0.0);
             let x = if align_right {
                 let right_edge = center_anchor - slot_offset;
@@ -475,7 +481,11 @@ fn layout_keystroke_lane(
             } else {
                 center_anchor + slot_offset
             };
-            Placement { item_idx: idx, x, y }
+            Placement {
+                item_idx: idx,
+                x,
+                y,
+            }
         })
         .collect();
 
@@ -520,10 +530,13 @@ fn layout_keystroke_lane(
                 placements[i].x = min_allowed_x;
             }
         }
-        let rightmost = placements.last().map(|p| {
-            let bw = items[p.item_idx].bubble_width;
-            p.x + bw
-        }).unwrap_or(0.0);
+        let rightmost = placements
+            .last()
+            .map(|p| {
+                let bw = items[p.item_idx].bubble_width;
+                p.x + bw
+            })
+            .unwrap_or(0.0);
         let overflow = rightmost - right_bound;
         if overflow > 0.001 {
             let mut max_left_shift = f64::INFINITY;
@@ -634,11 +647,7 @@ pub fn generate_overlay_frames(
     let baseline_y_px = (overlay_y / 100.0) * canvas_height;
 
     // Build effective ends for display events
-    let effective_ends: Vec<f64> = meta
-        .display_events
-        .iter()
-        .map(|e| e.end_time)
-        .collect();
+    let effective_ends: Vec<f64> = meta.display_events.iter().map(|e| e.end_time).collect();
 
     // Build keystroke atlas entry lookup by unique_key
     let keystroke_map: std::collections::HashMap<&str, &KeystrokeAtlasEntry> = meta
@@ -728,25 +737,36 @@ pub fn generate_overlay_frames(
                 for ae in active_events {
                     let event = &meta.display_events[ae.event_index];
                     let is_mouse = event.event_type == "mousedown" || event.event_type == "wheel";
-                    let visual =
-                        get_keystroke_visual_state(t, ae.start_time, ae.end_time, is_mouse, event.is_hold);
+                    let visual = get_keystroke_visual_state(
+                        t,
+                        ae.start_time,
+                        ae.end_time,
+                        is_mouse,
+                        event.is_hold,
+                    );
                     if visual.alpha <= 0.001 {
                         continue;
                     }
                     let entry = keystroke_map.get(event.unique_key.as_str());
-                    let (layout_width, layout_height, layout_font_size, layout_margin_bottom, pad, bubble_width) =
-                        if let Some(e) = entry {
-                            (
-                                e.layout_width as f64,
-                                e.layout_height as f64,
-                                e.layout_font_size as f64,
-                                e.layout_margin_bottom as f64,
-                                e.pad as f64,
-                                e.bubble_width as f64,
-                            )
-                        } else {
-                            continue;
-                        };
+                    let (
+                        layout_width,
+                        layout_height,
+                        layout_font_size,
+                        layout_margin_bottom,
+                        pad,
+                        bubble_width,
+                    ) = if let Some(e) = entry {
+                        (
+                            e.layout_width as f64,
+                            e.layout_height as f64,
+                            e.layout_font_size as f64,
+                            e.layout_margin_bottom as f64,
+                            e.pad as f64,
+                            e.bubble_width as f64,
+                        )
+                    } else {
+                        continue;
+                    };
                     items.push(LaneItem {
                         event_index: ae.event_index,
                         visual,
@@ -763,7 +783,9 @@ pub fn generate_overlay_frames(
                     a.slot.cmp(&b.slot).then_with(|| {
                         let a_start = meta.display_events[a.event_index].start_time;
                         let b_start = meta.display_events[b.event_index].start_time;
-                        b_start.partial_cmp(&a_start).unwrap_or(std::cmp::Ordering::Equal)
+                        b_start
+                            .partial_cmp(&a_start)
+                            .unwrap_or(std::cmp::Ordering::Equal)
                     })
                 });
                 items
@@ -773,14 +795,26 @@ pub fn generate_overlay_frames(
             let mouse_items = build_lane_items(&mouse_events);
 
             let lane_gap_px = get_keystroke_pair_gap_px(
-                keyboard_items.first().map(|i| i.layout_font_size).unwrap_or(16.0),
-                mouse_items.first().map(|i| i.layout_font_size).unwrap_or(16.0),
+                keyboard_items
+                    .first()
+                    .map(|i| i.layout_font_size)
+                    .unwrap_or(16.0),
+                mouse_items
+                    .first()
+                    .map(|i| i.layout_font_size)
+                    .unwrap_or(16.0),
             );
 
-            let keyboard_slot_hints =
-                compute_slot_width_hints(&meta.keyboard_slot_representative_widths, &keyboard_items, canvas_height);
-            let mouse_slot_hints =
-                compute_slot_width_hints(&meta.mouse_slot_representative_widths, &mouse_items, canvas_height);
+            let keyboard_slot_hints = compute_slot_width_hints(
+                &meta.keyboard_slot_representative_widths,
+                &keyboard_items,
+                canvas_height,
+            );
+            let mouse_slot_hints = compute_slot_width_hints(
+                &meta.mouse_slot_representative_widths,
+                &mouse_items,
+                canvas_height,
+            );
 
             let emit_quads =
                 |items: &[LaneItem], placements: &[Placement], quads: &mut Vec<OverlayQuad>| {

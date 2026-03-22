@@ -31,8 +31,8 @@ internal class PresetExecutionCapabilityResolver {
 
         executionCapability.reason?.let(reasons::add)
 
-        // auto_paste on Android = auto-copy to clipboard (user pastes manually)
-        // No longer blocked
+        // auto_paste is supported on Android through accessibility paste and,
+        // for streaming audio families, incremental text injection while capture is active.
         if (preset.hotkeys.isNotEmpty()) {
             reasons += PresetPlaceholderReason.HOTKEYS_NOT_READY
         }

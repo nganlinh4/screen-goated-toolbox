@@ -75,6 +75,14 @@
             android:taskAffinity=""
             android:exported="false" />
 
+        <activity
+            android:name=".ProjectionConsentProxyActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:exported="false" />
+
         <service
             android:name=".service.SgtAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
@@ -101,7 +109,7 @@
             android:name=".service.BubbleService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="specialUse|microphone|mediaProjection">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="floating_overlay_bubble_for_favorite_presets" />

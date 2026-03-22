@@ -5,7 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.pm.ServiceInfo
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.media.AudioAttributes
@@ -27,6 +26,7 @@ import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.branding.MobileBrandAssets
+import dev.screengoated.toolbox.mobile.service.preset.PresetAudioForegroundMode
 import dev.screengoated.toolbox.mobile.service.tts.toRuntimeSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -54,6 +54,7 @@ class BubbleService : Service() {
     private var opacityDecayJob: Job? = null
     private var recentInteractionUntilMs = 0L
     private var resetPositionOnDestroy = false
+    internal var currentAudioForegroundMode: PresetAudioForegroundMode = PresetAudioForegroundMode.NONE
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -106,6 +107,7 @@ class BubbleService : Service() {
                 onPanelExpandedChanged = ::setPanelExpanded,
                 onBubbleSuppressedChanged = ::setBubbleSuppressed,
                 onRequestBubbleFront = ::bringBubbleToFront,
+                onAudioCaptureForegroundModeChanged = ::setAudioCaptureForegroundMode,
                 ttsRuntimeService = appContainer.ttsRuntimeService,
                 ttsSettingsSnapshotProvider = {
                     appContainer.repository.currentGlobalTtsSettings()
@@ -118,15 +120,7 @@ class BubbleService : Service() {
             presetOverlayController?.updateBubbleBounds(currentBubbleBounds())
 
             ensureChannel()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                startForeground(
-                    NOTIFICATION_ID,
-                    buildNotification(),
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
-                )
-            } else {
-                startForeground(NOTIFICATION_ID, buildNotification())
-            }
+            applyBubbleForegroundMode(this, PresetAudioForegroundMode.NONE, buildNotification())
             isRunning = true
         }.onFailure {
             Log.e(TAG, "BubbleService failed to start", it)
@@ -343,6 +337,10 @@ class BubbleService : Service() {
             return
         }
         bubbleView.visibility = if (suppressed) View.INVISIBLE else View.VISIBLE
+    }
+
+    private fun setAudioCaptureForegroundMode(mode: PresetAudioForegroundMode) {
+        applyBubbleForegroundMode(this, mode, buildNotification())
     }
 
     private fun currentBubbleSizeDp(): Int {

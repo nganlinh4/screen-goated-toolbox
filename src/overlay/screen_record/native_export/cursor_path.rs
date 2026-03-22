@@ -827,11 +827,7 @@ fn find_prev_mousedown_event_fast(
     before_time: f64,
 ) -> Option<MouseDownEventView> {
     let idx = events.partition_point(|e| e.start_time < before_time);
-    if idx > 0 {
-        Some(events[idx - 1])
-    } else {
-        None
-    }
+    if idx > 0 { Some(events[idx - 1]) } else { None }
 }
 
 fn find_next_mousedown_event_fast(
@@ -993,8 +989,10 @@ pub fn generate_cursor_path(
                     // Squish down: adapt speed to previous click proximity.
                     let gap_from_prev = if use_keystroke_clicks {
                         if let Some(active) = active_event {
-                            let prev_event =
-                                find_prev_mousedown_event_fast(&mousedown_events, active.start_time - 0.01);
+                            let prev_event = find_prev_mousedown_event_fast(
+                                &mousedown_events,
+                                active.start_time - 0.01,
+                            );
                             let prev_effective_end = prev_event
                                 .map(effective_event_end)
                                 .unwrap_or(f64::NEG_INFINITY);
@@ -1026,7 +1024,10 @@ pub fn generate_cursor_path(
                                 active_event.map(effective_event_end).unwrap_or(lookup_t);
                             let next_lookup_start =
                                 active_event.map(|e| e.start_time).unwrap_or(lookup_t) + 0.01;
-                            let next_event = find_next_mousedown_event_fast(&mousedown_events, next_lookup_start);
+                            let next_event = find_next_mousedown_event_fast(
+                                &mousedown_events,
+                                next_lookup_start,
+                            );
                             next_event
                                 .map(|e| (e.start_time - active_effective_end).max(0.0))
                                 .unwrap_or(f64::INFINITY)

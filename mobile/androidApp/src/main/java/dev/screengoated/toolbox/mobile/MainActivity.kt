@@ -1,7 +1,6 @@
 package dev.screengoated.toolbox.mobile
 
 import android.content.Intent
-import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
@@ -66,21 +65,6 @@ class MainActivity : ComponentActivity() {
                 pendingStart = false
                 viewModel.fail("Overlay permission is required for the floating live window.")
             }
-        }
-    }
-
-    private val projectionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        if (result.resultCode == RESULT_OK) {
-            viewModel.rememberProjectionConsent(result.resultCode, result.data)
-            if (pendingStart) {
-                continueStartFlow()
-            }
-        } else {
-            pendingStart = false
-            viewModel.refreshPermissions()
-            viewModel.fail("Device audio capture consent was cancelled.")
         }
     }
 
@@ -170,17 +154,16 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         viewModel.refreshPermissions()
-        if (autoStartOnResume) {
-            autoStartOnResume = false
-            pendingStart = true
-            continueStartFlow()
-        }
+        maybeRunDeferredStartFlow(source = "onResume")
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleIntent(intent)
+        window.decorView.post {
+            maybeRunDeferredStartFlow(source = "onNewIntent")
+        }
     }
 
     private fun continueStartFlow() {
@@ -212,6 +195,11 @@ class MainActivity : ComponentActivity() {
             pendingResolvedPreset != null -> SourceMode.MIC
             else -> state.config.sourceMode
         }
+        val hasProjectionConsent = when {
+            pendingAudioPreset?.kind == AudioPresetLaunchKind.CAPTURE && effectiveSourceMode == SourceMode.DEVICE ->
+                appContainer.projectionConsentStore.hasConsent()
+            else -> state.permissions.mediaProjectionGranted
+        }
 
         when {
             missingRuntimePermissions.isNotEmpty() -> {
@@ -231,14 +219,14 @@ class MainActivity : ComponentActivity() {
             }
 
             effectiveSourceMode == SourceMode.DEVICE &&
-                !state.permissions.mediaProjectionGranted -> {
-                val projectionManager = getSystemService(MediaProjectionManager::class.java)
-                if (projectionManager == null) {
-                    pendingStart = false
-                    viewModel.fail("MediaProjection is unavailable on this device.")
-                    return
+                !hasProjectionConsent -> {
+                pendingStart = false
+                val intent = when (pendingAudioPreset?.kind) {
+                    AudioPresetLaunchKind.CAPTURE -> ProjectionConsentProxyActivity.resumeCapturePresetIntent(this)
+                    AudioPresetLaunchKind.REALTIME -> ProjectionConsentProxyActivity.resumeRealtimePresetIntent(this)
+                    else -> ProjectionConsentProxyActivity.startSessionIntent(this)
                 }
-                projectionLauncher.launch(projectionManager.createScreenCaptureIntent())
+                startActivity(intent)
             }
 
             else -> {
@@ -247,6 +235,8 @@ class MainActivity : ComponentActivity() {
                     when (pendingAudioPreset.kind) {
                         AudioPresetLaunchKind.CAPTURE -> {
                             BubbleService.resumePendingAudioPreset(this)
+                            resumePendingAudioPreset = false
+                            return
                         }
                         AudioPresetLaunchKind.REALTIME -> {
                             val resolved = appContainer.presetRepository.getResolvedPreset(pendingAudioPreset.presetId)
@@ -262,10 +252,10 @@ class MainActivity : ComponentActivity() {
                             )
                             appContainer.audioPresetLaunchStore.setActiveRealtimePresetId(resolved.preset.id)
                             viewModel.startSession(this)
+                            appContainer.audioPresetLaunchStore.clear()
                         }
                     }
                     resumePendingAudioPreset = false
-                    appContainer.audioPresetLaunchStore.clear()
                 } else {
                     viewModel.startSession(this)
                 }
@@ -281,8 +271,22 @@ class MainActivity : ComponentActivity() {
         if (intent?.getBooleanExtra(EXTRA_RESUME_PENDING_AUDIO_PRESET, false) == true) {
             autoStartOnResume = true
             resumePendingAudioPreset = true
+            Toast.makeText(
+                this,
+                "Reacquiring device-audio capture permission...",
+                Toast.LENGTH_SHORT,
+            ).show()
             intent.removeExtra(EXTRA_RESUME_PENDING_AUDIO_PRESET)
         }
+    }
+
+    private fun maybeRunDeferredStartFlow(source: String) {
+        if (!autoStartOnResume) {
+            return
+        }
+        autoStartOnResume = false
+        pendingStart = true
+        continueStartFlow()
     }
 
     companion object {
@@ -292,7 +296,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun dev.screengoated.toolbox.mobile.shared.preset.Preset.toRealtimeSessionConfig(
+internal fun dev.screengoated.toolbox.mobile.shared.preset.Preset.toRealtimeSessionConfig(
     fallback: LiveSessionConfig,
 ): LiveSessionConfig {
     val transcriptionBlock = blocks.firstOrNull { it.blockType == BlockType.AUDIO }
