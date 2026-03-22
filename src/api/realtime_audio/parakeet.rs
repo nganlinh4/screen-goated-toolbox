@@ -15,6 +15,54 @@ use crate::overlay::realtime_webview::AUDIO_SOURCE_CHANGE;
 /// 160ms chunk at 16kHz = 2560 samples (recommended by parakeet-rs)
 const CHUNK_SIZE: usize = 2560;
 
+fn parakeet_execution_config() -> ExecutionConfig {
+    ExecutionConfig::new().with_execution_provider(ExecutionProvider::DirectML)
+}
+
+fn load_parakeet_model_with_repair(
+    stop_signal: &Arc<AtomicBool>,
+    use_badge: bool,
+) -> Result<ParakeetEOU> {
+    let model_dir = super::model_loader::get_parakeet_model_dir();
+    let initial_attempt =
+        ParakeetEOU::from_pretrained(&model_dir, Some(parakeet_execution_config()));
+
+    match initial_attempt {
+        Ok(model) => Ok(model),
+        Err(first_err) => {
+            if stop_signal.load(Ordering::Relaxed) {
+                return Ok(ParakeetEOU::from_pretrained(
+                    &model_dir,
+                    Some(parakeet_execution_config()),
+                )?);
+            }
+
+            super::model_loader::redownload_parakeet_model(stop_signal.clone(), use_badge)
+                .map_err(|repair_err| {
+                    anyhow::anyhow!(
+                        "Failed to repair Parakeet model after load failure: initial={:?}, repair={}",
+                        first_err,
+                        repair_err
+                    )
+                })?;
+
+            if stop_signal.load(Ordering::Relaxed) {
+                return Err(anyhow::anyhow!("Parakeet model repair was cancelled"));
+            }
+
+            ParakeetEOU::from_pretrained(&model_dir, Some(parakeet_execution_config())).map_err(
+                |retry_err| {
+                    anyhow::anyhow!(
+                        "Failed to load Parakeet model after repair: initial={:?}, retry={:?}",
+                        first_err,
+                        retry_err
+                    )
+                },
+            )
+        }
+    }
+}
+
 /// Wrapper for the existing Realtime Overlay functionality
 pub fn run_parakeet_transcription(
     _preset: Preset,
@@ -121,11 +169,7 @@ where
     }
 
     // 3. Load Model
-    let model_dir = super::model_loader::get_parakeet_model_dir();
-    let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::DirectML);
-
-    let mut parakeet = ParakeetEOU::from_pretrained(&model_dir, Some(config))
-        .map_err(|e| anyhow::anyhow!("Failed to load Parakeet model: {:?}", e))?;
+    let mut parakeet = load_parakeet_model_with_repair(&stop_signal, use_badge)?;
 
     // 4. Audio Setup
     let audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));

@@ -7,6 +7,7 @@ use super::utils::format_size;
 pub(super) fn render_ai_runtime_section(ui: &mut egui::Ui, text: &LocaleText) {
     let status = unpack_dlls::current_ai_runtime_status();
     let version_label = unpack_dlls::ai_runtime_version_label();
+    let notice = unpack_dlls::current_ai_runtime_notice();
 
     ui.group(|ui| {
         ui.horizontal(|ui| {
@@ -69,5 +70,10 @@ pub(super) fn render_ai_runtime_section(ui: &mut egui::Ui, text: &LocaleText) {
                 });
             }
         });
+
+        if let Some(message) = notice {
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+        }
     });
 }
