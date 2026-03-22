@@ -1,0 +1,39 @@
+{
+  "canonical_windows_files": [
+    "src/config/preset/defaults/audio.rs",
+    "src/hotkey/processor.rs",
+    "src/overlay/recording/mod.rs",
+    "src/overlay/recording/ui.rs",
+    "src/api/audio/recording.rs",
+    "src/api/audio/transcription.rs"
+  ],
+  "recording_toggle_contract": {
+    "first_launch": "start_recording",
+    "second_launch_same_preset": "stop_and_submit",
+    "third_launch_while_processing": "abort_and_close"
+  },
+  "auto_stop_thresholds": {
+    "warmup_rms": 0.001,
+    "speech_rms": 0.015,
+    "silence_ms": 800,
+    "min_speech_ms": 2000
+  },
+  "recording_shell_contract": {
+    "source": "windows_webview_template",
+    "bridge_methods": ["resetState", "updateState", "hideState", "updateTheme"],
+    "ipc_messages": ["ready", "pause_toggle", "cancel", "drag_window"]
+  },
+  "shared_mic_button_contract": {
+    "text_input": "preset_transcribe",
+    "result_canvas": "preset_transcribe"
+  },
+  "streaming_capture_contract": {
+    "gemini-live-audio": "partial_transcript_during_capture",
+    "parakeet-local": "partial_transcript_during_capture",
+    "final_transcript_handoff": "first_audio_block_uses_precomputed_transcript"
+  },
+  "realtime_contract": {
+    "launch_path": "transient_live_service_override",
+    "restore_saved_config_on_stop": true
+  }
+}

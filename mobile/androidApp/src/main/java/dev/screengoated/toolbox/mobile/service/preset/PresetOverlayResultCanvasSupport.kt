@@ -112,6 +112,10 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
             }
             setActiveResultWindow(window.id)
         }
+        "mic" -> {
+            onMicRequested()
+            payload.optString("hwnd").toResultWindowIdOrNull()?.let(::setActiveResultWindow)
+        }
         "edit" -> {
             val window = payload.optString("hwnd").toResultWindowIdOrNull()?.let(resultWindows::get) ?: return
             val nowEditing = !window.runtimeState.isEditing

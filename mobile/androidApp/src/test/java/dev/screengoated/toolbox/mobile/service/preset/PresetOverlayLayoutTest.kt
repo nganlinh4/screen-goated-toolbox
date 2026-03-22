@@ -1,6 +1,5 @@
 package dev.screengoated.toolbox.mobile.service.preset
 
-import android.graphics.Rect
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
 import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
@@ -9,7 +8,8 @@ import org.junit.Test
 
 class PresetOverlayLayoutTest {
     private val density = 2f
-    private val screenBounds = Rect(0, 0, 1080, 2200)
+    private val screenWidthPx = 1080
+    private val screenHeightPx = 2200
     private val cssToPhysical: (Float) -> Int = { value -> (value * density).roundToInt() }
 
     @Test
@@ -20,7 +20,8 @@ class PresetOverlayLayoutTest {
             itemCount = 2,
             bubbleBounds = bubbleBounds,
             density = density,
-            screenBounds = screenBounds,
+            screenWidthPx = screenWidthPx,
+            screenHeightPx = screenHeightPx,
             cssToPhysical = cssToPhysical,
         )
 
@@ -36,7 +37,8 @@ class PresetOverlayLayoutTest {
             itemCount = 2,
             bubbleBounds = bubbleBounds,
             density = density,
-            screenBounds = screenBounds,
+            screenWidthPx = screenWidthPx,
+            screenHeightPx = screenHeightPx,
             cssToPhysical = cssToPhysical,
         )
 
@@ -54,7 +56,7 @@ class PresetOverlayLayoutTest {
             panelBounds = panelBounds,
             bubbleBounds = bubbleBounds,
             density = density,
-            screenBounds = screenBounds,
+            screenWidthPx = screenWidthPx,
         )
 
         assertTrue(script.contains("window.setSide('left', $expectedOverlapCss);"))

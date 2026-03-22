@@ -14,6 +14,12 @@ interface PresetHistoryRecorder {
         imageBytes: ByteArray,
         resultText: String,
     )
+
+    fun recordAudioResult(
+        block: ProcessingBlock,
+        wavBytes: ByteArray,
+        resultText: String,
+    )
 }
 
 object NoOpPresetHistoryRecorder : PresetHistoryRecorder {
@@ -26,6 +32,12 @@ object NoOpPresetHistoryRecorder : PresetHistoryRecorder {
     override fun recordImageResult(
         block: ProcessingBlock,
         imageBytes: ByteArray,
+        resultText: String,
+    ) = Unit
+
+    override fun recordAudioResult(
+        block: ProcessingBlock,
+        wavBytes: ByteArray,
         resultText: String,
     ) = Unit
 }
@@ -57,6 +69,20 @@ class HistoryBackedPresetHistoryRecorder(
         }
         historyRepository.saveImage(
             pngBytes = imageBytes,
+            resultText = resultText,
+        )
+    }
+
+    override fun recordAudioResult(
+        block: ProcessingBlock,
+        wavBytes: ByteArray,
+        resultText: String,
+    ) {
+        if (!block.showOverlay || resultText.isBlank() || wavBytes.isEmpty()) {
+            return
+        }
+        historyRepository.saveAudio(
+            wavBytes = wavBytes,
             resultText = resultText,
         )
     }

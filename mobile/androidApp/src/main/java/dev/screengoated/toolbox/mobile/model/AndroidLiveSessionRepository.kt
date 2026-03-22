@@ -32,6 +32,8 @@ class AndroidLiveSessionRepository(
     private val overlaySupported: Boolean,
     private val historyRepository: HistoryRepository,
 ) {
+    private var persistedConfig = settingsStore.loadConfig()
+    private var transientSessionConfigActive = false
     private val mutableApiKey = MutableStateFlow(settingsStore.loadApiKey())
     private val mutableCerebrasApiKey = MutableStateFlow(settingsStore.loadCerebrasApiKey())
     private val mutableGroqApiKey = MutableStateFlow(settingsStore.loadGroqApiKey())
@@ -59,9 +61,8 @@ class AndroidLiveSessionRepository(
     val supportedLanguages: List<String> = LanguageCatalog.names
 
     init {
-        val config = settingsStore.loadConfig()
-        val permissions = permissionEvaluator.evaluate(context, config, overlaySupported)
-        store.hydrate(config, permissions)
+        val permissions = permissionEvaluator.evaluate(context, persistedConfig, overlaySupported)
+        store.hydrate(persistedConfig, permissions)
     }
 
     fun refreshPermissions() {
@@ -74,9 +75,28 @@ class AndroidLiveSessionRepository(
         if (patch.targetLanguage != null && patch.targetLanguage != previousLanguage) {
             store.clearTranslationHistory()
         }
-        settingsStore.saveConfig(state.value.config)
+        if (!transientSessionConfigActive) {
+            persistedConfig = state.value.config
+            settingsStore.saveConfig(persistedConfig)
+        }
         refreshPermissions()
     }
+
+    fun applyTransientSessionConfig(config: LiveSessionConfig) {
+        transientSessionConfigActive = true
+        store.hydrate(config, permissionEvaluator.evaluate(context, config, overlaySupported))
+    }
+
+    fun clearTransientSessionConfig() {
+        if (!transientSessionConfigActive) {
+            return
+        }
+        transientSessionConfigActive = false
+        val permissions = permissionEvaluator.evaluate(context, persistedConfig, overlaySupported)
+        store.hydrate(persistedConfig, permissions)
+    }
+
+    fun isTransientSessionConfigActive(): Boolean = transientSessionConfigActive
 
     fun updateApiKey(apiKey: String) {
         mutableApiKey.value = apiKey

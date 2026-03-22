@@ -6,6 +6,8 @@ import dev.screengoated.toolbox.mobile.downloader.DownloaderRepository
 import dev.screengoated.toolbox.mobile.history.HistoryBackedPresetHistoryRecorder
 import dev.screengoated.toolbox.mobile.history.HistoryPersistence
 import dev.screengoated.toolbox.mobile.history.HistoryRepository
+import dev.screengoated.toolbox.mobile.preset.AudioApiClient
+import dev.screengoated.toolbox.mobile.preset.AudioPresetLaunchStore
 import dev.screengoated.toolbox.mobile.preset.ApiKeys
 import dev.screengoated.toolbox.mobile.preset.PresetPersistence
 import dev.screengoated.toolbox.mobile.preset.PresetRepository
@@ -42,6 +44,7 @@ class AppContainer(
         .build()
 
     val projectionConsentStore = ProjectionConsentStore()
+    val audioPresetLaunchStore = AudioPresetLaunchStore()
     private val settingsStore = SecureSettingsStore(appContext, json)
     private val permissionEvaluator = PermissionSnapshotEvaluator(projectionConsentStore)
     private val sessionStore = LiveSessionStore()
@@ -67,10 +70,16 @@ class AppContainer(
     }
 
     private val textApiClient = TextApiClient(httpClient)
+    val audioApiClient = AudioApiClient(
+        appContext = appContext,
+        httpClient = httpClient,
+        parakeetModelManager = parakeetModelManager,
+    )
     private val visionApiClient = VisionApiClient(httpClient)
     private val presetPersistence = PresetPersistence(appContext, json)
     val presetRepository = PresetRepository(
         textApiClient = textApiClient,
+        audioApiClient = audioApiClient,
         visionApiClient = visionApiClient,
         apiKeys = {
             ApiKeys(

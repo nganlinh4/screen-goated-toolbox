@@ -127,6 +127,7 @@ internal fun overlayMobileShim(): String {
             let resizeTouch = null; // {x, y, corner: 'bl'|'br'}
 
             const RESIZE_ZONE_PX = 44; // corner touch zone size
+            const TOUCH_DRAG_GAIN = Math.max(window.devicePixelRatio || 1, 1.85);
 
             function detectCorner(touchX, touchY) {
                 if (!container) return null;
@@ -159,8 +160,8 @@ internal fun overlayMobileShim(): String {
                     const touch = event.touches[0];
 
                     if (resizeTouch) {
-                        const dx = Math.round(touch.screenX - resizeTouch.x);
-                        const dy = Math.round(touch.screenY - resizeTouch.y);
+                        const dx = Math.round((touch.screenX - resizeTouch.x) * TOUCH_DRAG_GAIN);
+                        const dy = Math.round((touch.screenY - resizeTouch.y) * TOUCH_DRAG_GAIN);
                         if (dx !== 0 || dy !== 0) {
                             window.ipc.postMessage('resizeCorner:' + resizeTouch.corner + ',' + dx + ',' + dy);
                             resizeTouch.x = touch.screenX;
@@ -171,8 +172,8 @@ internal fun overlayMobileShim(): String {
                     }
 
                     if (!dragTouch) return;
-                    const dx = Math.round(touch.screenX - dragTouch.x);
-                    const dy = Math.round(touch.screenY - dragTouch.y);
+                    const dx = Math.round((touch.screenX - dragTouch.x) * TOUCH_DRAG_GAIN);
+                    const dy = Math.round((touch.screenY - dragTouch.y) * TOUCH_DRAG_GAIN);
                     if (dx !== 0 || dy !== 0) {
                         window.ipc.postMessage('dragWindow:' + dx + ',' + dy);
                         window.ipc.postMessage('dragAt:' + Math.round(touch.screenX) + ',' + Math.round(touch.screenY));

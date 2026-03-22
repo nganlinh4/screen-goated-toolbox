@@ -229,6 +229,9 @@ internal fun configureOverlayWebView(
     webView.settings.builtInZoomControls = false
     webView.settings.displayZoomControls = false
     webView.settings.setSupportZoom(false)
+    webView.settings.useWideViewPort = false
+    webView.settings.loadWithOverviewMode = false
+    webView.settings.textZoom = 100
     webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
 }
 

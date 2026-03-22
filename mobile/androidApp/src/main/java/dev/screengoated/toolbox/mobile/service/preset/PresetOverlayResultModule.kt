@@ -35,6 +35,7 @@ internal class PresetOverlayResultModule(
     internal val onRequestInputFront: () -> Unit,
     internal val onDismissAll: () -> Unit,
     internal val onNoOverlaysRemaining: () -> Unit,
+    internal val onMicRequested: () -> Unit,
     internal val ttsRuntimeService: TtsRuntimeService? = null,
     internal val ttsSettingsSnapshotProvider: (() -> TtsRequestSettingsSnapshot)? = null,
     internal val overlayOpacityProvider: () -> Int = { 100 },

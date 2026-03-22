@@ -19,14 +19,7 @@ internal class PresetExecutionCapabilityResolver {
             PresetType.TEXT_INPUT -> resolveTextInputCapability(preset)
             PresetType.MIC,
             PresetType.DEVICE_AUDIO,
-            -> PresetExecutionCapability(
-                supported = false,
-                reason = if (preset.audioProcessingMode == "realtime") {
-                    PresetPlaceholderReason.REALTIME_AUDIO_NOT_READY
-                } else {
-                    PresetPlaceholderReason.AUDIO_CAPTURE_NOT_READY
-                },
-            )
+            -> resolveAudioCapability(preset)
         }
     }
 
@@ -144,6 +137,69 @@ internal class PresetExecutionCapabilityResolver {
         return PresetExecutionCapability(supported = true)
     }
 
+    private fun resolveAudioCapability(preset: Preset): PresetExecutionCapability {
+        if (preset.blocks.isEmpty()) {
+            return PresetExecutionCapability(
+                supported = false,
+                reason = PresetPlaceholderReason.AUDIO_CAPTURE_NOT_READY,
+            )
+        }
+        if (preset.audioProcessingMode == "realtime") {
+            return resolveRealtimeAudioCapability(preset)
+        }
+
+        val unsupportedAudioModel = preset.blocks.firstOrNull { block ->
+            block.blockType == BlockType.AUDIO && !isAudioModelSupported(block.model)
+        }
+        if (unsupportedAudioModel != null) {
+            return PresetExecutionCapability(
+                supported = false,
+                reason = PresetPlaceholderReason.MODEL_PROVIDER_NOT_READY,
+            )
+        }
+        val unsupportedTextModel = preset.blocks.firstOrNull { block ->
+            block.blockType == BlockType.TEXT && !isTextModelSupported(block.model)
+        }
+        if (unsupportedTextModel != null) {
+            return PresetExecutionCapability(
+                supported = false,
+                reason = PresetPlaceholderReason.MODEL_PROVIDER_NOT_READY,
+            )
+        }
+        if (preset.blocks.any { it.blockType !in setOf(BlockType.INPUT_ADAPTER, BlockType.AUDIO, BlockType.TEXT) }) {
+            return PresetExecutionCapability(
+                supported = false,
+                reason = PresetPlaceholderReason.NON_TEXT_GRAPH_NOT_READY,
+            )
+        }
+        return PresetExecutionCapability(supported = true)
+    }
+
+    private fun resolveRealtimeAudioCapability(preset: Preset): PresetExecutionCapability {
+        val realtimeBlocks = preset.blocks.filter { it.blockType != BlockType.INPUT_ADAPTER }
+        if (realtimeBlocks.isEmpty() || realtimeBlocks.size > 2) {
+            return PresetExecutionCapability(
+                supported = false,
+                reason = PresetPlaceholderReason.NON_TEXT_GRAPH_NOT_READY,
+            )
+        }
+        val audioBlock = realtimeBlocks.firstOrNull()
+        if (audioBlock?.blockType != BlockType.AUDIO || !isAudioModelSupported(audioBlock.model)) {
+            return PresetExecutionCapability(
+                supported = false,
+                reason = PresetPlaceholderReason.REALTIME_AUDIO_NOT_READY,
+            )
+        }
+        val translationBlock = realtimeBlocks.getOrNull(1)
+        if (translationBlock != null && (translationBlock.blockType != BlockType.TEXT || !isTextModelSupported(translationBlock.model))) {
+            return PresetExecutionCapability(
+                supported = false,
+                reason = PresetPlaceholderReason.MODEL_PROVIDER_NOT_READY,
+            )
+        }
+        return PresetExecutionCapability(supported = true)
+    }
+
     private fun isVisionModelSupported(modelId: String): Boolean {
         val descriptor = PresetModelCatalog.getById(modelId) ?: return false
         if (descriptor.modelType != PresetModelType.VISION) return false
@@ -170,6 +226,20 @@ internal class PresetExecutionCapabilityResolver {
             PresetModelProvider.OLLAMA,
         )
     }
+
+    private fun isAudioModelSupported(modelId: String): Boolean {
+        val descriptor = PresetModelCatalog.getById(modelId) ?: return false
+        if (descriptor.modelType != PresetModelType.AUDIO) {
+            return false
+        }
+        return descriptor.provider in setOf(
+            PresetModelProvider.GOOGLE,
+            PresetModelProvider.GROQ,
+            PresetModelProvider.GEMINI_LIVE,
+            PresetModelProvider.PARAKEET,
+        )
+    }
+
 }
 
 internal fun PresetPlaceholderReason.message(): String = when (this) {
@@ -182,9 +252,9 @@ internal fun PresetPlaceholderReason.message(): String = when (this) {
     PresetPlaceholderReason.MODEL_PROVIDER_NOT_READY ->
         "This preset uses a text model/provider runtime that Android does not implement yet."
     PresetPlaceholderReason.AUDIO_CAPTURE_NOT_READY ->
-        "Audio capture presets are not ready on Android yet."
+        "This audio preset still needs a supported Android capture/runtime path."
     PresetPlaceholderReason.REALTIME_AUDIO_NOT_READY ->
-        "Realtime audio presets are not ready on Android yet."
+        "This realtime audio preset shape is not supported on Android yet."
     PresetPlaceholderReason.HTML_RESULT_NOT_READY ->
         "HTML result overlays are not ready on Android yet."
     PresetPlaceholderReason.CONTROLLER_MODE_NOT_READY ->

@@ -37,7 +37,14 @@ class RealtimeTtsCoordinator(
                     TtsCompletionStatus.INTERRUPTED,
                     TtsCompletionStatus.FAILED,
                     -> {
-                        pendingOffsets.remove(event.requestId)
+                        val interruptedOffset = pendingOffsets.remove(event.requestId)
+                        if (interruptedOffset != null) {
+                            val earliestPendingOffset = pendingOffsets.values.minOrNull()
+                            queuedLength = when (earliestPendingOffset) {
+                                null -> spokenLength
+                                else -> earliestPendingOffset.coerceAtLeast(spokenLength)
+                            }
+                        }
                     }
                 }
                 runtime.setRealtimeQueueDepth(pendingOffsets.size)

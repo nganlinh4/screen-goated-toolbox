@@ -24,8 +24,8 @@
 - Android must not expose editable controls for preset behaviors that do not have real Android runtime support yet.
 - Unsupported Windows-only behavior must render as read-only placeholders with an explicit reason.
 - Favorite state is repository-backed and persisted; it must not live only in Compose memory.
-- Android may keep a preset details/inspector screen before a full editor, but it must not pretend node-graph editing, hotkeys, controller mode, audio capture, or auto-paste work if they do not.
-- Android wave 1 execution is limited to text-input presets whose graphs are text-only. Text-selection capture and overlay-style input remain placeholders until Android has a real runtime for them.
+- Android may keep a preset details/inspector screen before a full editor, but it must not pretend node-graph editing, hotkeys, or controller mode work if they do not.
+- Android bubble execution now covers text, image, selected-text, and audio presets whose block/provider families have real Android runtimes. Unsupported graph/provider paths must still surface explicit reasons instead of guessing.
 - Android preset execution must run from the floating bubble service, not from the main app inspector UI.
 - Android bubble runtime is `favorites only` in wave 1.
 - The bubble panel honors the Windows keep-open toggle:
@@ -138,7 +138,7 @@
 
 ## Deviations
 - Android wave 1 keeps custom preset create/clone/delete/reorder as placeholders.
-- Android wave 1 keeps hotkeys, controller/master invocation, image capture, selected-text capture, mic/device capture, realtime audio, and auto-paste as placeholders until real runtime exists.
+- Android still keeps hotkeys and controller/master invocation as placeholders until real runtime exists.
 - Android wave 1 does not expose the Windows markdown/plain-text result toggle in the floating button canvas; the mobile overlay stays markdown-only until a real alternate render mode exists.
 - Android wave 1 keeps these result/button-canvas actions as visible placeholders:
   - edit/refine
@@ -148,8 +148,8 @@
   - broom group/all mouse-button variants
 - Android favorite bubble still has known parity gaps versus Windows:
   - panel `trigger_continuous` does not yet enter the Windows continuous-mode runtime; Android still routes that path through the normal preset launch flow
-- Android text-input overlay still has known parity gaps versus Windows:
-  - `mic` remains a placeholder until Android has the preset-linked recording/runtime path behind that control
+- Android preset audio runtime has a documented parity gap versus Windows:
+  - non-realtime streamed providers still begin partial transcription after stop on Android rather than during the active recording session
 - Android preset text provider runtime still has a known parity gap versus Windows:
   - `gemini-live-text` is not yet wired into the preset bubble runtime; Android must surface that as an explicit unsupported provider/runtime path instead of guessing
 - On Android/touch, the text-input footer row may be omitted and the action buttons may be compacted inward so the overlay remains truthful and usable within the smaller mobile window. This is an accepted mobile interaction adaptation, not a parity bug.

@@ -838,6 +838,7 @@ object DefaultPresets {
             nameVi = "H\u1ecdc ngo\u1ea1i ng\u1eef",
             nameKo = "\uc5b8\uc5b4 \ud559\uc2b5",
             presetType = PresetType.DEVICE_AUDIO,
+            audioSource = "device",
             blocks = listOf(
                 audioBlock(
                     "whisper-accurate",
@@ -858,6 +859,8 @@ object DefaultPresets {
             nameVi = "D\u1ecbch cabin",
             nameKo = "\uc2e4\uc2dc\uac04 \uc74c\uc131 \ubc88\uc5ed",
             presetType = PresetType.DEVICE_AUDIO,
+            audioSource = "device",
+            audioProcessingMode = "realtime",
             blocks = listOf(
                 audioBlock("whisper-accurate"),
                 textBlock(
@@ -874,6 +877,7 @@ object DefaultPresets {
             nameVi = "Thu \u00e2m m\u00e1y",
             nameKo = "\uc2dc\uc2a4\ud15c \ub179\uc74c",
             presetType = PresetType.DEVICE_AUDIO,
+            audioSource = "device",
             autoStopRecording = true,
             blocks = listOf(
                 inputAdapter().copy(showOverlay = true, renderMode = "markdown"),
@@ -886,6 +890,7 @@ object DefaultPresets {
             nameVi = "Ch\u00e9p l\u1eddi TA",
             nameKo = "\uc601\uc5b4 \ubc1b\uc544\uc4f0\uae30",
             presetType = PresetType.DEVICE_AUDIO,
+            audioSource = "device",
             autoPaste = true,
             blocks = listOf(
                 audioBlock(

@@ -52,6 +52,22 @@ PROVIDER_DEFAULTS = {
     "use_ollama": False,
 }
 
+EXTRA_MODELS = (
+    {
+        "id": "google-gemma",
+        "provider": "GOOGLE",
+        "full_name_const": "REALTIME_TRANSLATION_GEMMA_API_MODEL",
+        "model_type": "TEXT",
+        "display_name": "Gemma",
+        "name_vi": "Gemma",
+        "name_ko": "Gemma",
+        "quota_en": "20 requests/day",
+        "quota_vi": "20 lượt/ngày",
+        "quota_ko": "20 요청/일",
+        "is_non_llm": False,
+    },
+)
+
 
 def kotlin_string(value: str) -> str:
     escaped = (
@@ -160,6 +176,8 @@ def generate_kotlin(
         "    val models: List<PresetModelDescriptor> = listOf(",
     ]
 
+    emitted_ids: set[str] = set()
+
     for match in entries:
         provider = match.group("provider")
         model_type = match.group("model_type")
@@ -169,6 +187,7 @@ def generate_kotlin(
             raise SystemExit(f"Unknown model type mapping for {model_type!r}")
 
         model_id = match.group("id")
+        emitted_ids.add(model_id)
         display_name = match.group("name_en")
         name_vi = match.group("name_vi")
         name_ko = match.group("name_ko")
@@ -200,6 +219,32 @@ def generate_kotlin(
                 f"            quotaEn = {kotlin_string(quota_en)},",
                 f"            quotaVi = {kotlin_string(quota_vi)},",
                 f"            quotaKo = {kotlin_string(quota_ko)},",
+                "        ),",
+            ]
+        )
+
+    for extra_model in EXTRA_MODELS:
+        if extra_model["id"] in emitted_ids:
+            continue
+        full_name = string_consts.get(extra_model["full_name_const"])
+        if full_name is None:
+            raise SystemExit(
+                f"Unknown full_name const {extra_model['full_name_const']!r} for extra model {extra_model['id']!r}"
+            )
+        lines.extend(
+            [
+                "        PresetModelDescriptor(",
+                f"            id = {kotlin_string(extra_model['id'])},",
+                f"            provider = PresetModelProvider.{extra_model['provider']},",
+                f"            fullName = {kotlin_string(full_name)},",
+                f"            modelType = PresetModelType.{extra_model['model_type']},",
+                f"            displayName = {kotlin_string(extra_model['display_name'])},",
+                f"            nameVi = {kotlin_string(extra_model['name_vi'])},",
+                f"            nameKo = {kotlin_string(extra_model['name_ko'])},",
+                f"            isNonLlm = {str(extra_model['is_non_llm']).lower()},",
+                f"            quotaEn = {kotlin_string(extra_model['quota_en'])},",
+                f"            quotaVi = {kotlin_string(extra_model['quota_vi'])},",
+                f"            quotaKo = {kotlin_string(extra_model['quota_ko'])},",
                 "        ),",
             ]
         )

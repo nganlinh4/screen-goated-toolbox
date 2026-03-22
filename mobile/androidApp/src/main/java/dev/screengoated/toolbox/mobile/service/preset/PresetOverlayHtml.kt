@@ -164,11 +164,14 @@ private fun presetTypeLabel(
 
 private fun panelIconKey(preset: ResolvedPreset): String {
     val model = preset.preset
+    if (model.audioProcessingMode == "realtime") {
+        return "realtime"
+    }
     return when (model.presetType) {
         PresetType.IMAGE -> "image"
         PresetType.TEXT_SELECT -> "select"
         PresetType.TEXT_INPUT -> "text"
-        PresetType.MIC -> if (model.audioProcessingMode == "realtime") "realtime" else "mic"
+        PresetType.MIC -> "mic"
         PresetType.DEVICE_AUDIO -> "deviceAudio"
     }
 }
@@ -183,14 +186,9 @@ private fun panelAccentColor(preset: ResolvedPreset): String {
         PresetType.TEXT_SELECT,
         PresetType.TEXT_INPUT,
         -> "#67E8A5"
-        PresetType.MIC -> {
-            if (preset.preset.audioProcessingMode == "realtime") {
-                "#FF7C7C"
-            } else {
-                "#FFB35C"
-            }
-        }
-        PresetType.DEVICE_AUDIO -> "#FFB35C"
+        PresetType.MIC,
+        PresetType.DEVICE_AUDIO,
+        -> if (preset.preset.audioProcessingMode == "realtime") "#FF7C7C" else "#FFB35C"
     }
 }
 

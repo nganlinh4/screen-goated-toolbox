@@ -48,16 +48,32 @@
       }
     },
     {
-      "name": "text_select_preset_requires_placeholder_execution",
+      "name": "text_select_preset_is_repository_executable",
       "preset_id": "preset_translate_select",
       "expected_execution": {
-        "supported": false,
-        "reason": "TEXT_SELECTION_NOT_READY"
+        "supported": true,
+        "reason": null
       }
     },
     {
       "name": "overlay_only_text_input_is_executable_when_input_adapter_shows_overlay",
       "preset_id": "preset_quick_note",
+      "expected_execution": {
+        "supported": true,
+        "reason": null
+      }
+    },
+    {
+      "name": "mic_audio_preset_is_repository_executable",
+      "preset_id": "preset_transcribe",
+      "expected_execution": {
+        "supported": true,
+        "reason": null
+      }
+    },
+    {
+      "name": "realtime_audio_preset_is_repository_executable",
+      "preset_id": "preset_realtime_audio_translate",
       "expected_execution": {
         "supported": true,
         "reason": null
