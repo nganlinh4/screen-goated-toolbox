@@ -2244,6 +2244,7 @@ internal fun GlobalSection(
                 onClick = onUsageStatsClick,
             )
         }
+        UsageTipsCard(locale = locale)
         OverlayOpacityCard(
             opacityPercent = overlayOpacityPercent,
             locale = locale,
