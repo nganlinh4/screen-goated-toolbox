@@ -18,6 +18,7 @@ The default rule is hard parity: mobile follows the Windows behavior contract un
 4. Add or update shared fixtures under `parity-fixtures/` before changing mobile logic.
 5. Implement mobile against the spec and canonical source files, not against memory or UI appearance.
 6. Verify there is no undocumented behavior gap between Windows and mobile.
+7. For Android Compose UI, prefer the latest alpha / experimental Compose Material 3 APIs when they provide the closest match to the Windows behavior or the intended Material 3 Expressive pattern.
 
 ## Hard Gate
 
@@ -32,6 +33,7 @@ The default rule is hard parity: mobile follows the Windows behavior contract un
 - Do not leave parity assumptions implicit. If behavior differs, document it in the feature spec first.
 - If the current Android implementation is already a simplified or hand-maintained core port that diverges from the Windows architecture, do not preserve it out of convenience.
 - Prefer rewriting the Android core around the Windows module/state-machine boundaries instead of stacking more fixes onto a bad parity port.
+- Do not reject alpha or experimental Compose Material 3 APIs merely to stay on older stable UI primitives when the expressive API is the better parity or UX fit.
 
 ## Repo Files To Read
 
