@@ -3,6 +3,11 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+lazy_static::lazy_static! {
+    static ref LAST_PARAKEET_ACTION_ERROR: std::sync::Mutex<Option<String>> =
+        std::sync::Mutex::new(None);
+}
+
 fn current_download_feedback() -> (String, String) {
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
 
@@ -11,6 +16,18 @@ fn current_download_feedback() -> (String, String) {
     } else {
         ("Downloading".to_string(), String::new())
     }
+}
+
+fn set_parakeet_action_error(message: impl Into<String>) {
+    *LAST_PARAKEET_ACTION_ERROR.lock().unwrap() = Some(message.into());
+}
+
+fn clear_parakeet_action_error() {
+    *LAST_PARAKEET_ACTION_ERROR.lock().unwrap() = None;
+}
+
+pub fn current_parakeet_model_notice() -> Option<String> {
+    LAST_PARAKEET_ACTION_ERROR.lock().unwrap().clone()
 }
 
 // Helper function to download file or read local file
@@ -117,6 +134,24 @@ pub fn is_model_downloaded() -> bool {
         && dir.join("tokenizer.json").exists()
 }
 
+pub fn remove_parakeet_model() -> Result<()> {
+    let dir = get_parakeet_model_dir();
+    if dir.exists() {
+        fs::remove_dir_all(&dir)
+            .map_err(|err| anyhow!("Failed to remove '{}': {}", dir.display(), err))?;
+    }
+    clear_parakeet_action_error();
+    Ok(())
+}
+
+pub fn redownload_parakeet_model(
+    stop_signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    use_badge: bool,
+) -> Result<()> {
+    remove_parakeet_model()?;
+    download_parakeet_model(stop_signal, use_badge)
+}
+
 pub fn download_parakeet_model(
     stop_signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
     use_badge: bool,
@@ -135,6 +170,7 @@ pub fn download_parakeet_model(
         state.download_message = locale.parakeet_downloading_message.to_string();
         state.download_progress = 0.0;
     }
+    clear_parakeet_action_error();
     if use_badge {
         crate::overlay::auto_copy_badge::show_progress_notification(
             locale.parakeet_downloading_title,
@@ -168,7 +204,7 @@ pub fn download_parakeet_model(
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 
-    let result = (|| {
+    let result: Result<()> = (|| {
         let files_to_download = vec![
             (
                 "encoder.onnx",
@@ -220,6 +256,14 @@ pub fn download_parakeet_model(
                 LPARAM(0),
             );
         }
+    }
+
+    if let Err(err) = &result {
+        if !err.to_string().contains("cancelled") {
+            set_parakeet_action_error(err.to_string());
+        }
+    } else {
+        clear_parakeet_action_error();
     }
 
     result

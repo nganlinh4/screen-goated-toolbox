@@ -16,6 +16,7 @@ const DIRECTML_ARCHIVE_NAME: &str = "directml-1.15.4.nupkg";
 const ONNX_DLL: &str = "onnxruntime.dll";
 const ONNX_SHARED_DLL: &str = "onnxruntime_providers_shared.dll";
 const DIRECTML_DLL: &str = "DirectML.dll";
+const RUNTIME_VERSION_MARKER: &str = "ai-runtime-version.txt";
 
 #[derive(Clone, Debug)]
 pub enum AiRuntimeStatus {
@@ -81,10 +82,11 @@ const PACKAGES: &[RuntimePackage] = &[
 lazy_static::lazy_static! {
     static ref INSTALL_MUTEX: Mutex<()> = Mutex::new(());
     static ref STATUS: Mutex<AiRuntimeStatus> = Mutex::new(AiRuntimeStatus::Missing);
+    static ref LAST_ACTION_ERROR: Mutex<Option<String>> = Mutex::new(None);
 }
 
 fn core_runtime_present(bin_dir: &Path) -> bool {
-    bin_dir.join(ONNX_DLL).exists() && bin_dir.join(DIRECTML_DLL).exists()
+    runtime_health_issue(bin_dir).is_none()
 }
 
 fn runtime_bytes(bin_dir: &Path) -> u64 {
@@ -97,6 +99,64 @@ fn runtime_bytes(bin_dir: &Path) -> u64 {
 
 fn set_status(status: AiRuntimeStatus) {
     *STATUS.lock().unwrap() = status;
+}
+
+fn set_last_action_error(message: impl Into<String>) {
+    *LAST_ACTION_ERROR.lock().unwrap() = Some(message.into());
+}
+
+fn clear_last_action_error() {
+    *LAST_ACTION_ERROR.lock().unwrap() = None;
+}
+
+pub fn current_ai_runtime_notice() -> Option<String> {
+    LAST_ACTION_ERROR.lock().unwrap().clone()
+}
+
+fn runtime_marker_path(bin_dir: &Path) -> PathBuf {
+    bin_dir.join(RUNTIME_VERSION_MARKER)
+}
+
+fn expected_runtime_marker_contents() -> String {
+    format!(
+        "onnxruntime={}\ndirectml={}\n",
+        ONNX_RUNTIME_VERSION, DIRECTML_VERSION
+    )
+}
+
+fn has_runtime_artifacts(bin_dir: &Path) -> bool {
+    [
+        ONNX_DLL,
+        ONNX_SHARED_DLL,
+        DIRECTML_DLL,
+        RUNTIME_VERSION_MARKER,
+    ]
+    .into_iter()
+    .any(|name| bin_dir.join(name).exists())
+}
+
+fn runtime_health_issue(bin_dir: &Path) -> Option<String> {
+    let missing: Vec<&str> = [ONNX_DLL, ONNX_SHARED_DLL, DIRECTML_DLL]
+        .into_iter()
+        .filter(|name| !bin_dir.join(name).exists())
+        .collect();
+
+    if !missing.is_empty() {
+        return Some(format!(
+            "Local AI runtime is incomplete. Missing: {}",
+            missing.join(", ")
+        ));
+    }
+
+    let marker_path = runtime_marker_path(bin_dir);
+    let expected = expected_runtime_marker_contents();
+    match fs::read_to_string(&marker_path) {
+        Ok(contents) if contents == expected => None,
+        Ok(_) => Some("Local AI runtime is outdated. Reinstall required.".to_string()),
+        Err(_) => {
+            Some("Local AI runtime version marker is missing. Reinstall required.".to_string())
+        }
+    }
 }
 
 fn post_realtime_download_state(active: bool, title: &str, message: &str, progress: f32) {
@@ -357,6 +417,16 @@ fn install_runtime(stop_signal: &AtomicBool, ui: AiRuntimeUi) -> Result<()> {
     }
 
     update_progress(ui, "Finalizing local AI runtime", 100.0);
+    fs::write(
+        runtime_marker_path(&bin_dir),
+        expected_runtime_marker_contents(),
+    )
+    .with_context(|| {
+        format!(
+            "Failed to write '{}'",
+            runtime_marker_path(&bin_dir).display()
+        )
+    })?;
     Ok(())
 }
 
@@ -377,6 +447,10 @@ pub fn current_ai_runtime_status() -> AiRuntimeStatus {
         _ if core_runtime_present(&bin_dir) => AiRuntimeStatus::Installed {
             bytes: runtime_bytes(&bin_dir),
         },
+        _ if has_runtime_artifacts(&bin_dir) => AiRuntimeStatus::Error(
+            runtime_health_issue(&bin_dir)
+                .unwrap_or_else(|| "Local AI runtime is invalid. Reinstall required.".to_string()),
+        ),
         AiRuntimeStatus::Error(message) => AiRuntimeStatus::Error(message),
         _ => AiRuntimeStatus::Missing,
     }
@@ -393,20 +467,30 @@ pub fn remove_ai_runtime() -> Result<()> {
     let _guard = INSTALL_MUTEX.lock().unwrap();
     let bin_dir = super::private_bin_dir();
 
-    for name in [ONNX_DLL, ONNX_SHARED_DLL, DIRECTML_DLL] {
+    for name in [
+        ONNX_DLL,
+        ONNX_SHARED_DLL,
+        DIRECTML_DLL,
+        RUNTIME_VERSION_MARKER,
+    ] {
         let path = bin_dir.join(name);
         if path.exists() {
-            fs::remove_file(&path)
-                .with_context(|| format!("Failed to remove '{}'", path.display()))?;
+            if let Err(err) = fs::remove_file(&path) {
+                let message = format!("Failed to remove '{}': {}", path.display(), err);
+                set_last_action_error(message.clone());
+                return Err(anyhow!(message));
+            }
         }
     }
 
+    clear_last_action_error();
     set_status(AiRuntimeStatus::Missing);
     Ok(())
 }
 
 pub fn ensure_ai_runtime_installed(stop_signal: Arc<AtomicBool>, ui: AiRuntimeUi) -> Result<()> {
     if is_ai_runtime_installed() {
+        clear_last_action_error();
         set_status(AiRuntimeStatus::Installed {
             bytes: current_ai_runtime_usage_bytes(),
         });
@@ -415,6 +499,7 @@ pub fn ensure_ai_runtime_installed(stop_signal: Arc<AtomicBool>, ui: AiRuntimeUi
 
     let _guard = INSTALL_MUTEX.lock().unwrap();
     if is_ai_runtime_installed() {
+        clear_last_action_error();
         set_status(AiRuntimeStatus::Installed {
             bytes: current_ai_runtime_usage_bytes(),
         });
@@ -426,6 +511,7 @@ pub fn ensure_ai_runtime_installed(stop_signal: Arc<AtomicBool>, ui: AiRuntimeUi
 
     match result {
         Ok(()) => {
+            clear_last_action_error();
             set_status(AiRuntimeStatus::Installed {
                 bytes: current_ai_runtime_usage_bytes(),
             });
@@ -442,6 +528,7 @@ pub fn ensure_ai_runtime_installed(stop_signal: Arc<AtomicBool>, ui: AiRuntimeUi
             if err.to_string().contains("cancelled") {
                 set_status(AiRuntimeStatus::Missing);
             } else {
+                set_last_action_error(err.to_string());
                 set_status(AiRuntimeStatus::Error(err.to_string()));
                 if ui != AiRuntimeUi::None {
                     crate::overlay::auto_copy_badge::show_error_notification(

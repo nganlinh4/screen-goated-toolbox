@@ -1,5 +1,6 @@
 use crate::api::realtime_audio::model_loader::{
-    download_parakeet_model, get_parakeet_model_dir, is_model_downloaded,
+    current_parakeet_model_notice, download_parakeet_model, get_parakeet_model_dir,
+    is_model_downloaded, remove_parakeet_model,
 };
 use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::download_manager::{DownloadManager, InstallStatus, UpdateStatus};
@@ -40,6 +41,7 @@ pub fn render_downloaded_tools_modal(
                 ui.add_space(8.0);
 
                 ui.group(|ui| {
+                    let parakeet_notice = current_parakeet_model_notice();
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(text.tool_parakeet).strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -69,7 +71,7 @@ pub fn render_downloaded_tools_modal(
                                     )
                                     .clicked()
                                 {
-                                    let _ = fs::remove_dir_all(get_parakeet_model_dir());
+                                    let _ = remove_parakeet_model();
                                 }
                                 let size = get_dir_size(&get_parakeet_model_dir());
                                 ui.label(
@@ -94,6 +96,10 @@ pub fn render_downloaded_tools_modal(
                         });
                     });
                     ui.label(text.tool_desc_parakeet);
+                    if let Some(message) = parakeet_notice {
+                        ui.add_space(4.0);
+                        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+                    }
                 });
 
                 ui.add_space(8.0);
