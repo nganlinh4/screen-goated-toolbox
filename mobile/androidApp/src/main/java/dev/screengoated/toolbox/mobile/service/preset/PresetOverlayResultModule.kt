@@ -33,6 +33,7 @@ internal class PresetOverlayResultModule(
     internal val dp: (Int) -> Int,
     internal val cssToPhysical: (Int) -> Int,
     internal val onRequestInputFront: () -> Unit,
+    internal val onDismissAll: () -> Unit,
     internal val onNoOverlaysRemaining: () -> Unit,
     internal val ttsRuntimeService: TtsRuntimeService? = null,
     internal val ttsSettingsSnapshotProvider: (() -> TtsRequestSettingsSnapshot)? = null,
@@ -42,6 +43,8 @@ internal class PresetOverlayResultModule(
     internal val resultWindows = LinkedHashMap<PresetResultWindowId, ActivePresetResultWindow>()
     internal var canvasWindow: PresetOverlayWindow? = null
     internal var activeResultWindowId: PresetResultWindowId? = null
+    internal var topmostResultWindowId: PresetResultWindowId? = null
+    internal var canvasSuspendedForGesture: Boolean = false
 
     fun hasResults(): Boolean = resultWindows.isNotEmpty()
 
@@ -133,9 +136,10 @@ internal class PresetOverlayResultModule(
         val active = resultWindows[id] ?: return
         when (payload.optString("type")) {
             "activateResultWindow" -> setActiveResultWindow(id)
+            "promoteResultWindow" -> promoteResultWindow(id)
             "dragResultWindow" -> {
                 dismissTarget.ensureShown()
-                canvasWindow?.runScript("if(window.collapseOpacitySlider)collapseOpacitySlider()")
+                suspendCanvasForGesture()
                 active.window.moveBy(
                     dx = payload.optDouble("dx", 0.0).roundToInt(),
                     dy = payload.optDouble("dy", 0.0).roundToInt(),
@@ -147,7 +151,7 @@ internal class PresetOverlayResultModule(
             }
             "dragResultWindowAt" -> {
                 dismissTarget.update(
-                    dismissTarget.proximity(
+                    dismissTarget.hit(
                         x = payload.optInt("x"),
                         y = payload.optInt("y"),
                         screenBounds = screenBoundsProvider(),
@@ -155,21 +159,25 @@ internal class PresetOverlayResultModule(
                 )
             }
             "dragResultWindowEnd" -> {
-                val proximity = dismissTarget.proximity(
+                val hit = dismissTarget.hit(
                     x = payload.optInt("x"),
                     y = payload.optInt("y"),
                     screenBounds = screenBoundsProvider(),
                 )
                 dismissTarget.resetTracking()
                 dismissTarget.hide()
-                if (proximity >= 0.8f) {
-                    closeResultWindowSupport(id)
-                } else {
-                    persistResultBoundsSupport(id, active.window.currentBounds())
-                    ensureCanvasWindowSupport()
+                when {
+                    hit.allProximity >= 0.8f -> onDismissAll()
+                    hit.singleProximity >= 0.8f -> closeResultWindowSupport(id)
+                    else -> {
+                        persistResultBoundsSupport(id, active.window.currentBounds())
+                        promoteResultWindow(id)
+                        resumeCanvasAfterGesture()
+                    }
                 }
             }
             "resizeResultWindow" -> {
+                suspendCanvasForGesture()
                 resizeResultWindowSupport(
                     active = active,
                     corner = payload.optString("corner"),
@@ -200,12 +208,13 @@ internal class PresetOverlayResultModule(
                     })();
                 """.trimIndent())
                 persistResultBoundsSupport(id, active.window.currentBounds())
-                ensureCanvasWindowSupport()
+                promoteResultWindow(id)
+                resumeCanvasAfterGesture()
             }
             "cancelResultGesture" -> {
                 dismissTarget.resetTracking()
                 dismissTarget.hide()
-                ensureCanvasWindowSupport()
+                resumeCanvasAfterGesture()
             }
             "navigationState" -> {
                 updateRuntimeState(id) { runtime ->
@@ -244,9 +253,38 @@ internal class PresetOverlayResultModule(
     }
 
     internal fun setActiveResultWindow(id: PresetResultWindowId) {
-        if (resultWindows.containsKey(id)) {
-            activeResultWindowId = id
+        if (!resultWindows.containsKey(id)) return
+        val activeChanged = activeResultWindowId != id
+        val shouldRestoreCanvas = canvasWindow == null && !canvasSuspendedForGesture
+        activeResultWindowId = id
+        if (!activeChanged && !shouldRestoreCanvas) {
+            return
+        }
+        ensureCanvasWindowSupport()
+    }
+
+    internal fun promoteResultWindow(id: PresetResultWindowId) {
+        val active = resultWindows[id] ?: return
+        val activeChanged = activeResultWindowId != id
+        activeResultWindowId = id
+        if (resultWindows.size <= 1) {
+            topmostResultWindowId = id
+            if (activeChanged || (canvasWindow == null && !canvasSuspendedForGesture)) {
+                ensureCanvasWindowSupport()
+            }
+            return
+        }
+        val hadCanvasWindow = canvasWindow != null
+        val shouldPromoteResult = topmostResultWindowId != id
+        if (shouldPromoteResult) {
+            active.window.bringToFront()
+            topmostResultWindowId = id
+        }
+        if (shouldPromoteResult || activeChanged || !hadCanvasWindow) {
             ensureCanvasWindowSupport()
+        }
+        if (shouldPromoteResult && hadCanvasWindow && canvasWindow != null) {
+            canvasWindow?.bringToFront()
         }
     }
 

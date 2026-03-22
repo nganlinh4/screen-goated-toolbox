@@ -45,7 +45,7 @@ internal class PresetOverlayController(
     private val favoriteBubbleHtmlBuilder = FavoriteBubbleHtmlBuilder()
     private val textInputHtmlBuilder = PresetTextInputHtmlBuilder()
     private val density = context.resources.displayMetrics.density
-    private val dismissTarget = PresetOverlayDismissTarget(context, windowManager)
+    private val dismissTarget = PresetOverlayDismissTarget(context, windowManager, ::uiLanguage)
     private val clipboardManager = context.getSystemService(ClipboardManager::class.java)
 
     private val processingIndicator = PresetProcessingIndicator(context, windowManager)
@@ -107,6 +107,7 @@ internal class PresetOverlayController(
             dp = ::dp,
             cssToPhysical = ::cssToPhysical,
             onRequestInputFront = { inputModule.bringToFront() },
+            onDismissAll = ::dismissAllOverlays,
             onNoOverlaysRemaining = {
                 if (!::inputModule.isInitialized || !inputModule.hasWindow()) {
                     activePreset = null
@@ -126,6 +127,7 @@ internal class PresetOverlayController(
             screenBoundsProvider = ::screenBounds,
             dp = ::dp,
             onSubmit = ::submitInput,
+            onDismissAll = ::dismissAllOverlays,
             onInputClosedWithoutResults = ::handleInputClosedWithoutResults,
             hasResults = { resultModule.hasResults() },
         )
@@ -733,6 +735,19 @@ internal class PresetOverlayController(
         panelModule.setSuppressed(suppressed)
         inputModule.setSuppressed(suppressed)
         resultModule.setSuppressed(suppressed)
+    }
+
+    private fun dismissAllOverlays() {
+        processingIndicator.dismiss()
+        dismissTarget.hide()
+        panelModule.dismiss()
+        stopImageContinuousMode(showToast = false)
+        inputModule.close()
+        resultModule.resetExecution(resetRepository = true)
+        pendingImageBytes = null
+        pendingTextSelectInput = null
+        activePreset = null
+        setOverlayChromeSuppressed(false)
     }
 
     private fun openAccessibilitySettings() {

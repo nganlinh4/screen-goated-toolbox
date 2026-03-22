@@ -54,7 +54,11 @@ internal class PresetGraphExecutor(
         overlayIndexes.forEach { index ->
             val block = preset.blocks[index]
             val resultWindowId = PresetResultWindowId(sessionId = sessionId, blockIdx = index)
-            val initialText = if (block.blockType == BlockType.INPUT_ADAPTER) inputText else ""
+            val initialText = if (block.blockType == BlockType.INPUT_ADAPTER) {
+                inputAdapterOverlayContent(input, uiLanguage()).orEmpty()
+            } else {
+                ""
+            }
             val initialLoading = block.blockType != BlockType.INPUT_ADAPTER
             executionState.update {
                 it.withWindowState(
@@ -152,17 +156,15 @@ internal class PresetGraphExecutor(
         if (!shouldSurfaceOverlay) {
             return
         }
-        if (input !is PresetInput.Text) {
-            return
-        }
         val resultWindowId = PresetResultWindowId(sessionId = sessionId, blockIdx = index)
+        val content = inputAdapterOverlayContent(input, uiLanguage()) ?: return
         executionState.update {
             it.withWindowState(
                 PresetResultWindowState(
                     id = resultWindowId,
                     blockIdx = index,
                     title = preset.nameEn,
-                    markdownText = inputText,
+                    markdownText = content,
                     isLoading = false,
                     loadingStatusText = null,
                     isStreaming = false,

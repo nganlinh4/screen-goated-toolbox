@@ -19,6 +19,7 @@ internal class PresetOverlayInputModule(
     private val screenBoundsProvider: () -> Rect,
     private val dp: (Int) -> Int,
     private val onSubmit: (String) -> Unit,
+    private val onDismissAll: () -> Unit,
     private val onInputClosedWithoutResults: () -> Unit,
     private val hasResults: () -> Boolean,
 ) {
@@ -120,28 +121,33 @@ internal class PresetOverlayInputModule(
             }
             message.startsWith("dragAt:") -> {
                 dismissTarget.update(
-                    dismissTarget.proximity(
+                    dismissTarget.hit(
                         rawXY = message.removePrefix("dragAt:"),
                         screenBounds = screenBoundsProvider(),
                     ),
                 )
             }
             message.startsWith("dragEnd:") -> {
-                val proximity = dismissTarget.proximity(
+                val hit = dismissTarget.hit(
                     rawXY = message.removePrefix("dragEnd:"),
                     screenBounds = screenBoundsProvider(),
                 )
                 dismissTarget.resetTracking()
-                if (proximity >= 0.8f) {
-                    dismissTarget.hide()
-                    close()
-                    if (!hasResults()) {
-                        onInputClosedWithoutResults()
+                when {
+                    hit.allProximity >= 0.8f -> {
+                        dismissTarget.hide()
+                        onDismissAll()
                     }
-                    historyNavigationIndex = null
-                    historyDraftText = ""
-                } else {
-                    dismissTarget.hide()
+                    hit.singleProximity >= 0.8f -> {
+                        dismissTarget.hide()
+                        close()
+                        if (!hasResults()) {
+                            onInputClosedWithoutResults()
+                        }
+                        historyNavigationIndex = null
+                        historyDraftText = ""
+                    }
+                    else -> dismissTarget.hide()
                 }
             }
             message == "mic" -> {

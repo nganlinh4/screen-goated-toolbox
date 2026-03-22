@@ -10,6 +10,8 @@ internal fun presetResultJavascriptCore(): String {
         let twoFingerScrollState = null;
         const DRAG_THRESHOLD_PX = 6;
         const RESIZE_ZONE_PX = 48;
+        const SYSTEM_GESTURE_SIDE_GUARD_PX = 20;
+        const SYSTEM_GESTURE_BOTTOM_GUARD_PX = 30;
         const DRAG_GAIN = 2.25;
         const RESIZE_GAIN = 1.85;
         const INTERACTIVE_WORD_WRAP_CHAR_LIMIT = 6000;
@@ -44,6 +46,11 @@ internal fun presetResultJavascriptCore(): String {
             postJson({ type: 'activateResultWindow', windowId: activeWindowId });
         }
 
+        function promoteWindow() {
+            if (!activeWindowId) return;
+            postJson({ type: 'promoteResultWindow', windowId: activeWindowId });
+        }
+
         function sendNavigationState(navDepth, maxNavDepth, isBrowsing) {
             if (!activeWindowId) return;
             postJson({
@@ -68,6 +75,12 @@ internal fun presetResultJavascriptCore(): String {
             if (localX < RESIZE_ZONE_PX) return 'bl';
             if (localX > window.innerWidth - RESIZE_ZONE_PX) return 'br';
             return null;
+        }
+
+        function isSystemGestureGuardPoint(clientX, clientY) {
+            return clientY >= (window.innerHeight - SYSTEM_GESTURE_BOTTOM_GUARD_PX) ||
+                clientX <= SYSTEM_GESTURE_SIDE_GUARD_PX ||
+                clientX >= (window.innerWidth - SYSTEM_GESTURE_SIDE_GUARD_PX);
         }
 
         function clearHoldTimer() {

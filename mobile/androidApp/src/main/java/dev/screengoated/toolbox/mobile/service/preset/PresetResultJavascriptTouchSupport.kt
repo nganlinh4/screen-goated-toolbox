@@ -182,6 +182,7 @@ internal fun presetResultJavascriptTouchSupport(): String {
         document.addEventListener('click', event => {
             if (!document.body.contains(event.target)) return;
             activateWindow();
+            promoteWindow();
             const link = event.target && event.target.closest && event.target.closest('a[href]');
             if (link) {
                 sendNavigationState(1, 1, true);
@@ -238,6 +239,15 @@ internal fun presetResultJavascriptTouchSupport(): String {
                     y: Math.round(point.screenY),
                     target: target ? target.tagName || target.nodeName : null,
                     resizeCorner: resizeCorner
+                });
+                return;
+            }
+            if (isSystemGestureGuardPoint(point.clientX, point.clientY)) {
+                pendingStart = null;
+                clearHoldTimer();
+                debugGesture('touchstart_system_gesture_guard', {
+                    x: Math.round(point.screenX),
+                    y: Math.round(point.screenY)
                 });
                 return;
             }

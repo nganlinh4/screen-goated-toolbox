@@ -258,6 +258,11 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
 }
 
 internal fun PresetOverlayResultModule.ensureCanvasWindowSupport() {
+    if (canvasSuspendedForGesture) {
+        canvasWindow?.destroy()
+        canvasWindow = null
+        return
+    }
     val active = activeResultWindowId?.let(resultWindows::get)
     if (resultWindows.isEmpty() || active == null) {
         canvasWindow?.destroy()
@@ -289,6 +294,20 @@ internal fun PresetOverlayResultModule.ensureCanvasWindowSupport() {
         canvasWindow?.show()
     }
     syncCanvasWindowSupport(canvasWindow ?: return, active, layout, CANVAS_LINGER_MS)
+}
+
+internal fun PresetOverlayResultModule.suspendCanvasForGesture() {
+    if (canvasSuspendedForGesture) {
+        return
+    }
+    canvasSuspendedForGesture = true
+    canvasWindow?.destroy()
+    canvasWindow = null
+}
+
+internal fun PresetOverlayResultModule.resumeCanvasAfterGesture() {
+    canvasSuspendedForGesture = false
+    ensureCanvasWindowSupport()
 }
 
 private fun PresetOverlayResultModule.applyWindowOpacity(window: PresetOverlayWindow, percent: Int) {

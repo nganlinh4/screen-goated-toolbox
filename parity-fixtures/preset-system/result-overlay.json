@@ -47,6 +47,15 @@
     "theme_sync_scope": "all_preset_overlays",
     "touch_scroll_model": "two_finger_bidirectional_native_scroll",
     "raw_html_host_contract": "page_load_reinjected_overlay_shell",
+    "input_adapter_media_contract": {
+      "canonical_source": "windows_chain_templates_rs",
+      "runtime_owner": "result_window_runtime",
+      "preserve_markers": [
+        "data-sgt-input-adapter-media",
+        "audio-player"
+      ],
+      "body_chrome_policy": "disable_generic_markdown_body_chrome_for_media_docs"
+    },
     "navigation_model": "native_history_plus_restore_original_surface",
     "navigation_internal_entry_policy": "restore_original_surface_and_clear_history",
     "failed_external_navigation_policy": "restore_original_surface"

@@ -135,6 +135,12 @@ internal class PresetExecutionCapabilityResolver {
                 reason = PresetPlaceholderReason.MODEL_PROVIDER_NOT_READY,
             )
         }
+        if (preset.blocks.any { it.blockType !in setOf(BlockType.INPUT_ADAPTER, BlockType.IMAGE, BlockType.TEXT) }) {
+            return PresetExecutionCapability(
+                supported = false,
+                reason = PresetPlaceholderReason.NON_TEXT_GRAPH_NOT_READY,
+            )
+        }
         return PresetExecutionCapability(supported = true)
     }
 

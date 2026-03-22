@@ -1,24 +1,54 @@
 package dev.screengoated.toolbox.mobile.service.preset
 
 internal fun presetHostedRawPageCss(isDark: Boolean): String {
+    return presetHostedRawPageCss(isDark, isInputAdapterMedia = false)
+}
+
+internal fun presetHostedRawPageCss(
+    isDark: Boolean,
+    isInputAdapterMedia: Boolean,
+): String {
+    val mediaOverride = if (isInputAdapterMedia) {
+        """
+        html[data-sgt-input-adapter-media-hosted='1'],
+        body[data-sgt-input-adapter-media-hosted='1'] {
+            background: transparent !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+        }
+        body[data-sgt-input-adapter-media-hosted='1'] {
+            min-height: 100% !important;
+        }
+        """.trimIndent()
+    } else {
+        ""
+    }
     return presetResultCss(isDark)
         .replace("overflow-y: hidden;", "overflow-y: auto;")
         .replace("overflow-x: hidden;", "overflow-x: auto;")
         .plus(
             """
-            html, body, body * {
-                touch-action: none !important;
-                overscroll-behavior: none !important;
+            html, body {
+                touch-action: manipulation !important;
+                overscroll-behavior: contain !important;
+            }
+            body * {
+                overscroll-behavior: contain !important;
             }
             """.trimIndent(),
         )
+        .plus(mediaOverride)
 }
 
 internal fun presetHostedRawPageBootstrapScript(
     windowId: String,
     isDark: Boolean,
+    isInputAdapterMedia: Boolean = false,
 ): String {
-    val quotedCss = jsStringLiteral(presetHostedRawPageCss(isDark))
+    val quotedCss = jsStringLiteral(presetHostedRawPageCss(isDark, isInputAdapterMedia))
     val quotedWindowId = jsStringLiteral(windowId)
     return """
         (function() {
@@ -40,6 +70,12 @@ internal fun presetHostedRawPageBootstrapScript(
             document.documentElement.setAttribute('data-sgt-result-hosted', '1');
             if (document.body) {
                 document.body.setAttribute('data-sgt-result-hosted', '1');
+            }
+            if ($isInputAdapterMedia) {
+                document.documentElement.setAttribute('data-sgt-input-adapter-media-hosted', '1');
+                if (document.body) {
+                    document.body.setAttribute('data-sgt-input-adapter-media-hosted', '1');
+                }
             }
             if (!window.__SGT_RESULT_INTERACTION_INSTALLED__) {
                 window.__SGT_RESULT_INTERACTION_INSTALLED__ = true;

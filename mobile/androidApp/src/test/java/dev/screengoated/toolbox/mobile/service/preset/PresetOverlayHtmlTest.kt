@@ -1,7 +1,9 @@
 package dev.screengoated.toolbox.mobile.service.preset
 
+import dev.screengoated.toolbox.mobile.preset.inputAdapterOverlayContent
 import dev.screengoated.toolbox.mobile.preset.PresetExecutionCapability
 import dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets
+import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,6 +37,31 @@ class PresetOverlayHtmlTest {
         assertTrue(html.contains("function animateIn"))
         assertTrue(html.contains("function closePanel"))
         assertTrue(html.contains("function showItemsImmediately"))
+    }
+
+    @Test
+    fun favoriteBubbleBuilderIncludesHangImageWhenFavorited() {
+        val preset = DefaultPresets.all.first { it.id == "preset_hang_image" }
+        val html = FavoriteBubbleHtmlBuilder().build(
+            FavoriteBubblePanelSettings(
+                favorites = listOf(
+                    dev.screengoated.toolbox.mobile.preset.ResolvedPreset(
+                        preset = preset.copy(isFavorite = true),
+                        hasOverride = false,
+                        isBuiltIn = true,
+                        executionCapability = PresetExecutionCapability(supported = true),
+                        placeholderReasons = emptySet(),
+                    ),
+                ),
+                lang = "en",
+                isDark = true,
+                keepOpenEnabled = false,
+                columnCount = 1,
+            ),
+        )
+
+        assertTrue(html.contains("Image Overlay"))
+        assertFalse(html.contains("""<div class="empty">"""))
     }
 
     @Test
@@ -125,6 +152,51 @@ class PresetOverlayHtmlTest {
         assertTrue(script.contains("""window.configureResultWindow("result:test")"""))
         assertTrue(script.contains("overflow-y: auto;"))
         assertTrue(script.contains("overflow-x: auto;"))
+    }
+
+    @Test
+    fun hostedRawHtmlBootstrapUsesMinimalBodyChromeForInputAdapterMedia() {
+        val script = presetHostedRawPageBootstrapScript(
+            windowId = "result:test",
+            isDark = true,
+            isInputAdapterMedia = true,
+        )
+        val css = presetHostedRawPageCss(isDark = true, isInputAdapterMedia = true)
+
+        assertTrue(script.contains("data-sgt-input-adapter-media-hosted"))
+        assertTrue(css.contains("background: transparent !important;"))
+        assertTrue(css.contains("border: none !important;"))
+        assertTrue(css.contains("box-shadow: none !important;"))
+    }
+
+    @Test
+    fun inputAdapterMediaHtmlKeepsWindowsMediaMarkers() {
+        val imageHtml = inputAdapterOverlayContent(
+            PresetInput.Image(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)),
+            "en",
+        ).orEmpty()
+        val audioHtml = inputAdapterOverlayContent(
+            PresetInput.Audio(
+                byteArrayOf(
+                    'R'.code.toByte(),
+                    'I'.code.toByte(),
+                    'F'.code.toByte(),
+                    'F'.code.toByte(),
+                    0, 0, 0, 0,
+                    'W'.code.toByte(),
+                    'A'.code.toByte(),
+                    'V'.code.toByte(),
+                    'E'.code.toByte(),
+                ),
+            ),
+            "en",
+        ).orEmpty()
+
+        assertTrue(imageHtml.contains("""data-sgt-input-adapter-media="image""""))
+        assertTrue(imageHtml.contains("""class="container""""))
+        assertTrue(audioHtml.contains("""data-sgt-input-adapter-media="audio""""))
+        assertTrue(audioHtml.contains("""class="audio-player""""))
+        assertTrue(audioHtml.contains("""class="waveform""""))
     }
 
     @Test
