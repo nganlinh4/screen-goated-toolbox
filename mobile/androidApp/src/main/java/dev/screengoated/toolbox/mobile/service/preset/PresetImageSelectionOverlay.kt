@@ -101,10 +101,10 @@ internal class PresetImageSelectionOverlay(
             text = overlayLocalized(uiLanguage, "Cancel", "Hủy", "취소")
             setTextColor(Color.WHITE)
             textSize = 14f
-            background = pillBackground(
+            background = puffyBackground(
                 fillColor = Color.argb(196, 26, 26, 32),
                 strokeColor = Color.argb(112, 255, 255, 255),
-                radiusPx = 18 * density,
+                strokeWidthPx = density,
             )
             typeface?.let { this.typeface = it }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

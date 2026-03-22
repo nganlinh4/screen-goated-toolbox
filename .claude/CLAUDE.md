@@ -46,6 +46,8 @@ cargo test               # Run tests
 
 ## Android Build Workflow
 - For this repo, Android Gradle build/test/install is most reliable from Windows PowerShell, not WSL Gradle, because the WSL-visible Android SDK can report corrupted/missing build-tools binaries.
+- For Android UI work, prefer the latest alpha Compose / Compose Material 3 stack when needed so Material 3 Expressive APIs are available. Do not avoid alpha or experimental Compose APIs just to stay on older stable UI components.
+- When a Material 3 Expressive component or pattern is the right fit, use it by default and opt into the required experimental annotations instead of building a custom fallback first.
 - Known-good Windows paths on this machine:
   - JDK: `C:\Users\user\scoop\apps\temurin17-jdk\17.0.18-8`
   - Android SDK: `C:\Users\user\android-sdk`

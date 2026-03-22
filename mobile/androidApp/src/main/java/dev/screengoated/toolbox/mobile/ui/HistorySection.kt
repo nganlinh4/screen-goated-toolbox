@@ -1,4 +1,7 @@
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:OptIn(
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+)
 @file:Suppress("DEPRECATION")
 
 package dev.screengoated.toolbox.mobile.ui
@@ -7,6 +10,7 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,8 +32,10 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -39,8 +45,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -57,6 +65,8 @@ import dev.screengoated.toolbox.mobile.history.filterHistoryItems
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import java.io.File
 import kotlin.math.roundToInt
+
+private val historyActionButtonPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
 
 @Composable
 internal fun HistorySection(
@@ -238,6 +248,9 @@ private fun HistoryItemCard(
     onDelete: () -> Unit,
 ) {
     val (containerColor, contentColor) = historyColors(item.itemType)
+    val copyInteractionSource = remember { MutableInteractionSource() }
+    val openInteractionSource = remember { MutableInteractionSource() }
+    val deleteInteractionSource = remember { MutableInteractionSource() }
     Card(
         colors = CardDefaults.cardColors(
             containerColor = containerColor,
@@ -278,32 +291,65 @@ private fun HistoryItemCard(
 
             HorizontalDivider()
 
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+            val hasOpenAction = !mediaDirectoryPath.isNullOrBlank() && item.mediaPath.isNotBlank()
+            ButtonGroup(
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                FilledTonalButton(onClick = onCopy) {
-                    Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.size(6.dp))
-                    Text(locale.historyCopyText)
+                FilledTonalButton(
+                    onClick = onCopy,
+                    modifier = Modifier
+                        .weight(1.05f)
+                        .animateWidth(copyInteractionSource),
+                    interactionSource = copyInteractionSource,
+                    contentPadding = historyActionButtonPadding,
+                ) {
+                    Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.size(4.dp))
+                    Text(
+                        text = locale.historyCopyText,
+                        style = MaterialTheme.typography.labelMediumEmphasized,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
-                if (!mediaDirectoryPath.isNullOrBlank() && item.mediaPath.isNotBlank()) {
-                        FilledTonalButton(onClick = onOpen) {
-                        Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.size(6.dp))
-                            Text(historyOpenLabel(item.itemType, locale))
-                        }
+                if (hasOpenAction) {
+                    FilledTonalButton(
+                        onClick = onOpen,
+                        modifier = Modifier
+                            .weight(0.95f)
+                            .animateWidth(openInteractionSource),
+                        interactionSource = openInteractionSource,
+                        contentPadding = historyActionButtonPadding,
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.size(4.dp))
+                        Text(
+                            text = historyOpenLabel(item.itemType, locale),
+                            style = MaterialTheme.typography.labelMediumEmphasized,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 Button(
                     onClick = onDelete,
+                    modifier = Modifier
+                        .weight(0.55f)
+                        .animateWidth(deleteInteractionSource),
+                    interactionSource = deleteInteractionSource,
+                    contentPadding = historyActionButtonPadding,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
                         contentColor = MaterialTheme.colorScheme.onErrorContainer,
                     ),
                 ) {
-                    Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.size(6.dp))
-                    Text(locale.historyDelete)
+                    Icon(
+                        Icons.Rounded.Delete,
+                        contentDescription = locale.historyDelete,
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
             }
         }
