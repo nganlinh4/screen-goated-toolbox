@@ -150,6 +150,48 @@ class PresetRepositoryTest {
     }
 
     @Test
+    fun micAudioPresetIsSupported() {
+        val repository = createRepository(InMemoryPresetOverrideStore())
+
+        val resolved = requireNotNull(repository.getResolvedPreset("preset_transcribe"))
+
+        assertTrue(resolved.executionCapability.supported)
+        assertFalse(resolved.placeholderReasons.contains(PresetPlaceholderReason.AUDIO_CAPTURE_NOT_READY))
+    }
+
+    @Test
+    fun realtimeAudioPresetIsSupported() {
+        val repository = createRepository(InMemoryPresetOverrideStore())
+
+        val resolved = requireNotNull(repository.getResolvedPreset("preset_realtime_audio_translate"))
+
+        assertTrue(resolved.executionCapability.supported)
+        assertFalse(resolved.placeholderReasons.contains(PresetPlaceholderReason.REALTIME_AUDIO_NOT_READY))
+    }
+
+    @Test
+    fun deviceAudioBuiltInsKeepWindowsSourceAndRealtimeFlags() {
+        val realtimePreset = requireNotNull(
+            DefaultPresetLookup.byId("preset_realtime_audio_translate"),
+        )
+        val deviceRecordPreset = requireNotNull(
+            DefaultPresetLookup.byId("preset_record_device"),
+        )
+
+        assertEquals("device", realtimePreset.audioSource)
+        assertEquals("realtime", realtimePreset.audioProcessingMode)
+        assertEquals("device", deviceRecordPreset.audioSource)
+    }
+
+    @Test
+    fun presetModelCatalogIncludesRealtimeGemmaAlias() {
+        val descriptor = requireNotNull(PresetModelCatalog.getById("google-gemma"))
+
+        assertEquals(PresetModelProvider.GOOGLE, descriptor.provider)
+        assertEquals(PresetModelType.TEXT, descriptor.modelType)
+    }
+
+    @Test
     fun imagePresetWithAudioBlockIsRejectedAsUnsupported() {
         val capability = PresetExecutionCapabilityResolver().resolveExecutionCapability(
             dev.screengoated.toolbox.mobile.shared.preset.Preset(
@@ -229,6 +271,12 @@ class PresetRepositoryTest {
             state = overrides
         }
     }
+}
+
+private object DefaultPresetLookup {
+    private val byId = dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets.all.associateBy { it.id }
+
+    fun byId(id: String): dev.screengoated.toolbox.mobile.shared.preset.Preset? = byId[id]
 }
 
 private fun JsonObject.toPresetOverride(): PresetOverride {

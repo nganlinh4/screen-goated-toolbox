@@ -16,8 +16,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
+import dev.screengoated.toolbox.mobile.preset.AudioPresetLaunchKind
+import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
+import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
+import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
+import dev.screengoated.toolbox.mobile.shared.live.ProviderDescriptor
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
+import dev.screengoated.toolbox.mobile.shared.preset.BlockType
+import dev.screengoated.toolbox.mobile.service.BubbleService
 import dev.screengoated.toolbox.mobile.ui.SgtMobileApp
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.theme.SgtMobileTheme
@@ -29,6 +37,7 @@ class MainActivity : ComponentActivity() {
 
     private var pendingStart = false
     private var autoStartOnResume = false
+    private var resumePendingAudioPreset = false
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -175,9 +184,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun continueStartFlow() {
+        val appContainer = (application as SgtMobileApplication).appContainer
+        val pendingAudioPreset = appContainer.audioPresetLaunchStore.peek()
+        val pendingResolvedPreset = pendingAudioPreset?.let { appContainer.presetRepository.getResolvedPreset(it.presetId) }
         viewModel.refreshPermissions()
         val state = viewModel.sessionState.value
-        if (!viewModel.hasApiKey()) {
+        val requiresGeminiApiKey = pendingAudioPreset?.kind == AudioPresetLaunchKind.REALTIME || pendingAudioPreset == null
+        if (requiresGeminiApiKey && !viewModel.hasApiKey()) {
             pendingStart = false
             viewModel.fail("Enter your Gemini BYOK key before starting live translate.")
             return
@@ -187,19 +200,26 @@ class MainActivity : ComponentActivity() {
             if (!state.permissions.recordAudioGranted) {
                 add(android.Manifest.permission.RECORD_AUDIO)
             }
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+            if (pendingAudioPreset?.kind != AudioPresetLaunchKind.CAPTURE &&
+                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
                 !state.permissions.notificationsGranted
             ) {
                 add(android.Manifest.permission.POST_NOTIFICATIONS)
             }
         }
+        val effectiveSourceMode = when {
+            pendingResolvedPreset?.preset?.audioSource == "device" -> SourceMode.DEVICE
+            pendingResolvedPreset != null -> SourceMode.MIC
+            else -> state.config.sourceMode
+        }
 
         when {
             missingRuntimePermissions.isNotEmpty() -> {
-                permissionLauncher.launch(viewModel.runtimePermissions())
+                permissionLauncher.launch(missingRuntimePermissions.toTypedArray())
             }
 
-            state.config.displayMode == DisplayMode.OVERLAY &&
+            pendingAudioPreset?.kind != AudioPresetLaunchKind.CAPTURE &&
+                state.config.displayMode == DisplayMode.OVERLAY &&
                 BuildConfig.OVERLAY_SUPPORTED &&
                 !state.permissions.overlayGranted -> {
                 overlayLauncher.launch(
@@ -210,7 +230,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            state.config.sourceMode == SourceMode.DEVICE &&
+            effectiveSourceMode == SourceMode.DEVICE &&
                 !state.permissions.mediaProjectionGranted -> {
                 val projectionManager = getSystemService(MediaProjectionManager::class.java)
                 if (projectionManager == null) {
@@ -223,7 +243,32 @@ class MainActivity : ComponentActivity() {
 
             else -> {
                 pendingStart = false
-                viewModel.startSession(this)
+                if (resumePendingAudioPreset && pendingAudioPreset != null) {
+                    when (pendingAudioPreset.kind) {
+                        AudioPresetLaunchKind.CAPTURE -> {
+                            BubbleService.resumePendingAudioPreset(this)
+                        }
+                        AudioPresetLaunchKind.REALTIME -> {
+                            val resolved = appContainer.presetRepository.getResolvedPreset(pendingAudioPreset.presetId)
+                            if (resolved == null) {
+                                appContainer.audioPresetLaunchStore.clear()
+                                viewModel.fail("The requested realtime audio preset is unavailable.")
+                                return
+                            }
+                            appContainer.repository.applyTransientSessionConfig(
+                                resolved.preset.toRealtimeSessionConfig(
+                                    fallback = appContainer.repository.currentConfig(),
+                                ),
+                            )
+                            appContainer.audioPresetLaunchStore.setActiveRealtimePresetId(resolved.preset.id)
+                            viewModel.startSession(this)
+                        }
+                    }
+                    resumePendingAudioPreset = false
+                    appContainer.audioPresetLaunchStore.clear()
+                } else {
+                    viewModel.startSession(this)
+                }
             }
         }
     }
@@ -233,9 +278,62 @@ class MainActivity : ComponentActivity() {
             autoStartOnResume = true
             intent.removeExtra(EXTRA_AUTO_START)
         }
+        if (intent?.getBooleanExtra(EXTRA_RESUME_PENDING_AUDIO_PRESET, false) == true) {
+            autoStartOnResume = true
+            resumePendingAudioPreset = true
+            intent.removeExtra(EXTRA_RESUME_PENDING_AUDIO_PRESET)
+        }
     }
 
     companion object {
         const val EXTRA_AUTO_START = "dev.screengoated.toolbox.mobile.extra.AUTO_START"
+        const val EXTRA_RESUME_PENDING_AUDIO_PRESET =
+            "dev.screengoated.toolbox.mobile.extra.RESUME_PENDING_AUDIO_PRESET"
     }
+}
+
+private fun dev.screengoated.toolbox.mobile.shared.preset.Preset.toRealtimeSessionConfig(
+    fallback: LiveSessionConfig,
+): LiveSessionConfig {
+    val transcriptionBlock = blocks.firstOrNull { it.blockType == BlockType.AUDIO }
+    val translationBlock = blocks.firstOrNull { it.blockType == BlockType.TEXT }
+    val sourceMode = if (audioSource == "device") SourceMode.DEVICE else SourceMode.MIC
+    val targetLanguage = transcriptionBlock?.languageVars?.get("language1")
+        ?: translationBlock?.languageVars?.get("language1")
+        ?: fallback.targetLanguage
+    val transcriptionProvider = when (
+        PresetModelCatalog.getById(transcriptionBlock?.model.orEmpty())?.provider
+    ) {
+        PresetModelProvider.PARAKEET -> ProviderDescriptor(
+            id = RealtimeModelIds.TRANSCRIPTION_PARAKEET,
+            model = "realtime_eou_120m-v1-onnx",
+        )
+        else -> ProviderDescriptor(
+            id = RealtimeModelIds.TRANSCRIPTION_GEMINI,
+            model = "gemini-2.5-flash-native-audio-preview-12-2025",
+        )
+    }
+    val translationProvider = translationBlock?.let {
+        when (it.model) {
+            "google-gemma" -> ProviderDescriptor(
+                id = RealtimeModelIds.TRANSLATION_GEMMA,
+                model = "google-gemma",
+            )
+            "google-gtx" -> ProviderDescriptor(
+                id = RealtimeModelIds.TRANSLATION_GTX,
+                model = "google-gtx",
+            )
+            else -> ProviderDescriptor(
+                id = RealtimeModelIds.TRANSLATION_CEREBRAS,
+                model = "cerebras-oss",
+            )
+        }
+    } ?: fallback.translationProvider
+
+    return fallback.copy(
+        sourceMode = sourceMode,
+        targetLanguage = targetLanguage,
+        transcriptionProvider = transcriptionProvider,
+        translationProvider = translationProvider,
+    )
 }

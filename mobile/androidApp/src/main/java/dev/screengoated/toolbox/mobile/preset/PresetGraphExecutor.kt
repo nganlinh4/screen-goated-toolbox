@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.update
 
 internal class PresetGraphExecutor(
     private val textApiClient: TextApiClient,
+    private val audioApiClient: AudioApiClient? = null,
     private val visionApiClient: VisionApiClient,
     private val apiKeys: () -> ApiKeys,
     private val runtimeSettings: () -> PresetRuntimeSettings,
@@ -17,6 +18,18 @@ internal class PresetGraphExecutor(
     private val historyRecorder: dev.screengoated.toolbox.mobile.history.PresetHistoryRecorder =
         dev.screengoated.toolbox.mobile.history.NoOpPresetHistoryRecorder,
 ) {
+    private val audioBlockExecutor by lazy {
+        PresetAudioBlockExecutor(
+            audioApiClient = requireNotNull(audioApiClient) {
+                "AudioApiClient is required before executing AUDIO blocks."
+            },
+            apiKeys = apiKeys,
+            uiLanguage = uiLanguage,
+            executionState = executionState,
+            historyRecorder = historyRecorder,
+        )
+    }
+
     suspend fun executeGraph(
         sessionId: String,
         preset: Preset,
@@ -45,8 +58,8 @@ internal class PresetGraphExecutor(
             when (block.blockType) {
                 BlockType.TEXT -> block.renderMode in supportedMarkdownRenderModes
                 BlockType.IMAGE -> block.renderMode in supportedMarkdownRenderModes
+                BlockType.AUDIO -> block.renderMode in supportedMarkdownRenderModes
                 BlockType.INPUT_ADAPTER -> true
-                else -> false
             }
         }
         val overlayOrder = overlayIndexes.withIndex().associate { it.value to it.index }
@@ -115,7 +128,17 @@ internal class PresetGraphExecutor(
                     sessionId = sessionId,
                 )
 
-                else -> error("Block type ${block.blockType} is not ready on Android yet.")
+                BlockType.AUDIO -> audioBlockExecutor.execute(
+                    preset = preset,
+                    input = (input as? PresetInput.Audio)
+                        ?: error("Audio bytes required for AUDIO block"),
+                    index = index,
+                    incoming = incoming,
+                    outputs = outputs,
+                    overlayOrder = overlayOrder,
+                    shouldSurfaceOverlay = shouldSurfaceOverlay,
+                    sessionId = sessionId,
+                )
             }
 
             // ── Centralized per-block post-processing (matches Windows step.rs) ──
@@ -153,6 +176,13 @@ internal class PresetGraphExecutor(
         sessionId: String,
     ) {
         outputs[index] = inputText
+        if (input is PresetInput.Audio) {
+            historyRecorder.recordAudioResult(
+                block = preset.blocks[index],
+                wavBytes = input.wavBytes,
+                resultText = preset.name(uiLanguage()),
+            )
+        }
         if (!shouldSurfaceOverlay) {
             return
         }

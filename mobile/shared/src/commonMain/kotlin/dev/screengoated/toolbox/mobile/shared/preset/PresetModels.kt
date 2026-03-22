@@ -76,7 +76,11 @@ data class Preset(
 sealed class PresetInput {
     data class Text(val text: String) : PresetInput()
     data class Image(val pngBytes: ByteArray) : PresetInput()
-    data class Audio(val wavBytes: ByteArray) : PresetInput()
+    data class Audio(
+        val wavBytes: ByteArray,
+        val precomputedTranscript: String? = null,
+        val isStreamingResult: Boolean = false,
+    ) : PresetInput()
 }
 
 data class BlockResult(

@@ -27,6 +27,15 @@ fun extractQuotedStrings(source: String, marker: String, count: Int): List<Strin
     return matches
 }
 
+fun extractRustMatchArmRawString(source: String, armName: String): String {
+    val pattern = Regex(
+        """"${Regex.escape(armName)}"\s*=>\s*\{\s*r(#+)"(.*?)"\1\s*\}""",
+        setOf(RegexOption.DOT_MATCHES_ALL),
+    )
+    val match = requireNotNull(pattern.find(source)) { "Missing raw string match arm: $armName" }
+    return match.groupValues[2]
+}
+
 val generatedPresetOverlayAssets = layout.buildDirectory.dir("generated/presetOverlayAssets")
 val generatedPresetModelCatalogSources = layout.buildDirectory.dir("generated/presetModelCatalog")
 val generatePresetOverlayAssets by tasks.registering {
@@ -37,6 +46,8 @@ val generatePresetOverlayAssets by tasks.registering {
     val buttonCanvasJsSource = repoRoot.resolve("src/overlay/result/button_canvas/js.rs")
     val buttonCanvasThemeSource = repoRoot.resolve("src/overlay/result/button_canvas/theme.rs")
     val gridJsSource = repoRoot.resolve("src/overlay/html_components/grid_js.rs")
+    val recordingUiSource = repoRoot.resolve("src/overlay/recording/ui.rs")
+    val iconsSource = repoRoot.resolve("src/overlay/html_components/icons.rs")
     val overlayFontAsset = projectDir.resolve("src/main/assets/realtime_overlay/GoogleSansFlex.ttf")
     inputs.file(fitSource)
     inputs.file(cssSource)
@@ -44,6 +55,8 @@ val generatePresetOverlayAssets by tasks.registering {
     inputs.file(buttonCanvasJsSource)
     inputs.file(buttonCanvasThemeSource)
     inputs.file(gridJsSource)
+    inputs.file(recordingUiSource)
+    inputs.file(iconsSource)
     inputs.file(overlayFontAsset)
     outputs.dir(generatedPresetOverlayAssets)
 
@@ -131,6 +144,50 @@ val generatePresetOverlayAssets by tasks.registering {
         )
         outputDir.resolve("windows_button_canvas_theme_light.css").writeText(
             extractWindowsRawString(themeSource, "} else {"),
+        )
+
+        val recordingTemplate = extractWindowsRawString(
+            recordingUiSource.readText(),
+            "format!(",
+        )
+            .replace("{{", "{")
+            .replace("}}", "}")
+            .replace("{font_css}", "{{FONT_CSS}}")
+            .replace("{width}", "{{WINDOW_WIDTH}}")
+            .replace("{height}", "{{WINDOW_HEIGHT}}")
+            .replace("{tx_rec}", "{{TEXT_RECORDING}}")
+            .replace("{tx_proc}", "{{TEXT_PROCESSING}}")
+            .replace("{tx_wait}", "{{TEXT_WARMUP}}")
+            .replace("{tx_init}", "{{TEXT_INITIALIZING}}")
+            .replace("{tx_sub}", "{{TEXT_SUBTEXT}}")
+            .replace("{tx_paused}", "{{TEXT_PAUSED}}")
+            .replace("{icon_pause}", "{{ICON_PAUSE}}")
+            .replace("{icon_play}", "{{ICON_PLAY}}")
+            .replace("{icon_close}", "{{ICON_CLOSE}}")
+            .replace("{container_bg}", "{{COLOR_CONTAINER_BG}}")
+            .replace("{container_border}", "{{COLOR_CONTAINER_BORDER}}")
+            .replace("{text_color}", "{{COLOR_TEXT}}")
+            .replace("{subtext_color}", "{{COLOR_SUBTEXT}}")
+            .replace("{btn_bg}", "{{COLOR_BUTTON_BG}}")
+            .replace("{btn_hover_bg}", "{{COLOR_BUTTON_HOVER_BG}}")
+            .replace("{btn_color}", "{{COLOR_BUTTON}}")
+            .replace("{text_shadow}", "{{COLOR_TEXT_SHADOW}}")
+            .replace("{is_dark}", "{{IS_DARK}}")
+            .replace("<div class=\"container\">", "<div class=\"container\" id=\"container\">")
+            .replaceFirst(
+                "<script>",
+                "<script>\n        {{BRIDGE_PRELUDE}}\n",
+            )
+            .replace(
+                "\n    </script>\n</body>",
+                "\n        {{MOBILE_SHIM}}\n    </script>\n</body>",
+            )
+        val iconsSourceText = iconsSource.readText()
+        outputDir.resolve("windows_recording_template.html").writeText(
+            recordingTemplate
+                .replace("{{ICON_PAUSE}}", extractRustMatchArmRawString(iconsSourceText, "pause"))
+                .replace("{{ICON_PLAY}}", extractRustMatchArmRawString(iconsSourceText, "play_arrow"))
+                .replace("{{ICON_CLOSE}}", extractRustMatchArmRawString(iconsSourceText, "close")),
         )
     }
 }

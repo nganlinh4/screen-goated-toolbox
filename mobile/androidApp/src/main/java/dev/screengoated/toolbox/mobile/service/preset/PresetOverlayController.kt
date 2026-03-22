@@ -3,11 +3,16 @@ package dev.screengoated.toolbox.mobile.service.preset
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.graphics.Rect
 import android.os.SystemClock
 import android.view.WindowManager
 import android.widget.Toast
+import dev.screengoated.toolbox.mobile.MainActivity
+import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
+import dev.screengoated.toolbox.mobile.preset.AudioPresetLaunchKind
+import dev.screengoated.toolbox.mobile.preset.AudioPresetLaunchRequest
 import dev.screengoated.toolbox.mobile.preset.PresetExecutionState
 import dev.screengoated.toolbox.mobile.preset.PresetPlaceholderReason
 import dev.screengoated.toolbox.mobile.preset.PresetRepository
@@ -15,6 +20,7 @@ import dev.screengoated.toolbox.mobile.preset.ResolvedPreset
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
 import dev.screengoated.toolbox.mobile.service.ScreenshotCaptureFailureReason
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
+import dev.screengoated.toolbox.mobile.service.LiveTranslateService
 import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +48,7 @@ internal class PresetOverlayController(
     private val ttsRuntimeService: TtsRuntimeService? = null,
     private val ttsSettingsSnapshotProvider: (() -> dev.screengoated.toolbox.mobile.service.tts.TtsRequestSettingsSnapshot)? = null,
 ) {
+    private val appContainer = (context.applicationContext as SgtMobileApplication).appContainer
     private val favoriteBubbleHtmlBuilder = FavoriteBubbleHtmlBuilder()
     private val textInputHtmlBuilder = PresetTextInputHtmlBuilder()
     private val density = context.resources.displayMetrics.density
@@ -55,6 +62,16 @@ internal class PresetOverlayController(
         uiLanguage = ::uiLanguage,
         onBubbleSuppressedChanged = onBubbleSuppressedChanged,
         onOverlaySuppressedChanged = ::setOverlayChromeSuppressed,
+    )
+    private val audioCaptureSession = PresetAudioCaptureSession(
+        context = context,
+        windowManager = windowManager,
+        projectionConsentStore = appContainer.projectionConsentStore,
+        audioApiClient = appContainer.audioApiClient,
+        uiLanguage = ::uiLanguage,
+        isDarkTheme = ::isDarkTheme,
+        permissionSnapshotProvider = { appContainer.repository.state.value.permissions },
+        screenBoundsProvider = ::screenBounds,
     )
     private var activePreset: ResolvedPreset? = null
     private var bubbleBounds = OverlayBounds(x = 0, y = 0, width = dp(48), height = dp(48))
@@ -113,6 +130,7 @@ internal class PresetOverlayController(
                     activePreset = null
                 }
             },
+            onMicRequested = ::launchDefaultMicPreset,
             ttsRuntimeService = ttsRuntimeService,
             ttsSettingsSnapshotProvider = ttsSettingsSnapshotProvider,
             overlayOpacityProvider = { uiPreferencesProvider().overlayOpacityPercent.coerceIn(10, 100) },
@@ -130,6 +148,7 @@ internal class PresetOverlayController(
             onDismissAll = ::dismissAllOverlays,
             onInputClosedWithoutResults = ::handleInputClosedWithoutResults,
             hasResults = { resultModule.hasResults() },
+            onMicRequested = ::launchDefaultMicPreset,
         )
         // Wire centralized post-processing actions (matches Windows step.rs)
         presetRepository.postProcessActions = object : dev.screengoated.toolbox.mobile.preset.PresetPostProcessActions {
@@ -247,6 +266,7 @@ internal class PresetOverlayController(
         ttsEventsJob?.cancel()
         panelModule.destroy()
         imageCaptureSession.destroy()
+        audioCaptureSession.destroy()
         inputModule.destroy()
         resultModule.destroy()
         dismissTarget.hide()
@@ -274,6 +294,9 @@ internal class PresetOverlayController(
 
         panelModule.refresh()
         inputModule.refreshForPreferences()
+        if (themeChanged || languageChanged) {
+            audioCaptureSession.refreshOverlayForPreferences()
+        }
 
         if (themeChanged) {
             resultModule.refreshResultWindowsForTheme()
@@ -292,6 +315,9 @@ internal class PresetOverlayController(
             panelModule.dismiss()
         }
         val resolved = presetRepository.getResolvedPreset(presetId) ?: return
+        if (audioCaptureSession.toggleOrAbortIfMatching(presetId)) {
+            return
+        }
         if (!resolved.executionCapability.supported) {
             Toast.makeText(
                 context,
@@ -373,6 +399,12 @@ internal class PresetOverlayController(
             }
         } else if (resolved.preset.presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE) {
             launchImagePreset(resolved, continuousMode)
+        } else if (
+            resolved.preset.presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC ||
+                resolved.preset.presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO
+        ) {
+            imageContinuousPresetId = null
+            launchAudioPreset(resolved)
         } else {
             imageContinuousPresetId = null
             inputModule.open(resolved)
@@ -384,6 +416,131 @@ internal class PresetOverlayController(
 
     /** Captured image bytes from IMAGE preset, waiting for dynamic prompt input. */
     private var pendingImageBytes: ByteArray? = null
+
+    private fun launchDefaultMicPreset() {
+        val preset = presetRepository.getResolvedPreset("preset_transcribe") ?: return
+        launchPreset(
+            presetId = preset.preset.id,
+            closePanel = false,
+            continuousMode = false,
+        )
+    }
+
+    private fun launchAudioPreset(resolved: ResolvedPreset) {
+        if (resolved.preset.audioProcessingMode == "realtime") {
+            launchRealtimeAudioPreset(resolved)
+            return
+        }
+        audioCaptureSession.start(
+            resolvedPreset = resolved,
+            onRecordingComplete = { capture ->
+                presetRepository.resetState()
+                presetRepository.executePreset(
+                    resolved.preset,
+                    PresetInput.Audio(
+                        wavBytes = capture.wavBytes,
+                        precomputedTranscript = capture.precomputedTranscript,
+                        isStreamingResult = capture.isStreamingResult,
+                    ),
+                )
+            },
+            onCancelled = {
+                if (!resultModule.hasResults()) {
+                    activePreset = null
+                }
+            },
+            onFailure = { reason ->
+                handleAudioCaptureFailure(resolved, reason)
+            },
+        )
+    }
+
+    fun resumePendingAudioLaunch() {
+        val pending = appContainer.audioPresetLaunchStore.take() ?: return
+        if (pending.kind != AudioPresetLaunchKind.CAPTURE) {
+            appContainer.audioPresetLaunchStore.set(pending)
+            return
+        }
+        launchPreset(
+            presetId = pending.presetId,
+            closePanel = false,
+            continuousMode = false,
+        )
+    }
+
+    private fun handleAudioCaptureFailure(
+        resolved: ResolvedPreset,
+        reason: PresetAudioCaptureFailureReason,
+    ) {
+        when (reason) {
+            PresetAudioCaptureFailureReason.RECORD_PERMISSION_REQUIRED,
+            PresetAudioCaptureFailureReason.PROJECTION_CONSENT_REQUIRED,
+            -> {
+                appContainer.audioPresetLaunchStore.set(
+                    AudioPresetLaunchRequest(
+                        presetId = resolved.preset.id,
+                        kind = AudioPresetLaunchKind.CAPTURE,
+                    ),
+                )
+                context.startActivity(
+                    Intent(context, MainActivity::class.java).apply {
+                        addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                                Intent.FLAG_ACTIVITY_CLEAR_TOP,
+                        )
+                        putExtra(MainActivity.EXTRA_RESUME_PENDING_AUDIO_PRESET, true)
+                    },
+                )
+            }
+            PresetAudioCaptureFailureReason.CAPTURE_FAILED -> {
+                Toast.makeText(
+                    context,
+                    localized(
+                        "Audio capture failed.",
+                        "Không thể ghi âm.",
+                        "오디오 캡처에 실패했습니다.",
+                    ),
+                    Toast.LENGTH_SHORT,
+                ).show()
+                activePreset = null
+            }
+        }
+    }
+
+    private fun launchRealtimeAudioPreset(resolved: ResolvedPreset) {
+        val phase = appContainer.repository.state.value.phase
+        val activeRealtimePresetId = appContainer.audioPresetLaunchStore.activeRealtimePresetId()
+        if (
+            activeRealtimePresetId == resolved.preset.id &&
+            appContainer.repository.isTransientSessionConfigActive() &&
+            phase in setOf(
+                dev.screengoated.toolbox.mobile.shared.live.SessionPhase.STARTING,
+                dev.screengoated.toolbox.mobile.shared.live.SessionPhase.LISTENING,
+                dev.screengoated.toolbox.mobile.shared.live.SessionPhase.TRANSLATING,
+            )
+        ) {
+            LiveTranslateService.stop(context)
+            appContainer.audioPresetLaunchStore.setActiveRealtimePresetId(null)
+            return
+        }
+        appContainer.audioPresetLaunchStore.set(
+            AudioPresetLaunchRequest(
+                presetId = resolved.preset.id,
+                kind = AudioPresetLaunchKind.REALTIME,
+            ),
+        )
+        context.startActivity(
+            Intent(context, MainActivity::class.java).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP,
+                )
+                putExtra(MainActivity.EXTRA_RESUME_PENDING_AUDIO_PRESET, true)
+            },
+        )
+    }
 
     private fun launchImagePreset(
         resolved: ResolvedPreset,

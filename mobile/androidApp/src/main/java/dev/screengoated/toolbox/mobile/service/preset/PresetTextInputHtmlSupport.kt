@@ -327,7 +327,7 @@ internal fun presetTextInputJavascript(): String {
         const sendBtn = document.getElementById('sendBtn');
         let dragTouch = null;
         let dragWasActive = false;
-        const TOUCH_DRAG_GAIN = Math.max(window.devicePixelRatio || 1, 1.5);
+        const TOUCH_DRAG_GAIN = Math.max(window.devicePixelRatio || 1, 1.85);
 
         container.addEventListener('mousedown', (e) => {
             const isInteractive = e.target.closest('#editor') ||

@@ -22,6 +22,7 @@ internal class PresetOverlayInputModule(
     private val onDismissAll: () -> Unit,
     private val onInputClosedWithoutResults: () -> Unit,
     private val hasResults: () -> Boolean,
+    private val onMicRequested: () -> Unit,
 ) {
     private var inputWindow: PresetOverlayWindow? = null
     private var activePreset: ResolvedPreset? = null
@@ -151,11 +152,7 @@ internal class PresetOverlayInputModule(
                 }
             }
             message == "mic" -> {
-                Toast.makeText(
-                    context,
-                    placeholderReasonLabel(PresetPlaceholderReason.AUDIO_CAPTURE_NOT_READY, uiLanguage()),
-                    Toast.LENGTH_SHORT,
-                ).show()
+                onMicRequested()
             }
             message.startsWith("submit:") -> {
                 val text = message.substringAfter("submit:", "").trim()

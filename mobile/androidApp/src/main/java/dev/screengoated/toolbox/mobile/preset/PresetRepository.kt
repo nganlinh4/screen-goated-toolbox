@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 
 class PresetRepository(
     private val textApiClient: TextApiClient,
+    private val audioApiClient: AudioApiClient? = null,
     private val visionApiClient: VisionApiClient,
     private val apiKeys: () -> ApiKeys,
     private val runtimeSettings: () -> PresetRuntimeSettings,
@@ -45,6 +46,7 @@ class PresetRepository(
     private val graphExecutor by lazy {
         PresetGraphExecutor(
             textApiClient = textApiClient,
+            audioApiClient = audioApiClient,
             visionApiClient = visionApiClient,
             apiKeys = apiKeys,
             runtimeSettings = runtimeSettings,
@@ -233,16 +235,8 @@ class PresetRepository(
                 when (input) {
                     is PresetInput.Text,
                     is PresetInput.Image,
+                    is PresetInput.Audio,
                     -> Unit
-                    else -> {
-                        _executionState.update {
-                            it.copy(
-                                isExecuting = false,
-                                error = "This preset input type is not ready on Android yet.",
-                            )
-                        }
-                        return@launch
-                    }
                 }
 
                 graphExecutor.executeGraph(

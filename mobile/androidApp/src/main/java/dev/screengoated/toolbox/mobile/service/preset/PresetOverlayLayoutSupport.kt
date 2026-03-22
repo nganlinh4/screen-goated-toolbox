@@ -114,12 +114,26 @@ internal fun syncPanelWindowStateScriptSupport(
     density: Float,
     screenBounds: Rect,
 ): String {
+    return syncPanelWindowStateScriptSupport(
+        panelBounds = panelBounds,
+        bubbleBounds = bubbleBounds,
+        density = density,
+        screenWidthPx = screenWidthPx(screenBounds),
+    )
+}
+
+internal fun syncPanelWindowStateScriptSupport(
+    panelBounds: OverlayBounds,
+    bubbleBounds: OverlayBounds,
+    density: Float,
+    screenWidthPx: Int,
+): String {
     val bubbleCenterX = bubbleBounds.x + (bubbleBounds.width / 2)
     val bubbleCenterY = bubbleBounds.y + (bubbleBounds.height / 2)
     val bubbleCenterCssX = ((bubbleCenterX - panelBounds.x) / density).roundToInt()
     val bubbleCenterCssY = ((bubbleCenterY - panelBounds.y) / density).roundToInt()
     val bubbleOverlapCssPx = panelBubbleOverlapCssWidthSupport(bubbleBounds, density).roundToInt()
-    val side = if (bubbleBounds.x > screenBounds.width() / 2) {
+    val side = if (bubbleBounds.x > screenWidthPx / 2) {
         FavoriteBubbleSide.RIGHT
     } else {
         FavoriteBubbleSide.LEFT
@@ -149,11 +163,35 @@ internal fun panelWindowSpecSupport(
     screenBounds: Rect,
     cssToPhysical: (Float) -> Int,
 ): PresetOverlayWindowSpec {
-    val screenCssWidth = screenBounds.width() / density
-    val screenCssHeight = screenBounds.height() / density
+    return panelWindowSpecSupport(
+        itemCount = itemCount,
+        bubbleBounds = bubbleBounds,
+        density = density,
+        screenWidthPx = screenWidthPx(screenBounds),
+        screenHeightPx = screenHeightPx(screenBounds),
+        cssToPhysical = cssToPhysical,
+    )
+}
+
+internal fun panelWindowSpecSupport(
+    itemCount: Int,
+    bubbleBounds: OverlayBounds,
+    density: Float,
+    screenWidthPx: Int,
+    screenHeightPx: Int,
+    cssToPhysical: (Float) -> Int,
+): PresetOverlayWindowSpec {
+    val screenCssWidth = screenWidthPx / density
+    val screenCssHeight = screenHeightPx / density
     val overlapCssWidth = panelBubbleOverlapCssWidthSupport(bubbleBounds, density)
     val overlapWidth = cssToPhysical(overlapCssWidth)
-    val columns = panelColumnCountSupport(itemCount, bubbleBounds, density, screenBounds)
+    val columns = panelColumnCountSupport(
+        itemCount = itemCount,
+        bubbleBounds = bubbleBounds,
+        density = density,
+        screenWidthPx = screenWidthPx,
+        screenHeightPx = screenHeightPx,
+    )
     val columnWidthCss = panelColumnWidthCss(columns)
     val itemsPerColumn = if (itemCount > 0) itemCount.divCeil(columns) else 0
 
@@ -178,13 +216,13 @@ internal fun panelWindowSpecSupport(
     val maxHeightCss = screenCssHeight * PANEL_MAX_HEIGHT_SCREEN_RATIO
     val height = cssToPhysical(contentHeightCss.toFloat().coerceAtMost(maxHeightCss))
     val gap = cssToPhysical(PANEL_OVERLAP_MARGIN_CSS)
-    val x = if (bubbleBounds.x > screenBounds.width() / 2) {
+    val x = if (bubbleBounds.x > screenWidthPx / 2) {
         (bubbleBounds.x - panelBodyWidth - gap).coerceAtLeast(0)
     } else {
-        bubbleBounds.x.coerceAtMost((screenBounds.width() - width).coerceAtLeast(0))
+        bubbleBounds.x.coerceAtMost((screenWidthPx - width).coerceAtLeast(0))
     }
     val y = (bubbleBounds.y - (height / 2) + (bubbleBounds.height / 2))
-        .coerceIn(0, (screenBounds.height() - height).coerceAtLeast(0))
+        .coerceIn(0, (screenHeightPx - height).coerceAtLeast(0))
     return PresetOverlayWindowSpec(
         width = width,
         height = height,
@@ -201,7 +239,13 @@ internal fun minPanelHeightSupport(
     screenBounds: Rect,
     cssToPhysical: (Float) -> Int,
 ): Int {
-    val columns = panelColumnCountSupport(itemCount, bubbleBounds, density, screenBounds)
+    val columns = panelColumnCountSupport(
+        itemCount = itemCount,
+        bubbleBounds = bubbleBounds,
+        density = density,
+        screenWidthPx = screenWidthPx(screenBounds),
+        screenHeightPx = screenHeightPx(screenBounds),
+    )
     val itemsPerColumn = if (itemCount > 0) itemCount.divCeil(columns) else 0
     val heightCss = if (itemCount == 0) {
         EMPTY_PANEL_HEIGHT_CSS + PANEL_HEIGHT_BUFFER_CSS + KEEP_OPEN_ROW_HEIGHT_CSS
@@ -218,8 +262,24 @@ internal fun panelColumnCountSupport(
     density: Float,
     screenBounds: Rect,
 ): Int {
-    val screenCssWidth = screenBounds.width() / density
-    val screenCssHeight = screenBounds.height() / density
+    return panelColumnCountSupport(
+        itemCount = itemCount,
+        bubbleBounds = bubbleBounds,
+        density = density,
+        screenWidthPx = screenWidthPx(screenBounds),
+        screenHeightPx = screenHeightPx(screenBounds),
+    )
+}
+
+internal fun panelColumnCountSupport(
+    itemCount: Int,
+    bubbleBounds: OverlayBounds,
+    density: Float,
+    screenWidthPx: Int,
+    screenHeightPx: Int,
+): Int {
+    val screenCssWidth = screenWidthPx / density
+    val screenCssHeight = screenHeightPx / density
     val overlapCssWidth = panelBubbleOverlapCssWidthSupport(bubbleBounds, density)
     val desiredColumns = desiredPanelColumnCount(itemCount)
     val maxItemsPerColumn = maxItemsPerColumn(screenCssHeight).coerceAtLeast(1)
@@ -272,8 +332,8 @@ internal fun inputWindowSpecSupport(
     return PresetOverlayWindowSpec(
         width = width,
         height = height,
-        x = ((screenBounds.width() - width) / 2).coerceAtLeast(0),
-        y = (screenBounds.height() * 0.14f).roundToInt(),
+        x = ((screenWidthPx(screenBounds) - width) / 2).coerceAtLeast(0),
+        y = (screenHeightPx(screenBounds) * 0.14f).roundToInt(),
         focusable = true,
         showImeOnFocus = true,
         htmlContent = htmlContent,
@@ -296,10 +356,10 @@ internal fun resultWindowSpecSupport(
         OverlayBounds(
             width = width,
             height = height,
-            x = saved?.x?.coerceIn(0, (screenBounds.width() - width).coerceAtLeast(0))
-                ?: ((screenBounds.width() - width) / 2).coerceAtLeast(0),
-            y = saved?.y?.coerceIn(0, (screenBounds.height() - height).coerceAtLeast(0))
-                ?: (screenBounds.height() * 0.28f).roundToInt(),
+            x = saved?.x?.coerceIn(0, (screenWidthPx(screenBounds) - width).coerceAtLeast(0))
+                ?: ((screenWidthPx(screenBounds) - width) / 2).coerceAtLeast(0),
+            y = saved?.y?.coerceIn(0, (screenHeightPx(screenBounds) - height).coerceAtLeast(0))
+                ?: (screenHeightPx(screenBounds) * 0.28f).roundToInt(),
         )
     } else {
         nextResultBoundsSupport(
@@ -347,22 +407,22 @@ internal fun canvasWindowLayoutSupport(
     cssToPhysical: (Int) -> Int,
 ): PresetCanvasWindowLayout {
     val gap = dp(CANVAS_MARGIN_DP)
-    val horizontalWidth = cssToPhysical(horizontalCanvasWidthCss(buttonCount)).coerceAtMost(screenBounds.width())
-    val horizontalHeight = cssToPhysical(CANVAS_HORIZONTAL_HEIGHT_CSS).coerceAtMost(screenBounds.height())
-    val verticalWidth = cssToPhysical(CANVAS_VERTICAL_WIDTH_CSS).coerceAtMost(screenBounds.width())
-    val verticalHeight = cssToPhysical(verticalCanvasHeightCss(buttonCount)).coerceAtMost(screenBounds.height())
+    val horizontalWidth = cssToPhysical(horizontalCanvasWidthCss(buttonCount)).coerceAtMost(screenWidthPx(screenBounds))
+    val horizontalHeight = cssToPhysical(CANVAS_HORIZONTAL_HEIGHT_CSS).coerceAtMost(screenHeightPx(screenBounds))
+    val verticalWidth = cssToPhysical(CANVAS_VERTICAL_WIDTH_CSS).coerceAtMost(screenWidthPx(screenBounds))
+    val verticalHeight = cssToPhysical(verticalCanvasHeightCss(buttonCount)).coerceAtMost(screenHeightPx(screenBounds))
 
-    val spaceBottom = screenBounds.height() - (resultBounds.y + resultBounds.height)
+    val spaceBottom = screenHeightPx(screenBounds) - (resultBounds.y + resultBounds.height)
     val spaceTop = resultBounds.y
-    val spaceRight = screenBounds.width() - (resultBounds.x + resultBounds.width)
+    val spaceRight = screenWidthPx(screenBounds) - (resultBounds.x + resultBounds.width)
     val spaceLeft = resultBounds.x
 
     return when {
         spaceBottom >= horizontalHeight + gap -> {
             val x = (resultBounds.x + resultBounds.width - horizontalWidth)
-                .coerceIn(0, (screenBounds.width() - horizontalWidth).coerceAtLeast(0))
+                .coerceIn(0, (screenWidthPx(screenBounds) - horizontalWidth).coerceAtLeast(0))
             val y = (resultBounds.y + resultBounds.height + gap)
-                .coerceIn(0, (screenBounds.height() - horizontalHeight).coerceAtLeast(0))
+                .coerceIn(0, (screenHeightPx(screenBounds) - horizontalHeight).coerceAtLeast(0))
             PresetCanvasWindowLayout(
                 bounds = OverlayBounds(x = x, y = y, width = horizontalWidth, height = horizontalHeight),
                 vertical = false,
@@ -370,9 +430,9 @@ internal fun canvasWindowLayoutSupport(
         }
         spaceRight >= verticalWidth + gap -> {
             val x = (resultBounds.x + resultBounds.width + gap)
-                .coerceIn(0, (screenBounds.width() - verticalWidth).coerceAtLeast(0))
+                .coerceIn(0, (screenWidthPx(screenBounds) - verticalWidth).coerceAtLeast(0))
             val y = (resultBounds.y + (resultBounds.height - verticalHeight) / 2)
-                .coerceIn(0, (screenBounds.height() - verticalHeight).coerceAtLeast(0))
+                .coerceIn(0, (screenHeightPx(screenBounds) - verticalHeight).coerceAtLeast(0))
             PresetCanvasWindowLayout(
                 bounds = OverlayBounds(x = x, y = y, width = verticalWidth, height = verticalHeight),
                 vertical = true,
@@ -380,9 +440,9 @@ internal fun canvasWindowLayoutSupport(
         }
         spaceLeft >= verticalWidth + gap -> {
             val x = (resultBounds.x - verticalWidth - gap)
-                .coerceIn(0, (screenBounds.width() - verticalWidth).coerceAtLeast(0))
+                .coerceIn(0, (screenWidthPx(screenBounds) - verticalWidth).coerceAtLeast(0))
             val y = (resultBounds.y + (resultBounds.height - verticalHeight) / 2)
-                .coerceIn(0, (screenBounds.height() - verticalHeight).coerceAtLeast(0))
+                .coerceIn(0, (screenHeightPx(screenBounds) - verticalHeight).coerceAtLeast(0))
             PresetCanvasWindowLayout(
                 bounds = OverlayBounds(x = x, y = y, width = verticalWidth, height = verticalHeight),
                 vertical = true,
@@ -390,9 +450,9 @@ internal fun canvasWindowLayoutSupport(
         }
         spaceTop >= horizontalHeight + gap -> {
             val x = (resultBounds.x + (resultBounds.width - horizontalWidth) / 2)
-                .coerceIn(0, (screenBounds.width() - horizontalWidth).coerceAtLeast(0))
+                .coerceIn(0, (screenWidthPx(screenBounds) - horizontalWidth).coerceAtLeast(0))
             val y = (resultBounds.y - horizontalHeight - gap)
-                .coerceIn(0, (screenBounds.height() - horizontalHeight).coerceAtLeast(0))
+                .coerceIn(0, (screenHeightPx(screenBounds) - horizontalHeight).coerceAtLeast(0))
             PresetCanvasWindowLayout(
                 bounds = OverlayBounds(x = x, y = y, width = horizontalWidth, height = horizontalHeight),
                 vertical = false,
@@ -400,9 +460,9 @@ internal fun canvasWindowLayoutSupport(
         }
         else -> {
             val width = horizontalWidth.coerceAtMost((resultBounds.width - gap * 2).coerceAtLeast(cssToPhysical(220)))
-            val x = (resultBounds.x + gap).coerceIn(0, (screenBounds.width() - width).coerceAtLeast(0))
+            val x = (resultBounds.x + gap).coerceIn(0, (screenWidthPx(screenBounds) - width).coerceAtLeast(0))
             val y = (resultBounds.y + resultBounds.height - horizontalHeight - gap)
-                .coerceIn(resultBounds.y, (screenBounds.height() - horizontalHeight).coerceAtLeast(resultBounds.y))
+                .coerceIn(resultBounds.y, (screenHeightPx(screenBounds) - horizontalHeight).coerceAtLeast(resultBounds.y))
             PresetCanvasWindowLayout(
                 bounds = OverlayBounds(x = x, y = y, width = width, height = horizontalHeight),
                 vertical = false,
@@ -444,8 +504,8 @@ internal fun nextResultBoundsSupport(
     return candidates.firstOrNull { candidate ->
         candidate.x >= 0 &&
             candidate.y >= 0 &&
-            candidate.x + candidate.width <= screenBounds.width() &&
-            candidate.y + candidate.height <= screenBounds.height() &&
+            candidate.x + candidate.width <= screenWidthPx(screenBounds) &&
+            candidate.y + candidate.height <= screenHeightPx(screenBounds) &&
             occupiedBounds.none { bounds ->
                 !(candidate.x + candidate.width <= bounds.x ||
                     bounds.x + bounds.width <= candidate.x ||
@@ -453,9 +513,13 @@ internal fun nextResultBoundsSupport(
                     bounds.y + bounds.height <= candidate.y)
             }
     } ?: OverlayBounds(
-        x = (previous.x + dp(36)).coerceIn(0, (screenBounds.width() - width).coerceAtLeast(0)),
-        y = (previous.y + dp(36)).coerceIn(0, (screenBounds.height() - height).coerceAtLeast(0)),
+        x = (previous.x + dp(36)).coerceIn(0, (screenWidthPx(screenBounds) - width).coerceAtLeast(0)),
+        y = (previous.y + dp(36)).coerceIn(0, (screenHeightPx(screenBounds) - height).coerceAtLeast(0)),
         width = width,
         height = height,
     )
 }
+
+private fun screenWidthPx(bounds: Rect): Int = bounds.right - bounds.left
+
+private fun screenHeightPx(bounds: Rect): Int = bounds.bottom - bounds.top
