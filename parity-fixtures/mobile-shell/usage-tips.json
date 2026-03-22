@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "windows_rotation_contract",
+      "fade_duration_ms": 500,
+      "display_duration_formula": "2000 + tip.length * 60",
+      "no_immediate_repeat": true
+    },
+    {
+      "name": "android_settings_surface",
+      "section": "SETTINGS",
+      "entry_surface": "card",
+      "full_list_surface": "dialog"
+    },
+    {
+      "name": "android_filtered_parity_content",
+      "required_concepts": [
+        "dimmed screen selection cancel",
+        "history cleanup",
+        "single auto-copy step",
+        "auto-paste requires caret",
+        "smart audio stop",
+        "display mode toggle",
+        "continuous mode"
+      ],
+      "excluded_desktop_only_concepts": [
+        "middle-click close all overlays",
+        "right-click overlay copy",
+        "system tray bubble toggle",
+        "mouse-wheel canvas zoom instructions",
+        "desktop drag-and-drop into settings"
+      ]
+    }
+  ]
+}
