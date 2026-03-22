@@ -139,6 +139,35 @@ class PresetRepositoryTest {
         assertFalse(resolved.placeholderReasons.contains(PresetPlaceholderReason.TEXT_INPUT_OVERLAY_NOT_READY))
     }
 
+    @Test
+    fun hangImagePresetIsNoLongerUpcoming() {
+        val repository = createRepository(InMemoryPresetOverrideStore())
+
+        val resolved = requireNotNull(repository.getResolvedPreset("preset_hang_image"))
+
+        assertFalse(resolved.preset.isUpcoming)
+        assertTrue(resolved.executionCapability.supported)
+    }
+
+    @Test
+    fun imagePresetWithAudioBlockIsRejectedAsUnsupported() {
+        val capability = PresetExecutionCapabilityResolver().resolveExecutionCapability(
+            dev.screengoated.toolbox.mobile.shared.preset.Preset(
+                id = "image-audio-mixed",
+                nameEn = "Image Audio Mixed",
+                nameVi = "Image Audio Mixed",
+                nameKo = "Image Audio Mixed",
+                presetType = dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE,
+                blocks = listOf(
+                    dev.screengoated.toolbox.mobile.shared.preset.audioBlock("whisper-fast"),
+                ),
+            ),
+        )
+
+        assertFalse(capability.supported)
+        assertEquals(PresetPlaceholderReason.NON_TEXT_GRAPH_NOT_READY, capability.reason)
+    }
+
     private fun createRepository(store: PresetOverrideStore): PresetRepository {
         return PresetRepository(
             textApiClient = TextApiClient(OkHttpClient()),

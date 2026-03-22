@@ -319,7 +319,6 @@ object DefaultPresets {
             nameVi = "Treo \u1ea3nh",
             nameKo = "\uc774\ubbf8\uc9c0 \uc624\ubc84\ub808\uc774",
             presetType = PresetType.IMAGE,
-            isUpcoming = true,
             blocks = listOf(
                 inputAdapter().copy(showOverlay = true, renderMode = "markdown"),
             ),

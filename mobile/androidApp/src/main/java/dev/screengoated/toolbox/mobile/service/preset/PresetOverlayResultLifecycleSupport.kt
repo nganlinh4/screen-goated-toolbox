@@ -31,6 +31,7 @@ internal fun PresetOverlayResultModule.syncResultWindowsSupport(
         .forEach { id ->
             resultWindows.remove(id)?.window?.destroy()
             if (activeResultWindowId == id) activeResultWindowId = null
+            if (topmostResultWindowId == id) topmostResultWindowId = null
         }
 
     val placed = mutableListOf<PresetResultWindowPlacement>()
@@ -73,6 +74,9 @@ internal fun PresetOverlayResultModule.syncResultWindowsSupport(
                 window = window,
             ),
         )
+        if (topmostResultWindowId == null) {
+            topmostResultWindowId = windowState.id
+        }
     }
 }
 
@@ -87,6 +91,10 @@ internal fun PresetOverlayResultModule.closeResultWindowSupport(id: PresetResult
     if (activeResultWindowId == id) {
         activeResultWindowId = resultWindows.keys.firstOrNull()
     }
+    if (topmostResultWindowId == id) {
+        topmostResultWindowId = activeResultWindowId
+    }
+    canvasSuspendedForGesture = false
     ensureCanvasWindowSupport()
     if (resultWindows.isEmpty()) {
         onNoOverlaysRemaining()

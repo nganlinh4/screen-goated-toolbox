@@ -96,6 +96,11 @@
   - the first visible result window uses the preset saved geometry; subsequent visible windows snake away from the previous visible result window
 - Android result windows must not use a fake title/status shell. The result window should be a Windows-derived markdown surface with touch shims only.
 - Android markdown conversion/theme/font/table behavior should stay aligned with the Windows markdown view, and raw-HTML text outputs should load as full HTML documents with the Android bridge/touch layer injected.
+- Android image/audio input-adapter overlays must preserve the Windows media-document contract:
+  - canonical media HTML source remains [src/overlay/process/chain/templates.rs](../../src/overlay/process/chain/templates.rs)
+  - input-adapter media documents stay under the result-window runtime rather than becoming a separately styled Android-only surface
+  - Windows media markers such as `.audio-player` and the input-adapter media root must be preserved so media-specific behavior can be detected consistently
+  - the Android raw-html bridge may inject interaction plumbing, but it must not impose the generic markdown body chrome over image/audio media documents
 - Android result overlays must keep one-finger long-press drag for window movement, while allowing two-finger content scrolling inside the overlay body.
 - Android result overlays must keep two-finger content scrolling bidirectional, not vertical-only:
   - horizontal overflow like wide tables must remain scrollable with the same two-finger gesture

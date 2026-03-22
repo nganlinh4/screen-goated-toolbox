@@ -36,6 +36,11 @@ internal data class OverlayNavigationFailure(
     val description: String,
 )
 
+private sealed interface OverlayRecoverySource {
+    data class Asset(val assetPage: String) : OverlayRecoverySource
+    data class Html(val htmlContent: String, val baseUrl: String) : OverlayRecoverySource
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 internal class PresetOverlayWindow(
     context: Context,
@@ -108,6 +113,8 @@ internal class PresetOverlayWindow(
     private var layoutApplyScheduled = false
     private var onPageFinishedListener: ((String?) -> Unit)? = null
     private var onNavigationFailureListener: ((OverlayNavigationFailure) -> Unit)? = null
+    private var recoverySource: OverlayRecoverySource? = null
+    private var recoveryAttemptInFlight = false
 
     private val webView = WebView(context).apply {
         configureOverlayWebView(this, this@PresetOverlayWindow.focusable)
@@ -118,10 +125,12 @@ internal class PresetOverlayWindow(
             tracker = managedLoadTracker,
             onMessageLog = { Log.d(logTag, it) },
             onMainFrameNavigationFailure = { failure ->
+                recoverFromNavigationFailure(failure)
                 onNavigationFailureListener?.invoke(failure)
             },
             onPageFinished = { url ->
                 pageReady = true
+                recoveryAttemptInFlight = false
                 flushPendingScripts()
                 onPageFinishedListener?.invoke(url)
             },
@@ -242,6 +251,7 @@ internal class PresetOverlayWindow(
     }
 
     fun loadAssetPage(assetPage: String) {
+        recoverySource = OverlayRecoverySource.Asset(assetPage)
         pageReady = false
         managedLoadTracker.begin(prefix = "file:///android_asset/preset_overlay/")
         webView.loadUrl("file:///android_asset/preset_overlay/$assetPage")
@@ -251,8 +261,15 @@ internal class PresetOverlayWindow(
         htmlContent: String,
         baseUrl: String = "file:///android_asset/preset_overlay/",
         clearHistoryAfterLoad: Boolean = false,
+        rememberForRecovery: Boolean = true,
     ) {
         Log.d(logTag, "loadHtmlContent baseUrl=$baseUrl len=${htmlContent.length}")
+        if (rememberForRecovery) {
+            recoverySource = OverlayRecoverySource.Html(
+                htmlContent = htmlContent,
+                baseUrl = baseUrl,
+            )
+        }
         pageReady = false
         managedLoadTracker.begin(prefix = baseUrl, clearHistoryAfterLoad = clearHistoryAfterLoad)
         webView.loadDataWithBaseURL(
@@ -394,6 +411,52 @@ internal class PresetOverlayWindow(
         }
     }
 
+    private fun recoverFromNavigationFailure(failure: OverlayNavigationFailure) {
+        val source = recoverySource
+        if (source == null) {
+            loadRecoveryFailureHtml(failure)
+            return
+        }
+        if (recoveryAttemptInFlight) {
+            loadRecoveryFailureHtml(failure)
+            return
+        }
+        Log.w(logTag, "recoverFromNavigationFailure url=${failure.url} desc=${failure.description}")
+        recoveryAttemptInFlight = true
+        pageReady = false
+        pendingScripts.clear()
+        runCatching { webView.stopLoading() }
+        when (source) {
+            is OverlayRecoverySource.Asset -> {
+                managedLoadTracker.begin(
+                    prefix = "file:///android_asset/preset_overlay/",
+                    clearHistoryAfterLoad = true,
+                )
+                webView.loadUrl("file:///android_asset/preset_overlay/${source.assetPage}")
+            }
+            is OverlayRecoverySource.Html -> {
+                loadHtmlContent(
+                    htmlContent = source.htmlContent,
+                    baseUrl = source.baseUrl,
+                    clearHistoryAfterLoad = true,
+                    rememberForRecovery = false,
+                )
+            }
+        }
+    }
+
+    private fun loadRecoveryFailureHtml(failure: OverlayNavigationFailure) {
+        recoveryAttemptInFlight = false
+        pageReady = false
+        pendingScripts.clear()
+        loadHtmlContent(
+            htmlContent = overlayRecoveryFailureHtml(failure.description),
+            baseUrl = "file:///android_asset/preset_overlay/",
+            clearHistoryAfterLoad = true,
+            rememberForRecovery = false,
+        )
+    }
+
     private fun scheduleLayoutApply() {
         if (layoutApplyScheduled) {
             return
@@ -414,3 +477,60 @@ internal data class OverlayHistoryState(
     val lastIndex: Int,
     val currentUrl: String?,
 )
+
+private fun overlayRecoveryFailureHtml(description: String): String {
+    val escaped = escapeHtml(description)
+    return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {
+                    margin: 0;
+                    min-height: 100vh;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: linear-gradient(180deg, #101218, #171b24);
+                    color: #f5f7fb;
+                    font-family: 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif;
+                }
+                .card {
+                    max-width: 420px;
+                    margin: 20px;
+                    padding: 18px 20px;
+                    border-radius: 18px;
+                    background: rgba(27, 31, 43, 0.96);
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+                }
+                h1 {
+                    margin: 0 0 8px;
+                    font-size: 18px;
+                    font-weight: 700;
+                }
+                p {
+                    margin: 0;
+                    line-height: 1.45;
+                    color: #d7deeb;
+                    font-size: 14px;
+                }
+                .meta {
+                    margin-top: 10px;
+                    font-size: 12px;
+                    color: #99a6bd;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <h1>Overlay recovered</h1>
+                <p>The page hit a loading error, so the overlay restored a safe view instead of leaving the Android error page onscreen.</p>
+                <div class="meta">$escaped</div>
+            </div>
+        </body>
+        </html>
+    """.trimIndent()
+}

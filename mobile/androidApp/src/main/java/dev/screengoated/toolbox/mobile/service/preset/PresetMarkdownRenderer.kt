@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.service.preset
 
 import android.content.Context
+import dev.screengoated.toolbox.mobile.preset.isInputAdapterMediaHtml
 import org.commonmark.Extension
 import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension
 import org.commonmark.ext.gfm.tables.TablesExtension
@@ -52,6 +53,7 @@ internal class PresetMarkdownRenderer(
         content: String,
         isDark: Boolean,
     ): String {
+        val isInputAdapterMedia = isInputAdapterMediaHtml(content)
         val wrapped = if (isHtmlFragment(content)) {
             wrapHtmlFragment(content)
         } else {
@@ -64,7 +66,7 @@ internal class PresetMarkdownRenderer(
             withScrollbars,
             """
             <style>
-            ${presetHostedRawPageCss(isDark)}
+            ${presetHostedRawPageCss(isDark, isInputAdapterMedia)}
             html, body {
                 -webkit-tap-highlight-color: transparent;
                 scrollbar-width: none;
@@ -77,7 +79,7 @@ internal class PresetMarkdownRenderer(
             withBridge,
             """
             <script>
-            ${presetHostedRawPageBootstrapScript("__PENDING_RESULT_WINDOW_ID__", isDark)}
+            ${presetHostedRawPageBootstrapScript("__PENDING_RESULT_WINDOW_ID__", isDark, isInputAdapterMedia)}
             </script>
             """.trimIndent(),
         )
