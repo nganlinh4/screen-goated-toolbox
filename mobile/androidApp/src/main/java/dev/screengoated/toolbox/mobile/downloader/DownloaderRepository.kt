@@ -37,14 +37,9 @@ class DownloaderRepository(
 
     private fun ensureInit() {
         if (!initialized) {
-            // log:"ensureInit: calling YoutubeDL.init()")
             YoutubeDL.getInstance().init(context)
-            // log:"ensureInit: calling FFmpeg.init()")
             FFmpeg.getInstance().init(context)
             initialized = true
-            // log:"ensureInit: done, initialized=true")
-        } else {
-            // log:"ensureInit: already initialized, skipping")
         }
     }
 
@@ -61,23 +56,17 @@ class DownloaderRepository(
     }
 
     fun checkTools() {
-        // log:"checkTools: starting")
         scope.launch {
             withContext(Dispatchers.IO) {
                 val ffmpegSize = calculateFfmpegSize()
                 val ffmpegState = ToolState(ToolInstallStatus.INSTALLED, version = ffmpegSize)
 
                 val extracted = isAlreadyExtracted()
-                // log:"checkTools: extracted=$extracted")
-
                 if (extracted) {
                     try {
                         ensureInit()
-                    } catch (e: Exception) {
-                        // log:"checkTools: ensureInit failed", e)
-                    }
+                    } catch (_: Exception) {}
                     val ytdlpSize = calculateYtdlpSize()
-                    // log:"checkTools: INSTALLED size=$ytdlpSize")
                     _state.update {
                         it.copy(
                             ytdlp = ToolState(ToolInstallStatus.INSTALLED, version = ytdlpSize),
@@ -85,7 +74,6 @@ class DownloaderRepository(
                         )
                     }
                 } else {
-                    // log:"checkTools: MISSING")
                     _state.update {
                         it.copy(
                             ytdlp = ToolState(ToolInstallStatus.MISSING),
@@ -105,15 +93,11 @@ class DownloaderRepository(
                 try {
                     initialized = false
                     // Force the library to re-extract by resetting its internal state
-                    // The library uses a static 'initialized' field — we need to use reflection
                     try {
                         val field = YoutubeDL::class.java.getDeclaredField("initialized")
                         field.isAccessible = true
                         field.setBoolean(YoutubeDL.getInstance(), false)
-                        // log:"installTools: reset library initialized via reflection")
-                    } catch (e: Exception) {
-                        // log:"installTools: reflection reset failed", e)
-                    }
+                    } catch (_: Exception) {}
                     try {
                         val field = FFmpeg::class.java.getDeclaredField("initialized")
                         field.isAccessible = true
@@ -217,19 +201,19 @@ class DownloaderRepository(
         return if (version != null) "$version (%.1f MB)".format(sizeMb) else "%.1f MB".format(sizeMb)
     }
 
+    private fun dirSizeMb(dir: File): Double {
+        if (!dir.exists()) return 0.0
+        var total = 0L
+        dir.walkTopDown().forEach { if (it.isFile) total += it.length() }
+        return total / (1024.0 * 1024.0)
+    }
+
     private fun calculateFfmpegSize(): String {
         val nativeLibDir = File(context.applicationInfo.nativeLibraryDir)
         val size = fileSizeMb(File(nativeLibDir, "libffmpeg.so")) +
             fileSizeMb(File(nativeLibDir, "libffprobe.so")) +
             dirSizeMb(File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg"))
         return "%.1f MB".format(size)
-    }
-
-    private fun dirSizeMb(dir: File): Double {
-        if (!dir.exists()) return 0.0
-        var total = 0L
-        dir.walkTopDown().forEach { if (it.isFile) total += it.length() }
-        return total / (1024.0 * 1024.0)
     }
 
     private fun fileSizeMb(file: File): Double {
@@ -295,12 +279,13 @@ class DownloaderRepository(
         if (current.phase == DownloadPhase.DOWNLOADING || current.phase == DownloadPhase.FINISHED) return
 
         updateSession(sessionIdx) {
+            val keepPhase = it.phase == DownloadPhase.DOWNLOADING || it.phase == DownloadPhase.FINISHED
             it.copy(
                 isAnalyzing = true,
-                phase = DownloadPhase.ANALYZING,
-                availableFormats = emptyList(),
-                availableSubtitles = emptyList(),
-                analysisError = null,
+                phase = if (keepPhase) it.phase else DownloadPhase.ANALYZING,
+                availableFormats = if (keepPhase) it.availableFormats else emptyList(),
+                availableSubtitles = if (keepPhase) it.availableSubtitles else emptyList(),
+                analysisError = if (keepPhase) it.analysisError else null,
             )
         }
 
@@ -337,9 +322,11 @@ class DownloaderRepository(
                 }
 
                 updateSession(sessionIdx) {
+                    // Don't overwrite phase if a download is already running
+                    val keepPhase = it.phase == DownloadPhase.DOWNLOADING || it.phase == DownloadPhase.FINISHED
                     it.copy(
                         isAnalyzing = false,
-                        phase = DownloadPhase.IDLE,
+                        phase = if (keepPhase) it.phase else DownloadPhase.IDLE,
                         availableFormats = resolutions,
                         availableSubtitles = subtitles,
                         lastUrlAnalyzed = url,
@@ -347,10 +334,11 @@ class DownloaderRepository(
                 }
             } catch (e: Exception) {
                 updateSession(sessionIdx) {
+                    val keepPhase = it.phase == DownloadPhase.DOWNLOADING || it.phase == DownloadPhase.FINISHED
                     it.copy(
                         isAnalyzing = false,
-                        phase = DownloadPhase.IDLE,
-                        analysisError = e.message ?: "Analysis failed",
+                        phase = if (keepPhase) it.phase else DownloadPhase.IDLE,
+                        analysisError = if (keepPhase) it.analysisError else (e.message ?: "Analysis failed"),
                     )
                 }
             }
@@ -386,6 +374,7 @@ class DownloaderRepository(
         val session = _state.value.activeSession
         if (session.inputUrl.isBlank()) return
 
+        analysisJob?.cancel()
         downloadJob?.cancel()
         updateSession(idx) {
             it.copy(
@@ -430,8 +419,6 @@ class DownloaderRepository(
         outputDir.mkdirs()
 
         val request = YoutubeDLRequest(session.inputUrl)
-
-        // ffmpeg location — native libs extracted from APK
 
         // Common args (matching Windows run.rs)
         request.addOption("--encoding", "utf-8")

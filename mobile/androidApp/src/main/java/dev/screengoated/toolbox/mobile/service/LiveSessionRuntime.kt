@@ -179,7 +179,7 @@ class LiveSessionRuntime(
 
         withContext(Dispatchers.IO) {
             val modelDir = java.io.File(context.filesDir, "models/parakeet")
-            val engine = ParakeetEngine(modelDir)
+            val engine = ParakeetEngine(modelDir, parakeetModelManager.ortLibDir())
             try {
                 repository.markListening()
                 val audioFlow = audioCaptureController.open(

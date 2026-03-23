@@ -10,7 +10,7 @@
       font-weight: 100 1000;
       font-stretch: 25% 1000%;
       font-display: swap;
-      src: url('GoogleSansFlex.ttf') format('truetype');
+      src: url('../GoogleSansFlex.ttf') format('truetype');
     }
     body {
       margin: 0;
@@ -252,7 +252,31 @@
     })();
   </script>
   <link rel="stylesheet"
-    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" />
+  <style>
+    .material-symbols-rounded { visibility: hidden; }
+  </style>
+  <script>
+    document.fonts.ready.then(function() {
+      var els = document.querySelectorAll('.material-symbols-rounded');
+      for (var i = 0; i < els.length; i++) els[i].style.visibility = 'visible';
+      // Also handle dynamically added icons
+      var obs = new MutationObserver(function(mutations) {
+        mutations.forEach(function(m) {
+          m.addedNodes.forEach(function(n) {
+            if (n.classList && n.classList.contains('material-symbols-rounded'))
+              n.style.visibility = 'visible';
+            if (n.querySelectorAll) {
+              n.querySelectorAll('.material-symbols-rounded').forEach(function(el) {
+                el.style.visibility = 'visible';
+              });
+            }
+          });
+        });
+      });
+      obs.observe(document.body || document.documentElement, { childList: true, subtree: true });
+    });
+  </script>
 
   <script type="importmap">
       {
