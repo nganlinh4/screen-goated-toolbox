@@ -49,8 +49,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -247,14 +250,14 @@ private fun HistoryItemCard(
     onOpen: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val (containerColor, contentColor) = historyColors(item.itemType)
+    val cardColors = historyColors(item.itemType)
     val copyInteractionSource = remember { MutableInteractionSource() }
     val openInteractionSource = remember { MutableInteractionSource() }
     val deleteInteractionSource = remember { MutableInteractionSource() }
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
+            containerColor = cardColors.containerColor,
+            contentColor = cardColors.contentColor,
         ),
         shape = RoundedCornerShape(22.dp),
     ) {
@@ -273,11 +276,15 @@ private fun HistoryItemCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Icon(historyIcon(item.itemType), contentDescription = null)
+                    Icon(
+                        historyIcon(item.itemType),
+                        contentDescription = null,
+                        tint = cardColors.metaColor,
+                    )
                     Text(
                         text = item.timestamp,
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = cardColors.metaColor,
                     )
                 }
             }
@@ -285,11 +292,12 @@ private fun HistoryItemCard(
             Text(
                 text = item.text,
                 style = MaterialTheme.typography.bodyMedium,
+                color = cardColors.contentColor,
                 maxLines = 6,
                 overflow = TextOverflow.Ellipsis,
             )
 
-            HorizontalDivider()
+            HorizontalDivider(color = cardColors.dividerColor)
 
             val hasOpenAction = !mediaDirectoryPath.isNullOrBlank() && item.mediaPath.isNotBlank()
             ButtonGroup(
@@ -357,13 +365,54 @@ private fun HistoryItemCard(
 }
 
 @Composable
-private fun historyColors(type: HistoryType): Pair<androidx.compose.ui.graphics.Color, androidx.compose.ui.graphics.Color> {
-    return when (type) {
-        HistoryType.IMAGE -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
-        HistoryType.AUDIO -> MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
-        HistoryType.TEXT -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+private fun historyColors(type: HistoryType): HistoryCardColors {
+    val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.surface.luminance() < 0.5f
+    val baseSurface = if (isDark) colorScheme.surfaceContainerHigh else colorScheme.surfaceContainerLow
+    val accentContainer = when (type) {
+        HistoryType.IMAGE -> colorScheme.secondaryContainer
+        HistoryType.AUDIO -> colorScheme.tertiaryContainer
+        HistoryType.TEXT -> colorScheme.primaryContainer
     }
+    val accentContent = when (type) {
+        HistoryType.IMAGE -> colorScheme.onSecondaryContainer
+        HistoryType.AUDIO -> colorScheme.onTertiaryContainer
+        HistoryType.TEXT -> colorScheme.onPrimaryContainer
+    }
+    val containerColor = lerp(
+        baseSurface,
+        accentContainer,
+        if (isDark) 0.12f else 0.62f,
+    )
+    val contentColor = if (isDark) {
+        Color(0xFFF7F4EF)
+    } else {
+        lerp(colorScheme.onSurface, accentContent, 0.5f)
+    }
+    val metaColor = if (isDark) {
+        Color(0xFFD8D2C8)
+    } else {
+        lerp(contentColor, colorScheme.onSurfaceVariant, 0.28f)
+    }
+    val dividerColor = if (isDark) {
+        contentColor.copy(alpha = 0.16f)
+    } else {
+        contentColor.copy(alpha = 0.14f)
+    }
+    return HistoryCardColors(
+        containerColor = containerColor,
+        contentColor = contentColor,
+        metaColor = metaColor,
+        dividerColor = dividerColor,
+    )
 }
+
+private data class HistoryCardColors(
+    val containerColor: Color,
+    val contentColor: Color,
+    val metaColor: Color,
+    val dividerColor: Color,
+)
 
 private fun historyIcon(type: HistoryType) = when (type) {
     HistoryType.IMAGE -> Icons.Rounded.Image
