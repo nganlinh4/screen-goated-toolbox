@@ -126,6 +126,11 @@ internal class PresetOverlayResultModule(
         onRequestInputFront()
     }
 
+    fun showStandaloneMarkdownWindow(windowState: PresetResultWindowState) {
+        syncStandaloneResultWindowsSupport(listOf(windowState))
+        ensureCanvasWindowSupport()
+    }
+
     fun handleResultMessage(message: String) {
         val payload = message.jsonOrNull() ?: return
         if (payload.optString("type") == "gestureDebug") {

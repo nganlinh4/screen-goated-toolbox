@@ -114,6 +114,11 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="floating_overlay_bubble_for_favorite_presets" />
         </service>
+
+        <service
+            android:name=".service.helpassistant.HelpAssistantOverlayService"
+            android:enabled="true"
+            android:exported="false" />
     </application>
 
 </manifest>

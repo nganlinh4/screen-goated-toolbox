@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "bucket_order_and_files",
+      "order": [
+        "screen-record",
+        "android",
+        "rest"
+      ],
+      "raw_files": {
+        "screen-record": "repomix-screen-recorder.xml",
+        "android": "repomix-android.xml",
+        "rest": "repomix-rest.xml"
+      }
+    },
+    {
+      "name": "android_settings_entry_surface",
+      "section": "SETTINGS",
+      "entry_surface": "material3_dialog_or_sheet",
+      "answer_surface": "floating_overlay_result"
+    },
+    {
+      "name": "repomix_token_ceiling",
+      "max_tokens_per_xml": 250000,
+      "validated_counts": {
+        "repomix-screen-recorder.xml": 152426,
+        "repomix-android.xml": 120456,
+        "repomix-rest.xml": 202206
+      }
+    },
+    {
+      "name": "prompt_contract",
+      "question_language_answer": true,
+      "markdown_output": true,
+      "forbid_made_up_information": true,
+      "forbid_source_code_framing": true,
+      "require_locale_correct_ui_terms": true
+    }
+  ]
+}

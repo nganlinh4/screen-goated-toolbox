@@ -82,16 +82,19 @@ cd screen-record; npm install; npm run build; cd ..; New-Item -ItemType Director
 
 ### Repomix (for "Ask anything about SGT")
 
-The help assistant now uses two prebuilt repomix files so the prompt stays under the model limit:
+The help assistant now uses three prebuilt repomix files so each prompt stays under the model limit:
 - `repomix-screen-recorder.xml` for `Hỏi về SGT Record (Quay màn hình)`
+- `repomix-android.xml` for `Hỏi về SGT Android`
 - `repomix-rest.xml` for `Hỏi về mọi thứ còn lại`
 
 Regenerate them with these commands:
 
 ```powershell
-repomix . --compress --remove-comments --remove-empty-lines --no-file-summary --no-directory-structure --truncate-base64 --top-files-len 20 --include 'src/overlay/screen_record/**,screen-record/**,src/gui/settings_ui/download_manager/**,src/gui/settings_ui/pointer_gallery/**,src/gui/settings_ui/sidebar.rs' --ignore 'repomix-output.xml,repomix-screen-recorder.xml,repomix-rest.xml,docs/images/**,screen-record/public/**,screen-record/src/assets/**,assets/**,**/*.svg' -o repomix-screen-recorder.xml
+repomix . --compress --remove-comments --remove-empty-lines --no-file-summary --no-directory-structure --truncate-base64 --top-files-len 20 --include 'src/overlay/screen_record/**,screen-record/**,src/main.rs,src/hotkey/**,src/config/config.rs,src/overlay/mod.rs,src/gui/app/rendering/title_bar.rs,src/gui/locale/**' --ignore 'repomix-output.xml,repomix-screen-recorder.xml,repomix-android.xml,repomix-rest.xml,docs/images/**,screen-record/public/**,screen-record/src/assets/**,screen-record/dist/**,src/overlay/screen_record/dist/**,assets/**,**/*.svg' -o repomix-screen-recorder.xml
 
-repomix . --compress --remove-comments --remove-empty-lines --no-file-summary --no-directory-structure --truncate-base64 --top-files-len 20 --ignore 'repomix-output.xml,repomix-screen-recorder.xml,repomix-rest.xml,docs/images/**,src/overlay/screen_record/**,screen-record/**,src/gui/settings_ui/download_manager/**,src/gui/settings_ui/pointer_gallery/**,src/gui/settings_ui/sidebar.rs,screen-record/public/**,screen-record/src/assets/**,assets/**,**/*.svg' -o repomix-rest.xml
+repomix . --compress --remove-comments --remove-empty-lines --no-file-summary --no-directory-structure --truncate-base64 --top-files-len 20 --include 'mobile/README.md,mobile/androidApp/build.gradle.kts,mobile/shared/build.gradle.kts,mobile/androidApp/src/main/AndroidManifest.xml,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ui/**,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/model/**,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/MainActivity.kt,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ProjectionConsentProxyActivity.kt,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/AppContainer.kt,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/PresetRepository.kt,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/PresetExecutionCapabilityResolver.kt,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/PresetGraphExecutor.kt,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/PresetMediaHtml.kt,mobile/shared/src/commonMain/**' --ignore 'repomix-output.xml,repomix-screen-recorder.xml,repomix-android.xml,repomix-rest.xml,mobile/.gradle/**,mobile/.kotlin/**,mobile/build/**,mobile/androidApp/build/**,mobile/shared/build/**,mobile/local.properties,mobile/.sgtp.json,mobile/androidApp/src/test/**,mobile/androidApp/src/androidTest/**,mobile/shared/src/commonTest/**,mobile/shared/src/androidUnitTest/**,mobile/androidApp/src/main/assets/**,mobile/androidApp/src/main/res/**,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ui/carousel/**,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/ui/NodeGraphCanvas.kt,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/ui/NodePropertySheet.kt' -o repomix-android.xml
+
+repomix . --compress --remove-comments --remove-empty-lines --no-file-summary --no-directory-structure --truncate-base64 --top-files-len 20 --ignore 'repomix-output.xml,repomix-screen-recorder.xml,repomix-android.xml,repomix-rest.xml,docs/images/**,src/overlay/screen_record/**,screen-record/**,screen-record/public/**,screen-record/src/assets/**,screen-record/dist/**,src/overlay/screen_record/dist/**,mobile/**,assets/**,**/*.svg,.claude/**,parity-fixtures/**,third_party/**,scripts/**,promptdj-midi/**' -o repomix-rest.xml
 ```
 
 ## Getting Started

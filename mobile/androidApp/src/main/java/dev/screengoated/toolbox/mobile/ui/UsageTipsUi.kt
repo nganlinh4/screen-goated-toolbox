@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Lightbulb
@@ -95,7 +96,7 @@ internal fun UsageTipsCard(
         modifier = modifier
             .fillMaxWidth()
             .clickable(enabled = tips.isNotEmpty()) { showDialog = true },
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
@@ -171,7 +172,7 @@ private fun UsageTipsDialog(
                 .fillMaxWidth(0.94f)
                 .widthIn(max = 560.dp)
                 .padding(16.dp),
-            shape = MaterialTheme.shapes.extraLarge,
+            shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface,
             ),

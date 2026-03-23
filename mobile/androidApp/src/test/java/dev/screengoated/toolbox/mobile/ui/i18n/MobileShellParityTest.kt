@@ -48,6 +48,20 @@ class MobileShellParityTest {
     }
 
     @Test
+    fun helpAssistantStringsExistForAllSupportedLocales() {
+        val en = MobileLocaleText.forLanguage("en")
+        val vi = MobileLocaleText.forLanguage("vi")
+        val ko = MobileLocaleText.forLanguage("ko")
+
+        assertEquals("How to use", en.shellHelpLabel)
+        assertEquals("Hỏi cách dùng", vi.shellHelpLabel)
+        assertEquals("사용법 문의", ko.shellHelpLabel)
+        assertTrue(en.helpAssistantAndroidOption.contains("Android"))
+        assertTrue(vi.helpAssistantAndroidOption.contains("Android"))
+        assertTrue(ko.helpAssistantAndroidOption.contains("Android"))
+    }
+
+    @Test
     fun windowsBrandIconPairIsTheCanonicalMobileBrandSource() {
         assertEquals("assets/app-icon-small.png", MobileBrandAssets.WINDOWS_DARK_ICON_SOURCE)
         assertEquals("assets/app-icon-small-light.png", MobileBrandAssets.WINDOWS_LIGHT_ICON_SOURCE)

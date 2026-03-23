@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.ui
 
+import android.util.Log
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Computer
+import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.Public
@@ -46,7 +48,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -66,6 +71,8 @@ import dev.screengoated.toolbox.mobile.preset.PresetModelType
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import kotlin.math.roundToInt
+
+private const val PRESET_RUNTIME_DRAG_LOG_TAG = "PresetRuntimeDrag"
 
 private fun providerIcon(provider: PresetModelProvider): ImageVector = when (provider) {
     PresetModelProvider.GOOGLE, PresetModelProvider.GEMINI_LIVE -> Icons.Rounded.AutoAwesome
@@ -223,8 +230,11 @@ private fun ChainEditor(
 ) {
     val availableModels = remember(modelType) { PresetModelCatalog.forType(modelType) }
     var showAddMenu by remember { mutableStateOf(false) }
-    var dragIndex by remember { mutableIntStateOf(-1) }
+    var draggedModelId by remember { mutableStateOf<String?>(null) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    val itemHeightPx = with(LocalDensity.current) { 44.dp.toPx() }
+    val latestChain by rememberUpdatedState(chain)
+    val latestOnChainChanged by rememberUpdatedState(onChainChanged)
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
@@ -252,54 +262,122 @@ private fun ChainEditor(
 
             // Editable entries (numbered from 2)
             chain.forEachIndexed { index, modelId ->
-                val isDragging = dragIndex == index
-                val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp, label = "elev")
-
-                ModelPill(
-                    number = index + 2,
-                    modelId = modelId,
-                    availableModels = availableModels,
-                    uiLanguage = uiLanguage,
-                    isDragging = isDragging,
-                    modifier = Modifier
-                        .then(
-                            if (isDragging) Modifier
-                                .offset { IntOffset(0, dragOffsetY.roundToInt()) }
-                                .zIndex(10f)
-                                .shadow(elevation, RoundedCornerShape(20.dp))
-                            else Modifier
-                        )
-                        .pointerInput(chain.size, index) {
+                key(modelId) {
+                    val isDragging = draggedModelId == modelId
+                    val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp, label = "elev")
+                    val dragVisualModifier = if (isDragging) {
+                        Modifier
+                            .offset { IntOffset(0, dragOffsetY.roundToInt()) }
+                            .zIndex(10f)
+                            .shadow(elevation, RoundedCornerShape(20.dp))
+                    } else {
+                        Modifier
+                    }
+                    val dragHandleModifier = Modifier
+                        .width(44.dp)
+                        .heightIn(min = 32.dp)
+                        .pointerInput(modelId) {
                             detectDragGestures(
-                                onDragStart = { dragIndex = index; dragOffsetY = 0f },
+                                onDragStart = {
+                                    Log.d(
+                                        PRESET_RUNTIME_DRAG_LOG_TAG,
+                                        "drag_start modelId=$modelId chain=${latestChain.joinToString()}",
+                                    )
+                                    draggedModelId = modelId
+                                    dragOffsetY = 0f
+                                },
                                 onDrag = { change, offset ->
                                     change.consume()
-                                    dragOffsetY += offset.y
-                                    val itemH = 44.dp.toPx()
-                                    val steps = (dragOffsetY / itemH).roundToInt()
-                                    if (steps != 0) {
-                                        val target = (dragIndex + steps).coerceIn(0, chain.size - 1)
-                                        if (target != dragIndex) {
-                                            val list = chain.toMutableList()
-                                            val item = list.removeAt(dragIndex)
-                                            list.add(target, item)
-                                            onChainChanged(list)
-                                            dragIndex = target
+                                    val deltaY = offset.y
+                                    val activeId = draggedModelId
+                                    if (activeId == null) {
+                                        Log.w(
+                                            PRESET_RUNTIME_DRAG_LOG_TAG,
+                                            "drag_delta_without_active modelId=$modelId deltaY=$deltaY",
+                                        )
+                                    } else {
+                                        val currentChain = latestChain
+                                        val currentIndex = currentChain.indexOf(activeId)
+                                        if (currentIndex == -1) {
+                                            Log.w(
+                                                PRESET_RUNTIME_DRAG_LOG_TAG,
+                                                "drag_missing_active modelId=$modelId activeId=$activeId chain=${currentChain.joinToString()}",
+                                            )
+                                            draggedModelId = null
                                             dragOffsetY = 0f
+                                        } else {
+                                            dragOffsetY += deltaY
+                                            val steps = (dragOffsetY / itemHeightPx).roundToInt()
+                                            Log.d(
+                                                PRESET_RUNTIME_DRAG_LOG_TAG,
+                                                "drag_move modelId=$modelId activeId=$activeId currentIndex=$currentIndex deltaY=$deltaY dragOffsetY=$dragOffsetY steps=$steps chain=${currentChain.joinToString()}",
+                                            )
+                                            if (steps != 0) {
+                                                val targetIndex = (currentIndex + steps).coerceIn(0, currentChain.lastIndex)
+                                                if (targetIndex != currentIndex) {
+                                                    val list = currentChain.toMutableList()
+                                                    val item = list.removeAt(currentIndex)
+                                                    list.add(targetIndex, item)
+                                                    Log.d(
+                                                        PRESET_RUNTIME_DRAG_LOG_TAG,
+                                                        "drag_reorder activeId=$activeId from=$currentIndex to=$targetIndex updatedChain=${list.joinToString()}",
+                                                    )
+                                                    latestOnChainChanged(list)
+                                                    dragOffsetY -= (targetIndex - currentIndex) * itemHeightPx
+                                                }
+                                            }
                                         }
                                     }
                                 },
-                                onDragEnd = { dragIndex = -1; dragOffsetY = 0f },
-                                onDragCancel = { dragIndex = -1; dragOffsetY = 0f },
+                                onDragEnd = {
+                                    Log.d(
+                                        PRESET_RUNTIME_DRAG_LOG_TAG,
+                                        "drag_end draggedModelId=$draggedModelId",
+                                    )
+                                    draggedModelId = null
+                                    dragOffsetY = 0f
+                                },
+                                onDragCancel = {
+                                    Log.d(
+                                        PRESET_RUNTIME_DRAG_LOG_TAG,
+                                        "drag_cancel draggedModelId=$draggedModelId",
+                                    )
+                                    draggedModelId = null
+                                    dragOffsetY = 0f
+                                },
                             )
+                        }
+
+                    ModelPill(
+                        number = index + 2,
+                        modelId = modelId,
+                        availableModels = availableModels,
+                        uiLanguage = uiLanguage,
+                        isDragging = isDragging,
+                        modifier = dragVisualModifier,
+                        dragHandleModifier = dragHandleModifier,
+                        onModelChanged = { newId ->
+                            val list = latestChain.toMutableList()
+                            val modelIndex = list.indexOf(modelId)
+                            if (modelIndex != -1) {
+                                list[modelIndex] = newId
+                                latestOnChainChanged(list)
+                            }
                         },
-                    onModelChanged = { newId ->
-                        val list = chain.toMutableList()
-                        list[index] = newId
-                        onChainChanged(list)
-                    },
-                    onRemove = { onChainChanged(chain.toMutableList().also { it.removeAt(index) }) },
-                )
+                        onRemove = {
+                            val list = latestChain.toMutableList()
+                            val modelIndex = list.indexOf(modelId)
+                            if (modelIndex != -1) {
+                                list.removeAt(modelIndex)
+                                if (draggedModelId == modelId) {
+                                    draggedModelId = null
+                                    dragOffsetY = 0f
+                                }
+                                latestOnChainChanged(list)
+                            }
+                        },
+                    )
+                }
             }
 
             // Add model button
@@ -360,6 +438,7 @@ private fun ModelPill(
     uiLanguage: String,
     isDragging: Boolean,
     modifier: Modifier = Modifier,
+    dragHandleModifier: Modifier = Modifier,
     onModelChanged: (String) -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -377,6 +456,22 @@ private fun ModelPill(
             .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(
+            modifier = dragHandleModifier,
+            contentAlignment = Alignment.Center,
+        ) {
+            Log.d(
+                PRESET_RUNTIME_DRAG_LOG_TAG,
+                "handle_bound modelId=$modelId isDragging=$isDragging",
+            )
+            Icon(
+                Icons.Rounded.DragIndicator,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.width(4.dp))
         Text(
             "$number.",
             style = MaterialTheme.typography.labelMedium,

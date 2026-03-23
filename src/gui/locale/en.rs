@@ -281,6 +281,7 @@ pub fn get() -> LocaleText {
         help_assistant_answer_label: "Answer:",
         help_assistant_hint: "Enter a question about using SGT and press Enter or click Ask",
         help_assistant_screen_record_option: "Ask about SGT Record (Screen Record)",
+        help_assistant_android_option: "Ask about SGT Android",
         help_assistant_rest_option: "Ask about everything else",
         prompt_dj_btn: "Be a DJ",
         prompt_dj_title: "SGT DJ - Be a DJ",
