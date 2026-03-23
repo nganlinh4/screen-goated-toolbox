@@ -39,7 +39,7 @@ internal fun AudioApiClient.openParakeetStreamingSession(
         throw IOException("PARAKEET_MODEL_NOT_INSTALLED")
     }
     val modelDir = File(appContext.filesDir, "models/parakeet")
-    val engine = ParakeetEngine(modelDir)
+    val engine = ParakeetEngine(modelDir, parakeetModelManager.ortLibDir())
     val accumulator = StringBuilder()
     return object : AudioStreamingSession {
         override suspend fun appendPcm16Chunk(chunk: ShortArray) {

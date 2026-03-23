@@ -91,7 +91,7 @@ internal fun overlayFontCss(): String {
             font-weight: 100 1000;
             font-stretch: 25% 1000%;
             font-display: swap;
-            src: url('GoogleSansFlex.ttf') format('truetype');
+            src: url('../GoogleSansFlex.ttf') format('truetype');
         }
     """.trimIndent()
 }

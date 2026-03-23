@@ -14,9 +14,21 @@ import java.util.ArrayDeque
  * Kotlin port of parakeet-rs ParakeetEOU for streaming ASR.
  * Uses ONNX Runtime Android (CPU/NNAPI) with identical model files.
  */
-internal class ParakeetEngine(modelDir: File) {
+internal class ParakeetEngine(modelDir: File, ortLibDir: File? = null) {
 
-    private val env = OrtEnvironment.getEnvironment()
+    private val env: OrtEnvironment
+
+    init {
+        // Pre-load ORT native libs from downloaded location before OrtEnvironment
+        // triggers System.loadLibrary("onnxruntime") which would fail without them.
+        if (ortLibDir != null) {
+            val ort = File(ortLibDir, "libonnxruntime.so")
+            val jni = File(ortLibDir, "libonnxruntime4j_jni.so")
+            if (ort.exists()) System.load(ort.absolutePath)
+            if (jni.exists()) System.load(jni.absolutePath)
+        }
+        env = OrtEnvironment.getEnvironment()
+    }
     private val encoderSession: OrtSession
     private val decoderSession: OrtSession
     private val tokenizer: SentencePieceTokenizer

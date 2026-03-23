@@ -48,7 +48,6 @@ val generatePresetOverlayAssets by tasks.registering {
     val gridJsSource = repoRoot.resolve("src/overlay/html_components/grid_js.rs")
     val recordingUiSource = repoRoot.resolve("src/overlay/recording/ui.rs")
     val iconsSource = repoRoot.resolve("src/overlay/html_components/icons.rs")
-    val overlayFontAsset = projectDir.resolve("src/main/assets/realtime_overlay/GoogleSansFlex.ttf")
     inputs.file(fitSource)
     inputs.file(cssSource)
     inputs.file(buttonCanvasCssSource)
@@ -57,7 +56,6 @@ val generatePresetOverlayAssets by tasks.registering {
     inputs.file(gridJsSource)
     inputs.file(recordingUiSource)
     inputs.file(iconsSource)
-    inputs.file(overlayFontAsset)
     outputs.dir(generatedPresetOverlayAssets)
 
     doLast {
@@ -117,7 +115,7 @@ val generatePresetOverlayAssets by tasks.registering {
                 "pub fn get_init_script() -> &'static str {",
             ),
         )
-        overlayFontAsset.copyTo(outputDir.resolve("GoogleSansFlex.ttf"), overwrite = true)
+        // Font dedup: skip copying — preset_overlay loads from ../GoogleSansFlex.ttf
 
         val staticAssetsDir = projectDir.resolve("src/main/assets/preset_overlay_static")
         if (staticAssetsDir.isDirectory) {
@@ -241,6 +239,10 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     flavorDimensions += "distribution"
@@ -263,7 +265,8 @@ android {
             versionNameSuffix = "-debug"
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -291,6 +294,8 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            excludes += "**/libonnxruntime.so"
+            excludes += "**/libonnxruntime4j_jni.so"
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

@@ -30,7 +30,7 @@ internal class OverlayLanguagePicker(
     private var overlayView: FrameLayout? = null
     private val typeface: Typeface by lazy {
         runCatching {
-            Typeface.createFromAsset(context.assets, "realtime_overlay/GoogleSansFlex.ttf")
+            Typeface.createFromAsset(context.assets, "GoogleSansFlex.ttf")
         }.getOrDefault(Typeface.DEFAULT)
     }
 
