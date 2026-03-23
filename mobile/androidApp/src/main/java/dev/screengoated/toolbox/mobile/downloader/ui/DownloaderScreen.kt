@@ -5,8 +5,12 @@ package dev.screengoated.toolbox.mobile.downloader.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -117,10 +121,71 @@ fun DownloaderScreen(
         },
         topBar = {
             TopAppBar(
-                title = { Text(locale.dlTitle) },
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
+                    }
+                },
+                actions = {
+                    if (state.toolsReady) {
+                        val dlDisplayPath = state.settings.customDownloadPath ?: "Downloads/SGT"
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        val actualDir = remember(dlDisplayPath) { viewModel.getDownloadDir() }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable {
+                                try {
+                                    val storagePath = actualDir.absolutePath
+                                        .removePrefix("/storage/emulated/0/")
+                                        .replace("/", "%2F")
+                                    val docUri = android.net.Uri.parse(
+                                        "content://com.android.externalstorage.documents/document/primary%3A$storagePath"
+                                    )
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                        setDataAndType(docUri, "vnd.android.document/directory")
+                                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {}
+                            },
+                        ) {
+                            Icon(Icons.Rounded.Folder, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = dlDisplayPath,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 160.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        var menuExpanded by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { menuExpanded = true }) {
+                                Icon(Icons.Rounded.Settings, contentDescription = null, modifier = Modifier.size(20.dp))
+                            }
+                            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(locale.dlChangeFolder) },
+                                    leadingIcon = { Icon(Icons.Rounded.Folder, contentDescription = null, Modifier.size(18.dp)) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        folderPicker.launch(null)
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(locale.dlDeleteDeps + " (~80 MB)", color = MaterialTheme.colorScheme.error) },
+                                    leadingIcon = { Icon(Icons.Rounded.Close, contentDescription = null, Modifier.size(18.dp)) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        viewModel.deleteTools()
+                                    },
+                                )
+                            }
+                        }
                     }
                 },
             )
@@ -151,18 +216,6 @@ fun DownloaderScreen(
                 )
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-                // Folder bar
-                FolderBar(
-                    path = state.settings.customDownloadPath ?: "Downloads/SGT",
-                    changeFolderLabel = locale.dlChangeFolder,
-                    deleteDepsLabel = locale.dlDeleteDeps,
-                    onChangeFolder = { folderPicker.launch(null) },
-                    onDeleteDeps = { viewModel.deleteTools() },
-                    depsSize = "~80 MB",
-                )
-
-                Spacer(Modifier.height(8.dp))
 
                 // Scrollable session content
                 Column(

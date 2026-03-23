@@ -42,6 +42,7 @@ class DownloaderViewModel(
     fun updateSettings(transform: (DownloaderSettings) -> DownloaderSettings) =
         repository.updateSettings(transform)
     fun setDownloadPath(path: String?) = repository.setDownloadPath(path)
+    fun getDownloadDir() = repository.getDownloadDir()
 
     companion object {
         fun factory(repository: DownloaderRepository): ViewModelProvider.Factory {
