@@ -416,21 +416,23 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
             )
 
             VideoToolRow(
-                name = "ffmpeg",
+                name = "ffmpeg + python",
                 description = locale.toolDescFfmpeg,
                 onHelpClick = { helpDialog = "ffmpeg" to locale.toolDescFfmpeg },
                 icon = Icons.Rounded.GraphicEq,
                 status = dlState.ffmpeg.status,
-                version = null,
+                version = if (dlState.ffmpeg.status == dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.INSTALLED) {
+                    dlState.ffmpeg.version
+                } else null,
                 error = null,
                 updateStatus = dev.screengoated.toolbox.mobile.downloader.UpdateStatus.IDLE,
                 locale = locale,
-                onInstall = {},
+                onInstall = { dlRepo.installTools() },
                 onUpdate = {},
-                bundledLabel = if (dlState.ffmpeg.version != null) {
-                    "${locale.toolBundled} (${dlState.ffmpeg.version})"
+                bundledLabel = if (dlState.ffmpeg.status == dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.INSTALLED) {
+                    "Installed (on-demand)"
                 } else {
-                    locale.toolBundled
+                    "Not downloaded"
                 },
             )
         }

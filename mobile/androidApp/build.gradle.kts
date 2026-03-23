@@ -296,6 +296,8 @@ android {
             useLegacyPackaging = true
             excludes += "**/libonnxruntime.so"
             excludes += "**/libonnxruntime4j_jni.so"
+            excludes += "**/libpython.zip.so"
+            excludes += "**/libffmpeg.zip.so"
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
