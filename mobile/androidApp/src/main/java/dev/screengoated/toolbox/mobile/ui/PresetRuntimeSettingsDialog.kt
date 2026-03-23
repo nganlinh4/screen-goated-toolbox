@@ -263,99 +263,13 @@ private fun ChainEditor(
             // Editable entries (numbered from 2)
             chain.forEachIndexed { index, modelId ->
                 key(modelId) {
-                    val isDragging = draggedModelId == modelId
-                    val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp, label = "elev")
-                    val dragVisualModifier = if (isDragging) {
-                        Modifier
-                            .offset { IntOffset(0, dragOffsetY.roundToInt()) }
-                            .zIndex(10f)
-                            .shadow(elevation, RoundedCornerShape(20.dp))
-                    } else {
-                        Modifier
-                    }
-                    val dragHandleModifier = Modifier
-                        .width(44.dp)
-                        .heightIn(min = 32.dp)
-                        .pointerInput(modelId) {
-                            detectDragGestures(
-                                onDragStart = {
-                                    Log.d(
-                                        PRESET_RUNTIME_DRAG_LOG_TAG,
-                                        "drag_start modelId=$modelId chain=${latestChain.joinToString()}",
-                                    )
-                                    draggedModelId = modelId
-                                    dragOffsetY = 0f
-                                },
-                                onDrag = { change, offset ->
-                                    change.consume()
-                                    val deltaY = offset.y
-                                    val activeId = draggedModelId
-                                    if (activeId == null) {
-                                        Log.w(
-                                            PRESET_RUNTIME_DRAG_LOG_TAG,
-                                            "drag_delta_without_active modelId=$modelId deltaY=$deltaY",
-                                        )
-                                    } else {
-                                        val currentChain = latestChain
-                                        val currentIndex = currentChain.indexOf(activeId)
-                                        if (currentIndex == -1) {
-                                            Log.w(
-                                                PRESET_RUNTIME_DRAG_LOG_TAG,
-                                                "drag_missing_active modelId=$modelId activeId=$activeId chain=${currentChain.joinToString()}",
-                                            )
-                                            draggedModelId = null
-                                            dragOffsetY = 0f
-                                        } else {
-                                            dragOffsetY += deltaY
-                                            val steps = (dragOffsetY / itemHeightPx).roundToInt()
-                                            Log.d(
-                                                PRESET_RUNTIME_DRAG_LOG_TAG,
-                                                "drag_move modelId=$modelId activeId=$activeId currentIndex=$currentIndex deltaY=$deltaY dragOffsetY=$dragOffsetY steps=$steps chain=${currentChain.joinToString()}",
-                                            )
-                                            if (steps != 0) {
-                                                val targetIndex = (currentIndex + steps).coerceIn(0, currentChain.lastIndex)
-                                                if (targetIndex != currentIndex) {
-                                                    val list = currentChain.toMutableList()
-                                                    val item = list.removeAt(currentIndex)
-                                                    list.add(targetIndex, item)
-                                                    Log.d(
-                                                        PRESET_RUNTIME_DRAG_LOG_TAG,
-                                                        "drag_reorder activeId=$activeId from=$currentIndex to=$targetIndex updatedChain=${list.joinToString()}",
-                                                    )
-                                                    latestOnChainChanged(list)
-                                                    dragOffsetY -= (targetIndex - currentIndex) * itemHeightPx
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                onDragEnd = {
-                                    Log.d(
-                                        PRESET_RUNTIME_DRAG_LOG_TAG,
-                                        "drag_end draggedModelId=$draggedModelId",
-                                    )
-                                    draggedModelId = null
-                                    dragOffsetY = 0f
-                                },
-                                onDragCancel = {
-                                    Log.d(
-                                        PRESET_RUNTIME_DRAG_LOG_TAG,
-                                        "drag_cancel draggedModelId=$draggedModelId",
-                                    )
-                                    draggedModelId = null
-                                    dragOffsetY = 0f
-                                },
-                            )
-                        }
-
-                    ModelPill(
+                    DraggableModelPill(
                         number = index + 2,
                         modelId = modelId,
                         availableModels = availableModels,
                         uiLanguage = uiLanguage,
-                        isDragging = isDragging,
-                        modifier = dragVisualModifier,
-                        dragHandleModifier = dragHandleModifier,
+                        isDragging = draggedModelId == modelId,
+                        dragOffsetY = dragOffsetY,
                         onModelChanged = { newId ->
                             val list = latestChain.toMutableList()
                             val modelIndex = list.indexOf(modelId)
@@ -363,6 +277,64 @@ private fun ChainEditor(
                                 list[modelIndex] = newId
                                 latestOnChainChanged(list)
                             }
+                        },
+                        onDragStart = {
+                            Log.d(
+                                PRESET_RUNTIME_DRAG_LOG_TAG,
+                                "drag_start modelId=$modelId chain=${latestChain.joinToString()}",
+                            )
+                            draggedModelId = modelId
+                            dragOffsetY = 0f
+                        },
+                        onDragDelta = { deltaY ->
+                            val activeId = draggedModelId
+                            if (activeId == null) {
+                                Log.w(
+                                    PRESET_RUNTIME_DRAG_LOG_TAG,
+                                    "drag_delta_without_active modelId=$modelId deltaY=$deltaY",
+                                )
+                            } else {
+                                val currentChain = latestChain
+                                val currentIndex = currentChain.indexOf(activeId)
+                                if (currentIndex == -1) {
+                                    Log.w(
+                                        PRESET_RUNTIME_DRAG_LOG_TAG,
+                                        "drag_missing_active modelId=$modelId activeId=$activeId chain=${currentChain.joinToString()}",
+                                    )
+                                    draggedModelId = null
+                                    dragOffsetY = 0f
+                                } else {
+                                    dragOffsetY += deltaY
+                                    val steps = (dragOffsetY / itemHeightPx).roundToInt()
+                                    Log.d(
+                                        PRESET_RUNTIME_DRAG_LOG_TAG,
+                                        "drag_move modelId=$modelId activeId=$activeId currentIndex=$currentIndex deltaY=$deltaY dragOffsetY=$dragOffsetY steps=$steps chain=${currentChain.joinToString()}",
+                                    )
+                                    if (steps != 0) {
+                                        val targetIndex = (currentIndex + steps).coerceIn(0, currentChain.lastIndex)
+                                        if (targetIndex != currentIndex) {
+                                            val list = currentChain.toMutableList()
+                                            val item = list.removeAt(currentIndex)
+                                            list.add(targetIndex, item)
+                                            Log.d(
+                                                PRESET_RUNTIME_DRAG_LOG_TAG,
+                                                "drag_reorder activeId=$activeId from=$currentIndex to=$targetIndex updatedChain=${list.joinToString()}",
+                                            )
+                                            latestOnChainChanged(list)
+                                            dragOffsetY -= (targetIndex - currentIndex) * itemHeightPx
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        onDragEnd = { cancelled ->
+                            Log.d(
+                                PRESET_RUNTIME_DRAG_LOG_TAG,
+                                if (cancelled) "drag_cancel draggedModelId=$draggedModelId"
+                                else "drag_end draggedModelId=$draggedModelId",
+                            )
+                            draggedModelId = null
+                            dragOffsetY = 0f
                         },
                         onRemove = {
                             val list = latestChain.toMutableList()
@@ -406,6 +378,62 @@ private fun ChainEditor(
             )
         }
     }
+}
+
+@Composable
+private fun DraggableModelPill(
+    number: Int,
+    modelId: String,
+    availableModels: List<PresetModelDescriptor>,
+    uiLanguage: String,
+    isDragging: Boolean,
+    dragOffsetY: Float,
+    onDragStart: () -> Unit,
+    onDragDelta: (Float) -> Unit,
+    onDragEnd: (Boolean) -> Unit,
+    onModelChanged: (String) -> Unit,
+    onRemove: () -> Unit,
+) {
+    val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp, label = "elev")
+    val dragVisualModifier = if (isDragging) {
+        Modifier
+            .offset { IntOffset(0, dragOffsetY.roundToInt()) }
+            .zIndex(10f)
+            .shadow(elevation, RoundedCornerShape(20.dp))
+    } else {
+        Modifier
+    }
+    val currentOnDragStart by rememberUpdatedState(onDragStart)
+    val currentOnDragDelta by rememberUpdatedState(onDragDelta)
+    val currentOnDragEnd by rememberUpdatedState(onDragEnd)
+    val dragHandleModifier = remember(modelId) {
+        Modifier
+            .width(44.dp)
+            .heightIn(min = 32.dp)
+            .pointerInput(modelId) {
+                detectDragGestures(
+                    onDragStart = { currentOnDragStart() },
+                    onDrag = { change, offset ->
+                        change.consume()
+                        currentOnDragDelta(offset.y)
+                    },
+                    onDragEnd = { currentOnDragEnd(false) },
+                    onDragCancel = { currentOnDragEnd(true) },
+                )
+            }
+    }
+
+    ModelPill(
+        number = number,
+        modelId = modelId,
+        availableModels = availableModels,
+        uiLanguage = uiLanguage,
+        isDragging = isDragging,
+        modifier = dragVisualModifier,
+        dragHandleModifier = dragHandleModifier,
+        onModelChanged = onModelChanged,
+        onRemove = onRemove,
+    )
 }
 
 @Composable
