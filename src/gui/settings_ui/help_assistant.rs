@@ -10,6 +10,7 @@ static HELP_INPUT_ACTIVE: AtomicBool = AtomicBool::new(false);
 #[derive(Clone, Copy)]
 enum HelpBucket {
     ScreenRecorder,
+    Android,
     Rest,
 }
 
@@ -18,6 +19,9 @@ impl HelpBucket {
         match self {
             Self::ScreenRecorder => {
                 "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/repomix-screen-recorder.xml"
+            }
+            Self::Android => {
+                "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/repomix-android.xml"
             }
             Self::Rest => {
                 "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/repomix-rest.xml"
@@ -28,6 +32,7 @@ impl HelpBucket {
     fn prompt_guide(self, locale: &crate::gui::locale::LocaleText) -> &'static str {
         match self {
             Self::ScreenRecorder => locale.help_assistant_screen_record_option,
+            Self::Android => locale.help_assistant_android_option,
             Self::Rest => locale.help_assistant_rest_option,
         }
     }
@@ -42,6 +47,11 @@ impl HelpBucket {
                 _ => {
                     "Ask about SGT Record / Screen Record (e.g., How do I export MP4 or pick a window?)"
                 }
+            },
+            Self::Android => match ui_language {
+                "vi" => "Hỏi về SGT Android (VD: Làm sao dùng bubble, preset hay overlay trong app?)",
+                "ko" => "SGT Android에 대해 물어보세요. 예: 버블, 프리셋, 오버레이는 어떻게 쓰나요?",
+                _ => "Ask about SGT Android (e.g., How do I use the bubble, presets, or overlays in the app?)",
             },
             Self::Rest => match ui_language {
                 "vi" => "Hỏi gì về SGT? (VD: Làm sao để dịch vùng màn hình?)",
@@ -58,6 +68,11 @@ impl HelpBucket {
                 "ko" => "⏳ SGT Record / 화면 녹화 답변을 찾는 중...",
                 _ => "⏳ Finding the answer for SGT Record / Screen Record...",
             },
+            Self::Android => match ui_language {
+                "vi" => "⏳ Đang tìm câu trả lời về SGT Android...",
+                "ko" => "⏳ SGT Android 답변을 찾는 중...",
+                _ => "⏳ Finding the answer for SGT Android...",
+            },
             Self::Rest => match ui_language {
                 "vi" => "⏳ Đang gọi cho tác giả nganlinh4 ... Kkk đùa thôi, đợi tí nha",
                 "ko" => "⏳ 작가 nganlinh4에게 전화 중... ㅋㅋ 농담이고, 잠깐만 기다려",
@@ -69,6 +84,7 @@ impl HelpBucket {
     fn preset_prompt(self) -> &'static str {
         match self {
             Self::ScreenRecorder => "Ask SGT Record",
+            Self::Android => "Ask SGT Android",
             Self::Rest => "Ask SGT",
         }
     }
@@ -76,6 +92,7 @@ impl HelpBucket {
     fn response_icon(self) -> &'static str {
         match self {
             Self::ScreenRecorder => "🎬",
+            Self::Android => "📱",
             Self::Rest => "❓",
         }
     }
@@ -294,4 +311,31 @@ fn run_help_request(gemini_key: String, ui_language: String, bucket: HelpBucket,
     }
 
     HELP_INPUT_ACTIVE.store(false, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::HelpBucket;
+
+    #[test]
+    fn help_buckets_match_three_way_repomix_split() {
+        assert_eq!(
+            HelpBucket::ScreenRecorder.raw_url(),
+            "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/repomix-screen-recorder.xml"
+        );
+        assert_eq!(
+            HelpBucket::Android.raw_url(),
+            "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/repomix-android.xml"
+        );
+        assert_eq!(
+            HelpBucket::Rest.raw_url(),
+            "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/repomix-rest.xml"
+        );
+    }
+
+    #[test]
+    fn android_bucket_uses_dedicated_prompt_and_icon() {
+        assert_eq!(HelpBucket::Android.preset_prompt(), "Ask SGT Android");
+        assert_eq!(HelpBucket::Android.response_icon(), "📱");
+    }
 }

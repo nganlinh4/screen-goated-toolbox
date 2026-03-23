@@ -80,6 +80,66 @@ internal fun PresetOverlayResultModule.syncResultWindowsSupport(
     }
 }
 
+internal fun PresetOverlayResultModule.syncStandaloneResultWindowsSupport(
+    windowStates: List<PresetResultWindowState>,
+) {
+    val sessionId = windowStates.firstOrNull()?.id?.sessionId ?: return
+    val targetIds = windowStates.map { it.id }.toSet()
+    resultWindows.keys
+        .filter { it.sessionId == sessionId }
+        .filterNot(targetIds::contains)
+        .toList()
+        .forEach { id ->
+            resultWindows.remove(id)?.window?.destroy()
+            if (activeResultWindowId == id) activeResultWindowId = null
+            if (topmostResultWindowId == id) topmostResultWindowId = null
+        }
+
+    val placed = mutableListOf<PresetResultWindowPlacement>()
+    windowStates.sortedBy { it.overlayOrder }.forEach { windowState ->
+        val existing = resultWindows[windowState.id]
+        val defaultOpacity = overlayOpacityProvider()
+        val runtime = existing?.runtimeState ?: PresetResultWindowRuntimeState(
+            disabledActions = disabledActionsForWindowSupport(),
+            opacityPercent = defaultOpacity,
+        )
+        val window = existing?.window ?: createResultOverlayWindowSupport(
+            context = context,
+            windowManager = windowManager,
+            spec = standaloneResultWindowSpecSupport(
+                windowState = windowState,
+                placed = placed,
+                screenBounds = screenBoundsProvider(),
+                dp = dp,
+                buildHtml = {
+                    resultHtmlBuilder.build(PresetResultHtmlSettings(isDark = isDarkTheme()))
+                },
+            ),
+            id = windowState.id,
+            onMessage = ::handleResultMessage,
+            onPageFinished = ::handleResultPageFinished,
+            onNavigationFailure = ::handleResultNavigationFailure,
+        )
+        if (existing == null && runtime.opacityPercent < 100) {
+            window.setWindowAlpha(runtime.opacityPercent / 100f)
+        }
+        val bounds = window.currentBounds()
+        placed += PresetResultWindowPlacement(windowState.id, bounds)
+        updateResultWindowSupport(
+            ActivePresetResultWindow(
+                id = windowState.id,
+                presetId = "standalone:$sessionId",
+                runtimeState = runtime,
+                windowState = windowState,
+                window = window,
+            ),
+        )
+        if (topmostResultWindowId == null) {
+            topmostResultWindowId = windowState.id
+        }
+    }
+}
+
 internal fun PresetOverlayResultModule.closeResultWindowSupport(id: PresetResultWindowId) {
     val removed = resultWindows.remove(id)
     if (removed != null) {
@@ -106,6 +166,10 @@ internal fun PresetOverlayResultModule.persistResultBoundsSupport(
     bounds: OverlayBounds,
 ) {
     val active = resultWindows[id] ?: return
+    if (active.presetId.startsWith("standalone:")) {
+        ensureCanvasWindowSupport()
+        return
+    }
     if (active.windowState.overlayOrder != 0) {
         ensureCanvasWindowSupport()
         return

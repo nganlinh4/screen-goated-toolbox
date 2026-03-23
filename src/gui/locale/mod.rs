@@ -239,6 +239,7 @@ pub struct LocaleText {
     pub help_assistant_answer_label: &'static str,
     pub help_assistant_hint: &'static str,
     pub help_assistant_screen_record_option: &'static str,
+    pub help_assistant_android_option: &'static str,
     pub help_assistant_rest_option: &'static str,
 
     // --- PROMPT DJ ---

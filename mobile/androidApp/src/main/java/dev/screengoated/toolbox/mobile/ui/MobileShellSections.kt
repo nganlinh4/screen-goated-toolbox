@@ -45,6 +45,7 @@ import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.AutoFixHigh
+import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
@@ -365,7 +366,7 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
@@ -2205,15 +2206,23 @@ internal fun GlobalSection(
                     modifier = Modifier.weight(0.85f),
                 )
             }
-            PresetRuntimeCard(
-                settings = presetRuntimeSettings,
-                locale = locale,
-                onClick = onPresetRuntimeSettingsClick,
-            )
-            UsageStatsCard(
-                locale = locale,
-                onClick = onUsageStatsClick,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap),
+            ) {
+                SettingsActionButton(
+                    text = locale.presetRuntimeButton,
+                    icon = Icons.Rounded.Settings,
+                    onClick = onPresetRuntimeSettingsClick,
+                    modifier = Modifier.weight(1f),
+                )
+                SettingsActionButton(
+                    text = locale.usageStatsButton,
+                    icon = Icons.Rounded.BarChart,
+                    onClick = onUsageStatsClick,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         } else {
             CredentialsCard(
                 apiKey = apiKey,
@@ -2234,25 +2243,43 @@ internal fun GlobalSection(
                 locale = locale,
                 onVoiceSettingsClick = onVoiceSettingsClick,
             )
-            PresetRuntimeCard(
-                settings = presetRuntimeSettings,
-                locale = locale,
-                onClick = onPresetRuntimeSettingsClick,
-            )
-            UsageStatsCard(
-                locale = locale,
-                onClick = onUsageStatsClick,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap),
+            ) {
+                SettingsActionButton(
+                    text = locale.presetRuntimeButton,
+                    icon = Icons.Rounded.Settings,
+                    onClick = onPresetRuntimeSettingsClick,
+                    modifier = Modifier.weight(1f),
+                )
+                SettingsActionButton(
+                    text = locale.usageStatsButton,
+                    icon = Icons.Rounded.BarChart,
+                    onClick = onUsageStatsClick,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
         UsageTipsCard(locale = locale)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap),
+        ) {
+            HelpAssistantActionButton(
+                locale = locale,
+                modifier = Modifier.weight(1f),
+            )
+            ResetDefaultsActionButton(
+                locale = locale,
+                onClick = onResetDefaults,
+                modifier = Modifier.weight(1f),
+            )
+        }
         OverlayOpacityCard(
             opacityPercent = overlayOpacityPercent,
             locale = locale,
             onOpacityChanged = onOverlayOpacityChanged,
-        )
-        ResetDefaultsCard(
-            locale = locale,
-            onClick = onResetDefaults,
         )
         DownloadedToolsSection(locale = locale)
     }

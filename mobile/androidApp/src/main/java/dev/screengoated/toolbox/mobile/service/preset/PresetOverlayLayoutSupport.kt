@@ -387,6 +387,48 @@ internal fun resultWindowSpecSupport(
     )
 }
 
+internal fun standaloneResultWindowSpecSupport(
+    windowState: PresetResultWindowState,
+    placed: List<PresetResultWindowPlacement>,
+    screenBounds: Rect,
+    dp: (Int) -> Int,
+    buildHtml: () -> String,
+): PresetOverlayWindowSpec {
+    val width = dp(340)
+    val height = dp(280)
+    val bounds = if (windowState.overlayOrder == 0) {
+        OverlayBounds(
+            width = width,
+            height = height,
+            x = ((screenWidthPx(screenBounds) - width) / 2).coerceAtLeast(0),
+            y = (screenHeightPx(screenBounds) * 0.28f).roundToInt(),
+        )
+    } else {
+        nextResultBoundsSupport(
+            previous = placed.lastOrNull()?.bounds ?: OverlayBounds(
+                x = dp(24),
+                y = dp(140),
+                width = width,
+                height = height,
+            ),
+            width = width,
+            height = height,
+            screenBounds = screenBounds,
+            occupiedBounds = placed.map { it.bounds },
+            dp = dp,
+        )
+    }
+    return PresetOverlayWindowSpec(
+        width = bounds.width,
+        height = bounds.height,
+        x = bounds.x,
+        y = bounds.y,
+        focusable = true,
+        htmlContent = buildHtml(),
+        baseUrl = RESULT_WINDOW_BASE_URL,
+    )
+}
+
 internal fun canvasWindowSpecSupport(bounds: OverlayBounds): PresetOverlayWindowSpec {
     return PresetOverlayWindowSpec(
         width = bounds.width,

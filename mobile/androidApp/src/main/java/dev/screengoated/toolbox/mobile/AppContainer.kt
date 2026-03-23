@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile
 import android.content.Context
 import dev.screengoated.toolbox.mobile.downloader.DownloaderPersistence
 import dev.screengoated.toolbox.mobile.downloader.DownloaderRepository
+import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantClient
 import dev.screengoated.toolbox.mobile.history.HistoryBackedPresetHistoryRecorder
 import dev.screengoated.toolbox.mobile.history.HistoryPersistence
 import dev.screengoated.toolbox.mobile.history.HistoryRepository
@@ -70,6 +71,7 @@ class AppContainer(
     }
 
     private val textApiClient = TextApiClient(httpClient)
+    val helpAssistantClient = HelpAssistantClient(httpClient)
     val audioApiClient = AudioApiClient(
         appContext = appContext,
         httpClient = httpClient,
