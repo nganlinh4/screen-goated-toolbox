@@ -3,6 +3,16 @@
 package dev.screengoated.toolbox.mobile.downloader.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.offset
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material3.MaterialShapes
+import androidx.graphics.shapes.RoundedPolygon
+import androidx.compose.material3.toShape
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.input.pointer.pointerInput
@@ -148,7 +158,7 @@ fun DownloaderScreen(
                     changeFolderLabel = locale.dlChangeFolder,
                     deleteDepsLabel = locale.dlDeleteDeps,
                     onChangeFolder = { folderPicker.launch(null) },
-                    onDeleteDeps = { /* TODO: delete deps */ },
+                    onDeleteDeps = { viewModel.deleteTools() },
                     depsSize = "~80 MB",
                 )
 
@@ -186,12 +196,6 @@ private fun ToolInstallSection(
         Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(64.dp))
         Spacer(Modifier.height(16.dp))
         Text(locale.dlDepsRequired, style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            locale.dlDepsRequired,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         Spacer(Modifier.height(24.dp))
 
         // yt-dlp status
@@ -217,8 +221,9 @@ private fun ToolInstallSection(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    if (ytdlp.status == ToolInstallStatus.EXTRACTING) locale.dlDepsExtracting else locale.dlDepsDownloading,
+                    ytdlp.version ?: if (ytdlp.status == ToolInstallStatus.EXTRACTING) locale.dlDepsExtracting else locale.dlDepsDownloading,
                     style = MaterialTheme.typography.bodySmall,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
             }
             ToolInstallStatus.CHECKING -> {
@@ -358,6 +363,8 @@ private fun SessionContent(
     val session = state.activeSession
     val clipboard = LocalClipboardManager.current
 
+    android.util.Log.d("SGT-DL-UI", "SessionContent: phase=${session.phase} formats=${session.availableFormats.size} isAnalyzing=${session.isAnalyzing} downloadType=${session.downloadType}")
+
     // URL input
     OutlinedTextField(
         modifier = Modifier.fillMaxWidth(),
@@ -374,28 +381,22 @@ private fun SessionContent(
                         Icon(Icons.Rounded.Close, contentDescription = "Clear", modifier = Modifier.size(20.dp))
                     }
                 }
-                IconButton(onClick = {
-                    clipboard.getText()?.text?.let { viewModel.updateUrl(it) }
-                }) {
-                    Icon(Icons.Rounded.ContentPaste, contentDescription = "Paste")
+                FilledTonalIconButton(
+                    onClick = { clipboard.getText()?.text?.let { viewModel.updateUrl(it) } },
+                    shape = MaterialShapes.Arch.toShape(),
+                    modifier = Modifier
+                        .offset(x = (-4).dp)
+                        .graphicsLayer { rotationZ = 90f },
+                ) {
+                    Icon(
+                        Icons.Rounded.ContentPaste,
+                        contentDescription = "Paste",
+                        modifier = Modifier.graphicsLayer { rotationZ = -90f },
+                    )
                 }
             }
         },
     )
-
-    // Analysis status
-    if (session.isAnalyzing) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            LinearWavyProgressIndicator(
-                modifier = Modifier.fillMaxWidth().height(4.dp),
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            )
-            Text(locale.dlScanning, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-    if (session.analysisError != null) {
-        Text(session.analysisError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-    }
 
     // Video / Audio toggle
     Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
@@ -421,33 +422,55 @@ private fun SessionContent(
         }
     }
 
-    // Format dropdown (video only)
-    if (session.downloadType == DownloadType.VIDEO && session.availableFormats.isNotEmpty()) {
-        DropdownSelector(
-            label = locale.dlQualityLabel,
-            options = listOf(locale.dlBest) + session.availableFormats,
-            selected = session.selectedFormat ?: locale.dlBest,
-            onSelect = { viewModel.setFormat(if (it == locale.dlBest) null else it) },
-        )
+    // Analysis status — below toggle, persists during download
+    if (session.isAnalyzing) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            LinearWavyProgressIndicator(
+                modifier = Modifier.fillMaxWidth().height(4.dp),
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            )
+            Text(locale.dlScanning, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    if (session.analysisError != null && session.phase != DownloadPhase.DOWNLOADING) {
+        Text(session.analysisError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
 
-    // Subtitle section — only when useSubtitles is enabled in Advanced
-    if (state.settings.useSubtitles) {
-        if (session.availableSubtitles.isNotEmpty()) {
-            DropdownSelector(
-                label = locale.dlSubtitleLabel,
-                options = listOf(locale.dlAuto) + session.availableSubtitles,
-                selected = session.selectedSubtitle ?: locale.dlAuto,
-                onSelect = { viewModel.setSubtitle(if (it == locale.dlAuto) null else it) },
-                header = locale.dlSubsFoundHeader,
-            )
-        } else if (!session.isAnalyzing && session.inputUrl.isNotBlank() && session.lastUrlAnalyzed.isNotBlank()) {
-            Text(
-                locale.dlSubsNoneFound,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+    // Quality + Subtitle row
+    val hasQuality = session.downloadType == DownloadType.VIDEO && session.availableFormats.isNotEmpty()
+    val hasSubs = state.settings.useSubtitles && session.availableSubtitles.isNotEmpty()
+    if (hasQuality || hasSubs) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (hasQuality) {
+                Box(Modifier.weight(1f)) {
+                    DropdownSelector(
+                        label = locale.dlQualityLabel,
+                        options = listOf(locale.dlBest) + session.availableFormats,
+                        selected = session.selectedFormat ?: locale.dlBest,
+                        onSelect = { viewModel.setFormat(if (it == locale.dlBest) null else it) },
+                    )
+                }
+            }
+            if (hasSubs) {
+                Box(Modifier.weight(1f)) {
+                    DropdownSelector(
+                        label = locale.dlSubtitleLabel,
+                        options = listOf(locale.dlAuto) + session.availableSubtitles,
+                        selected = session.selectedSubtitle ?: locale.dlAuto,
+                        onSelect = { viewModel.setSubtitle(if (it == locale.dlAuto) null else it) },
+                    )
+                }
+            }
         }
+    } else if (state.settings.useSubtitles && !session.isAnalyzing && session.inputUrl.isNotBlank() && session.lastUrlAnalyzed.isNotBlank()) {
+        Text(
+            locale.dlSubsNoneFound,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 
     // Advanced settings
@@ -500,9 +523,34 @@ private fun SessionContent(
             }
         }
         DownloadPhase.FINISHED -> {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(locale.dlStatusFinished, style = MaterialTheme.typography.titleSmall)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                shape = MaterialTheme.shapes.large,
+            ) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        // Sunny-shaped success badge
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    shape = MaterialShapes.Sunny.toShape(),
+                                ),
+                        ) {
+                            Icon(
+                                Icons.Rounded.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onTertiary,
+                            )
+                        }
+                        Text(locale.dlStatusFinished, style = MaterialTheme.typography.titleSmall)
+                    }
                     if (session.finishedFilePath != null) {
                         Text(
                             session.finishedFilePath.substringAfterLast('/'),
