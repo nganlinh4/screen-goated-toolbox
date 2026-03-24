@@ -46,7 +46,12 @@ internal class HistoryPersistence(
     fun loadSettings(): HistorySettings {
         return try {
             if (paths.settingsFile.exists()) {
-                json.decodeFromString<HistorySettings>(paths.settingsFile.readText())
+                val decoded = json.decodeFromString<HistorySettings>(paths.settingsFile.readText())
+                val normalized = normalizeHistorySettings(decoded)
+                if (normalized != decoded) {
+                    saveSettings(normalized)
+                }
+                normalized
             } else {
                 HistorySettings()
             }

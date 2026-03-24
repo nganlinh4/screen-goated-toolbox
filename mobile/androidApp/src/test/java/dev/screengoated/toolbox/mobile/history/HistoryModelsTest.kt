@@ -12,6 +12,30 @@ class HistoryModelsTest {
     }
 
     @Test
+    fun normalizeHistorySettingsMigratesLegacyImplicit200Default() {
+        val normalized = normalizeHistorySettings(
+            HistorySettings(
+                maxItems = MAX_HISTORY_LIMIT,
+                hasExplicitMaxItems = false,
+            ),
+        )
+
+        assertEquals(DEFAULT_HISTORY_LIMIT, normalized.maxItems)
+    }
+
+    @Test
+    fun normalizeHistorySettingsKeepsExplicit200Selection() {
+        val normalized = normalizeHistorySettings(
+            HistorySettings(
+                maxItems = MAX_HISTORY_LIMIT,
+                hasExplicitMaxItems = true,
+            ),
+        )
+
+        assertEquals(MAX_HISTORY_LIMIT, normalized.maxItems)
+    }
+
+    @Test
     fun filterHistoryItemsMatchesTextAndTimestampOnly() {
         val items = listOf(
             HistoryItem(

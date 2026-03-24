@@ -186,13 +186,13 @@ internal fun ToolCategoryRow(
         ) {
             Box(
                 modifier = Modifier
-                    .size(6.dp)
+                    .size(width = 22.dp, height = 8.dp)
                     .background(accentColor, CircleShape),
             )
             Spacer(Modifier.width(6.dp))
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = accentColor,
             )
@@ -295,22 +295,41 @@ internal fun ToolCategoryRow(
                     modifier = Modifier.fillMaxSize(),
                     shape = MaterialTheme.shapes.large,
                     colors = CardDefaults.cardColors(
-                        containerColor = accentColor.copy(alpha = 0.15f),
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.96f),
                     ),
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        accentColor.copy(alpha = 0.2f),
+                                        accentColor.copy(alpha = 0.08f),
+                                        MaterialTheme.colorScheme.surfaceContainerLow,
+                                    ),
+                                ),
+                            )
                             .padding(horizontal = 10.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(
-                            preset.icon,
-                            contentDescription = null,
-                            tint = accentColor,
-                            modifier = Modifier.size(28.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .background(
+                                    color = accentColor.copy(alpha = 0.2f),
+                                    shape = MaterialTheme.shapes.large,
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                preset.icon,
+                                contentDescription = null,
+                                tint = accentColor,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
                         AutoFlexTwoLines(
                             text = preset.balancedName(lang),
                             color = MaterialTheme.colorScheme.onSurface,
@@ -326,7 +345,7 @@ internal fun ToolCategoryRow(
                             .padding(end = 10.dp)
                             .size(40.dp)
                             .background(
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.92f),
                                 shape = CircleShape,
                             ),
                     ) {
@@ -345,7 +364,7 @@ internal fun ToolCategoryRow(
                             .padding(end = 10.dp)
                             .size(40.dp)
                             .background(
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.92f),
                                 shape = CircleShape,
                             ),
                     ) {

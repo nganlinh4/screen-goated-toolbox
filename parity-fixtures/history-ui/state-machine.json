@@ -80,6 +80,21 @@
       ]
     },
     {
+      "name": "legacy_android_default_200_migrates_to_windows_default_50",
+      "storedSettings": {
+        "maxItems": 200,
+        "hasExplicitMaxItems": false
+      },
+      "expectedNormalizedMaxItems": 50
+    },
+    {
+      "name": "settings_reset_restores_history_default_50",
+      "operation": {
+        "type": "reset_settings_defaults"
+      },
+      "expectedNormalizedMaxItems": 50
+    },
+    {
       "name": "delete_and_clear_all_remove_items",
       "operations": [
         {

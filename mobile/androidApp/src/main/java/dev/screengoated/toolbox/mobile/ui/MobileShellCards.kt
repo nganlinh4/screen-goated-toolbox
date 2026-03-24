@@ -3,7 +3,9 @@
 package dev.screengoated.toolbox.mobile.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -17,7 +19,6 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Computer
-import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -37,7 +38,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -53,10 +53,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.clickable
@@ -93,54 +95,67 @@ internal fun CredentialsCard(
     modifier: Modifier = Modifier,
 ) {
     val uriHandler = LocalUriHandler.current
-    val providers = listOf(
-        ProviderDef("Gemini", Icons.Rounded.AutoAwesome, locale.geminiKeyLabel, "https://aistudio.google.com/app/apikey", locale.geminiGetKeyLink),
-        ProviderDef("Cerebras", Icons.Rounded.LocalFireDepartment, locale.cerebrasKeyLabel, "https://cloud.cerebras.ai/", locale.cerebrasGetKeyLink),
-        ProviderDef("Groq", Icons.Rounded.Bolt, locale.groqKeyLabel, "https://console.groq.com/keys", locale.groqGetKeyLink),
-        ProviderDef("OpenRouter", Icons.Rounded.Public, locale.openRouterKeyLabel, "https://openrouter.ai/settings/keys", locale.openRouterGetKeyLink),
-        ProviderDef("Ollama", Icons.Rounded.Computer, locale.ollamaUrlLabel),
-    )
+    val providers = credentialsProviderOrder().map { provider ->
+        when (provider) {
+            CredentialsProviderId.GROQ -> ProviderDef(
+                label = provider.label,
+                icon = Icons.Rounded.Bolt,
+                keyLabel = locale.groqKeyLabel,
+                getKeyUrl = "https://console.groq.com/keys",
+                getKeyLabel = locale.groqGetKeyLink,
+            )
+            CredentialsProviderId.CEREBRAS -> ProviderDef(
+                label = provider.label,
+                icon = Icons.Rounded.LocalFireDepartment,
+                keyLabel = locale.cerebrasKeyLabel,
+                getKeyUrl = "https://cloud.cerebras.ai/",
+                getKeyLabel = locale.cerebrasGetKeyLink,
+            )
+            CredentialsProviderId.GEMINI -> ProviderDef(
+                label = provider.label,
+                icon = Icons.Rounded.AutoAwesome,
+                keyLabel = locale.geminiKeyLabel,
+                getKeyUrl = "https://aistudio.google.com/app/apikey",
+                getKeyLabel = locale.geminiGetKeyLink,
+            )
+            CredentialsProviderId.OPEN_ROUTER -> ProviderDef(
+                label = provider.label,
+                icon = Icons.Rounded.Public,
+                keyLabel = locale.openRouterKeyLabel,
+                getKeyUrl = "https://openrouter.ai/settings/keys",
+                getKeyLabel = locale.openRouterGetKeyLink,
+            )
+            CredentialsProviderId.OLLAMA -> ProviderDef(
+                label = provider.label,
+                icon = Icons.Rounded.Computer,
+                keyLabel = locale.ollamaUrlLabel,
+            )
+        }
+    }
     val enabledState = remember { mutableStateListOf(true, true, true, false, false) }
     val visibleState = remember { mutableStateListOf(false, false, false, false, false) }
+    val cardAccent = MaterialTheme.colorScheme.primary
 
-    Card(
+    ExpressiveSettingsCard(
         modifier = modifier,
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
+        accent = cardAccent,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(ShellSpacing.innerPad),
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
-            ) {
-                GradientMaskedIcon(
-                    Icons.Rounded.Key,
-                    Brush.linearGradient(
-                        listOf(
-                            MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.tertiary,
-                        ),
-                    ),
-                    modifier = Modifier.size(22.dp),
-                )
-                Text(
-                    text = locale.shellCredentialsTitle,
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            }
+            ExpressiveSettingsHeader(
+                title = locale.shellCredentialsTitle,
+                icon = Icons.Rounded.Key,
+                accent = cardAccent,
+            )
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 providers.forEachIndexed { index, provider ->
+                    val accent = providerAccent(provider.label, MaterialTheme.colorScheme)
                     ToggleButton(
                         checked = enabledState[index],
                         onCheckedChange = { enabledState[index] = it },
@@ -149,6 +164,10 @@ internal fun CredentialsCard(
                             providers.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
                             else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
                         },
+                        colors = ToggleButtonDefaults.toggleButtonColors(
+                            checkedContainerColor = accent.copy(alpha = 0.22f),
+                            checkedContentColor = accent,
+                        ),
                         modifier = Modifier.semantics { role = Role.Checkbox },
                     ) {
                         Icon(
@@ -176,9 +195,9 @@ internal fun CredentialsCard(
             )
 
             val fields = listOf(
-                FieldEntry(0, apiKey, onApiKeyChanged),
+                FieldEntry(0, groqApiKey, onGroqApiKeyChanged),
                 FieldEntry(1, cerebrasApiKey, onCerebrasApiKeyChanged),
-                FieldEntry(2, groqApiKey, onGroqApiKeyChanged),
+                FieldEntry(2, apiKey, onApiKeyChanged),
                 FieldEntry(3, openRouterApiKey, onOpenRouterApiKeyChanged),
                 FieldEntry(4, ollamaUrl, onOllamaUrlChanged, isPassword = false),
             )
@@ -205,14 +224,12 @@ internal fun CredentialsCard(
                         },
                         trailingIcon = if (entry.isPassword) {
                             {
-                                IconButton(onClick = { visibleState[entry.index] = !visibleState[entry.index] }) {
-                                    Icon(
-                                        if (visibleState[entry.index]) Icons.Rounded.VisibilityOff
-                                        else Icons.Rounded.Visibility,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                }
+                                MorphingVisibilityToggleButton(
+                                    visible = visibleState[entry.index],
+                                    accent = providerAccent(providers[entry.index].label, MaterialTheme.colorScheme),
+                                    onClick = { visibleState[entry.index] = !visibleState[entry.index] },
+                                    modifier = Modifier.size(36.dp),
+                                )
                             }
                         } else null,
                         shape = MaterialTheme.shapes.medium,
@@ -272,44 +289,40 @@ internal fun VoiceSettingsCard(
     onVoiceSettingsClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(
+    val accent = MaterialTheme.colorScheme.secondary
+    val methodDescription = methodLabel(locale, globalTtsSettings.method)
+    ExpressiveSettingsCard(
         modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
+        accent = accent,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = ShellSpacing.innerPad, vertical = 14.dp),
+                .semantics { stateDescription = methodDescription },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
         ) {
-            GradientMaskedIcon(
-                Icons.Rounded.GraphicEq,
-                Brush.linearGradient(
-                    listOf(
-                        MaterialTheme.colorScheme.secondary,
-                        MaterialTheme.colorScheme.primary,
-                    ),
-                ),
-                modifier = Modifier.size(22.dp),
-            )
-            Text(
-                text = methodLabel(locale, globalTtsSettings.method),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f),
-            )
-            FilledTonalButton(
-                onClick = onVoiceSettingsClick,
-                shape = CircleShape,
+            Box(
+                modifier = Modifier
+                    .background(
+                        color = accent.copy(alpha = 0.18f),
+                        shape = MaterialTheme.shapes.medium,
+                    )
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                contentAlignment = Alignment.CenterStart,
             ) {
                 Text(
-                    text = locale.voiceSettingsButton,
-                    style = MaterialTheme.typography.labelMediumEmphasized,
+                    text = methodDescription,
+                    style = MaterialTheme.typography.labelLargeEmphasized,
+                    color = accent,
                 )
             }
+            Spacer(modifier = Modifier.weight(1f))
+            ExpressiveSettingsButton(
+                text = locale.voiceSettingsButton,
+                onClick = onVoiceSettingsClick,
+                accent = accent,
+            )
         }
     }
 }
@@ -575,4 +588,3 @@ internal fun ResetDefaultsCard(
         )
     }
 }
-

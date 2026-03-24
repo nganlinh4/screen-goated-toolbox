@@ -174,6 +174,54 @@ fun FeedScreen(
 
 ## Standalone Component Examples
 
+### Repo Dismiss-Zone Example
+
+Use the shared dismiss-zone component for overlay drag dismissal instead of rebuilding a one-off M3E-like target:
+
+```kotlin
+private val dismissTargets = MorphDismissZone.singleDismiss()
+private var dismissZone: MorphDismissZone? = null
+
+private fun updateDismissZone(rawX: Float, rawY: Float) {
+    val zone = dismissZone ?: MorphDismissZone(
+        context = this,
+        windowManager = windowManager,
+        targets = dismissTargets,
+    ).also { dismissZone = it; it.show() }
+
+    zone.update(currentDismissHit(rawX, rawY).proximities)
+}
+```
+
+Key point: in this repo, the dismiss bubble's morphing shape changes are part of the Material 3 Expressive revamp. Preserve them when refactoring bubble or overlay interactions.
+
+### Repo Settings Morph Example
+
+Use a small reusable morph helper for settings actions and stateful utility toggles instead of hand-picking new shapes every time:
+
+```kotlin
+SettingsActionButton(
+    text = locale.presetRuntimeButton,
+    icon = Icons.Rounded.Settings,
+    morphStyle = SettingsActionMorphStyle.PRIORITY, // Square -> Cookie6Sided
+    onClick = onPresetRuntimeSettingsClick,
+)
+
+MorphingVisibilityToggleButton(
+    visible = isVisible,
+    accent = providerAccent("Gemini", MaterialTheme.colorScheme),
+    onClick = { isVisible = !isVisible },
+)
+```
+
+Current repo shape grammar:
+
+- model priority: `Square -> Cookie6Sided`
+- usage stats: `Oval -> Gem`
+- help assistant: `Bun -> Flower`
+- reset: `Slanted -> Pentagon`
+- eye toggle: `Circle -> PuffyDiamond`
+
 ### Loading State Toggle
 
 ```kotlin

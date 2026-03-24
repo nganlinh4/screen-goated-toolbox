@@ -4,6 +4,8 @@ package dev.screengoated.toolbox.mobile.ui
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,6 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Note
 import androidx.compose.material.icons.automirrored.rounded.TextSnippet
@@ -62,7 +66,7 @@ import androidx.compose.material3.FloatingActionButtonMenuItem
 import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -75,15 +79,23 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asComposePath
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.dp
+import androidx.graphics.shapes.Morph
+import androidx.graphics.shapes.toPath
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.theme.SgtExtendedColors
 import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
+import kotlin.math.max
+import kotlin.math.min
 
 internal data class ToolPresetItem(
     val id: String,
@@ -317,15 +329,10 @@ internal fun ToolsSection(
                 .padding(horizontal = 8.dp, vertical = 8.dp),
             expanded = true,
             floatingActionButton = {
-                FloatingToolbarDefaults.VibrantFloatingActionButton(
+                MorphingCreateFab(
+                    expanded = fabMenuExpanded,
                     onClick = { fabMenuExpanded = !fabMenuExpanded },
-                    shape = MaterialTheme.shapes.large,
-                ) {
-                    Icon(
-                        if (fabMenuExpanded) Icons.Rounded.Close else Icons.Rounded.Add,
-                        contentDescription = "Create",
-                    )
-                }
+                )
             },
             content = {
                 // Each button: icon only when inactive, icon + label when active
@@ -333,70 +340,47 @@ internal fun ToolsSection(
                     val mode: ToolbarMode,
                     val icon: ImageVector,
                     val label: String,
-                    val activeTint: Color,
+                    val activeContainer: Color,
+                    val activeContent: Color,
                 )
                 val actions = listOf(
                     ToolAction(ToolbarMode.DUPLICATE, Icons.Rounded.ContentCopy,
                         when (lang) { "vi" -> "Nhân bản"; "ko" -> "복제"; else -> "Duplicate" },
-                        MaterialTheme.colorScheme.primary),
+                        MaterialTheme.colorScheme.primary,
+                        MaterialTheme.colorScheme.onPrimary),
                     ToolAction(ToolbarMode.FAVORITE, Icons.Rounded.Star,
                         when (lang) { "vi" -> "Yêu thích"; "ko" -> "즐겨찾기"; else -> "Favorite" },
-                        MaterialTheme.colorScheme.primary),
+                        MaterialTheme.colorScheme.primary,
+                        MaterialTheme.colorScheme.onPrimary),
                     ToolAction(ToolbarMode.DELETE, Icons.Rounded.Delete,
                         when (lang) { "vi" -> "Xóa"; "ko" -> "삭제"; else -> "Delete" },
-                        MaterialTheme.colorScheme.error),
+                        MaterialTheme.colorScheme.error,
+                        MaterialTheme.colorScheme.onError),
                 )
                 actions.forEach { action ->
-                    val isActive = toolbarMode == action.mode
-                    val tint by animateColorAsState(
-                        if (isActive) action.activeTint else MaterialTheme.colorScheme.onSurfaceVariant,
-                        label = "tint-${action.mode}",
-                    )
-                    val bgAlpha by animateFloatAsState(
-                        if (isActive) 0.12f else 0f,
-                        label = "bg-${action.mode}",
-                    )
-                    IconButton(
+                    ToolbarModeButton(
+                        active = toolbarMode == action.mode,
+                        icon = action.icon,
+                        contentDescription = action.label,
+                        activeContainer = action.activeContainer,
+                        activeContent = action.activeContent,
                         onClick = {
+                            val isActive = toolbarMode == action.mode
                             toolbarMode = if (isActive) ToolbarMode.NONE else action.mode
                         },
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .background(
-                                    action.activeTint.copy(alpha = bgAlpha),
-                                    MaterialTheme.shapes.medium,
-                                )
-                                .padding(8.dp),
-                        ) {
-                            Icon(
-                                action.icon,
-                                contentDescription = action.label,
-                                modifier = Modifier.size(20.dp),
-                                tint = tint,
-                            )
-                        }
-                    }
+                    )
                 }
             },
         )
 
-        // FAB Menu — create preset options
-        if (fabMenuExpanded) {
-            androidx.activity.compose.BackHandler { fabMenuExpanded = false }
-        }
-
-        data class CreateOption(
-            val type: dev.screengoated.toolbox.mobile.shared.preset.PresetType,
-            val icon: ImageVector,
-            val label: String,
-        )
+        if (fabMenuExpanded) androidx.activity.compose.BackHandler { fabMenuExpanded = false }
+        data class CreateOption(val type: dev.screengoated.toolbox.mobile.shared.preset.PresetType, val icon: ImageVector, val label: String, val accentColor: Color)
         val createOptions = listOf(
-            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE, Icons.Rounded.Image, locale.toolsCategoryImage),
-            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT, Icons.Rounded.TextFields, locale.toolsCategoryTextSelect),
-            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT, Icons.Rounded.Keyboard, locale.toolsCategoryTextInput),
-            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC, Icons.Rounded.Mic, locale.toolsCategoryMicRecording),
-            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO, Icons.Rounded.SpeakerPhone, locale.toolsCategoryDeviceAudio),
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE, Icons.Rounded.Image, locale.toolsCategoryImage, sgtColors.statusProcessing),
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT, Icons.Rounded.TextFields, locale.toolsCategoryTextSelect, sgtColors.statusSuccess),
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT, Icons.Rounded.Keyboard, locale.toolsCategoryTextInput, sgtColors.statusSuccess),
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC, Icons.Rounded.Mic, locale.toolsCategoryMicRecording, sgtColors.statusWarning),
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO, Icons.Rounded.SpeakerPhone, locale.toolsCategoryDeviceAudio, sgtColors.statusWarning),
         )
 
         if (isLandscape) {
@@ -412,13 +396,14 @@ internal fun ToolsSection(
                     onDismissRequest = { fabMenuExpanded = false },
                 ) {
                     createOptions.forEach { opt ->
+                        val optionContentColor = opt.accentColor
                         androidx.compose.material3.DropdownMenuItem(
                             onClick = {
                                 fabMenuExpanded = false
                                 presetRepository.createCustomPreset(type = opt.type, lang = lang)
                             },
-                            leadingIcon = { Icon(opt.icon, null, modifier = Modifier.size(18.dp)) },
-                            text = { Text(opt.label, style = MaterialTheme.typography.labelLarge) },
+                            leadingIcon = { Icon(opt.icon, null, modifier = Modifier.size(18.dp), tint = opt.accentColor) },
+                            text = { Text(opt.label, style = MaterialTheme.typography.labelLarge, color = optionContentColor) },
                         )
                     }
                 }
@@ -434,14 +419,17 @@ internal fun ToolsSection(
                 button = {},
             ) {
                 createOptions.forEachIndexed { i, opt ->
+                    val optionContentColor = menuContentColor(opt.accentColor)
                     FloatingActionButtonMenuItem(
                         onClick = {
                             fabMenuExpanded = false
                             presetRepository.createCustomPreset(type = opt.type, lang = lang)
                         },
-                        icon = { Icon(opt.icon, null) },
-                        text = { Text(opt.label, style = MaterialTheme.typography.labelLarge) },
+                        icon = { Icon(opt.icon, null, tint = optionContentColor) },
+                        text = { Text(opt.label, style = MaterialTheme.typography.labelLarge, color = optionContentColor) },
                         modifier = if (i == createOptions.lastIndex) Modifier.padding(bottom = 12.dp) else Modifier,
+                        containerColor = opt.accentColor,
+                        contentColor = optionContentColor,
                     )
                 }
             }
@@ -450,3 +438,126 @@ internal fun ToolsSection(
 }
 
 internal enum class ToolbarMode { NONE, DUPLICATE, FAVORITE, DELETE }
+
+@Composable
+private fun MorphingCreateFab(
+    expanded: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val morphProgress by animateFloatAsState(if (expanded) 1f else 0f, spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy, stiffness = androidx.compose.animation.core.Spring.StiffnessLow), label = "tools-create-morph")
+    val rotation by animateFloatAsState(if (expanded) 36f else 0f, spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy, stiffness = androidx.compose.animation.core.Spring.StiffnessLow), label = "tools-create-rotation")
+    val morph = remember { Morph(MaterialShapes.Square, MaterialShapes.Cookie4Sided) }
+    val containerColor = MaterialTheme.colorScheme.primary
+    val iconColor = MaterialTheme.colorScheme.onPrimary
+    val interactionSource = remember { MutableInteractionSource() }
+    val shapeRotation by animateFloatAsState(if (expanded) 22f else 0f, spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy, stiffness = androidx.compose.animation.core.Spring.StiffnessLow), label = "tools-create-shape-rotation")
+    val iconRotation by animateFloatAsState(if (expanded) 45f else 0f, spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow), label = "tools-create-icon-rotation")
+
+    Box(
+        modifier = modifier
+            .size(58.dp)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { rotationZ = shapeRotation + rotation },
+        ) {
+            drawPath(
+                path = buildMorphPath(
+                    morph = morph,
+                    progress = morphProgress,
+                    size = size,
+                    insetFraction = 0.88f,
+                ),
+                color = containerColor,
+            )
+        }
+        Icon(
+            imageVector = Icons.Rounded.Add,
+            contentDescription = "Create",
+            tint = iconColor,
+            modifier = Modifier
+                .size(24.dp)
+                .graphicsLayer { rotationZ = iconRotation },
+        )
+    }
+}
+
+@Composable
+private fun ToolbarModeButton(
+    active: Boolean,
+    icon: ImageVector,
+    contentDescription: String,
+    activeContainer: Color,
+    activeContent: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val progress by animateFloatAsState(if (active) 1f else 0f, spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow), label = "tools-mode-progress-$contentDescription")
+    val containerColor by animateColorAsState(if (active) activeContainer else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.56f), label = "tools-mode-bg-$contentDescription")
+    val iconTint by animateColorAsState(if (active) activeContent else MaterialTheme.colorScheme.onSurfaceVariant, label = "tools-mode-icon-$contentDescription")
+    val buttonSize by animateFloatAsState(if (active) 52f else 40f, spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow), label = "tools-mode-size-$contentDescription")
+    val morph = remember { Morph(MaterialShapes.Square, MaterialShapes.Cookie6Sided) }
+    val interactionSource = remember { MutableInteractionSource() }
+
+    Box(
+        modifier = modifier.size(buttonSize.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onClick,
+                ),
+        ) {
+            drawPath(
+                path = buildMorphPath(
+                    morph = morph,
+                    progress = progress,
+                    size = size,
+                    insetFraction = 0.9f,
+                ),
+                color = containerColor,
+            )
+        }
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(if (active) 22.dp else 20.dp),
+            tint = iconTint,
+        )
+    }
+}
+
+private fun buildMorphPath(
+    morph: Morph,
+    progress: Float,
+    size: Size,
+    insetFraction: Float,
+): androidx.compose.ui.graphics.Path {
+    val androidPath = morph.toPath(progress, android.graphics.Path())
+    val bounds = android.graphics.RectF()
+    androidPath.computeBounds(bounds, true)
+    val pathWidth = max(bounds.width(), 1f)
+    val pathHeight = max(bounds.height(), 1f)
+    val scale = min(size.width / pathWidth, size.height / pathHeight) * insetFraction
+    val matrix = android.graphics.Matrix().apply {
+        postTranslate(-bounds.centerX(), -bounds.centerY())
+        postScale(scale, scale)
+        postTranslate(size.width / 2f, size.height / 2f)
+    }
+    androidPath.transform(matrix)
+    return androidPath.asComposePath()
+}
+
+private fun menuContentColor(accentColor: Color): Color = if (accentColor.luminance() > 0.55f) Color(0xFF11131A) else Color.White

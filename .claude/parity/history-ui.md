@@ -30,6 +30,8 @@
   - Clear-all removes all cards and backing files.
   - Prune removes oldest items and backing files until the limit is satisfied.
   - Search filters only on `item.text` and `timestamp`.
+  - Mobile settings reset restores the History max-items setting to the Windows default `50`.
+  - Legacy Android settings snapshots that still carry the old implicit `200` max-items default must normalize back to the Windows default `50` unless the user explicitly changed the limit.
 - Output contract:
   - Android uses the same model semantics and ordering as Windows.
   - Android file opens use external intents through `FileProvider`.

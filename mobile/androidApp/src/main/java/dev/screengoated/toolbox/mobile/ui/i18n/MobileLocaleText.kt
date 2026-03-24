@@ -573,7 +573,7 @@ data class MobileLocaleText(
                 historyViewText = "Xem",
                 shellDownloadedToolsLabel = "Công cụ đã tải",
                 shellDownloadedToolsDescription = "Quản lý model AI và công cụ cục bộ",
-                shellHelpLabel = "Hỏi đáp",
+                shellHelpLabel = "Hỏi cách dùng",
                 shellHelpDescription = "Hỏi trợ lý AI cách dùng SGT",
                 helpAssistantTitle = "Hỏi về SGT",
                 helpAssistantQuestionLabel = "Câu hỏi của bạn",
