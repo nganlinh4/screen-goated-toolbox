@@ -7,29 +7,19 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Lightbulb
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,11 +39,9 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
-import kotlin.random.Random
 import kotlinx.coroutines.delay
+import kotlin.random.Random
 
 internal const val USAGE_TIP_FADE_DURATION_MS: Long = 500L
 
@@ -91,30 +79,32 @@ internal fun UsageTipsCard(
     } else {
         ""
     }
+    val accent = MaterialTheme.colorScheme.primary
 
-    Card(
+    ExpressiveSettingsCard(
+        accent = accent,
         modifier = modifier
             .fillMaxWidth()
             .clickable(enabled = tips.isNotEmpty()) { showDialog = true },
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
     ) {
-        Column(
-            modifier = Modifier.padding(ShellSpacing.innerPad),
-            verticalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
-        ) {
+        Column(verticalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Lightbulb,
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+                MorphingShapeBadge(
+                    morphPair = ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Cookie6Sided),
+                    progress = 0.56f,
+                    containerColor = accent.copy(alpha = 0.18f),
+                    modifier = Modifier.size(42.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Lightbulb,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = accent,
+                    )
+                }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = locale.usageTipsTitle,
@@ -163,93 +153,73 @@ private fun UsageTipsDialog(
     locale: MobileLocaleText,
     onDismiss: () -> Unit,
 ) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ExpressiveDialogSurface(
+        title = locale.usageTipsTitle,
+        icon = Icons.Rounded.Lightbulb,
+        accent = MaterialTheme.colorScheme.primary,
+        morphPair = ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Cookie6Sided),
+        onDismiss = onDismiss,
+        maxWidth = 560.dp,
+        maxHeight = 620.dp,
+        heightFraction = 0.76f,
     ) {
-        Card(
+        Column(
             modifier = Modifier
-                .fillMaxWidth(0.94f)
-                .widthIn(max = 560.dp)
-                .padding(16.dp),
-            shape = MaterialTheme.shapes.small,
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-            ),
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            BoxWithConstraints(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.76f)
-                    .heightIn(max = 620.dp)
-                    .padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 16.dp),
-            ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = locale.usageTipsTitle,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Spacer(Modifier.weight(1f))
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Rounded.Close, contentDescription = null)
-                        }
-                    }
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                            .padding(end = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        locale.usageTipsList.forEachIndexed { index, tip ->
-                            UsageTipListRow(
-                                tipNumber = index + 1,
-                                text = tip,
-                            )
-                            if (index < locale.usageTipsList.lastIndex) {
-                                HorizontalDivider()
-                            }
-                        }
-                    }
-                }
+            locale.usageTipsList.forEachIndexed { index, tip ->
+                UsageTipListCard(
+                    tipNumber = index + 1,
+                    text = tip,
+                    accent = if (index % 2 == 0) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.secondary
+                    },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun UsageTipListRow(
+private fun UsageTipListCard(
     tipNumber: Int,
     text: String,
+    accent: androidx.compose.ui.graphics.Color,
 ) {
     val regularColor = MaterialTheme.colorScheme.onSurfaceVariant
-    val boldColor = MaterialTheme.colorScheme.primary
-    val prefix = "$tipNumber. "
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            text = prefix,
-            style = MaterialTheme.typography.bodyMedium,
-            color = regularColor,
-            fontWeight = FontWeight.Medium,
-        )
-        Text(
-            text = rememberUsageTipAnnotatedString(
-                text = text,
-                regularColor = regularColor,
-                boldColor = boldColor,
-            ),
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f),
-        )
+    ExpressiveDialogSectionCard(accent = accent) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            MorphingShapeBadge(
+                morphPair = ExpressiveMorphPair(MaterialShapes.Cookie4Sided, MaterialShapes.Flower),
+                progress = 0.36f + ((tipNumber % 4) * 0.12f),
+                containerColor = accent.copy(alpha = 0.18f),
+                modifier = Modifier.size(38.dp),
+            ) {
+                Text(
+                    text = tipNumber.toString(),
+                    style = MaterialTheme.typography.labelLargeEmphasized,
+                    color = accent,
+                )
+            }
+            Text(
+                text = rememberUsageTipAnnotatedString(
+                    text = text,
+                    regularColor = regularColor,
+                    boldColor = accent,
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 

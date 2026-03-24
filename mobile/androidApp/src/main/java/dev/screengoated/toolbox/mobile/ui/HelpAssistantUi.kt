@@ -7,21 +7,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.HelpOutline
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -35,8 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantBucket
 import dev.screengoated.toolbox.mobile.helpassistant.placeholder
@@ -50,30 +41,31 @@ internal fun HelpAssistantCard(
 ) {
     var showDialog by rememberSaveable { mutableStateOf(false) }
 
-    Card(
+    ExpressiveSettingsCard(
+        accent = MaterialTheme.colorScheme.primary,
         modifier = modifier
             .fillMaxWidth()
             .clickable { showDialog = true },
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
     ) {
-        Column(
-            modifier = Modifier.padding(ShellSpacing.innerPad),
-            verticalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
-        ) {
+        Column(verticalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.HelpOutline,
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+                MorphingShapeBadge(
+                    morphPair = ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Cookie4Sided),
+                    progress = 0.54f,
+                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                    modifier = Modifier.size(42.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.HelpOutline,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 Column {
                     Text(
                         text = locale.shellHelpLabel,
@@ -136,64 +128,50 @@ private fun HelpAssistantDialog(
     var question by rememberSaveable { mutableStateOf("") }
     val trimmedQuestion = question.trim()
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ExpressiveDialogSurface(
+        title = locale.helpAssistantTitle,
+        icon = Icons.AutoMirrored.Rounded.HelpOutline,
+        accent = MaterialTheme.colorScheme.primary,
+        morphPair = ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Cookie4Sided),
+        onDismiss = onDismiss,
+        supporting = locale.helpAssistantHint,
+        widthFraction = 0.92f,
+        maxWidth = 620.dp,
+        maxHeight = 560.dp,
+        fitContentHeight = true,
     ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth(0.94f)
-                .widthIn(max = 560.dp)
-                .padding(16.dp),
-            shape = MaterialTheme.shapes.small,
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-            ),
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ExpressiveDialogSectionCard(
+                accent = MaterialTheme.colorScheme.primary,
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = locale.helpAssistantTitle,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Rounded.Close, contentDescription = null)
-                    }
-                }
-
                 Text(
-                    text = locale.helpAssistantHint,
+                    text = locale.helpAssistantQuestionLabel,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-
                 OutlinedTextField(
                     value = question,
                     onValueChange = { question = it },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 120.dp, max = 180.dp),
                     label = { Text(locale.helpAssistantQuestionLabel) },
                     placeholder = { Text(selectedBucket.placeholder(locale)) },
                     minLines = 3,
                 )
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    Button(
-                        enabled = trimmedQuestion.isNotEmpty(),
+                    ExpressiveSettingsButton(
+                        text = locale.helpAssistantAskButton,
                         onClick = {
+                            if (trimmedQuestion.isEmpty()) {
+                                return@ExpressiveSettingsButton
+                            }
                             HelpAssistantOverlayService.start(
                                 context = context,
                                 bucket = selectedBucket,
@@ -202,9 +180,8 @@ private fun HelpAssistantDialog(
                             )
                             onDismiss()
                         },
-                    ) {
-                        Text(locale.helpAssistantAskButton)
-                    }
+                        accent = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
         }

@@ -171,6 +171,7 @@ internal fun HistorySection(
                             text = locale.historyOpenFolder,
                             icon = Icons.Rounded.Folder,
                             role = HistoryActionRole.FOLDER,
+                            badgeRotationDegrees = -90f,
                             iconRotationDegrees = -90f,
                             onClick = {
                                 val opened = HistoryExternalActions.openFolder(
