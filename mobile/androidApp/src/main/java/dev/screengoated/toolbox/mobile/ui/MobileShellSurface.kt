@@ -308,6 +308,7 @@ internal fun MobileShellSurface(
             } else {
                 val sections = MobileShellSection.entries
                 val initialPage = sections.indexOf(selectedSection).coerceAtLeast(0)
+                val warmTabCount = (sections.size - 1).coerceAtLeast(0)
                 val pagerState = rememberPagerState(initialPage = initialPage) { sections.size }
                 val scope = rememberCoroutineScope()
                 var pagerSwipeLocked by remember { mutableStateOf(false) }
@@ -433,7 +434,9 @@ internal fun MobileShellSurface(
                             .fillMaxSize()
                             .weight(1f),
                         userScrollEnabled = !pagerSwipeLocked,
-                        beyondViewportPageCount = 0,
+                        // Keep every shell page composed once startup completes so tab switches
+                        // and swipes do not pay the full first-render cost on demand.
+                        beyondViewportPageCount = warmTabCount,
                         pageSpacing = 16.dp,
                         key = { sections[it].name },
                     ) { page ->
