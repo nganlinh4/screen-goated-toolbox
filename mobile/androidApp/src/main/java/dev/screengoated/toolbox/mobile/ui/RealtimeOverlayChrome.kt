@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 import kotlin.math.roundToInt
 
 @Composable
@@ -63,14 +64,15 @@ internal fun OverlayPane(
     controls: @Composable RowScope.() -> Unit,
     content: @Composable () -> Unit,
 ) {
+    val sgtColors = MaterialTheme.sgtColors
     Column(
         modifier = modifier
-            .shadow(18.dp, RoundedCornerShape(16.dp), clip = false)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFFF8F2F8))
+            .shadow(18.dp, MaterialTheme.shapes.extraSmall, clip = false)
+            .clip(MaterialTheme.shapes.extraSmall)
+            .background(sgtColors.overlayBackground)
             .border(
                 border = BorderStroke(1.dp, SolidColor(accentColor.copy(alpha = 0.35f))),
-                shape = RoundedCornerShape(16.dp),
+                shape = MaterialTheme.shapes.extraSmall,
             )
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
@@ -116,7 +118,7 @@ internal fun OverlayPane(
                 Icon(
                     imageVector = Icons.Outlined.KeyboardArrowUp,
                     contentDescription = "Toggle header",
-                    tint = Color(0xFF9A949E),
+                    tint = sgtColors.overlayResizeHandle,
                     modifier = Modifier.size(14.dp),
                 )
             }
@@ -155,6 +157,7 @@ internal fun ListeningTitle() {
         ),
     )
 
+    val sgtColors = MaterialTheme.sgtColors
     Row(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -167,7 +170,7 @@ internal fun ListeningTitle() {
                     .clip(CircleShape)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color(0xFF49DFFF), Color(0xFF00B9F5)),
+                            listOf(sgtColors.waveformGradientStart, sgtColors.waveformGradientEnd),
                         ),
                     ),
             )
@@ -181,6 +184,7 @@ internal fun OverlayTextBody(
     placeholder: String,
     fontSizeSp: Float,
 ) {
+    val sgtColors = MaterialTheme.sgtColors
     val scrollState = rememberScrollState()
     Text(
         text = text.ifBlank { placeholder },
@@ -188,7 +192,7 @@ internal fun OverlayTextBody(
             .fillMaxSize()
             .verticalScroll(scrollState)
             .padding(top = 4.dp, bottom = 8.dp),
-        color = if (text.isBlank()) Color(0xFF86808A) else Color(0xFF2A252E),
+        color = if (text.isBlank()) sgtColors.overlayTextInactive else sgtColors.overlayTextActive,
         fontStyle = if (text.isBlank()) FontStyle.Italic else FontStyle.Normal,
         fontSize = fontSizeSp.sp,
         lineHeight = (fontSizeSp * 1.45f).sp,
@@ -202,6 +206,7 @@ internal fun OverlayTranslationBody(
     placeholder: String,
     fontSizeSp: Float,
 ) {
+    val sgtColors = MaterialTheme.sgtColors
     val hasContent = committedTranslation.isNotBlank() || liveTranslation.isNotBlank()
     val scrollState = rememberScrollState()
     val text = if (!hasContent) {
@@ -211,7 +216,7 @@ internal fun OverlayTranslationBody(
             if (committedTranslation.isNotBlank()) {
                 pushStyle(
                     SpanStyle(
-                        color = Color(0xFF8B858F),
+                        color = sgtColors.overlayCommittedText,
                         fontWeight = FontWeight.Light,
                     ),
                 )
@@ -224,7 +229,7 @@ internal fun OverlayTranslationBody(
                 }
                 pushStyle(
                     SpanStyle(
-                        color = Color(0xFF2A252E),
+                        color = sgtColors.overlayTextActive,
                         fontWeight = FontWeight.Medium,
                     ),
                 )
@@ -240,7 +245,7 @@ internal fun OverlayTranslationBody(
             .fillMaxSize()
             .verticalScroll(scrollState)
             .padding(top = 4.dp, bottom = 8.dp),
-        color = if (hasContent) Color.Unspecified else Color(0xFF86808A),
+        color = if (hasContent) Color.Unspecified else sgtColors.overlayTextInactive,
         fontStyle = if (hasContent) FontStyle.Normal else FontStyle.Italic,
         fontSize = fontSizeSp.sp,
         lineHeight = (fontSizeSp * 1.45f).sp,
@@ -254,9 +259,10 @@ internal fun OverlayActionButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
+    val sgtColors = MaterialTheme.sgtColors
     Surface(
         modifier = Modifier.size(28.dp),
-        color = Color(0xFFF1EDF3),
+        color = sgtColors.overlayActionButtonBg,
         shape = CircleShape,
         enabled = enabled,
         onClick = onClick,
@@ -319,6 +325,7 @@ internal fun OverlayResizeHandle(
     modifier: Modifier = Modifier,
     onWindowResize: (Int, Int) -> Unit,
 ) {
+    val sgtColors = MaterialTheme.sgtColors
     Box(
         modifier = modifier
             .size(30.dp)
@@ -336,7 +343,7 @@ internal fun OverlayResizeHandle(
         Icon(
             imageVector = Icons.Outlined.OpenInFull,
             contentDescription = "Resize window",
-            tint = Color(0xFF9A949E),
+            tint = sgtColors.overlayResizeHandle,
             modifier = Modifier.size(18.dp),
         )
     }

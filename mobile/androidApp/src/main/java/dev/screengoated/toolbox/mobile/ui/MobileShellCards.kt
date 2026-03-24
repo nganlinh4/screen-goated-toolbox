@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -17,7 +16,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Bolt
-import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Key
@@ -26,7 +24,6 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material3.Slider
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.Visibility
@@ -43,7 +40,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleButton
@@ -368,85 +364,6 @@ internal fun PresetRuntimeCard(
 }
 
 @Composable
-internal fun SettingsActionButton(
-    text: String,
-    icon: ImageVector,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    destructive: Boolean = false,
-) {
-    FilledTonalButton(
-        onClick = onClick,
-        modifier = modifier,
-        shape = MaterialTheme.shapes.large,
-        colors = if (destructive) {
-            ButtonDefaults.filledTonalButtonColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-            )
-        } else {
-            ButtonDefaults.filledTonalButtonColors()
-        },
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(modifier = Modifier.padding(start = ButtonDefaults.IconSpacing))
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelLargeEmphasized,
-            maxLines = 1,
-        )
-    }
-}
-
-@Composable
-internal fun OverlayOpacityCard(
-    opacityPercent: Int,
-    locale: MobileLocaleText,
-    onOpacityChanged: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = ShellSpacing.innerPad, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
-            ) {
-                Text(
-                    text = locale.overlayOpacityLabel,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = "$opacityPercent%",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Slider(
-                value = opacityPercent.toFloat(),
-                onValueChange = { onOpacityChanged(it.toInt()) },
-                valueRange = 10f..100f,
-            )
-        }
-    }
-}
-
-@Composable
 internal fun LiveControlCard(
     state: LiveSessionState,
     locale: MobileLocaleText,
@@ -659,49 +576,3 @@ internal fun ResetDefaultsCard(
     }
 }
 
-@Composable
-internal fun ResetDefaultsActionButton(
-    locale: MobileLocaleText,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var showConfirm by remember { mutableStateOf(false) }
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val doneMsg = when {
-        locale.resetDefaultsButton.contains("Khôi") -> "Đã khôi phục mặc định"
-        locale.resetDefaultsButton.contains("복원") -> "기본값으로 복원됨"
-        else -> "Defaults restored"
-    }
-
-    SettingsActionButton(
-        text = locale.resetDefaultsButton,
-        icon = Icons.Rounded.RestartAlt,
-        onClick = { showConfirm = true },
-        modifier = modifier,
-        destructive = true,
-    )
-
-    if (showConfirm) {
-        AlertDialog(
-            onDismissRequest = { showConfirm = false },
-            title = { Text(locale.resetDefaultsConfirmTitle) },
-            text = { Text(locale.resetDefaultsConfirmMessage) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showConfirm = false
-                        onClick()
-                        android.widget.Toast.makeText(context, doneMsg, android.widget.Toast.LENGTH_SHORT).show()
-                    },
-                ) {
-                    Text(locale.resetDefaultsAction)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showConfirm = false }) {
-                    Text(locale.closeLabel)
-                }
-            },
-        )
-    }
-}

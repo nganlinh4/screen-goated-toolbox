@@ -29,7 +29,7 @@ internal fun SgtBrandBadge(
     val isDarkSurface = background.luminance() < 0.45f
     val effectiveBackground = if (showBackground) background else Color.Transparent
     val boxModifier = if (showBackground) {
-        modifier.size(size).clip(RoundedCornerShape(22.dp)).background(effectiveBackground).padding(padding.dp)
+        modifier.size(size).clip(MaterialTheme.shapes.small).background(effectiveBackground).padding(padding.dp)
     } else {
         modifier.size(size)
     }

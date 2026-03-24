@@ -15,6 +15,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -41,15 +42,41 @@ private val DarkColors = darkColorScheme(
     surfaceContainerLow = Color(0xFF171520),
     surfaceContainerLowest = Color(0xFF0E0D14),
     surfaceBright = Color(0xFF3B3841),
+    outline = Color(0xFF938F99),
+    outlineVariant = Color(0xFF49454F),
+    error = Color(0xFFF2B8B5),
+    onError = Color(0xFF601410),
+    errorContainer = Color(0xFF8C1D18),
+    onErrorContainer = Color(0xFFF9DEDC),
 )
 
 private val LightColors = lightColorScheme(
     primary = Color(0xFF6750A4),
+    onPrimary = Color(0xFFFFFFFF),
     primaryContainer = Color(0xFFEADDFF),
+    onPrimaryContainer = Color(0xFF21005D),
     secondary = Color(0xFF8C4A3F),
+    onSecondary = Color(0xFFFFFFFF),
     secondaryContainer = Color(0xFFFFDAD6),
+    onSecondaryContainer = Color(0xFF3B0907),
     tertiary = Color(0xFF006B5A),
+    onTertiary = Color(0xFFFFFFFF),
     tertiaryContainer = Color(0xFFA0F0DC),
+    onTertiaryContainer = Color(0xFF00201A),
+    surface = Color(0xFFFDF8FF),
+    onSurface = Color(0xFF1C1B1F),
+    surfaceContainer = Color(0xFFF0ECF4),
+    surfaceContainerHigh = Color(0xFFEAE7EF),
+    surfaceContainerHighest = Color(0xFFE5E1E9),
+    surfaceContainerLow = Color(0xFFF6F2FA),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceBright = Color(0xFFFDF8FF),
+    outline = Color(0xFF79747E),
+    outlineVariant = Color(0xFFCAC4D0),
+    error = Color(0xFFB3261E),
+    onError = Color(0xFFFFFFFF),
+    errorContainer = Color(0xFFF9DEDC),
+    onErrorContainer = Color(0xFF410E0B),
 )
 
 private val SgtShapes = Shapes(
@@ -100,11 +127,15 @@ fun SgtMobileTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colors,
-        motionScheme = MotionScheme.expressive(),
-        typography = SgtTypography,
-        shapes = SgtShapes,
-        content = content,
-    )
+    val sgtExtended = if (isDark) darkSgtExtendedColors() else lightSgtExtendedColors()
+
+    CompositionLocalProvider(LocalSgtColors provides sgtExtended) {
+        MaterialTheme(
+            colorScheme = colors,
+            motionScheme = MotionScheme.expressive(),
+            typography = SgtTypography,
+            shapes = SgtShapes,
+            content = content,
+        )
+    }
 }

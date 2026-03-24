@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets
+import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetType
 
@@ -64,12 +65,6 @@ private data class CategoryDef(
     }
 }
 
-private val CategoryImage = Color(0xFF5B8DEF)
-private val CategoryTextSelect = Color(0xFFAB68E8)
-private val CategoryTextInput = Color(0xFF42A5F5)
-private val CategoryMic = Color(0xFFEF5350)
-private val CategoryDevice = Color(0xFF66BB6A)
-
 @Composable
 fun PresetListSection(
     lang: String,
@@ -77,56 +72,55 @@ fun PresetListSection(
     onFavoriteToggle: (String) -> Unit,
 ) {
     val favorites = remember { mutableStateMapOf<String, Boolean>() }
+    val sgtColors = MaterialTheme.sgtColors
 
-    val categories = remember {
-        listOf(
-            CategoryDef(
-                type = PresetType.IMAGE,
-                labelEn = "Image",
-                labelVi = "Hình ảnh",
-                labelKo = "이미지",
-                icon = Icons.Rounded.Translate,
-                dotColor = CategoryImage,
-                presets = DefaultPresets.imagePresets,
-            ),
-            CategoryDef(
-                type = PresetType.TEXT_SELECT,
-                labelEn = "Text Select",
-                labelVi = "Chọn text",
-                labelKo = "텍스트 선택",
-                icon = Icons.Rounded.TextFields,
-                dotColor = CategoryTextSelect,
-                presets = DefaultPresets.textSelectPresets,
-            ),
-            CategoryDef(
-                type = PresetType.TEXT_INPUT,
-                labelEn = "Text Input",
-                labelVi = "Nhập text",
-                labelKo = "텍스트 입력",
-                icon = Icons.Rounded.TextFields,
-                dotColor = CategoryTextInput,
-                presets = DefaultPresets.textInputPresets,
-            ),
-            CategoryDef(
-                type = PresetType.MIC,
-                labelEn = "Mic",
-                labelVi = "Mic",
-                labelKo = "마이크",
-                icon = Icons.Rounded.Mic,
-                dotColor = CategoryMic,
-                presets = DefaultPresets.micPresets,
-            ),
-            CategoryDef(
-                type = PresetType.DEVICE_AUDIO,
-                labelEn = "Device Audio",
-                labelVi = "Âm thanh máy",
-                labelKo = "기기 오디오",
-                icon = Icons.Rounded.SpeakerPhone,
-                dotColor = CategoryDevice,
-                presets = DefaultPresets.deviceAudioPresets,
-            ),
-        )
-    }
+    val categories = listOf(
+        CategoryDef(
+            type = PresetType.IMAGE,
+            labelEn = "Image",
+            labelVi = "Hình ảnh",
+            labelKo = "이미지",
+            icon = Icons.Rounded.Translate,
+            dotColor = sgtColors.categoryImage,
+            presets = DefaultPresets.imagePresets,
+        ),
+        CategoryDef(
+            type = PresetType.TEXT_SELECT,
+            labelEn = "Text Select",
+            labelVi = "Chọn text",
+            labelKo = "텍스트 선택",
+            icon = Icons.Rounded.TextFields,
+            dotColor = sgtColors.categoryTextSelect,
+            presets = DefaultPresets.textSelectPresets,
+        ),
+        CategoryDef(
+            type = PresetType.TEXT_INPUT,
+            labelEn = "Text Input",
+            labelVi = "Nhập text",
+            labelKo = "텍스트 입력",
+            icon = Icons.Rounded.TextFields,
+            dotColor = sgtColors.categoryTextInput,
+            presets = DefaultPresets.textInputPresets,
+        ),
+        CategoryDef(
+            type = PresetType.MIC,
+            labelEn = "Mic",
+            labelVi = "Mic",
+            labelKo = "마이크",
+            icon = Icons.Rounded.Mic,
+            dotColor = sgtColors.categoryMic,
+            presets = DefaultPresets.micPresets,
+        ),
+        CategoryDef(
+            type = PresetType.DEVICE_AUDIO,
+            labelEn = "Device Audio",
+            labelVi = "Âm thanh máy",
+            labelKo = "기기 오디오",
+            icon = Icons.Rounded.SpeakerPhone,
+            dotColor = sgtColors.categoryDevice,
+            presets = DefaultPresets.deviceAudioPresets,
+        ),
+    )
 
     Column(
         modifier = Modifier
@@ -286,7 +280,7 @@ private fun PresetItemCard(
                     contentDescription = null,
                     modifier = Modifier.size(20.dp),
                     tint = if (isFavorite) {
-                        Color(0xFFFFC107)
+                        MaterialTheme.sgtColors.favoriteStar
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },

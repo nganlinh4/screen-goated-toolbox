@@ -124,7 +124,7 @@ fun PresetRuntimeSettingsDialog(
             modifier = Modifier
                 .widthIn(max = if (isLandscape) 720.dp else 420.dp)
                 .padding(16.dp),
-            shape = RoundedCornerShape(28.dp),
+            shape = MaterialTheme.shapes.medium,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         ) {
             Column(modifier = Modifier.padding(start = 24.dp, end = 12.dp, top = 12.dp, bottom = 12.dp)) {
@@ -356,7 +356,7 @@ private fun ChainEditor(
             Box {
                 FilledTonalButton(
                     onClick = { showAddMenu = true },
-                    shape = RoundedCornerShape(20.dp),
+                    shape = MaterialTheme.shapes.small,
                 ) {
                     Text(locale.presetRuntimeAddModel, style = MaterialTheme.typography.labelSmall)
                 }
@@ -399,7 +399,7 @@ private fun DraggableModelPill(
         Modifier
             .offset { IntOffset(0, dragOffsetY.roundToInt()) }
             .zIndex(10f)
-            .shadow(elevation, RoundedCornerShape(20.dp))
+            .shadow(elevation, MaterialTheme.shapes.small)
     } else {
         Modifier
     }
@@ -476,7 +476,7 @@ private fun ModelPill(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(MaterialTheme.shapes.small)
             .background(
                 if (isDragging) MaterialTheme.colorScheme.surfaceContainerHighest
                 else MaterialTheme.colorScheme.surfaceContainer,

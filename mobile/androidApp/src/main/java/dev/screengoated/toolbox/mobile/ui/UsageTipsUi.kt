@@ -172,7 +172,7 @@ private fun UsageTipsDialog(
                 .fillMaxWidth(0.94f)
                 .widthIn(max = 560.dp)
                 .padding(16.dp),
-            shape = RoundedCornerShape(20.dp),
+            shape = MaterialTheme.shapes.small,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface,
             ),

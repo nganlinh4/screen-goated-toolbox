@@ -183,17 +183,24 @@ class SgtAccessibilityService : AccessibilityService() {
      * Skips our own overlay windows. Used for autoPaste.
      */
     fun pasteIntoFocusedField(): Boolean {
+        val clipboardText = getClipboardText() ?: run {
+            Log.d(TAG, "pasteIntoFocusedField: clipboard is empty")
+            return false
+        }
         for (window in windows) {
             val root = window.root ?: continue
             val pkg = root.packageName?.toString()
             if (pkg == packageName) { continue }
             val focused = findFocusedEditableNode(root)
             if (focused != null) {
-                val result = focused.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                focused.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                val result = focused.performAction(AccessibilityNodeInfo.ACTION_PASTE) ||
+                    appendTextToNode(focused, clipboardText)
                 Log.d(TAG, "pasteIntoFocusedField on $pkg: $result")
                 return result
             }
         }
+        Log.d(TAG, "pasteIntoFocusedField: no editable field found in any window")
         return false
     }
 
@@ -261,14 +268,49 @@ class SgtAccessibilityService : AccessibilityService() {
     }
 
     private fun findFocusedEditableNode(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return null
-        if (focused.isEditable || focused.className?.toString()?.contains("EditText") == true) {
-            return focused
+        root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?.takeIf(::isEditableCandidate)
+            ?.let { return it }
+        root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
+            ?.takeIf(::isEditableCandidate)
+            ?.let { return it }
+        findEditableNodeInTree(root, requireFocus = true)?.let { return it }
+        return findEditableNodeInTree(root, requireFocus = false)
+    }
+
+    private fun findEditableNodeInTree(
+        node: AccessibilityNodeInfo,
+        requireFocus: Boolean,
+    ): AccessibilityNodeInfo? {
+        val isFocusedCandidate = !requireFocus || node.isFocused || node.isAccessibilityFocused
+        if (isFocusedCandidate && isEditableCandidate(node)) {
+            return node
         }
-        if (focused.className?.toString()?.contains("WebView") == true) {
-            return focused
+        for (index in 0 until node.childCount) {
+            val child = node.getChild(index) ?: continue
+            val result = findEditableNodeInTree(child, requireFocus)
+            if (result != null) {
+                return result
+            }
         }
         return null
+    }
+
+    private fun isEditableCandidate(node: AccessibilityNodeInfo): Boolean {
+        if (node.isEditable) {
+            return true
+        }
+        val className = node.className?.toString().orEmpty()
+        return className.contains("EditText") || className.contains("WebView")
+    }
+
+    private fun getClipboardText(): String? {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return null
+        val clip = cm.primaryClip ?: return null
+        if (clip.itemCount == 0) {
+            return null
+        }
+        return clip.getItemAt(0)?.coerceToText(this)?.toString()?.takeIf { it.isNotBlank() }
     }
 
     private fun appendTextToNode(

@@ -81,7 +81,7 @@ internal fun RenderGlobalTtsSettingsDialog(
                 .fillMaxWidth(0.985f)
                 .widthIn(max = 980.dp)
                 .padding(16.dp),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+            shape = MaterialTheme.shapes.medium,
             colors = androidx.compose.material3.CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface,
             ),

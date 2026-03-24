@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.TextSnippet
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
@@ -96,7 +95,7 @@ internal fun HistorySection(
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 ),
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.small,
             ) {
                 Column(
                     modifier = Modifier
@@ -206,7 +205,7 @@ internal fun HistorySection(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                     ),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = MaterialTheme.shapes.small,
                 ) {
                     Text(
                         text = locale.historyEmpty,
@@ -259,7 +258,7 @@ private fun HistoryItemCard(
             containerColor = cardColors.containerColor,
             contentColor = cardColors.contentColor,
         ),
-        shape = RoundedCornerShape(22.dp),
+        shape = MaterialTheme.shapes.small,
     ) {
         Column(
             modifier = Modifier
@@ -385,12 +384,12 @@ private fun historyColors(type: HistoryType): HistoryCardColors {
         if (isDark) 0.12f else 0.62f,
     )
     val contentColor = if (isDark) {
-        Color(0xFFF7F4EF)
+        colorScheme.onSurface
     } else {
         lerp(colorScheme.onSurface, accentContent, 0.5f)
     }
     val metaColor = if (isDark) {
-        Color(0xFFD8D2C8)
+        colorScheme.onSurfaceVariant
     } else {
         lerp(contentColor, colorScheme.onSurfaceVariant, 0.28f)
     }

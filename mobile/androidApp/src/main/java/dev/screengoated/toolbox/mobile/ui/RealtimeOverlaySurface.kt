@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.window.PopupProperties
 import dev.screengoated.toolbox.mobile.model.LanguageCatalog
+import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import androidx.compose.ui.unit.dp
 
@@ -146,10 +147,11 @@ private fun OverlayPanels(
     onToggleTranslationHeader: () -> Unit,
     onWindowDrag: (Int, Int) -> Unit,
 ) {
+    val sgtColors = MaterialTheme.sgtColors
     if (state.listeningVisible) {
         OverlayPane(
             modifier = paneModifier,
-            accentColor = Color(0xFF00C8FF),
+            accentColor = sgtColors.overlayListeningAccent,
             title = { ListeningTitle() },
             headerCollapsed = state.listeningHeaderCollapsed,
             onHeaderToggle = onToggleListeningHeader,
@@ -161,9 +163,9 @@ private fun OverlayPanels(
                     } else {
                         Icons.Outlined.GraphicEq
                     },
-                    tint = Color(0xFF2B78FF),
+                    tint = sgtColors.overlaySubtitleActiveTint,
                 )
-                OverlayIconBadge(icon = Icons.Outlined.AutoAwesome, tint = Color(0xFF2B78FF))
+                OverlayIconBadge(icon = Icons.Outlined.AutoAwesome, tint = sgtColors.overlaySubtitleActiveTint)
                 OverlayLanguageChip(
                     label = "EN",
                     enabled = false,
@@ -173,28 +175,28 @@ private fun OverlayPanels(
                 )
                 OverlayActionButton(
                     icon = Icons.Outlined.ContentCopy,
-                    tint = Color(0xFF8B8A90),
+                    tint = sgtColors.overlayIconTint,
                     onClick = onCopyTranscript,
                 )
                 OverlayActionButton(
                     icon = Icons.Outlined.Remove,
-                    tint = Color(0xFF8B8A90),
+                    tint = sgtColors.overlayIconTint,
                     onClick = onDecreaseFont,
                 )
                 OverlayActionButton(
                     icon = Icons.Outlined.Add,
-                    tint = Color(0xFF8B8A90),
+                    tint = sgtColors.overlayIconTint,
                     onClick = onIncreaseFont,
                 )
                 OverlayVisibilityButton(
                     icon = Icons.Outlined.Subtitles,
-                    tint = Color(0xFF2B78FF),
+                    tint = sgtColors.overlaySubtitleActiveTint,
                     active = state.listeningVisible,
                     onClick = onToggleListeningVisibility,
                 )
                 OverlayVisibilityButton(
                     icon = Icons.Outlined.Translate,
-                    tint = Color(0xFFE6005A),
+                    tint = sgtColors.overlayTranslateActiveTint,
                     active = state.translationVisible,
                     onClick = onToggleTranslationVisibility,
                 )
@@ -211,11 +213,11 @@ private fun OverlayPanels(
     if (state.translationVisible) {
         OverlayPane(
             modifier = paneModifier,
-            accentColor = Color(0xFFFF9633),
+            accentColor = sgtColors.overlayTranslationAccent,
             title = {
                 Text(
                     text = "Translation",
-                    color = Color(0xFF6B656E),
+                    color = sgtColors.overlayTranslationTitle,
                     style = MaterialTheme.typography.titleSmall,
                 )
             },
@@ -225,11 +227,11 @@ private fun OverlayPanels(
             controls = {
                 OverlayActionButton(
                     icon = Icons.AutoMirrored.Outlined.VolumeUp,
-                    tint = Color(0xFF8B8A90),
+                    tint = sgtColors.overlayIconTint,
                     enabled = false,
                     onClick = {},
                 )
-                OverlayIconBadge(icon = Icons.Outlined.AutoAwesome, tint = Color(0xFF8B8A90))
+                OverlayIconBadge(icon = Icons.Outlined.AutoAwesome, tint = sgtColors.overlayIconTint)
                 OverlayLanguageChip(
                     label = LanguageCatalog.codeForName(state.targetLanguage),
                     enabled = true,
@@ -239,28 +241,28 @@ private fun OverlayPanels(
                 )
                 OverlayActionButton(
                     icon = Icons.Outlined.ContentCopy,
-                    tint = Color(0xFF8B8A90),
+                    tint = sgtColors.overlayIconTint,
                     onClick = onCopyTranslation,
                 )
                 OverlayActionButton(
                     icon = Icons.Outlined.Remove,
-                    tint = Color(0xFF8B8A90),
+                    tint = sgtColors.overlayIconTint,
                     onClick = onDecreaseFont,
                 )
                 OverlayActionButton(
                     icon = Icons.Outlined.Add,
-                    tint = Color(0xFF8B8A90),
+                    tint = sgtColors.overlayIconTint,
                     onClick = onIncreaseFont,
                 )
                 OverlayVisibilityButton(
                     icon = Icons.Outlined.Subtitles,
-                    tint = Color(0xFF2B78FF),
+                    tint = sgtColors.overlaySubtitleActiveTint,
                     active = state.listeningVisible,
                     onClick = onToggleListeningVisibility,
                 )
                 OverlayVisibilityButton(
                     icon = Icons.Outlined.Translate,
-                    tint = Color(0xFFE6005A),
+                    tint = sgtColors.overlayTranslateActiveTint,
                     active = state.translationVisible,
                     onClick = onToggleTranslationVisibility,
                 )
@@ -330,8 +332,9 @@ private fun OverlayLanguageButton(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
+    val sgtColors = MaterialTheme.sgtColors
     androidx.compose.material3.Surface(
-        color = Color(0xFFF1EDF3),
+        color = sgtColors.overlayActionButtonBg,
         shape = androidx.compose.foundation.shape.CircleShape,
         enabled = enabled,
         onClick = onClick,
@@ -339,7 +342,7 @@ private fun OverlayLanguageButton(
         Text(
             text = label,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            color = if (enabled) Color(0xFF3D3940) else Color(0xFF9A949E),
+            color = if (enabled) sgtColors.overlayActiveButtonText else sgtColors.overlayInactiveButtonText,
             style = MaterialTheme.typography.labelMedium,
         )
     }

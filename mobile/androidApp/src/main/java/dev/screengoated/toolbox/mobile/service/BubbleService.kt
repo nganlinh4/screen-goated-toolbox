@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.graphics.Rect
 import android.graphics.PixelFormat
 import android.media.AudioAttributes
 import android.net.Uri
@@ -48,8 +49,9 @@ class BubbleService : Service() {
 
     private var attached = false
     private var bubbleFrontPending = false
-    private var dismissBubbleView: View? = null
-    private var lastFingerDistSq = Int.MAX_VALUE
+    private val dismissTargets = MorphDismissZone.singleDismiss()
+    private var dismissZone: MorphDismissZone? = null
+    private val lastFingerDistanceSq = FloatArray(dismissTargets.size) { Float.POSITIVE_INFINITY }
     private var isPanelExpanded = false
     private var opacityDecayJob: Job? = null
     private var recentInteractionUntilMs = 0L
@@ -60,6 +62,9 @@ class BubbleService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        ensureChannel()
+        startBubbleForeground()
+
         if (!Settings.canDrawOverlays(this)) {
             Toast.makeText(this, "Overlay permission is required for the SGT bubble.", Toast.LENGTH_SHORT).show()
             stopSelf()
@@ -118,9 +123,6 @@ class BubbleService : Service() {
             windowManager.addView(bubbleView, layoutParams)
             attached = true
             presetOverlayController?.updateBubbleBounds(currentBubbleBounds())
-
-            ensureChannel()
-            applyBubbleForegroundMode(this, PresetAudioForegroundMode.NONE, buildNotification())
             isRunning = true
         }.onFailure {
             Log.e(TAG, "BubbleService failed to start", it)
@@ -241,7 +243,7 @@ class BubbleService : Service() {
                             runCatching { windowManager.updateViewLayout(bubbleView, layoutParams) }
                         }
                         presetOverlayController?.updateBubbleBounds(currentBubbleBounds())
-                        updateDismissZone(bubbleDragDismissProximity(event.rawX, event.rawY))
+                        updateDismissZone(event.rawX, event.rawY)
                     }
                     return true
                 }
@@ -249,12 +251,22 @@ class BubbleService : Service() {
                     if (isDragging) {
                         recordBubbleInteraction()
                         val proximity = bubbleDragDismissProximity(event.rawX, event.rawY)
-                        lastFingerDistSq = Int.MAX_VALUE
+                        resetDismissTracking()
                         if (proximity >= 0.8f) {
-                            resetPositionOnDestroy = true
-                            hideDismissZone()
-                            stopForeground(STOP_FOREGROUND_REMOVE)
-                            stopSelf()
+                            // Swallow: shrink bubble into dismiss target
+                            bubbleView.animate()
+                                .scaleX(0.2f).scaleY(0.2f).alpha(0f)
+                                .setDuration(180).start()
+                            dismissZone?.swallow(0) {
+                                resetPositionOnDestroy = true
+                                dismissZone = null
+                                stopForeground(STOP_FOREGROUND_REMOVE)
+                                stopSelf()
+                            } ?: run {
+                                resetPositionOnDestroy = true
+                                stopForeground(STOP_FOREGROUND_REMOVE)
+                                stopSelf()
+                            }
                         } else {
                             hideDismissZone()
                             saveBubblePosition()
@@ -272,7 +284,7 @@ class BubbleService : Service() {
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     hideDismissZone()
-                    lastFingerDistSq = Int.MAX_VALUE
+                    resetDismissTracking()
                     return true
                 }
             }
@@ -341,6 +353,16 @@ class BubbleService : Service() {
 
     private fun setAudioCaptureForegroundMode(mode: PresetAudioForegroundMode) {
         applyBubbleForegroundMode(this, mode, buildNotification())
+    }
+
+    private fun startBubbleForeground() {
+        val notification = buildNotification()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+        currentAudioForegroundMode = PresetAudioForegroundMode.NONE
     }
 
     private fun currentBubbleSizeDp(): Int {
@@ -417,112 +439,40 @@ class BubbleService : Service() {
         }
     }
 
-    private fun ensureDismissBubble() {
-        if (dismissBubbleView != null) return
-        val bubbleSize = dp(56)
-        val circle = View(this).apply {
-            background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(android.graphics.Color.argb(200, 60, 60, 60))
-            }
-            alpha = 0f
-            scaleX = 0.4f
-            scaleY = 0.4f
-        }
-        val icon = android.widget.TextView(this).apply {
-            text = "\u00D7"
-            textSize = 24f
-            setTextColor(android.graphics.Color.WHITE)
-            gravity = Gravity.CENTER
-        }
-        val container = FrameLayout(this).apply {
-            addView(circle, FrameLayout.LayoutParams(bubbleSize, bubbleSize).apply {
-                gravity = Gravity.CENTER
-            })
-            addView(icon, FrameLayout.LayoutParams(bubbleSize, bubbleSize).apply {
-                gravity = Gravity.CENTER
-            })
-        }
-        val params = WindowManager.LayoutParams(
-            bubbleSize * 2,
-            bubbleSize * 2,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            PixelFormat.TRANSLUCENT,
-        ).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = dp(24)
-        }
-        dismissBubbleView = container
-        runCatching { windowManager.addView(container, params) }
-        circle.animate()
-            .alpha(1f)
-            .scaleX(1f)
-            .scaleY(1f)
-            .setDuration(250)
-            .setInterpolator(android.view.animation.OvershootInterpolator(1.5f))
-            .start()
-    }
-
-    private fun updateDismissZone(proximity: Float) {
-        ensureDismissBubble()
-        val circle = (dismissBubbleView as? FrameLayout)?.getChildAt(0) ?: return
-        val scale = 1f + proximity * 0.35f
-        circle.scaleX = scale
-        circle.scaleY = scale
-        val r = (60 + (160 * proximity)).toInt().coerceIn(0, 255)
-        val g = (60 - (10 * proximity)).toInt().coerceIn(0, 255)
-        val b = (60 - (10 * proximity)).toInt().coerceIn(0, 255)
-        val a = (200 + (20 * proximity)).toInt().coerceIn(0, 255)
-        (circle.background as? android.graphics.drawable.GradientDrawable)
-            ?.setColor(android.graphics.Color.argb(a, r, g, b))
+    private fun updateDismissZone(rawX: Float, rawY: Float) {
+        val zone = dismissZone ?: MorphDismissZone(
+            context = this,
+            windowManager = windowManager,
+            targets = dismissTargets,
+        ).also { dismissZone = it; it.show() }
+        zone.update(currentDismissHit(rawX, rawY).proximities)
     }
 
     private fun hideDismissZone() {
-        val view = dismissBubbleView ?: return
-        val circle = (view as? FrameLayout)?.getChildAt(0)
-        if (circle != null) {
-            circle.animate()
-                .alpha(0f)
-                .scaleX(0.3f)
-                .scaleY(0.3f)
-                .setDuration(200)
-                .withEndAction {
-                    runCatching { windowManager.removeView(view) }
-                    dismissBubbleView = null
-                }
-                .start()
-        } else {
-            runCatching { windowManager.removeView(view) }
-            dismissBubbleView = null
-        }
+        dismissZone?.hide()
+        dismissZone = null
+        resetDismissTracking()
     }
 
-    private fun bubbleDragDismissProximity(
-        rawX: Float,
-        rawY: Float,
-    ): Float {
-        val screen = resources.displayMetrics
-        val centerX = screen.widthPixels / 2f
-        val centerY = screen.heightPixels - dp(24) - dp(56)
-        val dx = rawX - centerX
-        val dy = rawY - centerY
-        val distSq = (dx * dx + dy * dy).toInt()
-        val approaching = distSq < lastFingerDistSq
-        lastFingerDistSq = distSq
-        val hitRadius = dp(55).toFloat()
-        val outerRadius = if (approaching) dp(140).toFloat() else dp(110).toFloat()
-        val dist = kotlin.math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
-        return if (dist <= hitRadius) {
-            1f
-        } else if (dist <= outerRadius) {
-            1f - (dist - hitRadius) / (outerRadius - hitRadius)
-        } else {
-            0f
-        }
+    private fun bubbleDragDismissProximity(rawX: Float, rawY: Float): Float {
+        return currentDismissHit(rawX, rawY).proximities.firstOrNull() ?: 0f
+    }
+
+    private fun currentDismissHit(rawX: Float, rawY: Float): MorphDismissZone.DismissHitResult {
+        val metrics = resources.displayMetrics
+        return MorphDismissZone.hitTest(
+            rawX = rawX,
+            rawY = rawY,
+            screenBounds = Rect(0, 0, metrics.widthPixels, metrics.heightPixels),
+            density = metrics.density,
+            coordinateScale = 1f,
+            targets = dismissTargets,
+            previousDistanceSq = lastFingerDistanceSq,
+        ).also { it.distanceSq.copyInto(lastFingerDistanceSq) }
+    }
+
+    private fun resetDismissTracking() {
+        lastFingerDistanceSq.fill(Float.POSITIVE_INFINITY)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
