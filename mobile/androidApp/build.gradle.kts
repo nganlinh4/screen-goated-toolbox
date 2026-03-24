@@ -323,6 +323,13 @@ tasks.matching {
     dependsOn(generatePresetModelCatalog)
 }
 
+tasks.matching {
+    it.name.contains("Lint", ignoreCase = false)
+}.configureEach {
+    dependsOn(generatePresetOverlayAssets)
+    dependsOn(generatePresetModelCatalog)
+}
+
 dependencies {
     implementation(project(":shared"))
 
