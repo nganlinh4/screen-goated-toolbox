@@ -271,6 +271,10 @@ class MainViewModel(
         historyRepository.updateMaxItems(value)
     }
 
+    fun resetHistoryDefaults() {
+        historyRepository.resetSettingsToDefaults()
+    }
+
     fun deleteHistoryItem(id: Long) {
         historyRepository.delete(id)
     }

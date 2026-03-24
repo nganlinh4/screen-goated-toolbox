@@ -80,12 +80,14 @@ internal fun GlobalSection(
                     text = locale.presetRuntimeButton,
                     icon = Icons.Rounded.Settings,
                     onClick = onPresetRuntimeSettingsClick,
+                    morphStyle = SettingsActionMorphStyle.PRIORITY,
                     modifier = Modifier.weight(1f),
                 )
                 SettingsActionButton(
                     text = locale.usageStatsButton,
                     icon = Icons.Rounded.BarChart,
                     onClick = onUsageStatsClick,
+                    morphStyle = SettingsActionMorphStyle.STATS,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -117,12 +119,14 @@ internal fun GlobalSection(
                     text = locale.presetRuntimeButton,
                     icon = Icons.Rounded.Settings,
                     onClick = onPresetRuntimeSettingsClick,
+                    morphStyle = SettingsActionMorphStyle.PRIORITY,
                     modifier = Modifier.weight(1f),
                 )
                 SettingsActionButton(
                     text = locale.usageStatsButton,
                     icon = Icons.Rounded.BarChart,
                     onClick = onUsageStatsClick,
+                    morphStyle = SettingsActionMorphStyle.STATS,
                     modifier = Modifier.weight(1f),
                 )
             }

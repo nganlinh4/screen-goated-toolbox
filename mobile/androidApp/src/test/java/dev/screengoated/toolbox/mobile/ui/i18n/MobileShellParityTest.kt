@@ -4,6 +4,7 @@ import dev.screengoated.toolbox.mobile.branding.MobileBrandAssets
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 import dev.screengoated.toolbox.mobile.model.next
 import dev.screengoated.toolbox.mobile.ui.MobileShellSection
+import dev.screengoated.toolbox.mobile.ui.credentialsProviderOrder
 import dev.screengoated.toolbox.mobile.ui.layoutBehavior
 import dev.screengoated.toolbox.mobile.ui.shouldLockPagerForCarouselTouch
 import org.junit.Assert.assertEquals
@@ -59,6 +60,14 @@ class MobileShellParityTest {
         assertTrue(en.helpAssistantAndroidOption.contains("Android"))
         assertTrue(vi.helpAssistantAndroidOption.contains("Android"))
         assertTrue(ko.helpAssistantAndroidOption.contains("Android"))
+    }
+
+    @Test
+    fun credentialsProviderOrderMatchesWindowsGlobalSettings() {
+        assertEquals(
+            listOf("Groq", "Cerebras", "Gemini", "OpenRouter", "Ollama"),
+            credentialsProviderOrder().map { it.label },
+        )
     }
 
     @Test

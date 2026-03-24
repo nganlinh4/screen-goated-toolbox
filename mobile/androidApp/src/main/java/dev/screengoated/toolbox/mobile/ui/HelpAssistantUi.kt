@@ -6,7 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,7 +20,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -107,22 +105,13 @@ internal fun HelpAssistantActionButton(
 ) {
     var showDialog by rememberSaveable { mutableStateOf(false) }
 
-    FilledTonalButton(
+    SettingsActionButton(
+        text = locale.shellHelpLabel,
+        icon = Icons.AutoMirrored.Rounded.HelpOutline,
         onClick = { showDialog = true },
         modifier = modifier,
-        shape = MaterialTheme.shapes.large,
-    ) {
-        Icon(
-            imageVector = Icons.AutoMirrored.Rounded.HelpOutline,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(modifier = Modifier.padding(start = androidx.compose.material3.ButtonDefaults.IconSpacing))
-        Text(
-            text = locale.shellHelpLabel,
-            style = MaterialTheme.typography.labelLargeEmphasized,
-        )
-    }
+        morphStyle = SettingsActionMorphStyle.HELP,
+    )
 
     if (showDialog) {
         HelpAssistantDialog(

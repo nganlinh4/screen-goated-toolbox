@@ -71,7 +71,6 @@ import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Hearing
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.ImageSearch
-import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PhotoCamera
@@ -129,17 +128,12 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.Modifier
@@ -167,12 +161,7 @@ import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
-internal enum class MobileShellSection(val icon: ImageVector) {
-    APPS(Icons.Rounded.GridView),
-    TOOLS(Icons.Rounded.Apps),
-    SETTINGS(Icons.Rounded.Settings),
-    HISTORY(Icons.Rounded.History);
-
+internal enum class MobileShellSection(val icon: ImageVector) { APPS(Icons.Rounded.GridView), TOOLS(Icons.Rounded.Apps), SETTINGS(Icons.Rounded.Settings), HISTORY(Icons.Rounded.History);
     fun label(locale: MobileLocaleText): String = when (this) {
         APPS -> locale.shellAppsLabel
         TOOLS -> locale.shellToolsLabel
@@ -180,7 +169,6 @@ internal enum class MobileShellSection(val icon: ImageVector) {
         HISTORY -> locale.shellHistoryLabel
     }
 }
-
 @Composable
 internal fun SectionSegmentedRow(
     selectedSection: MobileShellSection,
@@ -190,9 +178,9 @@ internal fun SectionSegmentedRow(
     pagerState: androidx.compose.foundation.pager.PagerState? = null,
 ) {
     val sections = MobileShellSection.entries
-    val activeBg = MaterialTheme.colorScheme.secondaryContainer
-    val inactiveBg = Color.Transparent
-    val activeContent = MaterialTheme.colorScheme.onSecondaryContainer
+    val activeBg = MaterialTheme.colorScheme.primaryContainer
+    val inactiveBg = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.62f)
+    val activeContent = MaterialTheme.colorScheme.onPrimaryContainer
     val inactiveContent = MaterialTheme.colorScheme.onSurfaceVariant
 
     HorizontalFloatingToolbar(
@@ -200,8 +188,6 @@ internal fun SectionSegmentedRow(
         modifier = modifier,
         content = {
             sections.forEachIndexed { index, section ->
-                // Calculate per-tab activation fraction (0.0 = inactive, 1.0 = fully active)
-                // Tracks pager scroll position in real-time during swipes
                 val fraction = if (pagerState != null && pagerState.isScrollInProgress) {
                     val page = pagerState.currentPage
                     val offset = pagerState.currentPageOffsetFraction
@@ -214,19 +200,37 @@ internal fun SectionSegmentedRow(
                 } else {
                     if (selectedSection == section) 1f else 0f
                 }
-
                 val bgColor = androidx.compose.ui.graphics.lerp(inactiveBg, activeBg, fraction)
                 val contentColor = androidx.compose.ui.graphics.lerp(inactiveContent, activeContent, fraction)
+                val iconBg = androidx.compose.ui.graphics.lerp(
+                    MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.62f),
+                    MaterialTheme.colorScheme.secondaryContainer,
+                    fraction,
+                )
+                val scale by animateFloatAsState(
+                    targetValue = 0.95f + (fraction * 0.05f),
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                    label = "section-pill-$index",
+                )
 
                 val isActive = fraction > 0.5f
                 androidx.compose.material3.Surface(
                     onClick = { onSectionSelected(section) },
                     color = bgColor,
                     contentColor = contentColor,
-                    shape = MaterialTheme.shapes.large,
+                    tonalElevation = if (fraction > 0f) 3.dp else 0.dp,
+                    shadowElevation = if (fraction > 0.6f) 8.dp else 0.dp,
+                    shape = MaterialTheme.shapes.extraLarge,
+                    modifier = Modifier.graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                    },
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -237,20 +241,27 @@ internal fun SectionSegmentedRow(
                             exit = androidx.compose.animation.fadeOut() +
                                 androidx.compose.animation.shrinkHorizontally(),
                         ) {
-                            Row {
-                                Icon(
-                                    section.icon,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Spacer(Modifier.width(6.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .background(iconBg, CircleShape),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        section.icon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                                Spacer(Modifier.width(8.dp))
                             }
                         }
                         Text(
                             text = section.label(locale),
                             maxLines = 1,
                             style = MaterialTheme.typography.labelLarge.copy(
-                                fontFamily = condensedFontSteps[2].second,
+                                fontFamily = condensedFontSteps[if (isActive) 1 else 2].second,
                             ),
                             fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
                             softWrap = false,
@@ -273,40 +284,61 @@ internal fun ShellRail(
     Card(
         modifier = modifier.width(220.dp),
         shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.92f),
+        ),
     ) {
-        WideNavigationRail(
-            state = railState,
-            modifier = Modifier.fillMaxHeight(),
-            header = {
-                Column(
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = ShellSpacing.innerPad),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Text(
-                        text = locale.shellSectionTitle,
-                        style = MaterialTheme.typography.labelLargeEmphasized,
-                    )
-                    Text(
-                        text = locale.shellCurrentSectionLabel,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.16f),
+                            MaterialTheme.colorScheme.surfaceContainerLow,
+                            MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.1f),
+                        ),
+                    ),
+                ),
+        ) {
+            WideNavigationRail(
+                state = railState,
+                modifier = Modifier.fillMaxHeight(),
+                header = {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = ShellSpacing.innerPad),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = locale.shellSectionTitle,
+                            style = MaterialTheme.typography.labelLargeEmphasized,
+                        )
+                        StatusChip(
+                            label = selectedSection.label(locale),
+                            accent = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = locale.shellCurrentSectionLabel,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+            ) {
+                MobileShellSection.entries.forEach { section ->
+                    ShellRailItem(
+                        selected = selectedSection == section,
+                        onClick = { onSectionSelected(section) },
+                        icon = section.icon,
+                        label = section.label(locale),
+                        description = when (section) {
+                            MobileShellSection.APPS -> locale.shellAppsDescription
+                            MobileShellSection.TOOLS -> locale.shellToolsDescription
+                            MobileShellSection.SETTINGS -> locale.shellSettingsDescription
+                            MobileShellSection.HISTORY -> locale.shellHistoryDescription
+                        },
                     )
                 }
-            },
-        ) {
-            MobileShellSection.entries.forEach { section ->
-                ShellRailItem(
-                    selected = selectedSection == section,
-                    onClick = { onSectionSelected(section) },
-                    icon = section.icon,
-                    label = section.label(locale),
-                    description = when (section) {
-                        MobileShellSection.APPS -> locale.shellAppsDescription
-                        MobileShellSection.TOOLS -> locale.shellToolsDescription
-                        MobileShellSection.SETTINGS -> locale.shellSettingsDescription
-                        MobileShellSection.HISTORY -> locale.shellHistoryDescription
-                    },
-                )
             }
         }
     }
@@ -384,26 +416,52 @@ private fun UtilityTile(
         modifier = modifier,
         shape = MaterialTheme.shapes.extraLarge,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.92f),
         ),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(ShellSpacing.innerPad),
-            verticalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
+        Box(
+            modifier = Modifier.background(
+                Brush.linearGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.surfaceContainerLow,
+                        MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.9f),
+                    ),
+                ),
+            ),
         ) {
-            GradientMaskedIcon(icon, brush, modifier = Modifier.size(28.dp))
-            Text(
-                text = label,
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(ShellSpacing.innerPad),
+                verticalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(
+                            brush = Brush.radialGradient(
+                                listOf(
+                                    MaterialTheme.colorScheme.surfaceBright,
+                                    MaterialTheme.colorScheme.surfaceContainerHighest,
+                                ),
+                            ),
+                            shape = MaterialTheme.shapes.large,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    GradientMaskedIcon(icon, brush, modifier = Modifier.size(24.dp))
+                }
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
         }
     }
 }

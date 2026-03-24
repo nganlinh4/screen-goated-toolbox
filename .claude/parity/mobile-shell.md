@@ -32,6 +32,12 @@
 - Mobile shell layout stays Windows-structured but uses Android-native expressive composition:
   - top command bar for language, theme, and branding
   - global settings surface for credentials, live control, and TTS settings
+  - credentials provider toggle and field order follows the Windows global settings order exactly:
+    - `Groq`
+    - `Cerebras`
+    - `Gemini`
+    - `OpenRouter`
+    - `Ollama`
   - tools uses a page-scoped footer for preset actions; its preset rows scroll independently beneath that footer instead of owning the footer position
   - nested horizontal carousels in apps/tools own touch gestures for the full gesture whenever they have horizontal scroll available; the shell tab pager must not compete for drags that start inside a scrollable inner carousel
   - honest placeholders for future Windows sections instead of fake-working mobile-only screens
@@ -44,6 +50,7 @@
 
 ## Fixtures
 - Shared fixtures: [parity-fixtures/mobile-shell/ui-language-theme.json](../../parity-fixtures/mobile-shell/ui-language-theme.json)
+- Shared fixtures: [parity-fixtures/mobile-shell/credentials-provider-order.json](../../parity-fixtures/mobile-shell/credentials-provider-order.json)
 - Android unit tests must at minimum cover theme-cycle order and locale-preview lookup.
 
 ## Deviations

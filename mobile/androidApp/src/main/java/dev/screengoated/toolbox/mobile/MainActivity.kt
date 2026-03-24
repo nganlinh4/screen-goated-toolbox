@@ -144,6 +144,7 @@ class MainActivity : ComponentActivity() {
                     onHistorySearchQueryChanged = viewModel::onHistorySearchQueryChanged,
                     onClearHistorySearchQuery = viewModel::clearHistorySearchQuery,
                     onHistoryMaxItemsChanged = viewModel::onHistoryMaxItemsChanged,
+                    onResetHistoryDefaults = viewModel::resetHistoryDefaults,
                     onDeleteHistoryItem = viewModel::deleteHistoryItem,
                     onClearHistoryItems = viewModel::clearHistoryItems,
                 )

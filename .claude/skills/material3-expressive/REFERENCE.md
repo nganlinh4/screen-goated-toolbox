@@ -85,6 +85,46 @@ val typography = Typography(
 
 ## Component Details
 
+## Repo Patterns
+
+### Dismiss-Zone Morphing
+
+This repo already ships a Material 3 Expressive-inspired dismiss target system in `mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/MorphDismissZone.kt`. Treat it as canonical for Android overlay dismiss interactions during the M3E revamp.
+
+Keep these implementation details intact when editing it:
+
+- Shared component across `BubbleService`, overlay dismissal, and help-assistant dismissal.
+- Shape morph pairs:
+  - primary dismiss: `Circle -> Cookie9Sided`
+  - dismiss-all: `Diamond -> Clover4Leaf`
+- Motion treatment:
+  - overshoot entrance
+  - EMA-smoothed proximity updates to avoid shaking
+  - proximity-driven scale and color bloom
+  - spin when the closest active target changes
+  - swallow collapse after a successful drop
+- Rendering treatment:
+  - rotate the shape path, not the entire view, so the text label remains level
+  - center the morphed path inside a larger cell to avoid clipping when scaled
+
+When updating dismiss interactions, prefer changing `MorphDismissZone` once and reusing it instead of introducing screen-specific visual variants.
+
+### Settings Action Morph Grammar
+
+For small interactive surfaces in this repo, use a limited shape grammar and let morph carry the state change.
+
+- Recommended current pairs:
+  - preset runtime / model-priority action: `Square -> Cookie6Sided`
+  - usage stats action: `Oval -> Gem`
+  - help-assistant action: `Bun -> Flower`
+  - reset action: `Slanted -> Pentagon`
+  - password visibility eye toggle: `Circle -> PuffyDiamond`
+- Apply the morph to the object that owns the action state:
+  - action cards: usually the leading badge/object, with a subtle press-time color lift
+  - utility toggles: the button container itself, keyed to the actual boolean state
+- Keep icon glyphs readable and stable. If the interaction needs a lighter touch, reduce the color shift before reducing the morph.
+- Avoid using many unrelated shapes in one section. Repetition is part of the expressive system.
+
 ### LoadingIndicator
 
 Used for short wait times (under 5 seconds). Features shape-morphing animation.
@@ -155,6 +195,18 @@ fun MyFlexibleBottomAppBar() {
         // Content
     }
 }
+```
+
+### Dismiss-Zone Shape Pairing Example
+
+```kotlin
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+fun singleDismiss(): List<MorphDismissZone.DismissTargetDef> = listOf(
+    MorphDismissZone.DismissTargetDef(
+        morph = Morph(MaterialShapes.Circle, MaterialShapes.Cookie9Sided),
+        label = "×",
+    ),
+)
 ```
 
 ---

@@ -147,10 +147,24 @@ class HistoryRepository internal constructor(
                 if (current.maxItems == clamped) {
                     return@withLock
                 }
-                val settings = HistorySettings(maxItems = clamped)
+                val settings = HistorySettings(
+                    maxItems = clamped,
+                    hasExplicitMaxItems = true,
+                )
                 persistence.saveSettings(settings)
                 val prunedItems = pruneItems(current.items, clamped)
                 persistItems(prunedItems, maxItems = clamped)
+            }
+        }
+    }
+
+    fun resetSettingsToDefaults() {
+        scope.launch {
+            mutex.withLock {
+                val settings = HistorySettings()
+                persistence.saveSettings(settings)
+                val prunedItems = pruneItems(_state.value.items, settings.maxItems)
+                persistItems(prunedItems, maxItems = settings.maxItems)
             }
         }
     }

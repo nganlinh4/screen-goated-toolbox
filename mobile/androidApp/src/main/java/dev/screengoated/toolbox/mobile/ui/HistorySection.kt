@@ -7,7 +7,9 @@
 package dev.screengoated.toolbox.mobile.ui
 
 import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -30,12 +32,9 @@ import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -68,8 +67,6 @@ import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import java.io.File
 import kotlin.math.roundToInt
 
-private val historyActionButtonPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
-
 @Composable
 internal fun HistorySection(
     state: HistoryUiState,
@@ -91,16 +88,12 @@ internal fun HistorySection(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                ),
-                shape = MaterialTheme.shapes.small,
+            ExpressiveSettingsCard(
+                accent = MaterialTheme.colorScheme.primary,
             ) {
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
+                        .fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     Row(
@@ -112,7 +105,7 @@ internal fun HistorySection(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Icon(Icons.Rounded.History, contentDescription = null)
+                            HistorySectionHeroBadge(modifier = Modifier.size(42.dp))
                             Text(
                                 text = locale.historyTitle,
                                 style = MaterialTheme.typography.titleMedium,
@@ -153,17 +146,32 @@ internal fun HistorySection(
                             placeholder = { Text(locale.historySearchPlaceholder) },
                         )
                         if (searchQuery.isNotBlank()) {
-                            IconButton(onClick = onClearSearchQuery) {
-                                Icon(Icons.Rounded.Close, contentDescription = locale.historyClearSearch)
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                        shape = MaterialTheme.shapes.medium,
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                IconButton(onClick = onClearSearchQuery) {
+                                    Icon(Icons.Rounded.Close, contentDescription = locale.historyClearSearch)
+                                }
                             }
                         }
                     }
 
-                    FlowRow(
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        FilledTonalButton(
+                        HistoryActionButton(
+                            text = locale.historyOpenFolder,
+                            icon = Icons.Rounded.Folder,
+                            role = HistoryActionRole.FOLDER,
+                            iconRotationDegrees = -90f,
                             onClick = {
                                 val opened = HistoryExternalActions.openFolder(
                                     context = context,
@@ -178,22 +186,15 @@ internal fun HistorySection(
                                     ).show()
                                 }
                             },
-                        ) {
-                            Icon(Icons.Rounded.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.size(6.dp))
-                            Text(locale.historyOpenFolder)
-                        }
-                        Button(
+                            modifier = Modifier.weight(1f),
+                        )
+                        HistoryActionButton(
+                            text = locale.historyClearAll,
+                            icon = Icons.Rounded.Delete,
+                            role = HistoryActionRole.DELETE,
                             onClick = onClearAll,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.errorContainer,
-                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                            ),
-                        ) {
-                            Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.size(6.dp))
-                            Text(locale.historyClearAll)
-                        }
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
             }
@@ -201,18 +202,21 @@ internal fun HistorySection(
 
         if (filteredItems.isEmpty()) {
             item {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                    ),
-                    shape = MaterialTheme.shapes.small,
+                ExpressiveSettingsCard(
+                    accent = MaterialTheme.colorScheme.outline,
                 ) {
-                    Text(
-                        text = locale.historyEmpty,
-                        modifier = Modifier.padding(20.dp),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        HistorySectionHeroBadge(modifier = Modifier.size(38.dp))
+                        Text(
+                            text = locale.historyEmpty,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         } else {
@@ -250,21 +254,18 @@ private fun HistoryItemCard(
     onDelete: () -> Unit,
 ) {
     val cardColors = historyColors(item.itemType)
-    val copyInteractionSource = remember { MutableInteractionSource() }
-    val openInteractionSource = remember { MutableInteractionSource() }
-    val deleteInteractionSource = remember { MutableInteractionSource() }
     Card(
         colors = CardDefaults.cardColors(
             containerColor = cardColors.containerColor,
             contentColor = cardColors.contentColor,
         ),
-        shape = MaterialTheme.shapes.small,
+        shape = MaterialTheme.shapes.medium,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -275,10 +276,9 @@ private fun HistoryItemCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Icon(
-                        historyIcon(item.itemType),
-                        contentDescription = null,
-                        tint = cardColors.metaColor,
+                    HistoryTypeBadge(
+                        type = item.itemType,
+                        modifier = Modifier.size(34.dp),
                     )
                     Text(
                         text = item.timestamp,
@@ -299,67 +299,52 @@ private fun HistoryItemCard(
             HorizontalDivider(color = cardColors.dividerColor)
 
             val hasOpenAction = !mediaDirectoryPath.isNullOrBlank() && item.mediaPath.isNotBlank()
-            ButtonGroup(
+            Row(
                 modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                FilledTonalButton(
+                HistoryActionButton(
+                    text = locale.historyCopyText,
+                    icon = Icons.Rounded.ContentCopy,
+                    role = HistoryActionRole.COPY,
                     onClick = onCopy,
-                    modifier = Modifier
-                        .weight(1.05f)
-                        .animateWidth(copyInteractionSource),
-                    interactionSource = copyInteractionSource,
-                    contentPadding = historyActionButtonPadding,
-                ) {
-                    Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.size(4.dp))
-                    Text(
-                        text = locale.historyCopyText,
-                        style = MaterialTheme.typography.labelMediumEmphasized,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                    modifier = Modifier.weight(if (hasOpenAction) 1.18f else 1f),
+                )
                 if (hasOpenAction) {
-                    FilledTonalButton(
+                    HistoryActionButton(
+                        text = historyOpenLabel(item.itemType, locale),
+                        icon = Icons.AutoMirrored.Rounded.OpenInNew,
+                        role = HistoryActionRole.OPEN,
                         onClick = onOpen,
-                        modifier = Modifier
-                            .weight(0.95f)
-                            .animateWidth(openInteractionSource),
-                        interactionSource = openInteractionSource,
-                        contentPadding = historyActionButtonPadding,
-                    ) {
-                        Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.size(4.dp))
-                        Text(
-                            text = historyOpenLabel(item.itemType, locale),
-                            style = MaterialTheme.typography.labelMediumEmphasized,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                Button(
-                    onClick = onDelete,
-                    modifier = Modifier
-                        .weight(0.55f)
-                        .animateWidth(deleteInteractionSource),
-                    interactionSource = deleteInteractionSource,
-                    contentPadding = historyActionButtonPadding,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                    ),
-                ) {
-                    Icon(
-                        Icons.Rounded.Delete,
-                        contentDescription = locale.historyDelete,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.weight(1.08f),
                     )
                 }
+                HistoryDeleteAction(
+                    onClick = onDelete,
+                    contentDescription = locale.historyDelete,
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun HistoryDeleteAction(
+    onClick: () -> Unit,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier.size(44.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Delete,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.error,
+            modifier = Modifier.size(24.dp),
+        )
     }
 }
 
@@ -412,12 +397,6 @@ private data class HistoryCardColors(
     val metaColor: Color,
     val dividerColor: Color,
 )
-
-private fun historyIcon(type: HistoryType) = when (type) {
-    HistoryType.IMAGE -> Icons.Rounded.Image
-    HistoryType.AUDIO -> Icons.Rounded.GraphicEq
-    HistoryType.TEXT -> Icons.AutoMirrored.Rounded.TextSnippet
-}
 
 private fun historyOpenLabel(
     type: HistoryType,

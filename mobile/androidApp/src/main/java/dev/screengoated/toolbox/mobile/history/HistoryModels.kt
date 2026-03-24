@@ -30,7 +30,9 @@ data class StoredHistoryDatabase(
 
 @Serializable
 data class HistorySettings(
+    val schemaVersion: Int = 1,
     val maxItems: Int = DEFAULT_HISTORY_LIMIT,
+    val hasExplicitMaxItems: Boolean = false,
 )
 
 data class HistoryUiState(
@@ -42,6 +44,16 @@ data class HistoryUiState(
 
 internal fun clampHistoryLimit(value: Int): Int {
     return value.coerceIn(MIN_HISTORY_LIMIT, MAX_HISTORY_LIMIT)
+}
+
+internal fun normalizeHistorySettings(settings: HistorySettings): HistorySettings {
+    val clamped = clampHistoryLimit(settings.maxItems)
+    val normalizedMaxItems = if (!settings.hasExplicitMaxItems && clamped == MAX_HISTORY_LIMIT) {
+        DEFAULT_HISTORY_LIMIT
+    } else {
+        clamped
+    }
+    return settings.copy(maxItems = normalizedMaxItems)
 }
 
 internal fun filterHistoryItems(
