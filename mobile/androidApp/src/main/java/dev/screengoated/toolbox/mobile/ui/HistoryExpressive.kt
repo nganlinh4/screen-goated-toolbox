@@ -117,6 +117,7 @@ internal fun HistoryActionButton(
     role: HistoryActionRole,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    badgeRotationDegrees: Float = 0f,
     iconRotationDegrees: Float = 0f,
     contentDescription: String? = text,
 ) {
@@ -174,7 +175,9 @@ internal fun HistoryActionButton(
                 morphPair = role.morphPair,
                 progress = morphProgress,
                 containerColor = containerColor,
-                modifier = Modifier.size(34.dp),
+                modifier = Modifier
+                    .size(34.dp)
+                    .graphicsLayer(rotationZ = badgeRotationDegrees),
             ) {
                 androidx.compose.material3.Icon(
                     imageVector = icon,

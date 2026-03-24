@@ -2,45 +2,35 @@
 
 package dev.screengoated.toolbox.mobile.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.Public
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import dev.screengoated.toolbox.mobile.preset.ModelUsageStats
 import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
 import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
@@ -64,6 +54,9 @@ internal fun UsageStatsDialog(
 ) {
     val allStats = ModelUsageStats.getAll()
     val catalog = PresetModelCatalog
+    val uriHandler = LocalUriHandler.current
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
 
     val sections = listOf(
         ProviderSection(
@@ -101,141 +94,112 @@ internal fun UsageStatsDialog(
         ),
     )
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ExpressiveDialogSurface(
+        title = locale.usageStatsTitle,
+        icon = Icons.Rounded.AutoAwesome,
+        accent = MaterialTheme.colorScheme.primary,
+        morphPair = ExpressiveMorphPair(MaterialShapes.Oval, MaterialShapes.Gem),
+        onDismiss = onDismiss,
+        supporting = null,
+        maxWidth = 520.dp,
+        maxHeight = if (isLandscape) 760.dp else 660.dp,
+        heightFraction = if (isLandscape) 0.9f else 0.82f,
     ) {
-        Card(
+        Column(
             modifier = Modifier
-                .fillMaxWidth(0.94f)
-                .widthIn(max = 520.dp)
-                .padding(16.dp),
-            shape = MaterialTheme.shapes.small,
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-            ),
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            BoxWithConstraints(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.75f)
-                    .heightIn(max = 600.dp)
-                    .padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 16.dp),
-            ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    // Header
+            if (allStats.isEmpty()) {
+                ExpressiveDialogSectionCard(
+                    accent = MaterialTheme.colorScheme.outline,
+                ) {
+                    Text(
+                        text = locale.usageStatsNoData,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+
+            sections.forEach { section ->
+                if (!section.enabled) return@forEach
+                val sectionModels = catalog.models.filter { section.providerMatch(it.provider) }
+                if (sectionModels.isEmpty()) return@forEach
+
+                val accent = usageStatsAccent(section.name)
+                ExpressiveDialogSectionCard(accent = accent) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Text(
-                            text = locale.usageStatsTitle,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Spacer(Modifier.weight(1f))
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Rounded.Close, contentDescription = null)
+                        MorphingShapeBadge(
+                            morphPair = ExpressiveMorphPair(MaterialShapes.Oval, MaterialShapes.Gem),
+                            progress = 0.62f,
+                            containerColor = accent.copy(alpha = 0.18f),
+                            modifier = Modifier.size(40.dp),
+                        ) {
+                            Icon(
+                                imageVector = section.icon,
+                                contentDescription = null,
+                                tint = accent,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = section.name,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = "${sectionModels.size} model${if (sectionModels.size == 1) "" else "s"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (section.dashboardUrl != null) {
+                            val linkLabel = when (lang) {
+                                "vi" -> "Xem lượng dùng ↗"
+                                "ko" -> "사용량 확인 ↗"
+                                else -> "Check Usage ↗"
+                            }
+                            ExpressiveDialogActionChip(
+                                text = linkLabel,
+                                accent = accent,
+                                onClick = { uriHandler.openUri(section.dashboardUrl) },
+                            )
                         }
                     }
 
-                    if (allStats.isEmpty()) {
-                        Text(
-                            text = locale.usageStatsNoData,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 16.dp, end = 8.dp),
-                        )
-                    }
-
-                    // Scrollable content
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                            .padding(end = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Spacer(Modifier.size(4.dp))
-
-                        for (section in sections) {
-                            if (!section.enabled) continue
-
-                            val sectionModels = catalog.models.filter { section.providerMatch(it.provider) }
-                            if (sectionModels.isEmpty()) continue
-
-                            // Provider header + dashboard link
-                            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 8.dp),
-                            ) {
-                                Icon(
-                                    section.icon,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                                Spacer(Modifier.size(8.dp))
-                                Text(
-                                    text = section.name,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                                if (section.dashboardUrl != null) {
-                                    Spacer(Modifier.weight(1f))
-                                    val linkLabel = when (lang) {
-                                        "vi" -> "Xem lượng dùng ↗"
-                                        "ko" -> "사용량 확인 ↗"
-                                        else -> "Check Usage ↗"
-                                    }
-                                    Text(
-                                        text = linkLabel,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier
-                                            .clickable { uriHandler.openUri(section.dashboardUrl) }
-                                            .padding(vertical = 4.dp),
-                                    )
-                                }
-                            }
-
-                            // Model rows
-                            for (model in sectionModels) {
-                                val entry = allStats[model.fullName]
-                                val isOllama = model.provider == PresetModelProvider.OLLAMA
-
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = model.localizedName(lang),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        modifier = Modifier.weight(1f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        text = when {
-                                            isOllama -> locale.usageStatsUnlimited
-                                            entry != null -> "${entry.remaining} / ${entry.total}"
-                                            else -> "— / ${model.localizedQuota(lang).ifBlank { "?" }}"
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-
-                            HorizontalDivider(
-                                modifier = Modifier.padding(top = 4.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                    sectionModels.forEach { model ->
+                        val entry = allStats[model.fullName]
+                        val isOllama = model.provider == PresetModelProvider.OLLAMA
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                text = model.localizedName(lang),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = when {
+                                    isOllama -> locale.usageStatsUnlimited
+                                    entry != null -> "${entry.remaining} / ${entry.total}"
+                                    else -> "— / ${model.localizedQuota(lang).ifBlank { "?" }}"
+                                },
+                                style = MaterialTheme.typography.labelMediumEmphasized,
+                                color = accent,
                             )
                         }
                     }
@@ -243,4 +207,13 @@ internal fun UsageStatsDialog(
             }
         }
     }
+}
+
+@Composable
+private fun usageStatsAccent(sectionName: String): Color = when (sectionName) {
+    "Groq" -> MaterialTheme.colorScheme.primary
+    "Cerebras" -> MaterialTheme.colorScheme.error
+    "Google Gemini" -> MaterialTheme.colorScheme.tertiary
+    "OpenRouter" -> MaterialTheme.colorScheme.secondary
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
 }

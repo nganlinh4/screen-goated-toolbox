@@ -3,31 +3,24 @@
 package dev.screengoated.toolbox.mobile.ui.ttssettings
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
@@ -40,14 +33,15 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
+import dev.screengoated.toolbox.mobile.ui.ExpressiveDialogSectionCard
+import dev.screengoated.toolbox.mobile.ui.ExpressiveDialogSurface
+import dev.screengoated.toolbox.mobile.ui.ExpressiveMorphPair
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 @Composable
@@ -65,98 +59,100 @@ internal fun RenderGlobalTtsSettingsDialog(
     onPreviewGeminiVoice: (String) -> Unit,
     onPreviewEdgeVoice: (String, String) -> Unit,
 ) {
+    val isLandscape =
+        LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val selectMethod: (MobileTtsMethod) -> Unit = { method ->
         onMethodChanged(method)
         if (method == MobileTtsMethod.GOOGLE_TRANSLATE && settings.speedPreset == MobileTtsSpeedPreset.FAST) {
             onSpeedPresetChanged(MobileTtsSpeedPreset.NORMAL)
         }
     }
+    val accent = when (settings.method) {
+        MobileTtsMethod.GEMINI_LIVE -> MaterialTheme.colorScheme.primary
+        MobileTtsMethod.EDGE_TTS -> MaterialTheme.colorScheme.tertiary
+        MobileTtsMethod.GOOGLE_TRANSLATE -> MaterialTheme.colorScheme.secondary
+    }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ExpressiveDialogSurface(
+        title = locale.ttsSettingsTitle,
+        icon = when (settings.method) {
+            MobileTtsMethod.GEMINI_LIVE -> Icons.Rounded.AutoAwesome
+            MobileTtsMethod.EDGE_TTS -> Icons.Rounded.GraphicEq
+            MobileTtsMethod.GOOGLE_TRANSLATE -> Icons.Rounded.Language
+        },
+        accent = accent,
+        morphPair = ExpressiveMorphPair(MaterialShapes.Square, MaterialShapes.Cookie6Sided),
+        onDismiss = onDismiss,
+        supporting = when (settings.method) {
+            MobileTtsMethod.GEMINI_LIVE -> locale.ttsMethodStandard
+            MobileTtsMethod.EDGE_TTS -> locale.ttsMethodEdge
+            MobileTtsMethod.GOOGLE_TRANSLATE -> locale.ttsMethodFast
+        },
+        headerTrailing = if (isLandscape) {
+            {
+                MethodToggleRow(
+                    currentMethod = settings.method,
+                    locale = locale,
+                    onSelect = selectMethod,
+                    compact = true,
+                )
+            }
+        } else {
+            null
+        },
+        widthFraction = 0.985f,
+        maxWidth = 980.dp,
+        heightFraction = 0.96f,
+        maxHeight = 900.dp,
     ) {
-        Card(
+        Column(
             modifier = Modifier
-                .fillMaxWidth(0.985f)
-                .widthIn(max = 980.dp)
-                .padding(16.dp),
-            shape = MaterialTheme.shapes.medium,
-            colors = androidx.compose.material3.CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-            ),
+                .fillMaxWidth()
+                .weight(1f),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            BoxWithConstraints(
+            if (!isLandscape) {
+                ExpressiveDialogSectionCard(accent = accent) {
+                    MethodToggleRow(
+                        currentMethod = settings.method,
+                        locale = locale,
+                        onSelect = selectMethod,
+                        compact = true,
+                    )
+                }
+            }
+
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.96f)
-                    .heightIn(max = 900.dp)
-                    .padding(start = 24.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                val isLandscape = maxWidth > maxHeight
+                when (settings.method) {
+                    MobileTtsMethod.GEMINI_LIVE -> GeminiLiveSection(
+                        settings = settings,
+                        locale = locale,
+                        onSpeedPresetChanged = onSpeedPresetChanged,
+                        onConditionsChanged = onConditionsChanged,
+                        onVoiceChanged = onVoiceChanged,
+                        onPreviewVoice = onPreviewGeminiVoice,
+                    )
 
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    // Header: title + toggles (landscape) + close
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text(
-                            text = if (isLandscape) "TTS" else locale.ttsSettingsTitle,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        if (isLandscape) {
-                            Spacer(Modifier.weight(1f))
-                            MethodToggleRow(settings.method, locale, selectMethod)
-                        } else {
-                            Spacer(Modifier.weight(1f))
-                        }
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Rounded.Close, contentDescription = locale.closeLabel)
-                        }
-                    }
+                    MobileTtsMethod.GOOGLE_TRANSLATE -> GoogleTranslateSection(
+                        selected = settings.speedPreset,
+                        locale = locale,
+                        onSpeedPresetChanged = onSpeedPresetChanged,
+                    )
 
-                    if (!isLandscape) {
-                        Spacer(Modifier.size(8.dp))
-                        MethodToggleRow(settings.method, locale, selectMethod)
-                    }
-                    Spacer(Modifier.size(12.dp))
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        when (settings.method) {
-                            MobileTtsMethod.GEMINI_LIVE -> GeminiLiveSection(
-                                settings = settings,
-                                locale = locale,
-                                onSpeedPresetChanged = onSpeedPresetChanged,
-                                onConditionsChanged = onConditionsChanged,
-                                onVoiceChanged = onVoiceChanged,
-                                onPreviewVoice = onPreviewGeminiVoice,
-                            )
-
-                            MobileTtsMethod.GOOGLE_TRANSLATE -> GoogleTranslateSection(
-                                selected = settings.speedPreset,
-                                locale = locale,
-                                onSpeedPresetChanged = onSpeedPresetChanged,
-                            )
-
-                            MobileTtsMethod.EDGE_TTS -> EdgeTtsSection(
-                                settings = settings.edgeSettings,
-                                locale = locale,
-                                catalogState = edgeVoiceCatalogState,
-                                onChanged = onEdgeSettingsChanged,
-                                onRetryCatalog = onRetryEdgeVoiceCatalog,
-                                onPreviewVoice = onPreviewEdgeVoice,
-                            )
-                        }
-                    }
+                    MobileTtsMethod.EDGE_TTS -> EdgeTtsSection(
+                        settings = settings.edgeSettings,
+                        locale = locale,
+                        catalogState = edgeVoiceCatalogState,
+                        onChanged = onEdgeSettingsChanged,
+                        onRetryCatalog = onRetryEdgeVoiceCatalog,
+                        onPreviewVoice = onPreviewEdgeVoice,
+                    )
                 }
             }
         }
@@ -168,17 +164,18 @@ private fun MethodToggleRow(
     currentMethod: MobileTtsMethod,
     locale: MobileLocaleText,
     onSelect: (MobileTtsMethod) -> Unit,
+    compact: Boolean = false,
 ) {
     val methods = listOf(
-        Triple(MobileTtsMethod.GEMINI_LIVE, locale.ttsMethodStandard, Icons.Rounded.AutoAwesome),
-        Triple(MobileTtsMethod.EDGE_TTS, locale.ttsMethodEdge, Icons.Rounded.GraphicEq),
-        Triple(MobileTtsMethod.GOOGLE_TRANSLATE, locale.ttsMethodFast, Icons.Rounded.Language),
+        MobileTtsMethod.GEMINI_LIVE to compactMethodLabel(locale, MobileTtsMethod.GEMINI_LIVE, compact),
+        MobileTtsMethod.EDGE_TTS to compactMethodLabel(locale, MobileTtsMethod.EDGE_TTS, compact),
+        MobileTtsMethod.GOOGLE_TRANSLATE to compactMethodLabel(locale, MobileTtsMethod.GOOGLE_TRANSLATE, compact),
     )
-    FlowRow(
+    Row(
         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-        verticalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        methods.forEachIndexed { index, (method, label, icon) ->
+        methods.forEachIndexed { index, (method, label) ->
             ToggleButton(
                 checked = currentMethod == method,
                 onCheckedChange = { onSelect(method) },
@@ -189,10 +186,39 @@ private fun MethodToggleRow(
                 },
                 modifier = Modifier.semantics { role = Role.RadioButton },
             ) {
-                Icon(icon, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                 Text(label, style = MaterialTheme.typography.labelMediumEmphasized, maxLines = 1)
             }
+        }
+    }
+}
+
+private fun compactMethodLabel(
+    locale: MobileLocaleText,
+    method: MobileTtsMethod,
+    compact: Boolean,
+): String {
+    if (!compact) {
+        return when (method) {
+            MobileTtsMethod.GEMINI_LIVE -> locale.ttsMethodStandard
+            MobileTtsMethod.EDGE_TTS -> locale.ttsMethodEdge
+            MobileTtsMethod.GOOGLE_TRANSLATE -> locale.ttsMethodFast
+        }
+    }
+    return when {
+        locale.ttsMethodFast.contains("Nhanh") -> when (method) {
+            MobileTtsMethod.GEMINI_LIVE -> "Xịn"
+            MobileTtsMethod.EDGE_TTS -> "Tốt"
+            MobileTtsMethod.GOOGLE_TRANSLATE -> "Nhanh"
+        }
+        locale.ttsMethodFast.contains("빠름") -> when (method) {
+            MobileTtsMethod.GEMINI_LIVE -> "표준"
+            MobileTtsMethod.EDGE_TTS -> "좋음"
+            MobileTtsMethod.GOOGLE_TRANSLATE -> "빠름"
+        }
+        else -> when (method) {
+            MobileTtsMethod.GEMINI_LIVE -> "Standard"
+            MobileTtsMethod.EDGE_TTS -> "Edge"
+            MobileTtsMethod.GOOGLE_TRANSLATE -> "Fast"
         }
     }
 }
@@ -203,7 +229,7 @@ private fun GoogleTranslateSection(
     locale: MobileLocaleText,
     onSpeedPresetChanged: (MobileTtsSpeedPreset) -> Unit,
 ) {
-    Card {
+    ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.secondary) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()

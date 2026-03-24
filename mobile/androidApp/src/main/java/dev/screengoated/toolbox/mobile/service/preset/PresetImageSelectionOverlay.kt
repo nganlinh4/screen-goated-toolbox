@@ -186,6 +186,7 @@ private class PresetImageSelectionView(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         updateViewport()
+        updateGestureExclusion(w, h)
     }
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -278,6 +279,16 @@ private class PresetImageSelectionView(
             sourceBitmap.recycle()
         }
     }
+    private fun updateGestureExclusion(w: Int, h: Int) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && w > 0 && h > 0) {
+            val edgeWidth = (GESTURE_EXCLUSION_EDGE_DP * resources.displayMetrics.density).roundToInt()
+            systemGestureExclusionRects = listOf(
+                Rect(0, 0, edgeWidth, h),
+                Rect(w - edgeWidth, 0, w, h),
+            )
+        }
+    }
+
     private fun updateViewport() {
         if (width <= 0 || height <= 0 || sourceBitmap.isRecycled) return
         val viewportInsets = resolveViewportInsets()
@@ -529,6 +540,7 @@ private class PresetImageSelectionView(
         private const val MAX_SCALE = 4f
         private const val MIN_CONTENT_EDGE_PX = 48
         private const val CONTENT_OVERSCAN = 1f
+        private const val GESTURE_EXCLUSION_EDGE_DP = 48f
     }
 }
 private data class ViewportInsets(
