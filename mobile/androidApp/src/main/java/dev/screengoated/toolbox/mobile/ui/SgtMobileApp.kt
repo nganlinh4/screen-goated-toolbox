@@ -77,6 +77,7 @@ import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 
 @Composable
 fun SgtMobileApp(
@@ -241,8 +242,16 @@ fun SgtMobileApp(
                     onPresetRuntimeSettingsClick = { showPresetRuntimeSettings = true },
                     onUsageStatsClick = { showUsageStats = true },
                     onResetDefaults = {
+                        // Match Windows reset scope: reset everything except API keys and language
                         presetRepository.resetAllToDefaults()
                         onPresetRuntimeSettingsChanged(PresetRuntimeSettings())
+                        onOverlayOpacityChanged(85)
+                        onHistoryMaxItemsChanged(500)
+                        // Reset TTS to defaults
+                        onGlobalTtsMethodChanged(dev.screengoated.toolbox.mobile.model.MobileTtsMethod.GEMINI_LIVE)
+                        onGlobalTtsSpeedPresetChanged(dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset.FAST)
+                        onGlobalTtsVoiceChanged("Aoede")
+                        onGlobalEdgeTtsSettingsChanged(dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings())
                     },
                     onVoiceSettingsClick = {
                         onVoiceSettingsShown()
@@ -389,11 +398,13 @@ private val ThemeShapes = arrayOf(
     MaterialShapes.Sunny,      // Light       — radiating sun
 )
 
-private val ThemeColors = arrayOf(
-    Color(0xFF8AB4F8),  // Auto — blue
-    Color(0xFFD0BCFF),  // Dark — purple
-    Color(0xFFFFCC80),  // Light — amber
-)
+/** Resolved inside @Composable via [themeColors]. */
+private val ThemeColors
+    @Composable get() = arrayOf(
+        MaterialTheme.sgtColors.themeAutoColor,
+        MaterialTheme.sgtColors.themeDarkColor,
+        MaterialTheme.sgtColors.themeLightColor,
+    )
 
 private val ThemeRotations = floatArrayOf(
     0f,     // Auto
@@ -529,11 +540,13 @@ private val KShape = RoundedPolygon(
 
 private val LanguageShapes = arrayOf(EShape, VShape, KShape)
 
-private val LanguageColors = arrayOf(
-    Color(0xFF82B1FF),  // E — soft blue
-    Color(0xFFFF8A80),  // V — coral
-    Color(0xFF69F0AE),  // K — mint
-)
+/** Resolved inside @Composable via [languageColors]. */
+private val LanguageColors
+    @Composable get() = arrayOf(
+        MaterialTheme.sgtColors.langEnColor,
+        MaterialTheme.sgtColors.langViColor,
+        MaterialTheme.sgtColors.langKoColor,
+    )
 
 private val LanguageRotations = floatArrayOf(0f, 0f, 0f)
 

@@ -116,6 +116,12 @@
         </service>
 
         <service
+            android:name=".service.PresetAudioForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone|mediaProjection" />
+
+        <service
             android:name=".service.helpassistant.HelpAssistantOverlayService"
             android:enabled="true"
             android:exported="false" />
