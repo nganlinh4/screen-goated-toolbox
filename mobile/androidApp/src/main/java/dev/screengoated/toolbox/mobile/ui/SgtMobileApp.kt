@@ -184,9 +184,8 @@ fun SgtMobileApp(
                                     size = 28.dp,
                                     showBackground = false,
                                 )
-                                Text(
-                                    text = locale.appHeaderTitle,
-                                    style = MaterialTheme.typography.titleMedium,
+                                AppHeaderTitleLink(
+                                    title = locale.appHeaderTitle,
                                 )
                             }
                         },
