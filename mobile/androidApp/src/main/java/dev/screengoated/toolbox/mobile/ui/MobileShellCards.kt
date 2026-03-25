@@ -302,21 +302,11 @@ internal fun VoiceSettingsCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
         ) {
-            Box(
-                modifier = Modifier
-                    .background(
-                        color = accent.copy(alpha = 0.18f),
-                        shape = MaterialTheme.shapes.medium,
-                    )
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                Text(
-                    text = methodDescription,
-                    style = MaterialTheme.typography.labelLargeEmphasized,
-                    color = accent,
-                )
-            }
+            Text(
+                text = methodDescription,
+                style = MaterialTheme.typography.titleMedium,
+                color = accent,
+            )
             Spacer(modifier = Modifier.weight(1f))
             ExpressiveSettingsButton(
                 text = locale.voiceSettingsButton,

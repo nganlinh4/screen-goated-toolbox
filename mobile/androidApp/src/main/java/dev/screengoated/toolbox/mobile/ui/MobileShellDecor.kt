@@ -73,6 +73,6 @@ internal fun methodLabel(
     return when (method) {
         MobileTtsMethod.GEMINI_LIVE -> "Gemini Live"
         MobileTtsMethod.EDGE_TTS -> "Edge TTS"
-        MobileTtsMethod.GOOGLE_TRANSLATE -> "Google Translate"
+        MobileTtsMethod.GOOGLE_TRANSLATE -> "Google Trans."
     }
 }

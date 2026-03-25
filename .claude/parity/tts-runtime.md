@@ -41,7 +41,9 @@
   - switching to Google Translate while current speed is `Fast` must coerce the saved speed to `Normal`
   - Gemini voice preview interrupts current speech
   - Edge preview interrupts current speech
+  - Google Translate preview interrupts current speech
   - preview text comes from the active UI locale bundle's `tts_preview_texts`, not from mobile-only hard-coded demo sentences
+  - settings preview controls must exist for all three methods: Gemini Live, Edge TTS, and Google Translate
   - Edge voice list is loaded from the live Edge catalog endpoint and cached locally
 
 ## Failure And Recovery

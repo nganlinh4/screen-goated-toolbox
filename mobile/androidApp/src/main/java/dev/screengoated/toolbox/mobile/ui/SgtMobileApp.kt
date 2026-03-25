@@ -99,6 +99,7 @@ fun SgtMobileApp(
     onRetryEdgeVoiceCatalog: () -> Unit,
     onPreviewGeminiVoice: (String) -> Unit,
     onPreviewEdgeVoice: (String, String) -> Unit,
+    onPreviewGoogleTranslate: () -> Unit,
     onSessionToggle: () -> Unit,
     onHistorySearchQueryChanged: (String) -> Unit,
     onClearHistorySearchQuery: () -> Unit,
@@ -133,6 +134,7 @@ fun SgtMobileApp(
             onRetryEdgeVoiceCatalog = onRetryEdgeVoiceCatalog,
             onPreviewGeminiVoice = onPreviewGeminiVoice,
             onPreviewEdgeVoice = onPreviewEdgeVoice,
+            onPreviewGoogleTranslate = onPreviewGoogleTranslate,
         )
     }
 

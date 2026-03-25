@@ -210,6 +210,7 @@ pub fn get() -> LocaleText {
         tts_speed_slow: "Slow",
         tts_speed_fast: "Fast",
         _tts_voice_label: "Voice:",
+        tts_preview_label: "Preview",
         tts_preview_texts: vec![
             "Hello, I am {}, ready to read this text for you.",
             "The quick brown fox jumps over the lazy dog.",

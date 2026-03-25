@@ -245,6 +245,21 @@ class MainViewModel(
         )
     }
 
+    fun previewGoogleTranslate() {
+        val snapshot = repository.currentGlobalTtsSettings().withMethod(MobileTtsMethod.GOOGLE_TRANSLATE)
+        val preview = nextPreviewText("Google Translate")
+        ttsRuntimeService.interruptAndSpeak(
+            TtsRequest(
+                text = preview,
+                consumer = TtsConsumer.SETTINGS_PREVIEW,
+                priority = TtsPriority.PREVIEW,
+                requestMode = TtsRequestMode.INTERRUPT,
+                settingsSnapshot = snapshot.toRuntimeSnapshot(),
+                ownerToken = "settings-preview",
+            ),
+        )
+    }
+
     fun rememberProjectionConsent(resultCode: Int, data: Intent?) {
         repository.rememberProjectionConsent(resultCode, data)
     }

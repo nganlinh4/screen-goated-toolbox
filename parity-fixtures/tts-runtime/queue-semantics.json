@@ -48,6 +48,18 @@
         "method": "GOOGLE_TRANSLATE",
         "speed_preset": "NORMAL"
       }
+    },
+    {
+      "name": "google_translate_settings_preview_interrupts_current_speech",
+      "initial_settings": {
+        "method": "GOOGLE_TRANSLATE",
+        "speed_preset": "NORMAL"
+      },
+      "action": "preview_interrupt",
+      "expected": {
+        "request_mode": "INTERRUPT",
+        "preview_text_source": "locale.tts_preview_texts"
+      }
     }
   ]
 }
