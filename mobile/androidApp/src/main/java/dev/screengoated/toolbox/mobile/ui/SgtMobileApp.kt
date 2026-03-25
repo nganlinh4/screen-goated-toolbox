@@ -355,10 +355,10 @@ fun SgtMobileApp(
                             presetRepository.restoreBuiltInPreset(activePreset.preset.id)
                         },
                         providerSettings = presetRuntimeSettings.providerSettings,
-                    )
-                }
+                )
             }
         }
     }
+}
 }
 
