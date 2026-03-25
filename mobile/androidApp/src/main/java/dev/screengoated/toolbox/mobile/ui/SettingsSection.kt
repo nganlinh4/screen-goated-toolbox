@@ -14,6 +14,7 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
@@ -42,40 +43,39 @@ internal fun GlobalSection(
     onOverlayOpacityChanged: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val isLandscape =
+        LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val compactLandscape = isLandscape && !wideLayout
+
     Column(
         modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap),
     ) {
-        if (wideLayout) {
+        if (wideLayout || compactLandscape) {
+            CredentialsCard(
+                apiKey = apiKey,
+                cerebrasApiKey = cerebrasApiKey,
+                groqApiKey = groqApiKey,
+                openRouterApiKey = openRouterApiKey,
+                ollamaUrl = ollamaUrl,
+                locale = locale,
+                onApiKeyChanged = onApiKeyChanged,
+                onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
+                onGroqApiKeyChanged = onGroqApiKeyChanged,
+                onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
+                onOllamaUrlChanged = onOllamaUrlChanged,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap),
             ) {
-                CredentialsCard(
-                    apiKey = apiKey,
-                    cerebrasApiKey = cerebrasApiKey,
-                    groqApiKey = groqApiKey,
-                    openRouterApiKey = openRouterApiKey,
-                    ollamaUrl = ollamaUrl,
-                    locale = locale,
-                    onApiKeyChanged = onApiKeyChanged,
-                    onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
-                    onGroqApiKeyChanged = onGroqApiKeyChanged,
-                    onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
-                    onOllamaUrlChanged = onOllamaUrlChanged,
-                    modifier = Modifier.weight(1.15f),
-                )
                 VoiceSettingsCard(
                     globalTtsSettings = globalTtsSettings,
                     locale = locale,
                     onVoiceSettingsClick = onVoiceSettingsClick,
-                    modifier = Modifier.weight(0.85f),
+                    modifier = Modifier.weight(2f),
                 )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap),
-            ) {
                 SettingsActionButton(
                     text = locale.presetRuntimeButton,
                     icon = Icons.Rounded.Settings,
@@ -89,6 +89,28 @@ internal fun GlobalSection(
                     onClick = onUsageStatsClick,
                     morphStyle = SettingsActionMorphStyle.STATS,
                     modifier = Modifier.weight(1f),
+                )
+            }
+            UsageTipsCard(locale = locale)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap),
+            ) {
+                HelpAssistantActionButton(
+                    locale = locale,
+                    modifier = Modifier.weight(1f),
+                )
+                ResetDefaultsActionButton(
+                    locale = locale,
+                    onClick = onResetDefaults,
+                    modifier = Modifier.weight(1f),
+                )
+                OverlayOpacityCard(
+                    opacityPercent = overlayOpacityPercent,
+                    locale = locale,
+                    onOpacityChanged = onOverlayOpacityChanged,
+                    compact = true,
+                    modifier = Modifier.weight(2f),
                 )
             }
         } else {
@@ -131,26 +153,28 @@ internal fun GlobalSection(
                 )
             }
         }
-        UsageTipsCard(locale = locale)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap),
-        ) {
-            HelpAssistantActionButton(
+        if (!(wideLayout || compactLandscape)) {
+            UsageTipsCard(locale = locale)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap),
+            ) {
+                HelpAssistantActionButton(
+                    locale = locale,
+                    modifier = Modifier.weight(1f),
+                )
+                ResetDefaultsActionButton(
+                    locale = locale,
+                    onClick = onResetDefaults,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            OverlayOpacityCard(
+                opacityPercent = overlayOpacityPercent,
                 locale = locale,
-                modifier = Modifier.weight(1f),
-            )
-            ResetDefaultsActionButton(
-                locale = locale,
-                onClick = onResetDefaults,
-                modifier = Modifier.weight(1f),
+                onOpacityChanged = onOverlayOpacityChanged,
             )
         }
-        OverlayOpacityCard(
-            opacityPercent = overlayOpacityPercent,
-            locale = locale,
-            onOpacityChanged = onOverlayOpacityChanged,
-        )
         DownloadedToolsSection(locale = locale)
     }
 }

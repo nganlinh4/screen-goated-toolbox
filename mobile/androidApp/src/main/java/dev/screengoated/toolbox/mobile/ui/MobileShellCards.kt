@@ -175,15 +175,16 @@ internal fun CredentialsCard(
             ) {
                 val provider = providers[entry.index]
                 val accent = providerAccent(provider.label, MaterialTheme.colorScheme)
+                val expanded = expandedState[entry.index]
                 ExpressiveSettingsInsetCard(
                     accent = accent,
                     modifier = fieldModifier,
                     horizontalPadding = 10.dp,
-                    verticalPadding = 8.dp,
+                    verticalPadding = if (expanded) 8.dp else 6.dp,
                 ) {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(if (expanded) 6.dp else 4.dp),
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -222,7 +223,7 @@ internal fun CredentialsCard(
                                         color = accent,
                                     )
                                 }
-                                if (expandedState[entry.index] && provider.getKeyUrl != null && provider.getKeyLabel != null) {
+                                if (expanded && provider.getKeyUrl != null && provider.getKeyLabel != null) {
                                     Text(
                                         text = provider.getKeyLabel,
                                         style = MaterialTheme.typography.labelSmall,
@@ -235,14 +236,14 @@ internal fun CredentialsCard(
                                 }
                             }
                             ExpressiveProviderExpandSwitch(
-                                checked = expandedState[entry.index],
+                                checked = expanded,
                                 accent = accent,
                                 onCheckedChange = { expandedState[entry.index] = it },
                                 modifier = Modifier.semantics { role = Role.Switch },
                             )
                         }
 
-                        AnimatedVisibility(visible = expandedState[entry.index]) {
+                        AnimatedVisibility(visible = expanded) {
                             OutlinedTextField(
                                 modifier = Modifier.fillMaxWidth(),
                                 value = entry.value,
@@ -281,15 +282,39 @@ internal fun CredentialsCard(
             }
 
             if (isLandscape) {
-                // 2-column grid in landscape to save vertical space
-                fields.chunked(2).forEach { pair ->
+                val cells = buildList<List<FieldEntry>> {
+                    var index = 0
+                    while (index < fields.size) {
+                        val current = fields[index]
+                        val currentExpanded = expandedState[current.index]
+                        val next = fields.getOrNull(index + 1)
+                        if (!currentExpanded && next != null && !expandedState[next.index]) {
+                            add(listOf(current, next))
+                            index += 2
+                        } else {
+                            add(listOf(current))
+                            index += 1
+                        }
+                    }
+                }
+                cells.chunked(2).forEach { pair ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        pair.forEach { entry ->
+                        pair.forEach { cell ->
                             Box(modifier = Modifier.weight(1f)) {
-                                ApiKeyFieldContent(entry = entry)
+                                if (cell.size == 1) {
+                                    ApiKeyFieldContent(entry = cell.first())
+                                } else {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        cell.forEach { entry ->
+                                            ApiKeyFieldContent(entry = entry)
+                                        }
+                                    }
+                                }
                             }
                         }
                         if (pair.size == 1) {
