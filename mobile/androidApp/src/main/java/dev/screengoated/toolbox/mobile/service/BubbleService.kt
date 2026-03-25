@@ -67,6 +67,11 @@ class BubbleService : Service() {
 
         if (!Settings.canDrawOverlays(this)) {
             Toast.makeText(this, "Overlay permission is required for the SGT bubble.", Toast.LENGTH_SHORT).show()
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName"),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
             stopSelf()
             return
         }
