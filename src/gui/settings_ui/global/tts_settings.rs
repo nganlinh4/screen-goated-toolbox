@@ -2,6 +2,40 @@ use crate::config::{Config, TtsMethod};
 use crate::gui::icons::{Icon, icon_button};
 use crate::gui::locale::LocaleText;
 use eframe::egui;
+use std::collections::hash_map::RandomState;
+use std::hash::{BuildHasher, Hasher};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+static LAST_TTS_PREVIEW_IDX: AtomicUsize = AtomicUsize::new(9999);
+
+fn speak_settings_preview(text: &LocaleText, speaker_name: &str) {
+    if !text.tts_preview_texts.is_empty() {
+        let s = RandomState::new();
+        let mut hasher = s.build_hasher();
+        hasher.write_usize(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .subsec_nanos() as usize,
+        );
+        let rand_val = hasher.finish();
+        let len = text.tts_preview_texts.len();
+        let mut idx = (rand_val as usize) % len;
+
+        let last = LAST_TTS_PREVIEW_IDX.load(Ordering::Relaxed);
+        if idx == last {
+            idx = (idx + 1) % len;
+        }
+        LAST_TTS_PREVIEW_IDX.store(idx, Ordering::Relaxed);
+
+        let preview_text = text.tts_preview_texts[idx].replace("{}", speaker_name);
+        crate::api::tts::TTS_MANAGER.speak_interrupt(&preview_text, 0);
+    } else {
+        let preview_text = format!("Hello, I am {}. This is a voice preview.", speaker_name);
+        crate::api::tts::TTS_MANAGER.speak_interrupt(&preview_text, 0);
+    }
+}
 
 pub fn render_tts_settings_modal(
     ui: &mut egui::Ui,
@@ -211,14 +245,6 @@ pub fn render_tts_settings_modal(
 
                 // Voice selection - 4 columns layout to save vertical space
                 ui.columns(4, |columns| {
-                    use std::sync::atomic::{AtomicUsize, Ordering};
-                    use std::time::{SystemTime, UNIX_EPOCH};
-                    use std::collections::hash_map::RandomState;
-                    use std::hash::{BuildHasher, Hasher};
-
-                    // Shared static to ensure randomness across all columns and no repeats globally
-                    static LAST_PREVIEW_IDX: AtomicUsize = AtomicUsize::new(9999);
-
                     // Helper to render a voice item
                     let render_voice = |ui: &mut egui::Ui, name: &str, config: &mut Config, text: &LocaleText, changed: &mut bool| {
                         ui.horizontal(|ui| {
@@ -230,27 +256,7 @@ pub fn render_tts_settings_modal(
                             if ui.button("🔊").on_hover_text("Preview").clicked() {
                                 config.tts_voice = name.to_string();
                                 *changed = true;
-
-                                if !text.tts_preview_texts.is_empty() {
-                                    let s = RandomState::new();
-                                    let mut hasher = s.build_hasher();
-                                    hasher.write_usize(SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_nanos() as usize);
-                                    let rand_val = hasher.finish();
-                                    let len = text.tts_preview_texts.len();
-                                    let mut idx = (rand_val as usize) % len;
-
-                                    let last = LAST_PREVIEW_IDX.load(Ordering::Relaxed);
-                                    if idx == last {
-                                        idx = (idx + 1) % len;
-                                    }
-                                    LAST_PREVIEW_IDX.store(idx, Ordering::Relaxed);
-
-                                    let preview_text = text.tts_preview_texts[idx].replace("{}", name);
-                                    crate::api::tts::TTS_MANAGER.speak_interrupt(&preview_text, 0);
-                                } else {
-                                    let preview_text = format!("Hello, I am {}. This is a voice preview.", name);
-                                    crate::api::tts::TTS_MANAGER.speak_interrupt(&preview_text, 0);
-                                }
+                                speak_settings_preview(text, name);
                             }
                             ui.label(egui::RichText::new(name).strong());
                         });
@@ -316,6 +322,11 @@ pub fn render_tts_settings_modal(
                         if ui.radio_value(&mut config.tts_speed, "Slow".to_string(), text.tts_speed_slow).clicked() { changed = true; }
                         if ui.radio_value(&mut config.tts_speed, "Normal".to_string(), text.tts_speed_normal).clicked() { changed = true; }
                     });
+
+                    ui.add_space(12.0);
+                    if ui.button(text.tts_preview_label).clicked() {
+                        speak_settings_preview(text, "Google Translate");
+                    }
 
                     ui.add_space(20.0);
                 });
@@ -404,6 +415,10 @@ pub fn render_tts_settings_modal(
                                             }
                                         }
                                     });
+
+                                if ui.button(text.tts_preview_label).clicked() {
+                                    speak_settings_preview(text, &voice_config.voice_name);
+                                }
 
                                 // Remove button
                                 if icon_button(ui, Icon::Close).on_hover_text("Remove").clicked() {

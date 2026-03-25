@@ -177,6 +177,7 @@ data class MobileLocaleText(
     val ttsSpeedSlow: String,
     val ttsSpeedFast: String,
     val ttsVoiceLabel: String,
+    val ttsPreviewAction: String,
     val ttsPreviewTexts: List<String>,
     val ttsMale: String,
     val ttsFemale: String,
@@ -467,6 +468,7 @@ data class MobileLocaleText(
                 ttsSpeedSlow = "Slow",
                 ttsSpeedFast = "Fast",
                 ttsVoiceLabel = "Voice:",
+                ttsPreviewAction = "Preview",
                 ttsPreviewTexts = listOf(
                     "Hello, I am {}, ready to read this text for you.",
                     "The quick brown fox jumps over the lazy dog.",
@@ -622,7 +624,7 @@ data class MobileLocaleText(
                 turnOn = "Bật",
                 turnOff = "Tắt",
                 voiceSettingsButton = "Cài đặt giọng đọc",
-                presetRuntimeTitle = "Ưu tiên mô hình",
+                presetRuntimeTitle = "Ưu tiên model",
                 presetRuntimeDescription = "Nhà cung cấp tắt, thiếu khóa, khóa sai, hoặc mô hình không hỗ trợ sẽ bị bỏ qua ngay khi thử lại.",
                 presetRuntimeButton = "Ưu tiên model",
                 presetRuntimeSettingsAction = "Cài đặt",
@@ -731,6 +733,7 @@ data class MobileLocaleText(
                 ttsSpeedSlow = "Chậm",
                 ttsSpeedFast = "Nhanh",
                 ttsVoiceLabel = "Giọng đọc:",
+                ttsPreviewAction = "Nghe thử",
                 ttsPreviewTexts = listOf(
                     "Xin chào, tôi là {}, tôi có thể đọc giúp bạn đoạn văn này.",
                     "Cuộc sống thật đẹp tươi, {} rất vui khi được trò chuyện cùng bạn.",
@@ -995,6 +998,7 @@ data class MobileLocaleText(
                 ttsSpeedSlow = "느림",
                 ttsSpeedFast = "빠름",
                 ttsVoiceLabel = "목소리:",
+                ttsPreviewAction = "미리 듣기",
                 ttsPreviewTexts = listOf(
                     "안녕하세요, 제 이름은 {}입니다. 만나서 반갑습니다.",
                     "오늘 날씨가 정말 좋네요, {}와 함께 산책 어떠세요?",

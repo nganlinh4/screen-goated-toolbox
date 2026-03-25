@@ -182,7 +182,8 @@ fn choose_help_bucket(ui_language: &str) -> Option<HelpBucket> {
     let locale = crate::gui::locale::LocaleText::get(ui_language);
     let options = [
         WheelOption::new(0, locale.help_assistant_screen_record_option),
-        WheelOption::new(1, locale.help_assistant_rest_option),
+        WheelOption::new(1, locale.help_assistant_android_option),
+        WheelOption::new(2, locale.help_assistant_rest_option),
     ];
 
     let mut center_pos = windows::Win32::Foundation::POINT { x: 0, y: 0 };
@@ -192,7 +193,8 @@ fn choose_help_bucket(ui_language: &str) -> Option<HelpBucket> {
 
     match crate::overlay::preset_wheel::show_option_wheel(&options, center_pos) {
         Some(0) => Some(HelpBucket::ScreenRecorder),
-        Some(1) => Some(HelpBucket::Rest),
+        Some(1) => Some(HelpBucket::Android),
+        Some(2) => Some(HelpBucket::Rest),
         _ => None,
     }
 }

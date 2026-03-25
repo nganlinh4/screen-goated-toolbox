@@ -15,16 +15,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
@@ -47,6 +46,9 @@ import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsCatalog
 import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
+import dev.screengoated.toolbox.mobile.ui.ExpressiveDialogSectionCard
+import dev.screengoated.toolbox.mobile.ui.UtilityActionButton
+import dev.screengoated.toolbox.mobile.ui.UtilityHeaderRow
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 @Composable
@@ -84,13 +86,19 @@ internal fun GeminiLiveSection(
             }
         }
 
-        HorizontalDivider()
-        GeminiVoiceGrid(
-            selectedVoice = settings.voice,
-            locale = locale,
-            onVoiceChanged = onVoiceChanged,
-            onPreviewVoice = onPreviewVoice,
-        )
+        ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.tertiary) {
+            UtilityHeaderRow(
+                icon = Icons.AutoMirrored.Rounded.VolumeUp,
+                title = locale.ttsVoiceLabel,
+                accent = MaterialTheme.colorScheme.tertiary,
+            )
+            GeminiVoiceGrid(
+                selectedVoice = settings.voice,
+                locale = locale,
+                onVoiceChanged = onVoiceChanged,
+                onPreviewVoice = onPreviewVoice,
+            )
+        }
     }
 }
 
@@ -101,35 +109,33 @@ private fun GeminiSpeedCard(
     onChanged: (MobileTtsSpeedPreset) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(modifier = modifier) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = locale.ttsSpeedLabel,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
+    ExpressiveDialogSectionCard(
+        accent = MaterialTheme.colorScheme.primary,
+        modifier = modifier,
+    ) {
+        UtilityHeaderRow(
+            icon = Icons.Rounded.AutoAwesome,
+            title = locale.ttsSpeedLabel,
+            accent = MaterialTheme.colorScheme.primary,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
             val speedOptions = listOf(
                 MobileTtsSpeedPreset.SLOW to locale.ttsSpeedSlow,
                 MobileTtsSpeedPreset.NORMAL to locale.ttsSpeedNormal,
                 MobileTtsSpeedPreset.FAST to locale.ttsSpeedFast,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
-                speedOptions.forEachIndexed { index, (preset, label) ->
-                    ToggleButton(
-                        checked = selected == preset,
-                        onCheckedChange = { onChanged(preset) },
-                        shapes = when (index) {
-                            0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                            speedOptions.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                            else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                        },
-                        modifier = Modifier.semantics { role = Role.RadioButton },
-                    ) {
-                        Text(label, style = MaterialTheme.typography.labelSmall)
-                    }
+            speedOptions.forEachIndexed { index, (preset, label) ->
+                ToggleButton(
+                    checked = selected == preset,
+                    onCheckedChange = { onChanged(preset) },
+                    shapes = when (index) {
+                        0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                        speedOptions.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                        else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                    },
+                    modifier = Modifier.semantics { role = Role.RadioButton },
+                ) {
+                    Text(label, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -145,82 +151,47 @@ private fun GeminiConditionsCard(
 ) {
     var addMenuExpanded by remember { mutableStateOf(false) }
 
-    Card(modifier = modifier) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
+    ExpressiveDialogSectionCard(
+        accent = MaterialTheme.colorScheme.secondary,
+        modifier = modifier,
+    ) {
+        UtilityHeaderRow(
+            icon = Icons.Rounded.Translate,
+            title = locale.ttsInstructionsLabel,
+            accent = MaterialTheme.colorScheme.secondary,
+        )
+
+        if (conditions.isEmpty()) {
             Text(
-                text = locale.ttsInstructionsLabel,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
+                text = locale.noLanguageConditionsYet,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
 
-            if (conditions.isEmpty()) {
-                Text(
-                    text = locale.noLanguageConditionsYet,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            conditions.forEachIndexed { index, condition ->
-                BoxWithConstraints {
-                    val stacked = maxWidth < 560.dp
-                    if (stacked) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ConditionLanguageLabel(condition.languageName)
-                            OutlinedTextField(
-                                modifier = Modifier.fillMaxWidth(),
-                                value = condition.instruction,
-                                onValueChange = { instruction ->
-                                    onChanged(
-                                        conditions.toMutableList().also { list ->
-                                            list[index] = condition.copy(instruction = instruction)
-                                        },
-                                    )
-                                },
-                                singleLine = true,
-                                label = { Text(locale.instructionLabel) },
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
-                            ) {
-                                IconButton(
-                                    onClick = {
-                                        onChanged(conditions.filterIndexed { current, _ -> current != index })
+        conditions.forEachIndexed { index, condition ->
+            BoxWithConstraints {
+                val stacked = maxWidth < 560.dp
+                if (stacked) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ConditionLanguageLabel(condition.languageName)
+                        OutlinedTextField(
+                            modifier = Modifier.fillMaxWidth(),
+                            value = condition.instruction,
+                            onValueChange = { instruction ->
+                                onChanged(
+                                    conditions.toMutableList().also { list ->
+                                        list[index] = condition.copy(instruction = instruction)
                                     },
-                                ) {
-                                    Icon(Icons.Rounded.Close, contentDescription = locale.removeLabel)
-                                }
-                            }
-                        }
-                    } else {
+                                )
+                            },
+                            singleLine = true,
+                            label = { Text(locale.instructionLabel) },
+                        )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.End,
                         ) {
-                            ConditionLanguageLabel(condition.languageName, Modifier.width(128.dp))
-                            Icon(
-                                Icons.AutoMirrored.Rounded.ArrowForward,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            OutlinedTextField(
-                                modifier = Modifier.weight(1f),
-                                value = condition.instruction,
-                                onValueChange = { instruction ->
-                                    onChanged(
-                                        conditions.toMutableList().also { list ->
-                                            list[index] = condition.copy(instruction = instruction)
-                                        },
-                                    )
-                                },
-                                singleLine = true,
-                                label = { Text(locale.instructionLabel) },
-                            )
                             IconButton(
                                 onClick = {
                                     onChanged(conditions.filterIndexed { current, _ -> current != index })
@@ -230,36 +201,71 @@ private fun GeminiConditionsCard(
                             }
                         }
                     }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ConditionLanguageLabel(condition.languageName, Modifier.width(128.dp))
+                        Icon(
+                            Icons.AutoMirrored.Rounded.ArrowForward,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        OutlinedTextField(
+                            modifier = Modifier.weight(1f),
+                            value = condition.instruction,
+                            onValueChange = { instruction ->
+                                onChanged(
+                                    conditions.toMutableList().also { list ->
+                                        list[index] = condition.copy(instruction = instruction)
+                                    },
+                                )
+                            },
+                            singleLine = true,
+                            label = { Text(locale.instructionLabel) },
+                        )
+                        IconButton(
+                            onClick = {
+                                onChanged(conditions.filterIndexed { current, _ -> current != index })
+                            },
+                        ) {
+                            Icon(Icons.Rounded.Close, contentDescription = locale.removeLabel)
+                        }
+                    }
                 }
             }
+        }
 
-            Box {
-                OutlinedButton(onClick = { addMenuExpanded = true }) {
-                    Text(locale.ttsAddCondition)
-                }
-                DropdownMenu(
-                    expanded = addMenuExpanded,
-                    onDismissRequest = { addMenuExpanded = false },
-                ) {
-                    val usedCodes = conditions.map { it.languageCode }.toSet()
-                    MobileTtsCatalog.conditionLanguages
-                        .filterNot { usedCodes.contains(it.code) }
-                        .forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(option.name) },
-                                onClick = {
-                                    onChanged(
-                                        conditions + MobileTtsLanguageCondition(
-                                            languageCode = option.code,
-                                            languageName = option.name,
-                                            instruction = "",
-                                        ),
-                                    )
-                                    addMenuExpanded = false
-                                },
-                            )
-                        }
-                }
+        Box {
+            UtilityActionButton(
+                text = locale.ttsAddCondition,
+                accent = MaterialTheme.colorScheme.secondary,
+                onClick = { addMenuExpanded = true },
+            )
+            DropdownMenu(
+                expanded = addMenuExpanded,
+                onDismissRequest = { addMenuExpanded = false },
+            ) {
+                val usedCodes = conditions.map { it.languageCode }.toSet()
+                MobileTtsCatalog.conditionLanguages
+                    .filterNot { usedCodes.contains(it.code) }
+                    .forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option.name) },
+                            onClick = {
+                                onChanged(
+                                    conditions + MobileTtsLanguageCondition(
+                                        languageCode = option.code,
+                                        languageName = option.name,
+                                        instruction = "",
+                                    ),
+                                )
+                                addMenuExpanded = false
+                            },
+                        )
+                    }
             }
         }
     }
@@ -287,12 +293,6 @@ private fun GeminiVoiceGrid(
     onPreviewVoice: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = locale.ttsVoiceLabel,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-        )
-
         BoxWithConstraints {
             when {
                 maxWidth >= 900.dp -> FourColumnVoiceGrid(selectedVoice, locale, onVoiceChanged, onPreviewVoice)
@@ -421,45 +421,49 @@ private fun VoiceColumnCard(
     onPreviewVoice: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(modifier = modifier) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            if (title != null) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    textDecoration = TextDecoration.Underline,
+    val accent = if (title == locale.ttsMale) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.secondary
+    }
+
+    ExpressiveDialogSectionCard(
+        accent = accent,
+        modifier = modifier,
+    ) {
+        if (title != null) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = accent,
+            )
+        }
+        voices.forEach { voice ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(
+                    selected = selectedVoice == voice.name,
+                    onClick = { onVoiceChanged(voice.name) },
                 )
-            }
-            voices.forEach { voice ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
+                IconButton(
+                    onClick = {
+                        onVoiceChanged(voice.name)
+                        onPreviewVoice(voice.name)
+                    },
                 ) {
-                    RadioButton(
-                        selected = selectedVoice == voice.name,
-                        onClick = { onVoiceChanged(voice.name) },
-                    )
-                    IconButton(
-                        onClick = {
-                            onVoiceChanged(voice.name)
-                            onPreviewVoice(voice.name)
-                        },
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Rounded.VolumeUp,
-                            contentDescription = locale.ttsVoiceLabel,
-                        )
-                    }
-                    Text(
-                        text = voice.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
+                    Icon(
+                        Icons.AutoMirrored.Rounded.VolumeUp,
+                        contentDescription = locale.ttsVoiceLabel,
                     )
                 }
+                Text(
+                    text = voice.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                )
             }
         }
     }

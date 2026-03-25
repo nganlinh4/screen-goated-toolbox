@@ -139,6 +139,7 @@ class MainActivity : ComponentActivity() {
                     onRetryEdgeVoiceCatalog = viewModel::retryEdgeVoiceCatalog,
                     onPreviewGeminiVoice = viewModel::previewGeminiVoice,
                     onPreviewEdgeVoice = viewModel::previewEdgeVoice,
+                    onPreviewGoogleTranslate = viewModel::previewGoogleTranslate,
                     onSessionToggle = onSessionToggle,
                     onOverlayOpacityChanged = viewModel::onOverlayOpacityChanged,
                     onHistorySearchQueryChanged = viewModel::onHistorySearchQueryChanged,

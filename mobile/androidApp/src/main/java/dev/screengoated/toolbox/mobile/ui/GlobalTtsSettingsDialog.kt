@@ -24,6 +24,7 @@ fun GlobalTtsSettingsDialog(
     onRetryEdgeVoiceCatalog: () -> Unit,
     onPreviewGeminiVoice: (String) -> Unit,
     onPreviewEdgeVoice: (String, String) -> Unit,
+    onPreviewGoogleTranslate: () -> Unit,
 ) {
     RenderGlobalTtsSettingsDialog(
         settings = settings,
@@ -38,5 +39,6 @@ fun GlobalTtsSettingsDialog(
         onRetryEdgeVoiceCatalog = onRetryEdgeVoiceCatalog,
         onPreviewGeminiVoice = onPreviewGeminiVoice,
         onPreviewEdgeVoice = onPreviewEdgeVoice,
+        onPreviewGoogleTranslate = onPreviewGoogleTranslate,
     )
 }

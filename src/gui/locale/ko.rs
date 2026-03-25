@@ -211,6 +211,7 @@ pub fn get() -> LocaleText {
         tts_speed_slow: "느림",
         tts_speed_fast: "빠름",
         _tts_voice_label: "목소리:",
+        tts_preview_label: "미리 듣기",
         tts_preview_texts: vec![
             "안녕하세요, 제 이름은 {}입니다. 만나서 반갑습니다.",
             "오늘 날씨가 정말 좋네요, {}와 함께 산책 어떠세요?",

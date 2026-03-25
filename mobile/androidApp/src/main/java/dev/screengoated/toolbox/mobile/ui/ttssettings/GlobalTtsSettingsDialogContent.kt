@@ -15,11 +15,13 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -42,6 +44,7 @@ import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
 import dev.screengoated.toolbox.mobile.ui.ExpressiveDialogSectionCard
 import dev.screengoated.toolbox.mobile.ui.ExpressiveDialogSurface
 import dev.screengoated.toolbox.mobile.ui.ExpressiveMorphPair
+import dev.screengoated.toolbox.mobile.ui.UtilityActionButton
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 @Composable
@@ -58,6 +61,7 @@ internal fun RenderGlobalTtsSettingsDialog(
     onRetryEdgeVoiceCatalog: () -> Unit,
     onPreviewGeminiVoice: (String) -> Unit,
     onPreviewEdgeVoice: (String, String) -> Unit,
+    onPreviewGoogleTranslate: () -> Unit,
 ) {
     val isLandscape =
         LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -143,6 +147,7 @@ internal fun RenderGlobalTtsSettingsDialog(
                         selected = settings.speedPreset,
                         locale = locale,
                         onSpeedPresetChanged = onSpeedPresetChanged,
+                        onPreview = onPreviewGoogleTranslate,
                     )
 
                     MobileTtsMethod.EDGE_TTS -> EdgeTtsSection(
@@ -218,7 +223,7 @@ private fun compactMethodLabel(
         else -> when (method) {
             MobileTtsMethod.GEMINI_LIVE -> "Standard"
             MobileTtsMethod.EDGE_TTS -> "Edge"
-            MobileTtsMethod.GOOGLE_TRANSLATE -> "Fast"
+            MobileTtsMethod.GOOGLE_TRANSLATE -> "Google Trans."
         }
     }
 }
@@ -228,6 +233,7 @@ private fun GoogleTranslateSection(
     selected: MobileTtsSpeedPreset,
     locale: MobileLocaleText,
     onSpeedPresetChanged: (MobileTtsSpeedPreset) -> Unit,
+    onPreview: () -> Unit,
 ) {
     ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.secondary) {
         Column(
@@ -265,6 +271,17 @@ private fun GoogleTranslateSection(
                         Text(label)
                     }
                 }
+            }
+            UtilityActionButton(
+                text = locale.ttsPreviewAction,
+                accent = MaterialTheme.colorScheme.secondary,
+                onClick = onPreview,
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Rounded.VolumeUp,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                )
             }
         }
     }

@@ -2,12 +2,15 @@
 
 package dev.screengoated.toolbox.mobile.ui.ttssettings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
@@ -15,8 +18,9 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.SettingsVoice
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
-import androidx.compose.material3.Card
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -41,6 +45,9 @@ import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsVoiceConfig
 import dev.screengoated.toolbox.mobile.model.MobileTtsCatalog
+import dev.screengoated.toolbox.mobile.ui.ExpressiveDialogSectionCard
+import dev.screengoated.toolbox.mobile.ui.UtilityActionButton
+import dev.screengoated.toolbox.mobile.ui.UtilityHeaderRow
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 @Composable
@@ -53,43 +60,34 @@ internal fun EdgeTtsSection(
     onPreviewVoice: (String, String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Card {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(
-                    text = locale.ttsEdgeTitle,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = locale.ttsEdgeDesc,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                SliderField(
-                    label = locale.ttsPitchLabel,
-                    value = settings.pitch.toFloat(),
-                    valueRange = -50f..50f,
-                    valueLabel = "${settings.pitch} Hz",
-                    onValueChange = { onChanged(settings.copy(pitch = it.toInt())) },
-                )
-                SliderField(
-                    label = locale.ttsRateLabel,
-                    value = settings.rate.toFloat(),
-                    valueRange = -50f..100f,
-                    valueLabel = "${settings.rate}%",
-                    onValueChange = { onChanged(settings.copy(rate = it.toInt())) },
-                )
-                SliderField(
-                    label = locale.ttsVolumeLabel,
-                    value = settings.volume.toFloat(),
-                    valueRange = -50f..50f,
-                    valueLabel = "${settings.volume}%",
-                    onValueChange = { onChanged(settings.copy(volume = it.toInt())) },
-                )
-            }
+        ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.primary) {
+            UtilityHeaderRow(
+                icon = Icons.Rounded.SettingsVoice,
+                title = locale.ttsEdgeTitle,
+                accent = MaterialTheme.colorScheme.primary,
+                supporting = locale.ttsEdgeDesc,
+            )
+            SliderField(
+                label = locale.ttsPitchLabel,
+                value = settings.pitch.toFloat(),
+                valueRange = -50f..50f,
+                valueLabel = "${settings.pitch} Hz",
+                onValueChange = { onChanged(settings.copy(pitch = it.toInt())) },
+            )
+            SliderField(
+                label = locale.ttsRateLabel,
+                value = settings.rate.toFloat(),
+                valueRange = -50f..100f,
+                valueLabel = "${settings.rate}%",
+                onValueChange = { onChanged(settings.copy(rate = it.toInt())) },
+            )
+            SliderField(
+                label = locale.ttsVolumeLabel,
+                value = settings.volume.toFloat(),
+                valueRange = -50f..50f,
+                valueLabel = "${settings.volume}%",
+                onValueChange = { onChanged(settings.copy(volume = it.toInt())) },
+            )
         }
 
         EdgeVoiceRoutingCard(
@@ -114,109 +112,162 @@ private fun EdgeVoiceRoutingCard(
 ) {
     var addMenuExpanded by remember { mutableStateOf(false) }
 
-    Card {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = locale.ttsVoicePerLanguageLabel,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
+    ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.secondary) {
+        UtilityHeaderRow(
+            icon = Icons.Rounded.SettingsVoice,
+            title = locale.ttsVoicePerLanguageLabel,
+            accent = MaterialTheme.colorScheme.secondary,
+        )
 
-            when {
-                catalogState.loading -> Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center,
+        when {
+            catalogState.loading -> Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                ContainedLoadingIndicator()
+            }
+
+            catalogState.errorMessage != null -> Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = locale.ttsFailedLoadVoices(catalogState.errorMessage.orEmpty()),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                UtilityActionButton(
+                    text = locale.ttsRetryLabel,
+                    accent = MaterialTheme.colorScheme.error,
+                    onClick = onRetryCatalog,
                 ) {
-                    ContainedLoadingIndicator()
+                    Icon(Icons.Rounded.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                 }
+            }
+        }
 
-                catalogState.errorMessage != null -> Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = locale.ttsFailedLoadVoices(catalogState.errorMessage.orEmpty()),
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
+        settings.voiceConfigs.forEachIndexed { index, config ->
+            EdgeVoiceConfigRow(
+                config = config,
+                availableVoices = catalogState.byLanguage[config.languageCode.lowercase()].orEmpty().map { it.shortName },
+                accent = MaterialTheme.colorScheme.secondary,
+                onConfigChanged = { nextConfig ->
+                    onChanged(
+                        settings.copy(
+                            voiceConfigs = settings.voiceConfigs.toMutableList().also { list ->
+                                list[index] = nextConfig
+                            },
+                        ),
                     )
-                    OutlinedButton(onClick = onRetryCatalog) {
-                        Text(locale.ttsRetryLabel)
+                },
+                onRemove = {
+                    onChanged(settings.copy(voiceConfigs = settings.voiceConfigs.filterIndexed { current, _ -> current != index }))
+                },
+                locale = locale,
+                onPreview = { onPreviewVoice(config.languageCode, config.voiceName) },
+            )
+        }
+
+        BoxWithConstraints {
+            val stackedActions = maxWidth < 520.dp
+
+            if (stackedActions) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    EdgeRoutingAddButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        locale = locale,
+                        addMenuExpanded = addMenuExpanded,
+                        onAddMenuExpandedChanged = { addMenuExpanded = it },
+                        settings = settings,
+                        catalogState = catalogState,
+                        onChanged = onChanged,
+                    )
+                    UtilityActionButton(
+                        text = locale.resetDefaultsAction,
+                        accent = MaterialTheme.colorScheme.primary,
+                        onClick = { onChanged(MobileEdgeTtsSettings()) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Rounded.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            } else {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    EdgeRoutingAddButton(
+                        locale = locale,
+                        addMenuExpanded = addMenuExpanded,
+                        onAddMenuExpandedChanged = { addMenuExpanded = it },
+                        settings = settings,
+                        catalogState = catalogState,
+                        onChanged = onChanged,
+                    )
+                    UtilityActionButton(
+                        text = locale.resetDefaultsAction,
+                        accent = MaterialTheme.colorScheme.primary,
+                        onClick = { onChanged(MobileEdgeTtsSettings()) },
+                    ) {
+                        Icon(Icons.Rounded.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
+        }
+    }
+}
 
-            settings.voiceConfigs.forEachIndexed { index, config ->
-                EdgeVoiceConfigRow(
-                    config = config,
-                    availableVoices = catalogState.byLanguage[config.languageCode.lowercase()].orEmpty().map { it.shortName },
-                    onConfigChanged = { nextConfig ->
-                        onChanged(
-                            settings.copy(
-                                voiceConfigs = settings.voiceConfigs.toMutableList().also { list ->
-                                    list[index] = nextConfig
-                                },
-                            ),
-                        )
-                    },
-                    onRemove = {
-                        onChanged(settings.copy(voiceConfigs = settings.voiceConfigs.filterIndexed { current, _ -> current != index }))
-                    },
-                    locale = locale,
-                    onPreview = { onPreviewVoice(config.languageCode, config.voiceName) },
-                )
-            }
-
-            Box {
-                OutlinedButton(onClick = { addMenuExpanded = true }) {
-                    Text(locale.ttsAddLanguageLabel)
-                }
-                DropdownMenu(
-                    expanded = addMenuExpanded,
-                    onDismissRequest = { addMenuExpanded = false },
-                ) {
-                    val usedCodes = settings.voiceConfigs.map { it.languageCode }.toSet()
-                    MobileTtsCatalog.edgeConfigLanguages
-                        .filterNot { usedCodes.contains(it.code) }
-                        .forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(option.name) },
-                                onClick = {
-                                    val defaultVoice = catalogState.byLanguage[option.code.lowercase()]
-                                        ?.firstOrNull()
-                                        ?.shortName
-                                        ?: MobileTtsCatalog.edgeVoiceSuggestions(option.code).firstOrNull()
-                                        ?: "${option.code}-Voice"
-                                    onChanged(
-                                        settings.copy(
-                                            voiceConfigs = settings.voiceConfigs + MobileEdgeTtsVoiceConfig(
-                                                languageCode = option.code,
-                                                languageName = option.name,
-                                                voiceName = defaultVoice,
-                                            ),
-                                        ),
-                                    )
-                                    addMenuExpanded = false
-                                },
+@Composable
+private fun EdgeRoutingAddButton(
+    locale: MobileLocaleText,
+    addMenuExpanded: Boolean,
+    onAddMenuExpandedChanged: (Boolean) -> Unit,
+    settings: MobileEdgeTtsSettings,
+    catalogState: EdgeVoiceCatalogState,
+    onChanged: (MobileEdgeTtsSettings) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier) {
+        UtilityActionButton(
+            text = locale.ttsAddLanguageLabel,
+            accent = MaterialTheme.colorScheme.secondary,
+            onClick = { onAddMenuExpandedChanged(true) },
+            modifier = modifier,
+        )
+        DropdownMenu(
+            expanded = addMenuExpanded,
+            onDismissRequest = { onAddMenuExpandedChanged(false) },
+        ) {
+            val usedCodes = settings.voiceConfigs.map { it.languageCode }.toSet()
+            MobileTtsCatalog.edgeConfigLanguages
+                .filterNot { usedCodes.contains(it.code) }
+                .forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option.name) },
+                        onClick = {
+                            val defaultVoice = catalogState.byLanguage[option.code.lowercase()]
+                                ?.firstOrNull()
+                                ?.shortName
+                                ?: MobileTtsCatalog.edgeVoiceSuggestions(option.code).firstOrNull()
+                                ?: "${option.code}-Voice"
+                            onChanged(
+                                settings.copy(
+                                    voiceConfigs = settings.voiceConfigs + MobileEdgeTtsVoiceConfig(
+                                        languageCode = option.code,
+                                        languageName = option.name,
+                                        voiceName = defaultVoice,
+                                    ),
+                                ),
                             )
-                        }
+                            onAddMenuExpandedChanged(false)
+                        },
+                    )
                 }
-            }
-
-            OutlinedButton(
-                onClick = { onChanged(MobileEdgeTtsSettings()) },
-            ) {
-                Icon(Icons.Rounded.Refresh, contentDescription = null)
-                Text(
-                    text = locale.ttsResetToDefaultsLabel,
-                    modifier = Modifier.padding(start = 6.dp),
-                )
-            }
-
         }
     }
 }
@@ -226,6 +277,7 @@ private fun EdgeVoiceConfigRow(
     config: MobileEdgeTtsVoiceConfig,
     availableVoices: List<String>,
     locale: MobileLocaleText,
+    accent: androidx.compose.ui.graphics.Color,
     onConfigChanged: (MobileEdgeTtsVoiceConfig) -> Unit,
     onRemove: () -> Unit,
     onPreview: () -> Unit,
@@ -240,41 +292,29 @@ private fun EdgeVoiceConfigRow(
     BoxWithConstraints {
         val stacked = maxWidth < 620.dp
         if (stacked) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(accent.copy(alpha = 0.08f))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 ConditionLanguageLabel(config.languageName)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    OutlinedTextField(
+                    EdgeVoiceSelector(
+                        currentVoice = config.voiceName,
+                        suggestions = suggestions,
+                        locale = locale,
+                        onVoiceSelected = { onConfigChanged(config.copy(voiceName = it)) },
+                        expanded = suggestionsExpanded,
+                        onExpandedChanged = { suggestionsExpanded = it },
                         modifier = Modifier.weight(1f),
-                        value = config.voiceName,
-                        onValueChange = { onConfigChanged(config.copy(voiceName = it)) },
-                        singleLine = true,
-                        label = { Text(locale.ttsVoiceLabel) },
                     )
-                    if (suggestions.isNotEmpty()) {
-                        Box {
-                            IconButton(onClick = { suggestionsExpanded = true }) {
-                                Icon(Icons.Rounded.ArrowDropDown, contentDescription = locale.ttsVoiceLabel)
-                            }
-                            DropdownMenu(
-                                expanded = suggestionsExpanded,
-                                onDismissRequest = { suggestionsExpanded = false },
-                            ) {
-                                suggestions.forEach { voice ->
-                                    DropdownMenuItem(
-                                        text = { Text(voice) },
-                                        onClick = {
-                                            onConfigChanged(config.copy(voiceName = voice))
-                                            suggestionsExpanded = false
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                    }
                     IconButton(onClick = onPreview) {
                         Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = locale.ttsVoiceLabel)
                     }
@@ -285,7 +325,11 @@ private fun EdgeVoiceConfigRow(
             }
         } else {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(accent.copy(alpha = 0.08f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -295,40 +339,62 @@ private fun EdgeVoiceConfigRow(
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedTextField(
+                EdgeVoiceSelector(
+                    currentVoice = config.voiceName,
+                    suggestions = suggestions,
+                    locale = locale,
+                    onVoiceSelected = { onConfigChanged(config.copy(voiceName = it)) },
+                    expanded = suggestionsExpanded,
+                    onExpandedChanged = { suggestionsExpanded = it },
                     modifier = Modifier.weight(1f),
-                    value = config.voiceName,
-                    onValueChange = { onConfigChanged(config.copy(voiceName = it)) },
-                    singleLine = true,
-                    label = { Text(locale.ttsVoiceLabel) },
                 )
-                if (suggestions.isNotEmpty()) {
-                    Box {
-                        IconButton(onClick = { suggestionsExpanded = true }) {
-                            Icon(Icons.Rounded.ArrowDropDown, contentDescription = locale.ttsVoiceLabel)
-                        }
-                        DropdownMenu(
-                            expanded = suggestionsExpanded,
-                            onDismissRequest = { suggestionsExpanded = false },
-                        ) {
-                            suggestions.forEach { voice ->
-                                DropdownMenuItem(
-                                    text = { Text(voice) },
-                                    onClick = {
-                                        onConfigChanged(config.copy(voiceName = voice))
-                                        suggestionsExpanded = false
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
                 IconButton(onClick = onPreview) {
                     Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = locale.ttsVoiceLabel)
                 }
                 IconButton(onClick = onRemove) {
                     Icon(Icons.Rounded.Close, contentDescription = locale.removeLabel)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EdgeVoiceSelector(
+    currentVoice: String,
+    suggestions: List<String>,
+    locale: MobileLocaleText,
+    onVoiceSelected: (String) -> Unit,
+    expanded: Boolean,
+    onExpandedChanged: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier) {
+        OutlinedButton(
+            onClick = { onExpandedChanged(true) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 56.dp),
+        ) {
+            Text(
+                text = currentVoice,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+            )
+            Icon(Icons.Rounded.ArrowDropDown, contentDescription = locale.ttsVoiceLabel)
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { onExpandedChanged(false) },
+        ) {
+            suggestions.forEach { voice ->
+                DropdownMenuItem(
+                    text = { Text(voice) },
+                    onClick = {
+                        onVoiceSelected(voice)
+                        onExpandedChanged(false)
+                    },
+                )
             }
         }
     }

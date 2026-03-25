@@ -211,6 +211,7 @@ pub fn get() -> LocaleText {
         tts_speed_slow: "Chậm",
         tts_speed_fast: "Nhanh",
         _tts_voice_label: "Giọng đọc:",
+        tts_preview_label: "Nghe thử",
         tts_preview_texts: vec![
             "Xin chào, tôi là {}, tôi có thể đọc giúp bạn đoạn văn này.",
             "Cuộc sống thật đẹp tươi, {} rất vui khi được trò chuyện cùng bạn.",
