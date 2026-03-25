@@ -2,3 +2,4 @@
 local.properties
 **/build/
 .adb-phone.json
+release.keystore

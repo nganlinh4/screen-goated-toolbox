@@ -278,6 +278,18 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val ks = rootProject.projectDir.resolve("release.keystore")
+            if (ks.exists()) {
+                storeFile = ks
+                storePassword = "screengoated"
+                keyAlias = "sgt-release"
+                keyPassword = "screengoated"
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
@@ -290,6 +302,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

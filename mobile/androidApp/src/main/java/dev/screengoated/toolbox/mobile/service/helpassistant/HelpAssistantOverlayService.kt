@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import android.graphics.Rect
 import android.os.Build
 import android.os.IBinder
@@ -49,6 +50,11 @@ class HelpAssistantOverlayService : Service() {
         super.onCreate()
         if (!Settings.canDrawOverlays(this)) {
             Toast.makeText(this, "Overlay permission is required for Help Assistant.", Toast.LENGTH_SHORT).show()
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName"),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
             stopSelf()
             return
         }
