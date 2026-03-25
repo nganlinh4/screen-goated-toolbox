@@ -30,6 +30,8 @@ import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionPatch
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+import dev.screengoated.toolbox.mobile.updater.AppUpdateRepository
+import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,6 +40,7 @@ class MainViewModel(
     private val repository: AndroidLiveSessionRepository,
     private val historyRepository: HistoryRepository,
     private val ttsRuntimeService: TtsRuntimeService,
+    private val appUpdateRepository: AppUpdateRepository,
 ) : ViewModel() {
     private var lastPreviewIndex = -1
     private val mutableHistorySearchQuery = MutableStateFlow("")
@@ -56,6 +59,7 @@ class MainViewModel(
     val edgeVoiceCatalogState: StateFlow<EdgeVoiceCatalogState> = ttsRuntimeService.edgeVoiceCatalogState
     val historyState: StateFlow<HistoryUiState> = historyRepository.state
     val historySearchQuery: StateFlow<String> = mutableHistorySearchQuery.asStateFlow()
+    val appUpdateState: StateFlow<AppUpdateUiState> = appUpdateRepository.state
 
     init {
         repository.updateConfig(
@@ -69,6 +73,7 @@ class MainViewModel(
         )
         repository.ensureSafePlayDefaults()
         repository.refreshPermissions()
+        appUpdateRepository.autoCheckForUpdates()
     }
 
     fun runtimePermissions(): Array<String> = repository.runtimePermissions()
@@ -298,6 +303,10 @@ class MainViewModel(
         historyRepository.clearAll()
     }
 
+    fun checkForAppUpdates() {
+        appUpdateRepository.checkForUpdates()
+    }
+
     fun hasApiKey(): Boolean = repository.currentApiKey().isNotBlank()
 
     fun fail(message: String) {
@@ -319,10 +328,16 @@ class MainViewModel(
             val repository = application.appContainer.repository
             val historyRepository = application.appContainer.historyRepository
             val ttsRuntimeService = application.appContainer.ttsRuntimeService
+            val appUpdateRepository = application.appContainer.appUpdateRepository
             return object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return MainViewModel(repository, historyRepository, ttsRuntimeService) as T
+                    return MainViewModel(
+                        repository,
+                        historyRepository,
+                        ttsRuntimeService,
+                        appUpdateRepository,
+                    ) as T
                 }
             }
         }

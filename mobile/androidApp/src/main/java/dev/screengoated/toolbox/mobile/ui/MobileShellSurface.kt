@@ -48,6 +48,7 @@ import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileUiLanguageOption
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
 import kotlinx.coroutines.launch
 
 internal data class ShellSectionLayoutBehavior(
@@ -86,6 +87,7 @@ internal fun MobileShellSurface(
     presetRuntimeSettings: PresetRuntimeSettings,
     historyState: HistoryUiState,
     historySearchQuery: String,
+    appUpdateState: AppUpdateUiState,
     locale: MobileLocaleText,
     onApiKeyChanged: (String) -> Unit,
     onCerebrasApiKeyChanged: (String) -> Unit,
@@ -111,6 +113,7 @@ internal fun MobileShellSurface(
     onHistoryMaxItemsChanged: (Int) -> Unit = {},
     onDeleteHistoryItem: (Long) -> Unit = {},
     onClearHistoryItems: () -> Unit = {},
+    onCheckForAppUpdates: () -> Unit = {},
     onDownloaderClick: () -> Unit = {},
     onDjClick: () -> Unit = {},
     onPresetClick: (String) -> Unit = {},
@@ -230,6 +233,7 @@ internal fun MobileShellSurface(
                                 presetRuntimeSettings = presetRuntimeSettings,
                                 historyState = historyState,
                                 historySearchQuery = historySearchQuery,
+                                appUpdateState = appUpdateState,
                                 locale = locale,
                                 wideLayout = true,
                                 onApiKeyChanged = onApiKeyChanged,
@@ -249,6 +253,7 @@ internal fun MobileShellSurface(
                                 onHistoryMaxItemsChanged = onHistoryMaxItemsChanged,
                                 onDeleteHistoryItem = onDeleteHistoryItem,
                                 onClearHistoryItems = onClearHistoryItems,
+                                onCheckForAppUpdates = onCheckForAppUpdates,
                                 canToggle = canToggle,
                                 onDownloaderClick = onDownloaderClick,
                                 onDjClick = onDjClick,
@@ -276,6 +281,7 @@ internal fun MobileShellSurface(
                                 presetRuntimeSettings = presetRuntimeSettings,
                                 historyState = historyState,
                                 historySearchQuery = historySearchQuery,
+                                appUpdateState = appUpdateState,
                                 locale = locale,
                                 wideLayout = true,
                                 onApiKeyChanged = onApiKeyChanged,
@@ -295,6 +301,7 @@ internal fun MobileShellSurface(
                                 onHistoryMaxItemsChanged = onHistoryMaxItemsChanged,
                                 onDeleteHistoryItem = onDeleteHistoryItem,
                                 onClearHistoryItems = onClearHistoryItems,
+                                onCheckForAppUpdates = onCheckForAppUpdates,
                                 canToggle = canToggle,
                                 onDownloaderClick = onDownloaderClick,
                                 onDjClick = onDjClick,
@@ -457,6 +464,7 @@ internal fun MobileShellSurface(
                                     presetRuntimeSettings = presetRuntimeSettings,
                                     historyState = historyState,
                                     historySearchQuery = historySearchQuery,
+                                    appUpdateState = appUpdateState,
                                     locale = locale,
                                     wideLayout = false,
                                     onApiKeyChanged = onApiKeyChanged,
@@ -476,6 +484,7 @@ internal fun MobileShellSurface(
                                     onHistoryMaxItemsChanged = onHistoryMaxItemsChanged,
                                     onDeleteHistoryItem = onDeleteHistoryItem,
                                     onClearHistoryItems = onClearHistoryItems,
+                                    onCheckForAppUpdates = onCheckForAppUpdates,
                                     canToggle = canToggle,
                                     onDownloaderClick = onDownloaderClick,
                                     onDjClick = onDjClick,
@@ -499,6 +508,7 @@ internal fun MobileShellSurface(
                                     presetRuntimeSettings = presetRuntimeSettings,
                                     historyState = historyState,
                                     historySearchQuery = historySearchQuery,
+                                    appUpdateState = appUpdateState,
                                     locale = locale,
                                     wideLayout = false,
                                     onApiKeyChanged = onApiKeyChanged,
@@ -518,6 +528,7 @@ internal fun MobileShellSurface(
                                     onHistoryMaxItemsChanged = onHistoryMaxItemsChanged,
                                     onDeleteHistoryItem = onDeleteHistoryItem,
                                     onClearHistoryItems = onClearHistoryItems,
+                                    onCheckForAppUpdates = onCheckForAppUpdates,
                                     canToggle = canToggle,
                                     onDownloaderClick = onDownloaderClick,
                                     onDjClick = onDjClick,

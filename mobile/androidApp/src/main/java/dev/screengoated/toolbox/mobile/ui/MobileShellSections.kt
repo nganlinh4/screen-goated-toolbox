@@ -160,6 +160,7 @@ import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
 
 internal enum class MobileShellSection(val icon: ImageVector) { APPS(Icons.Rounded.GridView), TOOLS(Icons.Rounded.Apps), SETTINGS(Icons.Rounded.Settings), HISTORY(Icons.Rounded.History);
     fun label(locale: MobileLocaleText): String = when (this) {
@@ -479,6 +480,7 @@ internal fun SectionDetail(
     presetRuntimeSettings: PresetRuntimeSettings,
     historyState: HistoryUiState,
     historySearchQuery: String,
+    appUpdateState: AppUpdateUiState,
     locale: MobileLocaleText,
     wideLayout: Boolean,
     onApiKeyChanged: (String) -> Unit,
@@ -498,6 +500,7 @@ internal fun SectionDetail(
     onHistoryMaxItemsChanged: (Int) -> Unit = {},
     onDeleteHistoryItem: (Long) -> Unit = {},
     onClearHistoryItems: () -> Unit = {},
+    onCheckForAppUpdates: () -> Unit = {},
     canToggle: Boolean,
     onDownloaderClick: () -> Unit = {},
     onDjClick: () -> Unit = {},
@@ -535,6 +538,7 @@ internal fun SectionDetail(
             globalTtsSettings = globalTtsSettings,
             presetRuntimeSettings = presetRuntimeSettings,
             overlayOpacityPercent = uiPreferences.overlayOpacityPercent,
+            appUpdateState = appUpdateState,
             locale = locale,
             wideLayout = wideLayout,
             onApiKeyChanged = onApiKeyChanged,
@@ -547,6 +551,7 @@ internal fun SectionDetail(
             onResetDefaults = onResetDefaults,
             onVoiceSettingsClick = onVoiceSettingsClick,
             onOverlayOpacityChanged = onOverlayOpacityChanged,
+            onCheckForAppUpdates = onCheckForAppUpdates,
         )
 
         MobileShellSection.HISTORY -> HistorySection(

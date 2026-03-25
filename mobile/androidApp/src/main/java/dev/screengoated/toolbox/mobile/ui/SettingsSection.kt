@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
 
 @Composable
 internal fun GlobalSection(
@@ -29,6 +30,7 @@ internal fun GlobalSection(
     globalTtsSettings: MobileGlobalTtsSettings,
     presetRuntimeSettings: PresetRuntimeSettings,
     overlayOpacityPercent: Int,
+    appUpdateState: AppUpdateUiState,
     locale: MobileLocaleText,
     wideLayout: Boolean,
     onApiKeyChanged: (String) -> Unit,
@@ -41,6 +43,7 @@ internal fun GlobalSection(
     onResetDefaults: () -> Unit,
     onVoiceSettingsClick: () -> Unit,
     onOverlayOpacityChanged: (Int) -> Unit,
+    onCheckForAppUpdates: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val isLandscape =
@@ -175,6 +178,11 @@ internal fun GlobalSection(
                 onOpacityChanged = onOverlayOpacityChanged,
             )
         }
+        AppUpdateSection(
+            state = appUpdateState,
+            locale = locale,
+            onCheckForUpdates = onCheckForAppUpdates,
+        )
         DownloadedToolsSection(locale = locale)
     }
 }

@@ -66,6 +66,7 @@ import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
+import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
 
 @Composable
 fun SgtMobileApp(
@@ -81,6 +82,7 @@ fun SgtMobileApp(
     locale: MobileLocaleText,
     historyState: HistoryUiState,
     historySearchQuery: String,
+    appUpdateState: AppUpdateUiState,
     edgeVoiceCatalogState: EdgeVoiceCatalogState,
     onApiKeyChanged: (String) -> Unit,
     onCerebrasApiKeyChanged: (String) -> Unit,
@@ -107,6 +109,7 @@ fun SgtMobileApp(
     onResetHistoryDefaults: () -> Unit,
     onDeleteHistoryItem: (Long) -> Unit,
     onClearHistoryItems: () -> Unit,
+    onCheckForAppUpdates: () -> Unit,
     onOverlayOpacityChanged: (Int) -> Unit = {},
 ) {
     var showTtsSettings by rememberSaveable { mutableStateOf(false) }
@@ -224,6 +227,7 @@ fun SgtMobileApp(
                     locale = locale,
                     historyState = historyState,
                     historySearchQuery = historySearchQuery,
+                    appUpdateState = appUpdateState,
                     onApiKeyChanged = onApiKeyChanged,
                     onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
                     onGroqApiKeyChanged = onGroqApiKeyChanged,
@@ -265,6 +269,7 @@ fun SgtMobileApp(
                     onHistoryMaxItemsChanged = onHistoryMaxItemsChanged,
                     onDeleteHistoryItem = onDeleteHistoryItem,
                     onClearHistoryItems = onClearHistoryItems,
+                    onCheckForAppUpdates = onCheckForAppUpdates,
                 )
             }
         }

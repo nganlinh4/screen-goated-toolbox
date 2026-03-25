@@ -1,0 +1,31 @@
+{
+  "latest_release": {
+    "tag_name": "v4.8.3",
+    "html_url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/tag/v4.8.3",
+    "body": "- New feature: control preferred models when retrying due to error\n- Fixed bug in \"Ask for usage\" feature",
+    "assets": [
+      {
+        "name": "ScreenGoatedToolbox_v4.8.3.exe",
+        "browser_download_url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/v4.8.3/ScreenGoatedToolbox_v4.8.3.exe"
+      }
+    ]
+  },
+  "comparison_examples": [
+    {
+      "current_version": "4.8.3",
+      "expected_status": "up_to_date"
+    },
+    {
+      "current_version": "4.8.3-full-debug",
+      "expected_status": "up_to_date"
+    },
+    {
+      "current_version": "4.8.2-play-debug",
+      "expected_status": "update_available"
+    }
+  ],
+  "asset_selection": {
+    "preferred_extension": ".apk",
+    "fallback_when_missing": "release_html_url"
+  }
+}
