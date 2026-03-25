@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -58,6 +59,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.clickable
@@ -191,46 +193,49 @@ internal fun CredentialsCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
+                            Row(
+                                modifier = Modifier.widthIn(min = 132.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                MorphingShapeBadge(
+                                    morphPair = ExpressiveMorphPair(
+                                        MaterialShapes.Circle,
+                                        MaterialShapes.Cookie4Sided,
+                                    ),
+                                    progress = 0.82f,
+                                    containerColor = accent.copy(alpha = 0.18f),
+                                    modifier = Modifier.size(28.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = provider.icon,
+                                        contentDescription = null,
+                                        tint = accent,
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                }
+                                Text(
+                                    text = provider.label,
+                                    style = MaterialTheme.typography.labelMediumEmphasized,
+                                    color = accent,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth(),
+                                contentAlignment = Alignment.Center,
                             ) {
-                                Row(
-                                    modifier = Modifier.align(Alignment.CenterStart),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    MorphingShapeBadge(
-                                        morphPair = ExpressiveMorphPair(
-                                            MaterialShapes.Circle,
-                                            MaterialShapes.Cookie4Sided,
-                                        ),
-                                        progress = 0.82f,
-                                        containerColor = accent.copy(alpha = 0.18f),
-                                        modifier = Modifier.size(28.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = provider.icon,
-                                            contentDescription = null,
-                                            tint = accent,
-                                            modifier = Modifier.size(14.dp),
-                                        )
-                                    }
-                                    Text(
-                                        text = provider.label,
-                                        style = MaterialTheme.typography.labelMediumEmphasized,
-                                        color = accent,
-                                    )
-                                }
                                 if (expanded && provider.getKeyUrl != null && provider.getKeyLabel != null) {
                                     Text(
                                         text = provider.getKeyLabel,
                                         style = MaterialTheme.typography.labelSmall,
                                         color = accent,
                                         textAlign = TextAlign.Center,
+                                        maxLines = 1,
                                         modifier = Modifier
-                                            .align(Alignment.Center)
                                             .clickable { uriHandler.openUri(provider.getKeyUrl) },
                                     )
                                 }
