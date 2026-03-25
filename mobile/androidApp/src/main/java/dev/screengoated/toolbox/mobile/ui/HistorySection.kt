@@ -24,8 +24,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.TextSnippet
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.GraphicEq
@@ -112,24 +112,35 @@ internal fun HistorySection(
                                 fontWeight = FontWeight.SemiBold,
                             )
                         }
-                        Text(
-                            text = "${locale.historyMaxItemsLabel} ${state.maxItems}",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = locale.historyMaxItemsLabel,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            HistoryMetricChip(value = state.maxItems)
+                        }
                     }
 
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Slider(
-                            value = state.maxItems.toFloat(),
-                            onValueChange = { onMaxItemsChanged(it.roundToInt()) },
-                            valueRange = MIN_HISTORY_LIMIT.toFloat()..MAX_HISTORY_LIMIT.toFloat(),
-                        )
-                        Text(
-                            text = locale.historyRetentionHint,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    HistoryInsetCard(accent = MaterialTheme.colorScheme.primary) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Slider(
+                                value = state.maxItems.toFloat(),
+                                onValueChange = { onMaxItemsChanged(it.roundToInt()) },
+                                valueRange = MIN_HISTORY_LIMIT.toFloat()..MAX_HISTORY_LIMIT.toFloat(),
+                            )
+                            Text(
+                                text = locale.historyRetentionHint,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
 
                     Row(

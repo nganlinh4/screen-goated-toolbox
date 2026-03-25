@@ -9,6 +9,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.TextSnippet
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Image
@@ -30,8 +32,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,6 +48,105 @@ internal enum class HistoryActionRole(
     COPY(ExpressiveMorphPair(MaterialShapes.Square, MaterialShapes.Cookie4Sided)),
     OPEN(ExpressiveMorphPair(MaterialShapes.Pill, MaterialShapes.Arrow)),
     DELETE(ExpressiveMorphPair(MaterialShapes.Slanted, MaterialShapes.Pentagon)),
+}
+
+@Composable
+internal fun HistoryInsetCard(
+    accent: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = lerp(
+                MaterialTheme.colorScheme.surfaceContainerLow,
+                accent,
+                0.14f,
+            ).copy(alpha = 0.98f),
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            content = content,
+        )
+    }
+}
+
+@Composable
+internal fun HistoryMetricChip(
+    value: Int,
+    modifier: Modifier = Modifier,
+) {
+    val accent = MaterialTheme.colorScheme.primary
+    val contentColor = if (accent.luminance() > 0.52f) Color(0xFF221B12) else Color.White
+    val normalized = ((value - 25f) / (200f - 25f)).coerceIn(0f, 1f)
+    val (pair, pairProgress) = when {
+        normalized < 0.25f -> ExpressiveMorphPair(MaterialShapes.Square, MaterialShapes.Cookie4Sided) to (normalized / 0.25f)
+        normalized < 0.5f -> ExpressiveMorphPair(MaterialShapes.Cookie4Sided, MaterialShapes.Cookie6Sided) to ((normalized - 0.25f) / 0.25f)
+        normalized < 0.75f -> ExpressiveMorphPair(MaterialShapes.Cookie6Sided, MaterialShapes.Cookie9Sided) to ((normalized - 0.5f) / 0.25f)
+        else -> ExpressiveMorphPair(MaterialShapes.Cookie9Sided, MaterialShapes.Flower) to ((normalized - 0.75f) / 0.25f)
+    }
+    MorphingShapeBadge(
+        morphPair = pair,
+        progress = pairProgress,
+        containerColor = accent,
+        modifier = modifier,
+    ) {
+        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Text(
+                text = value.toString(),
+                style = MaterialTheme.typography.labelMediumEmphasized,
+                color = contentColor,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun HistorySearchClearButton(
+    onClick: () -> Unit,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val morphProgress by animateFloatAsState(
+        targetValue = if (pressed) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+        ),
+        label = "history-search-clear",
+    )
+    val accent = MaterialTheme.colorScheme.error
+    MorphingShapeBadge(
+        morphPair = ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Cookie4Sided),
+        progress = morphProgress,
+        containerColor = lerp(
+            MaterialTheme.colorScheme.surfaceContainerHighest,
+            accent.copy(alpha = 0.92f),
+            0.4f + (0.6f * morphProgress),
+        ),
+        modifier = modifier
+            .size(38.dp)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+    ) {
+        androidx.compose.material3.Icon(
+            imageVector = Icons.Rounded.Close,
+            contentDescription = contentDescription,
+            tint = Color.White,
+            modifier = Modifier.size(16.dp),
+        )
+    }
 }
 
 @Composable
@@ -120,6 +223,7 @@ internal fun HistoryActionButton(
     badgeRotationDegrees: Float = 0f,
     iconRotationDegrees: Float = 0f,
     contentDescription: String? = text,
+    emphasis: Boolean = false,
 ) {
     val accent = when (role) {
         HistoryActionRole.FOLDER -> MaterialTheme.colorScheme.primary
@@ -139,10 +243,36 @@ internal fun HistoryActionButton(
     )
     val containerColor = lerp(
         lerp(MaterialTheme.colorScheme.surfaceContainerHighest, accent, 0.12f),
-        lerp(MaterialTheme.colorScheme.surfaceContainerHighest, accent, 0.22f),
+        lerp(
+            MaterialTheme.colorScheme.surfaceContainerHighest,
+            accent,
+            if (emphasis) 0.46f else 0.22f,
+        ),
         morphProgress,
     )
-    val iconTint = lerp(MaterialTheme.colorScheme.onSurfaceVariant, accent, 0.9f)
+    val cardColor = if (emphasis) {
+        lerp(
+            MaterialTheme.colorScheme.surfaceContainerLow,
+            accent,
+            if (pressed) 0.34f else 0.26f,
+        )
+    } else {
+        lerp(
+            MaterialTheme.colorScheme.surfaceContainerLow,
+            accent,
+            if (pressed) 0.16f else 0.1f,
+        )
+    }
+    val iconTint = if (emphasis && accent.luminance() <= 0.52f) {
+        Color.White
+    } else {
+        lerp(MaterialTheme.colorScheme.onSurfaceVariant, accent, 0.9f)
+    }
+    val textColor = if (emphasis && accent.luminance() <= 0.52f) {
+        Color.White
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
 
     Card(
         modifier = modifier
@@ -153,11 +283,7 @@ internal fun HistoryActionButton(
             ),
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
-            containerColor = lerp(
-                MaterialTheme.colorScheme.surfaceContainerLow,
-                accent,
-                if (pressed) 0.16f else 0.1f,
-            ),
+            containerColor = cardColor,
         ),
     ) {
         Row(
@@ -192,7 +318,7 @@ internal fun HistoryActionButton(
                 Text(
                     text = text,
                     style = MaterialTheme.typography.labelMediumEmphasized,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = textColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

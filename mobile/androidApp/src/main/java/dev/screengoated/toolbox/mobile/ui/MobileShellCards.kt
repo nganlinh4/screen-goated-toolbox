@@ -7,7 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,19 +30,18 @@ import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.ToggleButton
-import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -60,6 +58,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalConfiguration
@@ -129,10 +128,12 @@ internal fun CredentialsCard(
                 label = provider.label,
                 icon = Icons.Rounded.Computer,
                 keyLabel = locale.ollamaUrlLabel,
+                getKeyUrl = "https://ollama.com/download",
+                getKeyLabel = locale.ollamaLearnMoreLink,
             )
         }
     }
-    val enabledState = remember { mutableStateListOf(true, true, true, false, false) }
+    val expandedState = remember { mutableStateListOf(true, true, true, false, false) }
     val visibleState = remember { mutableStateListOf(false, false, false, false, false) }
     val cardAccent = MaterialTheme.colorScheme.primary
 
@@ -149,40 +150,6 @@ internal fun CredentialsCard(
                 icon = Icons.Rounded.Key,
                 accent = cardAccent,
             )
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                providers.forEachIndexed { index, provider ->
-                    val accent = providerAccent(provider.label, MaterialTheme.colorScheme)
-                    ToggleButton(
-                        checked = enabledState[index],
-                        onCheckedChange = { enabledState[index] = it },
-                        shapes = when (index) {
-                            0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                            providers.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                            else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                        },
-                        colors = ToggleButtonDefaults.toggleButtonColors(
-                            checkedContainerColor = accent.copy(alpha = 0.22f),
-                            checkedContentColor = accent,
-                        ),
-                        modifier = Modifier.semantics { role = Role.Checkbox },
-                    ) {
-                        Icon(
-                            provider.icon,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(Modifier.size(ToggleButtonDefaults.IconSpacing))
-                        Text(
-                            provider.label,
-                            style = MaterialTheme.typography.labelSmall,
-                        )
-                    }
-                }
-            }
 
             val isLandscape = LocalConfiguration.current.orientation ==
                 android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -206,44 +173,109 @@ internal fun CredentialsCard(
                 entry: FieldEntry,
                 fieldModifier: Modifier = Modifier,
             ) {
-                Column(
+                val provider = providers[entry.index]
+                val accent = providerAccent(provider.label, MaterialTheme.colorScheme)
+                ExpressiveSettingsInsetCard(
+                    accent = accent,
                     modifier = fieldModifier,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalPadding = 10.dp,
+                    verticalPadding = 8.dp,
                 ) {
-                    OutlinedTextField(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        value = entry.value,
-                        onValueChange = entry.onValueChange,
-                        label = { Text(providers[entry.index].keyLabel, style = MaterialTheme.typography.labelSmall) },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodySmall,
-                        visualTransformation = if (entry.isPassword && !visibleState[entry.index]) {
-                            PasswordVisualTransformation()
-                        } else {
-                            VisualTransformation.None
-                        },
-                        trailingIcon = if (entry.isPassword) {
-                            {
-                                MorphingVisibilityToggleButton(
-                                    visible = visibleState[entry.index],
-                                    accent = providerAccent(providers[entry.index].label, MaterialTheme.colorScheme),
-                                    onClick = { visibleState[entry.index] = !visibleState[entry.index] },
-                                    modifier = Modifier.size(36.dp),
-                                )
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier.align(Alignment.CenterStart),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    MorphingShapeBadge(
+                                        morphPair = ExpressiveMorphPair(
+                                            MaterialShapes.Circle,
+                                            MaterialShapes.Cookie4Sided,
+                                        ),
+                                        progress = 0.82f,
+                                        containerColor = accent.copy(alpha = 0.18f),
+                                        modifier = Modifier.size(28.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = provider.icon,
+                                            contentDescription = null,
+                                            tint = accent,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    }
+                                    Text(
+                                        text = provider.label,
+                                        style = MaterialTheme.typography.labelMediumEmphasized,
+                                        color = accent,
+                                    )
+                                }
+                                if (expandedState[entry.index] && provider.getKeyUrl != null && provider.getKeyLabel != null) {
+                                    Text(
+                                        text = provider.getKeyLabel,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = accent,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier
+                                            .align(Alignment.Center)
+                                            .clickable { uriHandler.openUri(provider.getKeyUrl) },
+                                    )
+                                }
                             }
-                        } else null,
-                        shape = MaterialTheme.shapes.medium,
-                    )
-                    val provider = providers[entry.index]
-                    if (provider.getKeyUrl != null && provider.getKeyLabel != null) {
-                        Text(
-                            text = provider.getKeyLabel,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clickable { uriHandler.openUri(provider.getKeyUrl) }
-                                .padding(start = 4.dp),
-                        )
+                            ExpressiveProviderExpandSwitch(
+                                checked = expandedState[entry.index],
+                                accent = accent,
+                                onCheckedChange = { expandedState[entry.index] = it },
+                                modifier = Modifier.semantics { role = Role.Switch },
+                            )
+                        }
+
+                        AnimatedVisibility(visible = expandedState[entry.index]) {
+                            OutlinedTextField(
+                                modifier = Modifier.fillMaxWidth(),
+                                value = entry.value,
+                                onValueChange = entry.onValueChange,
+                                label = { Text(provider.keyLabel, style = MaterialTheme.typography.labelSmall) },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodySmall,
+                                visualTransformation = if (entry.isPassword && !visibleState[entry.index]) {
+                                    PasswordVisualTransformation()
+                                } else {
+                                    VisualTransformation.None
+                                },
+                                trailingIcon = if (entry.isPassword) {
+                                    {
+                                        MorphingVisibilityToggleButton(
+                                            visible = visibleState[entry.index],
+                                            accent = accent,
+                                            onClick = { visibleState[entry.index] = !visibleState[entry.index] },
+                                            modifier = Modifier.size(36.dp),
+                                        )
+                                    }
+                                } else null,
+                                shape = MaterialTheme.shapes.large,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = accent.copy(alpha = 0.1f),
+                                    unfocusedContainerColor = accent.copy(alpha = 0.065f),
+                                    disabledContainerColor = accent.copy(alpha = 0.05f),
+                                    focusedBorderColor = accent.copy(alpha = 0.75f),
+                                    unfocusedBorderColor = accent.copy(alpha = 0.34f),
+                                    cursorColor = accent,
+                                ),
+                            )
+                        }
                     }
                 }
             }
@@ -251,31 +283,23 @@ internal fun CredentialsCard(
             if (isLandscape) {
                 // 2-column grid in landscape to save vertical space
                 fields.chunked(2).forEach { pair ->
-                    val anyVisible = pair.any { enabledState[it.index] }
-                    AnimatedVisibility(visible = anyVisible) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            pair.forEach { entry ->
-                                AnimatedVisibility(
-                                    visible = enabledState[entry.index],
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    ApiKeyFieldContent(entry = entry)
-                                }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        pair.forEach { entry ->
+                            Box(modifier = Modifier.weight(1f)) {
+                                ApiKeyFieldContent(entry = entry)
                             }
-                            if (pair.size == 1) {
-                                Spacer(Modifier.weight(1f))
-                            }
+                        }
+                        if (pair.size == 1) {
+                            Spacer(Modifier.weight(1f))
                         }
                     }
                 }
             } else {
                 fields.forEach { entry ->
-                    AnimatedVisibility(visible = enabledState[entry.index]) {
-                        ApiKeyFieldContent(entry)
-                    }
+                    ApiKeyFieldContent(entry)
                 }
             }
         }

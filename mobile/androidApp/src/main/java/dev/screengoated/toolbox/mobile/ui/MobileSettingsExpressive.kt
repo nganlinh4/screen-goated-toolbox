@@ -2,6 +2,7 @@
 
 package dev.screengoated.toolbox.mobile.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -24,6 +25,8 @@ import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Composable
@@ -40,6 +43,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.Morph
@@ -150,6 +154,170 @@ internal fun ExpressiveSettingsButton(
             style = MaterialTheme.typography.labelMediumEmphasized,
         )
     }
+}
+
+@Composable
+internal fun ExpressiveSettingsInsetCard(
+    accent: Color,
+    modifier: Modifier = Modifier,
+    horizontalPadding: androidx.compose.ui.unit.Dp = 12.dp,
+    verticalPadding: androidx.compose.ui.unit.Dp = 12.dp,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    Card(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(
+            containerColor = lerp(
+                MaterialTheme.colorScheme.surfaceContainerLow,
+                accent,
+                0.11f,
+            ).copy(alpha = 0.98f),
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+        border = BorderStroke(
+            width = 1.dp,
+            color = accent.copy(alpha = 0.22f),
+        ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = horizontalPadding, vertical = verticalPadding),
+            content = content,
+        )
+    }
+}
+
+@Composable
+internal fun ExpressiveProviderToggleChip(
+    text: String,
+    icon: ImageVector,
+    accent: Color,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val selectedContent = if (accent.luminance() > 0.52f) {
+        Color(0xFF221B12)
+    } else {
+        Color.White
+    }
+    val emphasis by animateFloatAsState(
+        targetValue = when {
+            checked -> 1f
+            pressed -> 0.42f
+            else -> 0f
+        },
+        animationSpec = spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+        ),
+        label = "provider-chip-$text",
+    )
+    val containerColor = lerp(
+        MaterialTheme.colorScheme.surfaceContainerHigh,
+        accent,
+        if (checked) 0.88f else 0.18f + (0.22f * emphasis),
+    )
+    val borderColor = lerp(
+        MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
+        accent.copy(alpha = if (checked) 0.88f else 0.44f),
+        0.35f + (0.65f * emphasis),
+    )
+    val badgeColor = lerp(
+        MaterialTheme.colorScheme.surfaceContainerHighest,
+        if (checked) {
+            selectedContent.copy(alpha = 0.22f)
+        } else {
+            accent.copy(alpha = 0.2f)
+        },
+        0.38f + (0.55f * emphasis),
+    )
+    val contentColor = if (checked) {
+        selectedContent
+    } else {
+        lerp(MaterialTheme.colorScheme.onSurfaceVariant, accent, 0.8f)
+    }
+    val morphProgress by animateFloatAsState(
+        targetValue = if (checked) 0.96f else 0.28f,
+        animationSpec = spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+        ),
+        label = "provider-chip-morph-$text",
+    )
+
+    Card(
+        modifier = modifier
+            .graphicsLayer {
+                scaleX = 0.982f + (0.018f * emphasis)
+                scaleY = 0.982f + (0.018f * emphasis)
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = { onCheckedChange(!checked) },
+            ),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.cardColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+        ),
+        border = BorderStroke(1.dp, borderColor),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            MorphingShapeBadge(
+                morphPair = ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Cookie6Sided),
+                progress = morphProgress,
+                containerColor = badgeColor,
+                modifier = Modifier.size(30.dp),
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.size(15.dp),
+                )
+            }
+            Text(
+                text = text,
+                color = contentColor,
+                style = MaterialTheme.typography.labelMediumEmphasized,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun ExpressiveProviderExpandSwitch(
+    checked: Boolean,
+    accent: Color,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Switch(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        modifier = modifier.graphicsLayer(
+            scaleX = 0.78f,
+            scaleY = 0.78f,
+        ),
+        colors = SwitchDefaults.colors(
+            checkedThumbColor = if (accent.luminance() > 0.52f) Color(0xFF221B12) else Color.White,
+            checkedTrackColor = accent,
+            checkedBorderColor = accent,
+            uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+            uncheckedTrackColor = accent.copy(alpha = 0.18f),
+            uncheckedBorderColor = accent.copy(alpha = 0.34f),
+        ),
+    )
 }
 
 @Composable
