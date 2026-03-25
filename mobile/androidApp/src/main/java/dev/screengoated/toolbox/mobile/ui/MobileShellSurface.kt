@@ -391,13 +391,8 @@ internal fun MobileShellSurface(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
                                     SgtBrandBadge(size = 28.dp, showBackground = false)
-                                    Text(
-                                        text = appHeaderTitle,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
+                                    AppHeaderTitleLink(
+                                        title = appHeaderTitle,
                                     )
                                 }
                             }
