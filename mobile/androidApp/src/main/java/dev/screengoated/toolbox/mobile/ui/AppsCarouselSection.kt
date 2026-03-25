@@ -221,6 +221,9 @@ private val appSlots = listOf(
     AppSlot(MaterialShapes.Clover4Leaf,  { it.appSlotBlue }),   // placeholder — blue
 )
 
+private val AppCardLandscapeIconSize = 40.dp
+private val AppCardPortraitIconSize = 44.dp
+
 @Composable
 internal fun AppsCarouselSection(
     state: LiveSessionState,
@@ -421,21 +424,21 @@ private fun LiveTranslateCarouselTile(
             }
         }
         if (isLandscape) {
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 18.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize(),
+                    verticalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Icon(
                         Icons.Rounded.Translate,
                         contentDescription = null,
                         tint = slotColor,
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(AppCardLandscapeIconSize),
                     )
                     Text(
                         text = locale.shellLiveTitle,
@@ -445,7 +448,6 @@ private fun LiveTranslateCarouselTile(
                         lineHeight = 24.sp,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 3,
-                        modifier = Modifier.weight(1f),
                     )
                 }
                 Button(
@@ -457,7 +459,7 @@ private fun LiveTranslateCarouselTile(
                     } else {
                         ButtonDefaults.buttonColors()
                     },
-                    modifier = Modifier.align(Alignment.End),
+                    modifier = Modifier.align(Alignment.TopEnd),
                 ) {
                     Icon(
                         if (isRunning) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
@@ -479,7 +481,7 @@ private fun LiveTranslateCarouselTile(
                     Icons.Rounded.Translate,
                     contentDescription = null,
                     tint = slotColor,
-                    modifier = Modifier.size(44.dp),
+                    modifier = Modifier.size(AppCardPortraitIconSize),
                 )
                 Spacer(Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -579,7 +581,7 @@ private fun AppTile(
                         icon,
                         contentDescription = null,
                         tint = slotColor,
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(AppCardLandscapeIconSize),
                     )
                 }
                 Text(
@@ -604,7 +606,7 @@ private fun AppTile(
                         icon,
                         contentDescription = null,
                         tint = slotColor,
-                        modifier = Modifier.size(44.dp),
+                        modifier = Modifier.size(AppCardPortraitIconSize),
                     )
                     Spacer(Modifier.width(14.dp))
                 }

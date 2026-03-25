@@ -28,6 +28,7 @@ import kotlin.math.roundToInt
 internal class PresetImageSelectionOverlay(
     context: Context,
     private val windowManager: WindowManager,
+    a11yWindowManager: WindowManager?,
     uiLanguage: String,
     title: String,
     private val trace: ImageCaptureTrace,
@@ -36,6 +37,7 @@ internal class PresetImageSelectionOverlay(
     private val onColorPicked: (String) -> Unit,
     private val onCancelled: () -> Unit,
 ) {
+    private val overlayWm = a11yWindowManager ?: windowManager
     private val overlayBounds = fullOverlayBounds(context, windowManager)
     private val selectionView = PresetImageSelectionView(
         context = context,
@@ -48,7 +50,8 @@ internal class PresetImageSelectionOverlay(
     private val layoutParams = WindowManager.LayoutParams(
         overlayBounds.width(),
         overlayBounds.height(),
-        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+        if (a11yWindowManager != null) WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        else WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
         android.graphics.PixelFormat.TRANSLUCENT,
     ).apply {
@@ -62,6 +65,14 @@ internal class PresetImageSelectionOverlay(
     private val root = FrameLayout(context).apply {
         setBackgroundColor(Color.TRANSPARENT)
         alpha = 0f
+        @Suppress("DEPRECATION")
+        systemUiVisibility =
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+            View.SYSTEM_UI_FLAG_FULLSCREEN or
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
         addView(selectionView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         addView(buildChrome(context, uiLanguage, title), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
     }
@@ -121,8 +132,11 @@ internal class PresetImageSelectionOverlay(
 
     fun show() {
         logImageCaptureTrace(trace, "overlay_show_requested")
-        windowManager.addView(root, layoutParams)
-        root.post { logImageCaptureTrace(trace, "overlay_first_frame_posted") }
+        overlayWm.addView(root, layoutParams)
+        root.post {
+            logImageCaptureTrace(trace, "overlay_first_frame_posted")
+            applyGestureExclusion()
+        }
         root.animate()
             .alpha(1f)
             .setDuration(FADE_IN_DURATION_MS)
@@ -131,9 +145,25 @@ internal class PresetImageSelectionOverlay(
             .start()
     }
 
+    private fun applyGestureExclusion() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val w = root.width
+            val h = root.height
+            if (w > 0 && h > 0) {
+                val edgePx = (48f * root.resources.displayMetrics.density).roundToInt()
+                val rects = listOf(
+                    Rect(0, 0, edgePx, h),
+                    Rect(w - edgePx, 0, w, h),
+                )
+                root.systemGestureExclusionRects = rects
+                selectionView.systemGestureExclusionRects = rects
+            }
+        }
+    }
+
     fun destroy() {
         selectionView.destroy()
-        runCatching { windowManager.removeViewImmediate(root) }
+        runCatching { overlayWm.removeViewImmediate(root) }
     }
 
     private companion object {

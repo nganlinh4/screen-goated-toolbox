@@ -166,9 +166,12 @@ internal class PresetImageCaptureSession(
         onColorPicked: (String) -> Unit,
         onCancelled: () -> Unit,
     ) {
+        val a11yWm = SgtAccessibilityService.instance
+            ?.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
         overlay = PresetImageSelectionOverlay(
             context = context,
             windowManager = windowManager,
+            a11yWindowManager = a11yWm,
             uiLanguage = uiLanguage(),
             title = resolvedPreset.preset.name(uiLanguage()),
             trace = trace,
