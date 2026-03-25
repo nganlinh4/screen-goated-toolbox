@@ -36,6 +36,24 @@ fun extractRustMatchArmRawString(source: String, armName: String): String {
     return match.groupValues[2]
 }
 
+fun extractCargoPackageVersion(cargoToml: File): String {
+    var inPackageSection = false
+    for (rawLine in cargoToml.readLines()) {
+        val line = rawLine.trim()
+        if (line.startsWith("[") && line.endsWith("]")) {
+            inPackageSection = line == "[package]"
+        } else if (inPackageSection && line.startsWith("version")) {
+            val match = Regex("""version\s*=\s*"([^"]+)"""").find(line)
+            if (match != null) {
+                return match.groupValues[1]
+            }
+        }
+    }
+    error("Missing [package].version in ${cargoToml.absolutePath}")
+}
+
+val canonicalAppVersion = extractCargoPackageVersion(rootProject.projectDir.parentFile.resolve("Cargo.toml"))
+
 val generatedPresetOverlayAssets = layout.buildDirectory.dir("generated/presetOverlayAssets")
 val generatedPresetModelCatalogSources = layout.buildDirectory.dir("generated/presetModelCatalog")
 val generatePresetOverlayAssets by tasks.registering {
@@ -234,7 +252,8 @@ android {
         minSdk = 29
         targetSdk = 36
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = canonicalAppVersion
+        buildConfigField("String", "CANONICAL_APP_VERSION", "\"$canonicalAppVersion\"")
         buildConfigField("String", "PARITY_PROFILE", "\"windows-live-translate-v2\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

@@ -88,6 +88,7 @@ class MainActivity : ComponentActivity() {
             val edgeVoiceCatalogState by viewModel.edgeVoiceCatalogState.collectAsStateWithLifecycle()
             val historyState by viewModel.historyState.collectAsStateWithLifecycle()
             val historySearchQuery by viewModel.historySearchQuery.collectAsStateWithLifecycle()
+            val appUpdateState by viewModel.appUpdateState.collectAsStateWithLifecycle()
             val context = LocalContext.current
             val locale = MobileLocaleText.forLanguage(uiPreferences.uiLanguage)
             val onSessionToggle by rememberUpdatedState {
@@ -109,6 +110,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            LaunchedEffect(appUpdateState.notificationSerial) {
+                if (appUpdateState.notificationSerial > 0 && appUpdateState.latestVersion != null) {
+                    Toast.makeText(
+                        context,
+                        "${locale.updateAvailableNotification} v${appUpdateState.latestVersion}",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+
             SgtMobileTheme(themeMode = uiPreferences.themeMode) {
                 SgtMobileApp(
                     state = state,
@@ -123,6 +134,7 @@ class MainActivity : ComponentActivity() {
                     locale = locale,
                     historyState = historyState,
                     historySearchQuery = historySearchQuery,
+                    appUpdateState = appUpdateState,
                     onApiKeyChanged = viewModel::onApiKeyChanged,
                     onCerebrasApiKeyChanged = viewModel::onCerebrasApiKeyChanged,
                     onGroqApiKeyChanged = viewModel::onGroqApiKeyChanged,
@@ -150,6 +162,7 @@ class MainActivity : ComponentActivity() {
                     onResetHistoryDefaults = viewModel::resetHistoryDefaults,
                     onDeleteHistoryItem = viewModel::deleteHistoryItem,
                     onClearHistoryItems = viewModel::clearHistoryItems,
+                    onCheckForAppUpdates = viewModel::checkForAppUpdates,
                 )
             }
         }
