@@ -489,10 +489,11 @@ const FIT_FONT_SCRIPT: &str = r#"
     }
 
     try {
-        if (document.fonts && document.fonts.status !== 'loaded' && document.fonts.ready) {
-            document.fonts.ready.then(runFitWhenReady, runFitWhenReady);
-        } else {
+        var fontReady = !document.fonts || document.fonts.check('400 16px "Google Sans Flex"');
+        if (fontReady) {
             runFitWhenReady();
+        } else {
+            document.fonts.load('400 16px "Google Sans Flex"').then(runFitWhenReady, runFitWhenReady);
         }
     } catch (_err) {
         runFitWhenReady();

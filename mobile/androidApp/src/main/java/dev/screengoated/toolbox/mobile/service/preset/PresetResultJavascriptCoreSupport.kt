@@ -211,6 +211,18 @@ internal fun presetResultJavascriptCore(): String {
             document.body.innerHTML = data.html || '';
             wrapInteractiveWords(document.body);
 
+            if (document.fonts && !document.fonts.check('400 16px "Google Sans Flex"')) {
+                document.fonts.load('400 16px "Google Sans Flex"').then(
+                    function() { applyStreamingFitCore(data, prevWordCount, prevRenderCount); },
+                    function() { applyStreamingFitCore(data, prevWordCount, prevRenderCount); }
+                );
+                return;
+            }
+            applyStreamingFitCore(data, prevWordCount, prevRenderCount);
+        }
+
+        function applyStreamingFitCore(data, prevWordCount, prevRenderCount) {
+
             const body = document.body;
             const doc = document.documentElement;
             if (!body || !doc) return;
