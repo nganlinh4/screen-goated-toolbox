@@ -3,12 +3,12 @@
 package dev.screengoated.toolbox.mobile.downloader.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,7 +27,6 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -55,6 +54,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import dev.screengoated.toolbox.mobile.downloader.DownloaderViewModel
 import dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus
+import dev.screengoated.toolbox.mobile.ui.UtilityActionButton
+import dev.screengoated.toolbox.mobile.ui.UtilityExpressiveCard
+import dev.screengoated.toolbox.mobile.ui.UtilityHeaderRow
+import dev.screengoated.toolbox.mobile.ui.UtilityStatusChip
 
 @Composable
 fun DownloaderScreen(
@@ -197,55 +200,74 @@ private fun ToolInstallSection(
     locale: dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText,
     onInstall: () -> Unit,
 ) {
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(64.dp))
-        Spacer(Modifier.height(16.dp))
-        Text(locale.dlDepsRequired, style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(24.dp))
+        UtilityExpressiveCard(
+            accent = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .widthIn(max = 460.dp),
+        ) {
+            UtilityHeaderRow(
+                icon = Icons.Rounded.Download,
+                title = locale.dlDepsRequired,
+                accent = MaterialTheme.colorScheme.primary,
+                supporting = locale.shellDownloadedToolsLabel,
+            )
+            ToolStatusRow("yt-dlp", ytdlp, locale)
+            ToolStatusRow("ffmpeg", ffmpeg, locale)
 
-        // yt-dlp status
-        ToolStatusRow("yt-dlp", ytdlp, locale)
-        Spacer(Modifier.height(8.dp))
-        ToolStatusRow("ffmpeg", ffmpeg, locale)
-        Spacer(Modifier.height(24.dp))
-
-        when (ytdlp.status) {
-            ToolInstallStatus.MISSING, ToolInstallStatus.ERROR -> {
-                if (ytdlp.error != null) {
-                    Text(ytdlp.error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(8.dp))
+            when (ytdlp.status) {
+                ToolInstallStatus.MISSING, ToolInstallStatus.ERROR -> {
+                    if (ytdlp.error != null) {
+                        Text(
+                            ytdlp.error,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    UtilityActionButton(
+                        text = locale.dlDepsInstall,
+                        accent = MaterialTheme.colorScheme.primary,
+                        onClick = onInstall,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(
+                            Icons.Rounded.Download,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
-                Button(onClick = onInstall, modifier = Modifier.fillMaxWidth(0.7f)) {
-                    Text(locale.dlDepsInstall)
+                ToolInstallStatus.DOWNLOADING, ToolInstallStatus.EXTRACTING -> {
+                    LinearWavyProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().height(6.dp),
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    )
+                    Text(
+                        ytdlp.version ?: if (ytdlp.status == ToolInstallStatus.EXTRACTING) {
+                            locale.dlDepsExtracting
+                        } else {
+                            locale.dlDepsDownloading
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
                 }
+                ToolInstallStatus.CHECKING -> {
+                    LinearWavyProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().height(6.dp),
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    )
+                    Text(locale.dlDepsChecking, style = MaterialTheme.typography.bodySmall)
+                }
+                else -> Unit
             }
-            ToolInstallStatus.DOWNLOADING, ToolInstallStatus.EXTRACTING -> {
-                LinearWavyProgressIndicator(
-                    modifier = Modifier.fillMaxWidth(0.7f).height(6.dp),
-                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    ytdlp.version ?: if (ytdlp.status == ToolInstallStatus.EXTRACTING) locale.dlDepsExtracting else locale.dlDepsDownloading,
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-            }
-            ToolInstallStatus.CHECKING -> {
-                LinearWavyProgressIndicator(
-                    modifier = Modifier.fillMaxWidth(0.7f).height(6.dp),
-                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(locale.dlDepsChecking, style = MaterialTheme.typography.bodySmall)
-            }
-            else -> {}
         }
     }
 }
@@ -253,13 +275,17 @@ private fun ToolInstallSection(
 @Composable
 private fun ToolStatusRow(name: String, tool: dev.screengoated.toolbox.mobile.downloader.ToolState, locale: dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText) {
     Row(
-        modifier = Modifier.fillMaxWidth(0.7f),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(name, style = MaterialTheme.typography.bodyMedium)
         Text(
-            when (tool.status) {
+            name,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+        UtilityStatusChip(
+            text = when (tool.status) {
                 ToolInstallStatus.INSTALLED -> locale.dlDepsReady
                 ToolInstallStatus.MISSING -> locale.dlDepsNotInstalled
                 ToolInstallStatus.DOWNLOADING -> locale.dlDepsDownloading
@@ -267,13 +293,10 @@ private fun ToolStatusRow(name: String, tool: dev.screengoated.toolbox.mobile.do
                 ToolInstallStatus.CHECKING -> locale.dlDepsChecking
                 ToolInstallStatus.ERROR -> tool.error ?: locale.dlStatusError
             },
-            style = MaterialTheme.typography.bodySmall,
-            color = if (tool.status == ToolInstallStatus.INSTALLED) {
-                MaterialTheme.colorScheme.primary
-            } else if (tool.status == ToolInstallStatus.ERROR) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
+            accent = when (tool.status) {
+                ToolInstallStatus.INSTALLED -> MaterialTheme.colorScheme.primary
+                ToolInstallStatus.ERROR -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.tertiary
             },
         )
     }

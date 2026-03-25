@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
@@ -37,6 +38,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus
+import dev.screengoated.toolbox.mobile.downloader.UpdateStatus
+import dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import kotlinx.coroutines.launch
 
@@ -64,6 +68,11 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
         )
     }
 
+    val app = context.applicationContext as dev.screengoated.toolbox.mobile.SgtMobileApplication
+    val downloaderRepository = app.appContainer.downloaderRepository
+    val downloaderState = downloaderRepository.state.collectAsState().value
+    val parakeetState = modelState
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
@@ -80,59 +89,137 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
             )
+            Text(
+                text = locale.dlDepsRequired,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             DownloadedToolRow(
                 name = "Parakeet",
-                description = locale.toolDescParakeet,
-                onHelpClick = { helpDialog = "Parakeet" to locale.toolDescParakeet },
-                note = "(English only)",
                 icon = Icons.Rounded.Mic,
-                state = modelState,
-                locale = locale,
-                onDownload = { scope.launch { manager.download() } },
-                onDelete = { manager.delete() },
-            )
-
-            // yt-dlp and ffmpeg — managed by the video downloader
-            val app = (context.applicationContext
-                as dev.screengoated.toolbox.mobile.SgtMobileApplication)
-            val dlRepo = app.appContainer.downloaderRepository
-            val dlState = dlRepo.state.collectAsState().value
-
-            VideoToolRow(
-                name = "yt-dlp + Python",
-                description = locale.toolDescYtdlp,
-                onHelpClick = { helpDialog = "yt-dlp + Python" to locale.toolDescYtdlp },
-                icon = Icons.Rounded.Download,
-                status = dlState.ytdlp.status,
-                version = dlState.ytdlp.version,
-                error = dlState.ytdlp.error,
-                updateStatus = dlState.ytdlpUpdate,
-                locale = locale,
-                onInstall = { dlRepo.installTools() },
-                onUpdate = { dlRepo.checkUpdates() },
-                showUpdateButton = true,
-                bundledLabel = locale.toolBundled,
-            )
-
-            VideoToolRow(
-                name = "ffmpeg + python",
-                description = locale.toolDescFfmpeg,
-                onHelpClick = { helpDialog = "ffmpeg" to locale.toolDescFfmpeg },
-                icon = Icons.Rounded.GraphicEq,
-                status = dlState.ffmpeg.status,
-                version = if (dlState.ffmpeg.status == dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.INSTALLED) {
-                    dlState.ffmpeg.version
-                } else null,
-                error = null,
-                updateStatus = dev.screengoated.toolbox.mobile.downloader.UpdateStatus.IDLE,
-                locale = locale,
-                onInstall = { dlRepo.installTools() },
-                onUpdate = {},
-                bundledLabel = if (dlState.ffmpeg.status == dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.INSTALLED) {
-                    "Installed (on-demand)"
+                statusText = when (val state = parakeetState) {
+                    is ParakeetModelState.Missing -> locale.dlDepsNotInstalled
+                    is ParakeetModelState.Downloading ->
+                        "Downloading ${state.currentFile} (${state.progress.toInt()}%)"
+                    is ParakeetModelState.Installed -> {
+                        val mb = state.sizeBytes / (1024.0 * 1024.0)
+                        "Installed (%.1f MB) (English only)".format(mb)
+                    }
+                    is ParakeetModelState.Deleting -> "Deleting..."
+                    is ParakeetModelState.Error -> state.message
+                },
+                statusColor = when (parakeetState) {
+                    is ParakeetModelState.Installed -> MaterialTheme.colorScheme.tertiary
+                    is ParakeetModelState.Error -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                accent = MaterialTheme.colorScheme.secondary,
+                onHelpClick = { helpDialog = "Parakeet" to locale.toolDescParakeet },
+                progressFraction = if (parakeetState is ParakeetModelState.Downloading) {
+                    parakeetState.progress / 100f
                 } else {
-                    "Not downloaded"
+                    null
+                },
+                action = when (parakeetState) {
+                    is ParakeetModelState.Missing,
+                    is ParakeetModelState.Error -> ToolAction(
+                        text = locale.dlDepsInstall,
+                        role = ToolActionRole.TONAL,
+                        onClick = { scope.launch { manager.download() } },
+                    )
+                    is ParakeetModelState.Installed -> ToolAction(
+                        text = locale.toolDelete,
+                        role = ToolActionRole.DESTRUCTIVE,
+                        onClick = { manager.delete() },
+                    )
+                    else -> null
+                },
+            )
+
+            DownloadedToolRow(
+                name = "yt-dlp",
+                icon = Icons.Rounded.Download,
+                statusText = when (downloaderState.ytdlp.status) {
+                    ToolInstallStatus.INSTALLED ->
+                        locale.toolBundled.ifBlank { downloaderState.ytdlp.version ?: locale.dlDepsReady }
+                    ToolInstallStatus.DOWNLOADING -> locale.dlDepsDownloading
+                    ToolInstallStatus.EXTRACTING -> locale.dlDepsExtracting
+                    ToolInstallStatus.CHECKING -> locale.dlDepsChecking
+                    ToolInstallStatus.ERROR -> downloaderState.ytdlp.error ?: locale.dlStatusError
+                    ToolInstallStatus.MISSING -> locale.dlDepsNotInstalled
+                },
+                statusColor = when (downloaderState.ytdlp.status) {
+                    ToolInstallStatus.INSTALLED -> MaterialTheme.colorScheme.primary
+                    ToolInstallStatus.ERROR -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                accent = if (downloaderState.ytdlp.status == ToolInstallStatus.INSTALLED) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.tertiary
+                },
+                onHelpClick = { helpDialog = "yt-dlp" to locale.toolDescYtdlp },
+                progressFraction = if (
+                    downloaderState.ytdlp.status == ToolInstallStatus.DOWNLOADING ||
+                    downloaderState.ytdlp.status == ToolInstallStatus.EXTRACTING ||
+                    downloaderState.ytdlp.status == ToolInstallStatus.CHECKING
+                ) {
+                    -1f
+                } else {
+                    null
+                },
+                updateText = downloaderUpdateText(downloaderState.ytdlpUpdate, locale),
+                updateColor = downloaderUpdateColor(downloaderState.ytdlpUpdate),
+                action = when (downloaderState.ytdlp.status) {
+                    ToolInstallStatus.MISSING,
+                    ToolInstallStatus.ERROR -> ToolAction(
+                        text = locale.dlDepsInstall,
+                        role = ToolActionRole.TONAL,
+                        onClick = { downloaderRepository.installTools() },
+                    )
+                    ToolInstallStatus.INSTALLED -> ToolAction(
+                        text = if (downloaderState.ytdlpUpdate == UpdateStatus.CHECKING) "..." else locale.toolUpdate,
+                        role = ToolActionRole.TONAL,
+                        enabled = downloaderState.ytdlpUpdate != UpdateStatus.CHECKING,
+                        onClick = { downloaderRepository.checkUpdates() },
+                    )
+                    else -> null
+                },
+            )
+
+            DownloadedToolRow(
+                name = "FFmpeg",
+                icon = Icons.Rounded.GraphicEq,
+                statusText = if (downloaderState.ffmpeg.status == ToolInstallStatus.INSTALLED) {
+                    locale.toolInstalledOnDemand
+                } else {
+                    locale.dlDepsNotInstalled
+                },
+                statusColor = if (downloaderState.ffmpeg.status == ToolInstallStatus.INSTALLED) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                accent = MaterialTheme.colorScheme.tertiary,
+                onHelpClick = { helpDialog = "FFmpeg" to locale.toolDescFfmpeg },
+                progressFraction = if (
+                    downloaderState.ffmpeg.status == ToolInstallStatus.DOWNLOADING ||
+                    downloaderState.ffmpeg.status == ToolInstallStatus.EXTRACTING ||
+                    downloaderState.ffmpeg.status == ToolInstallStatus.CHECKING
+                ) {
+                    -1f
+                } else {
+                    null
+                },
+                action = if (downloaderState.ffmpeg.status == ToolInstallStatus.MISSING) {
+                    ToolAction(
+                        text = locale.dlDepsInstall,
+                        role = ToolActionRole.TONAL,
+                        onClick = { downloaderRepository.installTools() },
+                    )
+                } else {
+                    null
                 },
             )
         }
@@ -142,14 +229,15 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
 @Composable
 private fun DownloadedToolRow(
     name: String,
-    description: String,
-    onHelpClick: () -> Unit,
-    note: String,
     icon: ImageVector,
-    state: dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState,
-    locale: MobileLocaleText,
-    onDownload: () -> Unit,
-    onDelete: () -> Unit,
+    statusText: String,
+    statusColor: androidx.compose.ui.graphics.Color,
+    accent: androidx.compose.ui.graphics.Color,
+    onHelpClick: () -> Unit,
+    progressFraction: Float? = null,
+    updateText: String? = null,
+    updateColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    action: ToolAction? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -159,219 +247,117 @@ private fun DownloadedToolRow(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            modifier = Modifier.size(24.dp),
-            tint = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.size(22.dp),
+            tint = accent,
         )
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
                 IconButton(
                     onClick = onHelpClick,
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(24.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Info,
-                        contentDescription = description,
-                        modifier = Modifier.size(16.dp),
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
             Text(
-                text = when (state) {
-                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Missing -> locale.dlDepsNotInstalled
-                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Downloading ->
-                        "Downloading ${state.currentFile} (${state.progress.toInt()}%)"
-                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Installed -> {
-                        val mb = state.sizeBytes / (1024.0 * 1024.0)
-                        "Installed (%.1f MB) $note".format(mb)
-                    }
-                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Deleting -> "Deleting..."
-                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Error -> state.message
-                },
+                text = statusText,
                 style = MaterialTheme.typography.bodySmall,
-                color = when (state) {
-                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Installed ->
-                        MaterialTheme.colorScheme.tertiary
-                    is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Error ->
-                        MaterialTheme.colorScheme.error
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
+                color = statusColor,
             )
-            if (state is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Downloading) {
-                val fraction = state.progress / 100f
-                if (fraction <= 0f || fraction >= 1f) {
+            if (progressFraction != null) {
+                if (progressFraction <= 0f || progressFraction >= 1f) {
                     androidx.compose.material3.LinearWavyProgressIndicator(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(5.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(5.dp),
                     )
                 } else {
                     androidx.compose.material3.LinearWavyProgressIndicator(
-                        progress = { fraction },
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(5.dp),
+                        progress = { progressFraction },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(5.dp),
                     )
                 }
             }
-        }
-        when (state) {
-            is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Missing,
-            is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Error -> {
-                FilledTonalButton(onClick = onDownload) { Text(locale.dlDepsInstall) }
+            if (!updateText.isNullOrBlank()) {
+                Text(
+                    text = updateText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = updateColor,
+                )
             }
-            is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Installed -> {
-                Button(
-                    onClick = onDelete,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                    ),
-                ) { Text(locale.toolDelete) }
-            }
-            else -> {}
         }
-    }
-}
-
-@Composable
-private fun VideoToolRow(
-    name: String,
-    description: String,
-    onHelpClick: () -> Unit = {},
-    icon: ImageVector,
-    status: dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus,
-    version: String?,
-    error: String?,
-    updateStatus: dev.screengoated.toolbox.mobile.downloader.UpdateStatus,
-    locale: MobileLocaleText,
-    onInstall: () -> Unit,
-    onUpdate: () -> Unit,
-    showUpdateButton: Boolean = false,
-    bundledLabel: String? = null,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-            tint = if (status == dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.INSTALLED) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                IconButton(
-                    onClick = onHelpClick,
-                    modifier = Modifier.size(28.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Info,
-                        contentDescription = description,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+        if (action != null) {
+            when (action.role) {
+                ToolActionRole.TONAL -> {
+                    FilledTonalButton(
+                        onClick = action.onClick,
+                        enabled = action.enabled,
+                    ) {
+                        Text(action.text)
+                    }
                 }
-            }
-            Text(
-                text = when (status) {
-                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.INSTALLED ->
-                        bundledLabel ?: (version ?: locale.dlDepsReady)
-                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.DOWNLOADING -> locale.dlDepsDownloading
-                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.EXTRACTING -> locale.dlDepsExtracting
-                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.CHECKING -> locale.dlDepsChecking
-                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.ERROR -> error ?: locale.dlStatusError
-                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.MISSING -> locale.dlDepsNotInstalled
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = when (status) {
-                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.INSTALLED ->
-                        MaterialTheme.colorScheme.primary
-                    dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.ERROR ->
-                        MaterialTheme.colorScheme.error
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-            if (status == dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.DOWNLOADING ||
-                status == dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.EXTRACTING ||
-                status == dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.CHECKING
-            ) {
-                androidx.compose.material3.LinearWavyProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(5.dp),
-                )
-            }
-            // Update status
-            when (updateStatus) {
-                dev.screengoated.toolbox.mobile.downloader.UpdateStatus.UPDATE_AVAILABLE -> Text(
-                    locale.toolUpdated,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                dev.screengoated.toolbox.mobile.downloader.UpdateStatus.UP_TO_DATE -> Text(
-                    locale.toolUpToDate,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                dev.screengoated.toolbox.mobile.downloader.UpdateStatus.CHECKING -> Text(
-                    locale.toolUpdating,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                dev.screengoated.toolbox.mobile.downloader.UpdateStatus.ERROR -> Text(
-                    locale.toolUpdateFailed,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-                else -> {}
-            }
-        }
-        when (status) {
-            dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.MISSING,
-            dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.ERROR -> {
-                if (bundledLabel == null) {
-                    Button(onClick = onInstall) { Text(locale.dlDepsInstall) }
-                }
-            }
-            dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus.INSTALLED -> {
-                if (showUpdateButton) {
-                    val isUpdating = updateStatus == dev.screengoated.toolbox.mobile.downloader.UpdateStatus.CHECKING
-                    Button(onClick = onUpdate, enabled = !isUpdating) {
-                        Text(if (isUpdating) "..." else locale.toolUpdate)
+                ToolActionRole.DESTRUCTIVE -> {
+                    Button(
+                        onClick = action.onClick,
+                        enabled = action.enabled,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                        ),
+                    ) {
+                        Text(action.text)
                     }
                 }
             }
-            else -> {}
         }
     }
 }
 
+private fun downloaderUpdateText(
+    status: UpdateStatus,
+    locale: MobileLocaleText,
+): String? = when (status) {
+    UpdateStatus.UPDATE_AVAILABLE -> locale.toolUpdated
+    UpdateStatus.UP_TO_DATE -> locale.toolUpToDate
+    UpdateStatus.CHECKING -> locale.toolUpdating
+    UpdateStatus.ERROR -> locale.toolUpdateFailed
+    else -> null
+}
+
 @Composable
-private fun PlaceholderToolRow(name: String, icon: ImageVector, comingSoon: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = name,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-            )
-            Text(
-                text = comingSoon,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-            )
-        }
-    }
+private fun downloaderUpdateColor(
+    status: UpdateStatus,
+): androidx.compose.ui.graphics.Color = when (status) {
+    UpdateStatus.UPDATE_AVAILABLE -> MaterialTheme.colorScheme.primary
+    UpdateStatus.ERROR -> MaterialTheme.colorScheme.error
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+private data class ToolAction(
+    val text: String,
+    val role: ToolActionRole,
+    val enabled: Boolean = true,
+    val onClick: () -> Unit,
+)
+
+private enum class ToolActionRole {
+    TONAL,
+    DESTRUCTIVE,
 }
