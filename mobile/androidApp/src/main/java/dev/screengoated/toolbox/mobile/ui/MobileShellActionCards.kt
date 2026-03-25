@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material3.AlertDialog
@@ -101,24 +102,29 @@ internal fun OverlayOpacityCard(
     opacityPercent: Int,
     locale: MobileLocaleText,
     onOpacityChanged: (Int) -> Unit,
+    compact: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     ExpressiveSettingsCard(
         modifier = modifier.fillMaxWidth(),
         accent = MaterialTheme.colorScheme.secondary,
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
+        if (compact) {
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
             ) {
                 Text(
-                    text = locale.overlayOpacityLabel,
-                    style = MaterialTheme.typography.titleMedium,
+                    text = compactOverlayOpacityLabel(locale),
+                    style = MaterialTheme.typography.labelLargeEmphasized,
                     color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.width(112.dp),
+                )
+                Slider(
+                    value = opacityPercent.toFloat(),
+                    onValueChange = { onOpacityChanged(it.toInt()) },
+                    valueRange = 10f..100f,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
@@ -127,13 +133,41 @@ internal fun OverlayOpacityCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Slider(
-                value = opacityPercent.toFloat(),
-                onValueChange = { onOpacityChanged(it.toInt()) },
-                valueRange = 10f..100f,
-            )
+        } else {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
+                ) {
+                    Text(
+                        text = locale.overlayOpacityLabel,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = "$opacityPercent%",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Slider(
+                    value = opacityPercent.toFloat(),
+                    onValueChange = { onOpacityChanged(it.toInt()) },
+                    valueRange = 10f..100f,
+                )
+            }
         }
     }
+}
+
+private fun compactOverlayOpacityLabel(locale: MobileLocaleText): String = when {
+    locale.turnOn == "Bật" -> "Độ mờ overlay"
+    locale.turnOn == "켜기" -> "오버레이 불투명도"
+    else -> "Overlay opacity"
 }
 
 @Composable
