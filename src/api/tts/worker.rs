@@ -53,34 +53,7 @@ fn start_warm_up(api_key: String) {
     std::thread::spawn(move || {
         let start = Instant::now();
         match connect_tts_websocket(&api_key) {
-            Ok(mut socket) => {
-                // Send generic setup
-                if send_tts_setup(&mut socket, "Kore", "Normal", None).is_err() {
-                    let _ = socket.close(None);
-                    return;
-                }
-                // Wait for setupComplete
-                let deadline = Instant::now() + Duration::from_secs(10);
-                loop {
-                    if Instant::now() > deadline {
-                        let _ = socket.close(None);
-                        return;
-                    }
-                    match socket.read() {
-                        Ok(Message::Text(msg)) if msg.as_str().contains("setupComplete") => break,
-                        Ok(Message::Binary(data)) => {
-                            if String::from_utf8_lossy(&data).contains("setupComplete") {
-                                break;
-                            }
-                        }
-                        Err(_) => {
-                            return;
-                        }
-                        _ => {
-                            std::thread::sleep(Duration::from_millis(10));
-                        }
-                    }
-                }
+            Ok(socket) => {
                 let elapsed = start.elapsed().as_millis();
                 eprintln!("[TTS Worker] Warm socket ready in {}ms", elapsed);
                 if let Ok(mut guard) = WARM_SOCKET.lock() {
@@ -217,8 +190,6 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
             }
         };
 
-        // Read config for setup (only needed for fresh connections)
-        let needs_setup = WARM_SOCKET.lock().map(|g| g.is_none()).unwrap_or(true);
         let (current_voice, current_speed, language_instruction) = {
             let app = APP.lock().unwrap();
             let voice = app.config.tts_voice.clone();
@@ -233,82 +204,73 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
             }
         };
 
-        // Send setup (skip if using warm socket — already setup)
-        let mut setup_complete = needs_setup; // warm socket is already setup
-        if !setup_complete {
-            // Fresh connection — need to setup
-        } else {
-            // Warm socket — skip setup
+        let mut setup_complete = false;
+        if let Err(e) = send_tts_setup(
+            &mut socket,
+            &current_voice,
+            &current_speed,
+            language_instruction.as_deref(),
+        ) {
+            eprintln!("TTS: Failed to send setup: {}", e);
+            let _ = socket.close(None);
+            let _ = tx.send(AudioEvent::End);
+            clear_tts_state(request.req.hwnd);
+            std::thread::sleep(Duration::from_secs(2));
+            continue;
         }
 
-        if !setup_complete {
-            if let Err(e) = send_tts_setup(
-                &mut socket,
-                &current_voice,
-                &current_speed,
-                language_instruction.as_deref(),
-            ) {
-                eprintln!("TTS: Failed to send setup: {}", e);
+        // Wait for setup acknowledgment
+        let setup_start = Instant::now();
+        loop {
+            if request.generation < manager.interrupt_generation.load(Ordering::SeqCst)
+                || manager.shutdown.load(Ordering::SeqCst)
+            {
                 let _ = socket.close(None);
                 let _ = tx.send(AudioEvent::End);
-                clear_tts_state(request.req.hwnd);
-                std::thread::sleep(Duration::from_secs(2));
-                continue;
+                break;
             }
 
-            // Wait for setup acknowledgment
-            let setup_start = Instant::now();
-            loop {
-                if request.generation < manager.interrupt_generation.load(Ordering::SeqCst)
-                    || manager.shutdown.load(Ordering::SeqCst)
-                {
-                    let _ = socket.close(None);
-                    let _ = tx.send(AudioEvent::End);
+            match socket.read() {
+                Ok(Message::Text(msg)) => {
+                    let msg = msg.as_str();
+                    if msg.contains("setupComplete") {
+                        setup_complete = true;
+                        break;
+                    }
+                    if msg.contains("error") || msg.contains("Error") {
+                        eprintln!("TTS: Setup error: {}", msg);
+                        break;
+                    }
+                }
+                Ok(Message::Close(_)) => {
                     break;
                 }
-
-                match socket.read() {
-                    Ok(Message::Text(msg)) => {
-                        let msg = msg.as_str();
-                        if msg.contains("setupComplete") {
-                            setup_complete = true;
-                            break;
-                        }
-                        if msg.contains("error") || msg.contains("Error") {
-                            eprintln!("TTS: Setup error: {}", msg);
-                            break;
-                        }
-                    }
-                    Ok(Message::Close(_)) => {
-                        break;
-                    }
-                    Ok(Message::Binary(data)) => {
-                        if let Ok(text) = String::from_utf8(data.to_vec())
-                            && text.contains("setupComplete")
-                        {
-                            setup_complete = true;
-                            break;
-                        }
-                    }
-                    Ok(_) => {}
-                    Err(tungstenite::Error::Io(ref e))
-                        if e.kind() == std::io::ErrorKind::WouldBlock =>
+                Ok(Message::Binary(data)) => {
+                    if let Ok(text) = String::from_utf8(data.to_vec())
+                        && text.contains("setupComplete")
                     {
-                        if setup_start.elapsed() > Duration::from_secs(10) {
-                            break;
-                        }
-                        std::thread::sleep(Duration::from_millis(50));
-                    }
-                    Err(_) => {
+                        setup_complete = true;
                         break;
                     }
                 }
+                Ok(_) => {}
+                Err(tungstenite::Error::Io(ref e))
+                    if e.kind() == std::io::ErrorKind::WouldBlock =>
+                {
+                    if setup_start.elapsed() > Duration::from_secs(10) {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(_) => {
+                    break;
+                }
             }
+        }
 
-            if manager.shutdown.load(Ordering::SeqCst) {
-                return;
-            }
-        } // end if !setup_complete (fresh connection setup block)
+        if manager.shutdown.load(Ordering::SeqCst) {
+            return;
+        }
 
         if !setup_complete {
             let _ = socket.close(None);

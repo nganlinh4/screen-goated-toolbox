@@ -253,7 +253,10 @@ pub fn render_tts_settings_modal(
                                 config.tts_voice = name.to_string();
                                 *changed = true;
                             }
-                            if ui.button("🔊").on_hover_text("Preview").clicked() {
+                            if icon_button(ui, Icon::Speaker)
+                                .on_hover_text(text.tts_preview_label)
+                                .clicked()
+                            {
                                 config.tts_voice = name.to_string();
                                 *changed = true;
                                 speak_settings_preview(text, name);
@@ -324,7 +327,10 @@ pub fn render_tts_settings_modal(
                     });
 
                     ui.add_space(12.0);
-                    if ui.button(text.tts_preview_label).clicked() {
+                    if icon_button(ui, Icon::Speaker)
+                        .on_hover_text(text.tts_preview_label)
+                        .clicked()
+                    {
                         speak_settings_preview(text, "Google Translate");
                     }
 
@@ -416,7 +422,10 @@ pub fn render_tts_settings_modal(
                                         }
                                     });
 
-                                if ui.button(text.tts_preview_label).clicked() {
+                                if icon_button(ui, Icon::Speaker)
+                                    .on_hover_text(text.tts_preview_label)
+                                    .clicked()
+                                {
                                     speak_settings_preview(text, &voice_config.voice_name);
                                 }
 
