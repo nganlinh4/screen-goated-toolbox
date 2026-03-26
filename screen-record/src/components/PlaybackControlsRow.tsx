@@ -45,6 +45,9 @@ export interface PlaybackControlsRowProps {
   handleAutoZoomConfigChange: (config: AutoZoomConfig) => void;
   // Smart pointer button props
   handleSmartPointerHiding: () => void;
+  // Selection
+  selectedSegmentCount?: number;
+  onClearSelection?: () => void;
 }
 
 export function PlaybackControlsRow({
@@ -77,6 +80,8 @@ export function PlaybackControlsRow({
   autoZoomConfig,
   handleAutoZoomConfigChange,
   handleSmartPointerHiding,
+  selectedSegmentCount,
+  onClearSelection,
 }: PlaybackControlsRowProps) {
   const { t } = useSettings();
 
@@ -161,6 +166,19 @@ export function PlaybackControlsRow({
               <MousePointer2 className="w-3 h-3 mr-1" />
               {t.smartPointer}
             </Button>
+          }
+          selectionChip={
+            selectedSegmentCount && selectedSegmentCount > 0 && onClearSelection ? (
+              <Button
+                onClick={onClearSelection}
+                className="selection-clear-chip ui-action-button flex items-center px-2 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg"
+                data-tone="accent"
+                data-active="true"
+              >
+                <span className="mr-1">✕</span>
+                {selectedSegmentCount} {t.clearSelection}
+              </Button>
+            ) : null
           }
         />
       )}

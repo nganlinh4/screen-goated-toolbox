@@ -6,6 +6,7 @@ import {
   getHandlePriorityThresholdTime,
   isTimeNearRangeBoundary,
 } from "./trackHoverUtils";
+import { useTrackRangeSelect } from './useTrackRangeSelect';
 
 interface WebcamVisibilityTrackProps {
   segment: VideoSegment;
@@ -18,6 +19,8 @@ interface WebcamVisibilityTrackProps {
     offset?: number,
   ) => void;
   onAddWebcamSegment?: (atTime?: number) => void;
+  onDeleteWebcamSegments?: (ids: string[]) => void;
+  onSelectionChange?: (ids: string[]) => void;
 }
 
 export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
@@ -27,6 +30,8 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
   onWebcamClick,
   onHandleDragStart,
   onAddWebcamSegment,
+  onDeleteWebcamSegments,
+  onSelectionChange,
 }) => {
   const [hoverState, setHoverState] = useState<
     | { type: "split"; x: number; time: number; seg: CursorVisibilitySegment }
@@ -39,8 +44,14 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
     safeDuration,
   );
 
+  const {
+    selectedIds, rangeSelect, trackRef, isDraggingRange,
+    onSegmentPointerDown,
+    handleTrackPointerDown, handleTrackPointerMove, handleTrackPointerUp,
+  } = useTrackRangeSelect(segments, duration, onSelectionChange, onDeleteWebcamSegments);
+
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isAvailable) {
+    if (!isAvailable || isDraggingRange.current) {
       setHoverState(null);
       return;
     }
@@ -64,19 +75,27 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
     setHoverState({ type: "add", x });
   };
 
+  const rangeLeft = rangeSelect ? Math.min(rangeSelect.startX, rangeSelect.endX) : 0;
+  const rangeWidth = rangeSelect ? Math.abs(rangeSelect.endX - rangeSelect.startX) : 0;
+
   return (
     <div
+      ref={trackRef}
       className={`webcam-visibility-track timeline-lane relative h-7 ${
         isAvailable ? "" : "timeline-lane-unavailable pointer-events-none"
       }`}
       onMouseMove={handleMouseMove}
-      onMouseLeave={() => setHoverState(null)}
+      onMouseLeave={() => { if (!isDraggingRange.current) setHoverState(null); }}
+      onPointerDown={handleTrackPointerDown}
+      onPointerMove={handleTrackPointerMove}
+      onPointerUp={handleTrackPointerUp}
     >
       {segments.map((segmentRange) => (
         <div
           key={segmentRange.id}
           onPointerDown={(e) => {
             e.stopPropagation();
+            onSegmentPointerDown();
             const rect = e.currentTarget.parentElement!.getBoundingClientRect();
             const clickX = e.clientX - rect.left;
             const clickTime = (clickX / rect.width) * safeDuration;
@@ -84,58 +103,47 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
           }}
           className="webcam-visibility-segment timeline-block absolute h-full cursor-move group"
           data-tone="webcam"
+          data-selected={selectedIds.has(segmentRange.id) ? "true" : undefined}
           style={{
             left: `${(segmentRange.startTime / safeDuration) * 100}%`,
             width: `${((segmentRange.endTime - segmentRange.startTime) / safeDuration) * 100}%`,
           }}
         >
           <div className="webcam-visibility-segment-content absolute inset-0 flex items-center justify-center overflow-hidden px-1">
-            <span className="webcam-visibility-segment-icon text-[10px] text-[var(--timeline-webcam-color)] truncate">
-              ●
-            </span>
+            <span className="webcam-visibility-segment-icon text-[10px] text-[var(--timeline-webcam-color)] truncate">●</span>
           </div>
-          <div
-            className="webcam-visibility-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
-            onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(segmentRange.id, "start"); }}
-          >
+          <div className="webcam-visibility-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
+            onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(segmentRange.id, "start"); }}>
             <div className="webcam-visibility-handle-bar timeline-handle-pill" />
           </div>
-          <div
-            className="webcam-visibility-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
-            onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(segmentRange.id, "end"); }}
-          >
+          <div className="webcam-visibility-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
+            onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(segmentRange.id, "end"); }}>
             <div className="webcam-visibility-handle-bar timeline-handle-pill" />
           </div>
         </div>
       ))}
 
-      {hoverState && hoverState.type === "split" && (
-        <button
-          className="webcam-visibility-split-btn timeline-arch-button absolute bottom-0 z-10 pointer-events-auto flex items-center justify-center"
-          data-tone="accent"
-          style={{ left: hoverState.x - 8 }}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            onWebcamClick(hoverState.seg.id, hoverState.time);
-            setHoverState(null);
-          }}
-        >
+      {rangeSelect && rangeWidth > 2 && (
+        <div className="webcam-range-select timeline-range-select absolute pointer-events-none z-5"
+          style={{ left: rangeLeft, width: rangeWidth }} />
+      )}
+
+      {hoverState && hoverState.type === "split" && !isDraggingRange.current && (
+        <button className="webcam-visibility-split-btn timeline-arch-button absolute bottom-0 z-10 pointer-events-auto flex items-center justify-center"
+          data-tone="accent" style={{ left: hoverState.x - 8 }}
+          onPointerDown={(e) => { e.stopPropagation(); onWebcamClick(hoverState.seg.id, hoverState.time); setHoverState(null); }}>
           <Scissors className="w-2 h-2" />
         </button>
       )}
-      {hoverState && hoverState.type === "add" && onAddWebcamSegment && (
-        <button
-          className="webcam-visibility-add-btn timeline-arch-button absolute bottom-0 z-10 pointer-events-auto flex items-center justify-center text-[8px] font-bold"
-          data-tone="webcam"
-          style={{ left: hoverState.x - 8 }}
+      {hoverState && hoverState.type === "add" && onAddWebcamSegment && !isDraggingRange.current && (
+        <button className="webcam-visibility-add-btn timeline-arch-button absolute bottom-0 z-10 pointer-events-auto flex items-center justify-center text-[8px] font-bold"
+          data-tone="webcam" style={{ left: hoverState.x - 8 }}
           onPointerDown={(e) => {
             e.stopPropagation();
             const rect = e.currentTarget.parentElement!.getBoundingClientRect();
             const time = (hoverState.x / rect.width) * safeDuration;
-            onAddWebcamSegment(time);
-            setHoverState(null);
-          }}
-        >
+            onAddWebcamSegment(time); setHoverState(null);
+          }}>
           +
         </button>
       )}

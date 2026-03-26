@@ -66,6 +66,9 @@ interface TimelineAreaProps {
   beginBatch: () => void;
   commitBatch: () => void;
   onTextSelectionChange?: (ids: string[]) => void;
+  onPointerSelectionChange?: (ids: string[]) => void;
+  onKeystrokeSelectionChange?: (ids: string[]) => void;
+  onWebcamSelectionChange?: (ids: string[]) => void;
 }
 
 export const TimelineArea: React.FC<TimelineAreaProps> = ({
@@ -99,6 +102,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   beginBatch,
   commitBatch,
   onTextSelectionChange,
+  onPointerSelectionChange,
+  onKeystrokeSelectionChange,
+  onWebcamSelectionChange,
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
@@ -254,6 +260,26 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     const idSet = new Set(ids);
     const remaining = (segment.textSegments ?? []).filter(t => !idSet.has(t.id));
     setSegment({ ...segment, textSegments: remaining });
+  }, [segment, setSegment]);
+
+  const handleDeleteKeystrokeSegments = useCallback((ids: string[]) => {
+    if (!segment) return;
+    const idSet = new Set(ids);
+    const mode = segment.keystrokeMode ?? 'off';
+    if (mode === 'keyboard') {
+      const remaining = (segment.keyboardVisibilitySegments || []).filter(s => !idSet.has(s.id));
+      setSegment({ ...segment, keyboardVisibilitySegments: remaining.length > 0 ? remaining : undefined });
+    } else if (mode === 'keyboardMouse') {
+      const remaining = (segment.keyboardMouseVisibilitySegments || []).filter(s => !idSet.has(s.id));
+      setSegment({ ...segment, keyboardMouseVisibilitySegments: remaining.length > 0 ? remaining : undefined });
+    }
+  }, [segment, setSegment]);
+
+  const handleDeleteWebcamSegments = useCallback((ids: string[]) => {
+    if (!segment) return;
+    const idSet = new Set(ids);
+    const remaining = (segment.webcamVisibilitySegments || []).filter(s => !idSet.has(s.id));
+    setSegment({ ...segment, webcamVisibilitySegments: remaining.length > 0 ? remaining : undefined });
   }, [segment, setSegment]);
 
   const {
@@ -517,6 +543,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                         });
                         commitBatch();
                       }}
+                      onDeleteWebcamSegments={handleDeleteWebcamSegments}
+                      onSelectionChange={onWebcamSelectionChange}
                     />
                   ) : (
                     <div className="webcam-visibility-track-empty timeline-track-empty h-7" />
@@ -532,7 +560,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       onHandleDragStart={handleTextDragStart}
                       onAddText={onAddText}
                       onDeleteTextSegments={handleDeleteTextSegments}
-                      onTextSelectionChange={onTextSelectionChange}
+                      onSelectionChange={onTextSelectionChange}
                     />
                   ) : (
                     <div className="text-track-empty timeline-track-empty h-7" />
@@ -547,6 +575,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       onHandleDragStart={handleKeystrokeDragStart}
                       onAddKeystrokeSegment={onAddKeystrokeSegment}
                       onKeystrokeHover={setEditingKeystrokeSegmentId}
+                      onDeleteKeystrokeSegments={handleDeleteKeystrokeSegments}
+                      onSelectionChange={onKeystrokeSelectionChange}
                     />
                   ) : (
                     <div className="keystroke-track-empty timeline-track-empty h-7" />
@@ -561,6 +591,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       onAddPointerSegment={onAddPointerSegment}
                       onPointerHover={setEditingPointerId}
                       onDeletePointerSegments={handleDeletePointerSegments}
+                      onSelectionChange={onPointerSelectionChange}
                     />
                   ) : (
                     <div className="pointer-track-empty timeline-track-empty h-7" />

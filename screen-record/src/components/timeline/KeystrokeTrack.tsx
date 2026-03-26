@@ -12,6 +12,7 @@ import {
   getHandlePriorityThresholdTime,
   isTimeNearRangeBoundary,
 } from "./trackHoverUtils";
+import { useTrackRangeSelect } from './useTrackRangeSelect';
 
 interface KeystrokeTrackProps {
   segment: VideoSegment;
@@ -21,6 +22,8 @@ interface KeystrokeTrackProps {
   onHandleDragStart: (id: string, type: 'start' | 'end' | 'body', offset?: number) => void;
   onAddKeystrokeSegment?: (atTime?: number) => void;
   onKeystrokeHover?: (id: string | null) => void;
+  onDeleteKeystrokeSegments?: (ids: string[]) => void;
+  onSelectionChange?: (ids: string[]) => void;
 }
 
 interface TimeRange {
@@ -164,6 +167,8 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
   onHandleDragStart,
   onAddKeystrokeSegment,
   onKeystrokeHover,
+  onDeleteKeystrokeSegments,
+  onSelectionChange,
 }) => {
   const { t } = useSettings();
   const [hoverState, setHoverState] = useState<
@@ -174,6 +179,12 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
   const mode = segment.keystrokeMode ?? 'off';
   const safeDuration = Math.max(duration, 0.001);
   const segments = clampVisibilitySegmentsToDuration(getSegmentsForMode(segment), safeDuration);
+
+  const {
+    selectedIds, rangeSelect, trackRef, isDraggingRange,
+    onSegmentPointerDown,
+    handleTrackPointerDown, handleTrackPointerMove, handleTrackPointerUp,
+  } = useTrackRangeSelect(segments, duration, onSelectionChange, onDeleteKeystrokeSegments);
   const rawEventRanges = useMemo(
     () => getRawEventRanges(segment, safeDuration),
     [segment.keystrokeEvents, segment.keystrokeMode, segment.keystrokeDelaySec, safeDuration]
@@ -184,7 +195,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
   );
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (mode === 'off') {
+    if (mode === 'off' || isDraggingRange.current) {
       setHoverState(null);
       return;
     }
@@ -213,8 +224,12 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
       className="keystroke-track timeline-lane relative h-7"
       title={t.trackKeystrokes}
       aria-label={t.trackKeystrokes}
+      ref={trackRef}
       onMouseMove={handleMouseMove}
-      onMouseLeave={() => setHoverState(null)}
+      onMouseLeave={() => { if (!isDraggingRange.current) setHoverState(null); }}
+      onPointerDown={handleTrackPointerDown}
+      onPointerMove={handleTrackPointerMove}
+      onPointerUp={handleTrackPointerUp}
     >
       {mode !== 'off' && visualActivityRanges.map((range, idx) => (
         <div
@@ -248,6 +263,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
               key={seg.id}
               onPointerDown={(e) => {
                 e.stopPropagation();
+                onSegmentPointerDown();
                 const rect = e.currentTarget.parentElement!.getBoundingClientRect();
                 const clickX = e.clientX - rect.left;
                 const clickTime = (clickX / rect.width) * safeDuration;
@@ -259,6 +275,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
               data-tone={hasIndicators ? "success" : "neutral"}
               data-style={hasIndicators ? "filled" : "quiet"}
               data-active={editingKeystrokeSegmentId === seg.id ? "true" : "false"}
+              data-selected={selectedIds.has(seg.id) ? "true" : undefined}
               style={{
                 left: `${(seg.startTime / safeDuration) * 100}%`,
                 width: `${((seg.endTime - seg.startTime) / safeDuration) * 100}%`,
@@ -327,7 +344,12 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
         })()
       ))}
 
-      {mode !== 'off' && hoverState && hoverState.type === 'split' && (
+      {rangeSelect && Math.abs(rangeSelect.endX - rangeSelect.startX) > 2 && (
+        <div className="keystroke-range-select timeline-range-select absolute pointer-events-none z-5"
+          style={{ left: Math.min(rangeSelect.startX, rangeSelect.endX), width: Math.abs(rangeSelect.endX - rangeSelect.startX) }} />
+      )}
+
+      {mode !== 'off' && hoverState && hoverState.type === 'split' && !isDraggingRange.current && (
         <button
           className="keystroke-split-btn timeline-arch-button absolute bottom-0 z-10 pointer-events-auto flex items-center justify-center"
           data-tone="accent"
@@ -341,7 +363,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
           <Scissors className="w-2 h-2" />
         </button>
       )}
-      {mode !== 'off' && hoverState && hoverState.type === 'add' && onAddKeystrokeSegment && (
+      {mode !== 'off' && hoverState && hoverState.type === 'add' && onAddKeystrokeSegment && !isDraggingRange.current && (
         <button
           className="keystroke-add-btn timeline-arch-button absolute bottom-0 z-10 pointer-events-auto flex items-center justify-center text-[8px] font-bold"
           data-tone="success"

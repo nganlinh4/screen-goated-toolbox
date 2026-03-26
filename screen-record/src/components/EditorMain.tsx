@@ -203,10 +203,25 @@ export function EditorMain({
   }, [duration, segment?.speedPoints]);
 
   const [selectedTextIds, setSelectedTextIds] = useState<string[]>([]);
+  const [selectedPointerIds, setSelectedPointerIds] = useState<string[]>([]);
+  const [selectedKeystrokeIds, setSelectedKeystrokeIds] = useState<string[]>([]);
+  const [selectedWebcamIds, setSelectedWebcamIds] = useState<string[]>([]);
+
   const handleTextSelectionChange = useCallback((ids: string[]) => {
     setSelectedTextIds(ids);
     if (ids.length > 0) setActivePanel('text');
   }, [setActivePanel]);
+  const handlePointerSelectionChange = useCallback((ids: string[]) => setSelectedPointerIds(ids), []);
+  const handleKeystrokeSelectionChange = useCallback((ids: string[]) => setSelectedKeystrokeIds(ids), []);
+  const handleWebcamSelectionChange = useCallback((ids: string[]) => setSelectedWebcamIds(ids), []);
+
+  const totalSelectedCount = selectedTextIds.length + selectedPointerIds.length + selectedKeystrokeIds.length + selectedWebcamIds.length;
+  const clearAllSelections = useCallback(() => {
+    setSelectedTextIds([]);
+    setSelectedPointerIds([]);
+    setSelectedKeystrokeIds([]);
+    setSelectedWebcamIds([]);
+  }, []);
 
   const wallClockCurrentTime = useMemo(() => {
     const pts = segment?.speedPoints;
@@ -292,6 +307,8 @@ export function EditorMain({
             autoZoomConfig={autoZoomConfig}
             handleAutoZoomConfigChange={handleAutoZoomConfigChange}
             handleSmartPointerHiding={handleSmartPointerHiding}
+            selectedSegmentCount={totalSelectedCount}
+            onClearSelection={clearAllSelections}
           />
 
         </div>
@@ -362,6 +379,9 @@ export function EditorMain({
           beginBatch={beginBatch}
           commitBatch={commitBatch}
           onTextSelectionChange={handleTextSelectionChange}
+          onPointerSelectionChange={handlePointerSelectionChange}
+          onKeystrokeSelectionChange={handleKeystrokeSelectionChange}
+          onWebcamSelectionChange={handleWebcamSelectionChange}
         />
         {isOverlayMode && (
           <div className="timeline-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />

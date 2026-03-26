@@ -268,6 +268,7 @@ const ko: Translations = {
   autoZoomZoomLevel: '확대 수준',
   autoZoomSpeedSensitivity: '속도 감도',
   smartPointer: '스마트 포인터',
+  clearSelection: '선택됨',
 
   // Export presets
   presetBalanced: '균형 (권장)',

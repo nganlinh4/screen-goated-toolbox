@@ -266,6 +266,7 @@ const en = {
   autoZoomZoomLevel: 'Zoom Level',
   autoZoomSpeedSensitivity: 'Speed Sensitivity',
   smartPointer: 'Smart Pointer',
+  clearSelection: 'selected',
 
   // Export presets
   presetBalanced: 'Balanced (Recommended)',
