@@ -1,54 +1,70 @@
 # Screen Goated Toolbox (SGT)
 
-**The Ultimate AI Productivity Automation Tool for Windows.**
+**The Ultimate AI Productivity Automation Tool for Windows & Android.**
 
-Screen Goated Toolbox (SGT) is a native Windows utility that bridges your screen, system audio, and microphone with the world's most powerful AI models. It allows you to create custom AI workflows using a visual node graph to automate tasks like OCR, translation, meeting transcription, generative audio, and text analysis.
+Screen Goated Toolbox (SGT) is a native Windows utility that bridges your screen, system audio, and microphone with the world's most powerful AI models. It allows you to create custom AI workflows using a visual node graph to automate tasks like OCR, translation, meeting transcription, generative audio, and text analysis. SGT also includes a full-featured **Screen Recorder** with GPU-accelerated export and a companion **Android app** for on-the-go live translation.
 
 ## Key Features
 
-### 🧠 Multi-Modal AI Support
+### Multi-Modal AI Support
 
-* **Cloud Providers:** Native integration with **Groq** (Llama 3, Whisper), **Google Gemini** (Flash, Pro, Gemma), and **OpenRouter** (Claude, GPT-4, DeepSeek).
+* **Cloud Providers:** Native integration with **Groq** (Llama 4 Scout, Whisper), **Google Gemini** (Flash 2.5/3/3.1), **OpenRouter** (Nemotron, DeepSeek Chimera), and **Cerebras** (fast inference).
 * **Local AI:** Full support for **Ollama** to run private, local vision and text models without internet.
 
-### ⛓️ Node Graph Workflow
+### Node Graph Workflow
 
 Create complex presets using a visual editor. Connect blocks to define logic:
 
-* **Input:** Screen Region (Snipping), Microphone, System Audio Loopback, Text Selection, or File Drag-and-Drop.
+* **Input:** Screen Region (Snipping), Microphone, System Audio Loopback, or Text Selection.
 * **Process:** Chain multiple models (e.g., *Speech to Text* -> *Translate* -> *Summarize*).
 * **Output:** Streaming Overlay, Markdown View, Text-to-Speech, or Clipboard.
 
-### 🎙️ Audio Intelligence
+### Audio Intelligence
 
 * **Real-time "Cabin" Mode:** Live, low-latency transcription and translation overlay. Works with **System Audio** (Zoom/Youtube/Games) or **Microphone**.
 * **Per-App Capture:** Target audio from specific running applications.
 * **PromptDJ:** A dedicated MIDI-controlled interface for generative music and audio control.
 
-### 🛠️ Productivity Tools
+### Screen Recorder
+
+* **GPU-Accelerated Recording:** Multi-monitor window capture with DirectX support.
+* **Timeline Editor:** 10 editable tracks — zoom, speed, trim, device audio, mic audio, keystroke display, text overlay, pointer visibility, webcam, and debug.
+* **Cinematic Zoom:** Keyframe-based camera motion with smooth Catmull-Rom interpolation and influence points.
+* **Cursor Packs:** 12+ built-in cursor style collections with spring physics, wiggle, and tilt effects.
+* **Backgrounds:** Built-in gradient presets plus custom image backgrounds with blur, vignette, and color overlay.
+* **Export:** MP4 (H.264 via Media Foundation) and GIF output through a zero-copy 3-thread GPU pipeline (wgpu + D3D11 + Media Foundation).
+
+### Productivity Tools
 
 * **Smart Overlays:**
   * **Result Overlay:** Interactive window with streaming text, markdown rendering, and "Refine" chat.
-  * **Preset Wheel:** A circular menu (`Win+Shift+S` style) to quickly select tools at cursor position.
+  * **Preset Wheel:** A circular menu (assign a hotkey to any MASTER preset) to quickly select tools.
   * **Favorite Bubble:** A floating dock for instant access to common presets.
 * **Text-to-Speech:** High-quality reading using Edge TTS, Gemini Live, or Google Translate.
 * **History Gallery:** Auto-saves captures, transcriptions, and generated audio in a searchable database.
+
+### Android Companion App
+
+* **Live Translation:** Real-time transcription and translation via floating overlay or in-app display.
+* **Preset Engine:** Same node-graph presets as Windows, with multi-provider AI support (Gemini, Groq, OpenRouter, Cerebras, Ollama).
+* **Floating Bubble:** Quick-access overlay bubble for triggering presets from any app.
+* **TTS Playback:** Edge TTS and Gemini TTS with speed control.
 
 ## Installation
 
 ### Option 1: Download Release
 
-Download the latest `.exe` from the [Releases](https://github.com/nganlinh4/screen-goated-toolbox/releases) page.
+Download the latest `.exe` and `.apk` from the [Releases](https://github.com/nganlinh4/screen-goated-toolbox/releases) page.
 
-* **Standard:** `ScreenGoatedToolbox_v4.0.0.exe` (Compressed, smaller).
-* **NoPack:** `..._nopack.exe` (Use this if Windows Defender triggers a false positive).
+* **Windows:** `ScreenGoatedToolbox_v<version>.exe`
+* **Android:** `ScreenGoatedToolbox_v<version>.apk`
 
-### Option 2: Build from Source
+### Option 2: Build from Source (Windows)
 
 **Prerequisites:**
 
 * [Rust](https://www.rust-lang.org/) (Nightly toolchain required).
-* [Node.js](https://nodejs.org/) (Required for building the PromptDJ frontend).
+* [Node.js](https://nodejs.org/) (Required for PromptDJ and Screen Record frontends).
 * **Visual Studio Build Tools 2022** with "Desktop development with C++" workload.
 
 ```bash
@@ -63,6 +79,20 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
 The executable will be located in `target/release/`.
+
+### Option 3: Build from Source (Android)
+
+**Prerequisites:**
+
+* JDK 17 (e.g., Eclipse Temurin).
+* Android SDK with build-tools and platform 36.
+
+```bash
+# Build signed release APK (extracts version from Cargo.toml)
+powershell -ExecutionPolicy Bypass -File mobile\build-release.ps1
+```
+
+The APK will be located in `target/release/`. See `mobile/README.md` for detailed development workflow.
 
 ### Quick Development Build
 
@@ -83,9 +113,9 @@ cd screen-record; npm install; npm run build; cd ..; New-Item -ItemType Director
 ### Repomix (for "Ask anything about SGT")
 
 The help assistant now uses three prebuilt repomix files so each prompt stays under the model limit:
-- `repomix-screen-recorder.xml` for `Hỏi về SGT Record (Quay màn hình)`
-- `repomix-android.xml` for `Hỏi về SGT Android`
-- `repomix-rest.xml` for `Hỏi về mọi thứ còn lại`
+- `repomix-screen-recorder.xml` for "Ask about SGT Record (Screen Recording)"
+- `repomix-android.xml` for "Ask about SGT Android"
+- `repomix-rest.xml` for "Ask about everything else"
 
 Regenerate them with these commands:
 
@@ -102,7 +132,7 @@ repomix . --compress --remove-comments --remove-empty-lines --no-file-summary --
 1. **Launch SGT:** Run the executable.
 2. **Global Settings:**
     * Click the **Settings** icon in the sidebar.
-    * Enter API Keys for the providers you wish to use (Groq, Gemini, OpenRouter).
+    * Enter API Keys for the providers you wish to use (Gemini, Groq, OpenRouter, Cerebras).
     * *(Optional)* Enable **Ollama** if you have it installed locally.
 3. **Select a Preset:**
     * Use the sidebar to choose a built-in preset (e.g., "Translate Region", "Transcribe Speech").
@@ -116,7 +146,7 @@ repomix . --compress --remove-comments --remove-empty-lines --no-file-summary --
 
 ### The Node Graph
 
-SGT v4 uses a node-based system for Presets.
+SGT uses a node-based system for Presets.
 
 1. **Create Preset:** Click `+` in the sidebar.
 2. **Input Node:** Choose "Image", "Audio", or "Text".
@@ -143,7 +173,7 @@ SGT v4 uses a node-based system for Presets.
 
 **"NO_API_KEY" Error**
 
-* Go to Global Settings and ensure you have pasted a valid key for the model provider selected in your preset (Groq vs Google vs OpenRouter).
+* Go to Global Settings and ensure you have pasted a valid key for the model provider selected in your preset (Groq vs Google vs OpenRouter vs Cerebras).
 
 **WebView2 / Blank UI**
 
@@ -161,12 +191,14 @@ SGT v4 uses a node-based system for Presets.
 
 ## License
 
-MIT License — See [LICENSE](LICENSE) file.
+MIT License
 
 ## Credits
 
 Developed by **nganlinh4**.
 
-* **UI Framework:** [egui](https://github.com/emilk/egui) & [wry](https://github.com/tauri-apps/wry).
+* **Desktop UI:** [egui](https://github.com/emilk/egui) & [wry](https://github.com/tauri-apps/wry).
 * **Audio:** [cpal](https://github.com/RustAudio/cpal) & [symphonia](https://github.com/pdeljanov/Symphonia).
-* **AI Providers:** Groq, Google DeepMind, OpenRouter.
+* **GPU Rendering:** [wgpu](https://github.com/gfx-rs/wgpu) & Media Foundation.
+* **Mobile:** Jetpack Compose & Kotlin Multiplatform.
+* **AI Providers:** Groq, Google DeepMind, OpenRouter, Cerebras.
