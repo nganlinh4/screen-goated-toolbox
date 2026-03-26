@@ -27,6 +27,8 @@ import {
   RecordingMode,
   CropRect,
   WebcamConfig,
+  AutoZoomConfig,
+  DEFAULT_AUTO_ZOOM_CONFIG,
 } from "@/types/video";
 import {
   clampVisibilitySegmentsToDuration,
@@ -70,6 +72,7 @@ const KEYSTROKE_LANGUAGE_KEY = "screen-record-keystroke-language-v1";
 const KEYSTROKE_MODE_PREF_KEY = "screen-record-keystroke-mode-pref-v1";
 const KEYSTROKE_OVERLAY_PREF_KEY = "screen-record-keystroke-overlay-pref-v1";
 const AUTO_ZOOM_PREF_KEY = "screen-record-auto-zoom-pref-v1";
+const AUTO_ZOOM_CONFIG_KEY = "screen-record-auto-zoom-config-v1";
 const SMART_POINTER_PREF_KEY = "screen-record-smart-pointer-pref-v1";
 const EXPORT_FPS_PREF_KEY = "screen-record-export-fps-pref-v1";
 const CROP_PREF_KEY = "screen-record-crop-pref-v1";
@@ -298,6 +301,27 @@ function saveAutoZoomPref(enabled: boolean): void {
   } catch {
     /* ignore */
   }
+}
+
+export function getSavedAutoZoomConfig(): AutoZoomConfig {
+  try {
+    const raw = localStorage.getItem(AUTO_ZOOM_CONFIG_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        followTightness: typeof parsed.followTightness === "number" ? parsed.followTightness : DEFAULT_AUTO_ZOOM_CONFIG.followTightness,
+        zoomLevel: typeof parsed.zoomLevel === "number" ? parsed.zoomLevel : DEFAULT_AUTO_ZOOM_CONFIG.zoomLevel,
+        speedSensitivity: typeof parsed.speedSensitivity === "number" ? parsed.speedSensitivity : DEFAULT_AUTO_ZOOM_CONFIG.speedSensitivity,
+      };
+    }
+  } catch { /* ignore */ }
+  return { ...DEFAULT_AUTO_ZOOM_CONFIG };
+}
+
+export function saveAutoZoomConfig(config: AutoZoomConfig): void {
+  try {
+    localStorage.setItem(AUTO_ZOOM_CONFIG_KEY, JSON.stringify(config));
+  } catch { /* ignore */ }
 }
 
 function getSavedSmartPointerPref(): boolean {
@@ -1094,6 +1118,7 @@ export function useRecording(props: UseRecordingProps) {
           vidH,
           props.backgroundConfig,
         );
+        const savedAutoZoomConfig = getSavedAutoZoomConfig();
         const initialAutoPath =
           vidW > 0 && vidH > 0 && normalizedMouseData.length > 0
             ? autoZoomGenerator.generateMotionPath(
@@ -1101,6 +1126,7 @@ export function useRecording(props: UseRecordingProps) {
                 normalizedMouseData,
                 vidW,
                 vidH,
+                savedAutoZoomConfig,
               )
             : [];
 
@@ -2616,6 +2642,61 @@ interface UseAutoZoomProps {
 }
 
 export function useAutoZoom(props: UseAutoZoomProps) {
+  const [autoZoomConfig, setAutoZoomConfigState] = useState<AutoZoomConfig>(getSavedAutoZoomConfig);
+
+  const regenerateMotionPath = useCallback(
+    (config: AutoZoomConfig) => {
+      if (!props.segment || !props.mousePositions.length || !props.videoRef.current) return;
+      const vid = props.videoRef.current;
+      const normalizedMousePositions = normalizeMousePositionsToVideoSpace(
+        props.mousePositions,
+        vid.videoWidth || 0,
+        vid.videoHeight || 0,
+      );
+      const motionPath = autoZoomGenerator.generateMotionPath(
+        props.segment,
+        normalizedMousePositions,
+        vid.videoWidth,
+        vid.videoHeight,
+        config,
+      );
+      const newSegment: VideoSegment = {
+        ...props.segment,
+        smoothMotionPath: motionPath,
+        zoomInfluencePoints: [
+          { time: 0, value: 1.0 },
+          { time: props.duration, value: 1.0 },
+        ],
+      };
+      props.setSegment(newSegment);
+      if (props.currentProjectId) {
+        projectManager
+          .updateProject(props.currentProjectId, {
+            segment: newSegment,
+            backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
+            mousePositions: props.mousePositions,
+          })
+          .then(() => props.loadProjects());
+      }
+    },
+    [props],
+  );
+
+  const handleAutoZoomConfigChange = useCallback(
+    (config: AutoZoomConfig) => {
+      setAutoZoomConfigState(config);
+      saveAutoZoomConfig(config);
+      // Regenerate if auto zoom is currently active
+      const hasAutoPath =
+        props.segment?.smoothMotionPath &&
+        props.segment.smoothMotionPath.length > 0;
+      if (hasAutoPath) {
+        regenerateMotionPath(config);
+      }
+    },
+    [props.segment, regenerateMotionPath],
+  );
+
   const handleAutoZoom = useCallback(() => {
     if (!props.segment) return;
 
@@ -2656,6 +2737,7 @@ export function useAutoZoom(props: UseAutoZoomProps) {
       normalizedMousePositions,
       vid.videoWidth,
       vid.videoHeight,
+      autoZoomConfig,
     );
 
     saveAutoZoomPref(true);
@@ -2681,9 +2763,9 @@ export function useAutoZoom(props: UseAutoZoomProps) {
     }
 
     props.setActivePanel("zoom");
-  }, [props]);
+  }, [props, autoZoomConfig]);
 
-  return { handleAutoZoom };
+  return { handleAutoZoom, autoZoomConfig, handleAutoZoomConfigChange };
 }
 
 // ============================================================================

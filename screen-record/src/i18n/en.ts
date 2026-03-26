@@ -261,6 +261,9 @@ const en = {
   // App
   preparingVideoOverlay: 'Preparing video...',
   autoZoom: 'Auto Zoom',
+  autoZoomFollowTightness: 'Follow Tightness',
+  autoZoomZoomLevel: 'Zoom Level',
+  autoZoomSpeedSensitivity: 'Speed Sensitivity',
   smartPointer: 'Smart Pointer',
 
   // Export presets

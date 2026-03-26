@@ -352,6 +352,8 @@ function App() {
     handleAddPointerSegment,
     handleDeletePointerSegment,
     handleAutoZoom,
+    autoZoomConfig,
+    handleAutoZoomConfigChange,
     getAutoCanvasSelectionConfig,
     customCanvasBaseDimensions,
     handleActivateCustomCanvas,
@@ -679,6 +681,8 @@ function App() {
           handleKeystrokeDelayChange={handleKeystrokeDelayChange}
           mousePositionsLength={mousePositions.length}
           handleAutoZoom={handleAutoZoom}
+          autoZoomConfig={autoZoomConfig}
+          handleAutoZoomConfigChange={handleAutoZoomConfigChange}
           handleSmartPointerHiding={handleSmartPointerHiding}
           activePanel={activePanel}
           setActivePanel={setActivePanel}

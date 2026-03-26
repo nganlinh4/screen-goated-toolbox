@@ -1,28 +1,39 @@
-import { VideoSegment, MousePosition, ZoomKeyframe } from '@/types/video';
+import { VideoSegment, MousePosition, ZoomKeyframe, AutoZoomConfig, DEFAULT_AUTO_ZOOM_CONFIG } from '@/types/video';
 
-// Physics Configuration
-const PHYSICS = {
-  // Mass-Spring-Damper Constants
-  // Lower tension = lazier spring (floaty)
-  TENSION: 20.0,
-  // Critically damped for T=20, M=5 => 2 * sqrt(20 * 5) = 20
-  FRICTION: 20.0,
-  MASS: 5.0,      // Heavy camera for inertia
+// Default physics — derived from DEFAULT_AUTO_ZOOM_CONFIG (followTightness=0.5, zoomLevel=2.0, speedSensitivity=0.5)
+const FIXED_MASS = 2.0;
 
-  // Behaviour — dynamic look-ahead
-  // Camera "leads" the cursor: minimal anticipation when still, more when fast.
-  // Exponential saturation: lookAhead = MAX * (1 - e^(-speed / SCALE))
-  LOOK_AHEAD_MAX: 0.45,   // seconds — ceiling even at extreme speeds
-  LOOK_AHEAD_SCALE: 700,  // px/s at which we reach ~63% of max
+/** Map user-facing AutoZoomConfig → internal physics constants. */
+function resolvePhysics(cfg: AutoZoomConfig) {
+  // followTightness 0–1 → ω₀ (natural frequency) via log interpolation
+  // 0.0 → ω₀=3 (~1.0s settling), 0.5 → ω₀≈8 (~0.38s), 1.0 → ω₀=20 (~0.15s)
+  const omegaMin = 3.0;
+  const omegaMax = 20.0;
+  const omega = omegaMin * Math.pow(omegaMax / omegaMin, cfg.followTightness);
+  const tension = omega * omega * FIXED_MASS;
+  const friction = 2.0 * omega * FIXED_MASS; // critically damped
 
-  // Velocity-dependent zoom-out
-  MAX_VELOCITY_ZOOM_PENALTY: 1500, // px/s at which zoom fully drops to MIN
+  // Look-ahead scales inversely with tightness: tight tracking needs less prediction
+  const lookAheadMax = 0.35 * (1.0 - cfg.followTightness * 0.7); // 0.35s → 0.105s
+  const lookAheadScale = 700 - 400 * cfg.followTightness;         // 700 → 300
 
-  // Limits
-  BASE_ZOOM: 2.0,
-  MIN_ZOOM: 1.0,
-  MAX_ZOOM: 2.0
-};
+  // speedSensitivity 0–1 → velocity zoom penalty threshold (inverse)
+  // 0.0 (no sensitivity) → very high threshold (5000 — almost never zoom out)
+  // 1.0 (max sensitivity) → low threshold (800 — zoom out easily)
+  const maxVelocityZoomPenalty = 5000 - 4200 * cfg.speedSensitivity;
+
+  return {
+    TENSION: tension,
+    FRICTION: friction,
+    MASS: FIXED_MASS,
+    LOOK_AHEAD_MAX: lookAheadMax,
+    LOOK_AHEAD_SCALE: lookAheadScale,
+    MAX_VELOCITY_ZOOM_PENALTY: maxVelocityZoomPenalty,
+    BASE_ZOOM: cfg.zoomLevel,
+    MIN_ZOOM: 1.0,
+    MAX_ZOOM: cfg.zoomLevel,
+  };
+}
 
 interface InteractionState {
   isClicking: boolean;
@@ -48,9 +59,11 @@ export class AutoZoomGenerator {
     segment: VideoSegment,
     mousePositions: MousePosition[],
     videoWidth: number,
-    videoHeight: number
+    videoHeight: number,
+    config?: AutoZoomConfig
   ): { time: number; x: number; y: number; zoom: number }[] {
 
+    const P = resolvePhysics(config ?? DEFAULT_AUTO_ZOOM_CONFIG);
     const path: { time: number; x: number; y: number; zoom: number }[] = [];
 
     // 0. Filter and Sort Data
@@ -64,7 +77,7 @@ export class AutoZoomGenerator {
     const dt = 1 / 60; // 60hz Physics Simulation
 
     let state: PhysicsState = {
-      x: videoWidth / 2, // Start centered based on actual video width
+      x: videoWidth / 2,
       y: videoHeight / 2,
       zoom: 1.0,
       vx: 0,
@@ -79,70 +92,63 @@ export class AutoZoomGenerator {
       lastPos: { x: data[0].x, y: data[0].y }
     };
 
-    let smoothedZoomTarget = PHYSICS.BASE_ZOOM;
+    let smoothedZoomTarget = P.BASE_ZOOM;
+
+    // Zoom smoothing lerp — tighter follow = faster zoom response
+    const zoomLerp = 0.06 + 0.14 * (config?.followTightness ?? 0.5); // 0.06–0.20
 
     // Run Simulation
     for (let t = segment.trimStart; t <= segment.trimEnd; t += dt) {
 
       // A. Identify Target (Where SHOULD the camera be?)
       const currentMouse = this.sample(data, t);
+      const velocity = this.getVelocity(data, t);
 
-      // Calculate Mouse Characteristics
-      const velocity = this.getVelocity(data, t); // pixels per sec
-
-      // Dynamic look-ahead: still cursor → ~0s, fast cursor → up to MAX.
-      // Exponential saturation prevents over-prediction at extreme speeds.
-      const lookAhead = PHYSICS.LOOK_AHEAD_MAX * (1 - Math.exp(-velocity / PHYSICS.LOOK_AHEAD_SCALE));
+      // Dynamic look-ahead
+      const lookAhead = P.LOOK_AHEAD_MAX * (1 - Math.exp(-velocity / P.LOOK_AHEAD_SCALE));
       const futureMouse = this.sample(data, t + lookAhead);
-      const isClicked = this.checkClick(data, t, 0.5); // Check if click happens within 0.5s window
+      const isClicked = this.checkClick(data, t, 0.5);
 
       // Update Interaction State
       const moveDist = Math.sqrt(Math.pow(currentMouse.x - interaction.lastPos.x, 2) + Math.pow(currentMouse.y - interaction.lastPos.y, 2));
-      if (moveDist < 2.0) { // Mouse is still (< 2px movement in this step)
+      if (moveDist < 2.0) {
         interaction.hoverTime += dt;
       } else {
-        interaction.hoverTime = Math.max(0, interaction.hoverTime - dt * 2); // Decay hover status
+        interaction.hoverTime = Math.max(0, interaction.hoverTime - dt * 2);
       }
       interaction.lastPos = { x: currentMouse.x, y: currentMouse.y };
 
       // B. Determine Target Zoom
-      let rawTargetZoom = PHYSICS.BASE_ZOOM;
+      let rawTargetZoom = P.BASE_ZOOM;
 
-      // Rule 1: Velocity Penalty — zoom out when cursor moves fast
-      const speedFactor = Math.min(1.0, velocity / PHYSICS.MAX_VELOCITY_ZOOM_PENALTY);
-      rawTargetZoom = rawTargetZoom * (1 - speedFactor) + PHYSICS.MIN_ZOOM * speedFactor;
+      // Velocity Penalty — zoom out when cursor moves fast
+      const speedFactor = Math.min(1.0, velocity / P.MAX_VELOCITY_ZOOM_PENALTY);
+      rawTargetZoom = rawTargetZoom * (1 - speedFactor) + P.MIN_ZOOM * speedFactor;
 
-      // Click Focus (Clicking -> Zoom In)
+      // Click Focus
       if (isClicked) {
-        rawTargetZoom = Math.max(rawTargetZoom, 1.7);
+        rawTargetZoom = Math.max(rawTargetZoom, Math.min(1.7, P.BASE_ZOOM));
       }
 
-      // Deep Read (Long Hover -> Zoom In Deep)
+      // Deep Read (Long Hover)
       if (interaction.hoverTime > 2.0) {
-        rawTargetZoom = PHYSICS.MAX_ZOOM;
+        rawTargetZoom = P.MAX_ZOOM;
       }
 
-      // Smooth the zoom target to prevent jitter
-      // Simple LERP filter
-      smoothedZoomTarget = smoothedZoomTarget + (rawTargetZoom - smoothedZoomTarget) * 0.05;
+      // Smooth the zoom target
+      smoothedZoomTarget = smoothedZoomTarget + (rawTargetZoom - smoothedZoomTarget) * zoomLerp;
 
       // C. Determine Target Position
-      // We start with the Future Mouse Position (Anticipation)
       let targetX = futureMouse.x;
       let targetY = futureMouse.y;
 
       // Override: Manual Keyframes
-      // If user sets a manual keyframe, it acts as a magnet
       if (segment.zoomKeyframes && segment.zoomKeyframes.length > 0) {
         const kfInfluence = this.getKeyframeInfluence(segment.zoomKeyframes, t, videoWidth, videoHeight);
         if (kfInfluence.weight > 0) {
-          // targetX/Y are pixels, kf is normalized 0-1
           const kfX = kfInfluence.x * videoWidth;
           const kfY = kfInfluence.y * videoHeight;
           const kfZ = kfInfluence.zoom;
-
-          // Blend Target
-          // If weight is 1.0, we strictly follow keyframe
           targetX = targetX * (1 - kfInfluence.weight) + kfX * kfInfluence.weight;
           targetY = targetY * (1 - kfInfluence.weight) + kfY * kfInfluence.weight;
           smoothedZoomTarget = smoothedZoomTarget * (1 - kfInfluence.weight) + kfZ * kfInfluence.weight;
@@ -150,11 +156,9 @@ export class AutoZoomGenerator {
       }
 
       // D. Apply Physics (Spring/Damper)
-      // Force = -k*(x - target) - d*v
-      const ax = (-PHYSICS.TENSION * (state.x - targetX) - PHYSICS.FRICTION * state.vx) / PHYSICS.MASS;
-      const ay = (-PHYSICS.TENSION * (state.y - targetY) - PHYSICS.FRICTION * state.vy) / PHYSICS.MASS;
-      // Use higher mass for zoom for smoother feel
-      const az = (-PHYSICS.TENSION * (state.zoom - smoothedZoomTarget) - PHYSICS.FRICTION * state.vz) / (PHYSICS.MASS * 2.0);
+      const ax = (-P.TENSION * (state.x - targetX) - P.FRICTION * state.vx) / P.MASS;
+      const ay = (-P.TENSION * (state.y - targetY) - P.FRICTION * state.vy) / P.MASS;
+      const az = (-P.TENSION * (state.zoom - smoothedZoomTarget) - P.FRICTION * state.vz) / (P.MASS * 1.2);
 
       state.vx += ax * dt;
       state.vy += ay * dt;
@@ -164,15 +168,10 @@ export class AutoZoomGenerator {
       state.y += state.vy * dt;
       state.zoom += state.vz * dt;
 
-      // No hard position clamp — the camera freely tracks the cursor.
-      // With custom canvas padding, the contain-fit mapping and the renderer's
-      // [0,1] posX/posY clamp provide canvas-level safety.  The critically-damped
-      // spring won't overshoot, and cursor data is always within video bounds.
-
       // Clamp Zoom safety
-      state.zoom = Math.max(1.0, Math.min(5.0, state.zoom)); // Absolute safety limits
+      state.zoom = Math.max(1.0, Math.min(5.0, state.zoom));
 
-      // F. Record Frame
+      // Record Frame
       path.push({
         time: Number(t.toFixed(3)),
         x: Number(state.x.toFixed(1)),

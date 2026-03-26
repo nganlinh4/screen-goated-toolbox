@@ -77,7 +77,7 @@ export function useEditorOverlayTools({
   } = textOverlays;
 
   // Auto zoom
-  const { handleAutoZoom } = useAutoZoom({
+  const { handleAutoZoom, autoZoomConfig, handleAutoZoomConfigChange } = useAutoZoom({
     segment,
     setSegment,
     videoRef,
@@ -128,7 +128,9 @@ export function useEditorOverlayTools({
     handleSmartPointerHiding,
     handleAddPointerSegment,
     handleDeletePointerSegment,
-    // Auto zoom (no extra exports needed, just the single handler)
+    // Auto zoom
     handleAutoZoom,
+    autoZoomConfig,
+    handleAutoZoomConfigChange,
   };
 }

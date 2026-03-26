@@ -70,6 +70,8 @@ export interface EditorMainProps {
   handleKeystrokeDelayChange: (delay: number) => void;
   mousePositionsLength: number;
   handleAutoZoom: () => void;
+  autoZoomConfig: import("@/types/video").AutoZoomConfig;
+  handleAutoZoomConfigChange: (config: import("@/types/video").AutoZoomConfig) => void;
   handleSmartPointerHiding: () => void;
   // SidePanel props
   activePanel: ActivePanel;
@@ -156,6 +158,8 @@ export function EditorMain({
   handleKeystrokeDelayChange,
   mousePositionsLength,
   handleAutoZoom,
+  autoZoomConfig,
+  handleAutoZoomConfigChange,
   handleSmartPointerHiding,
   activePanel,
   setActivePanel,
@@ -279,6 +283,8 @@ export function EditorMain({
             currentVideo={currentVideo}
             mousePositionsLength={mousePositionsLength}
             handleAutoZoom={handleAutoZoom}
+            autoZoomConfig={autoZoomConfig}
+            handleAutoZoomConfigChange={handleAutoZoomConfigChange}
             handleSmartPointerHiding={handleSmartPointerHiding}
           />
 
