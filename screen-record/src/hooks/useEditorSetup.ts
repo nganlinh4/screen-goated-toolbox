@@ -41,6 +41,8 @@ export interface UseEditorSetupParams {
   // Batch
   beginBatch: () => void;
   commitBatch: () => void;
+  // Video state
+  isVideoReady: boolean;
 }
 
 export function useEditorSetup({
@@ -67,6 +69,7 @@ export function useEditorSetup({
   setActivePanel,
   beginBatch,
   commitBatch,
+  isVideoReady,
 }: UseEditorSetupParams) {
   const canvasConfig = useCanvasConfig({
     segment,
@@ -84,6 +87,7 @@ export function useEditorSetup({
     setIsCropping,
     isPlaying,
     handleTogglePlayPause,
+    isVideoReady,
   });
 
   const keystroke = useKeystrokeOverlayEditor({
@@ -124,6 +128,8 @@ export function useEditorSetup({
     previewContainerRef,
     isKeystrokeResizeDragging,
     isKeystrokeResizeHandleHover,
+    segment,
+    currentTime,
   });
 
   return {

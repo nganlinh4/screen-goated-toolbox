@@ -29,7 +29,7 @@ export function Switch({ checked, onCheckedChange, disabled, className }: Switch
     >
       <motion.span
         className="switch-thumb inline-block h-4 w-4 rounded-full bg-white shadow-elevation-1"
-        animate={{ x: checked ? 16 : 2 }}
+        animate={{ x: checked ? 18 : 2 }}
         transition={{ type: 'spring', stiffness: 500, damping: 30 }}
       />
     </button>

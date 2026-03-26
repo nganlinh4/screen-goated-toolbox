@@ -1700,8 +1700,12 @@ export class VideoController {
     this.clearMediaElementSource(this.video);
 
     return new Promise<void>((resolve) => {
-      const handleCanPlayThrough = () => {
-        this.video.removeEventListener("canplaythrough", handleCanPlayThrough);
+      let metadataLoaded = false;
+      let canPlay = false;
+
+      const tryFinish = () => {
+        if (!metadataLoaded || !canPlay) return;
+        cleanup();
 
         // Set up canvas
         this.canvas.width = this.video.videoWidth;
@@ -1719,8 +1723,22 @@ export class VideoController {
         resolve();
       };
 
-      // Set up video
-      this.video.addEventListener("canplaythrough", handleCanPlayThrough);
+      const onMetadata = () => {
+        metadataLoaded = true;
+        tryFinish();
+      };
+      const onCanPlay = () => {
+        canPlay = true;
+        tryFinish();
+      };
+      const cleanup = () => {
+        this.video.removeEventListener("loadedmetadata", onMetadata);
+        this.video.removeEventListener("canplaythrough", onCanPlay);
+      };
+
+      // Wait for BOTH metadata (dimensions) and canplaythrough (buffered)
+      this.video.addEventListener("loadedmetadata", onMetadata);
+      this.video.addEventListener("canplaythrough", onCanPlay);
       this.video.preload = "auto";
       this.video.src = videoUrl;
       this.video.load();

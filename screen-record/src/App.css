@@ -332,6 +332,10 @@ textarea.subtle-resize::-webkit-resizer {
     background: none;
 }
 
+.sequence-pill-chain::-webkit-scrollbar {
+    display: none;
+}
+
 body.dragging-adjustable-line .timeline-content > div > * {
     pointer-events: none !important;
 }

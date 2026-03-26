@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { invoke } from '@/lib/ipc';
 import { Button } from '@/components/ui/button';
 import {
-  Video, Keyboard, X, Minus, Square, Copy, Download, FolderOpen,
+  Keyboard, X, Minus, Square, Copy, Download, FolderOpen,
   ChevronDown, ChevronLeft, ChevronRight, Monitor, AppWindow,
   Loader2, CircleCheck,
 } from 'lucide-react';
@@ -78,6 +78,7 @@ interface HeaderProps {
   monitors: MonitorInfo[];
   onSelectMonitorCapture: (monitorId: string, fps: number | null) => void;
   onSelectWindowCapture: (fps: number | null) => void;
+  sequenceBreadcrumb?: React.ReactNode;
 }
 
 export function Header({
@@ -111,6 +112,7 @@ export function Header({
   monitors,
   onSelectMonitorCapture,
   onSelectWindowCapture,
+  sequenceBreadcrumb,
 }: HeaderProps) {
   const { t } = useSettings();
   const headerStatus = useHeaderStatus();
@@ -250,14 +252,9 @@ export function Header({
         }
       }}
     >
-      <div className="header-left flex items-center gap-4 px-4 h-full">
-        <div className="app-branding flex items-center gap-3">
-          <Video className="w-5 h-5 text-[var(--primary-color)]" />
-          <span className="text-[var(--on-surface)] text-sm font-medium">{t.appTitle}</span>
-        </div>
-
+      <div className="header-left flex items-center gap-2 px-4 h-full min-w-0 flex-1">
         {isRecording && (
-          <div className="recording-status-area h-full flex items-center">
+          <div className="recording-status-area h-full flex items-center flex-shrink-0">
             <div className="recording-indicator flex items-center gap-2 border border-red-500/25 bg-red-500/14 px-3 py-1 rounded-lg animate-in fade-in slide-in-from-left-2 duration-300">
               <div className="recording-dot w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
               <span className="text-red-500 text-xs font-bold drop-shadow-sm">{formatTime(recordingDuration)}</span>
@@ -268,7 +265,7 @@ export function Header({
         {headerStatus && (
           <div
             key={headerStatus.id + headerStatus.type}
-            className={`header-status-badge flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium animate-in fade-in slide-in-from-left-2 duration-200 ${
+            className={`header-status-badge flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium flex-shrink-0 animate-in fade-in slide-in-from-left-2 duration-200 ${
               headerStatus.type === 'success'
                 ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
                 : 'border border-[var(--primary-color)]/20 bg-[var(--primary-color)]/10 text-[var(--primary-color)]'
@@ -279,6 +276,12 @@ export function Header({
               : <Loader2 className="w-3 h-3 flex-shrink-0 animate-spin" />
             }
             <span className="header-status-message">{(t as Record<string, string>)[headerStatus.messageKey] ?? headerStatus.messageKey}</span>
+          </div>
+        )}
+
+        {sequenceBreadcrumb && (
+          <div className="header-breadcrumb-slot flex-1 min-w-0 flex items-center" onMouseDown={(e) => e.stopPropagation()}>
+            {sequenceBreadcrumb}
           </div>
         )}
       </div>

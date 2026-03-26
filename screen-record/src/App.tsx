@@ -17,6 +17,7 @@ import { useEditorTools } from "@/hooks/useEditorTools";
 import { useEditorInteractions } from "@/hooks/useEditorInteractions";
 
 import { Header } from "@/components/Header";
+import { SequencePillChain } from "@/components/SequencePillChain";
 import { type ActivePanel } from "@/components/sidepanel/index";
 import { type ProjectsPreviewTargetSnapshot } from "@/components/ProjectsView";
 import { SettingsContext, useSettingsProvider } from "@/hooks/useSettings";
@@ -610,6 +611,19 @@ function App() {
           monitors={monitors}
           onSelectMonitorCapture={handleSelectMonitorCapture}
           onSelectWindowCapture={handleSelectWindowCapture}
+          sequenceBreadcrumb={
+            !isCropping && composition ? (
+              <SequencePillChain
+                composition={composition}
+                activeClipId={activeClipId}
+                spreadFromClipId={spreadFromClipId}
+                onSelectClip={(clipId) => { void handleSelectSequenceClip(clipId); }}
+                onInsertClip={handleOpenInsertProjectPicker}
+                onRemoveClip={(clipId) => { void handleRemoveSequenceClip(clipId); }}
+                onModeChange={(mode) => { void handleSequenceModeChange(mode); }}
+              />
+            ) : undefined
+          }
         />
 
         <EditorMain
@@ -666,13 +680,6 @@ function App() {
           mousePositionsLength={mousePositions.length}
           handleAutoZoom={handleAutoZoom}
           handleSmartPointerHiding={handleSmartPointerHiding}
-          composition={composition}
-          activeClipId={activeClipId}
-          spreadFromClipId={spreadFromClipId}
-          handleSelectSequenceClip={handleSelectSequenceClip}
-          handleOpenInsertProjectPicker={handleOpenInsertProjectPicker}
-          handleRemoveSequenceClip={handleRemoveSequenceClip}
-          handleSequenceModeChange={handleSequenceModeChange}
           activePanel={activePanel}
           setActivePanel={setActivePanel}
           editingKeyframeId={editingKeyframeId}

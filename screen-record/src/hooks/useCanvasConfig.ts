@@ -27,6 +27,7 @@ export interface UseCanvasConfigParams {
   setIsCropping: (value: boolean) => void;
   isPlaying: boolean;
   handleTogglePlayPause: () => void;
+  isVideoReady: boolean;
 }
 
 export function useCanvasConfig({
@@ -45,14 +46,18 @@ export function useCanvasConfig({
   setIsCropping,
   isPlaying,
   handleTogglePlayPause,
+  isVideoReady,
 }: UseCanvasConfigParams) {
 
   const getAutoCanvasSelectionConfig = useCallback(() => {
     const crop = segment?.crop ?? { x: 0, y: 0, width: 1, height: 1 };
-    const sourceWidth =
-      videoRef.current?.videoWidth || canvasRef.current?.width || 0;
-    const sourceHeight =
-      videoRef.current?.videoHeight || canvasRef.current?.height || 0;
+    // Only use videoWidth/videoHeight from a loaded video; never fall back to
+    // canvasRef dimensions (HTML canvas defaults to 300x150 which leaks as a
+    // bogus resolution).
+    const rawVidW = videoRef.current?.videoWidth || 0;
+    const rawVidH = videoRef.current?.videoHeight || 0;
+    const sourceWidth = rawVidW > 0 ? rawVidW : 0;
+    const sourceHeight = rawVidH > 0 ? rawVidH : 0;
     const derivedWidth =
       sourceWidth > 0 ? Math.max(2, Math.round(sourceWidth * crop.width)) : undefined;
     const derivedHeight =
@@ -79,21 +84,30 @@ export function useCanvasConfig({
   ]);
 
   const customCanvasAutoConfig = getAutoCanvasSelectionConfig();
+  // In auto mode with a ready video, derive dimensions from the live video
+  // so stale persisted values (e.g. 300x150 from a previous session) never
+  // cause a visible blink before the useEffect corrects them.
+  const liveAutoW = backgroundConfig.canvasMode === "auto" && isVideoReady
+    ? (customCanvasAutoConfig.canvasWidth ?? videoRef.current?.videoWidth)
+    : undefined;
+  const liveAutoH = backgroundConfig.canvasMode === "auto" && isVideoReady
+    ? (customCanvasAutoConfig.canvasHeight ?? videoRef.current?.videoHeight)
+    : undefined;
   const customCanvasBaseDimensions = {
     width: Math.max(
       2,
-      backgroundConfig.canvasWidth ??
+      liveAutoW ??
+        backgroundConfig.canvasWidth ??
         customCanvasAutoConfig.canvasWidth ??
-        videoRef.current?.videoWidth ??
-        canvasRef.current?.width ??
+        (videoRef.current?.videoWidth || undefined) ??
         1920,
     ),
     height: Math.max(
       2,
-      backgroundConfig.canvasHeight ??
+      liveAutoH ??
+        backgroundConfig.canvasHeight ??
         customCanvasAutoConfig.canvasHeight ??
-        videoRef.current?.videoHeight ??
-        canvasRef.current?.height ??
+        (videoRef.current?.videoHeight || undefined) ??
         1080,
     ),
   };
@@ -170,8 +184,8 @@ export function useCanvasConfig({
   useEffect(() => {
     if (backgroundConfig.canvasMode !== "auto") return;
     const crop = segment?.crop ?? { x: 0, y: 0, width: 1, height: 1 };
-    const sourceWidth = videoRef.current?.videoWidth || canvasRef.current?.width || 0;
-    const sourceHeight = videoRef.current?.videoHeight || canvasRef.current?.height || 0;
+    const sourceWidth = videoRef.current?.videoWidth || 0;
+    const sourceHeight = videoRef.current?.videoHeight || 0;
     if (!sourceWidth || !sourceHeight) return;
     const derivedWidth = Math.max(2, Math.round(sourceWidth * crop.width));
     const derivedHeight = Math.max(2, Math.round(sourceHeight * crop.height));
@@ -185,7 +199,7 @@ export function useCanvasConfig({
       canvasHeight: derivedHeight,
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cropX, cropY, cropW, cropH, backgroundConfig.canvasMode]);
+  }, [cropX, cropY, cropW, cropH, backgroundConfig.canvasMode, isVideoReady]);
 
   const handleToggleCrop = useCallback(() => {
     if (isCropping) {

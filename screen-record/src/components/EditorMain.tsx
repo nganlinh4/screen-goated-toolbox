@@ -2,14 +2,11 @@ import React, { useMemo, type MutableRefObject, type RefObject } from "react";
 import {
   BackgroundConfig,
   VideoSegment,
-  ProjectComposition,
-  ProjectCompositionMode,
   WebcamConfig,
 } from "@/types/video";
 import { videoTimeToWallClock } from "@/lib/exportEstimator";
 import { PreviewCanvas, type KeystrokeEditFrame } from "@/components/PreviewCanvas";
 import { PlaybackControlsRow } from "@/components/PlaybackControlsRow";
-import { SequencePillChain } from "@/components/SequencePillChain";
 import { SidePanel, type ActivePanel } from "@/components/sidepanel/index";
 import { TimelineArea } from "@/components/timeline";
 import type { CanvasModeToggleProps } from "@/components/CanvasModeToggle";
@@ -74,14 +71,6 @@ export interface EditorMainProps {
   mousePositionsLength: number;
   handleAutoZoom: () => void;
   handleSmartPointerHiding: () => void;
-  // SequencePillChain props
-  composition: ProjectComposition | null;
-  activeClipId: string | null;
-  spreadFromClipId: string | null;
-  handleSelectSequenceClip: (clipId: string) => Promise<void>;
-  handleOpenInsertProjectPicker: (clipId: string | null, placement: "before" | "after") => void;
-  handleRemoveSequenceClip: (clipId: string) => Promise<void>;
-  handleSequenceModeChange: (mode: ProjectCompositionMode) => Promise<void>;
   // SidePanel props
   activePanel: ActivePanel;
   setActivePanel: (panel: ActivePanel) => void;
@@ -168,13 +157,6 @@ export function EditorMain({
   mousePositionsLength,
   handleAutoZoom,
   handleSmartPointerHiding,
-  composition,
-  activeClipId,
-  spreadFromClipId,
-  handleSelectSequenceClip,
-  handleOpenInsertProjectPicker,
-  handleRemoveSequenceClip,
-  handleSequenceModeChange,
   activePanel,
   setActivePanel,
   editingKeyframeId,
@@ -210,10 +192,6 @@ export function EditorMain({
   const showPlaybackControlsGhost = Boolean(
     !currentVideo && !isLoadingVideo && !isCropping,
   );
-  const showSequencePillGhost = Boolean(
-    !composition && !isCropping && !currentVideo && !isLoadingVideo,
-  );
-
   const wallClockDuration = useMemo(() => {
     const pts = segment?.speedPoints;
     if (!pts?.length || !duration) return duration;
@@ -304,39 +282,6 @@ export function EditorMain({
             handleSmartPointerHiding={handleSmartPointerHiding}
           />
 
-          {!isCropping && composition && (
-            <SequencePillChain
-              composition={composition}
-              activeClipId={activeClipId}
-              spreadFromClipId={spreadFromClipId}
-              onSelectClip={(clipId) => {
-                void handleSelectSequenceClip(clipId);
-              }}
-              onInsertClip={handleOpenInsertProjectPicker}
-              onRemoveClip={(clipId) => {
-                void handleRemoveSequenceClip(clipId);
-              }}
-              onModeChange={(mode) => {
-                void handleSequenceModeChange(mode);
-              }}
-            />
-          )}
-          {showSequencePillGhost && (
-            <div
-              className="sequence-focus-breadcrumb sequence-focus-breadcrumb-empty flex items-center justify-center gap-3 px-1 -mt-1 text-[11px] text-[var(--on-surface-variant)]"
-              aria-hidden="true"
-            >
-              <div className="sequence-pill-chain sequence-pill-chain-empty flex min-w-0 flex-1 items-center justify-center overflow-x-auto py-2">
-                <div className="flex min-w-max items-center gap-1.5 opacity-65">
-                  <div className="sequence-pill-add-btn sequence-pill-add-btn-empty ui-empty-state flex h-7 w-7 items-center justify-center rounded-full" />
-                  <div className="sequence-pill sequence-pill-empty ui-empty-state h-8 w-[134px] rounded-full" />
-                  <div className="sequence-pill-gap sequence-pill-gap-empty ui-empty-state h-7 w-7 rounded-full" />
-                  <div className="sequence-pill sequence-pill-empty ui-empty-state h-8 w-[108px] rounded-full" />
-                  <div className="sequence-pill-add-btn sequence-pill-add-btn-empty ui-empty-state flex h-7 w-7 items-center justify-center rounded-full" />
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Side Panel */}
