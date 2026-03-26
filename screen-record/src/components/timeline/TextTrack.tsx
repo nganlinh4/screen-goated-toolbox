@@ -25,6 +25,7 @@ interface TextTrackProps {
   onAddText?: (atTime?: number) => void;
   onDeleteTextSegments?: (ids: string[]) => void;
   onSelectionChange?: (ids: string[]) => void;
+  clearSignal?: number;
 }
 
 export const TextTrack: React.FC<TextTrackProps> = ({
@@ -37,6 +38,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
   onAddText,
   onDeleteTextSegments,
   onSelectionChange,
+  clearSignal,
 }) => {
   const [hoverState, setHoverState] = useState<
     | { type: 'split'; x: number; time: number; seg: TextSegment }
@@ -51,7 +53,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
     selectedIds, rangeSelect, trackRef, isDraggingRange,
     onSegmentPointerDown,
     handleTrackPointerDown, handleTrackPointerMove, handleTrackPointerUp,
-  } = useTrackRangeSelect(texts, duration, onSelectionChange, onDeleteTextSegments);
+  } = useTrackRangeSelect(texts, duration, onSelectionChange, onDeleteTextSegments, clearSignal);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isDraggingRange.current) return;

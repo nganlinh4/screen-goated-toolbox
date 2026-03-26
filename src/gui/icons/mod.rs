@@ -3,6 +3,7 @@
 // No assets, no fonts, pure math.
 
 mod paint;
+mod paint_extra;
 
 use eframe::egui;
 

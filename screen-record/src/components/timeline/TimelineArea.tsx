@@ -69,6 +69,7 @@ interface TimelineAreaProps {
   onPointerSelectionChange?: (ids: string[]) => void;
   onKeystrokeSelectionChange?: (ids: string[]) => void;
   onWebcamSelectionChange?: (ids: string[]) => void;
+  clearSelectionSignal?: number;
 }
 
 export const TimelineArea: React.FC<TimelineAreaProps> = ({
@@ -105,6 +106,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   onPointerSelectionChange,
   onKeystrokeSelectionChange,
   onWebcamSelectionChange,
+  clearSelectionSignal,
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
@@ -545,6 +547,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       }}
                       onDeleteWebcamSegments={handleDeleteWebcamSegments}
                       onSelectionChange={onWebcamSelectionChange}
+                      clearSignal={clearSelectionSignal}
                     />
                   ) : (
                     <div className="webcam-visibility-track-empty timeline-track-empty h-7" />
@@ -561,6 +564,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       onAddText={onAddText}
                       onDeleteTextSegments={handleDeleteTextSegments}
                       onSelectionChange={onTextSelectionChange}
+                      clearSignal={clearSelectionSignal}
                     />
                   ) : (
                     <div className="text-track-empty timeline-track-empty h-7" />
@@ -577,6 +581,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       onKeystrokeHover={setEditingKeystrokeSegmentId}
                       onDeleteKeystrokeSegments={handleDeleteKeystrokeSegments}
                       onSelectionChange={onKeystrokeSelectionChange}
+                      clearSignal={clearSelectionSignal}
                     />
                   ) : (
                     <div className="keystroke-track-empty timeline-track-empty h-7" />
@@ -592,6 +597,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       onPointerHover={setEditingPointerId}
                       onDeletePointerSegments={handleDeletePointerSegments}
                       onSelectionChange={onPointerSelectionChange}
+                      clearSignal={clearSelectionSignal}
                     />
                   ) : (
                     <div className="pointer-track-empty timeline-track-empty h-7" />

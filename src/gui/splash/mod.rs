@@ -5,6 +5,8 @@ mod audio;
 mod escape_overlay;
 mod math;
 mod render;
+mod render_layers;
+mod render_paint;
 mod scene;
 
 use audio::SplashAudio;

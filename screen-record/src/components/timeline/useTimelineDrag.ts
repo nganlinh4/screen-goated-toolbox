@@ -1,52 +1,10 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { VideoSegment, CursorVisibilitySegment, TrimSegment, ZoomKeyframe } from '@/types/video';
-import { clampVisibilitySegmentsToDuration, mergePointerSegments } from '@/lib/cursorHiding';
+import { TrimSegment, ZoomKeyframe } from '@/types/video';
 import { getTrimBounds, getTrimSegments, mergeTrimSegments } from '@/lib/trimSegments';
-import { getKeystrokeVisibilitySegmentsForMode, withKeystrokeVisibilitySegmentsForMode } from '@/lib/keystrokeVisibility';
+import { TimelineDragState, UseTimelineDragOptions, ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC } from './useTimelineDragTypes';
+import { useTrackSegmentDrag } from './useTrackSegmentDrag';
 
-export interface TimelineDragState {
-  isDraggingTrimStart: boolean;
-  isDraggingTrimEnd: boolean;
-  isDraggingTextStart: boolean;
-  isDraggingTextEnd: boolean;
-  isDraggingTextBody: boolean;
-  isDraggingKeystrokeStart: boolean;
-  isDraggingKeystrokeEnd: boolean;
-  isDraggingKeystrokeBody: boolean;
-  isDraggingPointerStart: boolean;
-  isDraggingPointerEnd: boolean;
-  isDraggingPointerBody: boolean;
-  isDraggingWebcamStart: boolean;
-  isDraggingWebcamEnd: boolean;
-  isDraggingWebcamBody: boolean;
-  isDraggingZoom: boolean;
-  isDraggingSeek: boolean;
-  draggingTextId: string | null;
-  draggingKeystrokeId: string | null;
-  draggingPointerId: string | null;
-  draggingWebcamId: string | null;
-  draggingZoomIdx: number | null;
-}
-
-interface UseTimelineDragOptions {
-  duration: number;
-  segment: VideoSegment | null;
-  timelineRef: React.RefObject<HTMLDivElement>;
-  videoRef: React.RefObject<HTMLVideoElement>;
-  setCurrentTime: (time: number) => void;
-  setSegment: (segment: VideoSegment | null) => void;
-  setEditingKeyframeId: (id: number | null) => void;
-  setEditingTextId: (id: string | null) => void;
-  setEditingKeystrokeId?: (id: string | null) => void;
-  setEditingPointerId?: (id: string | null) => void;
-  setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text') => void;
-  onSeek?: (time: number) => void;
-  onSeekEnd?: () => void;
-  beginBatch: () => void;
-  commitBatch: () => void;
-}
-
-const ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC = 0.2;
+export type { TimelineDragState } from './useTimelineDragTypes';
 
 export function useTimelineDrag({
   duration,
@@ -67,40 +25,14 @@ export function useTimelineDrag({
 }: UseTimelineDragOptions) {
   const [isDraggingTrimStart, setIsDraggingTrimStart] = useState(false);
   const [isDraggingTrimEnd, setIsDraggingTrimEnd] = useState(false);
-  const [isDraggingTextStart, setIsDraggingTextStart] = useState(false);
-  const [isDraggingTextEnd, setIsDraggingTextEnd] = useState(false);
-  const [isDraggingTextBody, setIsDraggingTextBody] = useState(false);
-  const [isDraggingKeystrokeStart, setIsDraggingKeystrokeStart] = useState(false);
-  const [isDraggingKeystrokeEnd, setIsDraggingKeystrokeEnd] = useState(false);
-  const [isDraggingKeystrokeBody, setIsDraggingKeystrokeBody] = useState(false);
-  const [isDraggingPointerStart, setIsDraggingPointerStart] = useState(false);
-  const [isDraggingPointerEnd, setIsDraggingPointerEnd] = useState(false);
-  const [isDraggingPointerBody, setIsDraggingPointerBody] = useState(false);
-  const [isDraggingWebcamStart, setIsDraggingWebcamStart] = useState(false);
-  const [isDraggingWebcamEnd, setIsDraggingWebcamEnd] = useState(false);
-  const [isDraggingWebcamBody, setIsDraggingWebcamBody] = useState(false);
   const [isDraggingZoom, setIsDraggingZoom] = useState(false);
   const [isDraggingSeek, setIsDraggingSeek] = useState(false);
-  const [draggingTextId, setDraggingTextId] = useState<string | null>(null);
-  const [draggingKeystrokeId, setDraggingKeystrokeId] = useState<string | null>(null);
-  const [draggingPointerId, setDraggingPointerId] = useState<string | null>(null);
-  const [draggingWebcamId, setDraggingWebcamId] = useState<string | null>(null);
   const [draggingZoomIdx, setDraggingZoomIdx] = useState<number | null>(null);
   const draggingZoomIdxRef = useRef<number | null>(null);
   const draggingZoomTokenRef = useRef<string | null>(null);
   const zoomDragTokenMapRef = useRef<WeakMap<ZoomKeyframe, string>>(new WeakMap());
-  const textDragOffsetRef = useRef(0);
-  const keystrokeDragOffsetRef = useRef(0);
-  const pointerDragOffsetRef = useRef(0);
-  const webcamDragOffsetRef = useRef(0);
   const trimDraggingIdRef = useRef<string | null>(null);
   const trimDragOriginalsRef = useRef<TrimSegment[] | null>(null);
-  const keystrokeDragOriginals = useRef<CursorVisibilitySegment[] | null>(null);
-  const pointerDragOriginals = useRef<CursorVisibilitySegment[] | null>(null);
-  const webcamDragOriginals = useRef<CursorVisibilitySegment[] | null>(null);
-  const keystrokeDragDidMove = useRef(false);
-  const pointerDragDidMove = useRef(false);
-  const webcamDragDidMove = useRef(false);
 
   const getTimeFromClientX = useCallback((clientX: number): number | null => {
     const timeline = timelineRef.current;
@@ -109,6 +41,20 @@ export function useTimelineDrag({
     const x = clientX - rect.left;
     return Math.max(0, Math.min((x / rect.width) * duration, duration));
   }, [timelineRef, duration]);
+
+  // Track segment drag sub-hook (text, keystroke, pointer, webcam)
+  const trackDrag = useTrackSegmentDrag({
+    duration,
+    segment,
+    setSegment,
+    setEditingTextId,
+    setEditingKeystrokeId,
+    setEditingPointerId,
+    setActivePanel,
+    getTimeFromClientX,
+    beginBatch,
+    commitBatch,
+  });
 
   // Seek
   const handleSeek = useCallback((clientX: number) => {
@@ -321,317 +267,6 @@ export function useTimelineDrag({
     commitBatch();
   }, [segment, duration, beginBatch, setSegment, commitBatch]);
 
-  // Text drag
-  const handleTextDragStart = useCallback((id: string, type: 'start' | 'end' | 'body', offset?: number) => {
-    beginBatch();
-    setEditingTextId(id);
-    setEditingKeystrokeId?.(null);
-    setActivePanel('text');
-    setDraggingTextId(id);
-    if (type === 'start') setIsDraggingTextStart(true);
-    else if (type === 'end') setIsDraggingTextEnd(true);
-    else if (type === 'body') {
-      setIsDraggingTextBody(true);
-      if (offset !== undefined) textDragOffsetRef.current = offset;
-    }
-  }, [beginBatch, setEditingTextId, setEditingKeystrokeId, setActivePanel]);
-
-  const handleTextDrag = useCallback((clientX: number) => {
-    if ((!isDraggingTextStart && !isDraggingTextEnd && !isDraggingTextBody) || !draggingTextId || !segment) return;
-    const newTime = getTimeFromClientX(clientX);
-    if (newTime === null) return;
-
-    setSegment({
-      ...segment,
-      textSegments: segment.textSegments.map(text => {
-        if (text.id !== draggingTextId) return text;
-        if (isDraggingTextStart) {
-          return { ...text, startTime: Math.min(Math.max(0, newTime), text.endTime - 0.1) };
-        } else if (isDraggingTextEnd) {
-          return { ...text, endTime: Math.max(Math.min(duration, newTime), text.startTime + 0.1) };
-        } else if (isDraggingTextBody) {
-          const dur = text.endTime - text.startTime;
-          let newStart = newTime - textDragOffsetRef.current;
-          if (newStart < 0) newStart = 0;
-          if (newStart + dur > duration) newStart = duration - dur;
-          return { ...text, startTime: newStart, endTime: newStart + dur };
-        }
-        return text;
-      }),
-    });
-  }, [isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, draggingTextId, segment, getTimeFromClientX, setSegment, duration]);
-
-  // Keystroke drag
-  const handleKeystrokeDragStart = useCallback((id: string, type: 'start' | 'end' | 'body', offset?: number) => {
-    if (!segment || (segment.keystrokeMode ?? 'off') === 'off') return;
-    beginBatch();
-    keystrokeDragDidMove.current = false;
-    keystrokeDragOriginals.current = clampVisibilitySegmentsToDuration(
-      getKeystrokeVisibilitySegmentsForMode(segment),
-      duration
-    ).map((seg) => ({ ...seg }));
-    setDraggingKeystrokeId(id);
-    setEditingKeystrokeId?.(id);
-    if (type === 'start') setIsDraggingKeystrokeStart(true);
-    else if (type === 'end') setIsDraggingKeystrokeEnd(true);
-    else if (type === 'body') {
-      setIsDraggingKeystrokeBody(true);
-      if (offset !== undefined) keystrokeDragOffsetRef.current = offset;
-    }
-  }, [beginBatch, segment, setEditingKeystrokeId, duration]);
-
-  const handleKeystrokeDrag = useCallback((clientX: number) => {
-    if (
-      (!isDraggingKeystrokeStart && !isDraggingKeystrokeEnd && !isDraggingKeystrokeBody)
-      || !draggingKeystrokeId
-      || !segment
-    ) {
-      return;
-    }
-    const originals = keystrokeDragOriginals.current;
-    if (!originals) return;
-    const newTime = getTimeFromClientX(clientX);
-    if (newTime === null) return;
-    keystrokeDragDidMove.current = true;
-
-    const modified = originals.map((seg) => {
-      if (seg.id !== draggingKeystrokeId) return { ...seg };
-      if (isDraggingKeystrokeStart) {
-        return { ...seg, startTime: Math.min(Math.max(0, newTime), seg.endTime - 0.1) };
-      }
-      if (isDraggingKeystrokeEnd) {
-        return { ...seg, endTime: Math.max(Math.min(duration, newTime), seg.startTime + 0.1) };
-      }
-      if (isDraggingKeystrokeBody) {
-        const segDuration = seg.endTime - seg.startTime;
-        let nextStart = newTime - keystrokeDragOffsetRef.current;
-        if (nextStart < 0) nextStart = 0;
-        if (nextStart + segDuration > duration) nextStart = duration - segDuration;
-        return { ...seg, startTime: nextStart, endTime: nextStart + segDuration };
-      }
-      return { ...seg };
-    });
-
-    setSegment(withKeystrokeVisibilitySegmentsForMode(
-      segment,
-      clampVisibilitySegmentsToDuration(mergePointerSegments(modified), duration)
-    ));
-  }, [
-    isDraggingKeystrokeStart,
-    isDraggingKeystrokeEnd,
-    isDraggingKeystrokeBody,
-    draggingKeystrokeId,
-    segment,
-    getTimeFromClientX,
-    setSegment,
-    duration,
-  ]);
-
-  // Pointer drag
-  const handlePointerDragStart = useCallback((id: string, type: 'start' | 'end' | 'body', offset?: number) => {
-    beginBatch();
-    setEditingKeystrokeId?.(null);
-    pointerDragDidMove.current = false;
-    // Snapshot originals so merge/unmerge is reversible during drag
-    pointerDragOriginals.current = segment?.cursorVisibilitySegments
-      ? clampVisibilitySegmentsToDuration(segment.cursorVisibilitySegments, duration).map(s => ({ ...s }))
-      : null;
-    setDraggingPointerId(id);
-    if (type === 'start') setIsDraggingPointerStart(true);
-    else if (type === 'end') setIsDraggingPointerEnd(true);
-    else if (type === 'body') {
-      setIsDraggingPointerBody(true);
-      if (offset !== undefined) pointerDragOffsetRef.current = offset;
-    }
-  }, [beginBatch, segment, setEditingKeystrokeId]);
-
-  const handlePointerDrag = useCallback((clientX: number) => {
-    if ((!isDraggingPointerStart && !isDraggingPointerEnd && !isDraggingPointerBody) || !draggingPointerId || !segment) return;
-    const originals = pointerDragOriginals.current;
-    if (!originals) return;
-    const newTime = getTimeFromClientX(clientX);
-    if (newTime === null) return;
-    pointerDragDidMove.current = true;
-
-    // Recompute from originals so merge/unmerge is reversible during drag
-    const modified = originals.map(seg => {
-      if (seg.id !== draggingPointerId) return { ...seg };
-      if (isDraggingPointerStart) {
-        return { ...seg, startTime: Math.min(Math.max(0, newTime), seg.endTime - 0.1) };
-      } else if (isDraggingPointerEnd) {
-        return { ...seg, endTime: Math.max(Math.min(duration, newTime), seg.startTime + 0.1) };
-      } else if (isDraggingPointerBody) {
-        const dur = seg.endTime - seg.startTime;
-        let newStart = newTime - pointerDragOffsetRef.current;
-        if (newStart < 0) newStart = 0;
-        if (newStart + dur > duration) newStart = duration - dur;
-        return { ...seg, startTime: newStart, endTime: newStart + dur };
-      }
-      return { ...seg };
-    });
-
-    setSegment({
-      ...segment,
-      cursorVisibilitySegments: clampVisibilitySegmentsToDuration(mergePointerSegments(modified), duration),
-    });
-  }, [isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, draggingPointerId, segment, getTimeFromClientX, setSegment, duration]);
-
-  // Pointer click → split segment at click time
-  const handlePointerClick = useCallback((id: string, splitTime: number) => {
-    if (isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody) return;
-    // Suppress click that fires after a drag (mousedown→move→mouseup→click)
-    if (pointerDragDidMove.current) { pointerDragDidMove.current = false; return; }
-    if (!segment?.cursorVisibilitySegments) return;
-
-    const seg = segment.cursorVisibilitySegments.find(s => s.id === id);
-    if (!seg) return;
-
-    const SPLIT_GAP = 0.3;
-    const half = SPLIT_GAP / 2;
-    const leftEnd = splitTime - half;
-    const rightStart = splitTime + half;
-
-    // Don't split if either resulting piece would be too small
-    if (leftEnd - seg.startTime < 0.15 || seg.endTime - rightStart < 0.15) return;
-
-    beginBatch();
-    const left: CursorVisibilitySegment = { id: seg.id, startTime: seg.startTime, endTime: leftEnd };
-    const right: CursorVisibilitySegment = { id: crypto.randomUUID(), startTime: rightStart, endTime: seg.endTime };
-
-    setSegment({
-      ...segment,
-      cursorVisibilitySegments: clampVisibilitySegmentsToDuration(segment.cursorVisibilitySegments, duration)
-        .filter(s => s.id !== id)
-        .concat([left, right])
-        .sort((a, b) => a.startTime - b.startTime),
-    });
-    setEditingPointerId?.(null);
-    commitBatch();
-  }, [isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, segment, setSegment, setEditingPointerId, beginBatch, commitBatch, duration]);
-
-  const handleWebcamDragStart = useCallback((id: string, type: 'start' | 'end' | 'body', offset?: number) => {
-    beginBatch();
-    setEditingKeystrokeId?.(null);
-    webcamDragDidMove.current = false;
-    webcamDragOriginals.current = segment?.webcamVisibilitySegments
-      ? clampVisibilitySegmentsToDuration(segment.webcamVisibilitySegments, duration).map((seg) => ({ ...seg }))
-      : null;
-    setDraggingWebcamId(id);
-    if (type === 'start') setIsDraggingWebcamStart(true);
-    else if (type === 'end') setIsDraggingWebcamEnd(true);
-    else if (type === 'body') {
-      setIsDraggingWebcamBody(true);
-      if (offset !== undefined) webcamDragOffsetRef.current = offset;
-    }
-  }, [beginBatch, segment, setEditingKeystrokeId, duration]);
-
-  const handleWebcamDrag = useCallback((clientX: number) => {
-    if ((!isDraggingWebcamStart && !isDraggingWebcamEnd && !isDraggingWebcamBody) || !draggingWebcamId || !segment) return;
-    const originals = webcamDragOriginals.current;
-    if (!originals) return;
-    const newTime = getTimeFromClientX(clientX);
-    if (newTime === null) return;
-    webcamDragDidMove.current = true;
-
-    const modified = originals.map((seg) => {
-      if (seg.id !== draggingWebcamId) return { ...seg };
-      if (isDraggingWebcamStart) {
-        return { ...seg, startTime: Math.min(Math.max(0, newTime), seg.endTime - 0.1) };
-      }
-      if (isDraggingWebcamEnd) {
-        return { ...seg, endTime: Math.max(Math.min(duration, newTime), seg.startTime + 0.1) };
-      }
-      if (isDraggingWebcamBody) {
-        const segDuration = seg.endTime - seg.startTime;
-        let nextStart = newTime - webcamDragOffsetRef.current;
-        if (nextStart < 0) nextStart = 0;
-        if (nextStart + segDuration > duration) nextStart = duration - segDuration;
-        return { ...seg, startTime: nextStart, endTime: nextStart + segDuration };
-      }
-      return { ...seg };
-    });
-
-    setSegment({
-      ...segment,
-      webcamVisibilitySegments: clampVisibilitySegmentsToDuration(mergePointerSegments(modified), duration),
-    });
-  }, [isDraggingWebcamStart, isDraggingWebcamEnd, isDraggingWebcamBody, draggingWebcamId, segment, getTimeFromClientX, setSegment, duration]);
-
-  const handleWebcamClick = useCallback((id: string, splitTime: number) => {
-    if (isDraggingWebcamStart || isDraggingWebcamEnd || isDraggingWebcamBody) return;
-    if (webcamDragDidMove.current) { webcamDragDidMove.current = false; return; }
-    if (!segment?.webcamVisibilitySegments) return;
-
-    const seg = segment.webcamVisibilitySegments.find((range) => range.id === id);
-    if (!seg) return;
-
-    const SPLIT_GAP = 0.3;
-    const half = SPLIT_GAP / 2;
-    const leftEnd = splitTime - half;
-    const rightStart = splitTime + half;
-
-    if (leftEnd - seg.startTime < 0.15 || seg.endTime - rightStart < 0.15) return;
-
-    beginBatch();
-    const left: CursorVisibilitySegment = { id: seg.id, startTime: seg.startTime, endTime: leftEnd };
-    const right: CursorVisibilitySegment = { id: crypto.randomUUID(), startTime: rightStart, endTime: seg.endTime };
-
-    setSegment({
-      ...segment,
-      webcamVisibilitySegments: clampVisibilitySegmentsToDuration(segment.webcamVisibilitySegments, duration)
-        .filter((range) => range.id !== id)
-        .concat([left, right])
-        .sort((a, b) => a.startTime - b.startTime),
-    });
-    commitBatch();
-  }, [isDraggingWebcamStart, isDraggingWebcamEnd, isDraggingWebcamBody, segment, setSegment, beginBatch, commitBatch, duration]);
-
-  // Text click (select)
-  const handleTextClick = useCallback((id: string) => {
-    if (!isDraggingTextStart && !isDraggingTextEnd) {
-      setEditingTextId(id);
-      setEditingKeystrokeId?.(null);
-      setActivePanel('text');
-    }
-  }, [isDraggingTextStart, isDraggingTextEnd, setEditingTextId, setEditingKeystrokeId, setActivePanel]);
-
-  const handleKeystrokeClick = useCallback((id: string, splitTime: number) => {
-    if (isDraggingKeystrokeStart || isDraggingKeystrokeEnd || isDraggingKeystrokeBody) return;
-    if (keystrokeDragDidMove.current) {
-      keystrokeDragDidMove.current = false;
-      return;
-    }
-    if (!segment || (segment.keystrokeMode ?? 'off') === 'off') return;
-
-    const segments = clampVisibilitySegmentsToDuration(
-      getKeystrokeVisibilitySegmentsForMode(segment),
-      duration
-    );
-    const seg = segments.find((s) => s.id === id);
-    if (!seg) return;
-
-    const SPLIT_GAP = 0.3;
-    const half = SPLIT_GAP / 2;
-    const leftEnd = splitTime - half;
-    const rightStart = splitTime + half;
-
-    if (leftEnd - seg.startTime < 0.15 || seg.endTime - rightStart < 0.15) return;
-
-    beginBatch();
-    const left: CursorVisibilitySegment = { id: seg.id, startTime: seg.startTime, endTime: leftEnd };
-    const right: CursorVisibilitySegment = { id: crypto.randomUUID(), startTime: rightStart, endTime: seg.endTime };
-
-    setSegment(withKeystrokeVisibilitySegmentsForMode(
-      segment,
-      clampVisibilitySegmentsToDuration(segments
-        .filter((s) => s.id !== id)
-        .concat([left, right])
-        .sort((a, b) => a.startTime - b.startTime), duration)
-    ));
-    setEditingKeystrokeId?.(null);
-    commitBatch();
-  }, [isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, segment, setSegment, setEditingKeystrokeId, beginBatch, commitBatch, duration]);
-
   // Keyframe click
   const handleKeyframeClick = useCallback((time: number, index: number) => {
     if (onSeek) {
@@ -647,27 +282,27 @@ export function useTimelineDrag({
 
   // Unified mouse handlers for TimelineArea
   const handleMouseDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingKeystrokeStart || isDraggingKeystrokeEnd || isDraggingKeystrokeBody || isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody || isDraggingWebcamStart || isDraggingWebcamEnd || isDraggingWebcamBody || isDraggingZoom) return;
+    if (isDraggingTrimStart || isDraggingTrimEnd || trackDrag.isDraggingTextStart || trackDrag.isDraggingTextEnd || trackDrag.isDraggingTextBody || trackDrag.isDraggingKeystrokeStart || trackDrag.isDraggingKeystrokeEnd || trackDrag.isDraggingKeystrokeBody || trackDrag.isDraggingPointerStart || trackDrag.isDraggingPointerEnd || trackDrag.isDraggingPointerBody || trackDrag.isDraggingWebcamStart || trackDrag.isDraggingWebcamEnd || trackDrag.isDraggingWebcamBody || isDraggingZoom) return;
     setIsDraggingSeek(true);
     setEditingTextId(null);
     setEditingKeystrokeId?.(null);
     setEditingPointerId?.(null);
     handleSeek(e.clientX);
-  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingWebcamStart, isDraggingWebcamEnd, isDraggingWebcamBody, isDraggingZoom, setEditingTextId, setEditingKeystrokeId, setEditingPointerId, handleSeek]);
+  }, [isDraggingTrimStart, isDraggingTrimEnd, trackDrag.isDraggingTextStart, trackDrag.isDraggingTextEnd, trackDrag.isDraggingTextBody, trackDrag.isDraggingKeystrokeStart, trackDrag.isDraggingKeystrokeEnd, trackDrag.isDraggingKeystrokeBody, trackDrag.isDraggingPointerStart, trackDrag.isDraggingPointerEnd, trackDrag.isDraggingPointerBody, trackDrag.isDraggingWebcamStart, trackDrag.isDraggingWebcamEnd, trackDrag.isDraggingWebcamBody, isDraggingZoom, setEditingTextId, setEditingKeystrokeId, setEditingPointerId, handleSeek]);
 
   const handleMouseMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     handleTrimDrag(e.clientX);
-    handleTextDrag(e.clientX);
-    handleKeystrokeDrag(e.clientX);
-    handlePointerDrag(e.clientX);
-    handleWebcamDrag(e.clientX);
+    trackDrag.handleTextDrag(e.clientX);
+    trackDrag.handleKeystrokeDrag(e.clientX);
+    trackDrag.handlePointerDrag(e.clientX);
+    trackDrag.handleWebcamDrag(e.clientX);
     handleZoomDrag(e.clientX);
     if (isDraggingSeek) handleSeek(e.clientX);
-  }, [handleTrimDrag, handleTextDrag, handleKeystrokeDrag, handlePointerDrag, handleWebcamDrag, handleZoomDrag, isDraggingSeek, handleSeek]);
+  }, [handleTrimDrag, trackDrag.handleTextDrag, trackDrag.handleKeystrokeDrag, trackDrag.handlePointerDrag, trackDrag.handleWebcamDrag, handleZoomDrag, isDraggingSeek, handleSeek]);
 
   const handleMouseUp = useCallback(() => {
-    // Commit batch if any drag operation was active (not seek — seek doesn't modify segment)
-    if (isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingKeystrokeStart || isDraggingKeystrokeEnd || isDraggingKeystrokeBody || isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody || isDraggingWebcamStart || isDraggingWebcamEnd || isDraggingWebcamBody || isDraggingZoom) {
+    // Commit batch if any drag operation was active (not seek -- seek doesn't modify segment)
+    if (isDraggingTrimStart || isDraggingTrimEnd || trackDrag.isDraggingTextStart || trackDrag.isDraggingTextEnd || trackDrag.isDraggingTextBody || trackDrag.isDraggingKeystrokeStart || trackDrag.isDraggingKeystrokeEnd || trackDrag.isDraggingKeystrokeBody || trackDrag.isDraggingPointerStart || trackDrag.isDraggingPointerEnd || trackDrag.isDraggingPointerBody || trackDrag.isDraggingWebcamStart || trackDrag.isDraggingWebcamEnd || trackDrag.isDraggingWebcamBody || isDraggingZoom) {
       commitBatch();
     }
     // Flush any pending throttled seek so the final position is applied
@@ -676,43 +311,25 @@ export function useTimelineDrag({
     setIsDraggingTrimEnd(false);
     trimDragOriginalsRef.current = null;
     trimDraggingIdRef.current = null;
-    setIsDraggingTextStart(false);
-    setIsDraggingTextEnd(false);
-    setIsDraggingTextBody(false);
-    setIsDraggingKeystrokeStart(false);
-    setIsDraggingKeystrokeEnd(false);
-    setIsDraggingKeystrokeBody(false);
-    setIsDraggingPointerStart(false);
-    setIsDraggingPointerEnd(false);
-    setIsDraggingPointerBody(false);
-    setIsDraggingWebcamStart(false);
-    setIsDraggingWebcamEnd(false);
-    setIsDraggingWebcamBody(false);
+    trackDrag.resetTrackDragState();
     setIsDraggingZoom(false);
     setDraggingZoomIdx(null);
     draggingZoomIdxRef.current = null;
     draggingZoomTokenRef.current = null;
-    setDraggingTextId(null);
-    setDraggingKeystrokeId(null);
-    setDraggingPointerId(null);
-    setDraggingWebcamId(null);
-    keystrokeDragOriginals.current = null;
-    pointerDragOriginals.current = null;
-    webcamDragOriginals.current = null;
     setIsDraggingSeek(false);
-  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingWebcamStart, isDraggingWebcamEnd, isDraggingWebcamBody, isDraggingZoom, isDraggingSeek, commitBatch, onSeekEnd]);
+  }, [isDraggingTrimStart, isDraggingTrimEnd, trackDrag.isDraggingTextStart, trackDrag.isDraggingTextEnd, trackDrag.isDraggingTextBody, trackDrag.isDraggingKeystrokeStart, trackDrag.isDraggingKeystrokeEnd, trackDrag.isDraggingKeystrokeBody, trackDrag.isDraggingPointerStart, trackDrag.isDraggingPointerEnd, trackDrag.isDraggingPointerBody, trackDrag.isDraggingWebcamStart, trackDrag.isDraggingWebcamEnd, trackDrag.isDraggingWebcamBody, isDraggingZoom, isDraggingSeek, commitBatch, onSeekEnd, trackDrag.resetTrackDragState]);
 
   // Attach window-level listeners during any drag so cursor can leave the timeline
   useEffect(() => {
-    const anyDragging = isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingKeystrokeStart || isDraggingKeystrokeEnd || isDraggingKeystrokeBody || isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody || isDraggingWebcamStart || isDraggingWebcamEnd || isDraggingWebcamBody || isDraggingZoom || isDraggingSeek;
+    const anyDragging = isDraggingTrimStart || isDraggingTrimEnd || trackDrag.isDraggingTextStart || trackDrag.isDraggingTextEnd || trackDrag.isDraggingTextBody || trackDrag.isDraggingKeystrokeStart || trackDrag.isDraggingKeystrokeEnd || trackDrag.isDraggingKeystrokeBody || trackDrag.isDraggingPointerStart || trackDrag.isDraggingPointerEnd || trackDrag.isDraggingPointerBody || trackDrag.isDraggingWebcamStart || trackDrag.isDraggingWebcamEnd || trackDrag.isDraggingWebcamBody || isDraggingZoom || isDraggingSeek;
     if (!anyDragging) return;
 
     const onMove = (e: PointerEvent) => {
       handleTrimDrag(e.clientX);
-      handleTextDrag(e.clientX);
-      handleKeystrokeDrag(e.clientX);
-      handlePointerDrag(e.clientX);
-      handleWebcamDrag(e.clientX);
+      trackDrag.handleTextDrag(e.clientX);
+      trackDrag.handleKeystrokeDrag(e.clientX);
+      trackDrag.handlePointerDrag(e.clientX);
+      trackDrag.handleWebcamDrag(e.clientX);
       handleZoomDrag(e.clientX);
       if (isDraggingSeek) handleSeek(e.clientX);
     };
@@ -726,23 +343,23 @@ export function useTimelineDrag({
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
     };
-  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingWebcamStart, isDraggingWebcamEnd, isDraggingWebcamBody, isDraggingZoom, isDraggingSeek, handleTrimDrag, handleTextDrag, handleKeystrokeDrag, handlePointerDrag, handleWebcamDrag, handleZoomDrag, handleSeek, handleMouseUp]);
+  }, [isDraggingTrimStart, isDraggingTrimEnd, trackDrag.isDraggingTextStart, trackDrag.isDraggingTextEnd, trackDrag.isDraggingTextBody, trackDrag.isDraggingKeystrokeStart, trackDrag.isDraggingKeystrokeEnd, trackDrag.isDraggingKeystrokeBody, trackDrag.isDraggingPointerStart, trackDrag.isDraggingPointerEnd, trackDrag.isDraggingPointerBody, trackDrag.isDraggingWebcamStart, trackDrag.isDraggingWebcamEnd, trackDrag.isDraggingWebcamBody, isDraggingZoom, isDraggingSeek, handleTrimDrag, trackDrag.handleTextDrag, trackDrag.handleKeystrokeDrag, trackDrag.handlePointerDrag, trackDrag.handleWebcamDrag, handleZoomDrag, handleSeek, handleMouseUp]);
 
   // Enforce drag cursor globally and suppress hover UI on other timeline tracks while dragging.
   useEffect(() => {
     const isEwResize =
       isDraggingTrimStart ||
       isDraggingTrimEnd ||
-      isDraggingTextStart ||
-      isDraggingTextEnd ||
-      isDraggingKeystrokeStart ||
-      isDraggingKeystrokeEnd ||
-      isDraggingPointerStart ||
-      isDraggingPointerEnd ||
-      isDraggingWebcamStart ||
-      isDraggingWebcamEnd ||
+      trackDrag.isDraggingTextStart ||
+      trackDrag.isDraggingTextEnd ||
+      trackDrag.isDraggingKeystrokeStart ||
+      trackDrag.isDraggingKeystrokeEnd ||
+      trackDrag.isDraggingPointerStart ||
+      trackDrag.isDraggingPointerEnd ||
+      trackDrag.isDraggingWebcamStart ||
+      trackDrag.isDraggingWebcamEnd ||
       isDraggingZoom;
-    const isMove = isDraggingTextBody || isDraggingKeystrokeBody || isDraggingPointerBody || isDraggingWebcamBody;
+    const isMove = trackDrag.isDraggingTextBody || trackDrag.isDraggingKeystrokeBody || trackDrag.isDraggingPointerBody || trackDrag.isDraggingWebcamBody;
 
     if (isEwResize) document.body.classList.add('dragging-ew');
     else document.body.classList.remove('dragging-ew');
@@ -761,18 +378,18 @@ export function useTimelineDrag({
   }, [
     isDraggingTrimStart,
     isDraggingTrimEnd,
-    isDraggingTextStart,
-    isDraggingTextEnd,
-    isDraggingTextBody,
-    isDraggingKeystrokeStart,
-    isDraggingKeystrokeEnd,
-    isDraggingKeystrokeBody,
-    isDraggingPointerStart,
-    isDraggingPointerEnd,
-    isDraggingPointerBody,
-    isDraggingWebcamStart,
-    isDraggingWebcamEnd,
-    isDraggingWebcamBody,
+    trackDrag.isDraggingTextStart,
+    trackDrag.isDraggingTextEnd,
+    trackDrag.isDraggingTextBody,
+    trackDrag.isDraggingKeystrokeStart,
+    trackDrag.isDraggingKeystrokeEnd,
+    trackDrag.isDraggingKeystrokeBody,
+    trackDrag.isDraggingPointerStart,
+    trackDrag.isDraggingPointerEnd,
+    trackDrag.isDraggingPointerBody,
+    trackDrag.isDraggingWebcamStart,
+    trackDrag.isDraggingWebcamEnd,
+    trackDrag.isDraggingWebcamBody,
     isDraggingZoom,
     isDraggingSeek,
   ]);
@@ -780,24 +397,24 @@ export function useTimelineDrag({
   const dragState: TimelineDragState = {
     isDraggingTrimStart,
     isDraggingTrimEnd,
-    isDraggingTextStart,
-    isDraggingTextEnd,
-    isDraggingTextBody,
-    isDraggingKeystrokeStart,
-    isDraggingKeystrokeEnd,
-    isDraggingKeystrokeBody,
-    isDraggingPointerStart,
-    isDraggingPointerEnd,
-    isDraggingPointerBody,
-    isDraggingWebcamStart,
-    isDraggingWebcamEnd,
-    isDraggingWebcamBody,
+    isDraggingTextStart: trackDrag.isDraggingTextStart,
+    isDraggingTextEnd: trackDrag.isDraggingTextEnd,
+    isDraggingTextBody: trackDrag.isDraggingTextBody,
+    isDraggingKeystrokeStart: trackDrag.isDraggingKeystrokeStart,
+    isDraggingKeystrokeEnd: trackDrag.isDraggingKeystrokeEnd,
+    isDraggingKeystrokeBody: trackDrag.isDraggingKeystrokeBody,
+    isDraggingPointerStart: trackDrag.isDraggingPointerStart,
+    isDraggingPointerEnd: trackDrag.isDraggingPointerEnd,
+    isDraggingPointerBody: trackDrag.isDraggingPointerBody,
+    isDraggingWebcamStart: trackDrag.isDraggingWebcamStart,
+    isDraggingWebcamEnd: trackDrag.isDraggingWebcamEnd,
+    isDraggingWebcamBody: trackDrag.isDraggingWebcamBody,
     isDraggingZoom,
     isDraggingSeek,
-    draggingTextId,
-    draggingKeystrokeId,
-    draggingPointerId,
-    draggingWebcamId,
+    draggingTextId: trackDrag.draggingTextId,
+    draggingKeystrokeId: trackDrag.draggingKeystrokeId,
+    draggingPointerId: trackDrag.draggingPointerId,
+    draggingWebcamId: trackDrag.draggingWebcamId,
     draggingZoomIdx,
   };
 
@@ -808,14 +425,14 @@ export function useTimelineDrag({
     handleTrimSplit,
     handleTrimAddSegment,
     handleZoomDragStart,
-    handleTextDragStart,
-    handleTextClick,
-    handleKeystrokeDragStart,
-    handleKeystrokeClick,
-    handlePointerDragStart,
-    handlePointerClick,
-    handleWebcamDragStart,
-    handleWebcamClick,
+    handleTextDragStart: trackDrag.handleTextDragStart,
+    handleTextClick: trackDrag.handleTextClick,
+    handleKeystrokeDragStart: trackDrag.handleKeystrokeDragStart,
+    handleKeystrokeClick: trackDrag.handleKeystrokeClick,
+    handlePointerDragStart: trackDrag.handlePointerDragStart,
+    handlePointerClick: trackDrag.handlePointerClick,
+    handleWebcamDragStart: trackDrag.handleWebcamDragStart,
+    handleWebcamClick: trackDrag.handleWebcamClick,
     handleKeyframeClick,
     handleMouseDown,
     handleMouseMove,

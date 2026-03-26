@@ -1,5 +1,7 @@
 pub mod html;
 pub mod panel;
+mod panel_actions;
+mod panel_window;
 pub mod render;
 pub mod state;
 pub mod utils;

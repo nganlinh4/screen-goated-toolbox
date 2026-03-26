@@ -1,34 +1,27 @@
-use super::html::{escape_js, generate_panel_css, generate_panel_html, get_favorite_presets_html};
+// --- FAVORITES PANEL PUBLIC API ---
+// Show, close, destroy, move, and refresh the favorites panel.
+// Window/WebView creation is in panel_window.rs, actions in panel_actions.rs.
+
+use super::html::{escape_js, generate_panel_css, get_favorite_presets_html};
+use super::panel_actions;
+use super::panel_window;
 use super::render::update_bubble_visual;
 use super::state::*;
-use super::utils::HwndWrapper;
 use crate::APP;
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Dwm::{
-    DWMWA_WINDOW_CORNER_PREFERENCE, DwmExtendFrameIntoClientArea, DwmSetWindowAttribute,
-};
-use windows::Win32::Graphics::Gdi::HBRUSH;
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, FindWindowW, GetClientRect,
-    GetForegroundWindow, GetSystemMetrics, GetWindowRect, HTCAPTION, HWND_TOPMOST, IDC_ARROW,
-    LoadCursorW, PostMessageW, RegisterClassW, SM_CXSCREEN, SW_HIDE, SW_SHOWNOACTIVATE,
-    SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW,
-    SetForegroundWindow, SetWindowPos, ShowWindow, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_HOTKEY,
-    WM_KILLFOCUS, WM_NCCALCSIZE, WM_NCLBUTTONDOWN, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
+    DestroyWindow, GetForegroundWindow, GetSystemMetrics, GetWindowRect, HWND_TOPMOST,
+    PostMessageW, SetWindowPos, ShowWindow, SM_CXSCREEN, SW_HIDE, SW_SHOWNOACTIVATE,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_NOCOPYBITS, WM_APP,
 };
-use windows::core::w;
-use wry::{Rect, WebContext, WebViewBuilder};
+use wry::Rect;
 
-// For focus restoration
-use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
-
-const WM_REFRESH_PANEL: u32 = WM_APP + 42;
 pub const WM_FORCE_SHOW_PANEL: u32 = WM_APP + 43;
+
+// Re-export save_bubble_position for external callers
+pub use super::panel_actions::save_bubble_position;
 
 pub fn show_panel(bubble_hwnd: HWND) {
     if IS_EXPANDED.load(Ordering::SeqCst) {
@@ -63,7 +56,6 @@ pub fn show_panel(bubble_hwnd: HWND) {
 
         if just_created {
             // If just created, it might take a moment for WebView2 to be ready for scripts.
-            // We show it immediately, but trigger a refresh after a small delay to ensure content & animations.
             let _ = ShowWindow(panel_hwnd, SW_SHOWNOACTIVATE);
 
             std::thread::spawn(move || {
@@ -71,7 +63,12 @@ pub fn show_panel(bubble_hwnd: HWND) {
                 let panel_val = PANEL_HWND.load(Ordering::SeqCst);
                 if panel_val != 0 {
                     let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
-                    let _ = PostMessageW(Some(panel_hwnd), WM_REFRESH_PANEL, WPARAM(0), LPARAM(0));
+                    let _ = PostMessageW(
+                        Some(panel_hwnd),
+                        panel_window::WM_REFRESH_PANEL,
+                        WPARAM(0),
+                        LPARAM(0),
+                    );
                 }
             });
         } else if let Ok(app) = APP.lock() {
@@ -96,7 +93,6 @@ pub fn show_panel(bubble_hwnd: HWND) {
 
 pub fn update_favorites_panel() {
     // Send a message to the Bubble Window (dedicated thread) to handle the update.
-    // This prevents creating a duplicate/desync'd WebView on the main thread.
     let bubble_val = BUBBLE_HWND.load(Ordering::SeqCst);
     if bubble_val != 0 {
         let bubble_hwnd = HWND(bubble_val as *mut std::ffi::c_void);
@@ -113,7 +109,7 @@ pub fn ensure_panel_created(bubble_hwnd: HWND, with_webview: bool) -> bool {
     let panel_exists = PANEL_HWND.load(Ordering::SeqCst) != 0;
 
     if !panel_exists {
-        create_panel_window_internal(bubble_hwnd);
+        panel_window::create_panel_window_internal(bubble_hwnd);
     }
 
     // Create WebView2 only when requested AND it doesn't exist yet
@@ -123,7 +119,7 @@ pub fn ensure_panel_created(bubble_hwnd: HWND, with_webview: bool) -> bool {
             let panel_val = PANEL_HWND.load(Ordering::SeqCst);
             if panel_val != 0 {
                 let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
-                create_panel_webview(panel_hwnd);
+                panel_window::create_panel_webview(panel_hwnd);
                 created = true;
             }
         }
@@ -153,7 +149,7 @@ pub fn close_panel() {
 }
 
 // Actually hides the window
-fn close_panel_internal() {
+pub(super) fn close_panel_internal() {
     // CRITICAL: If IS_EXPANDED was set to true (e.g. by a quick click to re-open),
     // do NOT hide the window.
     if IS_EXPANDED.load(Ordering::SeqCst) {
@@ -176,7 +172,7 @@ fn close_panel_internal() {
     }
 
     // Save position
-    save_bubble_position();
+    panel_actions::save_bubble_position();
 }
 
 // Actually destroys the panel (cleanup)
@@ -195,8 +191,7 @@ pub fn destroy_panel() {
 }
 
 /// Ensures the bubble window stays above the panel window in Z-order.
-/// Call this after any operation that might change Z-order while panel is open.
-fn ensure_bubble_on_top() {
+pub(super) fn ensure_bubble_on_top() {
     let bubble_val = BUBBLE_HWND.load(Ordering::SeqCst);
     if bubble_val != 0 {
         unsafe {
@@ -295,66 +290,7 @@ pub fn move_panel_to_bubble(bubble_x: i32, bubble_y: i32) {
     }
 }
 
-fn create_panel_window_internal(_bubble_hwnd: HWND) {
-    unsafe {
-        let instance = GetModuleHandleW(None).unwrap_or_default();
-        let class_name = w!("SGTFavoritePanel");
-
-        REGISTER_PANEL_CLASS.call_once(|| {
-            let wc = WNDCLASSW {
-                lpfnWndProc: Some(panel_wnd_proc),
-                hInstance: instance.into(),
-                lpszClassName: class_name,
-                hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
-                hbrBackground: HBRUSH(std::ptr::null_mut()),
-                ..Default::default()
-            };
-            RegisterClassW(&wc);
-        });
-
-        let panel_hwnd = CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-            class_name,
-            w!("FavPanel"),
-            WS_POPUP | WS_VISIBLE,
-            -4000,
-            -4000,
-            2000, // Dummy width (Large to avoid multi-column hit-test clipping)
-            2000, // Dummy height (Large to avoid hit-test clipping)
-            None,
-            None,
-            Some(instance.into()),
-            None,
-        )
-        .unwrap_or_default();
-
-        if !panel_hwnd.is_invalid() {
-            PANEL_HWND.store(panel_hwnd.0 as isize, Ordering::SeqCst);
-
-            // Windows 11 Rounded Corners - Disable native rounding
-            let corner_pref = 1u32; // DWMWCP_DONOTROUND
-            let _ = DwmSetWindowAttribute(
-                panel_hwnd,
-                DWMWA_WINDOW_CORNER_PREFERENCE,
-                std::ptr::addr_of!(corner_pref) as *const _,
-                std::mem::size_of_val(&corner_pref) as u32,
-            );
-
-            // Extend frame for transparency
-            let margins = MARGINS {
-                cxLeftWidth: -1,
-                cxRightWidth: -1,
-                cyTopHeight: -1,
-                cyBottomHeight: -1,
-            };
-            let _ = DwmExtendFrameIntoClientArea(panel_hwnd, &margins);
-
-            // NOTE: WebView2 creation is deferred to show_panel()
-        }
-    }
-}
-
-unsafe fn refresh_panel_layout_and_content(
+pub(super) unsafe fn refresh_panel_layout_and_content(
     bubble_hwnd: HWND,
     panel_hwnd: HWND,
     presets: &[crate::config::Preset],
@@ -402,7 +338,6 @@ unsafe fn refresh_panel_layout_and_content(
             80 + buffer_y + keep_open_row_height
         } else {
             (items_per_col as i32 * height_per_item) + 24 + buffer_y + keep_open_row_height + 16
-            // Tight bottom margin
         };
         let panel_height = panel_height.max(50);
 
@@ -417,27 +352,23 @@ unsafe fn refresh_panel_layout_and_content(
         let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
 
         // Extend panel to overlap behind bubble for seamless bloom/collapse animations
-        // The bubble must stay above the panel (handled via Z-order below)
         let bubble_overlap = bubble_size + 4;
         let panel_width_with_overlap = panel_width_physical + bubble_overlap;
 
         let (panel_x, panel_y, side) = if bubble_rect.left > screen_w / 2 {
-            // Bubble on right side - panel extends rightward behind bubble
             (
-                bubble_rect.left - panel_width_physical - 4, // Left edge stays at original position
+                bubble_rect.left - panel_width_physical - 4,
                 bubble_rect.top - panel_height_physical / 2 + bubble_size / 2,
                 "right",
             )
         } else {
-            // Bubble on left side - panel extends leftward behind bubble
             (
-                bubble_rect.left, // Start at bubble's left edge
+                bubble_rect.left,
                 bubble_rect.top - panel_height_physical / 2 + bubble_size / 2,
                 "left",
             )
         };
 
-        // Use the actual clamped panel_y for positioning
         let actual_panel_y = panel_y.max(10);
 
         let _ = SetWindowPos(
@@ -450,7 +381,7 @@ unsafe fn refresh_panel_layout_and_content(
             SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS,
         );
 
-        // Explicitly show the window to ensure it's visible after a SW_HIDE
+        // Explicitly show the window
         let _ = ShowWindow(panel_hwnd, SW_SHOWNOACTIVATE);
 
         // CRITICAL: Ensure bubble stays above the panel window
@@ -484,10 +415,7 @@ unsafe fn refresh_panel_layout_and_content(
         let last_dark = LAST_THEME_IS_DARK.load(Ordering::SeqCst);
         if last_dark != is_dark {
             let new_css = generate_panel_css(is_dark);
-            let escaped_css = escape_js(&new_css); // Reuse escape_js which escapes quotes and newlines
-            // We need to be careful with escape_js for CSS.
-            // Simple escape_js replaces " with \" and \n with \\n.
-            // For inline script, we need to make sure we don't break the string.
+            let escaped_css = escape_js(&new_css);
             PANEL_WEBVIEW.with(|wv| {
                 if let Some(webview) = wv.borrow().as_ref() {
                     let script = format!(
@@ -502,453 +430,23 @@ unsafe fn refresh_panel_layout_and_content(
 
         let favorites_html = get_favorite_presets_html(presets, lang, is_dark);
         let keep_open_label = crate::gui::locale::LocaleText::get(lang).favorites_keep_open;
-        update_panel_content(&favorites_html, num_cols, keep_open_label);
+        panel_actions::update_panel_content(&favorites_html, num_cols, keep_open_label);
 
-        // Pass side, bubble overlap, and bubble center relative to panel to JS
-        // Use actual_panel_y (clamped) to match the real window position
-        // bx is the bubble center X relative to the panel's content area
         let bx = if side == "left" {
-            // Panel starts at bubble_left, bubble center is at bubble_size/2 from panel_x
             bubble_size / 2
         } else {
-            // Panel content is on the left, bubble is on the right (behind the overlap area)
             (panel_width_physical / scale as i32) + (bubble_size / 2) + 4
         };
         let by = (bubble_rect.top + bubble_size / 2) - actual_panel_y;
 
         PANEL_WEBVIEW.with(|wv| {
-        if let Some(webview) = wv.borrow().as_ref() {
-            let script = format!(
-                "if(window.setSide) window.setSide('{}', {}); if(window.animateIn) window.animateIn({}, {});",
-                side, bubble_overlap, bx, by
-            );
-            let _ = webview.evaluate_script(&script);
-        }
-    });
-    }
-}
-
-fn create_panel_webview(panel_hwnd: HWND) {
-    crate::log_info!("[BubblePanel] Creating WebView for HWND: {:?}", panel_hwnd);
-    let mut rect = RECT::default();
-    unsafe {
-        let _ = GetClientRect(panel_hwnd, &mut rect);
-    }
-
-    let html = if let Ok(app) = APP.lock() {
-        let is_dark = match app.config.theme_mode {
-            crate::config::ThemeMode::Dark => true,
-            crate::config::ThemeMode::Light => false,
-            crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-        };
-        // Update static state to match initial generation
-        LAST_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
-        generate_panel_html(
-            &app.config.presets,
-            &app.config.ui_language,
-            is_dark,
-            app.config.favorites_keep_open,
-        )
-    } else {
-        String::new()
-    };
-
-    let wrapper = HwndWrapper(panel_hwnd);
-
-    PANEL_WEB_CONTEXT.with(|ctx| {
-        if ctx.borrow().is_none() {
-            let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
-            *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
-        }
-    });
-
-    let result = {
-        // LOCK SCOPE: Serialized build to prevent resource contention
-        let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
-        crate::log_info!(
-            "[BubblePanel] Acquired init lock. Building for HWND: {:?}...",
-            panel_hwnd
-        );
-
-        let build_res = PANEL_WEB_CONTEXT.with(|ctx| {
-            let mut ctx_ref = ctx.borrow_mut();
-            let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
-                WebViewBuilder::new_with_web_context(web_ctx)
-            } else {
-                WebViewBuilder::new()
-            };
-            let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
-
-            // Store HTML in font server and get URL for same-origin font loading
-            let page_url =
-                crate::overlay::html_components::font_manager::store_html_page(html.clone())
-                    .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html)));
-
-            builder
-                .with_bounds(Rect {
-                    position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
-                    size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                        (rect.right - rect.left) as u32,
-                        (rect.bottom - rect.top) as u32,
-                    )),
-                })
-                .with_url(&page_url)
-                .with_transparent(true)
-                .with_ipc_handler(move |msg: wry::http::Request<String>| {
-                    let body = msg.body();
-
-                    if body == "drag" {
-                        unsafe {
-                            use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
-                            let _ = ReleaseCapture();
-                            SendMessageW(
-                                panel_hwnd,
-                                WM_NCLBUTTONDOWN,
-                                Some(WPARAM(HTCAPTION as usize)),
-                                Some(LPARAM(0)),
-                            );
-                        }
-                    } else if body == "close" {
-                        close_panel();
-                    } else if body == "close_now" {
-                        close_panel_internal();
-                    } else if body == "focus_bubble" {
-                        // Re-assert bubble Z-order on any click interaction
-                        ensure_bubble_on_top();
-                    } else if let Some(idx) = body.strip_prefix("trigger:") {
-                        if let Ok(idx) = idx.parse::<usize>() {
-                            // trigger() in JS starts the close animation and will send close_now when done.
-                            // We must set IS_EXPANDED to false so close_panel_internal (called by close_now)
-                            // actually hides the window. We DON'T call close_panel_internal here to allow animation.
-                            IS_EXPANDED.store(false, Ordering::SeqCst);
-                            trigger_preset(idx);
-                        }
-                    } else if let Some(idx) = body.strip_prefix("trigger_only:") {
-                        // Keep Open mode: trigger preset without closing panel
-                        if let Ok(idx) = idx.parse::<usize>() {
-                            trigger_preset(idx);
-                            // Re-assert bubble Z-order since panel stays open
-                            ensure_bubble_on_top();
-                        }
-                    } else if let Some(idx) = body.strip_prefix("trigger_continuous:") {
-                        if let Ok(idx) = idx.parse::<usize>() {
-                            IS_EXPANDED.store(false, Ordering::SeqCst);
-                            // activate_continuous_from_panel handles entering continuous mode directly
-                            // For image: enters image continuous mode (no need to trigger_preset)
-                            // For text: activates continuous mode and shows badge, user then selects text
-                            //           and presses hotkey to process - we do NOT trigger here
-                            activate_continuous_from_panel(idx);
-                        }
-                    } else if let Some(idx) = body.strip_prefix("trigger_continuous_only:") {
-                        if let Ok(idx) = idx.parse::<usize>() {
-                            // Same as above - just activate continuous mode, don't trigger preset
-                            activate_continuous_from_panel(idx);
-                            // Re-assert bubble Z-order since panel stays open
-                            ensure_bubble_on_top();
-                        }
-                    } else if let Some(val) = body.strip_prefix("set_keep_open:") {
-                        if let Ok(val) = val.parse::<u32>() {
-                            if let Ok(mut app) = APP.lock() {
-                                app.config.favorites_keep_open = val == 1;
-                                crate::config::save_config(&app.config);
-                            }
-                            // Re-assert bubble Z-order after toggle interaction
-                            ensure_bubble_on_top();
-                        }
-                    } else if let Some(h) = body.strip_prefix("resize:") {
-                        if let Ok(h) = h.parse::<i32>() {
-                            resize_panel_height(h);
-                        }
-                    } else if body == "increase_size" {
-                        if let Ok(mut app) = APP.lock() {
-                            let new_size = (app.config.favorite_bubble_size + 4).min(56);
-                            app.config.favorite_bubble_size = new_size;
-                            crate::config::save_config(&app.config);
-                            BUBBLE_SIZE.store(new_size as i32, Ordering::SeqCst);
-                        }
-                        update_favorites_panel();
-                    } else if body == "decrease_size" {
-                        if let Ok(mut app) = APP.lock() {
-                            let new_size =
-                                (app.config.favorite_bubble_size.saturating_sub(4)).max(16);
-                            app.config.favorite_bubble_size = new_size;
-                            crate::config::save_config(&app.config);
-                            BUBBLE_SIZE.store(new_size as i32, Ordering::SeqCst);
-                        }
-                        update_favorites_panel();
-                    }
-                })
-                .with_background_color((0, 0, 0, 0))
-                .build(&wrapper)
-        });
-        crate::log_info!(
-            "[BubblePanel] Build finished. Status: {}",
-            if build_res.is_ok() { "OK" } else { "ERR" }
-        );
-        build_res
-    };
-
-    if let Ok(webview) = result {
-        crate::log_info!("[BubblePanel] WebView success for HWND: {:?}", panel_hwnd);
-        PANEL_WEBVIEW.with(|wv| {
-            *wv.borrow_mut() = Some(webview);
-        });
-    } else if let Err(e) = result {
-        crate::log_info!(
-            "[BubblePanel] WebView FAILED for HWND: {:?}, Error: {:?}",
-            panel_hwnd,
-            e
-        );
-    }
-}
-
-unsafe extern "system" fn panel_wnd_proc(
-    hwnd: HWND,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    unsafe {
-        match msg {
-            WM_CLOSE => {
-                close_panel();
-                LRESULT(0)
-            }
-            WM_KILLFOCUS => LRESULT(0),
-            WM_ACTIVATE => {
-                if wparam.0 == 0 {
-                    // Window deactivated logic (optional)
-                }
-                LRESULT(0)
-            }
-            WM_REFRESH_PANEL => {
-                let bubble_hwnd = HWND(BUBBLE_HWND.load(Ordering::SeqCst) as *mut std::ffi::c_void);
-
-                if let Ok(app) = APP.lock() {
-                    let is_dark = match app.config.theme_mode {
-                        crate::config::ThemeMode::Dark => true,
-                        crate::config::ThemeMode::Light => false,
-                        crate::config::ThemeMode::System => {
-                            crate::gui::utils::is_system_in_dark_mode()
-                        }
-                    };
-
-                    // Set expanded to true so it moves with bubble
-                    IS_EXPANDED.store(true, Ordering::SeqCst);
-
-                    refresh_panel_layout_and_content(
-                        bubble_hwnd,
-                        hwnd,
-                        &app.config.presets,
-                        &app.config.ui_language,
-                        is_dark,
-                    );
-                }
-                // Lock released here
-
-                // Correctly call update_bubble_visual outside the lock
-                // (update_bubble_visual internally calls is_dark_mode() which locks APP)
-                update_bubble_visual(bubble_hwnd);
-
-                LRESULT(0)
-            }
-            WM_NCCALCSIZE => {
-                if wparam.0 != 0 {
-                    LRESULT(0)
-                } else {
-                    DefWindowProcW(hwnd, msg, wparam, lparam)
-                }
-            }
-            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
-        }
-    }
-}
-
-fn trigger_preset(preset_idx: usize) {
-    unsafe {
-        // CRITICAL: Restore focus to the original foreground window before triggering.
-        // This ensures that text-select presets can send Ctrl+C to the correct window
-        // (the one that had text selected before the user clicked on the bubble panel).
-        let saved_fg = LAST_FOREGROUND_HWND.load(Ordering::SeqCst);
-        if saved_fg != 0 {
-            let fg_hwnd = HWND(saved_fg as *mut std::ffi::c_void);
-            if !fg_hwnd.is_invalid() {
-                // SetForegroundWindow may not always work due to Windows focus stealing prevention,
-                // but SetFocus on a window that's already visible should work.
-                // We use a combination approach for best results.
-                let _ = SetForegroundWindow(fg_hwnd);
-                let _ = SetFocus(Some(fg_hwnd));
-                // Small delay to allow focus to settle before triggering the preset
-                std::thread::sleep(std::time::Duration::from_millis(30));
-            }
-        }
-
-        let class = w!("HotkeyListenerClass");
-        let title = w!("Listener");
-        let hwnd = FindWindowW(class, title).unwrap_or_default();
-
-        if !hwnd.is_invalid() {
-            let hotkey_id = (preset_idx as i32 * 1000) + 1;
-            let _ = PostMessageW(Some(hwnd), WM_HOTKEY, WPARAM(hotkey_id as usize), LPARAM(0));
-        }
-    }
-}
-
-fn activate_continuous_from_panel(preset_idx: usize) {
-    let (p_type, p_id, is_master) = {
-        if let Ok(app) = APP.lock() {
-            if let Some(p) = app.config.presets.get(preset_idx) {
-                (p.preset_type.clone(), p.id.clone(), p.is_master)
-            } else {
-                return;
-            }
-        } else {
-            return;
-        }
-    };
-
-    if !crate::overlay::continuous_mode::supports_continuous_mode(&p_type) || is_master {
-        return;
-    }
-
-    // Use "Bubble" as the hotkey name for panel-triggered continuous mode
-    let hotkey_name = "Bubble".to_string();
-
-    if p_type == "image" {
-        // IMAGE CONTINUOUS MODE: Directly enter non-blocking image continuous mode
-        // This is the same as holding the hotkey on the dim overlay
-        crate::overlay::image_continuous_mode::enter(
-            preset_idx,
-            hotkey_name.clone(),
-            (preset_idx as i32 * 1000) + 1, // Fake hotkey ID for toggle detection
-        );
-    } else if p_type == "text" {
-        // TEXT CONTINUOUS MODE: Show badge and activate continuous mode
-        // This is equivalent to holding the text hotkey until continuous mode activates
-
-        // 1. Activate continuous mode FIRST
-        crate::overlay::continuous_mode::activate(preset_idx, hotkey_name.clone());
-
-        // 2. Show the badge with continuous mode text
-        crate::overlay::text_selection::show_text_selection_tag(preset_idx);
-
-        // 3. Update badge to show continuous mode suffix
-        crate::overlay::text_selection::update_badge_for_continuous_mode();
-
-        // 4. Show activation notification
-        crate::overlay::continuous_mode::show_activation_notification(&p_id, &hotkey_name);
-    }
-}
-
-pub fn save_bubble_position() {
-    let bubble_val = BUBBLE_HWND.load(Ordering::SeqCst);
-    if bubble_val == 0 {
-        return;
-    }
-
-    unsafe {
-        let bubble_hwnd = HWND(bubble_val as *mut std::ffi::c_void);
-        let mut rect = RECT::default();
-        let _ = GetWindowRect(bubble_hwnd, &mut rect);
-
-        if let Ok(mut app) = APP.lock() {
-            app.config.favorite_bubble_position = Some((rect.left, rect.top));
-            crate::config::save_config(&app.config);
-        }
-    }
-}
-
-fn resize_panel_height(content_height: i32) {
-    let panel_val = PANEL_HWND.load(Ordering::SeqCst);
-    if panel_val == 0 {
-        return;
-    }
-
-    // Add a small buffer to ensure no scrollbars appear
-
-    unsafe {
-        let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
-
-        // Get DPI to scale the CSS pixels (content_height) to Physical pixels
-        let dpi = GetDpiForWindow(panel_hwnd);
-        let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
-
-        // Small buffer for DPI rounding
-        let new_height_pixels = (content_height as f32 * scale).ceil() as i32 + 16;
-
-        let mut panel_rect = RECT::default();
-        let _ = GetWindowRect(panel_hwnd, &mut panel_rect);
-        let current_width = panel_rect.right - panel_rect.left;
-        let current_height = panel_rect.bottom - panel_rect.top;
-
-        // Only resize if significantly different to avoid jitter loops
-        if (current_height - new_height_pixels).abs() < 4 {
-            return;
-        }
-
-        let bubble_val = BUBBLE_HWND.load(Ordering::SeqCst);
-        let bubble_hwnd = if bubble_val != 0 {
-            HWND(bubble_val as *mut std::ffi::c_void)
-        } else {
-            return;
-        };
-
-        let mut bubble_rect = RECT::default();
-        let _ = GetWindowRect(bubble_hwnd, &mut bubble_rect);
-
-        // Recalculate Y position to keep centered on bubble
-        let screen_w = GetSystemMetrics(SM_CXSCREEN);
-        let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
-        let (_panel_x, panel_y) = if bubble_rect.left > screen_w / 2 {
-            (
-                bubble_rect.left - current_width - 4,
-                bubble_rect.top - new_height_pixels / 2 + bubble_size / 2,
-            )
-        } else {
-            (
-                bubble_rect.right + 4,
-                bubble_rect.top - new_height_pixels / 2 + bubble_size / 2,
-            )
-        };
-
-        // Clamp Y
-        let actual_panel_y = panel_y.max(10);
-
-        let _ = SetWindowPos(
-            panel_hwnd,
-            None,
-            panel_rect.left, // Keep X
-            actual_panel_y,
-            current_width,
-            new_height_pixels,
-            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS,
-        );
-
-        // Update WebView bounds
-        PANEL_WEBVIEW.with(|wv| {
             if let Some(webview) = wv.borrow().as_ref() {
-                let _ = webview.set_bounds(Rect {
-                    position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
-                    size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                        current_width as u32,
-                        new_height_pixels as u32,
-                    )),
-                });
+                let script = format!(
+                    "if(window.setSide) window.setSide('{}', {}); if(window.animateIn) window.animateIn({}, {});",
+                    side, bubble_overlap, bx, by
+                );
+                let _ = webview.evaluate_script(&script);
             }
         });
     }
-}
-
-fn update_panel_content(html: &str, cols: usize, keep_open_label: &str) {
-    PANEL_WEBVIEW.with(|wv| {
-        if let Some(webview) = wv.borrow().as_ref() {
-            let escaped = escape_js(html);
-            let escaped_label = escape_js(keep_open_label);
-            let script = format!(
-                "document.querySelector('.list').style.columnCount = '{}'; document.querySelector('.list').innerHTML = \"{}\"; document.getElementById('keepOpenLabel').textContent = \"{}\"; if(window.fitText) window.fitText();",
-                cols, escaped, escaped_label
-            );
-            let _ = webview.evaluate_script(&script);
-        }
-    });
 }

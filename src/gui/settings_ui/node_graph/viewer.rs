@@ -19,10 +19,6 @@ pub struct ChainViewer<'a> {
 }
 
 impl<'a> ChainViewer<'a> {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "viewer construction keeps individual capability flags explicit"
-    )]
     pub fn new(
         text: &'a LocaleText,
         ui_language: &str,

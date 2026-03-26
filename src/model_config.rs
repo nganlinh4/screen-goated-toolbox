@@ -1,5 +1,4 @@
 /// Centralized Model Configuration
-
 pub const DEFAULT_IMAGE_MODEL_ID: &str = "scout";
 
 pub const DEFAULT_CEREBRAS_TEXT_MODEL_ID: &str = "cerebras_gpt_oss";

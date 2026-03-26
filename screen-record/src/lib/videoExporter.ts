@@ -13,8 +13,6 @@ import type {
 import { videoRenderer } from './videoRenderer';
 import { getTotalTrimDuration, getTrimBounds, normalizeSegmentTrimData } from './trimSegments';
 import { invoke } from '@/lib/ipc';
-import { getCursorPack } from './renderer/cursorTypes';
-import { getCursorAssetUrl } from './renderer/cursorAssets';
 
 import {
   clamp,
@@ -29,6 +27,15 @@ import {
   estimateExportSize,
   recordExportEstimateResult,
 } from './exportEstimator';
+
+import { stageBrowserCursorSlotTiles } from './exporterCursorTiles';
+import {
+  buildTimeSegmentStamp,
+  buildJsonHash,
+  buildMousePositionsStamp,
+  buildSegmentContentStamp,
+  buildBackgroundStamp,
+} from './exporterCacheKeys';
 
 // Re-export everything from exportEstimator for backwards compatibility
 export {
@@ -58,44 +65,8 @@ export type {
   ExportSizeEstimate,
 } from './exportEstimator';
 
-export interface ExportCapabilities {
-  pipeline?: string;
-  mfH264Available?: boolean;
-  nvencAvailable: boolean;
-  hevcNvencAvailable: boolean;
-  sfeSupported: boolean;
-  maxBFrames: number;
-  driverVersion?: string;
-  reasonIfDisabled?: string;
-}
-
-export interface ExportRuntimeDiagnostics {
-  backend?: string;
-  encoder?: string;
-  codec?: string;
-  turbo?: boolean;
-  sfe?: boolean;
-  preRenderPolicy?: string;
-  qualityGatePercent?: number;
-  actualTotalBitrateKbps?: number;
-  expectedTotalBitrateKbps?: number;
-  bitrateDeviationPercent?: number;
-  readbackRingSize?: number;
-  decodeQueueCapacity?: number;
-  decodeRecycleCapacity?: number;
-  writerQueueCapacity?: number;
-  writerRecycleCapacity?: number;
-  decodeWaitSecs?: number;
-  composeRenderSecs?: number;
-  readbackWaitSecs?: number;
-  writerBlockSecs?: number;
-  maxDecodeInflight?: number;
-  maxWriterInflight?: number;
-  maxPendingReadbacks?: number;
-  fallbackUsed?: boolean;
-  fallbackAttempts?: number;
-  fallbackErrors?: string[];
-}
+export type { ExportCapabilities, ExportRuntimeDiagnostics } from './exporterTypes';
+import type { ExportCapabilities, ExportRuntimeDiagnostics } from './exporterTypes';
 
 interface ExportPreparationContext {
   segment: VideoSegment | null;
@@ -136,57 +107,6 @@ interface PreparedBakeCacheEntry {
   estimatedBytes: number;
 }
 
-type CursorPackSlug =
-  | 'screenstudio'
-  | 'macos26'
-  | 'sgtcute'
-  | 'sgtcool'
-  | 'sgtai'
-  | 'sgtpixel'
-  | 'jepriwin11'
-  | 'sgtwatermelon'
-  | 'sgtfastfood'
-  | 'sgtveggie'
-  | 'sgtvietnam'
-  | 'sgtkorea';
-
-const CURSOR_TYPES_ORDER = [
-  'default',
-  'text',
-  'pointer',
-  'openhand',
-  'closehand',
-  'wait',
-  'appstarting',
-  'crosshair',
-  'resize-ns',
-  'resize-we',
-  'resize-nwse',
-  'resize-nesw'
-] as const;
-
-const CURSOR_PACK_ORDER: CursorPackSlug[] = [
-  'screenstudio',
-  'macos26',
-  'sgtcute',
-  'sgtcool',
-  'sgtai',
-  'sgtpixel',
-  'jepriwin11',
-  'sgtwatermelon',
-  'sgtfastfood',
-  'sgtveggie',
-  'sgtvietnam',
-  'sgtkorea',
-];
-
-const CURSOR_TILE_SIZE = 512;
-
-interface CursorSlotPngPayload {
-  slotId: number;
-  pngBase64: string;
-}
-
 export class VideoExporter {
   private isExporting = false;
   private readonly prepCache = new Map<string, PreparedBakeCacheEntry>();
@@ -208,87 +128,6 @@ export class VideoExporter {
     });
   }
 
-  private async loadImage(src: string): Promise<HTMLImageElement> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error(`Failed to load ${src}`));
-      img.src = src;
-    });
-  }
-
-  private buildCursorSlotId(pack: CursorPackSlug, typeIndex: number): number {
-    const packIndex = CURSOR_PACK_ORDER.indexOf(pack);
-    if (packIndex < 0) return -1;
-    return (packIndex * CURSOR_TYPES_ORDER.length) + typeIndex;
-  }
-
-  private async buildCursorSlotTilePayload(
-    pack: CursorPackSlug,
-    typeName: typeof CURSOR_TYPES_ORDER[number],
-    typeIndex: number,
-  ): Promise<CursorSlotPngPayload | null> {
-    const slotId = this.buildCursorSlotId(pack, typeIndex);
-    if (slotId < 0) return null;
-
-    const src = getCursorAssetUrl(`cursor-${typeName}-${pack}`);
-    let img: HTMLImageElement;
-    try {
-      img = await this.loadImage(src);
-    } catch {
-      return null;
-    }
-
-    if (!img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) {
-      return null;
-    }
-
-    const sourceMax = Math.max(img.naturalWidth, img.naturalHeight);
-    const normalizeScale = sourceMax > 96 ? (48 / sourceMax) : 1;
-    const drawW = img.naturalWidth * normalizeScale;
-    const drawH = img.naturalHeight * normalizeScale;
-    const targetMax = Math.max(drawW, drawH);
-    if (targetMax <= 0.0001) {
-      return null;
-    }
-
-    const tileCanvas = document.createElement('canvas');
-    tileCanvas.width = CURSOR_TILE_SIZE;
-    tileCanvas.height = CURSOR_TILE_SIZE;
-    const tileCtx = tileCanvas.getContext('2d');
-    if (!tileCtx) {
-      return null;
-    }
-    tileCtx.clearRect(0, 0, CURSOR_TILE_SIZE, CURSOR_TILE_SIZE);
-    tileCtx.imageSmoothingEnabled = true;
-    tileCtx.imageSmoothingQuality = 'high';
-
-    const tileScale = CURSOR_TILE_SIZE / targetMax;
-    const tileW = drawW * tileScale;
-    const tileH = drawH * tileScale;
-    const x = (CURSOR_TILE_SIZE - tileW) * 0.5;
-    const y = (CURSOR_TILE_SIZE - tileH) * 0.5;
-    tileCtx.drawImage(img, x, y, tileW, tileH);
-
-    return {
-      slotId,
-      pngBase64: tileCanvas.toDataURL('image/png'),
-    };
-  }
-
-  private async stageBrowserCursorSlotTiles(backgroundConfig?: BackgroundConfig) {
-    const pack = getCursorPack(backgroundConfig) as CursorPackSlug;
-    const staged = (await Promise.all(
-      CURSOR_TYPES_ORDER.map((typeName, idx) =>
-        this.buildCursorSlotTilePayload(pack, typeName, idx))
-    )).filter((payload): payload is CursorSlotPngPayload => payload !== null);
-    if (staged.length === 0) return;
-    await invoke('stage_export_data', {
-      dataType: 'cursor_slots_png',
-      data: staged,
-    });
-  }
-
   private getObjectId(value: object | null | undefined): number {
     if (!value) return 0;
     const existing = this.objectIds.get(value);
@@ -296,142 +135,6 @@ export class VideoExporter {
     const id = this.nextObjectId++;
     this.objectIds.set(value, id);
     return id;
-  }
-
-  private buildTimeSegmentStamp(
-    segments: Array<{ startTime: number; endTime: number }> | undefined
-  ): string {
-    if (!segments || segments.length === 0) return '0:0';
-    let hash = 2166136261 >>> 0;
-    for (const seg of segments) {
-      const startMs = Math.round(seg.startTime * 1000);
-      const endMs = Math.round(seg.endTime * 1000);
-      hash ^= startMs;
-      hash = Math.imul(hash, 16777619) >>> 0;
-      hash ^= endMs;
-      hash = Math.imul(hash, 16777619) >>> 0;
-    }
-    return `${segments.length}:${hash.toString(16)}`;
-  }
-
-  private buildJsonHash(value: unknown): string {
-    let json = '';
-    try {
-      json = JSON.stringify(value) ?? '';
-    } catch {
-      json = '';
-    }
-    let hash = 2166136261 >>> 0;
-    for (let i = 0; i < json.length; i++) {
-      hash ^= json.charCodeAt(i);
-      hash = Math.imul(hash, 16777619) >>> 0;
-    }
-    return `${json.length}:${hash.toString(16)}`;
-  }
-
-  private buildMousePositionsStamp(positions: MousePosition[]): string {
-    if (positions.length === 0) return '0:0';
-    return this.buildJsonHash(positions.map((position) => ({
-      x: Math.round(position.x * 1000) / 1000,
-      y: Math.round(position.y * 1000) / 1000,
-      timestamp: Math.round(position.timestamp * 1000) / 1000,
-      isClicked: Boolean(position.isClicked),
-      cursorType: position.cursor_type ?? '',
-      rotation: Math.round((position.cursor_rotation ?? 0) * 10000) / 10000,
-      captureWidth: Math.round((position.captureWidth ?? 0) * 1000) / 1000,
-      captureHeight: Math.round((position.captureHeight ?? 0) * 1000) / 1000,
-    })));
-  }
-
-  private buildSegmentContentStamp(segment: VideoSegment): string {
-    return this.buildJsonHash({
-      trimStart: Math.round(segment.trimStart * 1000) / 1000,
-      trimEnd: Math.round(segment.trimEnd * 1000) / 1000,
-      trimSegments: (segment.trimSegments ?? []).map((trim) => ({
-        start: Math.round(trim.startTime * 1000) / 1000,
-        end: Math.round(trim.endTime * 1000) / 1000,
-      })),
-      zoomKeyframes: (segment.zoomKeyframes ?? []).map((frame) => ({
-        time: Math.round(frame.time * 1000) / 1000,
-        duration: Math.round(frame.duration * 1000) / 1000,
-        zoomFactor: Math.round(frame.zoomFactor * 10000) / 10000,
-        positionX: Math.round(frame.positionX * 10000) / 10000,
-        positionY: Math.round(frame.positionY * 10000) / 10000,
-        easingType: frame.easingType,
-      })),
-      speedPoints: (segment.speedPoints ?? []).map((point) => ({
-        time: Math.round(point.time * 1000) / 1000,
-        speed: Math.round(point.speed * 10000) / 10000,
-      })),
-      deviceAudioPoints: (segment.deviceAudioPoints ?? []).map((point) => ({
-        time: Math.round(point.time * 1000) / 1000,
-        volume: Math.round(point.volume * 10000) / 10000,
-      })),
-      micAudioPoints: (segment.micAudioPoints ?? []).map((point) => ({
-        time: Math.round(point.time * 1000) / 1000,
-        volume: Math.round(point.volume * 10000) / 10000,
-      })),
-      micAudioOffsetSec: Math.round((segment.micAudioOffsetSec ?? 0) * 10000) / 10000,
-      webcamVisibilitySegments: (segment.webcamVisibilitySegments ?? []).map((range) => ({
-        start: Math.round(range.startTime * 1000) / 1000,
-        end: Math.round(range.endTime * 1000) / 1000,
-      })),
-      webcamOffsetSec: Math.round((segment.webcamOffsetSec ?? 0) * 10000) / 10000,
-      textSegments: (segment.textSegments ?? []).map((text) => ({
-        id: text.id,
-        start: Math.round(text.startTime * 1000) / 1000,
-        end: Math.round(text.endTime * 1000) / 1000,
-        text: text.text,
-        style: text.style,
-      })),
-      cursorVisibility: (segment.cursorVisibilitySegments ?? []).map((visibility) => ({
-        start: Math.round(visibility.startTime * 1000) / 1000,
-        end: Math.round(visibility.endTime * 1000) / 1000,
-      })),
-      crop: segment.crop ?? null,
-      useCustomCursor: segment.useCustomCursor ?? true,
-      keystrokeMode: segment.keystrokeMode ?? 'off',
-      keystrokeLanguage: segment.keystrokeLanguage ?? 'en',
-      keystrokeDelaySec: Math.round((segment.keystrokeDelaySec ?? 0) * 1000) / 1000,
-      keystrokeOverlay: segment.keystrokeOverlay ?? null,
-      keyboardVisibility: (segment.keyboardVisibilitySegments ?? []).map((visibility) => ({
-        start: Math.round(visibility.startTime * 1000) / 1000,
-        end: Math.round(visibility.endTime * 1000) / 1000,
-      })),
-      keyboardMouseVisibility: (segment.keyboardMouseVisibilitySegments ?? []).map((visibility) => ({
-        start: Math.round(visibility.startTime * 1000) / 1000,
-        end: Math.round(visibility.endTime * 1000) / 1000,
-      })),
-      keystrokeEvents: (segment.keystrokeEvents ?? []).map((event) => ({
-        id: event.id,
-        type: event.type,
-        start: Math.round(event.startTime * 1000) / 1000,
-        end: Math.round(event.endTime * 1000) / 1000,
-        label: event.label,
-        count: event.count,
-        isHold: Boolean(event.isHold),
-        key: event.key ?? '',
-        btn: event.btn ?? '',
-        direction: event.direction ?? '',
-        modifiers: {
-          ctrl: Boolean(event.modifiers?.ctrl),
-          alt: Boolean(event.modifiers?.alt),
-          shift: Boolean(event.modifiers?.shift),
-          win: Boolean(event.modifiers?.win),
-        },
-      })),
-    });
-  }
-
-  private buildBackgroundStamp(backgroundConfig: BackgroundConfig | undefined): string {
-    if (!backgroundConfig) return 'none';
-    const customBackground = backgroundConfig.customBackground ?? '';
-    return this.buildJsonHash({
-      ...backgroundConfig,
-      customBackground: customBackground
-        ? `${customBackground.length}:${customBackground.slice(0, 64)}:${customBackground.slice(-64)}`
-        : '',
-    });
   }
 
   private estimatePreparedPayloadBytes(payload: PreparedBakePayload): number {
@@ -560,17 +263,17 @@ export class VideoExporter {
     const segment = context.segment;
     const segmentStamp = segment
       ? [
-        this.buildSegmentContentStamp(segment),
-        this.buildTimeSegmentStamp(segment.cursorVisibilitySegments),
-        this.buildTimeSegmentStamp(segment.keyboardVisibilitySegments),
-        this.buildTimeSegmentStamp(segment.keyboardMouseVisibilitySegments),
+        buildSegmentContentStamp(segment),
+        buildTimeSegmentStamp(segment.cursorVisibilitySegments),
+        buildTimeSegmentStamp(segment.keyboardVisibilitySegments),
+        buildTimeSegmentStamp(segment.keyboardMouseVisibilitySegments),
       ].join(':')
       : 'none';
     const mousePositions = context.mousePositions ?? [];
     const mouseLastTs = mousePositions.length > 0 ? mousePositions[mousePositions.length - 1].timestamp : 0;
-    const mouseStamp = this.buildMousePositionsStamp(mousePositions);
-    const backgroundStamp = this.buildBackgroundStamp(context.backgroundConfig);
-    const webcamConfigStamp = this.buildJsonHash(context.webcamConfig ?? null);
+    const mouseStamp = buildMousePositionsStamp(mousePositions);
+    const backgroundStamp = buildBackgroundStamp(context.backgroundConfig);
+    const webcamConfigStamp = buildJsonHash(context.webcamConfig ?? null);
     const webcamVideoStamp = context.webcamVideo
       ? `${context.webcamVideo.videoWidth}x${context.webcamVideo.videoHeight}`
       : 'none';
@@ -701,7 +404,7 @@ export class VideoExporter {
       const tAfterPrep = performance.now();
       console.log(`[Prep] getPreparedPayload: ${(tAfterPrep - t0Total).toFixed(0)}ms`);
 
-      // Video/audio data always flows by file path — Rust falls back to VIDEO_PATH
+      // Video/audio data always flows by file path -- Rust falls back to VIDEO_PATH
       // if sourceVideoPath is empty. Never send raw bytes through JSON IPC.
       const sourceVideoPath = (videoFilePath || '').trim();
 
@@ -726,12 +429,12 @@ export class VideoExporter {
       // Stage baked data via chunked IPC to avoid V8 JSON.stringify limits.
       await invoke('clear_export_staging', {});
       try {
-        await this.stageBrowserCursorSlotTiles(context.backgroundConfig);
+        await stageBrowserCursorSlotTiles(context.backgroundConfig);
       } catch (e) {
         console.warn('[Prep] Browser cursor tile staging failed, falling back to native rasterization:', e);
       }
 
-      // Camera and cursor baking now done in Rust — only stage text/keystroke overlays.
+      // Camera and cursor baking now done in Rust -- only stage text/keystroke overlays.
       const t0Overlays = Date.now();
       if (prepared.overlayPayload) {
         await invoke('stage_export_data', {
@@ -741,7 +444,7 @@ export class VideoExporter {
           height: prepared.overlayPayload.atlasHeight,
         });
         if (prepared.overlayPayload.atlasMetadata) {
-          // Send compact metadata (~few KB) — Rust generates 40K+ frames in ~1ms
+          // Send compact metadata (~few KB) -- Rust generates 40K+ frames in ~1ms
           await invoke('stage_export_data', {
             dataType: 'overlay_atlas_metadata',
             data: prepared.overlayPayload.atlasMetadata,
@@ -771,9 +474,9 @@ export class VideoExporter {
 
       // Animated cursor frames are pre-staged to Rust's persistent store
       // in the background at app startup (see cursorAnimationCapture.ts).
-      // Zero additional work here — export reads from the persistent store.
+      // Zero additional work here -- export reads from the persistent store.
 
-      // Send lightweight config (no baked arrays — they're already staged)
+      // Send lightweight config (no baked arrays -- they're already staged)
       const mousePositions = context.mousePositions ?? [];
       const exportConfig = {
         width: prepared.width,
