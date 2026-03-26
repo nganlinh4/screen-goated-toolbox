@@ -1,5 +1,9 @@
 # SGT Mobile Release Build Script
 # Usage: powershell -ExecutionPolicy Bypass -File mobile\build-release.ps1
+#
+# Builds both:
+#   - Full flavor APK  (direct distribution, with overlay support)
+#   - Play flavor AAB  (Google Play Store upload)
 
 $ErrorActionPreference = "Stop"
 
@@ -21,8 +25,15 @@ else {
     exit 1
 }
 
+$targetDir = "$repoRoot\target\release"
+if (-not (Test-Path $targetDir)) {
+    New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+}
+
 $outputApkName = "ScreenGoatedToolbox_v$version.apk"
-$outputPath = "$repoRoot\target\release\$outputApkName"
+$outputApkPath = "$targetDir\$outputApkName"
+$outputAabName = "ScreenGoatedToolbox_v$version.aab"
+$outputAabPath = "$targetDir\$outputAabName"
 
 Write-Host ""
 Write-Host "=== Building SGT Mobile v$version ===" -ForegroundColor Cyan
@@ -36,14 +47,15 @@ if (-not (Test-Path $keystore)) {
     exit 1
 }
 
-# --- Build release APK ---
-Write-Host "Building release APK (minified + signed)..." -ForegroundColor Gray
+# --- Build both APK (full) and AAB (play) ---
+Write-Host "Building full release APK + play release AAB..." -ForegroundColor Gray
 Push-Location $mobileDir
 try {
-    .\gradlew.bat :androidApp:assembleFullRelease `
-        -x lintVitalAnalyzeFullRelease `
-        -x lintVitalReportFullRelease `
-        -x lintVitalFullRelease `
+    .\gradlew.bat `
+        :androidApp:assembleFullRelease `
+        :androidApp:bundlePlayRelease `
+        -x lintVitalAnalyzeFullRelease -x lintVitalReportFullRelease -x lintVitalFullRelease `
+        -x lintVitalAnalyzePlayRelease -x lintVitalReportPlayRelease -x lintVitalPlayRelease `
         --console=plain
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  -> FAILED: Gradle build failed" -ForegroundColor Red
@@ -54,24 +66,27 @@ finally {
     Pop-Location
 }
 
-# --- Locate and copy APK ---
+# --- Copy APK ---
 $builtApk = "$mobileDir\androidApp\build\outputs\apk\full\release\androidApp-full-release.apk"
-if (-not (Test-Path $builtApk)) {
-    Write-Host "  -> FAILED: release APK not found at $builtApk" -ForegroundColor Red
-    Write-Host "  Check if signing is configured correctly." -ForegroundColor Yellow
-    exit 1
+if (Test-Path $builtApk) {
+    if (Test-Path $outputApkPath) { Remove-Item $outputApkPath }
+    Copy-Item $builtApk $outputApkPath
+    $apkSize = [Math]::Round((Get-Item $outputApkPath).Length / 1MB, 2)
+} else {
+    Write-Host "  -> WARNING: full release APK not found" -ForegroundColor Yellow
+    $apkSize = $null
 }
 
-$targetDir = "$repoRoot\target\release"
-if (-not (Test-Path $targetDir)) {
-    New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+# --- Copy AAB ---
+$builtAab = "$mobileDir\androidApp\build\outputs\bundle\playRelease\androidApp-play-release.aab"
+if (Test-Path $builtAab) {
+    if (Test-Path $outputAabPath) { Remove-Item $outputAabPath }
+    Copy-Item $builtAab $outputAabPath
+    $aabSize = [Math]::Round((Get-Item $outputAabPath).Length / 1MB, 2)
+} else {
+    Write-Host "  -> WARNING: play release AAB not found" -ForegroundColor Yellow
+    $aabSize = $null
 }
-if (Test-Path $outputPath) {
-    Remove-Item $outputPath
-}
-Copy-Item $builtApk $outputPath
-
-$size = (Get-Item $outputPath).Length / 1MB
 
 # --- Summary ---
 Write-Host ""
@@ -79,6 +94,12 @@ Write-Host "=======================================" -ForegroundColor White
 Write-Host "      MOBILE BUILD COMPLETE v$version" -ForegroundColor White
 Write-Host "=======================================" -ForegroundColor White
 Write-Host ""
-Write-Host "  $outputApkName ($([Math]::Round($size, 2)) MB)" -ForegroundColor Green
-Write-Host "  -> $outputPath" -ForegroundColor Gray
+if ($apkSize) {
+    Write-Host "  APK: $outputApkName ($apkSize MB)" -ForegroundColor Green
+    Write-Host "       -> $outputApkPath" -ForegroundColor Gray
+}
+if ($aabSize) {
+    Write-Host "  AAB: $outputAabName ($aabSize MB)" -ForegroundColor Green
+    Write-Host "       -> $outputAabPath" -ForegroundColor Gray
+}
 Write-Host ""

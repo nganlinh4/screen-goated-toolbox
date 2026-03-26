@@ -54,6 +54,17 @@ fun extractCargoPackageVersion(cargoToml: File): String {
 
 val canonicalAppVersion = extractCargoPackageVersion(rootProject.projectDir.parentFile.resolve("Cargo.toml"))
 
+/** Convert semver string to an integer versionCode: "4.9.0" → 40900, "4.10.1" → 41001. */
+fun semverToVersionCode(version: String): Int {
+    val parts = version.split(".").map { it.toIntOrNull() ?: 0 }
+    val major = parts.getOrElse(0) { 0 }
+    val minor = parts.getOrElse(1) { 0 }
+    val patch = parts.getOrElse(2) { 0 }
+    return major * 10000 + minor * 100 + patch
+}
+
+val canonicalVersionCode = semverToVersionCode(canonicalAppVersion)
+
 val generatedPresetOverlayAssets = layout.buildDirectory.dir("generated/presetOverlayAssets")
 val generatedPresetModelCatalogSources = layout.buildDirectory.dir("generated/presetModelCatalog")
 val generatePresetOverlayAssets by tasks.registering {
@@ -251,7 +262,7 @@ android {
         applicationId = "dev.screengoated.toolbox.mobile"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
+        versionCode = canonicalVersionCode
         versionName = canonicalAppVersion
         buildConfigField("String", "CANONICAL_APP_VERSION", "\"$canonicalAppVersion\"")
         buildConfigField("String", "PARITY_PROFILE", "\"windows-live-translate-v2\"")
