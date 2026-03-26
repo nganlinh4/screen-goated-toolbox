@@ -112,6 +112,7 @@ const en = {
   fontSize: 'Font Size',
   color: 'Color',
   textPanelHint: 'Add a text overlay or select one from the timeline',
+  textMultiSelectLabel: 'segments selected — editing all',
   fontWeight: 'Weight',
   fontWidth: 'Width',
   fontSlant: 'Slant',

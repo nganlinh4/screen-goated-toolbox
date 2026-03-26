@@ -111,9 +111,9 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
 
       {hoverState && hoverState.type === "split" && (
         <button
-          className="webcam-visibility-split-btn timeline-split-button absolute bottom-0 z-10 pointer-events-auto flex items-center justify-center"
+          className="webcam-visibility-split-btn timeline-arch-button absolute bottom-0 z-10 pointer-events-auto flex items-center justify-center"
           data-tone="accent"
-          style={{ left: hoverState.x - 7 }}
+          style={{ left: hoverState.x - 8 }}
           onPointerDown={(e) => {
             e.stopPropagation();
             onWebcamClick(hoverState.seg.id, hoverState.time);
@@ -125,7 +125,7 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
       )}
       {hoverState && hoverState.type === "add" && onAddWebcamSegment && (
         <button
-          className="webcam-visibility-add-btn timeline-add-button absolute top-1/2 -translate-y-1/2 w-4 h-4 text-white text-[10px] leading-none font-bold z-10 pointer-events-auto"
+          className="webcam-visibility-add-btn timeline-arch-button absolute bottom-0 z-10 pointer-events-auto flex items-center justify-center text-[8px] font-bold"
           data-tone="webcam"
           style={{ left: hoverState.x - 8 }}
           onPointerDown={(e) => {

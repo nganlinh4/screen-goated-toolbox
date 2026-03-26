@@ -18,41 +18,76 @@ function buildFontVariationCSS(vars?: TextSegment['style']['fontVariations']): s
 export interface TextPanelProps {
   segment: VideoSegment | null;
   editingTextId: string | null;
+  selectedTextIds?: string[];
   onUpdateSegment: (segment: VideoSegment) => void;
   beginBatch: () => void;
   commitBatch: () => void;
 }
 
-export function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commitBatch }: TextPanelProps) {
+export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSegment, beginBatch, commitBatch }: TextPanelProps) {
   const { t } = useSettings();
-  const editingText = editingTextId ? segment?.textSegments?.find(ts => ts.id === editingTextId) : null;
+
+  // Multi-select mode: selectedTextIds has 2+ entries → use first as source
+  const isMultiSelect = selectedTextIds && selectedTextIds.length >= 2;
+  const multiSelectSet = isMultiSelect ? new Set(selectedTextIds) : null;
+  const sourceId = isMultiSelect ? selectedTextIds![0] : editingTextId;
+  const editingText = sourceId ? segment?.textSegments?.find(ts => ts.id === sourceId) : null;
 
   const updateStyle = (updates: Partial<TextSegment['style']>) => {
-    if (!segment || !editingTextId) return;
-    onUpdateSegment({
-      ...segment,
-      textSegments: segment.textSegments.map(ts =>
-        ts.id === editingTextId ? { ...ts, style: { ...ts.style, ...updates } } : ts
-      )
-    });
+    if (!segment || !sourceId) return;
+    if (isMultiSelect && multiSelectSet) {
+      // Apply style changes to ALL selected segments
+      onUpdateSegment({
+        ...segment,
+        textSegments: segment.textSegments.map(ts =>
+          multiSelectSet.has(ts.id) ? { ...ts, style: { ...ts.style, ...updates } } : ts
+        )
+      });
+    } else {
+      onUpdateSegment({
+        ...segment,
+        textSegments: segment.textSegments.map(ts =>
+          ts.id === sourceId ? { ...ts, style: { ...ts.style, ...updates } } : ts
+        )
+      });
+    }
+  };
+
+  const updateText = (text: string) => {
+    if (!segment || !sourceId) return;
+    if (isMultiSelect && multiSelectSet) {
+      // Apply text to all selected segments
+      onUpdateSegment({
+        ...segment,
+        textSegments: segment.textSegments.map(ts =>
+          multiSelectSet.has(ts.id) ? { ...ts, text } : ts
+        )
+      });
+    } else {
+      onUpdateSegment({
+        ...segment,
+        textSegments: segment.textSegments.map(ts =>
+          ts.id === sourceId ? { ...ts, text } : ts
+        )
+      });
+    }
   };
 
   return (
     <PanelCard className="text-panel">
       {editingText && segment ? (
         <div className="text-controls space-y-3.5">
+          {isMultiSelect && (
+            <div className="text-multi-select-badge text-[10px] font-medium px-2 py-1 rounded-md" style={{ background: 'color-mix(in srgb, var(--timeline-zoom-color) 15%, transparent)', color: 'var(--timeline-zoom-color)' }}>
+              {selectedTextIds!.length} {t.textMultiSelectLabel}
+            </div>
+          )}
+
           <textarea
             value={editingText.text}
             onFocus={beginBatch}
             onBlur={commitBatch}
-            onChange={(e) => {
-              onUpdateSegment({
-                ...segment,
-                textSegments: segment.textSegments.map(ts =>
-                  ts.id === editingTextId ? { ...ts, text: e.target.value } : ts
-                )
-              });
-            }}
+            onChange={(e) => updateText(e.target.value)}
             className="text-editor-input ui-input w-full rounded-xl px-3 py-2 text-on-surface text-sm thin-scrollbar subtle-resize"
             style={{
               fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif",

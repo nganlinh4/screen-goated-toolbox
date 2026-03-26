@@ -1,4 +1,4 @@
-import React, { useMemo, type MutableRefObject, type RefObject } from "react";
+import React, { useCallback, useMemo, useState, type MutableRefObject, type RefObject } from "react";
 import {
   BackgroundConfig,
   VideoSegment,
@@ -202,6 +202,12 @@ export function EditorMain({
     return videoTimeToWallClock(duration, pts);
   }, [duration, segment?.speedPoints]);
 
+  const [selectedTextIds, setSelectedTextIds] = useState<string[]>([]);
+  const handleTextSelectionChange = useCallback((ids: string[]) => {
+    setSelectedTextIds(ids);
+    if (ids.length > 0) setActivePanel('text');
+  }, [setActivePanel]);
+
   const wallClockCurrentTime = useMemo(() => {
     const pts = segment?.speedPoints;
     if (!pts?.length) return currentTime;
@@ -311,6 +317,7 @@ export function EditorMain({
             onBackgroundUpload={handleBackgroundUpload}
             isBackgroundUploadProcessing={isBackgroundUploadProcessing}
             editingTextId={editingTextId}
+            selectedTextIds={selectedTextIds}
             onUpdateSegment={setSegment as (segment: VideoSegment) => void}
             beginBatch={beginBatch}
             commitBatch={commitBatch}
@@ -354,6 +361,7 @@ export function EditorMain({
           isWebcamAvailable={Boolean(segment?.webcamAvailable)}
           beginBatch={beginBatch}
           commitBatch={commitBatch}
+          onTextSelectionChange={handleTextSelectionChange}
         />
         {isOverlayMode && (
           <div className="timeline-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />

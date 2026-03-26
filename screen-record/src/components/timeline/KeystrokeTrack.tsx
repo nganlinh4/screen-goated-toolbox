@@ -329,9 +329,9 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
 
       {mode !== 'off' && hoverState && hoverState.type === 'split' && (
         <button
-          className="keystroke-split-btn timeline-split-button absolute bottom-0 z-10 pointer-events-auto flex items-center justify-center"
+          className="keystroke-split-btn timeline-arch-button absolute bottom-0 z-10 pointer-events-auto flex items-center justify-center"
           data-tone="accent"
-          style={{ left: hoverState.x - 7 }}
+          style={{ left: hoverState.x - 8 }}
           onPointerDown={(e) => {
             e.stopPropagation();
             onKeystrokeClick(hoverState.segId, hoverState.time);
@@ -343,7 +343,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
       )}
       {mode !== 'off' && hoverState && hoverState.type === 'add' && onAddKeystrokeSegment && (
         <button
-          className="keystroke-add-btn timeline-add-button absolute top-1/2 -translate-y-1/2 w-4 h-4 text-white text-[10px] leading-none font-bold z-10 pointer-events-auto"
+          className="keystroke-add-btn timeline-arch-button absolute bottom-0 z-10 pointer-events-auto flex items-center justify-center text-[8px] font-bold"
           data-tone="success"
           style={{ left: hoverState.x - 8 }}
           onPointerDown={(e) => {

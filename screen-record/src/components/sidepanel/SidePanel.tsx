@@ -103,6 +103,7 @@ interface SidePanelProps {
   onBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   isBackgroundUploadProcessing: boolean;
   editingTextId: string | null;
+  selectedTextIds?: string[];
   onUpdateSegment: (segment: VideoSegment) => void;
   beginBatch: () => void;
   commitBatch: () => void;
@@ -127,6 +128,7 @@ export function SidePanel({
   onBackgroundUpload,
   isBackgroundUploadProcessing,
   editingTextId,
+  selectedTextIds,
   onUpdateSegment,
   beginBatch,
   commitBatch
@@ -200,6 +202,7 @@ export function SidePanel({
       <TextPanel
         segment={segment}
         editingTextId={editingTextId}
+        selectedTextIds={selectedTextIds}
         onUpdateSegment={onUpdateSegment}
         beginBatch={beginBatch}
         commitBatch={commitBatch}

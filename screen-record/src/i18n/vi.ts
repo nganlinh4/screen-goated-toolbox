@@ -114,6 +114,7 @@ const vi: Translations = {
   fontSize: 'Cỡ Chữ',
   color: 'Màu',
   textPanelHint: 'Thêm lớp phủ chữ hoặc chọn từ timeline',
+  textMultiSelectLabel: 'đoạn đã chọn — đang sửa tất cả',
   fontWeight: 'Độ Đậm',
   fontWidth: 'Độ Rộng',
   fontSlant: 'Nghiêng',

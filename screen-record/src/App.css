@@ -1117,26 +1117,45 @@ body.dragging-seek * {
     background: var(--timeline-webcam-color);
 }
 
-.timeline-split-button {
-    width: 14px;
-    height: 10px;
-    border-radius: 4px 4px 0 0;
+/* Arch button: semicircular dome top, flat bottom — used for split & add */
+.timeline-arch-button {
+    width: 16px;
+    height: 9px;
+    border-radius: 8px 8px 0 0;
     color: var(--timeline-float-fg);
     border: 1px solid var(--timeline-float-ring);
     border-bottom: none;
-    box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.22);
     transition: transform 100ms ease, filter 100ms ease;
-    opacity: 0.85;
+    opacity: 0.8;
 }
 
-.timeline-split-button:hover {
-    transform: scaleX(1.15);
+.timeline-arch-button:hover {
+    transform: scaleX(1.1);
     filter: brightness(1.1);
     opacity: 1;
 }
 
-.timeline-split-button[data-tone="accent"] {
+.timeline-arch-button[data-tone="accent"]  { background: var(--timeline-zoom-color); }
+.timeline-arch-button[data-tone="success"] { background: var(--timeline-success-color); }
+.timeline-arch-button[data-tone="warning"] { background: var(--timeline-warning-color); }
+.timeline-arch-button[data-tone="webcam"]  { background: var(--timeline-webcam-color); }
+
+/* Range-select: centered horizontal line with subtle glow */
+.timeline-range-select {
+    top: 50%;
+    height: 2px;
+    transform: translateY(-50%);
     background: var(--timeline-zoom-color);
+    border-radius: 1px;
+    box-shadow: 0 0 6px color-mix(in srgb, var(--timeline-zoom-color) 60%, transparent);
+}
+
+/* Selected segment highlight */
+.timeline-block[data-selected="true"] {
+    outline: 1.5px solid var(--timeline-zoom-color);
+    outline-offset: -1px;
+    box-shadow: 0 0 8px color-mix(in srgb, var(--timeline-zoom-color) 40%, transparent);
 }
 
 .timeline-block {
