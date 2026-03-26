@@ -268,6 +268,7 @@ const vi: Translations = {
   autoZoomZoomLevel: 'Mức Phóng To',
   autoZoomSpeedSensitivity: 'Độ Nhạy Tốc Độ',
   smartPointer: 'Con Trỏ Thông Minh',
+  clearSelection: 'đã chọn',
 
   // Export presets
   presetBalanced: 'Cân Bằng (Khuyến Nghị)',
