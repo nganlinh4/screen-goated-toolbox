@@ -207,6 +207,7 @@ export function generateCursorVisibility(
   frameHeight?: number,
   backgroundConfig?: BackgroundConfig | null
 ): CursorVisibilitySegment[] {
+  const t0 = performance.now();
   const timelineStart = 0;
   const inferredEnd = Math.max(
     segment.trimEnd || 0,
@@ -240,6 +241,7 @@ export function generateCursorVisibility(
       frameWidth,
       frameHeight
     );
+    console.log(`[SmartPointer] generateCursorVisibility: ${(performance.now() - t0).toFixed(1)}ms (fallback, ${positions.length} samples)`);
     logSmartPointerGeneration({
       timelineEnd,
       sampleCount: positions.length,
@@ -261,19 +263,53 @@ export function generateCursorVisibility(
     e => e.type === 'mousedown' || e.type === 'wheel'
   );
 
-  // Pre-collect interaction timestamps for efficient post-interaction active window lookup.
-  const interactionTimestamps = [
-    ...positions.filter(p => !!p.isClicked).map(p => p.timestamp),
-    ...mouseEvents.map(e => e.startTime),
-    ...mouseEvents.filter(e => e.endTime > e.startTime).map(e => e.endTime),
-  ];
+  // Pre-collect and sort interaction timestamps for O(log n) lookups.
+  const interactionTimestamps: number[] = [];
+  for (const p of positions) {
+    if (p.isClicked) interactionTimestamps.push(p.timestamp);
+  }
+  for (const e of mouseEvents) {
+    interactionTimestamps.push(e.startTime);
+    if (e.endTime > e.startTime) interactionTimestamps.push(e.endTime);
+  }
+  interactionTimestamps.sort((a, b) => a - b);
 
-  // Returns true if any interaction occurred within CLICK_ACTIVE_DURATION seconds before t.
+  // Binary search: returns true if any interaction occurred within CLICK_ACTIVE_DURATION before t.
   function withinInteractionWindow(t: number): boolean {
-    return interactionTimestamps.some(ct => t >= ct && t - ct <= CLICK_ACTIVE_DURATION);
+    // Find last interaction at or before t
+    let lo = 0, hi = interactionTimestamps.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (interactionTimestamps[mid] <= t) lo = mid + 1;
+      else hi = mid;
+    }
+    // lo-1 is the last interaction <= t
+    if (lo > 0 && t - interactionTimestamps[lo - 1] <= CLICK_ACTIVE_DURATION) return true;
+    return false;
   }
 
-  // Build activity timeline: for each position, determine if cursor is "active"
+  // Sort mouseEvents by startTime for binary search
+  const sortedMouseEvents = mouseEvents.slice().sort((a, b) => a.startTime - b.startTime);
+
+  function isWithinMouseEvent(t: number): boolean {
+    // Binary search for first event with startTime <= t
+    let lo = 0, hi = sortedMouseEvents.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (sortedMouseEvents[mid].startTime <= t) lo = mid + 1;
+      else hi = mid;
+    }
+    // Check a few events near lo-1 (events can overlap)
+    for (let i = Math.max(0, lo - 1); i >= 0 && i < sortedMouseEvents.length; i--) {
+      const e = sortedMouseEvents[i];
+      if (e.startTime > t) break;
+      if (t >= e.startTime && t <= e.endTime) return true;
+      if (t - e.startTime > 2) break; // events are short, stop scanning
+    }
+    return false;
+  }
+
+  // Build activity timeline using SLIDING WINDOW (O(n) instead of O(n²))
   const activeFlags: { time: number; active: boolean; clicked: boolean }[] = [];
   const decisionSamples: Array<{
     time: number;
@@ -286,43 +322,46 @@ export function generateCursorVisibility(
     finalActive: boolean;
   }> = [];
 
+  // Sliding window pointers for velocity check
+  let winLo = 0;
+  let winHi = 0;
+
   for (let i = 0; i < motionPositions.length; i++) {
     const t = motionPositions[i].timestamp;
-
-    // Sliding-window velocity check
     const windowStart = t - VELOCITY_WINDOW / 2;
     const windowEnd = t + VELOCITY_WINDOW / 2;
-    const windowPositions = motionPositions.filter(
-      p => p.timestamp >= windowStart && p.timestamp <= windowEnd
-    );
+
+    // Advance window bounds (O(1) amortized)
+    while (winLo < motionPositions.length && motionPositions[winLo].timestamp < windowStart) winLo++;
+    while (winHi < motionPositions.length && motionPositions[winHi].timestamp <= windowEnd) winHi++;
 
     let netDistance = 0;
     let pathDistance = 0;
-    const clicked = windowPositions.some(p => !!p.isClicked) ||
-      mouseEvents.some(e => t >= e.startTime && t <= e.endTime);
+    let clicked = false;
 
-    if (windowPositions.length >= 2) {
-      const first = windowPositions[0];
-      const last = windowPositions[windowPositions.length - 1];
-      const dt = last.timestamp - first.timestamp;
-      if (dt > 0) {
-        const dx = last.x - first.x;
-        const dy = last.y - first.y;
-        netDistance = Math.sqrt(dx * dx + dy * dy);
+    // Check clicks within window — small scan on window elements only
+    for (let j = winLo; j < winHi; j++) {
+      if (motionPositions[j].isClicked) { clicked = true; break; }
+    }
+    if (!clicked) clicked = isWithinMouseEvent(t);
+
+    const windowLen = winHi - winLo;
+    if (windowLen >= 2) {
+      const first = motionPositions[winLo];
+      const last = motionPositions[winHi - 1];
+      if (last.timestamp > first.timestamp) {
+        const ddx = last.x - first.x, ddy = last.y - first.y;
+        netDistance = Math.sqrt(ddx * ddx + ddy * ddy);
       }
-
-      for (let j = 1; j < windowPositions.length; j++) {
-        const dx = windowPositions[j].x - windowPositions[j - 1].x;
-        const dy = windowPositions[j].y - windowPositions[j - 1].y;
-        pathDistance += Math.sqrt(dx * dx + dy * dy);
+      for (let j = winLo + 1; j < winHi; j++) {
+        const ddx = motionPositions[j].x - motionPositions[j - 1].x;
+        const ddy = motionPositions[j].y - motionPositions[j - 1].y;
+        pathDistance += Math.sqrt(ddx * ddx + ddy * ddy);
       }
     }
 
-    // Any detectable movement keeps cursor active (thresholds lowered vs velocity-based check).
     const meaningfulMovement =
       netDistance >= ACTIVE_NET_DISTANCE_MIN || pathDistance >= ACTIVE_PATH_DISTANCE_MIN;
-
-    // Keep active during and for CLICK_ACTIVE_DURATION after any click/scroll.
     const nearInteraction = withinInteractionWindow(t);
 
     const active = clicked || nearInteraction || meaningfulMovement;
@@ -339,42 +378,57 @@ export function generateCursorVisibility(
     });
   }
 
-  // The only movement exception allowed to hide is center-lock gameplay:
-  // sustained movement inside a strict box around the exact source-frame center.
+  // Center-lock detection using sliding window (O(n) instead of O(n²))
   const { width: sourceWidth, height: sourceHeight } = getFrameDimensions(
     motionPositions,
     frameWidth,
     frameHeight
   );
   const centerLockRanges: { start: number; end: number }[] = [];
+
+  let clLo = 0;
+  let clHi = 0;
+  let clOutsideCount = 0; // count positions outside center box in current window
+
   for (let i = 0; i < motionPositions.length; i++) {
     const t = motionPositions[i].timestamp;
+    const windowEnd = t + CENTER_LOCK_DURATION;
 
-    // Check if positions over CENTER_LOCK_DURATION all stay within the strict center box.
-    const windowPositions = motionPositions.filter(
-      p => p.timestamp >= t && p.timestamp <= t + CENTER_LOCK_DURATION
-    );
+    // Reset window to start at i
+    if (clLo < i) {
+      clLo = i;
+      clHi = i;
+      clOutsideCount = 0;
+    }
 
-    if (windowPositions.length < 2) continue;
+    // Advance right edge of window
+    while (clHi < motionPositions.length && motionPositions[clHi].timestamp <= windowEnd) {
+      if (!isInsideCenterLockBox(motionPositions[clHi], sourceWidth, sourceHeight)) {
+        clOutsideCount++;
+      }
+      clHi++;
+    }
 
-    const first = windowPositions[0];
-    const last = windowPositions[windowPositions.length - 1];
-    const windowDuration = last.timestamp - first.timestamp;
+    const windowLen = clHi - clLo;
+    if (windowLen < 2) continue;
+    const windowDuration = motionPositions[clHi - 1].timestamp - motionPositions[clLo].timestamp;
     if (windowDuration < CENTER_LOCK_DURATION * 0.8) continue;
 
-    const fullyInsideCenterBox = windowPositions.every((position) =>
-      isInsideCenterLockBox(position, sourceWidth, sourceHeight)
-    );
-
-    if (fullyInsideCenterBox) {
+    if (clOutsideCount === 0) {
       centerLockRanges.push({
-        start: first.timestamp,
-        end: last.timestamp,
+        start: motionPositions[clLo].timestamp,
+        end: motionPositions[clHi - 1].timestamp,
       });
     }
+
+    // Shrink left edge for next iteration: remove position i from window
+    if (!isInsideCenterLockBox(motionPositions[i], sourceWidth, sourceHeight)) {
+      clOutsideCount--;
+    }
+    clLo = i + 1;
   }
 
-  // Merge center-lock ranges to make membership checks stable.
+  // Merge center-lock ranges
   const mergedCenterLock: { start: number; end: number }[] = [];
   for (const range of centerLockRanges) {
     if (
@@ -390,18 +444,22 @@ export function generateCursorVisibility(
     }
   }
 
-  // Inside the strict center-lock box, clicks and micro-movement are allowed to stay hidden.
-  // Everywhere else, any movement must keep the cursor visible.
+  // Apply center-lock overrides using binary search on merged ranges
   if (mergedCenterLock.length > 0) {
     for (let i = 0; i < activeFlags.length; i++) {
       const flag = activeFlags[i];
-      const centerLockRange = mergedCenterLock.find(
-        range => flag.time >= range.start && flag.time <= range.end
-      );
-      if (!centerLockRange) continue;
-      flag.active = false;
-      decisionSamples[i].centerLockOverride = true;
-      decisionSamples[i].finalActive = false;
+      // Binary search for range containing flag.time
+      let lo = 0, hi = mergedCenterLock.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (mergedCenterLock[mid].end < flag.time) lo = mid + 1;
+        else hi = mid;
+      }
+      if (lo < mergedCenterLock.length && flag.time >= mergedCenterLock[lo].start && flag.time <= mergedCenterLock[lo].end) {
+        flag.active = false;
+        decisionSamples[i].centerLockOverride = true;
+        decisionSamples[i].finalActive = false;
+      }
     }
   }
 
@@ -510,6 +568,7 @@ export function generateCursorVisibility(
       }))
       .filter(s => s.endTime > s.startTime);
 
+  console.log(`[SmartPointer] generateCursorVisibility: ${(performance.now() - t0).toFixed(1)}ms for ${timelineEnd.toFixed(1)}s clip (${motionPositions.length} samples, ${visibleSegments.length} segments)`);
   logSmartPointerGeneration({
     timelineEnd,
     sampleCount: positions.length,

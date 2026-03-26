@@ -80,7 +80,10 @@ export function calculateCurrentZoomStateInternal(
 
   if (hasAutoPath) {
     const path = segment.smoothMotionPath!;
-    const idx = path.findIndex((p: any) => p.time >= currentTime);
+    // Binary search: first index where path[i].time >= currentTime (O(log n))
+    let lo = 0, hi = path.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if ((path[mid] as any).time < currentTime) lo = mid + 1; else hi = mid; }
+    const idx = lo < path.length ? lo : -1;
     // Default in video-pixel space (center of cropped source)
     const crop0 = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
     const vidFullW = sCropW / crop0.width;
@@ -108,7 +111,10 @@ export function calculateCurrentZoomStateInternal(
     if (segment.zoomInfluencePoints && segment.zoomInfluencePoints.length > 0) {
       const points = segment.zoomInfluencePoints;
       let influence = 1.0;
-      const iIdx = points.findIndex((p: { time: number }) => p.time >= currentTime);
+      // Binary search for influence points (O(log n))
+      let ilo = 0, ihi = points.length;
+      while (ilo < ihi) { const mid = (ilo + ihi) >> 1; if (points[mid].time < currentTime) ilo = mid + 1; else ihi = mid; }
+      const iIdx = ilo < points.length ? ilo : -1;
       if (iIdx === -1) {
         influence = points[points.length - 1].value;
       } else if (iIdx === 0) {

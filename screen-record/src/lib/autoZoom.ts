@@ -35,25 +35,38 @@ function resolvePhysics(cfg: AutoZoomConfig) {
   };
 }
 
-interface InteractionState {
-  isClicking: boolean;
-  clickTime: number;
-  hoverTime: number;
-  lastPos: { x: number, y: number };
+
+// --- Binary search: find first index where data[i].timestamp >= t ---
+function lowerBound(data: MousePosition[], t: number): number {
+  let lo = 0, hi = data.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (data[mid].timestamp < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 
-interface PhysicsState {
-  x: number;
-  y: number;
-  zoom: number;
-  vx: number;
-  vy: number;
-  vz: number;
+// --- Interpolate position at time t using binary search (O(log n)) ---
+function sampleAt(data: MousePosition[], t: number): { x: number; y: number } {
+  if (t <= data[0].timestamp) return { x: data[0].x, y: data[0].y };
+  if (t >= data[data.length - 1].timestamp) {
+    const last = data[data.length - 1];
+    return { x: last.x, y: last.y };
+  }
+  const idx = lowerBound(data, t);
+  if (idx === 0) return { x: data[0].x, y: data[0].y };
+  const p1 = data[idx - 1];
+  const p2 = data[idx];
+  const span = p2.timestamp - p1.timestamp;
+  const ratio = span > 0 ? (t - p1.timestamp) / span : 0;
+  return {
+    x: p1.x + (p2.x - p1.x) * ratio,
+    y: p1.y + (p2.y - p1.y) * ratio,
+  };
 }
 
 export class AutoZoomGenerator {
-  // Hardcoded dimensions removed.
-  // They are now passed dynamically in generateMotionPath.
 
   generateMotionPath(
     segment: VideoSegment,
@@ -63,8 +76,8 @@ export class AutoZoomGenerator {
     config?: AutoZoomConfig
   ): { time: number; x: number; y: number; zoom: number }[] {
 
+    const t0 = performance.now();
     const P = resolvePhysics(config ?? DEFAULT_AUTO_ZOOM_CONFIG);
-    const path: { time: number; x: number; y: number; zoom: number }[] = [];
 
     // 0. Filter and Sort Data
     const data = mousePositions
@@ -73,172 +86,136 @@ export class AutoZoomGenerator {
 
     if (data.length < 2) return [];
 
+    // Pre-index click timestamps for O(log n) click checking
+    const clickTimes: number[] = [];
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].isClicked) clickTimes.push(data[i].timestamp);
+    }
+
     // 1. Initialize Simulation
-    const dt = 1 / 60; // 60hz Physics Simulation
+    const dt = 1 / 60;
+    const totalFrames = Math.ceil((segment.trimEnd - segment.trimStart) / dt) + 1;
+    const path: { time: number; x: number; y: number; zoom: number }[] = new Array(totalFrames);
 
-    let state: PhysicsState = {
-      x: videoWidth / 2,
-      y: videoHeight / 2,
-      zoom: 1.0,
-      vx: 0,
-      vy: 0,
-      vz: 0
-    };
+    let sx = videoWidth / 2, sy = videoHeight / 2, sz = 1.0;
+    let svx = 0, svy = 0, svz = 0;
 
-    let interaction: InteractionState = {
-      isClicking: false,
-      clickTime: -100,
-      hoverTime: 0,
-      lastPos: { x: data[0].x, y: data[0].y }
-    };
-
+    let hoverTime = 0;
+    let lastPosX = data[0].x, lastPosY = data[0].y;
     let smoothedZoomTarget = P.BASE_ZOOM;
-
-    // Zoom smoothing lerp — tighter follow = faster zoom response
-    const zoomLerp = 0.06 + 0.14 * (config?.followTightness ?? 0.5); // 0.06–0.20
+    const zoomLerp = 0.06 + 0.14 * (config?.followTightness ?? 0.5);
+    const hasKeyframes = segment.zoomKeyframes && segment.zoomKeyframes.length > 0;
 
     // Run Simulation
+    let frameIdx = 0;
     for (let t = segment.trimStart; t <= segment.trimEnd; t += dt) {
 
-      // A. Identify Target (Where SHOULD the camera be?)
-      const currentMouse = this.sample(data, t);
-      const velocity = this.getVelocity(data, t);
+      // A. Sample current + velocity via binary search (O(log n) each)
+      const cur = sampleAt(data, t);
+      const vel0 = sampleAt(data, t - 0.1);
+      const vel1 = sampleAt(data, t + 0.1);
+      const velocity = Math.sqrt((vel1.x - vel0.x) ** 2 + (vel1.y - vel0.y) ** 2) / 0.2;
 
-      // Dynamic look-ahead
+      // Dynamic look-ahead + future position
       const lookAhead = P.LOOK_AHEAD_MAX * (1 - Math.exp(-velocity / P.LOOK_AHEAD_SCALE));
-      const futureMouse = this.sample(data, t + lookAhead);
-      const isClicked = this.checkClick(data, t, 0.5);
+      const future = sampleAt(data, t + lookAhead);
 
-      // Update Interaction State
-      const moveDist = Math.sqrt(Math.pow(currentMouse.x - interaction.lastPos.x, 2) + Math.pow(currentMouse.y - interaction.lastPos.y, 2));
-      if (moveDist < 2.0) {
-        interaction.hoverTime += dt;
-      } else {
-        interaction.hoverTime = Math.max(0, interaction.hoverTime - dt * 2);
+      // Click check via sorted clickTimes (O(log n) + small scan)
+      let isClicked = false;
+      if (clickTimes.length > 0) {
+        const cStart = t - 0.25;
+        const cEnd = t + 0.25;
+        let ci = lowerBoundNum(clickTimes, cStart);
+        if (ci < clickTimes.length && clickTimes[ci] <= cEnd) isClicked = true;
       }
-      interaction.lastPos = { x: currentMouse.x, y: currentMouse.y };
 
-      // B. Determine Target Zoom
+      // Update hover state
+      const dx = cur.x - lastPosX, dy = cur.y - lastPosY;
+      if (dx * dx + dy * dy < 4.0) {
+        hoverTime += dt;
+      } else {
+        hoverTime = Math.max(0, hoverTime - dt * 2);
+      }
+      lastPosX = cur.x;
+      lastPosY = cur.y;
+
+      // B. Target Zoom
       let rawTargetZoom = P.BASE_ZOOM;
-
-      // Velocity Penalty — zoom out when cursor moves fast
       const speedFactor = Math.min(1.0, velocity / P.MAX_VELOCITY_ZOOM_PENALTY);
       rawTargetZoom = rawTargetZoom * (1 - speedFactor) + P.MIN_ZOOM * speedFactor;
+      if (isClicked) rawTargetZoom = Math.max(rawTargetZoom, Math.min(1.7, P.BASE_ZOOM));
+      if (hoverTime > 2.0) rawTargetZoom = P.MAX_ZOOM;
+      smoothedZoomTarget += (rawTargetZoom - smoothedZoomTarget) * zoomLerp;
 
-      // Click Focus
-      if (isClicked) {
-        rawTargetZoom = Math.max(rawTargetZoom, Math.min(1.7, P.BASE_ZOOM));
-      }
+      // C. Target Position
+      let targetX = future.x;
+      let targetY = future.y;
 
-      // Deep Read (Long Hover)
-      if (interaction.hoverTime > 2.0) {
-        rawTargetZoom = P.MAX_ZOOM;
-      }
-
-      // Smooth the zoom target
-      smoothedZoomTarget = smoothedZoomTarget + (rawTargetZoom - smoothedZoomTarget) * zoomLerp;
-
-      // C. Determine Target Position
-      let targetX = futureMouse.x;
-      let targetY = futureMouse.y;
-
-      // Override: Manual Keyframes
-      if (segment.zoomKeyframes && segment.zoomKeyframes.length > 0) {
-        const kfInfluence = this.getKeyframeInfluence(segment.zoomKeyframes, t, videoWidth, videoHeight);
-        if (kfInfluence.weight > 0) {
-          const kfX = kfInfluence.x * videoWidth;
-          const kfY = kfInfluence.y * videoHeight;
-          const kfZ = kfInfluence.zoom;
-          targetX = targetX * (1 - kfInfluence.weight) + kfX * kfInfluence.weight;
-          targetY = targetY * (1 - kfInfluence.weight) + kfY * kfInfluence.weight;
-          smoothedZoomTarget = smoothedZoomTarget * (1 - kfInfluence.weight) + kfZ * kfInfluence.weight;
+      if (hasKeyframes) {
+        const kf = nearestKeyframe(segment.zoomKeyframes!, t);
+        if (kf.weight > 0) {
+          targetX = targetX * (1 - kf.weight) + kf.x * videoWidth * kf.weight;
+          targetY = targetY * (1 - kf.weight) + kf.y * videoHeight * kf.weight;
+          smoothedZoomTarget = smoothedZoomTarget * (1 - kf.weight) + kf.zoom * kf.weight;
         }
       }
 
-      // D. Apply Physics (Spring/Damper)
-      const ax = (-P.TENSION * (state.x - targetX) - P.FRICTION * state.vx) / P.MASS;
-      const ay = (-P.TENSION * (state.y - targetY) - P.FRICTION * state.vy) / P.MASS;
-      const az = (-P.TENSION * (state.zoom - smoothedZoomTarget) - P.FRICTION * state.vz) / (P.MASS * 1.2);
+      // D. Physics
+      const ax = (-P.TENSION * (sx - targetX) - P.FRICTION * svx) / P.MASS;
+      const ay = (-P.TENSION * (sy - targetY) - P.FRICTION * svy) / P.MASS;
+      const az = (-P.TENSION * (sz - smoothedZoomTarget) - P.FRICTION * svz) / (P.MASS * 1.2);
+      svx += ax * dt; svy += ay * dt; svz += az * dt;
+      sx += svx * dt; sy += svy * dt; sz += svz * dt;
+      if (sz < 1.0) sz = 1.0; else if (sz > 5.0) sz = 5.0;
 
-      state.vx += ax * dt;
-      state.vy += ay * dt;
-      state.vz += az * dt;
-
-      state.x += state.vx * dt;
-      state.y += state.vy * dt;
-      state.zoom += state.vz * dt;
-
-      // Clamp Zoom safety
-      state.zoom = Math.max(1.0, Math.min(5.0, state.zoom));
-
-      // Record Frame
-      path.push({
-        time: Number(t.toFixed(3)),
-        x: Number(state.x.toFixed(1)),
-        y: Number(state.y.toFixed(1)),
-        zoom: Number(state.zoom.toFixed(3))
-      });
+      // Record
+      path[frameIdx++] = {
+        time: Math.round(t * 1000) / 1000,
+        x: Math.round(sx * 10) / 10,
+        y: Math.round(sy * 10) / 10,
+        zoom: Math.round(sz * 1000) / 1000,
+      };
     }
 
+    path.length = frameIdx;
+    const elapsed = performance.now() - t0;
+    const dur = segment.trimEnd - segment.trimStart;
+    console.log(`[AutoZoom] generateMotionPath: ${elapsed.toFixed(1)}ms for ${dur.toFixed(1)}s clip (${data.length} samples, ${frameIdx} frames)`);
     return path;
   }
+}
 
-  // --- Helpers ---
-
-  private sample(data: MousePosition[], t: number): { x: number, y: number } {
-    if (t <= data[0].timestamp) return { x: data[0].x, y: data[0].y };
-    if (t >= data[data.length - 1].timestamp) return { x: data[data.length - 1].x, y: data[data.length - 1].y };
-
-    // Find index
-    const idx = data.findIndex(p => p.timestamp >= t);
-    if (idx === -1) return { x: data[data.length - 1].x, y: data[data.length - 1].y };
-
-    // Lerp
-    const p1 = data[idx - 1];
-    const p2 = data[idx];
-    const ratio = (t - p1.timestamp) / (p2.timestamp - p1.timestamp);
-
-    return {
-      x: p1.x + (p2.x - p1.x) * ratio,
-      y: p1.y + (p2.y - p1.y) * ratio
-    };
+// Binary search on plain number array
+function lowerBoundNum(arr: number[], val: number): number {
+  let lo = 0, hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid] < val) lo = mid + 1;
+    else hi = mid;
   }
+  return lo;
+}
 
-  private getVelocity(data: MousePosition[], t: number): number {
-    const window = 0.1;
-    const p1 = this.sample(data, t - window);
-    const p2 = this.sample(data, t + window);
-    const dist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
-    return dist / (window * 2);
+// Find nearest keyframe within 1.5s (keyframes are few, simple scan is fine)
+function nearestKeyframe(
+  keyframes: ZoomKeyframe[],
+  t: number
+): { x: number; y: number; zoom: number; weight: number } {
+  const WINDOW = 1.5;
+  let bestDist = WINDOW;
+  let bestKf: ZoomKeyframe | null = null;
+  for (const kf of keyframes) {
+    const d = Math.abs(kf.time - t);
+    if (d < bestDist) { bestDist = d; bestKf = kf; }
   }
-
-  private checkClick(data: MousePosition[], t: number, window: number): boolean {
-    const start = t - window / 2;
-    const end = t + window / 2;
-    return data.some(p => p.timestamp >= start && p.timestamp <= end && p.isClicked);
-  }
-
-  private getKeyframeInfluence(keyframes: ZoomKeyframe[], t: number, _videoWidth: number, _videoHeight: number): { x: number, y: number, zoom: number, weight: number } {
-    const WINDOW = 1.5;
-
-    const nearby = keyframes
-      .map(kf => ({ kf, dist: Math.abs(kf.time - t) }))
-      .filter(item => item.dist < WINDOW)
-      .sort((a, b) => a.dist - b.dist);
-
-    if (nearby.length === 0) return { x: 0.5, y: 0.5, zoom: 1, weight: 0 };
-
-    const best = nearby[0];
-    const ratio = best.dist / WINDOW;
-    const weight = (1 + Math.cos(ratio * Math.PI)) / 2;
-
-    return {
-      x: best.kf.positionX,
-      y: best.kf.positionY,
-      zoom: best.kf.zoomFactor,
-      weight: weight
-    };
-  }
+  if (!bestKf) return { x: 0.5, y: 0.5, zoom: 1, weight: 0 };
+  const ratio = bestDist / WINDOW;
+  return {
+    x: bestKf.positionX,
+    y: bestKf.positionY,
+    zoom: bestKf.zoomFactor,
+    weight: (1 + Math.cos(ratio * Math.PI)) / 2,
+  };
 }
 
 export const autoZoomGenerator = new AutoZoomGenerator();
