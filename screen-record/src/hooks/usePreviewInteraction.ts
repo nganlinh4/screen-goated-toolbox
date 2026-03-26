@@ -7,7 +7,7 @@ import {
   type RefObject,
 } from "react";
 import { videoRenderer } from "@/lib/videoRenderer";
-import { type ZoomKeyframe } from "@/types/video";
+import { type ZoomKeyframe, type VideoSegment } from "@/types/video";
 import { type ActivePanel } from "@/components/sidepanel/index";
 
 interface UsePreviewInteractionParams {
@@ -23,6 +23,8 @@ interface UsePreviewInteractionParams {
   previewContainerRef: RefObject<HTMLDivElement | null>;
   isKeystrokeResizeDragging: boolean;
   isKeystrokeResizeHandleHover: boolean;
+  segment: VideoSegment | null;
+  currentTime: number;
 }
 
 export function usePreviewInteraction({
@@ -38,6 +40,8 @@ export function usePreviewInteraction({
   previewContainerRef,
   isKeystrokeResizeDragging,
   isKeystrokeResizeHandleHover,
+  segment,
+  currentTime,
 }: UsePreviewInteractionParams) {
   const [isPreviewDragging, setIsPreviewDragging] = useState(false);
   const [seekIndicatorKey, setSeekIndicatorKey] = useState(0);
@@ -67,11 +71,17 @@ export function usePreviewInteraction({
       const lastState = videoRenderer.getLastCalculatedState();
       if (!lastState) return;
 
+      // Use the existing manual keyframe values if one exists near the current
+      // time, so we don't bake auto-zoom's composite values into the keyframe
+      // (which would cause a visual jump when the blend re-applies auto-zoom).
+      const nearbyKf = segment?.zoomKeyframes.find(
+        (k) => Math.abs(k.time - currentTime) < 0.2,
+      );
       const {
         positionX: startPosX,
         positionY: startPosY,
         zoomFactor: z,
-      } = lastState;
+      } = nearbyKf ?? lastState;
       const rect = e.currentTarget.getBoundingClientRect();
       beginBatch();
       setIsPreviewDragging(true);
@@ -126,6 +136,8 @@ export function usePreviewInteraction({
       handleAddKeyframe,
       beginBatch,
       commitBatch,
+      segment,
+      currentTime,
     ],
   );
 
@@ -165,24 +177,30 @@ export function usePreviewInteraction({
         wheelBatchTimerRef.current = null;
       }, 400);
 
+      // Use the existing manual keyframe if nearby, to avoid baking auto-zoom
+      // composite values that cause a jump when the blend re-applies.
+      const nearbyKf = segment?.zoomKeyframes.find(
+        (k) => Math.abs(k.time - currentTime) < 0.2,
+      );
+      const base = nearbyKf ?? lastState;
       const newZoom = Math.max(
         1.0,
         Math.min(
           12.0,
-          lastState.zoomFactor - e.deltaY * 0.002 * lastState.zoomFactor,
+          base.zoomFactor - e.deltaY * 0.002 * base.zoomFactor,
         ),
       );
       handleAddKeyframe({
         zoomFactor: newZoom,
-        positionX: lastState.positionX,
-        positionY: lastState.positionY,
+        positionX: base.positionX,
+        positionY: base.positionY,
       });
       setActivePanel("zoom");
     };
 
     container.addEventListener("wheel", handleWheel, { passive: false });
     return () => container.removeEventListener("wheel", handleWheel);
-  }, [currentVideo, isCropping, handleAddKeyframe, beginBatch, commitBatch, previewContainerRef, setActivePanel]);
+  }, [currentVideo, isCropping, handleAddKeyframe, beginBatch, commitBatch, previewContainerRef, setActivePanel, segment, currentTime]);
 
   return {
     isPreviewDragging,

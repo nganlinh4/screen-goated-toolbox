@@ -114,6 +114,7 @@ export function useEditorTools({
     setActivePanel,
     beginBatch,
     commitBatch,
+    isVideoReady,
   });
 
   return {
