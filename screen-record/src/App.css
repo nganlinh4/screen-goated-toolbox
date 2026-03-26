@@ -1117,6 +1117,28 @@ body.dragging-seek * {
     background: var(--timeline-webcam-color);
 }
 
+.timeline-split-button {
+    width: 14px;
+    height: 10px;
+    border-radius: 4px 4px 0 0;
+    color: var(--timeline-float-fg);
+    border: 1px solid var(--timeline-float-ring);
+    border-bottom: none;
+    box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.25);
+    transition: transform 100ms ease, filter 100ms ease;
+    opacity: 0.85;
+}
+
+.timeline-split-button:hover {
+    transform: scaleX(1.15);
+    filter: brightness(1.1);
+    opacity: 1;
+}
+
+.timeline-split-button[data-tone="accent"] {
+    background: var(--timeline-zoom-color);
+}
+
 .timeline-block {
     border-radius: 0.625rem;
     border: 1px solid var(--timeline-lane-border);

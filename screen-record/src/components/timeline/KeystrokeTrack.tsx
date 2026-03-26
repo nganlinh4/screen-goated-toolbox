@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Keyboard, MousePointer2 } from 'lucide-react';
+import { Keyboard, MousePointer2, Scissors } from 'lucide-react';
 import { CursorVisibilitySegment, KeystrokeEvent, VideoSegment } from '@/types/video';
 import { clampVisibilitySegmentsToDuration } from '@/lib/cursorHiding';
 import { useSettings } from '@/hooks/useSettings';
@@ -166,7 +166,11 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
   onKeystrokeHover,
 }) => {
   const { t } = useSettings();
-  const [hoverX, setHoverX] = useState<number | null>(null);
+  const [hoverState, setHoverState] = useState<
+    | { type: 'split'; x: number; time: number; segId: string }
+    | { type: 'add'; x: number }
+    | null
+  >(null);
   const mode = segment.keystrokeMode ?? 'off';
   const safeDuration = Math.max(duration, 0.001);
   const segments = clampVisibilitySegmentsToDuration(getSegmentsForMode(segment), safeDuration);
@@ -181,22 +185,27 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (mode === 'off') {
-      setHoverX(null);
+      setHoverState(null);
       return;
     }
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const time = (x / rect.width) * safeDuration;
     const thresholdTime = getHandlePriorityThresholdTime(safeDuration, rect.width);
-    const isOverSegment = segments.some(
+
+    const containing = segments.find(
       (seg) => time >= seg.startTime && time <= seg.endTime
     );
-    const isNearBoundary = isTimeNearRangeBoundary(
-      time,
-      segments,
-      thresholdTime,
-    );
-    setHoverX(isOverSegment || isNearBoundary ? null : x);
+    if (containing) {
+      const canSplit = time > containing.startTime + 0.15 && time < containing.endTime - 0.15;
+      setHoverState(canSplit ? { type: 'split', x, time, segId: containing.id } : null);
+      return;
+    }
+    if (isTimeNearRangeBoundary(time, segments, thresholdTime)) {
+      setHoverState(null);
+      return;
+    }
+    setHoverState({ type: 'add', x });
   };
 
   return (
@@ -205,7 +214,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
       title={t.trackKeystrokes}
       aria-label={t.trackKeystrokes}
       onMouseMove={handleMouseMove}
-      onMouseLeave={() => setHoverX(null)}
+      onMouseLeave={() => setHoverState(null)}
     >
       {mode !== 'off' && visualActivityRanges.map((range, idx) => (
         <div
@@ -243,13 +252,6 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
                 const clickX = e.clientX - rect.left;
                 const clickTime = (clickX / rect.width) * safeDuration;
                 onHandleDragStart(seg.id, 'body', clickTime - seg.startTime);
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                const rect = e.currentTarget.getBoundingClientRect();
-                const frac = (e.clientX - rect.left) / rect.width;
-                const time = seg.startTime + frac * (seg.endTime - seg.startTime);
-                onKeystrokeClick(seg.id, time);
               }}
               onMouseEnter={() => onKeystrokeHover?.(seg.id)}
               onMouseLeave={() => onKeystrokeHover?.(null)}
@@ -325,17 +327,31 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
         })()
       ))}
 
-      {mode !== 'off' && hoverX !== null && onAddKeystrokeSegment && (
+      {mode !== 'off' && hoverState && hoverState.type === 'split' && (
+        <button
+          className="keystroke-split-btn timeline-split-button absolute bottom-0 z-10 pointer-events-auto flex items-center justify-center"
+          data-tone="accent"
+          style={{ left: hoverState.x - 7 }}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onKeystrokeClick(hoverState.segId, hoverState.time);
+            setHoverState(null);
+          }}
+        >
+          <Scissors className="w-2 h-2" />
+        </button>
+      )}
+      {mode !== 'off' && hoverState && hoverState.type === 'add' && onAddKeystrokeSegment && (
         <button
           className="keystroke-add-btn timeline-add-button absolute top-1/2 -translate-y-1/2 w-4 h-4 text-white text-[10px] leading-none font-bold z-10 pointer-events-auto"
           data-tone="success"
-          style={{ left: hoverX - 8 }}
+          style={{ left: hoverState.x - 8 }}
           onPointerDown={(e) => {
             e.stopPropagation();
             const rect = e.currentTarget.parentElement!.getBoundingClientRect();
-            const time = (hoverX / rect.width) * safeDuration;
+            const time = (hoverState.x / rect.width) * safeDuration;
             onAddKeystrokeSegment(time);
-            setHoverX(null);
+            setHoverState(null);
           }}
         >
           +
