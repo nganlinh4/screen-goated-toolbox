@@ -612,38 +612,42 @@ export function getCursorVisibility(
     return { opacity: 0.0, scale: SCALE_HIDDEN };
   }
 
-  // Check each segment. Fade-in and fade-out happen inside the segment window so
-  // the animation can overlap the beginning/end of actual cursor motion.
-  for (const seg of segments) {
-    if (time < seg.startTime || time > seg.endTime) {
-      continue;
-    }
+  // Binary search: find last segment where startTime <= time (O(log n))
+  let lo = 0, hi = segments.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (segments[mid].startTime <= time) lo = mid + 1;
+    else hi = mid;
+  }
+  const idx = lo - 1;
 
-    const { fadeIn, fadeOut } = getSegmentFadeDurations(seg.startTime, seg.endTime);
-    const fadeInEnd = seg.startTime + fadeIn;
-    const fadeOutStart = seg.endTime - fadeOut;
-
-    if (fadeIn > 0 && time < fadeInEnd) {
-      const t = (time - seg.startTime) / fadeIn;
-      const eased = easeOutCubic(Math.max(0, Math.min(1, t)));
-      return {
-        opacity: eased,
-        scale: SCALE_HIDDEN + (SCALE_VISIBLE - SCALE_HIDDEN) * eased,
-      };
-    }
-
-    if (fadeOut > 0 && time > fadeOutStart) {
-      const t = (time - fadeOutStart) / fadeOut;
-      const eased = 1 - easeInCubic(Math.max(0, Math.min(1, t)));
-      return {
-        opacity: eased,
-        scale: SCALE_HIDDEN + (SCALE_VISIBLE - SCALE_HIDDEN) * eased,
-      };
-    }
-
-    return { opacity: 1.0, scale: 1.0 };
+  // Check if time falls within the found segment
+  if (idx < 0 || time > segments[idx].endTime) {
+    return { opacity: 0.0, scale: SCALE_HIDDEN };
   }
 
-  // Outside all segments — fully hidden
-  return { opacity: 0.0, scale: SCALE_HIDDEN };
+  const seg = segments[idx];
+  const { fadeIn, fadeOut } = getSegmentFadeDurations(seg.startTime, seg.endTime);
+  const fadeInEnd = seg.startTime + fadeIn;
+  const fadeOutStart = seg.endTime - fadeOut;
+
+  if (fadeIn > 0 && time < fadeInEnd) {
+    const t = (time - seg.startTime) / fadeIn;
+    const eased = easeOutCubic(Math.max(0, Math.min(1, t)));
+    return {
+      opacity: eased,
+      scale: SCALE_HIDDEN + (SCALE_VISIBLE - SCALE_HIDDEN) * eased,
+    };
+  }
+
+  if (fadeOut > 0 && time > fadeOutStart) {
+    const t = (time - fadeOutStart) / fadeOut;
+    const eased = 1 - easeInCubic(Math.max(0, Math.min(1, t)));
+    return {
+      opacity: eased,
+      scale: SCALE_HIDDEN + (SCALE_VISIBLE - SCALE_HIDDEN) * eased,
+    };
+  }
+
+  return { opacity: 1.0, scale: 1.0 };
 }

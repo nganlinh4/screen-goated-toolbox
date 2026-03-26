@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Keyboard, MousePointer2 } from 'lucide-react';
 import { CursorVisibilitySegment, KeystrokeEvent, VideoSegment } from '@/types/video';
 import { clampVisibilitySegmentsToDuration } from '@/lib/cursorHiding';
@@ -170,8 +170,14 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
   const mode = segment.keystrokeMode ?? 'off';
   const safeDuration = Math.max(duration, 0.001);
   const segments = clampVisibilitySegmentsToDuration(getSegmentsForMode(segment), safeDuration);
-  const rawEventRanges = getRawEventRanges(segment, safeDuration);
-  const visualActivityRanges = getVisualActivityRanges(rawEventRanges, safeDuration);
+  const rawEventRanges = useMemo(
+    () => getRawEventRanges(segment, safeDuration),
+    [segment.keystrokeEvents, segment.keystrokeMode, segment.keystrokeDelaySec, safeDuration]
+  );
+  const visualActivityRanges = useMemo(
+    () => getVisualActivityRanges(rawEventRanges, safeDuration),
+    [rawEventRanges, safeDuration]
+  );
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (mode === 'off') {

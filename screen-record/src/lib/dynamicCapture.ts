@@ -58,47 +58,58 @@ export function normalizeMousePositionsToVideoSpace(
   return changed ? normalized : positions;
 }
 
+function hasValidDims(p: MousePosition): boolean {
+  return typeof p.captureWidth === 'number' && Number.isFinite(p.captureWidth) && p.captureWidth > 1 &&
+    typeof p.captureHeight === 'number' && Number.isFinite(p.captureHeight) && p.captureHeight > 1;
+}
+
 export function sampleCaptureDimensionsAtTime(
   time: number,
   positions: MousePosition[],
   fallbackWidth: number,
   fallbackHeight: number
 ): { width: number; height: number } {
-  const withDims = positions.filter((position) =>
-    typeof position.captureWidth === 'number' &&
-    Number.isFinite(position.captureWidth) &&
-    position.captureWidth > 1 &&
-    typeof position.captureHeight === 'number' &&
-    Number.isFinite(position.captureHeight) &&
-    position.captureHeight > 1
-  );
-
-  if (withDims.length === 0) {
-    return {
-      width: Math.max(1, fallbackWidth),
-      height: Math.max(1, fallbackHeight),
-    };
+  if (positions.length === 0) {
+    return { width: Math.max(1, fallbackWidth), height: Math.max(1, fallbackHeight) };
   }
 
-  const exact = withDims.find((position) => Math.abs(position.timestamp - time) < 0.001);
-  if (exact) {
-    return getMouseCaptureDimensions(exact, fallbackWidth, fallbackHeight);
+  // Binary search for first position with timestamp >= time (O(log n))
+  let lo = 0, hi = positions.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (positions[mid].timestamp < time) lo = mid + 1;
+    else hi = mid;
   }
 
-  const nextIndex = withDims.findIndex((position) => position.timestamp > time);
-  if (nextIndex <= 0) {
-    return getMouseCaptureDimensions(withDims[0], fallbackWidth, fallbackHeight);
+  // Walk outward from insertion point to find nearest positions with valid dims
+  let prev: MousePosition | null = null;
+  let next: MousePosition | null = null;
+
+  // Check for exact match first
+  if (lo < positions.length && Math.abs(positions[lo].timestamp - time) < 0.001 && hasValidDims(positions[lo])) {
+    return getMouseCaptureDimensions(positions[lo], fallbackWidth, fallbackHeight);
   }
-  if (nextIndex === -1) {
-    return getMouseCaptureDimensions(withDims[withDims.length - 1], fallbackWidth, fallbackHeight);
+  if (lo > 0 && Math.abs(positions[lo - 1].timestamp - time) < 0.001 && hasValidDims(positions[lo - 1])) {
+    return getMouseCaptureDimensions(positions[lo - 1], fallbackWidth, fallbackHeight);
   }
 
-  const prev = withDims[nextIndex - 1];
-  const next = withDims[nextIndex];
+  // Walk backward for prev with valid dims
+  for (let i = lo - 1; i >= 0; i--) {
+    if (hasValidDims(positions[i])) { prev = positions[i]; break; }
+  }
+  // Walk forward for next with valid dims
+  for (let i = lo; i < positions.length; i++) {
+    if (hasValidDims(positions[i])) { next = positions[i]; break; }
+  }
+
+  if (!prev && !next) {
+    return { width: Math.max(1, fallbackWidth), height: Math.max(1, fallbackHeight) };
+  }
+  if (!prev) return getMouseCaptureDimensions(next!, fallbackWidth, fallbackHeight);
+  if (!next) return getMouseCaptureDimensions(prev, fallbackWidth, fallbackHeight);
+
   const dt = next.timestamp - prev.timestamp;
-  if (dt <= 0.000001) {
-    return getMouseCaptureDimensions(prev, fallbackWidth, fallbackHeight);
-  }
+  if (dt <= 0.000001) return getMouseCaptureDimensions(prev, fallbackWidth, fallbackHeight);
 
   const t = (time - prev.timestamp) / dt;
   const prevDims = getMouseCaptureDimensions(prev, fallbackWidth, fallbackHeight);

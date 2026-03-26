@@ -65,7 +65,8 @@ export function calculateCurrentZoomStateInternal(
   viewW: number,
   viewH: number,
   srcCropW?: number,  // actual cropped video source width (for auto-path coord transform)
-  srcCropH?: number   // actual cropped video source height
+  srcCropH?: number,  // actual cropped video source height
+  videoScale?: number  // backgroundConfig.scale / 100 — adjusts auto-zoom contain-fit for preview
 ): ZoomKeyframe {
 
   // Source crop dimensions — when provided, auto-path video-pixel coords are
@@ -149,7 +150,10 @@ export function calculateCurrentZoomStateInternal(
     const relX = (cam.x - cropOffsetX) / sCropW;
     const relY = (cam.y - cropOffsetY) / sCropH;
 
-    // Contain-fit of cropped source into canvas
+    // Contain-fit of cropped source into canvas, with optional scale adjustment.
+    // When videoScale < 1 (e.g. 90%), the video is smaller and centered — the
+    // auto-zoom anchor must match the actual scaled placement so the camera
+    // centers correctly on the cursor.  Manual keyframes are NOT affected.
     const srcAspect = sCropW / sCropH;
     const canvasAspect = viewW / viewH;
     let fitW: number, fitH: number;
@@ -160,15 +164,18 @@ export function calculateCurrentZoomStateInternal(
       fitH = viewH;
       fitW = viewH * srcAspect;
     }
-    const fitX = (viewW - fitW) / 2;
-    const fitY = (viewH - fitH) / 2;
+    const vs = videoScale ?? 1;
+    const scaledFitW = fitW * vs;
+    const scaledFitH = fitH * vs;
+    const fitX = (viewW - scaledFitW) / 2;
+    const fitY = (viewH - scaledFitH) / 2;
 
     autoState = {
       time: currentTime,
       duration: 0,
       zoomFactor: cam.zoom,
-      positionX: (fitX + relX * fitW) / viewW,
-      positionY: (fitY + relY * fitH) / viewH,
+      positionX: (fitX + relX * scaledFitW) / viewW,
+      positionY: (fitY + relY * scaledFitH) / viewH,
       easingType: 'linear'
     };
   }
