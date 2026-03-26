@@ -28,12 +28,22 @@ export function useTrackRangeSelect<T extends { id: string; startTime: number; e
   duration: number,
   onSelectionChange?: (ids: string[]) => void,
   onDeleteSelected?: (ids: string[]) => void,
+  clearSignal?: number,
 ): TrackRangeSelect {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [rangeSelect, setRangeSelect] = useState<RangeSelectState | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const isDraggingRange = useRef(false);
   const preToggleSnapshot = useRef<Set<string>>(new Set());
+
+  // External clear signal — parent increments to force clear
+  const lastClearSignal = useRef(clearSignal ?? 0);
+  useEffect(() => {
+    if (clearSignal !== undefined && clearSignal !== lastClearSignal.current) {
+      lastClearSignal.current = clearSignal;
+      setSelectedIds(new Set());
+    }
+  }, [clearSignal]);
 
   const safeDuration = Math.max(duration, 0.001);
 

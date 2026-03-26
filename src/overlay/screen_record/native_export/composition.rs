@@ -372,7 +372,7 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
             } else {
                 &final_mp4_path
             };
-            super::convert_mp4_to_gif(gif_source, &final_gif_path, export.width.min(960))?;
+            super::gif::convert_mp4_to_gif(gif_source, &final_gif_path, export.width.min(960))?;
             let gif_bytes = fs::metadata(&final_gif_path).map(|m| m.len()).unwrap_or(0);
             artifacts.push(json!({
                 "format": "gif",

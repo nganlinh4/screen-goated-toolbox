@@ -21,6 +21,7 @@ interface WebcamVisibilityTrackProps {
   onAddWebcamSegment?: (atTime?: number) => void;
   onDeleteWebcamSegments?: (ids: string[]) => void;
   onSelectionChange?: (ids: string[]) => void;
+  clearSignal?: number;
 }
 
 export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
@@ -32,6 +33,7 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
   onAddWebcamSegment,
   onDeleteWebcamSegments,
   onSelectionChange,
+  clearSignal,
 }) => {
   const [hoverState, setHoverState] = useState<
     | { type: "split"; x: number; time: number; seg: CursorVisibilitySegment }
@@ -48,7 +50,7 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
     selectedIds, rangeSelect, trackRef, isDraggingRange,
     onSegmentPointerDown,
     handleTrackPointerDown, handleTrackPointerMove, handleTrackPointerUp,
-  } = useTrackRangeSelect(segments, duration, onSelectionChange, onDeleteWebcamSegments);
+  } = useTrackRangeSelect(segments, duration, onSelectionChange, onDeleteWebcamSegments, clearSignal);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isAvailable || isDraggingRange.current) {

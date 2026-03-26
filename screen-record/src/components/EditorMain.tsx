@@ -216,11 +216,13 @@ export function EditorMain({
   const handleWebcamSelectionChange = useCallback((ids: string[]) => setSelectedWebcamIds(ids), []);
 
   const totalSelectedCount = selectedTextIds.length + selectedPointerIds.length + selectedKeystrokeIds.length + selectedWebcamIds.length;
+  const [clearSignal, setClearSignal] = useState(0);
   const clearAllSelections = useCallback(() => {
     setSelectedTextIds([]);
     setSelectedPointerIds([]);
     setSelectedKeystrokeIds([]);
     setSelectedWebcamIds([]);
+    setClearSignal(c => c + 1);
   }, []);
 
   const wallClockCurrentTime = useMemo(() => {
@@ -382,6 +384,7 @@ export function EditorMain({
           onPointerSelectionChange={handlePointerSelectionChange}
           onKeystrokeSelectionChange={handleKeystrokeSelectionChange}
           onWebcamSelectionChange={handleWebcamSelectionChange}
+          clearSelectionSignal={clearSignal}
         />
         {isOverlayMode && (
           <div className="timeline-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />

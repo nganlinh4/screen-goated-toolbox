@@ -1,26 +1,18 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { Video, Trash2, Play, X } from "lucide-react";
 import { Project } from "@/types/video";
 import { projectManager } from "@/lib/projectManager";
 import { useSettings } from "@/hooks/useSettings";
 import { invoke } from "@/lib/ipc";
 import { ConfirmDialog } from "./dialogs";
+import { formatDuration } from "./projectsViewUtils";
+import { useProjectsAnimations } from "./projectsViewAnimations";
 
-const PROJECTS_FLIP_DEBUG = false;
-const PROJECTS_FLIP_EASING = "cubic-bezier(0.8, 0, 0.2, 1)";
-const PROJECTS_FLIP_SETTLE_EASING = "cubic-bezier(0.7, 0, 0.18, 1)";
-
-export interface ProjectsPreviewRectSnapshot {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-
-export interface ProjectsPreviewTargetSnapshot {
-  stageRect: ProjectsPreviewRectSnapshot | null;
-  canvasRect: ProjectsPreviewRectSnapshot | null;
-}
+// Re-export types for backwards compatibility
+export type {
+  ProjectsPreviewRectSnapshot,
+  ProjectsPreviewTargetSnapshot,
+} from "./projectsViewUtils";
 
 interface ProjectsViewProps {
   projects: Omit<Project, "videoBlob">[];
@@ -30,139 +22,10 @@ interface ProjectsViewProps {
   onClose: () => void;
   currentProjectId?: string | null;
   restoreImage?: string | null;
-  previewTargetSnapshot?: ProjectsPreviewTargetSnapshot | null;
+  previewTargetSnapshot?: import("./projectsViewUtils").ProjectsPreviewTargetSnapshot | null;
   pickerMode?: "load" | "insertBefore" | "insertAfter";
   onPickProject?: (projectId: string) => void | Promise<void>;
 }
-
-function formatDuration(s: number): string {
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${sec.toString().padStart(2, "0")}`;
-}
-
-/** Compute the object-fit:contain rect for an aspect ratio inside a container. */
-function containRect(
-  cw: number,
-  ch: number,
-  nw: number,
-  nh: number,
-): { left: number; top: number; width: number; height: number } {
-  const ca = cw / ch,
-    na = nw / nh;
-  let w: number, h: number;
-  if (ca > na) {
-    h = ch;
-    w = h * na;
-  } else {
-    w = cw;
-    h = w / na;
-  }
-  return { left: (cw - w) / 2, top: (ch - h) / 2, width: w, height: h };
-}
-
-function getProjectPreviewTargetRect(
-  cw: number,
-  ch: number,
-  project: Omit<Project, "videoBlob"> | undefined,
-  fallbackWidth: number,
-  fallbackHeight: number,
-): { left: number; top: number; width: number; height: number } {
-  const canvasWidth = project?.backgroundConfig?.canvasWidth;
-  const canvasHeight = project?.backgroundConfig?.canvasHeight;
-  if (
-    typeof canvasWidth === "number" &&
-    canvasWidth > 0 &&
-    typeof canvasHeight === "number" &&
-    canvasHeight > 0
-  ) {
-    return containRect(cw, ch, canvasWidth, canvasHeight);
-  }
-  return containRect(cw, ch, fallbackWidth, fallbackHeight);
-}
-
-function getProjectThumbnailRadius(scaleX: number, scaleY: number): string {
-  const safeScaleX = Math.max(scaleX, 0.0001);
-  const safeScaleY = Math.max(scaleY, 0.0001);
-  return `${12 / safeScaleX}px ${12 / safeScaleX}px 0 0 / ${12 / safeScaleY}px ${12 / safeScaleY}px 0 0`;
-}
-
-function rectSnapshotToDomRect(
-  rect: ProjectsPreviewRectSnapshot | null | undefined,
-): DOMRect | null {
-  if (!rect || rect.width <= 0 || rect.height <= 0) return null;
-  return new DOMRect(rect.left, rect.top, rect.width, rect.height);
-}
-
-function getPreviewStageRect(
-  snapshot?: ProjectsPreviewTargetSnapshot | null,
-): DOMRect | null {
-  const snapshotRect = rectSnapshotToDomRect(snapshot?.stageRect);
-  if (snapshotRect) return snapshotRect;
-  const previewStage = document.querySelector(
-    ".preview-canvas",
-  ) as HTMLElement | null;
-  if (!previewStage) return null;
-  const rect = previewStage.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return null;
-  return rect;
-}
-
-function getLiveCanvasRect(): DOMRect | null {
-  const canvas = document.querySelector(
-    ".preview-canvas-element",
-  ) as HTMLCanvasElement | null;
-  if (!canvas) return null;
-  const rect = canvas.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return null;
-  return rect;
-}
-
-function getOptionalElementRect(selector: string): DOMRect | null {
-  const element = document.querySelector(selector) as HTMLElement | null;
-  if (!element) return null;
-  const rect = element.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return null;
-  return rect;
-}
-
-function toRectSnapshot(rect: DOMRect | null) {
-  if (!rect) return null;
-  return {
-    left: Number(rect.left.toFixed(2)),
-    top: Number(rect.top.toFixed(2)),
-    width: Number(rect.width.toFixed(2)),
-    height: Number(rect.height.toFixed(2)),
-  };
-}
-
-function logProjectsFlip(
-  event: string,
-  details: Record<string, unknown> = {},
-) {
-  if (!PROJECTS_FLIP_DEBUG) return;
-  console.log("[ProjectsFlip]", { event, ...details });
-}
-
-/** Resolve the rendered preview canvas rect relative to a parent, if present. */
-function getPreviewCanvasRect(
-  parent: HTMLElement,
-): { left: number; top: number; width: number; height: number } | null {
-  const canvas = parent.querySelector(
-    ".preview-canvas-element",
-  ) as HTMLCanvasElement | null;
-  if (!canvas) return null;
-  const parentRect = parent.getBoundingClientRect();
-  const canvasRect = canvas.getBoundingClientRect();
-  if (canvasRect.width <= 0 || canvasRect.height <= 0) return null;
-  return {
-    left: canvasRect.left - parentRect.left,
-    top: canvasRect.top - parentRect.top,
-    width: canvasRect.width,
-    height: canvasRect.height,
-  };
-}
-void getPreviewCanvasRect;
 
 export function ProjectsView({
   projects,
@@ -178,171 +41,27 @@ export function ProjectsView({
 }: ProjectsViewProps) {
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [animatingId, setAnimatingId] = useState<string | null>(null);
-  const [isRestoring, setIsRestoring] = useState(
-    () => !!restoreImage && !!currentProjectId,
-  );
-  const [hiddenProjectCardId, setHiddenProjectCardId] = useState<string | null>(
-    () => (restoreImage && currentProjectId ? currentProjectId : null),
-  );
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const animatingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const animatedCloseRef = useRef<() => void>(() => {});
   const { t } = useSettings();
   const isPickerMode = pickerMode !== "load";
 
-  // Restore animation: shrink current video frame into its card position
-  useEffect(() => {
-    if (!restoreImage || !currentProjectId || !containerRef.current) {
-      setIsRestoring(false);
-      setHiddenProjectCardId(null);
-      return;
-    }
-
-    const container = containerRef.current;
-    setHiddenProjectCardId(currentProjectId);
-
-    requestAnimationFrame(() => {
-      const img = new Image();
-      img.src = restoreImage;
-
-      const runAnimation = () => {
-        const canvasEl = document.querySelector(
-          ".preview-canvas-element",
-        ) as HTMLCanvasElement | null;
-        const canvasRect = canvasEl?.getBoundingClientRect();
-        const natW = img.naturalWidth || 16;
-        const natH = img.naturalHeight || 9;
-        let source: {
-          left: number;
-          top: number;
-          width: number;
-          height: number;
-        };
-        if (canvasRect && canvasRect.width > 0) {
-          source = {
-            left: canvasRect.left,
-            top: canvasRect.top,
-            width: canvasRect.width,
-            height: canvasRect.height,
-          };
-        } else {
-          source = containRect(
-            window.innerWidth,
-            Math.max(1, window.innerHeight - 44),
-            natW,
-            natH,
-          );
-          source.top += 44;
-        }
-
-        const card = container.querySelector(
-          `[data-project-id="${currentProjectId}"]`,
-        ) as HTMLElement | null;
-        if (!card) {
-          setIsRestoring(false);
-          setHiddenProjectCardId(null);
-          return;
-        }
-
-        // Ensure card is visible in scroll container
-        card.scrollIntoView({
-          block: "nearest",
-          behavior: "instant" as ScrollBehavior,
-        });
-
-        const thumbArea = card.querySelector(
-          ".project-thumbnail",
-        ) as HTMLElement | null;
-        if (!thumbArea) {
-          setIsRestoring(false);
-          setHiddenProjectCardId(null);
-          return;
-        }
-
-        const thumbRect = thumbArea.getBoundingClientRect();
-
-        // Clone at canvas (source) position
-        const clone = document.createElement("div");
-        clone.style.cssText = `
-          position: absolute; z-index: 9999; pointer-events: none;
-          left: ${source.left}px; top: ${source.top}px;
-          width: ${source.width}px; height: ${source.height}px;
-          overflow: hidden; transform-origin: 0 0;
-          will-change: transform;
-        `;
-        const imgEl = document.createElement("img");
-        imgEl.src = restoreImage;
-        imgEl.style.cssText = "width: 100%; height: 100%; object-fit: cover;";
-        clone.appendChild(imgEl);
-        document.body.appendChild(clone);
-
-        // Animate source → target (reverse of expand), body-relative coordinates
-        const dx = thumbRect.left - source.left;
-        const dy = thumbRect.top - source.top;
-        const sx = thumbRect.width / source.width;
-        const sy = thumbRect.height / source.height;
-
-        // Match the real project thumbnail shape: rounded top corners, square bottom edge.
-        const thumbRadius = getProjectThumbnailRadius(sx, sy);
-
-        clone.animate(
-          [
-            { transform: "none", borderRadius: "0px" },
-            {
-              transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`,
-              borderRadius: thumbRadius,
-            },
-          ],
-          {
-            duration: 520,
-            easing: PROJECTS_FLIP_EASING,
-            fill: "forwards",
-          },
-        ).onfinish = () => {
-          setHiddenProjectCardId(null);
-          requestAnimationFrame(() => {
-            clone.animate([{ opacity: 1 }, { opacity: 0 }], {
-              duration: 120,
-              easing: PROJECTS_FLIP_SETTLE_EASING,
-              fill: "forwards",
-            }).onfinish = () => {
-              clone.remove();
-            };
-          });
-        };
-
-        // Fade in grid content
-        setTimeout(() => setIsRestoring(false), 50);
-      };
-
-      if (img.complete) runAnimation();
-      else {
-        img.onload = runAnimation;
-        img.onerror = () => {
-          setIsRestoring(false);
-          setHiddenProjectCardId(null);
-        };
-      }
-    });
-  }, []);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !animatingRef.current)
-        animatedCloseRef.current();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
-  // External close requests (toggle button dispatches this event)
-  useEffect(() => {
-    const handler = () => animatedCloseRef.current();
-    window.addEventListener("sr-close-projects", handler);
-    return () => window.removeEventListener("sr-close-projects", handler);
-  }, []);
+  const {
+    animatingId,
+    isRestoring,
+    hiddenProjectCardId,
+    animatingRef,
+    handleProjectClick: handleProjectClickAnim,
+    handleAnimatedClose,
+  } = useProjectsAnimations({
+    projects,
+    currentProjectId,
+    restoreImage,
+    previewTargetSnapshot,
+    onLoadProject,
+    onClose,
+    containerRef,
+  });
 
   const handleRename = async (id: string) => {
     if (!renameValue.trim()) return;
@@ -379,365 +98,15 @@ export function ProjectsView({
       return;
     }
     if (animatingRef.current) return;
-
-    const thumbnailImg = e.currentTarget.querySelector(
-      "img",
-    ) as HTMLImageElement | null;
-    const container = containerRef.current;
-    const portalRect = getPreviewStageRect(previewTargetSnapshot);
-
-    if (!thumbnailImg || !container || !portalRect) {
-      onLoadProject(projectId);
-      return;
-    }
-
-    const thumbRect = thumbnailImg.getBoundingClientRect();
-    const canvasRect =
-      rectSnapshotToDomRect(previewTargetSnapshot?.canvasRect) ??
-      getLiveCanvasRect();
-    const natW = thumbnailImg.naturalWidth || 16;
-    const natH = thumbnailImg.naturalHeight || 9;
-    const targetProject = projects.find((project) => project.id === projectId);
-    const target =
-      projectId === currentProjectId && canvasRect && canvasRect.width > 0
-        ? {
-            left: canvasRect.left,
-            top: canvasRect.top,
-            width: canvasRect.width,
-            height: canvasRect.height,
-          }
-        : getProjectPreviewTargetRect(
-            portalRect.width,
-            portalRect.height,
-            targetProject,
-            natW,
-            natH,
-          );
-    const targetGlobal =
-      projectId === currentProjectId && canvasRect && canvasRect.width > 0
-        ? target
-        : {
-            left: portalRect.left + target.left,
-            top: portalRect.top + target.top,
-            width: target.width,
-            height: target.height,
-          };
-
-    logProjectsFlip("load-estimate", {
-      projectId,
-      projectName: targetProject?.name,
-      thumbnailNaturalSize: { width: natW, height: natH },
-      previewStageRect: toRectSnapshot(portalRect),
-      stablePreviewStageRect: previewTargetSnapshot?.stageRect ?? null,
-      preLoadCanvasRect: toRectSnapshot(canvasRect),
-      stableCanvasRect: previewTargetSnapshot?.canvasRect ?? null,
-      estimatedTargetRect: {
-        left: Number(targetGlobal.left.toFixed(2)),
-        top: Number(targetGlobal.top.toFixed(2)),
-        width: Number(targetGlobal.width.toFixed(2)),
-        height: Number(targetGlobal.height.toFixed(2)),
-      },
-      canvasConfig: {
-        mode: targetProject?.backgroundConfig?.canvasMode ?? null,
-        width: targetProject?.backgroundConfig?.canvasWidth ?? null,
-        height: targetProject?.backgroundConfig?.canvasHeight ?? null,
-        scale: targetProject?.backgroundConfig?.scale ?? null,
-      },
-    });
-
-    const clone = document.createElement("div");
-    clone.style.cssText = `
-      position: absolute; z-index: 9999; pointer-events: none;
-      left: ${targetGlobal.left}px; top: ${targetGlobal.top}px;
-      width: ${targetGlobal.width}px; height: ${targetGlobal.height}px;
-      overflow: hidden; transform-origin: 0 0;
-      will-change: transform;
-    `;
-    const img = document.createElement("img");
-    img.src = thumbnailImg.src;
-    img.style.cssText = "width: 100%; height: 100%; object-fit: cover;";
-    clone.appendChild(img);
-    document.body.appendChild(clone);
-
-    animatingRef.current = true;
-    setAnimatingId(projectId);
-
-    const finishProjectOpen = () => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          onClose();
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              clone.remove();
-            });
-          });
-        });
-      });
-    };
-
-    const settleCloneToLiveCanvas = () => {
-      const liveCanvasRect = getLiveCanvasRect();
-      const livePreviewStageRect = getPreviewStageRect();
-      if (!liveCanvasRect) {
-        logProjectsFlip("load-settle-missing-live-canvas", { projectId });
-        finishProjectOpen();
-        return;
-      }
-      const cloneRect = clone.getBoundingClientRect();
-      const deltaLeft = liveCanvasRect.left - cloneRect.left;
-      const deltaTop = liveCanvasRect.top - cloneRect.top;
-      const widthDelta = Math.abs(liveCanvasRect.width - cloneRect.width);
-      const heightDelta = Math.abs(liveCanvasRect.height - cloneRect.height);
-      const liveCanvasEl = document.querySelector(
-        ".preview-canvas-element",
-      ) as HTMLCanvasElement | null;
-      logProjectsFlip("load-settle", {
-        projectId,
-        estimatedTargetRect: toRectSnapshot(
-          new DOMRect(
-            targetGlobal.left,
-            targetGlobal.top,
-            targetGlobal.width,
-            targetGlobal.height,
-          ),
-        ),
-        cloneRect: toRectSnapshot(cloneRect),
-        liveCanvasRect: toRectSnapshot(liveCanvasRect),
-        livePreviewStageRect: toRectSnapshot(livePreviewStageRect),
-        livePreviewSurfaceRect: toRectSnapshot(
-          getOptionalElementRect(".video-preview-container"),
-        ),
-        livePlaybackControlsRect: toRectSnapshot(
-          getOptionalElementRect(".playback-controls-row"),
-        ),
-        liveSequenceBreadcrumbRect: toRectSnapshot(
-          getOptionalElementRect(".sequence-focus-breadcrumb"),
-        ),
-        liveTimelineRect: toRectSnapshot(
-          getOptionalElementRect(".timeline-container"),
-        ),
-        delta: {
-          left: Number(deltaLeft.toFixed(2)),
-          top: Number(deltaTop.toFixed(2)),
-          width: Number(widthDelta.toFixed(2)),
-          height: Number(heightDelta.toFixed(2)),
-        },
-        previewStageDelta: livePreviewStageRect
-          ? {
-              width: Number(
-                (livePreviewStageRect.width - portalRect.width).toFixed(2),
-              ),
-              height: Number(
-                (livePreviewStageRect.height - portalRect.height).toFixed(2),
-              ),
-              left: Number(
-                (livePreviewStageRect.left - portalRect.left).toFixed(2),
-              ),
-              top: Number(
-                (livePreviewStageRect.top - portalRect.top).toFixed(2),
-              ),
-            }
-          : null,
-        liveCanvasIntrinsicSize: liveCanvasEl
-          ? {
-              width: liveCanvasEl.width,
-              height: liveCanvasEl.height,
-              aspectRatio: liveCanvasEl.style.aspectRatio || null,
-            }
-          : null,
-        canvasConfig: {
-          mode: targetProject?.backgroundConfig?.canvasMode ?? null,
-          width: targetProject?.backgroundConfig?.canvasWidth ?? null,
-          height: targetProject?.backgroundConfig?.canvasHeight ?? null,
-          scale: targetProject?.backgroundConfig?.scale ?? null,
-        },
-      });
-      if (
-        Math.abs(deltaLeft) < 0.5 &&
-        Math.abs(deltaTop) < 0.5 &&
-        widthDelta < 0.5 &&
-        heightDelta < 0.5
-      ) {
-        finishProjectOpen();
-        return;
-      }
-      clone.animate(
-        [
-          {
-            left: `${cloneRect.left}px`,
-            top: `${cloneRect.top}px`,
-            width: `${cloneRect.width}px`,
-            height: `${cloneRect.height}px`,
-          },
-          {
-            left: `${liveCanvasRect.left}px`,
-            top: `${liveCanvasRect.top}px`,
-            width: `${liveCanvasRect.width}px`,
-            height: `${liveCanvasRect.height}px`,
-          },
-        ],
-        {
-          duration: 210,
-          easing: PROJECTS_FLIP_SETTLE_EASING,
-          fill: "forwards",
-        },
-      ).onfinish = () => {
-        clone.style.left = `${liveCanvasRect.left}px`;
-        clone.style.top = `${liveCanvasRect.top}px`;
-        clone.style.width = `${liveCanvasRect.width}px`;
-        clone.style.height = `${liveCanvasRect.height}px`;
-        finishProjectOpen();
-      };
-    };
-
-    const dx = thumbRect.left - targetGlobal.left;
-    const dy = thumbRect.top - targetGlobal.top;
-    const sx = thumbRect.width / targetGlobal.width;
-    const sy = thumbRect.height / targetGlobal.height;
-    const thumbRadius = getProjectThumbnailRadius(sx, sy);
-
-    clone.animate(
-      [
-        {
-          transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`,
-          borderRadius: thumbRadius,
-        },
-        { transform: "none", borderRadius: "0px" },
-      ],
-      {
-        duration: 640,
-        easing: PROJECTS_FLIP_EASING,
-        fill: "forwards",
-      },
-    ).onfinish = () => {
-      animatingRef.current = false;
-
-      Promise.resolve(onLoadProject(projectId)).then(() => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            settleCloneToLiveCanvas();
-          });
-        });
-      });
-    };
+    handleProjectClickAnim(projectId, e);
   };
-
-  // Animated close: expand current project's card → canvas, then unmount
-  const handleAnimatedClose = () => {
-    if (animatingRef.current) return;
-
-    const container = containerRef.current;
-    const portalRect = getPreviewStageRect();
-
-    if (!currentProjectId || !container || !portalRect) {
-      onClose();
-      return;
-    }
-
-    const card = container.querySelector(
-      `[data-project-id="${currentProjectId}"]`,
-    ) as HTMLElement | null;
-    const thumbnailImg = card?.querySelector(
-      ".project-thumbnail img",
-    ) as HTMLImageElement | null;
-
-    if (!card || !thumbnailImg) {
-      onClose();
-      return;
-    }
-
-    card.scrollIntoView({
-      block: "nearest",
-      behavior: "instant" as ScrollBehavior,
-    });
-
-    const thumbRect = thumbnailImg.getBoundingClientRect();
-    const canvasRect = getLiveCanvasRect();
-    const natW = thumbnailImg.naturalWidth || 16;
-    const natH = thumbnailImg.naturalHeight || 9;
-    const currentProject = projects.find((project) => project.id === currentProjectId);
-    const fallbackTarget = getProjectPreviewTargetRect(
-      portalRect.width,
-      portalRect.height,
-      currentProject,
-      natW,
-      natH,
-    );
-    const targetGlobal =
-      canvasRect && canvasRect.width > 0
-        ? {
-            left: canvasRect.left,
-            top: canvasRect.top,
-            width: canvasRect.width,
-            height: canvasRect.height,
-          }
-        : {
-            left: portalRect.left + fallbackTarget.left,
-            top: portalRect.top + fallbackTarget.top,
-            width: fallbackTarget.width,
-            height: fallbackTarget.height,
-          };
-    const dx = thumbRect.left - targetGlobal.left;
-    const dy = thumbRect.top - targetGlobal.top;
-    const sx = thumbRect.width / targetGlobal.width;
-    const sy = thumbRect.height / targetGlobal.height;
-
-    const clone = document.createElement("div");
-    clone.style.cssText = `
-      position: absolute; z-index: 9999; pointer-events: none;
-      left: ${targetGlobal.left}px; top: ${targetGlobal.top}px;
-      width: ${targetGlobal.width}px; height: ${targetGlobal.height}px;
-      overflow: hidden; transform-origin: 0 0;
-      will-change: transform;
-    `;
-    const img = document.createElement("img");
-    img.src = thumbnailImg.src;
-    img.style.cssText = "width: 100%; height: 100%; object-fit: cover;";
-    clone.appendChild(img);
-    document.body.appendChild(clone);
-
-    animatingRef.current = true;
-    setAnimatingId(currentProjectId);
-
-    const fadeOut = () => {
-      clone.animate([{ opacity: 1 }, { opacity: 0 }], {
-        duration: 200,
-        easing: PROJECTS_FLIP_SETTLE_EASING,
-        fill: "forwards",
-      }).onfinish = () => clone.remove();
-    };
-
-    const thumbRadius = getProjectThumbnailRadius(sx, sy);
-
-    clone.animate(
-      [
-        {
-          transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`,
-          borderRadius: thumbRadius,
-        },
-        { transform: "none", borderRadius: "0px" },
-      ],
-      {
-        duration: 620,
-        easing: PROJECTS_FLIP_EASING,
-        fill: "forwards",
-      },
-    ).onfinish = () => {
-      animatingRef.current = false;
-      onClose();
-      setTimeout(() => requestAnimationFrame(fadeOut), 150);
-    };
-  };
-
-  // Keep ref current so event listeners always call the latest version
-  animatedCloseRef.current = handleAnimatedClose;
 
   return (
     <div
       ref={containerRef}
       className="projects-view absolute inset-0 z-20 overflow-hidden rounded-xl"
     >
-      {/* Solid background — stays opaque while this component lives */}
+      {/* Solid background -- stays opaque while this component lives */}
       <div className="projects-background absolute inset-0 bg-[var(--surface)]" />
 
       {/* Content fades out during thumbnail expansion */}

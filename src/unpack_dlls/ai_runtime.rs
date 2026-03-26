@@ -474,12 +474,12 @@ pub fn remove_ai_runtime() -> Result<()> {
         RUNTIME_VERSION_MARKER,
     ] {
         let path = bin_dir.join(name);
-        if path.exists() {
-            if let Err(err) = fs::remove_file(&path) {
-                let message = format!("Failed to remove '{}': {}", path.display(), err);
-                set_last_action_error(message.clone());
-                return Err(anyhow!(message));
-            }
+        if path.exists()
+            && let Err(err) = fs::remove_file(&path)
+        {
+            let message = format!("Failed to remove '{}': {}", path.display(), err);
+            set_last_action_error(message.clone());
+            return Err(anyhow!(message));
         }
     }
 

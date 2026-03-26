@@ -1,6 +1,8 @@
 pub mod detection;
 pub mod persistence;
 pub mod run;
+mod run_download;
+mod run_install;
 pub mod types;
 pub mod ui;
 pub mod utils;

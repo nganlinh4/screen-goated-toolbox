@@ -7,10 +7,6 @@ use crate::gui::locale::LocaleText;
 use eframe::egui;
 use egui_snarl::Snarl;
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "preset editor rendering needs explicit editing state from the parent view"
-)]
 pub fn render_preset_editor(
     ui: &mut egui::Ui,
     config: &mut Config,
