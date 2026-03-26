@@ -292,6 +292,7 @@ class VideoRenderer {
     srcCropW?: number,
     srcCropH?: number
   ): BakedCameraFrame[] {
+    const t0 = performance.now();
     const bakedPath: BakedCameraFrame[] = [];
     const step = 1 / fps;
     const duration = Math.max(segment.trimEnd, ...(segment.trimSegments || []).map(s => s.endTime));
@@ -320,6 +321,7 @@ class VideoRenderer {
       });
     }
 
+    console.log(`[BakedPath] generateBakedPath: ${(performance.now() - t0).toFixed(1)}ms (${bakedPath.length} frames, ${duration.toFixed(1)}s)`);
     return bakedPath;
   }
 
@@ -450,14 +452,20 @@ class VideoRenderer {
       this.lastBakeViewW = viewW;
       this.lastBakeViewH = viewH;
 
+      // Only include fields that actually affect the camera path.
+      // cursorVisibilitySegments, keystroke*, etc. do NOT affect the baked zoom path.
+      // Use lightweight fingerprints instead of mapping entire arrays through JSON.stringify.
+      const pathLen = segment.smoothMotionPath?.length ?? 0;
+      const pathHash = pathLen > 0
+        ? `${pathLen}:${segment.smoothMotionPath![0].time}:${segment.smoothMotionPath![pathLen - 1].time}:${segment.smoothMotionPath![pathLen - 1].zoom}`
+        : '0';
       const signature = JSON.stringify({
         trim: [segment.trimStart, segment.trimEnd],
         trimSegments: segment.trimSegments?.map(s => ({ s: s.startTime, e: s.endTime })),
         crop: segment.crop,
-        smoothMotionPath: segment.smoothMotionPath?.map(p => ({ t: p.time, z: p.zoom })),
+        smoothMotionPath: pathHash,
         zoomKeyframes: segment.zoomKeyframes?.map(k => ({ t: k.time, d: k.duration, x: k.positionX, y: k.positionY, z: k.zoomFactor })),
         zoomInfluence: segment.zoomInfluencePoints?.map(p => ({ t: p.time, v: p.value })),
-        cursorVis: segment.cursorVisibilitySegments?.map(s => ({ s: s.startTime, e: s.endTime })),
         vidDims: [viewW, viewH]
       });
 

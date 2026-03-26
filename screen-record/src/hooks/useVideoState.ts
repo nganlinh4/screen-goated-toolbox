@@ -2647,37 +2647,40 @@ export function useAutoZoom(props: UseAutoZoomProps) {
   const regenerateMotionPath = useCallback(
     (config: AutoZoomConfig) => {
       if (!props.segment || !props.mousePositions.length || !props.videoRef.current) return;
+      const seg = props.segment;
       const vid = props.videoRef.current;
-      const normalizedMousePositions = normalizeMousePositionsToVideoSpace(
-        props.mousePositions,
-        vid.videoWidth || 0,
-        vid.videoHeight || 0,
-      );
-      const motionPath = autoZoomGenerator.generateMotionPath(
-        props.segment,
-        normalizedMousePositions,
-        vid.videoWidth,
-        vid.videoHeight,
-        config,
-      );
-      const newSegment: VideoSegment = {
-        ...props.segment,
-        smoothMotionPath: motionPath,
-        zoomInfluencePoints: [
-          { time: 0, value: 1.0 },
-          { time: props.duration, value: 1.0 },
-        ],
-      };
-      props.setSegment(newSegment);
-      if (props.currentProjectId) {
-        projectManager
-          .updateProject(props.currentProjectId, {
-            segment: newSegment,
-            backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
-            mousePositions: props.mousePositions,
-          })
-          .then(() => props.loadProjects());
-      }
+      const vidW = vid.videoWidth || 0;
+      const vidH = vid.videoHeight || 0;
+      const mp = props.mousePositions;
+      const dur = props.duration;
+      const projId = props.currentProjectId;
+      const bgCfg = props.backgroundConfig;
+
+      // Yield to UI thread before heavy computation
+      setTimeout(() => {
+        const normalizedMousePositions = normalizeMousePositionsToVideoSpace(mp, vidW, vidH);
+        const motionPath = autoZoomGenerator.generateMotionPath(
+          seg, normalizedMousePositions, vidW, vidH, config,
+        );
+        const newSegment: VideoSegment = {
+          ...seg,
+          smoothMotionPath: motionPath,
+          zoomInfluencePoints: [
+            { time: 0, value: 1.0 },
+            { time: dur, value: 1.0 },
+          ],
+        };
+        props.setSegment(newSegment);
+        if (projId) {
+          projectManager
+            .updateProject(projId, {
+              segment: newSegment,
+              backgroundConfig: cloneBackgroundConfig(bgCfg),
+              mousePositions: mp,
+            })
+            .then(() => props.loadProjects());
+        }
+      }, 0);
     },
     [props],
   );
@@ -2726,43 +2729,49 @@ export function useAutoZoom(props: UseAutoZoomProps) {
 
     if (!props.mousePositions.length || !props.videoRef.current) return;
 
+    // Yield to UI thread before heavy computation
+    const seg = props.segment;
     const vid = props.videoRef.current;
-    const normalizedMousePositions = normalizeMousePositionsToVideoSpace(
-      props.mousePositions,
-      vid.videoWidth || 0,
-      vid.videoHeight || 0,
-    );
-    const motionPath = autoZoomGenerator.generateMotionPath(
-      props.segment,
-      normalizedMousePositions,
-      vid.videoWidth,
-      vid.videoHeight,
-      autoZoomConfig,
-    );
+    const vidW = vid.videoWidth || 0;
+    const vidH = vid.videoHeight || 0;
+    const mp = props.mousePositions;
+    const cfg = autoZoomConfig;
+    const dur = props.duration;
+    const projId = props.currentProjectId;
+    const bgCfg = props.backgroundConfig;
 
-    saveAutoZoomPref(true);
-    const newSegment: VideoSegment = {
-      ...props.segment,
-      smoothMotionPath: motionPath,
-      zoomInfluencePoints: [
-        { time: 0, value: 1.0 },
-        { time: props.duration, value: 1.0 },
-      ],
-    };
+    setTimeout(() => {
+      const normalizedMousePositions = normalizeMousePositionsToVideoSpace(mp, vidW, vidH);
+      const motionPath = autoZoomGenerator.generateMotionPath(
+        seg,
+        normalizedMousePositions,
+        vidW,
+        vidH,
+        cfg,
+      );
 
-    props.setSegment(newSegment);
+      saveAutoZoomPref(true);
+      const newSegment: VideoSegment = {
+        ...seg,
+        smoothMotionPath: motionPath,
+        zoomInfluencePoints: [
+          { time: 0, value: 1.0 },
+          { time: dur, value: 1.0 },
+        ],
+      };
 
-    if (props.currentProjectId) {
-      projectManager
-        .updateProject(props.currentProjectId, {
-          segment: newSegment,
-          backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
-          mousePositions: props.mousePositions,
-        })
-        .then(() => props.loadProjects());
-    }
-
-    props.setActivePanel("zoom");
+      props.setSegment(newSegment);
+      if (projId) {
+        projectManager
+          .updateProject(projId, {
+            segment: newSegment,
+            backgroundConfig: cloneBackgroundConfig(bgCfg),
+            mousePositions: mp,
+          })
+          .then(() => props.loadProjects());
+      }
+      props.setActivePanel("zoom");
+    }, 0);
   }, [props, autoZoomConfig]);
 
   return { handleAutoZoom, autoZoomConfig, handleAutoZoomConfigChange };
@@ -2815,28 +2824,29 @@ export function useCursorHiding(props: UseCursorHidingProps) {
 
     // Default or empty → generate from mouse data
     saveSmartPointerPref(true);
+    const seg = props.segment;
     const vidW = props.videoRef.current?.videoWidth || 0;
     const vidH = props.videoRef.current?.videoHeight || 0;
-    const normalizedMousePositions = normalizeMousePositionsToVideoSpace(
-      props.mousePositions,
-      vidW,
-      vidH,
-    );
-    const segments = generateCursorVisibility(
-      props.segment,
-      normalizedMousePositions,
-      props.duration,
-      vidW,
-      vidH,
-      props.backgroundConfig,
-    );
-    props.setSegment({
-      ...props.segment,
-      cursorVisibilitySegments: clampVisibilitySegmentsToDuration(
-        segments,
-        props.duration,
-      ),
-    });
+    const mp = props.mousePositions;
+    const dur = props.duration;
+    const bgCfg = props.backgroundConfig;
+
+    // Yield to UI thread before heavy computation
+    setTimeout(() => {
+      const normalizedMousePositions = normalizeMousePositionsToVideoSpace(mp, vidW, vidH);
+      const segments = generateCursorVisibility(
+        seg,
+        normalizedMousePositions,
+        dur,
+        vidW,
+        vidH,
+        bgCfg,
+      );
+      props.setSegment({
+        ...seg,
+        cursorVisibilitySegments: clampVisibilitySegmentsToDuration(segments, dur),
+      });
+    }, 0);
   }, [
     props.segment,
     props.mousePositions,
