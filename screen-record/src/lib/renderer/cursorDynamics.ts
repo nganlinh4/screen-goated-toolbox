@@ -501,48 +501,52 @@ export function applyAdaptiveCursorWiggle(
   return result;
 }
 
+// Binary search: first index where positions[i].timestamp >= t (O(log n))
+function cursorLowerBound(positions: MousePosition[], t: number): number {
+  let lo = 0, hi = positions.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (positions[mid].timestamp < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+function posToResult(p: MousePosition) {
+  return {
+    x: p.x,
+    y: p.y,
+    isClicked: Boolean(p.isClicked),
+    cursor_type: p.cursor_type || 'default',
+    cursor_rotation: p.cursor_rotation || 0,
+  };
+}
+
 export function interpolateCursorPositionInternal(
   currentTime: number,
   positions: MousePosition[],
 ): { x: number; y: number; isClicked: boolean; cursor_type: string; cursor_rotation?: number } | null {
   if (!positions || positions.length === 0) return null;
 
-  const exactMatch = positions.find((pos: MousePosition) => Math.abs(pos.timestamp - currentTime) < 0.001);
-  if (exactMatch) {
-    return {
-      x: exactMatch.x,
-      y: exactMatch.y,
-      isClicked: Boolean(exactMatch.isClicked),
-      cursor_type: exactMatch.cursor_type || 'default',
-      cursor_rotation: exactMatch.cursor_rotation || 0,
-    };
+  // Binary search for first position with timestamp >= currentTime
+  const idx = cursorLowerBound(positions, currentTime);
+
+  // Check for exact match at idx or idx-1
+  if (idx < positions.length && Math.abs(positions[idx].timestamp - currentTime) < 0.001) {
+    return posToResult(positions[idx]);
+  }
+  if (idx > 0 && Math.abs(positions[idx - 1].timestamp - currentTime) < 0.001) {
+    return posToResult(positions[idx - 1]);
   }
 
-  const nextIndex = positions.findIndex((pos: MousePosition) => pos.timestamp > currentTime);
-  if (nextIndex === -1) {
-    const last = positions[positions.length - 1];
-    return {
-      x: last.x,
-      y: last.y,
-      isClicked: Boolean(last.isClicked),
-      cursor_type: last.cursor_type || 'default',
-      cursor_rotation: last.cursor_rotation || 0,
-    };
-  }
+  // Past end
+  if (idx >= positions.length) return posToResult(positions[positions.length - 1]);
+  // Before start
+  if (idx === 0) return posToResult(positions[0]);
 
-  if (nextIndex === 0) {
-    const first = positions[0];
-    return {
-      x: first.x,
-      y: first.y,
-      isClicked: Boolean(first.isClicked),
-      cursor_type: first.cursor_type || 'default',
-      cursor_rotation: first.cursor_rotation || 0,
-    };
-  }
-
-  const prev = positions[nextIndex - 1];
-  const next = positions[nextIndex];
+  // Interpolate between prev and next
+  const prev = positions[idx - 1];
+  const next = positions[idx];
   const t = (currentTime - prev.timestamp) / (next.timestamp - prev.timestamp);
 
   return {

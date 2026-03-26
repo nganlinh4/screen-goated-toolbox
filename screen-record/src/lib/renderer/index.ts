@@ -10,7 +10,7 @@ import {
   WebcamConfig,
 } from '@/types/video';
 import { getCursorVisibility } from '@/lib/cursorHiding';
-import { getTrimSegments, toCompactTime } from '@/lib/trimSegments';
+import { getTrimSegments } from '@/lib/trimSegments';
 import {
   getCursorMovementDelaySec,
   processCursorPositions,
@@ -80,9 +80,6 @@ class VideoRenderer {
   private lastCalculatedState: ZoomKeyframe | null = null;
   private cachedBakedPath: BakedCameraFrame[] | null = null;
   private lastBakeSignature: string = '';
-  private lastBakeSegment: VideoSegment | null = null;
-  private lastBakeViewW: number = 0;
-  private lastBakeViewH: number = 0;
 
   // --- Squish animation constants ---
   private readonly CLICK_FUSE_THRESHOLD = 0.15;
@@ -165,8 +162,8 @@ class VideoRenderer {
       lastCursorPreviewDebugSignature: '',
       lastCursorPreviewDebugBucket: -1,
       lastCursorPreviewDebugPoint: null,
-      calculateCurrentZoomState: (currentTime, segment, viewW, viewH, srcCropW?, srcCropH?) =>
-        this.calculateCurrentZoomState(currentTime, segment, viewW, viewH, srcCropW, srcCropH),
+      calculateCurrentZoomState: (currentTime, segment, viewW, viewH, srcCropW?, srcCropH?, videoScale?) =>
+        this.calculateCurrentZoomState(currentTime, segment, viewW, viewH, srcCropW, srcCropH, videoScale),
       requestRedraw: () => {
         if (this.activeRenderContext) this.drawFrame(this.activeRenderContext);
       },
@@ -290,7 +287,8 @@ class VideoRenderer {
     videoHeight: number,
     fps: number = 60,
     srcCropW?: number,
-    srcCropH?: number
+    srcCropH?: number,
+    videoScale?: number
   ): BakedCameraFrame[] {
     const t0 = performance.now();
     const bakedPath: BakedCameraFrame[] = [];
@@ -304,11 +302,13 @@ class VideoRenderer {
     const cropOffsetX = videoWidth * crop.x;
     const cropOffsetY = videoHeight * crop.y;
 
+    // Span the full source time range including hidden parts so the spring
+    // physics transitions naturally through gaps — no abrupt camera jumps.
     const fullStart = trimSegments[0].startTime;
     const fullEnd = trimSegments[trimSegments.length - 1].endTime;
 
     for (let t = fullStart; t <= fullEnd + 0.00001; t += step) {
-      const state = calculateCurrentZoomStateInternal(t, segment, croppedW, croppedH, srcCropW, srcCropH);
+      const state = calculateCurrentZoomStateInternal(t, segment, croppedW, croppedH, srcCropW, srcCropH, videoScale);
 
       const globalX = cropOffsetX + (state.positionX * croppedW);
       const globalY = cropOffsetY + (state.positionY * croppedH);
@@ -443,45 +443,40 @@ class VideoRenderer {
     viewW: number,
     viewH: number,
     srcCropW?: number,
-    srcCropH?: number
+    srcCropH?: number,
+    videoScale?: number
   ): ZoomKeyframe {
     const isPaused = this.activeRenderContext?.video?.paused ?? true;
 
-    if (segment !== this.lastBakeSegment || viewW !== this.lastBakeViewW || viewH !== this.lastBakeViewH) {
-      this.lastBakeSegment = segment;
-      this.lastBakeViewW = viewW;
-      this.lastBakeViewH = viewH;
+    // Compute lightweight signature of zoom-relevant fields only.
+    // smoothMotionPath uses a hash (length + bounds) instead of mapping all 49k entries.
+    // cursorVisibilitySegments, keystroke*, etc. are excluded — they don't affect the camera path.
+    const pathLen = segment.smoothMotionPath?.length ?? 0;
+    const pathHash = pathLen > 0
+      ? `${pathLen}:${segment.smoothMotionPath![0].time}:${segment.smoothMotionPath![pathLen - 1].time}:${segment.smoothMotionPath![pathLen - 1].zoom}`
+      : '0';
+    const signature = JSON.stringify({
+      trim: [segment.trimStart, segment.trimEnd],
+      trimSegments: segment.trimSegments?.map(s => ({ s: s.startTime, e: s.endTime })),
+      crop: segment.crop,
+      smoothMotionPath: pathHash,
+      zoomKeyframes: segment.zoomKeyframes?.map(k => ({ t: k.time, d: k.duration, x: k.positionX, y: k.positionY, z: k.zoomFactor })),
+      zoomInfluence: segment.zoomInfluencePoints?.map(p => ({ t: p.time, v: p.value })),
+      vidDims: [viewW, viewH],
+      videoScale: videoScale ?? 1,
+    });
 
-      // Only include fields that actually affect the camera path.
-      // cursorVisibilitySegments, keystroke*, etc. do NOT affect the baked zoom path.
-      // Use lightweight fingerprints instead of mapping entire arrays through JSON.stringify.
-      const pathLen = segment.smoothMotionPath?.length ?? 0;
-      const pathHash = pathLen > 0
-        ? `${pathLen}:${segment.smoothMotionPath![0].time}:${segment.smoothMotionPath![pathLen - 1].time}:${segment.smoothMotionPath![pathLen - 1].zoom}`
-        : '0';
-      const signature = JSON.stringify({
-        trim: [segment.trimStart, segment.trimEnd],
-        trimSegments: segment.trimSegments?.map(s => ({ s: s.startTime, e: s.endTime })),
-        crop: segment.crop,
-        smoothMotionPath: pathHash,
-        zoomKeyframes: segment.zoomKeyframes?.map(k => ({ t: k.time, d: k.duration, x: k.positionX, y: k.positionY, z: k.zoomFactor })),
-        zoomInfluence: segment.zoomInfluencePoints?.map(p => ({ t: p.time, v: p.value })),
-        vidDims: [viewW, viewH]
-      });
-
-      if (this.lastBakeSignature !== signature) {
-        this.cachedBakedPath = this.generateBakedPath(segment, viewW / (segment.crop?.width || 1), viewH / (segment.crop?.height || 1), 60, srcCropW, srcCropH);
-        this.lastBakeSignature = signature;
-      }
+    if (this.lastBakeSignature !== signature) {
+      this.cachedBakedPath = this.generateBakedPath(segment, viewW / (segment.crop?.width || 1), viewH / (segment.crop?.height || 1), 60, srcCropW, srcCropH, videoScale);
+      this.lastBakeSignature = signature;
     }
 
     if (!isPaused && this.cachedBakedPath && this.cachedBakedPath.length > 0) {
-      const timelineDuration = Math.max(
-        segment.trimEnd,
-        ...(segment.trimSegments || []).map(s => s.endTime)
-      );
-      const relTime = toCompactTime(currentTime, segment, timelineDuration);
+      // Index directly by source time — the baked path spans the full source
+      // range (including hidden parts) so the camera moves naturally through gaps.
+      const bakedStart = this.cachedBakedPath[0].time;
       const step = 1 / 60;
+      const relTime = currentTime - bakedStart;
       const idx = Math.floor(relTime / step);
 
       if (idx >= 0 && idx < this.cachedBakedPath.length) {
@@ -512,7 +507,7 @@ class VideoRenderer {
       }
     }
 
-    const state = calculateCurrentZoomStateInternal(currentTime, segment, viewW, viewH, srcCropW, srcCropH);
+    const state = calculateCurrentZoomStateInternal(currentTime, segment, viewW, viewH, srcCropW, srcCropH, videoScale);
     this.lastCalculatedState = state;
     return state;
   }

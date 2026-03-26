@@ -98,6 +98,7 @@ export interface RendererState {
     viewH: number,
     srcCropW?: number,
     srcCropH?: number,
+    videoScale?: number,
   ) => ZoomKeyframe;
   requestRedraw: () => void;
 }
@@ -331,22 +332,7 @@ export async function drawFrame(
     const x = contained.left;
     const y = contained.top;
 
-    // Adjust zoom anchor from unscaled contain-fit → scaled contain-fit.
-    // positionX/Y from calculateCurrentZoomState assume video fills canvas at 100%.
-    // When scale ≠ 1, the video is smaller & centered — zoom must center on the
-    // actual scaled position: posX_corrected = 0.5 + scale * (posX - 0.5).
-    const adjustZoomForScale = (zs: ZoomKeyframe | null): ZoomKeyframe | null => {
-      if (!zs || scale === 1) return zs;
-      return {
-        ...zs,
-        positionX: 0.5 + scale * (zs.positionX - 0.5),
-        positionY: 0.5 + scale * (zs.positionY - 0.5),
-      };
-    };
-
-    const zoomState = adjustZoomForScale(
-      state.calculateCurrentZoomState(video.currentTime, segment, canvas.width, canvas.height, srcW, srcH)
-    );
+    const zoomState = state.calculateCurrentZoomState(video.currentTime, segment, canvas.width, canvas.height, srcW, srcH, scale);
 
     // Supersample to keep zoom crisp
     const zf = zoomState?.zoomFactor ?? 1;
@@ -468,12 +454,24 @@ export async function drawFrame(
       const lookupTime = video.currentTime - keystrokeDelaySec;
       const events = segment.keystrokeEvents || [];
 
-      // Find the currently active click event.
+      // Find the currently active click event via binary search + local scan.
       // Quick clicks: snappy 0.1s detection window. Holds: stay squished until physical release.
-      const activeEvent = events.find(
-        e => e.type === 'mousedown' && lookupTime >= e.startTime &&
-          lookupTime <= (e.isHold ? e.endTime : e.startTime + 0.1)
-      ) ?? null;
+      let activeEvent: typeof events[number] | null = null;
+      {
+        // Binary search for approximate position in events (sorted by startTime)
+        let elo = 0, ehi = events.length;
+        while (elo < ehi) { const mid = (elo + ehi) >> 1; if (events[mid].startTime <= lookupTime) elo = mid + 1; else ehi = mid; }
+        // Scan backward from insertion point to find active mousedown
+        for (let ei = elo - 1; ei >= 0; ei--) {
+          const e = events[ei];
+          if (lookupTime - e.startTime > 1) break; // events are short, stop scanning
+          if (e.type === 'mousedown' && lookupTime >= e.startTime &&
+              lookupTime <= (e.isHold ? e.endTime : e.startTime + 0.1)) {
+            activeEvent = e;
+            break;
+          }
+        }
+      }
       const isActuallyClicked = !!activeEvent;
       // Propagate so resolveCursorRenderType (grab/closehand icon) also sees this
       interpolatedPosition!.isClicked = isActuallyClicked;
@@ -507,10 +505,15 @@ export async function drawFrame(
           // ── SQUISH DOWN ──
           // Adapt press speed to gap from the previous click:
           // isolated click → comfortable; rapid sequence → faster to fit the B-side gap
-          const prevEvent = events.slice().reverse().find(
-            e => e.type === 'mousedown' &&
-              e.startTime < (activeEvent?.startTime ?? lookupTime) - 0.01
-          ) ?? null;
+          let prevEvent: typeof events[number] | null = null;
+          {
+            const threshold = (activeEvent?.startTime ?? lookupTime) - 0.01;
+            for (let ei = events.length - 1; ei >= 0; ei--) {
+              if (events[ei].type === 'mousedown' && events[ei].startTime < threshold) {
+                prevEvent = events[ei]; break;
+              }
+            }
+          }
           const prevEffectiveEnd = prevEvent
             ? (prevEvent.isHold ? prevEvent.endTime : prevEvent.startTime + 0.1)
             : -Infinity;
@@ -539,10 +542,15 @@ export async function drawFrame(
             const activeEffectiveEnd = activeEvent
               ? (activeEvent.isHold ? activeEvent.endTime : activeEvent.startTime + 0.1)
               : lookupTime;
-            const nextEvent = events.find(
-              e => e.type === 'mousedown' &&
-                e.startTime > (activeEvent?.startTime ?? lookupTime) + 0.01
-            ) ?? null;
+            let nextEvent: typeof events[number] | null = null;
+            {
+              const threshold = (activeEvent?.startTime ?? lookupTime) + 0.01;
+              for (let ei = 0; ei < events.length; ei++) {
+                if (events[ei].type === 'mousedown' && events[ei].startTime > threshold) {
+                  nextEvent = events[ei]; break;
+                }
+              }
+            }
             const gapToNext = nextEvent
               ? Math.max(0, nextEvent.startTime - activeEffectiveEnd)
               : Infinity;
@@ -765,8 +773,8 @@ export async function drawFrame(
       const t0 = video.currentTime - halfShutter;
       const t1 = video.currentTime + halfShutter;
       if (blurZoomVal > 0 || blurPanVal > 0) {
-        const z0 = state.calculateCurrentZoomState(t0, segment, canvasW, canvasH, srcW, srcH);
-        const z1 = state.calculateCurrentZoomState(t1, segment, canvasW, canvasH, srcW, srcH);
+        const z0 = state.calculateCurrentZoomState(t0, segment, canvasW, canvasH, srcW, srcH, scale);
+        const z1 = state.calculateCurrentZoomState(t1, segment, canvasW, canvasH, srcW, srcH, scale);
         if (z0 && z1) {
           if (blurZoomVal > 0 && Math.abs(z0.zoomFactor - z1.zoomFactor) > 0.002) cameraMoving = true;
           if (blurPanVal > 0 && (Math.abs(z0.positionX - z1.positionX) > 0.001 || Math.abs(z0.positionY - z1.positionY) > 0.001)) cameraMoving = true;
@@ -801,8 +809,8 @@ export async function drawFrame(
         const cameraPanSubT = video.currentTime - (panShutterSec / 2) + f * panShutterSec;
         const cursorSubT = video.currentTime + getCursorMovementDelaySec(backgroundConfig) - (cursorShutterSec / 2) + f * cursorShutterSec;
 
-        const zState = adjustZoomForScale(state.calculateCurrentZoomState(cameraZoomSubT, segment, canvasW, canvasH, srcW, srcH));
-        const pState = adjustZoomForScale(state.calculateCurrentZoomState(cameraPanSubT, segment, canvasW, canvasH, srcW, srcH));
+        const zState = state.calculateCurrentZoomState(cameraZoomSubT, segment, canvasW, canvasH, srcW, srcH, scale);
+        const pState = state.calculateCurrentZoomState(cameraPanSubT, segment, canvasW, canvasH, srcW, srcH, scale);
         const subZoom: ZoomKeyframe | null = zState ? {
           ...zState,
           zoomFactor: blurZoomVal > 0 ? zState.zoomFactor : (zoomState?.zoomFactor ?? 1),
