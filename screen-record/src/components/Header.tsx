@@ -286,7 +286,7 @@ export function Header({
         )}
       </div>
 
-      <div className="header-right flex items-center gap-2 h-full pl-2">
+      <div className="header-right flex items-center gap-2 h-full pl-2 flex-shrink-0">
         <div className="hotkey-list flex items-center gap-1.5 flex-wrap max-w-[500px] justify-end">
           {hotkeys.map((h, i) => (
             <Button
