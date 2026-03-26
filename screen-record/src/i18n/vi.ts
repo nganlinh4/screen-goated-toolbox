@@ -263,6 +263,9 @@ const vi: Translations = {
   // App
   preparingVideoOverlay: 'Đang chuẩn bị video...',
   autoZoom: 'Phóng To Tự Động',
+  autoZoomFollowTightness: 'Độ Bám Sát',
+  autoZoomZoomLevel: 'Mức Phóng To',
+  autoZoomSpeedSensitivity: 'Độ Nhạy Tốc Độ',
   smartPointer: 'Con Trỏ Thông Minh',
 
   // Export presets

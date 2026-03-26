@@ -331,7 +331,22 @@ export async function drawFrame(
     const x = contained.left;
     const y = contained.top;
 
-    const zoomState = state.calculateCurrentZoomState(video.currentTime, segment, canvas.width, canvas.height, srcW, srcH);
+    // Adjust zoom anchor from unscaled contain-fit → scaled contain-fit.
+    // positionX/Y from calculateCurrentZoomState assume video fills canvas at 100%.
+    // When scale ≠ 1, the video is smaller & centered — zoom must center on the
+    // actual scaled position: posX_corrected = 0.5 + scale * (posX - 0.5).
+    const adjustZoomForScale = (zs: ZoomKeyframe | null): ZoomKeyframe | null => {
+      if (!zs || scale === 1) return zs;
+      return {
+        ...zs,
+        positionX: 0.5 + scale * (zs.positionX - 0.5),
+        positionY: 0.5 + scale * (zs.positionY - 0.5),
+      };
+    };
+
+    const zoomState = adjustZoomForScale(
+      state.calculateCurrentZoomState(video.currentTime, segment, canvas.width, canvas.height, srcW, srcH)
+    );
 
     // Supersample to keep zoom crisp
     const zf = zoomState?.zoomFactor ?? 1;
@@ -786,8 +801,8 @@ export async function drawFrame(
         const cameraPanSubT = video.currentTime - (panShutterSec / 2) + f * panShutterSec;
         const cursorSubT = video.currentTime + getCursorMovementDelaySec(backgroundConfig) - (cursorShutterSec / 2) + f * cursorShutterSec;
 
-        const zState = state.calculateCurrentZoomState(cameraZoomSubT, segment, canvasW, canvasH, srcW, srcH);
-        const pState = state.calculateCurrentZoomState(cameraPanSubT, segment, canvasW, canvasH, srcW, srcH);
+        const zState = adjustZoomForScale(state.calculateCurrentZoomState(cameraZoomSubT, segment, canvasW, canvasH, srcW, srcH));
+        const pState = adjustZoomForScale(state.calculateCurrentZoomState(cameraPanSubT, segment, canvasW, canvasH, srcW, srcH));
         const subZoom: ZoomKeyframe | null = zState ? {
           ...zState,
           zoomFactor: blurZoomVal > 0 ? zState.zoomFactor : (zoomState?.zoomFactor ?? 1),

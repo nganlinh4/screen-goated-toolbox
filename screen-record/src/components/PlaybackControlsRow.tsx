@@ -1,10 +1,11 @@
-import { Wand2, MousePointer2 } from "lucide-react";
+import { MousePointer2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PlaybackControls } from "@/components/VideoPreview";
 import { CanvasModeToggle } from "@/components/CanvasModeToggle";
 import { KeystrokeToggleControl } from "@/components/KeystrokeToggleControl";
+import { AutoZoomControl } from "@/components/AutoZoomControl";
 import { useSettings } from "@/hooks/useSettings";
-import type { VideoSegment, BackgroundConfig } from "@/types/video";
+import type { VideoSegment, BackgroundConfig, AutoZoomConfig } from "@/types/video";
 import type { CanvasModeToggleProps } from "@/components/CanvasModeToggle";
 import type { KeystrokeToggleControlProps } from "@/components/KeystrokeToggleControl";
 
@@ -40,6 +41,8 @@ export interface PlaybackControlsRowProps {
   currentVideo: string | null;
   mousePositionsLength: number;
   handleAutoZoom: () => void;
+  autoZoomConfig: AutoZoomConfig;
+  handleAutoZoomConfigChange: (config: AutoZoomConfig) => void;
   // Smart pointer button props
   handleSmartPointerHiding: () => void;
 }
@@ -71,6 +74,8 @@ export function PlaybackControlsRow({
   currentVideo,
   mousePositionsLength,
   handleAutoZoom,
+  autoZoomConfig,
+  handleAutoZoomConfigChange,
   handleSmartPointerHiding,
 }: PlaybackControlsRowProps) {
   const { t } = useSettings();
@@ -79,14 +84,6 @@ export function PlaybackControlsRow({
     isProcessing ||
     !currentVideo ||
     (!mousePositionsLength && !segment?.smoothMotionPath?.length);
-
-  const autoZoomClass = `auto-zoom-button ui-action-button flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
-    autoZoomDisabled
-      ? "ui-toolbar-button text-[var(--on-surface)]/35 cursor-not-allowed"
-      : segment?.smoothMotionPath?.length
-        ? ""
-        : "ui-chip-button text-[var(--on-surface)]"
-  }`;
 
   const smartPointerSegs = segment?.cursorVisibilitySegments;
   const isSmartPointerActive =
@@ -145,16 +142,13 @@ export function PlaybackControlsRow({
             />
           }
           autoZoomButton={
-            <Button
-              onClick={handleAutoZoom}
+            <AutoZoomControl
+              segment={segment}
               disabled={autoZoomDisabled}
-              className={autoZoomClass}
-              data-tone="primary"
-              data-active={segment?.smoothMotionPath?.length ? "true" : "false"}
-            >
-              <Wand2 className="w-3 h-3 mr-1" />
-              {t.autoZoom}
-            </Button>
+              handleAutoZoom={handleAutoZoom}
+              autoZoomConfig={autoZoomConfig}
+              onConfigChange={handleAutoZoomConfigChange}
+            />
           }
           smartPointerButton={
             <Button

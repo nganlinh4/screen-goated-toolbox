@@ -317,13 +317,15 @@ textarea.subtle-resize::-webkit-resizer {
     background-color: transparent;
 }
 
-.playback-keystroke-delay-popover {
+.playback-keystroke-delay-popover,
+.auto-zoom-popover {
     border-color: color-mix(in srgb, var(--overlay-divider) 78%, white 10%);
     background: var(--ui-surface-3);
     box-shadow: var(--shadow-elevation-4);
 }
 
-.playback-keystroke-delay-popover::before {
+.playback-keystroke-delay-popover::before,
+.auto-zoom-popover::before {
     content: '';
     position: absolute;
     inset: 1px;

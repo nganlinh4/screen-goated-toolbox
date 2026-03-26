@@ -135,6 +135,21 @@ export interface WebcamConfig {
   insetPx: number;
 }
 
+export interface AutoZoomConfig {
+  /** Follow tightness 0–1 (0 = floaty/cinematic, 1 = strict follow). Default 0.5 */
+  followTightness: number;
+  /** Base zoom level 1.2–4.0. Default 2.0 */
+  zoomLevel: number;
+  /** Speed sensitivity 0–1 (how much fast cursor movement reduces zoom). Default 0.5 */
+  speedSensitivity: number;
+}
+
+export const DEFAULT_AUTO_ZOOM_CONFIG: AutoZoomConfig = {
+  followTightness: 0.5,
+  zoomLevel: 2.0,
+  speedSensitivity: 0.5,
+};
+
 export interface VideoSegment {
   trimStart: number;
   trimEnd: number;

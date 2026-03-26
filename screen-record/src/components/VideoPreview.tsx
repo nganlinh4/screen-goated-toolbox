@@ -263,7 +263,9 @@ export function PlaybackControls({
       {autoZoomButton && (
         <>
           <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
-          {autoZoomButton}
+          <div className="playback-auto-zoom-slot relative group/playback-auto-zoom flex items-center">
+            {autoZoomButton}
+          </div>
         </>
       )}
       {smartPointerButton && (

@@ -263,6 +263,9 @@ const ko: Translations = {
   // App
   preparingVideoOverlay: '비디오 준비 중...',
   autoZoom: '자동 확대',
+  autoZoomFollowTightness: '추적 강도',
+  autoZoomZoomLevel: '확대 수준',
+  autoZoomSpeedSensitivity: '속도 감도',
   smartPointer: '스마트 포인터',
 
   // Export presets
