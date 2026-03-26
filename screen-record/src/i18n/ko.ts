@@ -114,6 +114,7 @@ const ko: Translations = {
   fontSize: '글꼴 크기',
   color: '색상',
   textPanelHint: '텍스트 오버레이를 추가하거나 타임라인에서 선택하세요',
+  textMultiSelectLabel: '개 구간 선택됨 — 모두 편집 중',
   fontWeight: '두께',
   fontWidth: '너비',
   fontSlant: '기울기',

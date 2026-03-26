@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import type { VideoSegment } from "@/types/video";
 import { useSettings } from "@/hooks/useSettings";
 import { KeystrokeTrack } from "./KeystrokeTrack";
@@ -65,6 +65,7 @@ interface TimelineAreaProps {
   isWebcamAvailable: boolean;
   beginBatch: () => void;
   commitBatch: () => void;
+  onTextSelectionChange?: (ids: string[]) => void;
 }
 
 export const TimelineArea: React.FC<TimelineAreaProps> = ({
@@ -97,6 +98,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   isWebcamAvailable,
   beginBatch,
   commitBatch,
+  onTextSelectionChange,
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
@@ -226,6 +228,34 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     dragState.isDraggingWebcamBody ||
     dragState.isDraggingZoom ||
     dragState.isDraggingSeek;
+
+  const handleDeletePointerSegments = useCallback((ids: string[]) => {
+    if (!segment) return;
+    const idSet = new Set(ids);
+    const remaining = (segment.cursorVisibilitySegments || []).filter(s => !idSet.has(s.id));
+    setSegment({ ...segment, cursorVisibilitySegments: remaining.length > 0 ? remaining : undefined });
+  }, [segment, setSegment]);
+
+  const handleTextSplit = useCallback((id: string, splitTime: number) => {
+    if (!segment) return;
+    const texts = segment.textSegments ?? [];
+    const target = texts.find(t => t.id === id);
+    if (!target || splitTime <= target.startTime + 0.1 || splitTime >= target.endTime - 0.1) return;
+    const left = { ...target, endTime: splitTime - 0.01 };
+    const right = { ...target, id: crypto.randomUUID(), startTime: splitTime + 0.01 };
+    setSegment({
+      ...segment,
+      textSegments: texts.map(t => t.id === id ? left : t).concat(right),
+    });
+  }, [segment, setSegment]);
+
+  const handleDeleteTextSegments = useCallback((ids: string[]) => {
+    if (!segment) return;
+    const idSet = new Set(ids);
+    const remaining = (segment.textSegments ?? []).filter(t => !idSet.has(t.id));
+    setSegment({ ...segment, textSegments: remaining });
+  }, [segment, setSegment]);
+
   const {
     viewportRef,
     scrollbarTrackRef,
@@ -498,8 +528,11 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       duration={duration}
                       editingTextId={editingTextId}
                       onTextClick={handleTextClick}
+                      onTextSplit={handleTextSplit}
                       onHandleDragStart={handleTextDragStart}
                       onAddText={onAddText}
+                      onDeleteTextSegments={handleDeleteTextSegments}
+                      onTextSelectionChange={onTextSelectionChange}
                     />
                   ) : (
                     <div className="text-track-empty timeline-track-empty h-7" />
@@ -527,6 +560,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       onHandleDragStart={handlePointerDragStart}
                       onAddPointerSegment={onAddPointerSegment}
                       onPointerHover={setEditingPointerId}
+                      onDeletePointerSegments={handleDeletePointerSegments}
                     />
                   ) : (
                     <div className="pointer-track-empty timeline-track-empty h-7" />
