@@ -336,6 +336,21 @@ textarea.subtle-resize::-webkit-resizer {
     display: none;
 }
 
+.sequence-pill-chain,
+.sequence-pill-chain * {
+    cursor: grab !important;
+}
+
+.sequence-pill-chain.select-none,
+.sequence-pill-chain.select-none * {
+    cursor: grabbing !important;
+}
+
+.sequence-pill-chain .ui-chip-button:hover {
+    transform: none;
+    box-shadow: none;
+}
+
 body.dragging-adjustable-line .timeline-content > div > * {
     pointer-events: none !important;
 }

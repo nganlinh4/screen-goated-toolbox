@@ -30,46 +30,81 @@ export function SequencePillChain({
     (clip) => clip.id === spreadFromClipId,
   );
 
-  // --- Drag-to-scroll ---
+  // --- Mode popover hover with leave delay ---
+  const [modePopoverVisible, setModePopoverVisible] = useState(false);
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showPopover = useCallback(() => {
+    if (leaveTimerRef.current) { clearTimeout(leaveTimerRef.current); leaveTimerRef.current = null; }
+    setModePopoverVisible(true);
+  }, []);
+
+  const scheduleHidePopover = useCallback(() => {
+    if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+    leaveTimerRef.current = setTimeout(() => setModePopoverVisible(false), 250);
+  }, []);
+
+  // --- Drag-to-scroll (window listeners, like cursor grid) ---
   const scrollRef = useRef<HTMLDivElement>(null);
-  const dragState = useRef<{ startX: number; scrollLeft: number; dragging: boolean }>({ startX: 0, scrollLeft: 0, dragging: false });
   const [isDragging, setIsDragging] = useState(false);
+  const suppressClickRef = useRef(false);
+  const DRAG_THRESHOLD = 4;
 
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
     const el = scrollRef.current;
     if (!el) return;
-    // Only initiate drag on the scrollable container itself or empty space, not on buttons
-    if ((e.target as HTMLElement).closest("button")) return;
-    dragState.current = { startX: e.clientX, scrollLeft: el.scrollLeft, dragging: true };
-    setIsDragging(true);
-    el.setPointerCapture(e.pointerId);
+
+    const startX = e.clientX;
+    const startScrollLeft = el.scrollLeft;
+    let dragging = false;
+
+    const handlePointerMove = (me: PointerEvent) => {
+      const dx = me.clientX - startX;
+      if (!dragging && Math.abs(dx) > DRAG_THRESHOLD) {
+        dragging = true;
+        suppressClickRef.current = true;
+        setIsDragging(true);
+      }
+      if (dragging) {
+        el.scrollLeft = startScrollLeft - dx;
+        me.preventDefault();
+      }
+    };
+
+    const handlePointerEnd = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
+      if (dragging) {
+        setIsDragging(false);
+        requestAnimationFrame(() => { suppressClickRef.current = false; });
+      }
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
   }, []);
 
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!dragState.current.dragging) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    const dx = e.clientX - dragState.current.startX;
-    el.scrollLeft = dragState.current.scrollLeft - dx;
-  }, []);
-
-  const onPointerUp = useCallback(() => {
-    dragState.current.dragging = false;
-    setIsDragging(false);
+  const handleClickCapture = useCallback((e: React.MouseEvent) => {
+    if (suppressClickRef.current) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
   }, []);
 
   return (
     <div
-      className={`sequence-focus-breadcrumb group/seqchain relative flex items-center gap-1 px-1 text-[11px] text-[var(--on-surface-variant)] ${isSingleClip ? "justify-center" : ""}`}
+      className={`sequence-focus-breadcrumb relative flex items-center gap-1 px-1 min-w-0 w-full text-[11px] text-[var(--on-surface-variant)] ${isSingleClip ? "justify-center" : ""}`}
+      onMouseEnter={isMultiClip ? showPopover : undefined}
+      onMouseLeave={isMultiClip ? scheduleHidePopover : undefined}
     >
       <div
         ref={scrollRef}
-        className="sequence-pill-chain flex min-w-0 flex-1 items-center overflow-x-auto py-0.5"
-        style={{ scrollbarWidth: "none", msOverflowStyle: "none", cursor: isDragging ? "grabbing" : "grab" }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        className={`sequence-pill-chain flex min-w-0 flex-1 items-center overflow-x-scroll overflow-y-clip py-0.5 ${isDragging ? "!cursor-grabbing select-none" : "!cursor-grab"}`}
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none", touchAction: "none" }}
+        onPointerDown={handlePointerDown}
+        onClickCapture={handleClickCapture}
       >
         <div className="flex min-w-max items-center gap-1">
           <button
@@ -209,7 +244,16 @@ export function SequencePillChain({
       </div>
 
       {isMultiClip && (
-        <div className="sequence-mode-popover playback-keystroke-delay-popover absolute left-1/2 -translate-x-1/2 z-30 top-[calc(100%+4px)] w-max px-1.5 py-1 rounded-lg border pointer-events-none opacity-0 -translate-y-1 transition-all duration-150 group-hover/seqchain:opacity-100 group-hover/seqchain:translate-y-0 group-hover/seqchain:pointer-events-auto">
+        <div
+          className={`sequence-mode-popover playback-keystroke-delay-popover absolute left-1/2 -translate-x-1/2 z-30 top-[calc(100%+4px)] w-max px-1.5 py-1 rounded-lg border transition-all duration-150 ${
+            modePopoverVisible
+              ? "opacity-100 translate-y-0 pointer-events-auto"
+              : "opacity-0 -translate-y-1 pointer-events-none"
+          }`}
+          onMouseEnter={showPopover}
+          onMouseLeave={scheduleHidePopover}
+          style={{ paddingTop: "8px", marginTop: "-4px" }}
+        >
           <div className="flex items-center gap-0.5">
             {(["separate", "unified"] as const).map((mode) => {
               const isActive = composition.mode === mode;
