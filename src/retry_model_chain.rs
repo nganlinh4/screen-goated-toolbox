@@ -42,7 +42,7 @@ pub fn provider_is_available(provider: &str, config: &Config) -> bool {
         "openrouter" => config.use_openrouter && !config.openrouter_api_key.trim().is_empty(),
         "cerebras" => config.use_cerebras && !config.cerebras_api_key.trim().is_empty(),
         "ollama" => config.use_ollama,
-        "google-gtx" | "qrserver" | "parakeet" => true,
+        "google-gtx" | "qrserver" | "parakeet" | "taalas" => true,
         _ => false,
     }
 }
@@ -86,7 +86,7 @@ fn provider_preflight_skip_reason(provider: &str, config: &Config) -> Option<Str
             }
         }
         "ollama" => (!config.use_ollama).then_some("PROVIDER_DISABLED:ollama".to_string()),
-        "google-gtx" | "qrserver" | "parakeet" => None,
+        "google-gtx" | "qrserver" | "parakeet" | "taalas" => None,
         _ => Some(format!("Provider {provider} is disabled.")),
     }
 }

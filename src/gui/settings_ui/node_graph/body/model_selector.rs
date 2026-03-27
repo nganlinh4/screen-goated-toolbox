@@ -93,6 +93,7 @@ pub fn show_model_and_settings(
                         "ollama" => "🏠 ",
                         "qrserver" => "🔳 ",
                         "parakeet" => "🐦 ",
+                        "taalas" => "🚀 ",
                         _ => "⚙️ ",
                     };
                     let search_suffix = if model_supports_search(&m.id) {

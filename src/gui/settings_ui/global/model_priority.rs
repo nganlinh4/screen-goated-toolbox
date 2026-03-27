@@ -260,6 +260,7 @@ fn model_option_label(model: &crate::model_config::ModelConfig, ui_language: &st
         "ollama" => "🏠 ",
         "qrserver" => "🔳 ",
         "parakeet" => "🐦 ",
+        "taalas" => "🚀 ",
         _ => "⚙️ ",
     };
     let search_suffix = if model_supports_search_by_id(&model.id) {
