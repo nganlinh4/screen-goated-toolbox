@@ -1,6 +1,6 @@
-import { Link2, Plus, X } from "lucide-react";
+import { Link2, Plus, X, Check, Minus } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
-import type { ProjectComposition, ProjectCompositionMode } from "@/types/video";
+import type { ProjectComposition, ProjectCompositionClip, ProjectCompositionMode } from "@/types/video";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRef, useCallback, useState } from "react";
 
@@ -32,6 +32,7 @@ export function SequencePillChain({
 
   // --- Mode popover hover with leave delay ---
   const [modePopoverVisible, setModePopoverVisible] = useState(false);
+  const [hoveredClipId, setHoveredClipId] = useState<string | null>(null);
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showPopover = useCallback(() => {
@@ -96,8 +97,8 @@ export function SequencePillChain({
   return (
     <div
       className={`sequence-focus-breadcrumb relative flex items-center gap-1 px-1 min-w-0 w-full text-[11px] text-[var(--on-surface-variant)] ${isSingleClip ? "justify-center" : ""}`}
-      onMouseEnter={isMultiClip ? showPopover : undefined}
-      onMouseLeave={isMultiClip ? scheduleHidePopover : undefined}
+      onMouseEnter={showPopover}
+      onMouseLeave={scheduleHidePopover}
     >
       <div
         ref={scrollRef}
@@ -155,7 +156,11 @@ export function SequencePillChain({
                 transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                 className="flex items-center gap-1"
               >
-                <div className="relative">
+                <div
+                  className="relative"
+                  onMouseEnter={() => { setHoveredClipId(clip.id); showPopover(); }}
+                  onMouseLeave={() => setHoveredClipId(null)}
+                >
                   <button
                     type="button"
                     onClick={() => onSelectClip(clip.id)}
@@ -243,18 +248,20 @@ export function SequencePillChain({
         </div>
       </div>
 
-      {isMultiClip && (
+      {(
         <div
-          className={`sequence-mode-popover playback-keystroke-delay-popover absolute left-1/2 -translate-x-1/2 z-30 top-[calc(100%+4px)] w-max px-1.5 py-1 rounded-lg border transition-all duration-150 ${
+          className={`sequence-mode-popover playback-keystroke-delay-popover absolute left-1/2 -translate-x-1/2 z-30 top-[calc(100%+4px)] w-max px-2.5 py-2 rounded-lg border transition-all duration-150 ${
             modePopoverVisible
               ? "opacity-100 translate-y-0 pointer-events-auto"
               : "opacity-0 -translate-y-1 pointer-events-none"
           }`}
           onMouseEnter={showPopover}
           onMouseLeave={scheduleHidePopover}
-          style={{ paddingTop: "8px", marginTop: "-4px" }}
+          style={{ paddingTop: "10px", marginTop: "-4px" }}
         >
-          <div className="flex items-center gap-0.5">
+          {isMultiClip && <>
+          <span className="sequence-mode-label text-[9px] font-semibold uppercase tracking-wider text-[var(--on-surface-variant)]/60">{t.sequenceApplyConfig}</span>
+          <div className="flex items-center gap-0.5 mt-1">
             {(["separate", "unified"] as const).map((mode) => {
               const isActive = composition.mode === mode;
               return (
@@ -281,8 +288,54 @@ export function SequencePillChain({
               );
             })}
           </div>
+          </>}
+          <ClipMetadataList clip={(hoveredClipId ? composition.clips.find(c => c.id === hoveredClipId) : isSingleClip ? composition.clips[0] : undefined)} t={t} />
         </div>
       )}
+    </div>
+  );
+}
+
+function ClipMetadataList({ clip, t }: { clip?: ProjectCompositionClip; t: Record<string, string> }) {
+  if (!clip) return null;
+
+  const hasVideo = !!(clip.rawVideoPath);
+  const hasCursor = clip.mousePositions.length > 0;
+  const hasWebcam = clip.segment.webcamAvailable === true;
+  const hasMic = clip.segment.micAudioAvailable === true;
+  const hasDeviceAudio = clip.segment.deviceAudioAvailable !== false;
+  const hasKeystrokes = (clip.segment.keystrokeEvents?.length ?? 0) > 0;
+
+  const items: { label: string; available: boolean }[] = [
+    { label: t.clipInfoVideo, available: hasVideo },
+    { label: t.clipInfoCursor, available: hasCursor },
+    { label: t.clipInfoWebcam, available: hasWebcam },
+    { label: t.clipInfoMic, available: hasMic },
+    { label: t.clipInfoDeviceAudio, available: hasDeviceAudio },
+    { label: t.clipInfoKeystrokes, available: hasKeystrokes },
+  ];
+
+  return (
+    <div className="clip-metadata-list mt-2 pt-2 border-t border-[var(--ui-border)]">
+      <p className="text-[9px] font-semibold uppercase tracking-wider text-[var(--on-surface-variant)]/60 mb-1 truncate max-w-[180px]">{clip.name}</p>
+      <div className="flex flex-col gap-1">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-center gap-2">
+            <span className={`shrink-0 flex items-center justify-center w-3.5 h-3.5 rounded-full ${
+              item.available
+                ? 'bg-green-500/20'
+                : 'bg-[var(--on-surface-variant)]/8'
+            }`}>
+              {item.available ? (
+                <Check className="w-2 h-2 text-green-500" strokeWidth={3} />
+              ) : (
+                <Minus className="w-2 h-2 text-[var(--on-surface-variant)]/30" strokeWidth={3} />
+              )}
+            </span>
+            <span className={`text-[10px] ${item.available ? 'text-[var(--on-surface)]' : 'text-[var(--on-surface-variant)]/40 line-through'}`}>{item.label}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
