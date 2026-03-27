@@ -2,7 +2,7 @@ import { Link2, Plus, X, Check, Minus } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import type { ProjectComposition, ProjectCompositionClip, ProjectCompositionMode } from "@/types/video";
 import { motion, AnimatePresence } from "framer-motion";
-import { useRef, useCallback, useState } from "react";
+import { useRef, useCallback, useState, useEffect } from "react";
 
 interface SequencePillChainProps {
   composition: ProjectComposition;
@@ -43,6 +43,21 @@ export function SequencePillChain({
   const scheduleHidePopover = useCallback(() => {
     if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
     leaveTimerRef.current = setTimeout(() => setModePopoverVisible(false), 250);
+  }, []);
+
+  // --- Measure inner content to report intrinsic width to parent slot ---
+  const contentRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const content = contentRef.current;
+    const root = rootRef.current;
+    if (!content || !root) return;
+    const ro = new ResizeObserver(() => {
+      const w = content.scrollWidth;
+      root.style.setProperty('--breadcrumb-content-w', `${w}px`);
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
   }, []);
 
   // --- Drag-to-scroll (window listeners, like cursor grid) ---
@@ -96,6 +111,7 @@ export function SequencePillChain({
 
   return (
     <div
+      ref={rootRef}
       className={`sequence-focus-breadcrumb relative flex items-center gap-1 px-1 min-w-0 w-full text-[11px] text-[var(--on-surface-variant)] ${isSingleClip ? "justify-center" : ""}`}
       onMouseEnter={showPopover}
       onMouseLeave={scheduleHidePopover}
@@ -107,7 +123,7 @@ export function SequencePillChain({
         onPointerDown={handlePointerDown}
         onClickCapture={handleClickCapture}
       >
-        <div className="flex min-w-max items-center gap-1">
+        <div ref={contentRef} className="flex min-w-max items-center gap-1">
           <button
             type="button"
             onClick={() => onInsertClip(null, "before")}
