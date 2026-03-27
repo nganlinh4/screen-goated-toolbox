@@ -282,7 +282,7 @@ export function Header({
         )}
 
         {sequenceBreadcrumb && (
-          <div className={`header-breadcrumb-slot flex-1 min-w-0 flex items-center transition-opacity duration-200 ${showProjectsDialog ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} onMouseDown={(e) => e.stopPropagation()}>
+          <div className={`header-breadcrumb-slot min-w-0 flex items-center shrink-0 transition-opacity duration-200 ${showProjectsDialog ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} onMouseDown={(e) => e.stopPropagation()}>
             {sequenceBreadcrumb}
           </div>
         )}
@@ -568,7 +568,7 @@ export function Header({
                   rawButtonDisabled
                   ? 'ui-toolbar-button text-[var(--on-surface)]/35 cursor-not-allowed'
                   : ''
-              } ${rawButtonPulse && !rawButtonDisabled ? 'animate-pulse' : ''}`}
+              } ${rawButtonPulse && !rawButtonDisabled ? 'raw-video-button-pulse' : ''}`}
               data-tone="success"
               data-active={rawButtonDisabled ? "false" : "true"}
               data-emphasis={rawButtonDisabled ? undefined : "strong"}

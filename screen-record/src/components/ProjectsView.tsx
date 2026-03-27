@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Video, Trash2, Play, X } from "lucide-react";
+import { Video, Trash2, Play, X, Upload } from "lucide-react";
 import { Project } from "@/types/video";
 import { projectManager } from "@/lib/projectManager";
 import { useSettings } from "@/hooks/useSettings";
@@ -25,6 +25,7 @@ interface ProjectsViewProps {
   previewTargetSnapshot?: import("./projectsViewUtils").ProjectsPreviewTargetSnapshot | null;
   pickerMode?: "load" | "insertBefore" | "insertAfter";
   onPickProject?: (projectId: string) => void | Promise<void>;
+  onImportVideo?: (file: File) => void;
 }
 
 export function ProjectsView({
@@ -38,6 +39,7 @@ export function ProjectsView({
   previewTargetSnapshot,
   pickerMode = "load",
   onPickProject,
+  onImportVideo,
 }: ProjectsViewProps) {
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -132,10 +134,21 @@ export function ProjectsView({
             {!isPickerMode && projects.length > 0 && (
               <button
                 onClick={() => setShowClearConfirm(true)}
-                className="projects-clear-btn ui-chip-button rounded-lg px-2.5 py-1 text-xs font-medium text-red-500 hover:text-red-400"
+                className="projects-clear-btn rounded-lg px-2.5 py-1 text-xs font-medium text-red-500/80 hover:text-red-400 hover:bg-red-500/10 transition-colors"
               >
                 {t.clearAll}
               </button>
+            )}
+            {!isPickerMode && onImportVideo && (
+              <label className="projects-import-btn ui-chip-button rounded-lg px-2.5 py-1 text-xs font-medium cursor-pointer flex items-center gap-1.5 text-[var(--primary-color)] hover:text-[var(--primary-color)]">
+                <Upload className="w-3 h-3" />
+                {t.importVideo}
+                <input type="file" accept="video/*" className="hidden" onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onImportVideo(file);
+                  e.target.value = "";
+                }} />
+              </label>
             )}
           </div>
           <div className="projects-limit-control flex items-center gap-4 flex-shrink-0 whitespace-nowrap">

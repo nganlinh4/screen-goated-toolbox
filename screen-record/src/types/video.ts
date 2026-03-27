@@ -115,7 +115,7 @@ export interface AudioGainPoint {
 export type DeviceAudioPoint = AudioGainPoint;
 export type MicAudioPoint = AudioGainPoint;
 
-export type RecordingMode = "withoutCursor" | "withCursor";
+export type RecordingMode = "withoutCursor" | "withCursor" | "imported";
 
 export type WebcamPosition =
   | "bottomRight"

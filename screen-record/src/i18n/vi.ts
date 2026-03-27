@@ -270,6 +270,13 @@ const vi: Translations = {
   smartPointer: 'Con Trỏ Thông Minh',
   clearSelection: 'đã chọn',
 
+  // Video import
+  importVideo: 'Chọn Video Từ Máy (Hoặc kéo thả video vào đây)',
+  dropVideoHere: 'Thả video vào đây',
+  orImportVideo: 'hoặc chọn video từ máy',
+  importingVideo: 'Đang nhập video...',
+  importedVideoHint: 'Video nhập — tính năng con trỏ và phím không khả dụng',
+
   // Export presets
   presetBalanced: 'Cân Bằng (Khuyến Nghị)',
   presetOriginal: 'Chất Lượng Gốc',

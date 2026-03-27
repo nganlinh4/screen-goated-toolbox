@@ -98,7 +98,7 @@ export function PlaybackControlsRow({
       Math.abs(smartPointerSegs[0].startTime - 0) < 0.01 &&
       Math.abs(smartPointerSegs[0].endTime - duration) < 0.01
     );
-  const smartPointerDisabled = isProcessing || !currentVideo;
+  const smartPointerDisabled = isProcessing || !currentVideo || !mousePositionsLength;
   const smartPointerClass = `smart-pointer-button ui-action-button flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
     smartPointerDisabled
       ? "ui-toolbar-button text-[var(--on-surface)]/35 cursor-not-allowed"

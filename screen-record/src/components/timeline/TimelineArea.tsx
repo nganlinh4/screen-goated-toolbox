@@ -70,6 +70,7 @@ interface TimelineAreaProps {
   onKeystrokeSelectionChange?: (ids: string[]) => void;
   onWebcamSelectionChange?: (ids: string[]) => void;
   clearSelectionSignal?: number;
+  hasMouseData?: boolean;
 }
 
 export const TimelineArea: React.FC<TimelineAreaProps> = ({
@@ -107,6 +108,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   onKeystrokeSelectionChange,
   onWebcamSelectionChange,
   clearSelectionSignal,
+  hasMouseData = true,
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
@@ -181,7 +183,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     ...(showWebcam ? [TIMELINE_TRACK_HEIGHTS.webcam] : []),
     TIMELINE_TRACK_HEIGHTS.text,
     ...(showKeystroke ? [TIMELINE_TRACK_HEIGHTS.keystroke] : []),
-    TIMELINE_TRACK_HEIGHTS.pointer,
+    ...(hasMouseData ? [TIMELINE_TRACK_HEIGHTS.pointer] : []),
   ];
   const trimHeadCenterY =
     trackHeightsBeforeTrim.reduce((sum, height) => sum + height, 0) +
@@ -417,11 +419,13 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 </span>
               </div>
             )}
-            <div className="timeline-label-pointer h-7 flex items-center">
-              <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
-                {t.trackPointer}
-              </span>
-            </div>
+            {hasMouseData && (
+              <div className="timeline-label-pointer h-7 flex items-center">
+                <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+                  {t.trackPointer}
+                </span>
+              </div>
+            )}
             <div className="timeline-label-video h-10 flex items-center">
               <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                 {t.trackVideo}
@@ -596,7 +600,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     <div className="keystroke-track-empty timeline-track-empty h-7" />
                   ))}
 
-                  {segment ? (
+                  {hasMouseData && (segment ? (
                     <PointerTrack
                       segment={segment}
                       duration={duration}
@@ -610,7 +614,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     />
                   ) : (
                     <div className="pointer-track-empty timeline-track-empty h-7" />
-                  )}
+                  ))}
 
                   {segment ? (
                     <TrimTrack

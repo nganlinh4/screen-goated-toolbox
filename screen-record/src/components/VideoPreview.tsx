@@ -17,13 +17,15 @@ interface PlaceholderProps {
   loadingProgress: number;
   isRecording: boolean;
   recordingDuration: number;
+  onImportVideo?: (file: File) => void;
 }
 
 export function Placeholder({
   isLoadingVideo,
   loadingProgress,
   isRecording,
-  recordingDuration
+  recordingDuration,
+  onImportVideo,
 }: PlaceholderProps) {
   const { t } = useSettings();
   return (
@@ -58,6 +60,16 @@ export function Placeholder({
           <Video className="w-8 h-8 text-[var(--outline-variant)] mb-3" />
           <p className="text-[var(--on-surface)] text-sm font-medium">{t.noVideoSelected}</p>
           <p className="text-[var(--outline)] text-xs mt-1">{t.startRecordingHint}</p>
+          {onImportVideo && (
+            <label className="placeholder-import-btn mt-3 text-[10px] text-[var(--outline)] hover:text-[var(--primary-color)] cursor-pointer transition-colors">
+              {t.orImportVideo}
+              <input type="file" accept="video/*" className="hidden" onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onImportVideo(file);
+                e.target.value = "";
+              }} />
+            </label>
+          )}
         </div>
       )}
       {isLoadingVideo && loadingProgress > 0 && (

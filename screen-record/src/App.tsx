@@ -28,6 +28,8 @@ import { useTimelineAdaptiveThumbnails } from "@/hooks/useTimelineAdaptiveThumbn
 import { useCompositionPipeline } from "@/hooks/useCompositionPipeline";
 import { type PersistOptions } from "@/hooks/useSequenceComposition";
 import { EditorOverlays } from "@/components/EditorOverlays";
+import { DragDropOverlay } from "@/components/DragDropOverlay";
+import { useVideoImport } from "@/hooks/useVideoImport";
 import { EditorMain } from "@/components/EditorMain";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
 import { cloneWebcamConfig, DEFAULT_WEBCAM_CONFIG } from "@/lib/webcam";
@@ -511,6 +513,17 @@ function App() {
   // Wire onProjectLoaded into the ref so useProjects can always call the latest implementation.
   onProjectLoadedRef.current = onProjectLoaded;
 
+  // Video import (external/non-recorded videos)
+  const { isImporting, importVideo } = useVideoImport({
+    onProjectCreated: (project) => {
+      // Close projects dialog first (if open), then load the imported project
+      projects.setShowProjectsDialog(false);
+      void projects.loadProjects().then(() => {
+        void handleLoadProjectFromGrid(project.id);
+      });
+    },
+  });
+
   // App-level effects (persistence, background config cache, auto-save, toggle recording)
   useAppEffects({
     segment,
@@ -581,6 +594,7 @@ function App() {
   return (
     <SettingsContext.Provider value={settings}>
       <div className="app-container min-h-screen bg-[var(--surface)]">
+        <DragDropOverlay disabled={isRecording || isImporting} onDropVideo={importVideo} />
         <ResizeBorders />
         <Header
           isRecording={isRecording}
@@ -729,6 +743,7 @@ function App() {
           setShowProjectsDialog={projects.setShowProjectsDialog}
           armProjectInteractionShieldRelease={armProjectInteractionShieldRelease}
           onPickProject={handlePickProjectForSequence}
+          onImportVideo={importVideo}
           isProjectInteractionShieldVisible={isProjectInteractionShieldVisible}
           isCropping={isCropping}
           currentVideo={currentVideo}
