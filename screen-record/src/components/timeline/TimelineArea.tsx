@@ -167,15 +167,20 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
       : segment?.keystrokeMode === "keyboardMouse"
         ? t.trackKeyboardMouse
         : t.trackKeystrokesOff;
+  const showDeviceAudio = isDeviceAudioAvailable;
+  const showMicAudio = isMicAudioAvailable;
+  const showWebcam = isWebcamAvailable;
+  const showKeystroke = (segment?.keystrokeMode ?? 'off') !== 'off';
+
   const trackHeightsBeforeTrim = [
     TIMELINE_TRACK_HEIGHTS.zoom,
     ...(showDebug ? [TIMELINE_TRACK_HEIGHTS.debug] : []),
     TIMELINE_TRACK_HEIGHTS.speed,
-    TIMELINE_TRACK_HEIGHTS.deviceAudio,
-    TIMELINE_TRACK_HEIGHTS.micAudio,
-    TIMELINE_TRACK_HEIGHTS.webcam,
+    ...(showDeviceAudio ? [TIMELINE_TRACK_HEIGHTS.deviceAudio] : []),
+    ...(showMicAudio ? [TIMELINE_TRACK_HEIGHTS.micAudio] : []),
+    ...(showWebcam ? [TIMELINE_TRACK_HEIGHTS.webcam] : []),
     TIMELINE_TRACK_HEIGHTS.text,
-    TIMELINE_TRACK_HEIGHTS.keystroke,
+    ...(showKeystroke ? [TIMELINE_TRACK_HEIGHTS.keystroke] : []),
     TIMELINE_TRACK_HEIGHTS.pointer,
   ];
   const trimHeadCenterY =
@@ -369,12 +374,14 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 R
               </button>
             </div>
-            <div className={`timeline-label-device-audio h-10 flex items-center ${isDeviceAudioAvailable ? "" : "timeline-label-unavailable"}`}>
-              <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
-                {t.trackDeviceAudio}
-              </span>
-            </div>
-            {renderTrackDelayLabel({
+            {showDeviceAudio && (
+              <div className="timeline-label-device-audio h-10 flex items-center">
+                <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+                  {t.trackDeviceAudio}
+                </span>
+              </div>
+            )}
+            {showMicAudio && renderTrackDelayLabel({
               className: "timeline-label-mic-audio",
               groupClassName: "group",
               label: t.trackMicAudio,
@@ -383,10 +390,10 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 if (!segment || !isMicAudioAvailable) return;
                 setSegment({ ...segment, micAudioOffsetSec: value });
               },
-              isAvailable: isMicAudioAvailable,
+              isAvailable: true,
               heightClassName: "h-10",
             })}
-            {renderTrackDelayLabel({
+            {showWebcam && renderTrackDelayLabel({
               className: "timeline-label-webcam",
               groupClassName: "group",
               label: t.trackWebcam,
@@ -395,7 +402,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 if (!segment || !isWebcamAvailable) return;
                 setSegment({ ...segment, webcamOffsetSec: value });
               },
-              isAvailable: isWebcamAvailable,
+              isAvailable: true,
               heightClassName: "h-7",
             })}
             <div className="timeline-label-text h-7 flex items-center">
@@ -403,11 +410,13 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 {t.trackText}
               </span>
             </div>
-            <div className="timeline-label-keystrokes h-7 flex items-center">
-              <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
-                {keystrokeTrackLabel}
-              </span>
-            </div>
+            {showKeystroke && (
+              <div className="timeline-label-keystrokes h-7 flex items-center">
+                <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+                  {keystrokeTrackLabel}
+                </span>
+              </div>
+            )}
             <div className="timeline-label-pointer h-7 flex items-center">
               <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                 {t.trackPointer}
@@ -483,7 +492,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     <div className="speed-track-empty timeline-track-empty h-10" />
                   )}
 
-                  {segment ? (
+                  {showDeviceAudio && (segment ? (
                     <DeviceAudioTrack
                       segment={segment}
                       duration={duration}
@@ -496,9 +505,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     />
                   ) : (
                     <div className="device-audio-track-empty timeline-track-empty h-10" />
-                  )}
+                  ))}
 
-                  {segment ? (
+                  {showMicAudio && (segment ? (
                     <MicTrack
                       segment={segment}
                       duration={duration}
@@ -511,9 +520,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     />
                   ) : (
                     <div className="mic-audio-track-empty timeline-track-empty h-10" />
-                  )}
+                  ))}
 
-                  {segment ? (
+                  {showWebcam && (segment ? (
                     <WebcamVisibilityTrack
                       segment={segment}
                       duration={duration}
@@ -551,7 +560,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     />
                   ) : (
                     <div className="webcam-visibility-track-empty timeline-track-empty h-7" />
-                  )}
+                  ))}
 
                   {segment ? (
                     <TextTrack
@@ -570,7 +579,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     <div className="text-track-empty timeline-track-empty h-7" />
                   )}
 
-                  {segment ? (
+                  {showKeystroke && (segment ? (
                     <KeystrokeTrack
                       segment={segment}
                       duration={duration}
@@ -585,7 +594,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     />
                   ) : (
                     <div className="keystroke-track-empty timeline-track-empty h-7" />
-                  )}
+                  ))}
 
                   {segment ? (
                     <PointerTrack

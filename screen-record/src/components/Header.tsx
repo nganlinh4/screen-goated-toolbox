@@ -79,6 +79,7 @@ interface HeaderProps {
   onSelectMonitorCapture: (monitorId: string, fps: number | null) => void;
   onSelectWindowCapture: (fps: number | null) => void;
   sequenceBreadcrumb?: React.ReactNode;
+  showProjectsDialog?: boolean;
 }
 
 export function Header({
@@ -113,6 +114,7 @@ export function Header({
   onSelectMonitorCapture,
   onSelectWindowCapture,
   sequenceBreadcrumb,
+  showProjectsDialog,
 }: HeaderProps) {
   const { t } = useSettings();
   const headerStatus = useHeaderStatus();
@@ -280,7 +282,7 @@ export function Header({
         )}
 
         {sequenceBreadcrumb && (
-          <div className="header-breadcrumb-slot flex-1 min-w-0 flex items-center" onMouseDown={(e) => e.stopPropagation()}>
+          <div className={`header-breadcrumb-slot flex-1 min-w-0 flex items-center transition-opacity duration-200 ${showProjectsDialog ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} onMouseDown={(e) => e.stopPropagation()}>
             {sequenceBreadcrumb}
           </div>
         )}

@@ -321,7 +321,7 @@ class VideoRenderer {
       });
     }
 
-    console.log(`[BakedPath] generateBakedPath: ${(performance.now() - t0).toFixed(1)}ms (${bakedPath.length} frames, ${duration.toFixed(1)}s)`);
+    if (performance.now() - t0 > 50) console.warn(`[BakedPath] generateBakedPath: ${(performance.now() - t0).toFixed(1)}ms (${bakedPath.length} frames, ${duration.toFixed(1)}s)`);
     return bakedPath;
   }
 

@@ -180,7 +180,7 @@ export class AutoZoomGenerator {
     path.length = frameIdx;
     const elapsed = performance.now() - t0;
     const dur = segment.trimEnd - segment.trimStart;
-    console.log(`[AutoZoom] generateMotionPath: ${elapsed.toFixed(1)}ms for ${dur.toFixed(1)}s clip (${data.length} samples, ${frameIdx} frames)`);
+    if (elapsed > 100) console.warn(`[AutoZoom] generateMotionPath: ${elapsed.toFixed(1)}ms for ${dur.toFixed(1)}s clip (${data.length} samples, ${frameIdx} frames)`);
     return path;
   }
 }

@@ -241,7 +241,7 @@ export function generateCursorVisibility(
       frameWidth,
       frameHeight
     );
-    console.log(`[SmartPointer] generateCursorVisibility: ${(performance.now() - t0).toFixed(1)}ms (fallback, ${positions.length} samples)`);
+    if (performance.now() - t0 > 100) console.warn(`[SmartPointer] generateCursorVisibility: ${(performance.now() - t0).toFixed(1)}ms (fallback, ${positions.length} samples)`);
     logSmartPointerGeneration({
       timelineEnd,
       sampleCount: positions.length,
@@ -568,7 +568,7 @@ export function generateCursorVisibility(
       }))
       .filter(s => s.endTime > s.startTime);
 
-  console.log(`[SmartPointer] generateCursorVisibility: ${(performance.now() - t0).toFixed(1)}ms for ${timelineEnd.toFixed(1)}s clip (${motionPositions.length} samples, ${visibleSegments.length} segments)`);
+  if (performance.now() - t0 > 100) console.warn(`[SmartPointer] generateCursorVisibility: ${(performance.now() - t0).toFixed(1)}ms for ${timelineEnd.toFixed(1)}s clip (${motionPositions.length} samples, ${visibleSegments.length} segments)`);
   logSmartPointerGeneration({
     timelineEnd,
     sampleCount: positions.length,
