@@ -225,6 +225,12 @@ where
             ui_language,
             on_chunk,
         )
+    } else if provider == "taalas" {
+        providers::refine_taalas(
+            final_prompt,
+            cancel_token,
+            on_chunk,
+        )
     } else if provider == "cerebras" {
         providers::refine_cerebras(
             cerebras_api_key,

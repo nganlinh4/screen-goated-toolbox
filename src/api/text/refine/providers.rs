@@ -1,5 +1,5 @@
 // --- PROVIDER-SPECIFIC REFINE HANDLERS ---
-// Gemini, Cerebras, OpenRouter, and Groq refinement implementations.
+// Gemini, Cerebras, OpenRouter, Groq, and Taalas refinement implementations.
 
 use crate::APP;
 use crate::api::client::UREQ_AGENT;
@@ -7,7 +7,7 @@ use crate::api::types::{ChatCompletionResponse, StreamChunk};
 use crate::gui::locale::LocaleText;
 use crate::overlay::utils::get_context_quote;
 use anyhow::Result;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -144,6 +144,56 @@ where
         }
     }
 
+    Ok(full_content)
+}
+
+// --- TAALAS REFINE (chatjimmy.ai / HC1 silicon) ---
+pub(super) fn refine_taalas<F>(
+    final_prompt: &str,
+    cancel_token: &Option<Arc<AtomicBool>>,
+    on_chunk: &mut F,
+) -> Result<String>
+where
+    F: FnMut(&str),
+{
+    let payload = serde_json::json!({
+        "messages": [{ "role": "user", "content": final_prompt }],
+        "chatOptions": {
+            "selectedModel": "llama3.1-8B",
+            "topK": 8
+        }
+    });
+
+    let resp = UREQ_AGENT
+        .post("https://chatjimmy.ai/api/chat")
+        .header("Content-Type", "application/json")
+        .send_json(payload)
+        .map_err(|e| anyhow::anyhow!("Taalas Refine Error: {}", e))?;
+
+    let mut reader = resp.into_body().into_reader();
+    let mut buf = [0u8; 8192];
+    let mut raw = String::new();
+
+    loop {
+        if let Some(ct) = cancel_token
+            && ct.load(Ordering::Relaxed)
+        {
+            return Err(anyhow::anyhow!("Cancelled"));
+        }
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        raw.push_str(&String::from_utf8_lossy(&buf[..n]));
+    }
+
+    let full_content = if let Some(i) = raw.find("<|stats|>") {
+        raw[..i].trim().to_string()
+    } else {
+        raw.trim().to_string()
+    };
+
+    on_chunk(&full_content);
     Ok(full_content)
 }
 

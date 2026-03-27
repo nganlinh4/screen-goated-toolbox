@@ -229,6 +229,19 @@ lazy_static::lazy_static! {
             "50 shared requests/day"
         ),
         ModelConfig::new(
+            "taalas-llama-8b",
+            "taalas",
+            "Tức khắc",
+            "즉시",
+            "Instant",
+            "taalas/llama-3.1-8b",
+            ModelType::Text,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
+        ),
+        ModelConfig::new(
             "text_fast_120b",
             "groq",
             "Nhanh",
