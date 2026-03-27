@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "cases": [
     {
       "name": "bucket_order_and_files",
@@ -18,7 +18,26 @@
       "name": "android_settings_entry_surface",
       "section": "SETTINGS",
       "entry_surface": "material3_dialog_or_sheet",
-      "answer_surface": "floating_overlay_result"
+      "answer_surface": "floating_overlay_result",
+      "default_bucket": "android",
+      "mode_selector_position": "above_text_area"
+    },
+    {
+      "name": "answer_modes",
+      "order": [
+        "quick",
+        "detailed"
+      ],
+      "models": {
+        "quick": "gemini-3.1-flash-lite-preview",
+        "detailed": "gemini-3-flash-preview"
+      }
+    },
+    {
+      "name": "long_lived_request_behavior",
+      "use_dedicated_help_assistant_clients": true,
+      "allow_large_repomix_fetches": true,
+      "allow_long_generation_latency": true
     },
     {
       "name": "repomix_token_ceiling",
@@ -35,7 +54,9 @@
       "markdown_output": true,
       "forbid_made_up_information": true,
       "forbid_source_code_framing": true,
-      "require_locale_correct_ui_terms": true
+      "require_locale_correct_ui_terms": true,
+      "quick_prefers_brief_answers": true,
+      "detailed_prefers_step_by_step_answers": true
     }
   ]
 }

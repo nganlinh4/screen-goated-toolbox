@@ -1,4 +1,5 @@
 .gradle/
+.kotlin/errors/
 local.properties
 **/build/
 .adb-phone.json

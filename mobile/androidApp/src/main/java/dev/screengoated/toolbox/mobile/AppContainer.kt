@@ -45,6 +45,13 @@ class AppContainer(
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    private val helpAssistantHttpClient: OkHttpClient = httpClient.newBuilder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.MINUTES)
+        .writeTimeout(15, TimeUnit.MINUTES)
+        .callTimeout(0, TimeUnit.MILLISECONDS)
+        .build()
+
     val projectionConsentStore = ProjectionConsentStore()
     val audioPresetLaunchStore = AudioPresetLaunchStore()
     private val settingsStore = SecureSettingsStore(appContext, json)
@@ -73,7 +80,7 @@ class AppContainer(
     val appUpdateRepository = AppUpdateRepository(httpClient)
 
     private val textApiClient = TextApiClient(httpClient)
-    val helpAssistantClient = HelpAssistantClient(httpClient)
+    val helpAssistantClient = HelpAssistantClient(helpAssistantHttpClient)
     val audioApiClient = AudioApiClient(
         appContext = appContext,
         httpClient = httpClient,

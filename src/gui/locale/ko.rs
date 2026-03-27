@@ -382,6 +382,8 @@ pub fn get() -> LocaleText {
         help_assistant_screen_record_option: "SGT Record(화면 녹화)에 대해 묻기",
         help_assistant_android_option: "SGT Android에 대해 묻기",
         help_assistant_rest_option: "그 외 모든 것에 대해 묻기",
+        help_assistant_quick_option: "빠르게 묻기",
+        help_assistant_detailed_option: "자세히 묻기",
         prompt_dj_btn: "DJ 되기",
         prompt_dj_title: "SGT DJ - DJ 되기",
         screen_record_btn: "화면 녹화",

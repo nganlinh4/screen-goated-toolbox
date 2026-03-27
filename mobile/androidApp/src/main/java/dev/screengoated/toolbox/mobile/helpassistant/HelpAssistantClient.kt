@@ -23,6 +23,7 @@ class HelpAssistantClient(
             val contextXml = fetchContextXml(request.bucket)
             askGemini(
                 apiKey = apiKey,
+                mode = request.mode,
                 question = request.question.trim(),
                 contextXml = contextXml,
             )
@@ -45,10 +46,12 @@ class HelpAssistantClient(
     }
 
     internal fun buildGeminiPayload(
+        mode: HelpAssistantMode,
         question: String,
         contextXml: String,
     ): JSONObject {
         val userMessage = buildUserMessage(
+            mode = mode,
             question = question,
             contextXml = contextXml,
         )
@@ -67,24 +70,26 @@ class HelpAssistantClient(
             .put(
                 "generationConfig",
                 JSONObject()
-                    .put("maxOutputTokens", 2048)
+                    .put("maxOutputTokens", mode.maxOutputTokens)
                     .put("temperature", 0.7),
             )
     }
 
     internal fun buildUserMessage(
+        mode: HelpAssistantMode,
         question: String,
         contextXml: String,
-    ): String = "$SYSTEM_PROMPT\n\n---\nSource Code Context:\n$contextXml\n---\n\nUser Question: $question"
+    ): String = "$SYSTEM_PROMPT ${mode.promptInstruction}\n\n---\nSource Code Context:\n$contextXml\n---\n\nUser Question: $question"
 
     internal fun askGemini(
         apiKey: String,
+        mode: HelpAssistantMode,
         question: String,
         contextXml: String,
     ): String {
-        val payload = buildGeminiPayload(question, contextXml)
+        val payload = buildGeminiPayload(mode, question, contextXml)
         val request = Request.Builder()
-            .url(GEMINI_ENDPOINT)
+            .url(geminiEndpoint(mode))
             .header("x-goog-api-key", apiKey)
             .header("Content-Type", "application/json")
             .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -118,12 +123,12 @@ class HelpAssistantClient(
     }
 
     companion object {
-        internal const val GEMINI_ENDPOINT: String =
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent"
-
         internal const val SYSTEM_PROMPT: String =
             "Answer the user in a helpful, concise and easy to understand way in the question's language, no made up infomation, only the true infomation. Go straight to the point, dont mention thing like \"Based on the source code\", if answer needs to mention the UI, be sure to use correct i18n locale terms matching the question's language. Format your response in Markdown."
 
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        internal fun geminiEndpoint(mode: HelpAssistantMode): String =
+            "https://generativelanguage.googleapis.com/v1beta/models/${mode.modelId}:generateContent"
     }
 }

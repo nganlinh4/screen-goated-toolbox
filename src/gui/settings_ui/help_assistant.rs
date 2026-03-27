@@ -1,17 +1,33 @@
 //! Help Assistant - Ask questions about SGT and get AI-powered answers.
 
-use crate::api::client::UREQ_AGENT;
 use crate::overlay::preset_wheel::WheelOption;
+use lazy_static::lazy_static;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 static HELP_INPUT_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+lazy_static! {
+    static ref HELP_ASSISTANT_AGENT: ureq::Agent = {
+        let config = ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(900)))
+            .build();
+        config.into()
+    };
+}
 
 #[derive(Clone, Copy)]
 enum HelpBucket {
     ScreenRecorder,
     Android,
     Rest,
+}
+
+#[derive(Clone, Copy)]
+enum HelpMode {
+    Quick,
+    Detailed,
 }
 
 impl HelpBucket {
@@ -49,9 +65,15 @@ impl HelpBucket {
                 }
             },
             Self::Android => match ui_language {
-                "vi" => "Hỏi về SGT Android (VD: Làm sao dùng bubble, preset hay overlay trong app?)",
-                "ko" => "SGT Android에 대해 물어보세요. 예: 버블, 프리셋, 오버레이는 어떻게 쓰나요?",
-                _ => "Ask about SGT Android (e.g., How do I use the bubble, presets, or overlays in the app?)",
+                "vi" => {
+                    "Hỏi về SGT Android (VD: Làm sao dùng bubble, preset hay overlay trong app?)"
+                }
+                "ko" => {
+                    "SGT Android에 대해 물어보세요. 예: 버블, 프리셋, 오버레이는 어떻게 쓰나요?"
+                }
+                _ => {
+                    "Ask about SGT Android (e.g., How do I use the bubble, presets, or overlays in the app?)"
+                }
             },
             Self::Rest => match ui_language {
                 "vi" => "Hỏi gì về SGT? (VD: Làm sao để dịch vùng màn hình?)",
@@ -98,12 +120,46 @@ impl HelpBucket {
     }
 }
 
+impl HelpMode {
+    fn label(self, locale: &crate::gui::locale::LocaleText) -> &'static str {
+        match self {
+            Self::Quick => locale.help_assistant_quick_option,
+            Self::Detailed => locale.help_assistant_detailed_option,
+        }
+    }
+
+    fn model_id(self) -> &'static str {
+        match self {
+            Self::Quick => "gemini-3.1-flash-lite-preview",
+            Self::Detailed => "gemini-3-flash-preview",
+        }
+    }
+
+    fn max_output_tokens(self) -> u32 {
+        match self {
+            Self::Quick => 2048,
+            Self::Detailed => 4096,
+        }
+    }
+
+    fn prompt_instruction(self) -> &'static str {
+        match self {
+            Self::Quick => {
+                "Keep the answer short, direct, and practical unless the user clearly asks for more detail."
+            }
+            Self::Detailed => {
+                "Give a more detailed answer with clear steps, practical context, and useful caveats when needed."
+            }
+        }
+    }
+}
+
 pub fn is_modal_open() -> bool {
     HELP_INPUT_ACTIVE.load(Ordering::SeqCst)
 }
 
 fn fetch_repomix_xml(bucket: HelpBucket) -> Result<String, String> {
-    match UREQ_AGENT.get(bucket.raw_url()).call() {
+    match HELP_ASSISTANT_AGENT.get(bucket.raw_url()).call() {
         Ok(response) => response
             .into_body()
             .read_to_string()
@@ -112,13 +168,19 @@ fn fetch_repomix_xml(bucket: HelpBucket) -> Result<String, String> {
     }
 }
 
-fn ask_gemini(gemini_api_key: &str, question: &str, context_xml: &str) -> Result<String, String> {
+fn ask_gemini(
+    gemini_api_key: &str,
+    question: &str,
+    context_xml: &str,
+    mode: HelpMode,
+) -> Result<String, String> {
     if gemini_api_key.trim().is_empty() {
         return Err("Gemini API key not configured. Please set it in Global Settings.".to_string());
     }
 
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={}",
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+        mode.model_id(),
         gemini_api_key
     );
 
@@ -126,8 +188,11 @@ fn ask_gemini(gemini_api_key: &str, question: &str, context_xml: &str) -> Result
 Answer the user in a helpful, concise and easy to understand way in the question's language, no made up infomation, only the true infomation. Go straight to the point, dont mention thing like "Based on the source code", if answer needs to mention the UI, be sure to use correct i18n locale terms matching the question's language. Format your response in Markdown."#;
 
     let user_message = format!(
-        "{}\n\n---\nSource Code Context:\n{}\n---\n\nUser Question: {}",
-        system_prompt, context_xml, question
+        "{} {}\n\n---\nSource Code Context:\n{}\n---\n\nUser Question: {}",
+        system_prompt,
+        mode.prompt_instruction(),
+        context_xml,
+        question
     );
 
     let body = serde_json::json!({
@@ -137,12 +202,12 @@ Answer the user in a helpful, concise and easy to understand way in the question
             }]
         }],
         "generationConfig": {
-            "maxOutputTokens": 2048,
+            "maxOutputTokens": mode.max_output_tokens(),
             "temperature": 0.7
         }
     });
 
-    let response = UREQ_AGENT
+    let response = HELP_ASSISTANT_AGENT
         .post(&url)
         .header("Content-Type", "application/json")
         .send(&body.to_string())
@@ -175,7 +240,12 @@ pub fn show_help_input() {
         return;
     };
 
-    show_help_question_input(gemini_api_key, ui_language, bucket);
+    let Some(mode) = choose_help_mode(&ui_language) else {
+        HELP_INPUT_ACTIVE.store(false, Ordering::SeqCst);
+        return;
+    };
+
+    show_help_question_input(gemini_api_key, ui_language, bucket, mode);
 }
 
 fn choose_help_bucket(ui_language: &str) -> Option<HelpBucket> {
@@ -199,7 +269,31 @@ fn choose_help_bucket(ui_language: &str) -> Option<HelpBucket> {
     }
 }
 
-fn show_help_question_input(gemini_api_key: String, ui_language: String, bucket: HelpBucket) {
+fn choose_help_mode(ui_language: &str) -> Option<HelpMode> {
+    let locale = crate::gui::locale::LocaleText::get(ui_language);
+    let options = [
+        WheelOption::new(0, HelpMode::Quick.label(&locale)),
+        WheelOption::new(1, HelpMode::Detailed.label(&locale)),
+    ];
+
+    let mut center_pos = windows::Win32::Foundation::POINT { x: 0, y: 0 };
+    unsafe {
+        let _ = windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut center_pos);
+    }
+
+    match crate::overlay::preset_wheel::show_option_wheel(&options, center_pos) {
+        Some(0) => Some(HelpMode::Quick),
+        Some(1) => Some(HelpMode::Detailed),
+        _ => None,
+    }
+}
+
+fn show_help_question_input(
+    gemini_api_key: String,
+    ui_language: String,
+    bucket: HelpBucket,
+    mode: HelpMode,
+) {
     let submitted = Arc::new(AtomicBool::new(false));
     let submit_state = submitted.clone();
 
@@ -220,7 +314,7 @@ fn show_help_question_input(gemini_api_key: String, ui_language: String, bucket:
             let gemini_key = gemini_api_key.clone();
             let lang = ui_language.clone();
             std::thread::spawn(move || {
-                run_help_request(gemini_key, lang, bucket, question);
+                run_help_request(gemini_key, lang, bucket, mode, question);
             });
         },
     );
@@ -236,7 +330,13 @@ fn show_help_question_input(gemini_api_key: String, ui_language: String, bucket:
     });
 }
 
-fn run_help_request(gemini_key: String, ui_language: String, bucket: HelpBucket, question: String) {
+fn run_help_request(
+    gemini_key: String,
+    ui_language: String,
+    bucket: HelpBucket,
+    mode: HelpMode,
+    question: String,
+) {
     let loading_msg = bucket.loading_message(&ui_language);
 
     unsafe {
@@ -264,7 +364,7 @@ fn run_help_request(gemini_key: String, ui_language: String, bucket: HelpBucket,
             target_rect: center_rect,
             win_type: crate::overlay::result::WindowType::Primary,
             context: crate::overlay::result::RefineContext::None,
-            model_id: "gemini-2.5-flash".to_string(),
+            model_id: mode.model_id().to_string(),
             provider: "google".to_string(),
             streaming_enabled: false,
             start_editing: false,
@@ -286,7 +386,7 @@ fn run_help_request(gemini_key: String, ui_language: String, bucket: HelpBucket,
         let api_hwnd = windows::Win32::Foundation::HWND(api_hwnd_val as *mut std::ffi::c_void);
         let locale = crate::gui::locale::LocaleText::get(&ui_language);
         let result = match fetch_repomix_xml(bucket) {
-            Ok(xml) => ask_gemini(&gemini_key, &question, &xml),
+            Ok(xml) => ask_gemini(&gemini_key, &question, &xml, mode),
             Err(e) => Err(format!("Failed to fetch context: {}", e)),
         };
 
@@ -317,7 +417,7 @@ fn run_help_request(gemini_key: String, ui_language: String, bucket: HelpBucket,
 
 #[cfg(test)]
 mod tests {
-    use super::HelpBucket;
+    use super::{HelpBucket, HelpMode};
 
     #[test]
     fn help_buckets_match_three_way_repomix_split() {
@@ -339,5 +439,13 @@ mod tests {
     fn android_bucket_uses_dedicated_prompt_and_icon() {
         assert_eq!(HelpBucket::Android.preset_prompt(), "Ask SGT Android");
         assert_eq!(HelpBucket::Android.response_icon(), "📱");
+    }
+
+    #[test]
+    fn help_modes_map_to_expected_models() {
+        assert_eq!(HelpMode::Quick.model_id(), "gemini-3.1-flash-lite-preview");
+        assert_eq!(HelpMode::Detailed.model_id(), "gemini-3-flash-preview");
+        assert_eq!(HelpMode::Quick.max_output_tokens(), 2048);
+        assert_eq!(HelpMode::Detailed.max_output_tokens(), 4096);
     }
 }

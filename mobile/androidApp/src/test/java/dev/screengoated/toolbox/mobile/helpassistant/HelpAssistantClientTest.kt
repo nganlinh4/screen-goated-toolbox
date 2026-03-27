@@ -44,13 +44,29 @@ class HelpAssistantClientTest {
     @Test
     fun userMessagePreservesCanonicalPromptContract() {
         val text = client.buildUserMessage(
+            mode = HelpAssistantMode.QUICK,
             question = "How do I use this?",
             contextXml = "<repo />",
         )
 
         assertTrue(text.contains(HelpAssistantClient.SYSTEM_PROMPT))
+        assertTrue(text.contains(HelpAssistantMode.QUICK.promptInstruction))
         assertTrue(text.contains("Source Code Context:\n<repo />"))
         assertTrue(text.contains("User Question: How do I use this?"))
+    }
+
+    @Test
+    fun answerModesMapToExpectedGeminiModels() {
+        assertEquals("gemini-3.1-flash-lite-preview", HelpAssistantMode.QUICK.modelId)
+        assertEquals("gemini-3-flash-preview", HelpAssistantMode.DETAILED.modelId)
+        assertEquals(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent",
+            HelpAssistantClient.geminiEndpoint(HelpAssistantMode.QUICK),
+        )
+        assertEquals(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent",
+            HelpAssistantClient.geminiEndpoint(HelpAssistantMode.DETAILED),
+        )
     }
 
     @Test
