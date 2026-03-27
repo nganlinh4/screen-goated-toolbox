@@ -13,6 +13,7 @@ import {
 import {
   getCompositionClip,
   getCompositionResolvedBackgroundConfig,
+  getCompositionAutoSourceClipId,
 } from "@/lib/projectComposition";
 import { writeBlobToTempMediaFile } from "@/lib/mediaServer";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
@@ -484,7 +485,17 @@ export async function loadClipMediaIntoEditorCore(
   if (clipThumbnailPlaceholder) {
     setThumbnails(clipThumbnailPlaceholder);
   }
-  applyLoadedBackgroundConfig(cloneBackgroundConfig(resolvedBackground));
+  // In multi-clip, force non-source clips to "custom" canvas mode so they
+  // don't re-resolve auto canvas from their own video dimensions.
+  const bgToApply = cloneBackgroundConfig(resolvedBackground);
+  if (nextComposition && nextComposition.clips.length > 1) {
+    const autoSourceId = getCompositionAutoSourceClipId(nextComposition);
+    if (autoSourceId && clip.id !== autoSourceId && bgToApply.canvasMode === "auto") {
+      bgToApply.canvasMode = "custom";
+      bgToApply.autoCanvasSourceId = null;
+    }
+  }
+  applyLoadedBackgroundConfig(bgToApply);
   setWebcamConfig(cloneWebcamConfig(clip.webcamConfig));
   setMousePositions(clip.mousePositions);
   setCurrentRecordingMode(clip.recordingMode ?? "withoutCursor");

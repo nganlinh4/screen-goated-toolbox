@@ -516,10 +516,12 @@ function App() {
   // Video import (external/non-recorded videos)
   const { isImporting, importVideo } = useVideoImport({
     onProjectCreated: (project) => {
-      // Close projects dialog first (if open), then load the imported project
+      // Close projects dialog first (if open), then load the imported project directly.
+      // Don't use handleLoadProjectFromGrid — it activates the interaction shield
+      // which requires the FLIP animation to release. Import bypasses the FLIP.
       projects.setShowProjectsDialog(false);
       void projects.loadProjects().then(() => {
-        void handleLoadProjectFromGrid(project.id);
+        void projects.handleLoadProject(project.id);
       });
     },
   });
@@ -690,6 +692,11 @@ function App() {
           getAutoCanvasSelectionConfig={getAutoCanvasSelectionConfig}
           handleActivateCustomCanvas={handleActivateCustomCanvas}
           handleApplyCanvasRatioPreset={handleApplyCanvasRatioPreset}
+          isAutoCanvasDisabled={
+            !!(composition && composition.clips.length > 1 && activeClipId &&
+              composition.globalCanvasConfig?.canvasMode === 'auto' &&
+              composition.globalCanvasConfig?.autoSourceClipId !== activeClipId)
+          }
           segment={segment}
           setSegment={setSegment}
           handleToggleKeystrokeMode={handleToggleKeystrokeMode}

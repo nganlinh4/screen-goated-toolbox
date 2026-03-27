@@ -141,7 +141,7 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
   const generatePath = () => {
     if (points.length === 0) return 'M 0 20 L 100 20';
     const sorted = [...points].sort((a, b) => a.time - b.time);
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
     const toY = (speed: number) => speedToTrackY(speed);
     const x0 = toX(sorted[0].time);
     const y0 = toY(sorted[0].speed);
@@ -168,7 +168,7 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
   const generateFillPath = () => {
     if (points.length === 0) return '';
     const sorted = [...points].sort((a, b) => a.time - b.time);
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
     const toY = (speed: number) => speedToTrackY(speed);
     const x0 = toX(sorted[0].time);
     const y0 = toY(sorted[0].speed);
@@ -201,7 +201,7 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
     const right = sorted[rightIdx];
     if (!left || !right || right.time <= left.time) return '';
 
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
     const toY = (speed: number) => speedToTrackY(speed);
     const x1 = toX(left.time);
     const y1 = toY(left.speed);
@@ -222,7 +222,7 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
     const right = sorted[rightIdx];
     if (!left || !right || right.time <= left.time) return '';
 
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
     const toY = (speed: number) => speedToTrackY(speed);
     const x1 = toX(left.time);
     const y1 = toY(left.speed);

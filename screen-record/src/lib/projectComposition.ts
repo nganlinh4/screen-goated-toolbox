@@ -93,10 +93,18 @@ export function normalizeCompositionClipToCanvas(
   clip: ProjectCompositionClip,
   canvasConfig: ProjectCanvasConfig | null | undefined,
 ): ProjectCompositionClip {
-  return {
-    ...clip,
-    backgroundConfig: applyCanvasConfig(clip.backgroundConfig, canvasConfig),
-  };
+  const applied = applyCanvasConfig(clip.backgroundConfig, canvasConfig);
+  // In auto canvas mode, only the source clip stays "auto". Other clips receive
+  // the resolved dimensions as "custom" so they don't re-resolve from their own
+  // (different) video dimensions when they become active.
+  const isAutoSource =
+    canvasConfig?.canvasMode === "auto" &&
+    canvasConfig.autoSourceClipId === clip.id;
+  if (canvasConfig?.canvasMode === "auto" && !isAutoSource) {
+    applied.canvasMode = "custom";
+    applied.autoCanvasSourceId = null;
+  }
+  return { ...clip, backgroundConfig: applied };
 }
 
 export function syncCompositionCanvasConfig(

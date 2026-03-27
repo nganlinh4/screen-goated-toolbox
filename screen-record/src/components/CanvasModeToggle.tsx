@@ -21,6 +21,7 @@ export interface CanvasModeToggleProps {
   };
   handleActivateCustomCanvas: () => void;
   handleApplyCanvasRatioPreset: (ratioWidth: number, ratioHeight: number) => void;
+  isAutoCanvasDisabled?: boolean;
 }
 
 export function CanvasModeToggle({
@@ -30,9 +31,21 @@ export function CanvasModeToggle({
   getAutoCanvasSelectionConfig,
   handleActivateCustomCanvas,
   handleApplyCanvasRatioPreset,
+  isAutoCanvasDisabled,
 }: CanvasModeToggleProps) {
   const { t } = useSettings();
   const canvasMode = backgroundConfig.canvasMode ?? "auto";
+
+  if (isAutoCanvasDisabled) {
+    // Non-source clip in multi-clip: show locked canvas indicator, no editing
+    return (
+      <div className="playback-canvas-mode-toggle ui-segmented opacity-50 pointer-events-none" title={t.canvasCustom}>
+        <button type="button" disabled className="playback-canvas-mode-btn ui-segmented-button ui-segmented-button-active px-2 py-1 text-[10px] font-semibold">
+          {t.canvasCustom} {backgroundConfig.canvasWidth && backgroundConfig.canvasHeight ? `${backgroundConfig.canvasWidth}×${backgroundConfig.canvasHeight}` : ''}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="playback-canvas-mode-toggle ui-segmented">
@@ -40,7 +53,9 @@ export function CanvasModeToggle({
         type="button"
         aria-pressed={canvasMode === "auto"}
         data-active={canvasMode === "auto" ? "true" : "false"}
+        disabled={isAutoCanvasDisabled}
         onClick={() => {
+          if (isAutoCanvasDisabled) return;
           const autoCanvasConfig = getAutoCanvasSelectionConfig();
           setBackgroundConfig((prev) => ({
             ...prev,
@@ -51,9 +66,11 @@ export function CanvasModeToggle({
           }));
         }}
         className={`playback-canvas-mode-btn playback-canvas-mode-btn-auto ui-segmented-button ${
-          canvasMode === "auto"
-            ? "playback-canvas-mode-btn-active ui-segmented-button-active"
-            : "playback-canvas-mode-btn-inactive text-[var(--overlay-panel-fg)]/70 hover:text-[var(--overlay-panel-fg)]"
+          isAutoCanvasDisabled
+            ? "playback-canvas-mode-btn-disabled text-[var(--overlay-panel-fg)]/30 cursor-not-allowed"
+            : canvasMode === "auto"
+              ? "playback-canvas-mode-btn-active ui-segmented-button-active"
+              : "playback-canvas-mode-btn-inactive text-[var(--overlay-panel-fg)]/70 hover:text-[var(--overlay-panel-fg)]"
         } px-2 py-1 text-[10px] font-semibold`}
       >
         {t.canvasAuto}
