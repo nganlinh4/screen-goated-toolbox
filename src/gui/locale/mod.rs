@@ -242,6 +242,8 @@ pub struct LocaleText {
     pub help_assistant_screen_record_option: &'static str,
     pub help_assistant_android_option: &'static str,
     pub help_assistant_rest_option: &'static str,
+    pub help_assistant_quick_option: &'static str,
+    pub help_assistant_detailed_option: &'static str,
 
     // --- PROMPT DJ ---
     pub prompt_dj_btn: &'static str,

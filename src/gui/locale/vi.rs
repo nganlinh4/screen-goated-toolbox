@@ -285,6 +285,8 @@ pub fn get() -> LocaleText {
         help_assistant_screen_record_option: "Hỏi về SGT Record (Quay màn hình)",
         help_assistant_android_option: "Hỏi về SGT Android",
         help_assistant_rest_option: "Hỏi về mọi thứ còn lại",
+        help_assistant_quick_option: "Hỏi nhanh",
+        help_assistant_detailed_option: "Hỏi kỹ",
         prompt_dj_btn: "Làm DJ",
         prompt_dj_title: "SGT DJ - Làm DJ",
         screen_record_btn: "Quay MH",
