@@ -337,6 +337,7 @@ export function EditorMain({
             isBackgroundUploadProcessing={isBackgroundUploadProcessing}
             editingTextId={editingTextId}
             selectedTextIds={selectedTextIds}
+            hasMouseData={mousePositionsLength > 0}
             onUpdateSegment={setSegment as (segment: VideoSegment) => void}
             beginBatch={beginBatch}
             commitBatch={commitBatch}
@@ -385,6 +386,7 @@ export function EditorMain({
           onKeystrokeSelectionChange={handleKeystrokeSelectionChange}
           onWebcamSelectionChange={handleWebcamSelectionChange}
           clearSelectionSignal={clearSignal}
+          hasMouseData={mousePositionsLength > 0}
         />
         {isOverlayMode && (
           <div className="timeline-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />

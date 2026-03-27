@@ -378,9 +378,9 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
 
   // Generate SVG path for influence curve
   const generatePath = () => {
-    if (points.length === 0) return 'M 0 20 L 100 20';
+    if (points.length === 0 || !isFinite(duration) || duration <= 0) return 'M 0 20 L 100 20';
     const sorted = [...points].sort((a, b) => a.time - b.time);
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => (time / duration) * 100;
     const toY = (value: number) => valueToTrackY(value);
     const x0 = toX(sorted[0].time);
     const y0 = toY(sorted[0].value);
@@ -404,9 +404,9 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
 
   // Generate fill path (area under curve)
   const generateFillPath = () => {
-    if (points.length === 0) return '';
+    if (points.length === 0 || !isFinite(duration) || duration <= 0) return '';
     const sorted = [...points].sort((a, b) => a.time - b.time);
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => (time / duration) * 100;
     const toY = (value: number) => valueToTrackY(value);
     const x0 = toX(sorted[0].time);
     const y0 = toY(sorted[0].value);

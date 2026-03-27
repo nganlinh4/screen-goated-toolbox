@@ -28,11 +28,14 @@ const PANEL_TAB_ORDER: ActivePanel[] = ['zoom', 'camera', 'background', 'cursor'
 interface PanelTabsProps {
   activePanel: ActivePanel;
   onPanelChange: (panel: ActivePanel) => void;
+  hiddenTabs?: Set<ActivePanel>;
 }
 
-function PanelTabs({ activePanel, onPanelChange }: PanelTabsProps) {
+function PanelTabs({ activePanel, onPanelChange, hiddenTabs }: PanelTabsProps) {
   const { t } = useSettings();
-  const tabs: { id: ActivePanel; label: string }[] = PANEL_TAB_ORDER.map((id) => ({
+  const tabs: { id: ActivePanel; label: string }[] = PANEL_TAB_ORDER
+    .filter((id) => !hiddenTabs?.has(id))
+    .map((id) => ({
     id,
     label:
       id === 'zoom'
@@ -104,6 +107,7 @@ interface SidePanelProps {
   isBackgroundUploadProcessing: boolean;
   editingTextId: string | null;
   selectedTextIds?: string[];
+  hasMouseData?: boolean;
   onUpdateSegment: (segment: VideoSegment) => void;
   beginBatch: () => void;
   commitBatch: () => void;
@@ -129,11 +133,16 @@ export function SidePanel({
   isBackgroundUploadProcessing,
   editingTextId,
   selectedTextIds,
+  hasMouseData,
   onUpdateSegment,
   beginBatch,
   commitBatch
 }: SidePanelProps) {
-  const activePanelIndex = PANEL_TAB_ORDER.indexOf(activePanel);
+  const hiddenTabs = new Set<ActivePanel>();
+  if (!hasMouseData) hiddenTabs.add('cursor');
+  if (!webcamAvailable) hiddenTabs.add('camera');
+  const visiblePanelOrder = PANEL_TAB_ORDER.filter((id) => !hiddenTabs.has(id));
+  const activePanelIndex = visiblePanelOrder.indexOf(activePanel);
 
   const renderPanel = (panelId: ActivePanel) => {
     if (panelId === 'zoom') {
@@ -183,6 +192,7 @@ export function SidePanel({
           onUpdateSegment={onUpdateSegment}
           backgroundConfig={backgroundConfig}
           setBackgroundConfig={setBackgroundConfig}
+          hasMouseData={hasMouseData}
         />
       );
     }
@@ -212,10 +222,10 @@ export function SidePanel({
 
   return (
     <div className="side-panel h-full min-h-0 flex flex-col">
-      <PanelTabs activePanel={activePanel} onPanelChange={setActivePanel} />
+      <PanelTabs activePanel={activePanel} onPanelChange={setActivePanel} hiddenTabs={hiddenTabs} />
       <div className="side-panel-content mt-3 flex-1 min-h-0 overflow-hidden px-2 pb-2">
         <div className="side-panel-panels relative h-full">
-          {PANEL_TAB_ORDER.map((panelId, index) => {
+          {visiblePanelOrder.map((panelId, index) => {
             const relativeIndex = index - activePanelIndex;
             const isActive = relativeIndex === 0;
 

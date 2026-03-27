@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Subtle pulse for raw video button — gentle glow instead of aggressive opacity blink */
+.raw-video-button-pulse {
+    animation: raw-btn-glow 3s ease-in-out infinite;
+}
+@keyframes raw-btn-glow {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.15); }
+}
+
 /* Professional video editor color palette - neutral dark, single blue accent */
 @layer base {
     body {

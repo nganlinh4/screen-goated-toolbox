@@ -83,13 +83,15 @@ export interface CursorPanelProps {
   onUpdateSegment: (segment: VideoSegment) => void;
   backgroundConfig: BackgroundConfig;
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
+  hasMouseData?: boolean;
 }
 
 export function CursorPanel({
   segment,
   onUpdateSegment,
   backgroundConfig,
-  setBackgroundConfig
+  setBackgroundConfig,
+  hasMouseData = true,
 }: CursorPanelProps) {
   const { t } = useSettings();
   const [variantScrollTop, setVariantScrollTop] = useState(0);
@@ -98,7 +100,7 @@ export function CursorPanel({
   const variantPanCleanupRef = useRef<(() => void) | null>(null);
   const suppressVariantClickRef = useRef(false);
   const useCustomCursor = segment?.useCustomCursor !== false;
-  const canToggleCustomCursor = Boolean(segment);
+  const canToggleCustomCursor = Boolean(segment) && hasMouseData;
   const inferredPack: CursorVariant =
     backgroundConfig.cursorPack
     ?? backgroundConfig.cursorDefaultVariant
@@ -204,6 +206,14 @@ export function CursorPanel({
     event.stopPropagation();
     suppressVariantClickRef.current = false;
   };
+
+  if (!hasMouseData) {
+    return (
+      <PanelCard className="cursor-panel">
+        <p className="text-xs text-on-surface-variant">{t.importedVideoHint}</p>
+      </PanelCard>
+    );
+  }
 
   return (
     <PanelCard className="cursor-panel">

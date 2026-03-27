@@ -53,6 +53,7 @@ export interface EditorOverlaysProps {
   setShowProjectsDialog: (show: boolean) => void;
   armProjectInteractionShieldRelease: () => void;
   onPickProject: (id: string) => void;
+  onImportVideo?: (file: File) => void;
   // Interaction shield
   isProjectInteractionShieldVisible: boolean;
   // Crop workspace
@@ -99,6 +100,7 @@ export function EditorOverlays({
   setShowProjectsDialog,
   armProjectInteractionShieldRelease,
   onPickProject,
+  onImportVideo,
   isProjectInteractionShieldVisible,
   isCropping,
   currentVideo,
@@ -148,6 +150,7 @@ export function EditorOverlays({
             previewTargetSnapshot={previewTargetSnapshotRef.current}
             pickerMode={projectPickerMode ?? "load"}
             onPickProject={onPickProject}
+            onImportVideo={onImportVideo}
           />
         </div>
       )}

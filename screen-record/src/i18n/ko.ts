@@ -270,6 +270,13 @@ const ko: Translations = {
   smartPointer: '스마트 포인터',
   clearSelection: '선택됨',
 
+  // Video import
+  importVideo: '비디오 가져오기 (또는 여기에 드래그 앤 드롭)',
+  dropVideoHere: '여기에 비디오를 놓으세요',
+  orImportVideo: '또는 비디오 가져오기',
+  importingVideo: '비디오 가져오는 중...',
+  importedVideoHint: '가져온 비디오 — 커서 및 키 입력 기능 사용 불가',
+
   // Export presets
   presetBalanced: '균형 (권장)',
   presetOriginal: '원본 품질',

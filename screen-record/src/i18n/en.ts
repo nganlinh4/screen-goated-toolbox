@@ -268,6 +268,13 @@ const en = {
   smartPointer: 'Smart Pointer',
   clearSelection: 'selected',
 
+  // Video import
+  importVideo: 'Import Video (Or drag and drop video here)',
+  dropVideoHere: 'Drop video here',
+  orImportVideo: 'or import a video',
+  importingVideo: 'Importing video...',
+  importedVideoHint: 'Imported video — cursor and keystroke features are unavailable',
+
   // Export presets
   presetBalanced: 'Balanced (Recommended)',
   presetOriginal: 'Original Quality',
