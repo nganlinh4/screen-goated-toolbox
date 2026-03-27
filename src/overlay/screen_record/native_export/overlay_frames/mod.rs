@@ -10,16 +10,16 @@
 mod layout;
 mod types;
 
-pub use types::{KeystrokeAtlasEntry, OverlayAtlasMetadata};
+use layout::{
+    LaneItem, Placement, compute_slot_width_hints, get_lane_gap_px, layout_keystroke_lane,
+};
 use types::{
-    clamp01, find_active_events, get_keystroke_visual_state, get_speed, is_time_inside_segments,
     ActiveEvent, DEFAULT_KEYSTROKE_OVERLAY_SCALE, DEFAULT_KEYSTROKE_OVERLAY_X,
     DEFAULT_KEYSTROKE_OVERLAY_Y, KEYSTROKE_OVERLAY_MAX_SCALE, KEYSTROKE_OVERLAY_MIN_SCALE,
-    TEXT_FADE_DUR,
+    TEXT_FADE_DUR, clamp01, find_active_events, get_keystroke_visual_state, get_speed,
+    is_time_inside_segments,
 };
-use layout::{
-    compute_slot_width_hints, get_lane_gap_px, layout_keystroke_lane, LaneItem, Placement,
-};
+pub use types::{KeystrokeAtlasEntry, OverlayAtlasMetadata};
 
 use super::config::{OverlayFrame, OverlayQuad, SpeedPoint, TrimSegment};
 
@@ -217,13 +217,8 @@ fn emit_keystroke_quads(
         for ae in active_events {
             let event = &meta.display_events[ae.event_index];
             let is_mouse = event.event_type == "mousedown" || event.event_type == "wheel";
-            let visual = get_keystroke_visual_state(
-                t,
-                ae.start_time,
-                ae.end_time,
-                is_mouse,
-                event.is_hold,
-            );
+            let visual =
+                get_keystroke_visual_state(t, ae.start_time, ae.end_time, is_mouse, event.is_hold);
             if visual.alpha <= 0.001 {
                 continue;
             }

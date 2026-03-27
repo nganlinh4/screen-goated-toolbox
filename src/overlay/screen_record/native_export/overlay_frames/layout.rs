@@ -1,8 +1,8 @@
 // Keystroke lane layout logic (mirrors layoutKeystrokeLane from JS).
 
 use super::types::{
-    compute_percentile, get_keystroke_lane_bubble_gap_px, VisualState,
-    KEYSTROKE_SLOT_SPARSE_GAP_LIMIT,
+    KEYSTROKE_SLOT_SPARSE_GAP_LIMIT, VisualState, compute_percentile,
+    get_keystroke_lane_bubble_gap_px,
 };
 
 pub(super) struct LaneItem {
@@ -101,8 +101,7 @@ pub(super) fn layout_keystroke_lane(
         .iter()
         .enumerate()
         .map(|(idx, item)| {
-            let y = (baseline_y_px - item.layout_height - item.layout_margin_bottom)
-                .round();
+            let y = (baseline_y_px - item.layout_height - item.layout_margin_bottom).round();
             let slot_offset = slot_offsets.get(item.slot).copied().unwrap_or(0.0);
             let x = if align_right {
                 let right_edge = center_anchor - slot_offset;

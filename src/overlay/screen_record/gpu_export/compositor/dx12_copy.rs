@@ -1,6 +1,6 @@
 use std::mem::ManuallyDrop;
-use windows::core::Interface;
 use windows::Win32::Graphics::Direct3D12 as d3d12;
+use windows::core::Interface;
 
 pub(super) const READBACK_RING_SIZE: usize = 5;
 

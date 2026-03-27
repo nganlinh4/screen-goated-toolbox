@@ -1,9 +1,9 @@
 //! Core logic: color picking, region capture, zoom, and magnification.
 
 use super::*;
+use crate::APP;
 use crate::overlay::process::start_processing_pipeline;
 use crate::overlay::selection::extract_crop_from_hbitmap_public;
-use crate::APP;
 
 const ZOOM_STEP: f32 = 0.25;
 const MIN_ZOOM: f32 = 1.0;

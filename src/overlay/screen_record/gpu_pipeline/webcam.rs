@@ -4,7 +4,7 @@ use windows::core::Interface;
 use super::super::d3d_interop::{create_d3d11_device, create_d3d11_device_on_adapter};
 use super::super::mf_decode::{DxgiDeviceManager, MfDecoder};
 use super::ring_buffers::try_create_decode_input_ring;
-use super::types::{PipelineConfig, WebcamDecodeSetup, DECODE_RING_SIZE};
+use super::types::{DECODE_RING_SIZE, PipelineConfig, WebcamDecodeSetup};
 
 pub(super) fn prepare_webcam_decode_setup(
     source_times: &[f64],

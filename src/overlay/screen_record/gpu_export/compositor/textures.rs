@@ -1,6 +1,6 @@
 use super::GpuCompositor;
 use crate::overlay::screen_record::gpu_export::cursors::{
-    dedupe_valid_slots, get_or_render_cursor_tile, CURSOR_ATLAS_COLS, CURSOR_TILE_SIZE,
+    CURSOR_ATLAS_COLS, CURSOR_TILE_SIZE, dedupe_valid_slots, get_or_render_cursor_tile,
 };
 use crate::overlay::screen_record::gpu_export::setup::shared_gpu_context;
 

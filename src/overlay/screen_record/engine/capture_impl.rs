@@ -7,8 +7,8 @@ use std::time::Instant;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE, ID3D11Multithread,
 };
-use windows::core::Interface;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
+use windows::core::Interface;
 use windows_capture::{
     SendDirectX,
     capture::{Context, GraphicsCaptureApiHandler},
@@ -24,15 +24,16 @@ use super::encoder_utils::{
     create_video_encoder_with_canvas_fallback, exact_encoder_canvas, mf_hw_accel_override,
     select_target_fps, should_ignore_window_frame, should_prefer_mf_hw_accel,
 };
-use super::pump_thread::{resolve_monitor_capture_size, resolve_window_capture_size, spawn_frame_pump};
+use super::pump_thread::{
+    resolve_monitor_capture_size, resolve_window_capture_size, spawn_frame_pump,
+};
 use super::types::{
-    ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, AUDIO_PATH,
-    ENCODER_ACTIVE, ENCODER_MAX_PENDING_FRAMES, ENCODING_FINISHED,
-    LAST_CAPTURE_FRAME_HEIGHT, LAST_CAPTURE_FRAME_WIDTH, LAST_RECORDING_FPS,
-    MAX_CATCHUP_SUBMITS_PER_CALLBACK, MIC_AUDIO_ENCODING_FINISHED, MIC_AUDIO_PATH,
-    MIC_AUDIO_START_OFFSET_MS, NO_READY_VRAM_FRAME, SHOULD_STOP, SHOULD_STOP_AUDIO,
-    TIMESTAMP_RESYNC_THRESHOLD_100NS, VIDEO_PATH, VramFrame, WEBCAM_ENCODING_FINISHED,
-    WEBCAM_VIDEO_PATH, WEBCAM_VIDEO_START_OFFSET_MS,
+    ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, AUDIO_PATH, ENCODER_ACTIVE,
+    ENCODER_MAX_PENDING_FRAMES, ENCODING_FINISHED, LAST_CAPTURE_FRAME_HEIGHT,
+    LAST_CAPTURE_FRAME_WIDTH, LAST_RECORDING_FPS, MAX_CATCHUP_SUBMITS_PER_CALLBACK,
+    MIC_AUDIO_ENCODING_FINISHED, MIC_AUDIO_PATH, MIC_AUDIO_START_OFFSET_MS, NO_READY_VRAM_FRAME,
+    SHOULD_STOP, SHOULD_STOP_AUDIO, TIMESTAMP_RESYNC_THRESHOLD_100NS, VIDEO_PATH, VramFrame,
+    WEBCAM_ENCODING_FINISHED, WEBCAM_VIDEO_PATH, WEBCAM_VIDEO_START_OFFSET_MS,
 };
 
 impl GraphicsCaptureApiHandler for CaptureHandler {
@@ -269,7 +270,9 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let mt: ID3D11Multithread = app_d3d_device
             .cast()
             .map_err(|e| format!("QI ID3D11Multithread (capture): {e}"))?;
-        unsafe { let _ = mt.SetMultithreadProtected(true); }
+        unsafe {
+            let _ = mt.SetMultithreadProtected(true);
+        }
         let app_d3d_context: windows::Win32::Graphics::Direct3D11::ID3D11DeviceContext =
             clone_wc_interface_to_app(&ctx.device_context)
                 .map_err(|e| format!("Failed to bridge capture D3D11 context: {e}"))?;

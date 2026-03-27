@@ -6,10 +6,7 @@ mod providers;
 use crate::api::vision::translate_image_streaming as vision_translate_image_streaming;
 use crate::overlay::result::RefineContext;
 use anyhow::Result;
-use std::sync::{
-    Arc,
-    atomic::AtomicBool,
-};
+use std::sync::{Arc, atomic::AtomicBool};
 
 pub struct RefineTextRequest<'a> {
     pub groq_api_key: &'a str,

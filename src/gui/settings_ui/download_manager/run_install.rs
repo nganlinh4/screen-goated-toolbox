@@ -1,7 +1,7 @@
 use super::run::{
+    DENO_DOWNLOAD_URL, FFMPEG_DOWNLOAD_URL, FFMPEG_RELEASE_MARKER_FILE, YTDLP_DOWNLOAD_URL,
     fetch_btbn_release_label, parse_ffmpeg_version, read_local_deno_version,
-    read_local_ytdlp_version, DENO_DOWNLOAD_URL, FFMPEG_DOWNLOAD_URL, FFMPEG_RELEASE_MARKER_FILE,
-    YTDLP_DOWNLOAD_URL,
+    read_local_ytdlp_version,
 };
 use super::types::{InstallStatus, UpdateStatus};
 use super::utils::{download_file, extract_deno, extract_ffmpeg, log};

@@ -27,20 +27,21 @@ export interface TextPanelProps {
 export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSegment, beginBatch, commitBatch }: TextPanelProps) {
   const { t } = useSettings();
 
-  // Multi-select mode: selectedTextIds has 2+ entries → use first as source
+  // Selection mode: selectedTextIds has 1+ entries → use first as source
+  const hasSelection = selectedTextIds && selectedTextIds.length >= 1;
   const isMultiSelect = selectedTextIds && selectedTextIds.length >= 2;
-  const multiSelectSet = isMultiSelect ? new Set(selectedTextIds) : null;
-  const sourceId = isMultiSelect ? selectedTextIds![0] : editingTextId;
+  const selectionSet = hasSelection ? new Set(selectedTextIds) : null;
+  const sourceId = hasSelection ? selectedTextIds![0] : editingTextId;
   const editingText = sourceId ? segment?.textSegments?.find(ts => ts.id === sourceId) : null;
 
   const updateStyle = (updates: Partial<TextSegment['style']>) => {
     if (!segment || !sourceId) return;
-    if (isMultiSelect && multiSelectSet) {
+    if (hasSelection && selectionSet) {
       // Apply style changes to ALL selected segments
       onUpdateSegment({
         ...segment,
         textSegments: segment.textSegments.map(ts =>
-          multiSelectSet.has(ts.id) ? { ...ts, style: { ...ts.style, ...updates } } : ts
+          selectionSet.has(ts.id) ? { ...ts, style: { ...ts.style, ...updates } } : ts
         )
       });
     } else {
@@ -55,12 +56,12 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
 
   const updateText = (text: string) => {
     if (!segment || !sourceId) return;
-    if (isMultiSelect && multiSelectSet) {
+    if (hasSelection && selectionSet) {
       // Apply text to all selected segments
       onUpdateSegment({
         ...segment,
         textSegments: segment.textSegments.map(ts =>
-          multiSelectSet.has(ts.id) ? { ...ts, text } : ts
+          selectionSet.has(ts.id) ? { ...ts, text } : ts
         )
       });
     } else {

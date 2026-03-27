@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { VideoSegment, BackgroundConfig } from '@/types/video';
 import { useSettings } from '@/hooks/useSettings';
 import { ZoomPanel } from './ZoomPanel';
@@ -138,11 +139,23 @@ export function SidePanel({
   beginBatch,
   commitBatch
 }: SidePanelProps) {
+  const hasZoomFocus = editingKeyframeId !== null;
+  const hasTextFocus = !!editingTextId || (selectedTextIds?.length ?? 0) > 0;
+
   const hiddenTabs = new Set<ActivePanel>();
   if (!hasMouseData) hiddenTabs.add('cursor');
   if (!webcamAvailable) hiddenTabs.add('camera');
+  if (!hasZoomFocus) hiddenTabs.add('zoom');
+  if (!hasTextFocus) hiddenTabs.add('text');
   const visiblePanelOrder = PANEL_TAB_ORDER.filter((id) => !hiddenTabs.has(id));
-  const activePanelIndex = visiblePanelOrder.indexOf(activePanel);
+  // If active panel got hidden, fall back to first visible tab
+  const effectivePanel = hiddenTabs.has(activePanel) ? (visiblePanelOrder[0] ?? 'background') : activePanel;
+  // Use canonical order for slide direction so panels always slide consistently
+  const canonicalActiveIndex = PANEL_TAB_ORDER.indexOf(effectivePanel);
+  // Track previous active index to determine entry direction for newly mounted panels
+  const prevCanonicalActiveRef = useRef(canonicalActiveIndex);
+  useEffect(() => { prevCanonicalActiveRef.current = canonicalActiveIndex; });
+  const prevCanonicalActive = prevCanonicalActiveRef.current;
 
   const renderPanel = (panelId: ActivePanel) => {
     if (panelId === 'zoom') {
@@ -222,18 +235,23 @@ export function SidePanel({
 
   return (
     <div className="side-panel h-full min-h-0 flex flex-col">
-      <PanelTabs activePanel={activePanel} onPanelChange={setActivePanel} hiddenTabs={hiddenTabs} />
+      <PanelTabs activePanel={effectivePanel} onPanelChange={setActivePanel} hiddenTabs={hiddenTabs} />
       <div className="side-panel-content mt-3 flex-1 min-h-0 overflow-hidden px-2 pb-2">
         <div className="side-panel-panels relative h-full">
-          {visiblePanelOrder.map((panelId, index) => {
-            const relativeIndex = index - activePanelIndex;
+          {visiblePanelOrder.map((panelId) => {
+            const canonicalIndex = PANEL_TAB_ORDER.indexOf(panelId);
+            const relativeIndex = canonicalIndex - canonicalActiveIndex;
             const isActive = relativeIndex === 0;
 
             return (
               <motion.div
                 key={panelId}
                 className="side-panel-pane absolute inset-0 overflow-y-auto thin-scrollbar pr-1 pb-2"
-                initial={false}
+                initial={{
+                  x: canonicalIndex < prevCanonicalActive ? "-108%" : "108%",
+                  opacity: 0.72,
+                  scale: 0.985,
+                }}
                 animate={{
                   x:
                     relativeIndex === 0

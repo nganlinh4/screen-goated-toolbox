@@ -19,11 +19,10 @@ use crate::APP;
 use super::html::generate_popup_update_script;
 use super::render::generate_popup_html;
 use super::{
+    BASE_POPUP_HEIGHT, BASE_POPUP_WIDTH, HwndWrapper, IGNORE_FOCUS_LOSS_UNTIL, IS_WARMED_UP,
+    IS_WARMING_UP, POPUP_HWND, POPUP_SURFACE_INSET, POPUP_WEB_CONTEXT, POPUP_WEBVIEW,
+    REGISTER_POPUP_CLASS, WARMUP_START_TIME, WEBVIEW_INIT_FAILED, WM_APP_SHOW,
     get_scaled_dimension, hide_tray_popup, popup_window_dimensions, set_popup_bounds,
-    HwndWrapper, IGNORE_FOCUS_LOSS_UNTIL, IS_WARMED_UP, IS_WARMING_UP, POPUP_HWND,
-    POPUP_WEBVIEW, POPUP_WEB_CONTEXT, REGISTER_POPUP_CLASS, WARMUP_START_TIME,
-    WEBVIEW_INIT_FAILED, WM_APP_SHOW, BASE_POPUP_HEIGHT, BASE_POPUP_WIDTH,
-    POPUP_SURFACE_INSET,
 };
 
 /// Creates the popup window and runs its message loop forever.
@@ -140,15 +139,20 @@ pub(super) fn create_popup_window() {
                     } else {
                         WebViewBuilder::new()
                     };
-                    let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
+                    let builder =
+                        crate::overlay::html_components::font_manager::configure_webview(builder);
 
                     // Store HTML in font server and get URL for same-origin font loading
-                    let page_url = crate::overlay::html_components::font_manager::store_html_page(html.clone())
-                        .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html)));
+                    let page_url = crate::overlay::html_components::font_manager::store_html_page(
+                        html.clone(),
+                    )
+                    .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html)));
 
                     builder
                         .with_bounds(Rect {
-                            position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
+                            position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(
+                                0.0, 0.0,
+                            )),
                             size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
                                 popup_width as u32,
                                 popup_height as u32,

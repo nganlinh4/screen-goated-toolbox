@@ -13,8 +13,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CURSORINFO, GetCursorInfo, GetIconInfo, ICONINFO, IDC_APPSTARTING, IDC_ARROW, IDC_CROSS,
-    IDC_HAND, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE,
-    IDC_WAIT, LoadCursorW,
+    IDC_HAND, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, IDC_WAIT,
+    LoadCursorW,
 };
 
 use super::types::{
@@ -180,9 +180,9 @@ pub(crate) fn load_system_cursor_signatures() -> HashMap<String, &'static str> {
         if handle == 0 {
             continue;
         }
-        if let Some(signature) = cursor_signature(
-            windows::Win32::UI::WindowsAndMessaging::HCURSOR(handle as *mut _),
-        ) {
+        if let Some(signature) = cursor_signature(windows::Win32::UI::WindowsAndMessaging::HCURSOR(
+            handle as *mut _,
+        )) {
             signatures.insert(signature, cursor_type);
         }
     }
@@ -314,9 +314,7 @@ fn hash_bitmap_bits(hbitmap: HBITMAP, bitmap: &BITMAP) -> Option<String> {
     }
 }
 
-fn cursor_signature(
-    handle: windows::Win32::UI::WindowsAndMessaging::HCURSOR,
-) -> Option<String> {
+fn cursor_signature(handle: windows::Win32::UI::WindowsAndMessaging::HCURSOR) -> Option<String> {
     unsafe {
         let mut icon_info: ICONINFO = zeroed();
         if GetIconInfo(handle.into(), &mut icon_info).is_err() {

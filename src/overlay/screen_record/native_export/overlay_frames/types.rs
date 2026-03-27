@@ -275,7 +275,10 @@ pub(super) struct ActiveEvent {
     pub slot: usize,
 }
 
-#[expect(clippy::too_many_arguments, reason = "event lookup needs all timeline arrays")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "event lookup needs all timeline arrays"
+)]
 pub(super) fn find_active_events(
     start_times: &[f64],
     indices: &[usize],

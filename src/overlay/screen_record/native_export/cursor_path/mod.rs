@@ -8,12 +8,12 @@ mod visibility;
 use super::config::{BackgroundConfig, BakedCursorFrame, MousePosition, VideoSegment};
 use processing::{interpolate_pos, process_cursor_positions};
 use visibility::{
-    build_mousedown_events, effective_event_end, find_active_mousedown_event_fast,
-    find_next_mousedown_event_fast, find_prev_mousedown_event_fast, get_cursor_visibility,
-    get_keystroke_delay_sec, has_mousedown_events, normalize_mouse_positions_to_source_frame,
-    squish_ease_down, squish_ease_up, CLICK_FUSE_THRESHOLD, QUICK_CLICK_WINDOW,
-    RELEASE_DUR_BASE, RELEASE_DUR_MIN, SQUISH_DOWN_DUR_BASE, SQUISH_DOWN_DUR_MIN,
-    SQUISH_TARGET,
+    CLICK_FUSE_THRESHOLD, QUICK_CLICK_WINDOW, RELEASE_DUR_BASE, RELEASE_DUR_MIN,
+    SQUISH_DOWN_DUR_BASE, SQUISH_DOWN_DUR_MIN, SQUISH_TARGET, build_mousedown_events,
+    effective_event_end, find_active_mousedown_event_fast, find_next_mousedown_event_fast,
+    find_prev_mousedown_event_fast, get_cursor_visibility, get_keystroke_delay_sec,
+    has_mousedown_events, normalize_mouse_positions_to_source_frame, squish_ease_down,
+    squish_ease_up,
 };
 
 // --- Cursor physics defaults (mirror videoRenderer.ts) ---

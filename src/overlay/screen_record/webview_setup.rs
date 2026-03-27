@@ -17,12 +17,14 @@ use crate::win_types::SendHwnd;
 
 use super::window_proc::sr_wnd_proc;
 use super::{
-    embedded_assets, ipc, try_read_downloaded_bg, try_read_runtime_cursor_svg, wnd_http_response,
     HwndWrapper, IpcRequest, PRE_FULLSCREEN_RECT, REGISTER_SR_CLASS, SERVER_PORT, SR_HWND,
-    SR_WEBVIEW, SR_WEB_CONTEXT,
+    SR_WEB_CONTEXT, SR_WEBVIEW, embedded_assets, ipc, try_read_downloaded_bg,
+    try_read_runtime_cursor_svg, wnd_http_response,
 };
 
-use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
+};
 
 use super::handle_ipc_command;
 
@@ -275,9 +277,11 @@ unsafe fn build_webview(
                         // Inject initial theme class and font CSS into HTML <head> before React mounts.
                         let html = String::from_utf8_lossy(embedded_assets::INDEX_HTML);
                         let themed = html.replace("<html lang=\"en\">", &themed_html_root);
-                        let modified = themed.replace("</head>", &format!("{font_style_tag}</head>"));
+                        let modified =
+                            themed.replace("</head>", &format!("{font_style_tag}</head>"));
                         (Cow::Owned(modified.into_bytes()), "text/html")
-                    } else if let Some((bytes, mime)) = embedded_assets::lookup_packaged_asset(path) {
+                    } else if let Some((bytes, mime)) = embedded_assets::lookup_packaged_asset(path)
+                    {
                         (Cow::Borrowed(bytes), mime)
                     } else {
                         return wnd_http_response(
@@ -329,12 +333,7 @@ fn handle_ipc_message(msg: wry::http::Request<String>, send_hwnd: SendHwnd) {
             };
             if ht != 0 {
                 let _ = ReleaseCapture();
-                let _ = SendMessageW(
-                    hwnd,
-                    WM_NCLBUTTONDOWN,
-                    Some(WPARAM(ht)),
-                    Some(LPARAM(0)),
-                );
+                let _ = SendMessageW(hwnd, WM_NCLBUTTONDOWN, Some(WPARAM(ht)), Some(LPARAM(0)));
             }
         } else if body == "minimize_window" {
             let _ = ShowWindow(hwnd, SW_MINIMIZE);
@@ -396,8 +395,7 @@ unsafe fn handle_enter_fullscreen(hwnd: HWND) {
         // Save current window rect so we can restore it on exit
         let mut rect = RECT::default();
         let _ = GetWindowRect(hwnd, &mut rect);
-        *PRE_FULLSCREEN_RECT.lock().unwrap() =
-            Some((rect.left, rect.top, rect.right, rect.bottom));
+        *PRE_FULLSCREEN_RECT.lock().unwrap() = Some((rect.left, rect.top, rect.right, rect.bottom));
         // Expand to the full monitor rect (covers taskbar too)
         let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
         let mut mi = MONITORINFO {

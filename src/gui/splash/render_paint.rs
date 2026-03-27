@@ -4,9 +4,7 @@
 
 use super::render_layers;
 use super::scene::{Cloud, MoonFeature, Star, Voxel};
-use super::{
-    C_SKY_DAY_TOP, C_VOID, C_WHITE, DrawListEntry, EXIT_DURATION,
-};
+use super::{C_SKY_DAY_TOP, C_VOID, C_WHITE, DrawListEntry, EXIT_DURATION};
 use crate::gui::icons::{Icon, paint_icon};
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 use eframe::egui::{self, Color32, Pos2, Rect, Vec2};
@@ -128,15 +126,30 @@ pub fn paint(paint_ctx: SplashPaintContext<'_>) -> bool {
     }
 
     // --- LAYER 0: STARS ---
-    paint_stars(&painter, &rect, stars, &mouse_influence, t, warp_prog, master_alpha, is_dark);
+    paint_stars(
+        &painter,
+        &rect,
+        stars,
+        &mouse_influence,
+        t,
+        warp_prog,
+        master_alpha,
+        is_dark,
+    );
 
     // --- LAYER 1.5: GOD RAYS (DAY MODE) ---
     paint_god_rays(&painter, center, t, warp_prog, master_alpha, is_dark);
 
     // --- LAYER 2: THE CELESTIAL BODY (MOON/SUN) ---
     render_layers::paint_celestial_body(
-        &painter, center, t, warp_prog, master_alpha, is_dark,
-        &mouse_influence, moon_features,
+        &painter,
+        center,
+        t,
+        warp_prog,
+        master_alpha,
+        is_dark,
+        &mouse_influence,
+        moon_features,
     );
 
     // --- LAYER 3: VOLUMETRIC CLOUDS ---
@@ -150,19 +163,53 @@ pub fn paint(paint_ctx: SplashPaintContext<'_>) -> bool {
         painter.clone()
     };
 
-    render_layers::paint_clouds(&cloud_painter, center, clouds, &mouse_influence, warp_prog, master_alpha, is_dark);
+    render_layers::paint_clouds(
+        &cloud_painter,
+        center,
+        clouds,
+        &mouse_influence,
+        warp_prog,
+        master_alpha,
+        is_dark,
+    );
 
     // --- LAYER 4: RETRO GRID ---
-    render_layers::paint_retro_grid(&painter, &rect, center, horizon, t, warp_prog, master_alpha, is_dark);
+    render_layers::paint_retro_grid(
+        &painter,
+        &rect,
+        center,
+        horizon,
+        t,
+        warp_prog,
+        master_alpha,
+        is_dark,
+    );
 
     // --- LAYER 5: 3D VOXELS (SPHERES) ---
     render_layers::paint_voxels(
-        &painter, &cloud_painter, &rect, center, t, warp_prog, master_alpha, is_dark,
-        voxels, &mouse_influence, draw_list,
+        &painter,
+        &cloud_painter,
+        &rect,
+        center,
+        t,
+        warp_prog,
+        master_alpha,
+        is_dark,
+        voxels,
+        &mouse_influence,
+        draw_list,
     );
 
     // --- LAYER 6: UI TEXT ---
-    render_layers::paint_ui_text(&painter, center, t, warp_prog, master_alpha, is_dark, loading_text);
+    render_layers::paint_ui_text(
+        &painter,
+        center,
+        t,
+        warp_prog,
+        master_alpha,
+        is_dark,
+        loading_text,
+    );
 
     theme_clicked
 }
@@ -232,7 +279,10 @@ fn paint_theme_switcher(
     theme_clicked
 }
 
-#[expect(clippy::too_many_arguments, reason = "star rendering needs all visual parameters")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "star rendering needs all visual parameters"
+)]
 fn paint_stars(
     painter: &egui::Painter,
     rect: &Rect,

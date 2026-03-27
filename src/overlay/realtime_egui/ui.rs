@@ -95,7 +95,11 @@ pub(super) fn render_main_ui(ui: &mut egui::Ui, state: &mut RealtimeUiState) {
 
             // TTS button
             if state.show_translation {
-                let tts_label = if tts_enabled { "\u{1f50a}" } else { "\u{1f507}" };
+                let tts_label = if tts_enabled {
+                    "\u{1f50a}"
+                } else {
+                    "\u{1f507}"
+                };
                 if ui
                     .small_button(tts_label)
                     .on_hover_text(locale.tts_settings_title)
@@ -156,7 +160,6 @@ pub(super) fn render_main_ui(ui: &mut egui::Ui, state: &mut RealtimeUiState) {
 
     // ===== CONTENT AREA =====
     render_content_area(ui, state, &current_source, app_pid);
-
 }
 
 fn render_model_menu(ui: &mut egui::Ui, locale: &crate::gui::locale::LocaleText) {
@@ -276,14 +279,8 @@ fn render_language_selector(ui: &mut egui::Ui, _locale: &crate::gui::locale::Loc
                 .show(ui, |ui| {
                     for lang in crate::config::get_all_languages() {
                         let matches = search_text.is_empty()
-                            || lang
-                                .to_lowercase()
-                                .contains(&search_text.to_lowercase());
-                        if matches
-                            && ui
-                                .selectable_label(current_lang == *lang, lang)
-                                .clicked()
-                        {
+                            || lang.to_lowercase().contains(&search_text.to_lowercase());
+                        if matches && ui.selectable_label(current_lang == *lang, lang).clicked() {
                             if let Ok(mut l) = NEW_TARGET_LANGUAGE.lock() {
                                 *l = lang.to_string();
                             }
@@ -384,8 +381,7 @@ fn render_app_picker(
     });
 
     if state.apps_list.is_empty() {
-        state.apps_list =
-            crate::overlay::realtime_webview::app_selection::enumerate_audio_apps();
+        state.apps_list = crate::overlay::realtime_webview::app_selection::enumerate_audio_apps();
     }
 
     egui::ScrollArea::vertical()

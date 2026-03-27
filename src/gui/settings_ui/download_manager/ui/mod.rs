@@ -160,10 +160,7 @@ impl DownloadManager {
                         InstallStatus::Downloading(_) | InstallStatus::Extracting
                     );
                     if ui
-                        .add_enabled(
-                            can_click_yes,
-                            egui::Button::new(text.download_deno_yes_btn),
-                        )
+                        .add_enabled(can_click_yes, egui::Button::new(text.download_deno_yes_btn))
                         .clicked()
                     {
                         self.start_download_deno();

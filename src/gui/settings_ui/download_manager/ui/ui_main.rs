@@ -136,8 +136,8 @@ impl DownloadManager {
             for i in 0..self.sessions.len() {
                 let is_active = i == self.active_tab_idx;
                 let label = self.sessions[i].tab_name.clone();
-                let tab_btn = egui::Button::new(egui::RichText::new(&label).size(11.0))
-                    .selected(is_active);
+                let tab_btn =
+                    egui::Button::new(egui::RichText::new(&label).size(11.0)).selected(is_active);
                 if ui.add(tab_btn).clicked() {
                     switch_tab_idx = Some(i);
                 }
@@ -182,34 +182,31 @@ impl DownloadManager {
                     .color(ctx.style().visuals.weak_text_color()),
             );
 
-            ui.with_layout(
-                egui::Layout::right_to_left(egui::Align::Center),
-                |ui| {
-                    ui.menu_button("\u{2699}", |ui| {
-                        if ui.button(text.download_change_folder_btn).clicked() {
-                            self.change_download_folder();
-                            ui.close();
-                        }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.menu_button("\u{2699}", |ui| {
+                    if ui.button(text.download_change_folder_btn).clicked() {
+                        self.change_download_folder();
+                        ui.close();
+                    }
 
-                        ui.separator();
+                    ui.separator();
 
-                        let (ytdlp_size, ffmpeg_size, deno_size) = self.get_dependency_sizes();
-                        let del_btn_text = text
-                            .download_delete_deps_btn
-                            .replacen("{}", &ytdlp_size, 1)
-                            .replacen("{}", &ffmpeg_size, 1)
-                            .replacen("{}", &deno_size, 1);
+                    let (ytdlp_size, ffmpeg_size, deno_size) = self.get_dependency_sizes();
+                    let del_btn_text = text
+                        .download_delete_deps_btn
+                        .replacen("{}", &ytdlp_size, 1)
+                        .replacen("{}", &ffmpeg_size, 1)
+                        .replacen("{}", &deno_size, 1);
 
-                        if ui
-                            .button(egui::RichText::new(del_btn_text).color(egui::Color32::RED))
-                            .clicked()
-                        {
-                            self.delete_dependencies();
-                            ui.close();
-                        }
-                    });
-                },
-            );
+                    if ui
+                        .button(egui::RichText::new(del_btn_text).color(egui::Color32::RED))
+                        .clicked()
+                    {
+                        self.delete_dependencies();
+                        ui.close();
+                    }
+                });
+            });
         });
     }
 
@@ -309,11 +306,7 @@ impl DownloadManager {
                 .selected_text(&current_val)
                 .width(100.0)
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.sessions[idx].selected_format,
-                        None,
-                        &best_text,
-                    );
+                    ui.selectable_value(&mut self.sessions[idx].selected_format, None, &best_text);
                     for fmt in formats {
                         ui.selectable_value(
                             &mut self.sessions[idx].selected_format,
@@ -478,5 +471,4 @@ impl DownloadManager {
                 });
         });
     }
-
 }

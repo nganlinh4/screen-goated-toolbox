@@ -13,8 +13,8 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     DestroyWindow, GetForegroundWindow, GetSystemMetrics, GetWindowRect, HWND_TOPMOST,
-    PostMessageW, SetWindowPos, ShowWindow, SM_CXSCREEN, SW_HIDE, SW_SHOWNOACTIVATE,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_NOCOPYBITS, WM_APP,
+    PostMessageW, SM_CXSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOCOPYBITS,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, ShowWindow, WM_APP,
 };
 use wry::Rect;
 

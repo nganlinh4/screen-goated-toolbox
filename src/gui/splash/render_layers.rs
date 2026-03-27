@@ -5,8 +5,8 @@ use super::math::{Vec3, smoothstep};
 use super::scene::{Cloud, MoonFeature, Voxel};
 use super::{
     ANIMATION_DURATION, C_CLOUD_CORE, C_CLOUD_WHITE, C_CYAN, C_DAY_REP, C_DAY_SEC, C_DAY_TEXT,
-    C_MAGENTA, C_MOON_BASE, C_MOON_GLOW, C_MOON_HIGHLIGHT, C_MOON_SHADOW,
-    C_SUN_BODY, C_SUN_FLARE, C_SUN_GLOW, C_SUN_HIGHLIGHT, C_WHITE, DrawListEntry,
+    C_MAGENTA, C_MOON_BASE, C_MOON_GLOW, C_MOON_HIGHLIGHT, C_MOON_SHADOW, C_SUN_BODY, C_SUN_FLARE,
+    C_SUN_GLOW, C_SUN_HIGHLIGHT, C_WHITE, DrawListEntry,
 };
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Stroke, Vec2};
 use std::cell::RefCell;
@@ -33,9 +33,24 @@ pub(super) fn paint_celestial_body(
     }
 
     if is_dark {
-        paint_moon(painter, center, t, moon_base_pos, moon_rad, moon_alpha, moon_features);
+        paint_moon(
+            painter,
+            center,
+            t,
+            moon_base_pos,
+            moon_rad,
+            moon_alpha,
+            moon_features,
+        );
     } else {
-        paint_sun(painter, t, moon_base_pos, moon_rad, moon_alpha, moon_features);
+        paint_sun(
+            painter,
+            t,
+            moon_base_pos,
+            moon_rad,
+            moon_alpha,
+            moon_features,
+        );
     }
 }
 
@@ -528,8 +543,7 @@ pub(super) fn paint_ui_text(
         loading_col,
     );
 
-    let bar_rect =
-        Rect::from_center_size(center + Vec2::new(0.0, 230.0), Vec2::new(200.0, 4.0));
+    let bar_rect = Rect::from_center_size(center + Vec2::new(0.0, 230.0), Vec2::new(200.0, 4.0));
     let bar_bg_col = if is_dark {
         Color32::from_white_alpha((30.0 * ui_alpha) as u8)
     } else {

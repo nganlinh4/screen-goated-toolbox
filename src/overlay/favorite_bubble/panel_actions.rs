@@ -10,8 +10,8 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GetSystemMetrics, GetWindowRect, PostMessageW, SetForegroundWindow, SetWindowPos,
-    SM_CXSCREEN, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOZORDER, WM_HOTKEY,
+    FindWindowW, GetSystemMetrics, GetWindowRect, PostMessageW, SM_CXSCREEN, SWP_NOACTIVATE,
+    SWP_NOCOPYBITS, SWP_NOZORDER, SetForegroundWindow, SetWindowPos, WM_HOTKEY,
 };
 use windows::core::w;
 use wry::Rect;

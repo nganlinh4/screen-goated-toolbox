@@ -11,7 +11,9 @@ use super::overlay::load_custom_background_rgba;
 use super::sampling::{sample_baked_path, sample_parsed_baked_cursor};
 use super::{background_presets, gif, staging};
 
-use super::gpu_export::{CompositorUniformParams, CompositorUniforms, GpuCompositor, create_uniforms};
+use super::gpu_export::{
+    CompositorUniformParams, CompositorUniforms, GpuCompositor, create_uniforms,
+};
 use super::gpu_pipeline;
 use super::mf_decode;
 
@@ -135,7 +137,11 @@ pub(super) fn setup_gpu_and_uniforms(
                     let bg_upload_secs = bg_upload_start.elapsed().as_secs_f64();
                     eprintln!(
                         "[CustomBg] export load {:.3}s + gpu upload {:.3}s ({}x{}, rgba={}B)",
-                        bg_load_secs, bg_upload_secs, tw, th, rgba_arc.len()
+                        bg_load_secs,
+                        bg_upload_secs,
+                        tw,
+                        th,
+                        rgba_arc.len()
                     );
                     use_custom_background = true;
                     actual_bg_w = tw as f32;
@@ -248,8 +254,7 @@ impl UniformBuildParams {
         let crop = &config.segment.crop;
         let (cam_x_raw, cam_y_raw, _) = sample_baked_path(cam_pan_time, &self.baked_path);
         let (_, _, zoom) = sample_baked_path(cam_zoom_time, &self.baked_path);
-        let cursor_sample =
-            sample_parsed_baked_cursor(cursor_time, &self.parsed_baked_cursor);
+        let cursor_sample = sample_parsed_baked_cursor(cursor_time, &self.parsed_baked_cursor);
         let (capture_w, capture_h) = sample_capture_dimensions_at_time(
             base_time,
             &config.mouse_positions,
@@ -299,26 +304,26 @@ impl UniformBuildParams {
         let ox = zsx + bcx;
         let oy = zsy + bcy;
 
-        let (cp_x, cp_y, cs, co, ct, cr) =
-            if let Some((cx, cy, c_s, c_t, c_o, c_r)) = cursor_sample {
-                if c_o < 0.001 {
-                    (-100.0_f32, -100.0, 0.0, 0.0, 0.0, 0.0)
-                } else {
-                    let rel_x = (cx - self.crop_x_offset) / cw;
-                    let rel_y = (cy - self.crop_y_offset) / ch;
-                    let fs = c_s * self.cursor_scale_cfg * zoom * size_ratio;
-                    (
-                        rel_x as f32,
-                        rel_y as f32,
-                        fs as f32,
-                        c_o as f32,
-                        c_t,
-                        c_r as f32,
-                    )
-                }
+        let (cp_x, cp_y, cs, co, ct, cr) = if let Some((cx, cy, c_s, c_t, c_o, c_r)) = cursor_sample
+        {
+            if c_o < 0.001 {
+                (-100.0_f32, -100.0, 0.0, 0.0, 0.0, 0.0)
             } else {
-                (-1.0, -1.0, 0.0, 0.0, 0.0, 0.0)
-            };
+                let rel_x = (cx - self.crop_x_offset) / cw;
+                let rel_y = (cy - self.crop_y_offset) / ch;
+                let fs = c_s * self.cursor_scale_cfg * zoom * size_ratio;
+                (
+                    rel_x as f32,
+                    rel_y as f32,
+                    fs as f32,
+                    c_o as f32,
+                    c_t,
+                    c_r as f32,
+                )
+            }
+        } else {
+            (-1.0, -1.0, 0.0, 0.0, 0.0, 0.0)
+        };
 
         create_uniforms(CompositorUniformParams {
             video_offset: (ox as f32, oy as f32),
@@ -358,7 +363,10 @@ impl UniformBuildParams {
     }
 }
 
-#[expect(clippy::too_many_arguments, reason = "export result handling needs all output context")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "export result handling needs all output context"
+)]
 pub(super) fn handle_export_result(
     result: Result<gpu_pipeline::ZeroCopyExportResult, String>,
     config: &ExportConfig,
@@ -435,8 +443,16 @@ pub(super) fn handle_export_result(
 
             println!(
                 "[Export][Summary] status=success out={}x{} fps={} dur={:.3}s frames={} parse={:.3}s gpu={:.3}s cursor={:.3}s total={:.3}s pipeline=zero_copy actual_kbps={:.1}",
-                out_w, out_h, config.framerate, config.duration, r.frames_encoded,
-                parse_secs, gpu_device_secs, cursor_init_secs, total_secs, actual_total_bitrate_kbps
+                out_w,
+                out_h,
+                config.framerate,
+                config.duration,
+                r.frames_encoded,
+                parse_secs,
+                gpu_device_secs,
+                cursor_init_secs,
+                total_secs,
+                actual_total_bitrate_kbps
             );
             if let Some(path) = mixed_audio_cleanup_path {
                 let _ = fs::remove_file(path);

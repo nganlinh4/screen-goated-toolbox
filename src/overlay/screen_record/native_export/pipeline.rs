@@ -102,9 +102,14 @@ pub(crate) fn run_native_export_with_staged(
     let animated_cursor_slots = staging::get_animated_cursor_slots();
 
     // 0. Handle Source Video/Audio
-    let (source_video_path, source_audio_path, mixed_audio_cleanup_path, audio_is_preprocessed,
-         device_audio_points, speed_points) =
-        prepare_audio_and_video(&config)?;
+    let (
+        source_video_path,
+        source_audio_path,
+        mixed_audio_cleanup_path,
+        audio_is_preprocessed,
+        device_audio_points,
+        speed_points,
+    ) = prepare_audio_and_video(&config)?;
 
     // Get source dimensions via MF SourceReader
     let t_mf_start = Instant::now();
@@ -128,21 +133,57 @@ pub(crate) fn run_native_export_with_staged(
 
     // Calculate dimensions
     let crop = &config.segment.crop;
-    let crop_w = if let Some(c) = crop { (src_w as f64 * c.width) as u32 } else { src_w };
-    let crop_h = if let Some(c) = crop { (src_h as f64 * c.height) as u32 } else { src_h };
-    let crop_x_offset = if let Some(c) = crop { src_w as f64 * c.x } else { 0.0 };
-    let crop_y_offset = if let Some(c) = crop { src_h as f64 * c.y } else { 0.0 };
+    let crop_w = if let Some(c) = crop {
+        (src_w as f64 * c.width) as u32
+    } else {
+        src_w
+    };
+    let crop_h = if let Some(c) = crop {
+        (src_h as f64 * c.height) as u32
+    } else {
+        src_h
+    };
+    let crop_x_offset = if let Some(c) = crop {
+        src_w as f64 * c.x
+    } else {
+        0.0
+    };
+    let crop_y_offset = if let Some(c) = crop {
+        src_h as f64 * c.y
+    } else {
+        0.0
+    };
 
-    let out_w = if config.width == 0 { crop_w } else { config.width };
-    let out_h = if config.height == 0 { crop_h } else { config.height };
+    let out_w = if config.width == 0 {
+        crop_w
+    } else {
+        config.width
+    };
+    let out_h = if config.height == 0 {
+        crop_h
+    } else {
+        config.height
+    };
     let out_w = out_w - (out_w % 2);
     let out_h = out_h - (out_h % 2);
 
     // Setup GPU compositor and uniform builder
     let gpu_result = pipeline_build::setup_gpu_and_uniforms(
-        &config, &baked_path, &baked_cursor,
-        &cursor_slot_overrides, &atlas_rgba, atlas_w, atlas_h,
-        src_w, src_h, crop_w, crop_h, crop_x_offset, crop_y_offset, out_w, out_h,
+        &config,
+        &baked_path,
+        &baked_cursor,
+        &cursor_slot_overrides,
+        &atlas_rgba,
+        atlas_w,
+        atlas_h,
+        src_w,
+        src_h,
+        crop_w,
+        crop_h,
+        crop_x_offset,
+        crop_y_offset,
+        out_w,
+        out_h,
     )?;
     let mut compositor = gpu_result.compositor;
     let gpu_device_secs = gpu_result.gpu_device_secs;
@@ -274,7 +315,12 @@ pub(crate) fn run_native_export_with_staged(
 
     println!(
         "[Export] Pipeline config: {}x{} @ {} fps, bitrate={}k, trim_start={:.3}, dur={:.3}, output_dur={:.3}",
-        out_w, out_h, config.framerate, bitrate, config.trim_start, config.duration,
+        out_w,
+        out_h,
+        config.framerate,
+        bitrate,
+        config.trim_start,
+        config.duration,
         planned_output_duration_sec
     );
 
@@ -372,8 +418,14 @@ fn prepare_audio_and_video(config: &ExportConfig) -> Result<AudioVideoPrep, Stri
     });
     if device_audio_points.is_empty() {
         device_audio_points = vec![
-            config::DeviceAudioPoint { time: 0.0, volume: legacy_audio_volume },
-            config::DeviceAudioPoint { time: config.duration.max(0.0), volume: legacy_audio_volume },
+            config::DeviceAudioPoint {
+                time: 0.0,
+                volume: legacy_audio_volume,
+            },
+            config::DeviceAudioPoint {
+                time: config.duration.max(0.0),
+                volume: legacy_audio_volume,
+            },
         ];
     }
     let mut mic_audio_points = config.segment.mic_audio_points.clone();
@@ -384,11 +436,19 @@ fn prepare_audio_and_video(config: &ExportConfig) -> Result<AudioVideoPrep, Stri
     });
     if mic_audio_points.is_empty() {
         mic_audio_points = vec![
-            config::DeviceAudioPoint { time: 0.0, volume: 0.0 },
-            config::DeviceAudioPoint { time: config.duration.max(0.0), volume: 0.0 },
+            config::DeviceAudioPoint {
+                time: 0.0,
+                volume: 0.0,
+            },
+            config::DeviceAudioPoint {
+                time: config.duration.max(0.0),
+                volume: 0.0,
+            },
         ];
     }
-    let has_audible_device_audio = device_audio_points.iter().any(|point| point.volume > 0.0001);
+    let has_audible_device_audio = device_audio_points
+        .iter()
+        .any(|point| point.volume > 0.0001);
     let has_audible_mic_audio = mic_audio_points.iter().any(|point| point.volume > 0.0001);
     let mut speed_points = config.segment.speed_points.clone();
     speed_points.sort_by(|a, b| {
