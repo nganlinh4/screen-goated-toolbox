@@ -4,7 +4,7 @@ pub const DEFAULT_IMAGE_MODEL_ID: &str = "scout";
 pub const DEFAULT_CEREBRAS_TEXT_MODEL_ID: &str = "cerebras_gpt_oss";
 pub const DEFAULT_CEREBRAS_TEXT_API_MODEL: &str = "qwen-3-235b-a22b-instruct-2507";
 
-pub const REALTIME_TRANSLATION_MODEL_CEREBRAS: &str = "cerebras-oss";
+pub const REALTIME_TRANSLATION_MODEL_TAALAS: &str = "taalas-rt";
 pub const REALTIME_TRANSLATION_MODEL_GEMMA: &str = "google-gemma";
 pub const REALTIME_TRANSLATION_MODEL_GTX: &str = "google-gtx";
 
@@ -628,10 +628,10 @@ pub fn model_supports_search_by_id(id: &str) -> bool {
 
 pub fn realtime_translation_api_model(provider_id: &str) -> &'static str {
     match provider_id {
-        REALTIME_TRANSLATION_MODEL_CEREBRAS => DEFAULT_CEREBRAS_TEXT_API_MODEL,
+        REALTIME_TRANSLATION_MODEL_TAALAS => "llama3.1-8B",
         REALTIME_TRANSLATION_MODEL_GEMMA => REALTIME_TRANSLATION_GEMMA_API_MODEL,
         REALTIME_TRANSLATION_MODEL_GTX => REALTIME_TRANSLATION_GTX_API_MODEL,
-        _ => DEFAULT_CEREBRAS_TEXT_API_MODEL,
+        _ => "llama3.1-8B",
     }
 }
 

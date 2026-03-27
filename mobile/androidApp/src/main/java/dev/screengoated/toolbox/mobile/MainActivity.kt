@@ -345,8 +345,8 @@ internal fun dev.screengoated.toolbox.mobile.shared.preset.Preset.toRealtimeSess
                 model = "google-gtx",
             )
             else -> ProviderDescriptor(
-                id = RealtimeModelIds.TRANSLATION_CEREBRAS,
-                model = "cerebras-oss",
+                id = RealtimeModelIds.TRANSLATION_TAALAS,
+                model = "taalas-rt",
             )
         }
     } ?: fallback.translationProvider

@@ -101,6 +101,12 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                     streamingEnabled = streamingEnabled,
                 )
 
+                PresetModelProvider.TAALAS -> translateTaalas(
+                    inputText = inputText,
+                    prompt = prompt,
+                    onChunk = onChunk,
+                )
+
                 PresetModelProvider.GEMINI_LIVE ->
                     throw IOException("PROVIDER_NOT_READY:gemini-live")
 

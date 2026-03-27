@@ -126,6 +126,16 @@ internal fun TextApiClient.translateGoogleGtx(
     }
 }
 
+internal fun TextApiClient.translateTaalas(
+    inputText: String,
+    prompt: String,
+    onChunk: (String) -> Unit,
+): String {
+    val result = TaalasClient.generateOrThrow(httpClient, "$prompt\n\n$inputText")
+    onChunk(result)
+    return result
+}
+
 private fun TextApiClient.generateOllamaBlocking(
     baseUrl: String,
     model: PresetModelDescriptor,
