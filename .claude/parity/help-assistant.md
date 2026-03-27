@@ -34,6 +34,8 @@
 ## Deliberate Deviation
 - Windows launches the helper from the title bar, uses the preset wheel for bucket choice, then a second preset wheel for answer mode, and finally the text-input overlay for the question.
 - Android launches the helper from a dedicated Settings card and uses a native Material 3 dialog/sheet with the answer-mode chooser placed above the text field.
+- On constrained landscape layouts, Android may keep the question label and answer-mode chooser on the same row to preserve space for the ask button.
+- In compact landscape, Android may also hide the supporting subtitle and reduce the text-field height to keep the ask button visible without changing the question flow.
 - Android still renders the answer in the floating overlay result window, so only the input surface placement differs.
 
 ## Fixtures
