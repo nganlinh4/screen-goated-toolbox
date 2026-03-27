@@ -139,7 +139,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
       return `M 0 ${DEVICE_AUDIO_TRACK_TOP_PX} L 100 ${DEVICE_AUDIO_TRACK_TOP_PX}`;
     }
     const sorted = [...points].sort((a, b) => a.time - b.time);
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
     const toY = (volume: number) => volumeToTrackY(volume);
     const x0 = toX(sorted[0].time);
     const y0 = toY(sorted[0].volume);
@@ -166,7 +166,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
   const generateFillPath = () => {
     if (points.length === 0) return "";
     const sorted = [...points].sort((a, b) => a.time - b.time);
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
     const toY = (volume: number) => volumeToTrackY(volume);
     const x0 = toX(sorted[0].time);
     const y0 = toY(sorted[0].volume);
@@ -199,7 +199,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
     const right = sorted[rightIdx];
     if (!left || !right || right.time <= left.time) return "";
 
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
     const toY = (volume: number) => volumeToTrackY(volume);
     const x1 = toX(left.time);
     const y1 = toY(left.volume);
@@ -220,7 +220,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
     const right = sorted[rightIdx];
     if (!left || !right || right.time <= left.time) return "";
 
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
     const toY = (volume: number) => volumeToTrackY(volume);
     const x1 = toX(left.time);
     const y1 = toY(left.volume);

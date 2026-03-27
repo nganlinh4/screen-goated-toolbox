@@ -282,7 +282,7 @@ export function Header({
         )}
 
         {sequenceBreadcrumb && (
-          <div className={`header-breadcrumb-slot min-w-0 flex items-center shrink-0 transition-opacity duration-200 ${showProjectsDialog ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} onMouseDown={(e) => e.stopPropagation()}>
+          <div className={`header-breadcrumb-slot flex items-center transition-opacity duration-200 ${showProjectsDialog ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} style={{ width: 'fit-content', maxWidth: 'min(50%, 480px)', minWidth: 0 }} onMouseDown={(e) => e.stopPropagation()}>
             {sequenceBreadcrumb}
           </div>
         )}

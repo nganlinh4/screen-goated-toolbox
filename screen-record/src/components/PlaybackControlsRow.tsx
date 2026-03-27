@@ -32,6 +32,7 @@ export interface PlaybackControlsRowProps {
   getAutoCanvasSelectionConfig: CanvasModeToggleProps["getAutoCanvasSelectionConfig"];
   handleActivateCustomCanvas: () => void;
   handleApplyCanvasRatioPreset: (ratioWidth: number, ratioHeight: number) => void;
+  isAutoCanvasDisabled?: boolean;
   // KeystrokeToggleControl props
   segment: VideoSegment | null;
   setSegment: KeystrokeToggleControlProps["setSegment"];
@@ -70,6 +71,7 @@ export function PlaybackControlsRow({
   getAutoCanvasSelectionConfig,
   handleActivateCustomCanvas,
   handleApplyCanvasRatioPreset,
+  isAutoCanvasDisabled,
   segment,
   setSegment,
   handleToggleKeystrokeMode,
@@ -136,6 +138,7 @@ export function PlaybackControlsRow({
               getAutoCanvasSelectionConfig={getAutoCanvasSelectionConfig}
               handleActivateCustomCanvas={handleActivateCustomCanvas}
               handleApplyCanvasRatioPreset={handleApplyCanvasRatioPreset}
+              isAutoCanvasDisabled={isAutoCanvasDisabled}
             />
           }
           keystrokeToggle={

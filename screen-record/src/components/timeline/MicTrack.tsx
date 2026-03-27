@@ -138,7 +138,7 @@ export const MicTrack: React.FC<MicTrackProps> = ({
       return `M 0 ${MIC_TRACK_BOTTOM_PX} L 100 ${MIC_TRACK_BOTTOM_PX}`;
     }
     const sorted = [...points].sort((a, b) => a.time - b.time);
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
     const toY = (volume: number) => volumeToTrackY(volume);
     const x0 = toX(sorted[0].time);
     const y0 = toY(sorted[0].volume);
@@ -165,7 +165,7 @@ export const MicTrack: React.FC<MicTrackProps> = ({
   const generateFillPath = () => {
     if (points.length === 0) return "";
     const sorted = [...points].sort((a, b) => a.time - b.time);
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
     const toY = (volume: number) => volumeToTrackY(volume);
     const x0 = toX(sorted[0].time);
     const y0 = toY(sorted[0].volume);
@@ -198,7 +198,7 @@ export const MicTrack: React.FC<MicTrackProps> = ({
     const right = sorted[rightIdx];
     if (!left || !right || right.time <= left.time) return "";
 
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
     const toY = (volume: number) => volumeToTrackY(volume);
     const x1 = toX(left.time);
     const y1 = toY(left.volume);
@@ -219,7 +219,7 @@ export const MicTrack: React.FC<MicTrackProps> = ({
     const right = sorted[rightIdx];
     if (!left || !right || right.time <= left.time) return "";
 
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => (isFinite(duration) && duration > 0 ? (time / duration) * 100 : 0);
     const toY = (volume: number) => volumeToTrackY(volume);
     const x1 = toX(left.time);
     const y1 = toY(left.volume);

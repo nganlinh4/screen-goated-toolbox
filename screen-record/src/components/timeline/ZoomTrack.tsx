@@ -133,9 +133,9 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
     const [leftIdx, rightIdx] = segmentIndices;
     const left = sorted[leftIdx];
     const right = sorted[rightIdx];
-    if (!left || !right || right.time <= left.time) return '';
+    if (!left || !right || right.time <= left.time || !isFinite(duration) || duration <= 0) return '';
 
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => safeNum((time / duration) * 100);
     const toY = (value: number) => valueToTrackY(value);
     const x1 = toX(left.time);
     const y1 = toY(left.value);
@@ -154,9 +154,9 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
     const [leftIdx, rightIdx] = segmentIndices;
     const left = sorted[leftIdx];
     const right = sorted[rightIdx];
-    if (!left || !right || right.time <= left.time) return '';
+    if (!left || !right || right.time <= left.time || !isFinite(duration) || duration <= 0) return '';
 
-    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toX = (time: number) => safeNum((time / duration) * 100);
     const toY = (value: number) => valueToTrackY(value);
     const x1 = toX(left.time);
     const y1 = toY(left.value);
@@ -377,10 +377,11 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
   }, []);
 
   // Generate SVG path for influence curve
+  const safeNum = (n: number, fallback = 0) => isFinite(n) ? n : fallback;
   const generatePath = () => {
     if (points.length === 0 || !isFinite(duration) || duration <= 0) return 'M 0 20 L 100 20';
     const sorted = [...points].sort((a, b) => a.time - b.time);
-    const toX = (time: number) => (time / duration) * 100;
+    const toX = (time: number) => safeNum((time / duration) * 100);
     const toY = (value: number) => valueToTrackY(value);
     const x0 = toX(sorted[0].time);
     const y0 = toY(sorted[0].value);
@@ -406,7 +407,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
   const generateFillPath = () => {
     if (points.length === 0 || !isFinite(duration) || duration <= 0) return '';
     const sorted = [...points].sort((a, b) => a.time - b.time);
-    const toX = (time: number) => (time / duration) * 100;
+    const toX = (time: number) => safeNum((time / duration) * 100);
     const toY = (value: number) => valueToTrackY(value);
     const x0 = toX(sorted[0].time);
     const y0 = toY(sorted[0].value);

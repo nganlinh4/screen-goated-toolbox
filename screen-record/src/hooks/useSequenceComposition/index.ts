@@ -213,7 +213,14 @@ export function useSequenceComposition({
       return;
     setComposition((prev) => {
       if (!prev) return prev;
-      const canvasConfig = extractCanvasConfig(backgroundConfig);
+      // Only sync canvas config when editing the auto source clip (or single-clip).
+      // Non-source clips must not override the global canvas dimensions.
+      const isMultiClip = prev.clips.length > 1;
+      const autoSourceId = prev.globalCanvasConfig?.autoSourceClipId;
+      const isCanvasSourceClip = !isMultiClip || !autoSourceId || autoSourceId === compositionSyncClipId;
+      const canvasConfig = isCanvasSourceClip
+        ? extractCanvasConfig(backgroundConfig)
+        : prev.globalCanvasConfig ?? extractCanvasConfig(backgroundConfig);
       let next = syncCompositionCanvasConfig(prev, canvasConfig);
       const effectiveMode = getEffectiveCompositionMode(prev);
       if (next.mode !== effectiveMode) {

@@ -183,6 +183,13 @@ export function useCanvasConfig({
   const cropH = segment?.crop?.height;
   useEffect(() => {
     if (backgroundConfig.canvasMode !== "auto") return;
+    // In multi-clip, only the auto source clip may resolve canvas from its video.
+    // Non-source clips inherit the resolved dimensions as "custom" and must not
+    // re-resolve from their own (different) video dimensions.
+    if (composition && composition.clips.length > 1) {
+      const autoSourceId = getCompositionAutoSourceClipId(composition);
+      if (autoSourceId && activeClipId && autoSourceId !== activeClipId) return;
+    }
     const crop = segment?.crop ?? { x: 0, y: 0, width: 1, height: 1 };
     const sourceWidth = videoRef.current?.videoWidth || 0;
     const sourceHeight = videoRef.current?.videoHeight || 0;
@@ -199,7 +206,7 @@ export function useCanvasConfig({
       canvasHeight: derivedHeight,
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cropX, cropY, cropW, cropH, backgroundConfig.canvasMode, isVideoReady]);
+  }, [cropX, cropY, cropW, cropH, backgroundConfig.canvasMode, isVideoReady, composition, activeClipId]);
 
   const handleToggleCrop = useCallback(() => {
     if (isCropping) {

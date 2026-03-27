@@ -64,6 +64,7 @@ export interface EditorMainProps {
   getAutoCanvasSelectionConfig: CanvasModeToggleProps["getAutoCanvasSelectionConfig"];
   handleActivateCustomCanvas: () => void;
   handleApplyCanvasRatioPreset: (ratioWidth: number, ratioHeight: number) => void;
+  isAutoCanvasDisabled?: boolean;
   segment: VideoSegment | null;
   setSegment: (s: VideoSegment | null) => void;
   handleToggleKeystrokeMode: () => void;
@@ -152,6 +153,7 @@ export function EditorMain({
   getAutoCanvasSelectionConfig,
   handleActivateCustomCanvas,
   handleApplyCanvasRatioPreset,
+  isAutoCanvasDisabled,
   segment,
   setSegment,
   handleToggleKeystrokeMode,
@@ -299,6 +301,7 @@ export function EditorMain({
             getAutoCanvasSelectionConfig={getAutoCanvasSelectionConfig}
             handleActivateCustomCanvas={handleActivateCustomCanvas}
             handleApplyCanvasRatioPreset={handleApplyCanvasRatioPreset}
+            isAutoCanvasDisabled={isAutoCanvasDisabled}
             segment={segment}
             setSegment={setSegment as (s: VideoSegment) => void}
             handleToggleKeystrokeMode={handleToggleKeystrokeMode}
