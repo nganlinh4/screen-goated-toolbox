@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { projectManager } from "@/lib/projectManager";
 import { writeBlobToTempMediaFile, getMediaServerUrl } from "@/lib/mediaServer";
 import { buildFlatDeviceAudioPoints } from "@/lib/deviceAudio";
@@ -14,11 +14,13 @@ export function useVideoImport(opts: {
   onProjectCreated: (project: Project) => void;
 }): UseVideoImportResult {
   const [isImporting, setIsImporting] = useState(false);
+  const isImportingRef = useRef(false);
 
   const importVideo = useCallback(async (file: File) => {
     if (!file.type.startsWith("video/")) return;
-    if (isImporting) return;
+    if (isImportingRef.current) return;
 
+    isImportingRef.current = true;
     setIsImporting(true);
     try {
       // 1. Write file to disk via media server
@@ -67,9 +69,10 @@ export function useVideoImport(opts: {
     } catch (err) {
       console.error("[VideoImport] Failed:", err);
     } finally {
+      isImportingRef.current = false;
       setIsImporting(false);
     }
-  }, [isImporting, opts]);
+  }, [opts]);
 
   return { isImporting, importVideo };
 }
