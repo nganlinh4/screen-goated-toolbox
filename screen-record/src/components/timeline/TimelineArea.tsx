@@ -246,33 +246,43 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
 
   const handleDeletePointerSegments = useCallback((ids: string[]) => {
     if (!segment) return;
+    beginBatch();
     const idSet = new Set(ids);
     const remaining = (segment.cursorVisibilitySegments || []).filter(s => !idSet.has(s.id));
     setSegment({ ...segment, cursorVisibilitySegments: remaining.length > 0 ? remaining : undefined });
-  }, [segment, setSegment]);
+    commitBatch();
+  }, [segment, setSegment, beginBatch, commitBatch]);
 
   const handleTextSplit = useCallback((id: string, splitTime: number) => {
     if (!segment) return;
+    beginBatch();
     const texts = segment.textSegments ?? [];
     const target = texts.find(t => t.id === id);
-    if (!target || splitTime <= target.startTime + 0.1 || splitTime >= target.endTime - 0.1) return;
+    if (!target || splitTime <= target.startTime + 0.1 || splitTime >= target.endTime - 0.1) {
+      commitBatch();
+      return;
+    }
     const left = { ...target, endTime: splitTime - 0.01 };
     const right = { ...target, id: crypto.randomUUID(), startTime: splitTime + 0.01 };
     setSegment({
       ...segment,
       textSegments: texts.map(t => t.id === id ? left : t).concat(right),
     });
-  }, [segment, setSegment]);
+    commitBatch();
+  }, [segment, setSegment, beginBatch, commitBatch]);
 
   const handleDeleteTextSegments = useCallback((ids: string[]) => {
     if (!segment) return;
+    beginBatch();
     const idSet = new Set(ids);
     const remaining = (segment.textSegments ?? []).filter(t => !idSet.has(t.id));
     setSegment({ ...segment, textSegments: remaining });
-  }, [segment, setSegment]);
+    commitBatch();
+  }, [segment, setSegment, beginBatch, commitBatch]);
 
   const handleDeleteKeystrokeSegments = useCallback((ids: string[]) => {
     if (!segment) return;
+    beginBatch();
     const idSet = new Set(ids);
     const mode = segment.keystrokeMode ?? 'off';
     if (mode === 'keyboard') {
@@ -282,14 +292,17 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
       const remaining = (segment.keyboardMouseVisibilitySegments || []).filter(s => !idSet.has(s.id));
       setSegment({ ...segment, keyboardMouseVisibilitySegments: remaining.length > 0 ? remaining : undefined });
     }
-  }, [segment, setSegment]);
+    commitBatch();
+  }, [segment, setSegment, beginBatch, commitBatch]);
 
   const handleDeleteWebcamSegments = useCallback((ids: string[]) => {
     if (!segment) return;
+    beginBatch();
     const idSet = new Set(ids);
     const remaining = (segment.webcamVisibilitySegments || []).filter(s => !idSet.has(s.id));
     setSegment({ ...segment, webcamVisibilitySegments: remaining.length > 0 ? remaining : undefined });
-  }, [segment, setSegment]);
+    commitBatch();
+  }, [segment, setSegment, beginBatch, commitBatch]);
 
   const {
     viewportRef,
