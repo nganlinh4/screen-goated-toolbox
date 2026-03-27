@@ -7,8 +7,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::Rect;
 
 use super::{
-    push_settings_to_webview, SR_WEBVIEW, WM_APP_RUN_SCRIPT, WM_APP_SHOW, WM_APP_TOGGLE,
-    WM_APP_UPDATE_SETTINGS,
+    SR_WEBVIEW, WM_APP_RUN_SCRIPT, WM_APP_SHOW, WM_APP_TOGGLE, WM_APP_UPDATE_SETTINGS,
+    push_settings_to_webview,
 };
 
 pub(super) unsafe extern "system" fn sr_wnd_proc(
@@ -58,9 +58,7 @@ pub(super) unsafe extern "system" fn sr_wnd_proc(
                 }
                 LRESULT(0)
             }
-            WM_NCHITTEST => {
-                handle_nchittest(hwnd, lparam)
-            }
+            WM_NCHITTEST => handle_nchittest(hwnd, lparam),
             WM_GETMINMAXINFO => {
                 let info = &mut *(lparam.0 as *mut MINMAXINFO);
                 info.ptMinTrackSize.x = 800;

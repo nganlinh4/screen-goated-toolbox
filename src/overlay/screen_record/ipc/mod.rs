@@ -19,8 +19,8 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 // Re-exports used by the parent module.
-pub(crate) use window_monitor::capture_window_thumbnail;
 pub use media_server::start_global_media_server;
+pub(crate) use window_monitor::capture_window_thumbnail;
 
 pub fn handle_ipc_command(
     cmd: String,
@@ -214,7 +214,10 @@ pub fn handle_ipc_command(
             let mut monitors = get_monitors();
             for m in &mut monitors {
                 m.thumbnail = window_monitor::capture_monitor_thumbnail(
-                    m.x, m.y, m.width as i32, m.height as i32,
+                    m.x,
+                    m.y,
+                    m.width as i32,
+                    m.height as i32,
                 );
             }
             Ok(serde_json::to_value(monitors).unwrap())
@@ -354,9 +357,7 @@ fn handle_stage_export_data(args: &serde_json::Value) -> Result<serde_json::Valu
                 serde_json::from_value(args["data"].clone())
                     .map_err(|e| format!("bad camera chunk: {e}"))?;
             if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
-                native_export::staging::append_camera_frames_for(
-                    session_id, job_id, frames,
-                );
+                native_export::staging::append_camera_frames_for(session_id, job_id, frames);
             } else {
                 native_export::staging::append_camera_frames(frames);
             }
@@ -366,9 +367,7 @@ fn handle_stage_export_data(args: &serde_json::Value) -> Result<serde_json::Valu
                 serde_json::from_value(args["data"].clone())
                     .map_err(|e| format!("bad cursor chunk: {e}"))?;
             if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
-                native_export::staging::append_cursor_frames_for(
-                    session_id, job_id, frames,
-                );
+                native_export::staging::append_cursor_frames_for(session_id, job_id, frames);
             } else {
                 native_export::staging::append_cursor_frames(frames);
             }
@@ -378,9 +377,7 @@ fn handle_stage_export_data(args: &serde_json::Value) -> Result<serde_json::Valu
                 serde_json::from_value(args["data"].clone())
                     .map_err(|e| format!("bad webcam chunk: {e}"))?;
             if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
-                native_export::staging::append_webcam_frames_for(
-                    session_id, job_id, frames,
-                );
+                native_export::staging::append_webcam_frames_for(session_id, job_id, frames);
             } else {
                 native_export::staging::append_webcam_frames(frames);
             }
@@ -396,13 +393,7 @@ fn handle_stage_export_data(args: &serde_json::Value) -> Result<serde_json::Valu
                 .map_err(|e| e.to_string())?
                 .to_rgba8();
             if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
-                native_export::staging::set_atlas_for(
-                    session_id,
-                    job_id,
-                    img.into_raw(),
-                    w,
-                    h,
-                );
+                native_export::staging::set_atlas_for(session_id, job_id, img.into_raw(), w, h);
             } else {
                 native_export::staging::set_atlas(img.into_raw(), w, h);
             }
@@ -412,9 +403,7 @@ fn handle_stage_export_data(args: &serde_json::Value) -> Result<serde_json::Valu
                 serde_json::from_value(args["data"].clone())
                     .map_err(|e| format!("bad overlay chunk: {e}"))?;
             if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
-                native_export::staging::append_overlay_frames_for(
-                    session_id, job_id, frames,
-                );
+                native_export::staging::append_overlay_frames_for(session_id, job_id, frames);
             } else {
                 native_export::staging::append_overlay_frames(frames);
             }

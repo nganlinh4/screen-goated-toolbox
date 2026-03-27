@@ -5,8 +5,8 @@ use super::spring::{
     lerp_angle, normalize_angle, smooth_damp_angle, spring_step_angle, spring_step_scalar,
 };
 use super::{
-    get_cursor_smoothness, get_tilt_rad, get_wiggle_damping, get_wiggle_response,
-    get_wiggle_strength, should_cursor_tilt, Pos,
+    Pos, get_cursor_smoothness, get_tilt_rad, get_wiggle_damping, get_wiggle_response,
+    get_wiggle_strength, should_cursor_tilt,
 };
 use crate::overlay::screen_record::native_export::config::{BackgroundConfig, MousePosition};
 

@@ -17,12 +17,9 @@ use super::types::{
 
 /// Resolve the capture dimensions for a window target, with multiple fallbacks.
 /// Returns (width, height, monitor_hz, target_id_print).
-pub(crate) fn resolve_window_capture_size(
-    hwnd_val: usize,
-) -> (u32, u32, u32, usize) {
+pub(crate) fn resolve_window_capture_size(hwnd_val: usize) -> (u32, u32, u32, usize) {
     let hwnd = HWND(hwnd_val as *mut _);
-    let window =
-        windows_capture::window::Window::from_raw_hwnd(hwnd_val as *mut std::ffi::c_void);
+    let window = windows_capture::window::Window::from_raw_hwnd(hwnd_val as *mut std::ffi::c_void);
 
     let mut w = 0u32;
     let mut h = 0u32;
@@ -44,14 +41,11 @@ pub(crate) fn resolve_window_capture_size(
     if w == 0 || h == 0 {
         unsafe {
             let mut wp = windows::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT {
-                length: std::mem::size_of::<
-                    windows::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT,
-                >() as u32,
+                length: std::mem::size_of::<windows::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT>(
+                ) as u32,
                 ..Default::default()
             };
-            if windows::Win32::UI::WindowsAndMessaging::GetWindowPlacement(hwnd, &mut wp)
-                .is_ok()
-            {
+            if windows::Win32::UI::WindowsAndMessaging::GetWindowPlacement(hwnd, &mut wp).is_ok() {
                 let pw = (wp.rcNormalPosition.right - wp.rcNormalPosition.left).abs();
                 let ph = (wp.rcNormalPosition.bottom - wp.rcNormalPosition.top).abs();
                 if pw >= 300 && ph >= 300 {

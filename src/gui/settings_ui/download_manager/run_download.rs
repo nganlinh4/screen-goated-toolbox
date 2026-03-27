@@ -1,6 +1,4 @@
-use super::run::{
-    fetch_latest_ytdlp_version, read_local_ytdlp_version, YTDLP_DOWNLOAD_URL,
-};
+use super::run::{YTDLP_DOWNLOAD_URL, fetch_latest_ytdlp_version, read_local_ytdlp_version};
 use super::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus, UpdateStatus};
 use super::utils::{download_file, log};
 use std::io::{BufRead, BufReader};

@@ -259,9 +259,7 @@ fn handle_gemini_tts(
                 }
             }
             Ok(_) => {}
-            Err(tungstenite::Error::Io(ref e))
-                if e.kind() == std::io::ErrorKind::WouldBlock =>
-            {
+            Err(tungstenite::Error::Io(ref e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 if setup_start.elapsed() > Duration::from_secs(10) {
                     break;
                 }
@@ -330,9 +328,7 @@ fn handle_gemini_tts(
                 break;
             }
             Ok(_) => {}
-            Err(tungstenite::Error::Io(ref e))
-                if e.kind() == std::io::ErrorKind::WouldBlock =>
-            {
+            Err(tungstenite::Error::Io(ref e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 std::thread::sleep(Duration::from_millis(5));
             }
             Err(e) => {

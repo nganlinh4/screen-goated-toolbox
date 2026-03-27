@@ -7,10 +7,10 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use windows::Win32::Graphics::Direct3D12 as d3d12;
 
-use dx12_copy::{Dx12SharedCopyContext, READBACK_RING_SIZE};
 use super::cursors::{CURSOR_ATLAS_COLS, CURSOR_ATLAS_ROWS, CURSOR_TILE_SIZE};
 use super::setup::{OUTPUT_TEXTURE_FORMAT, shared_gpu_context};
 use super::webcam::WebcamOverlayState;
+use dx12_copy::{Dx12SharedCopyContext, READBACK_RING_SIZE};
 
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Pod, Zeroable)]

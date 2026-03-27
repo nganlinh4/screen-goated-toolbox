@@ -1,6 +1,6 @@
 use super::CompositorUniforms;
 use super::GpuCompositor;
-use crate::overlay::screen_record::gpu_export::setup::{shared_gpu_context, OverlayVertex};
+use crate::overlay::screen_record::gpu_export::setup::{OverlayVertex, shared_gpu_context};
 use crate::overlay::screen_record::native_export::config::OverlayQuad;
 
 /// Core rendering methods for `GpuCompositor`.

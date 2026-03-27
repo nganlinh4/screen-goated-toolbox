@@ -4,7 +4,11 @@ use super::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-pub(super) unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+pub(super) unsafe extern "system" fn keyboard_hook_proc(
+    code: i32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
     unsafe {
         if code < 0 {
             return CallNextHookEx(None, code, wparam, lparam);
@@ -38,7 +42,11 @@ pub(super) unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARA
     }
 }
 
-pub(super) unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+pub(super) unsafe extern "system" fn mouse_hook_proc(
+    code: i32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
     unsafe {
         if code < 0 {
             return CallNextHookEx(None, code, wparam, lparam);

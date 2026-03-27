@@ -16,10 +16,10 @@ use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, GetClientRect, LoadCursorW, RegisterClassW, SendMessageW,
-    IDC_ARROW, HTCAPTION, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_KILLFOCUS,
-    WM_NCCALCSIZE, WM_NCLBUTTONDOWN,
+    CreateWindowExW, DefWindowProcW, GetClientRect, HTCAPTION, IDC_ARROW, LoadCursorW,
+    RegisterClassW, SendMessageW, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_KILLFOCUS, WM_NCCALCSIZE,
+    WM_NCLBUTTONDOWN, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_POPUP, WS_VISIBLE,
 };
 use windows::core::w;
 use wry::{Rect, WebContext, WebViewBuilder};

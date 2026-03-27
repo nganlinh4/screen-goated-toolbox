@@ -34,8 +34,12 @@ pub(super) fn restore_flyout_top_logical(option_count: usize) -> i32 {
 
 fn format_restore_option_label(ui_language: &str, overlay_count: usize) -> String {
     match ui_language {
-        "vi" => format!("Kh\u{00f4}i ph\u{1ee5}c {overlay_count} overlay v\u{1eeb}a \u{0111}\u{00f3}ng"),
-        "ko" => format!("\u{bc29}\u{ae08} \u{b2eb}\u{c740} \u{c624}\u{bc84}\u{b808}\u{c774} {overlay_count}\u{ac1c} \u{bcd5}\u{c6d0}"),
+        "vi" => {
+            format!("Kh\u{00f4}i ph\u{1ee5}c {overlay_count} overlay v\u{1eeb}a \u{0111}\u{00f3}ng")
+        }
+        "ko" => format!(
+            "\u{bc29}\u{ae08} \u{b2eb}\u{c740} \u{c624}\u{bc84}\u{b808}\u{c774} {overlay_count}\u{ac1c} \u{bcd5}\u{c6d0}"
+        ),
         _ => {
             let noun = if overlay_count == 1 {
                 "overlay"

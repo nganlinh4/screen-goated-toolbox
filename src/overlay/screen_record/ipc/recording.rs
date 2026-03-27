@@ -2,7 +2,6 @@
 // Start and stop recording handler logic: capture initialization,
 // encoding wait, and result construction.
 
-use super::media_server::start_global_media_server;
 use super::super::engine::{
     ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, CAPTURE_ERROR, CaptureHandler, ENCODER_ACTIVE,
     ENCODING_FINISHED, IS_RECORDING, LAST_CAPTURE_FRAME_HEIGHT, LAST_CAPTURE_FRAME_WIDTH,
@@ -10,7 +9,8 @@ use super::super::engine::{
     SHOULD_STOP, VIDEO_PATH, WEBCAM_ENCODING_FINISHED, WEBCAM_VIDEO_PATH,
     WEBCAM_VIDEO_START_OFFSET_MS,
 };
-use super::super::{input_capture, SERVER_PORT};
+use super::super::{SERVER_PORT, input_capture};
+use super::media_server::start_global_media_server;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
 use windows::Win32::Media::{timeBeginPeriod, timeEndPeriod};
@@ -102,23 +102,18 @@ pub(super) fn handle_start_recording(
             "[CaptureBackend] Window capture: hwnd=0x{:X}, title={:?}, IsWindow={}",
             hwnd_val,
             title,
-            unsafe {
-                windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool()
-            }
+            unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool() }
         );
 
         if hwnd_val == 0
-            || !unsafe {
-                windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool()
-            }
+            || !unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool() }
         {
             IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
             return Err(format!("Invalid window handle: 0x{:X}", hwnd_val));
         }
 
-        let window = windows_capture::window::Window::from_raw_hwnd(
-            hwnd_val as *mut std::ffi::c_void,
-        );
+        let window =
+            windows_capture::window::Window::from_raw_hwnd(hwnd_val as *mut std::ffi::c_void);
 
         super::super::engine::TARGET_HWND.store(hwnd_val, std::sync::atomic::Ordering::Relaxed);
 
@@ -189,11 +184,9 @@ pub(super) fn handle_start_recording(
                 LPARAM(&mut monitors as *mut _ as isize),
             );
             if let Some(&hmonitor) = monitors.get(monitor_index) {
-                let mut info: windows::Win32::Graphics::Gdi::MONITORINFOEXW =
-                    std::mem::zeroed();
-                info.monitorInfo.cbSize = std::mem::size_of::<
-                    windows::Win32::Graphics::Gdi::MONITORINFOEXW,
-                >() as u32;
+                let mut info: windows::Win32::Graphics::Gdi::MONITORINFOEXW = std::mem::zeroed();
+                info.monitorInfo.cbSize =
+                    std::mem::size_of::<windows::Win32::Graphics::Gdi::MONITORINFOEXW>() as u32;
                 if windows::Win32::Graphics::Gdi::GetMonitorInfoW(
                     hmonitor,
                     &mut info.monitorInfo as *mut _,

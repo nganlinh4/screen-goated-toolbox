@@ -5,9 +5,7 @@ use crate::APP;
 use super::html::{
     get_popup_labels, get_restore_options, render_restore_options_html, restore_flyout_top_logical,
 };
-use super::{
-    BASE_POPUP_WIDTH, POPUP_SURFACE_INSET, RESTORE_FLYOUT_GAP, RESTORE_FLYOUT_WIDTH,
-};
+use super::{BASE_POPUP_WIDTH, POPUP_SURFACE_INSET, RESTORE_FLYOUT_GAP, RESTORE_FLYOUT_WIDTH};
 
 pub(super) fn generate_popup_html() -> String {
     use crate::config::ThemeMode;

@@ -5,9 +5,7 @@
 use super::audio::SplashAudio;
 use super::math::{Vec3, lerp, smoothstep};
 use super::scene::{Cloud, Voxel};
-use super::{
-    ANIMATION_DURATION, EXIT_DURATION, START_TRANSITION, SplashStatus,
-};
+use super::{ANIMATION_DURATION, EXIT_DURATION, START_TRANSITION, SplashStatus};
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 use eframe::egui::{self, Pos2, Rect, Vec2};
 use std::sync::{Arc, Mutex};

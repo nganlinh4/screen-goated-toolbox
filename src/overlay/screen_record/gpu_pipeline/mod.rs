@@ -52,8 +52,8 @@ use encode_thread::run_encode_thread;
 use render_thread::run_render_thread;
 use ring_buffers::{try_create_decode_input_ring, try_create_gpu_output_ring};
 use types::{
-    DecodeOutput, DecodeThreadContext, EncodeThreadContext, RenderOutput, RenderThreadContext,
-    DECODE_RING_SIZE, GPU_RING_SIZE,
+    DECODE_RING_SIZE, DecodeOutput, DecodeThreadContext, EncodeThreadContext, GPU_RING_SIZE,
+    RenderOutput, RenderThreadContext,
 };
 use webcam::prepare_webcam_decode_setup;
 

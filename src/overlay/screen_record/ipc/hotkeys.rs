@@ -2,8 +2,8 @@
 // Hotkey registration/unregistration, JS key-code to VK mapping,
 // and hotkey reload signaling via the hidden listener window.
 
-use crate::config::Hotkey;
 use crate::APP;
+use crate::config::Hotkey;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -108,8 +108,7 @@ pub(super) fn handle_set_hotkey(args: &serde_json::Value) -> Result<serde_json::
     let mods_arr = args["modifiers"].as_array().ok_or("Missing modifiers")?;
     let key_name = args["key"].as_str().unwrap_or("Unknown");
 
-    let vk_code =
-        js_code_to_vk(code_str).ok_or(format!("Unsupported key code: {}", code_str))?;
+    let vk_code = js_code_to_vk(code_str).ok_or(format!("Unsupported key code: {}", code_str))?;
 
     let mut modifiers = 0;
     for m in mods_arr {

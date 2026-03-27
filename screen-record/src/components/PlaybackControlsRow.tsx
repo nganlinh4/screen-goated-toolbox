@@ -87,6 +87,9 @@ export function PlaybackControlsRow({
 }: PlaybackControlsRowProps) {
   const { t } = useSettings();
 
+  const hasMouseData = mousePositionsLength > 0;
+  const hasKeystrokeData = (segment?.keystrokeEvents?.length ?? 0) > 0;
+
   const autoZoomDisabled =
     isProcessing ||
     !currentVideo ||
@@ -141,15 +144,15 @@ export function PlaybackControlsRow({
               isAutoCanvasDisabled={isAutoCanvasDisabled}
             />
           }
-          keystrokeToggle={
+          keystrokeToggle={hasKeystrokeData ? (
             <KeystrokeToggleControl
               segment={segment}
               setSegment={setSegment}
               handleToggleKeystrokeMode={handleToggleKeystrokeMode}
               handleKeystrokeDelayChange={handleKeystrokeDelayChange}
             />
-          }
-          autoZoomButton={
+          ) : undefined}
+          autoZoomButton={hasMouseData ? (
             <AutoZoomControl
               segment={segment}
               disabled={autoZoomDisabled}
@@ -157,8 +160,8 @@ export function PlaybackControlsRow({
               autoZoomConfig={autoZoomConfig}
               onConfigChange={handleAutoZoomConfigChange}
             />
-          }
-          smartPointerButton={
+          ) : undefined}
+          smartPointerButton={hasMouseData ? (
             <Button
               onClick={handleSmartPointerHiding}
               disabled={smartPointerDisabled}
@@ -169,7 +172,7 @@ export function PlaybackControlsRow({
               <MousePointer2 className="w-3 h-3 mr-1" />
               {t.smartPointer}
             </Button>
-          }
+          ) : undefined}
           selectionChip={
             selectedSegmentCount && selectedSegmentCount > 0 && onClearSelection ? (
               <Button

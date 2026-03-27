@@ -159,17 +159,36 @@ where
         }
     } else if provider == "google" {
         // --- GEMINI TEXT API ---
-        full_content =
-            translate_gemini(gemini_api_key, &model, &prompt, streaming_enabled, ui_language, &cancel_token, &mut on_chunk)?;
+        full_content = translate_gemini(
+            gemini_api_key,
+            &model,
+            &prompt,
+            streaming_enabled,
+            ui_language,
+            &cancel_token,
+            &mut on_chunk,
+        )?;
     } else if provider == "cerebras" {
         // --- CEREBRAS API ---
         full_content = translate_cerebras(
-            &cerebras_api_key, &model, &prompt, streaming_enabled, ui_language, &cancel_token, &mut on_chunk,
+            &cerebras_api_key,
+            &model,
+            &prompt,
+            streaming_enabled,
+            ui_language,
+            &cancel_token,
+            &mut on_chunk,
         )?;
     } else if provider == "openrouter" {
         // --- OPENROUTER API ---
         full_content = translate_openrouter(
-            &openrouter_api_key, &model, &prompt, streaming_enabled, ui_language, &cancel_token, &mut on_chunk,
+            &openrouter_api_key,
+            &model,
+            &prompt,
+            streaming_enabled,
+            ui_language,
+            &cancel_token,
+            &mut on_chunk,
         )?;
     } else {
         // --- GROQ API (Default) ---

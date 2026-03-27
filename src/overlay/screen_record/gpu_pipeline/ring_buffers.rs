@@ -5,7 +5,7 @@ use windows::Win32::Graphics::Dxgi::IDXGIKeyedMutex;
 use windows::core::Interface;
 
 use super::super::d3d_interop::SharedVramBuffer;
-use super::types::{DecodeInputRing, GpuOutputRing, DECODE_RING_SIZE, GPU_RING_SIZE};
+use super::types::{DECODE_RING_SIZE, DecodeInputRing, GPU_RING_SIZE, GpuOutputRing};
 
 /// Import a shared D3D11 texture (NT handle) into wgpu as a DX12 texture.
 ///

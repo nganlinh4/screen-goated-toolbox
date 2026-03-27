@@ -123,10 +123,7 @@ pub(super) struct MouseDownEventView {
     pub is_hold: bool,
 }
 
-fn to_mousedown_event(
-    idx: usize,
-    e: &KeystrokeEvent,
-) -> MouseDownEventView {
+fn to_mousedown_event(idx: usize, e: &KeystrokeEvent) -> MouseDownEventView {
     MouseDownEventView {
         idx,
         start_time: e.start_time,

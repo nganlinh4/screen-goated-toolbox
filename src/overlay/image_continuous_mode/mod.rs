@@ -7,10 +7,10 @@ mod graphics;
 mod hooks;
 mod logic;
 
-pub(crate) use graphics::{dim_pixels, render_frozen_with_selection, FrozenSelectionRender};
+pub(crate) use graphics::{FrozenSelectionRender, dim_pixels, render_frozen_with_selection};
 
-use crate::win_types::SendHbitmap;
 use crate::GdiCapture;
+use crate::win_types::SendHbitmap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicUsize, Ordering};
 use windows::Win32::Foundation::*;
@@ -232,8 +232,12 @@ fn overlay_thread_entry() {
 
         // 2. Install Hooks on THIS thread
         // Because we have a message loop below, these hooks will stay alive.
-        let mouse_hook =
-            SetWindowsHookExW(WH_MOUSE_LL, Some(hooks::mouse_hook_proc), Some(instance.into()), 0);
+        let mouse_hook = SetWindowsHookExW(
+            WH_MOUSE_LL,
+            Some(hooks::mouse_hook_proc),
+            Some(instance.into()),
+            0,
+        );
 
         let kb_hook = SetWindowsHookExW(
             WH_KEYBOARD_LL,

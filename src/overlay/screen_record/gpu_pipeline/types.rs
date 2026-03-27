@@ -5,11 +5,11 @@ use windows::Win32::Graphics::Direct3D12 as d3d12;
 use windows::Win32::Graphics::Dxgi::IDXGIKeyedMutex;
 
 use super::super::d3d_interop::SharedVramBuffer;
+use super::super::mf_encode::VideoCodec;
+use super::super::native_export::config::OverlayFrame;
 use super::super::native_export::config::{
     AnimatedCursorSlotData, BakedWebcamFrame, DeviceAudioPoint, SpeedPoint, TrimSegment,
 };
-use super::super::mf_encode::VideoCodec;
-use super::super::native_export::config::OverlayFrame;
 
 /// Result of a GPU export run.
 pub struct ZeroCopyExportResult {

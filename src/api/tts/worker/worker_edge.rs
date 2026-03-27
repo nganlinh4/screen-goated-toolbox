@@ -230,8 +230,8 @@ pub(super) fn handle_edge_tts(
     clear_tts_state(request.req.hwnd);
 }
 
-fn connect_edge_websocket(
-) -> Result<tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>, String> {
+fn connect_edge_websocket()
+-> Result<tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>, String> {
     fn generate_sec_ms_gec(trusted_token: &str) -> String {
         let win_epoch_offset: u64 = 11_644_473_600;
         let now_secs = std::time::SystemTime::now()
