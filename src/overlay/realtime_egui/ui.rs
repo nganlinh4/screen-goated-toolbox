@@ -171,24 +171,24 @@ fn render_model_menu(ui: &mut egui::Ui, locale: &crate::gui::locale::LocaleText)
     let model_label = match current_model.as_str() {
         "google-gemma" => "\u{2728}",
         "google-gtx" => "\u{1f30d}",
-        _ => "\u{1f525}",
+        _ => "\u{1f680}",
     };
 
     ui.menu_button(model_label, |ui| {
         if ui
             .selectable_label(
-                current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS,
-                "\u{1f525} Cerebras",
+                current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_TAALAS,
+                "\u{1f680} Taalas",
             )
             .clicked()
         {
             if let Ok(mut m) = NEW_TRANSLATION_MODEL.lock() {
-                *m = crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS.to_string();
+                *m = crate::model_config::REALTIME_TRANSLATION_MODEL_TAALAS.to_string();
             }
             TRANSLATION_MODEL_CHANGE.store(true, Ordering::SeqCst);
             if let Ok(mut app) = APP.lock() {
                 app.config.realtime_translation_model =
-                    crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS.to_string();
+                    crate::model_config::REALTIME_TRANSLATION_MODEL_TAALAS.to_string();
             }
             ui.close();
         }

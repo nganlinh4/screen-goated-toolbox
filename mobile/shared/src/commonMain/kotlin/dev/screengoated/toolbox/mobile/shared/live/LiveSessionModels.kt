@@ -62,7 +62,7 @@ data class LiveSessionConfig(
     ),
     val translationProvider: ProviderDescriptor =
         LiveTranslationModelCatalog.providerDescriptor(
-            LiveTranslationModelCatalog.PROVIDER_CEREBRAS,
+            LiveTranslationModelCatalog.PROVIDER_TAALAS,
         ),
     val authMode: AuthMode = AuthMode.BYOK,
     val engineKind: EngineKind = EngineKind.CLOUD,

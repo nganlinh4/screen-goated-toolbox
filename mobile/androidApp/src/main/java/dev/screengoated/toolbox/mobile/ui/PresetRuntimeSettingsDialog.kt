@@ -76,6 +76,7 @@ private fun providerIcon(provider: PresetModelProvider): ImageVector = when (pro
     PresetModelProvider.CEREBRAS -> Icons.Rounded.LocalFireDepartment
     PresetModelProvider.OPENROUTER -> Icons.Rounded.Public
     PresetModelProvider.OLLAMA -> Icons.Rounded.Computer
+    PresetModelProvider.TAALAS -> Icons.Rounded.RocketLaunch
     else -> Icons.Rounded.AutoAwesome
 }
 

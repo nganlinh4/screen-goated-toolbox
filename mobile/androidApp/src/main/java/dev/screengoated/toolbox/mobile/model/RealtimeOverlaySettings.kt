@@ -16,7 +16,7 @@ object RealtimeModelIds {
     const val TRANSCRIPTION_GEMINI = "gemini"
     const val TRANSCRIPTION_PARAKEET = "parakeet"
 
-    const val TRANSLATION_CEREBRAS = "cerebras-oss"
+    const val TRANSLATION_TAALAS = "taalas-rt"
     const val TRANSLATION_GEMMA = "google-gemma"
     const val TRANSLATION_GTX = "google-gtx"
 }

@@ -3,6 +3,7 @@ pub mod client;
 pub mod gemini_live;
 pub mod ollama;
 pub mod realtime_audio;
+pub mod taalas;
 pub mod text;
 pub mod tts;
 pub mod types;

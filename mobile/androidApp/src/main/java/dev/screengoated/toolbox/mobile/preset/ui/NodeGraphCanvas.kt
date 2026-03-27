@@ -644,6 +644,7 @@ private fun NodeCard(
                                         dev.screengoated.toolbox.mobile.preset.PresetModelProvider.CEREBRAS -> Icons.Rounded.LocalFireDepartment
                                         dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OPENROUTER -> Icons.Rounded.Public
                                         dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OLLAMA -> Icons.Rounded.Computer
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.TAALAS -> Icons.Rounded.RocketLaunch
                                         else -> Icons.Rounded.AutoAwesome
                                     }
                                     val hasSearch = catalog.supportsSearchById(model.id)

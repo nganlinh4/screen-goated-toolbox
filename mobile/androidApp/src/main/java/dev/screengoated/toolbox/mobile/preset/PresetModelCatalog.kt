@@ -12,6 +12,7 @@ enum class PresetModelProvider {
     OLLAMA,
     QRSERVER,
     PARAKEET,
+    TAALAS,
 }
 
 enum class PresetModelType {
