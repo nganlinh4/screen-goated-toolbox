@@ -613,6 +613,7 @@ function App() {
           monitors={monitors}
           onSelectMonitorCapture={handleSelectMonitorCapture}
           onSelectWindowCapture={handleSelectWindowCapture}
+          showProjectsDialog={projects.showProjectsDialog}
           sequenceBreadcrumb={
             !isCropping && composition ? (
               <SequencePillChain
