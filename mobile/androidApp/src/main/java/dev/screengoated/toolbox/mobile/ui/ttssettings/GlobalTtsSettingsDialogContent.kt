@@ -67,6 +67,7 @@ internal fun RenderGlobalTtsSettingsDialog(
     edgeVoiceCatalogState: EdgeVoiceCatalogState,
     onDismiss: () -> Unit,
     onMethodChanged: (MobileTtsMethod) -> Unit,
+    onGeminiModelChanged: (String) -> Unit,
     onSpeedPresetChanged: (MobileTtsSpeedPreset) -> Unit,
     onVoiceChanged: (String) -> Unit,
     onConditionsChanged: (List<MobileTtsLanguageCondition>) -> Unit,
@@ -150,6 +151,7 @@ internal fun RenderGlobalTtsSettingsDialog(
                     MobileTtsMethod.GEMINI_LIVE -> GeminiLiveSection(
                         settings = settings,
                         locale = locale,
+                        onModelChanged = onGeminiModelChanged,
                         onSpeedPresetChanged = onSpeedPresetChanged,
                         onConditionsChanged = onConditionsChanged,
                         onVoiceChanged = onVoiceChanged,

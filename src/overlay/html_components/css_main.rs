@@ -545,7 +545,7 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
         .trans-model-icon:hover {{
             transform: scale(1.08);
         }}
-        .trans-model-icon.active[data-value="gemini"] {{
+        .trans-model-icon.active[data-value="gemini-live-audio"] {{
             color: {secondary};
         }}
         .trans-model-icon.active[data-value="parakeet"] {{

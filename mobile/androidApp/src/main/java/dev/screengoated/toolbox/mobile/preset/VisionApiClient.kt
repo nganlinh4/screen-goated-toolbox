@@ -74,6 +74,15 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
                     onChunk = onChunk,
                 )
 
+                PresetModelProvider.GEMINI_LIVE -> httpClient.streamGeminiLiveVision(
+                    model = model,
+                    apiKey = apiKeys.geminiKey,
+                    prompt = prompt,
+                    imageBytes = prepared.bytes,
+                    mimeType = prepared.mimeType,
+                    onChunk = onChunk,
+                )
+
                 else ->
                     throw IOException("Unsupported vision provider: ${model.provider.name.lowercase()}")
             }
@@ -98,6 +107,7 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
 }
 
 internal data class PreparedImage(
+    val bytes: ByteArray,
     val base64: String,
     val mimeType: String,
 )
@@ -129,7 +139,11 @@ internal fun prepareImage(rawBytes: ByteArray): PreparedImage {
     }
 
     val base64 = Base64.encodeToString(pngBytes, Base64.NO_WRAP)
-    return PreparedImage(base64 = base64, mimeType = if (mimeType != "image/png") "image/png" else mimeType)
+    return PreparedImage(
+        bytes = pngBytes,
+        base64 = base64,
+        mimeType = if (mimeType != "image/png") "image/png" else mimeType,
+    )
 }
 
 internal fun sniffMimeType(bytes: ByteArray): String {

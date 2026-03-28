@@ -145,6 +145,7 @@ class MainActivity : ComponentActivity() {
                     onThemeCycleRequested = viewModel::onThemeCycleRequested,
                     edgeVoiceCatalogState = edgeVoiceCatalogState,
                     onGlobalTtsMethodChanged = viewModel::onGlobalTtsMethodChanged,
+                    onGlobalTtsModelChanged = viewModel::onGlobalTtsModelChanged,
                     onGlobalTtsSpeedPresetChanged = viewModel::onGlobalTtsSpeedPresetChanged,
                     onGlobalTtsVoiceChanged = viewModel::onGlobalTtsVoiceChanged,
                     onGlobalTtsConditionsChanged = viewModel::onGlobalTtsConditionsChanged,
@@ -329,10 +330,10 @@ internal fun dev.screengoated.toolbox.mobile.shared.preset.Preset.toRealtimeSess
             id = RealtimeModelIds.TRANSCRIPTION_PARAKEET,
             model = "realtime_eou_120m-v1-onnx",
         )
-        else -> ProviderDescriptor(
-            id = RealtimeModelIds.TRANSCRIPTION_GEMINI,
-            model = "gemini-2.5-flash-native-audio-preview-12-2025",
+        PresetModelProvider.GEMINI_LIVE -> RealtimeModelIds.defaultTranscriptionProvider(
+            PresetModelCatalog.getById(transcriptionBlock?.model.orEmpty())?.id.orEmpty(),
         )
+        else -> RealtimeModelIds.defaultTranscriptionProvider()
     }
     val translationProvider = translationBlock?.let {
         when (it.model) {

@@ -39,6 +39,7 @@ impl GeminiLiveManager {
     /// Returns (request_id, event_receiver)
     pub fn request(
         &self,
+        model: String,
         content: LiveInputContent,
         instruction: String,
         show_thinking: bool,
@@ -49,6 +50,7 @@ impl GeminiLiveManager {
         let (tx, rx) = mpsc::channel();
 
         let req = LiveRequest {
+            model,
             content,
             instruction,
             show_thinking,

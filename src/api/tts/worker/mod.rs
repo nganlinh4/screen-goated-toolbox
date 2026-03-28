@@ -208,10 +208,20 @@ fn handle_gemini_tts(
             (voice, app.config.tts_speed.clone(), instruction)
         }
     };
+    let current_model = {
+        let app = APP.lock().unwrap();
+        let model = app.config.tts_gemini_live_model.trim();
+        if model.is_empty() {
+            crate::model_config::DEFAULT_GEMINI_LIVE_TTS_MODEL.to_string()
+        } else {
+            app.config.tts_gemini_live_model.clone()
+        }
+    };
 
     let mut setup_complete = false;
     if let Err(e) = send_tts_setup(
         &mut socket,
+        &current_model,
         &current_voice,
         &current_speed,
         language_instruction.as_deref(),

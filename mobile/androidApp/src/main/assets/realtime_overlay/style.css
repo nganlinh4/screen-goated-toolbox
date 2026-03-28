@@ -474,7 +474,7 @@
         .trans-model-icon:hover {
             transform: scale(1.08);
         }
-        .trans-model-icon.active[data-value="gemini"] {
+        .trans-model-icon.active[data-value="gemini-live-audio"] {
             color: {{SECONDARY}};
         }
         .trans-model-icon.active[data-value="parakeet"] {

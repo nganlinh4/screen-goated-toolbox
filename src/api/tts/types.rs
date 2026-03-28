@@ -1,6 +1,3 @@
-/// Model for TTS (same native audio model, configured for output only)
-pub const TTS_MODEL: &str = "gemini-2.5-flash-native-audio-preview-12-2025";
-
 /// Output audio sample rate from Gemini (24kHz)
 pub const SOURCE_SAMPLE_RATE: u32 = 24000;
 

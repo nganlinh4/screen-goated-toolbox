@@ -1,5 +1,14 @@
 /// Centralized Model Configuration
 pub const DEFAULT_IMAGE_MODEL_ID: &str = "scout";
+pub const GEMINI_LIVE_API_MODEL_2_5: &str = "gemini-2.5-flash-native-audio-preview-12-2025";
+pub const GEMINI_LIVE_API_MODEL_3_1: &str = "gemini-3.1-flash-live-preview";
+pub const GEMINI_LIVE_VISION_MODEL_ID_2_5: &str = "gemini-live-vision";
+pub const GEMINI_LIVE_VISION_MODEL_ID_3_1: &str = "gemini-live-vision-3.1";
+pub const GEMINI_LIVE_TEXT_MODEL_ID_2_5: &str = "gemini-live-text";
+pub const GEMINI_LIVE_TEXT_MODEL_ID_3_1: &str = "gemini-live-text-3.1";
+pub const GEMINI_LIVE_AUDIO_MODEL_ID_2_5: &str = "gemini-live-audio";
+pub const GEMINI_LIVE_AUDIO_MODEL_ID_3_1: &str = "gemini-live-audio-3.1";
+pub const DEFAULT_GEMINI_LIVE_TTS_MODEL: &str = GEMINI_LIVE_API_MODEL_3_1;
 
 pub const DEFAULT_CEREBRAS_TEXT_MODEL_ID: &str = "cerebras_gpt_oss";
 pub const DEFAULT_CEREBRAS_TEXT_API_MODEL: &str = "qwen-3-235b-a22b-instruct-2507";
@@ -78,7 +87,7 @@ pub fn model_is_non_llm(model_id: &str) -> bool {
         // Whisper models - speech-to-text only
         "whisper-fast" | "whisper-accurate" => true,
         // Streaming audio models - process input directly
-        "gemini-live-audio" | "parakeet-local" => true,
+        GEMINI_LIVE_AUDIO_MODEL_ID_2_5 | GEMINI_LIVE_AUDIO_MODEL_ID_3_1 | "parakeet-local" => true,
         _ => false,
     }
 }
@@ -125,12 +134,25 @@ lazy_static::lazy_static! {
             "1000 requests/day"
         ),
         ModelConfig::new(
-            "gemini-live-vision",
+            GEMINI_LIVE_VISION_MODEL_ID_2_5,
             "gemini-live",
-            "Thử nghiệm",
-            "실험적",
-            "Experimental",
-            "gemini-2.5-flash-native-audio-preview-12-2025",
+            "Live 2.5",
+            "라이브 2.5",
+            "Live 2.5",
+            GEMINI_LIVE_API_MODEL_2_5,
+            ModelType::Vision,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
+        ),
+        ModelConfig::new(
+            GEMINI_LIVE_VISION_MODEL_ID_3_1,
+            "gemini-live",
+            "Live 3.1",
+            "라이브 3.1",
+            "Live 3.1",
+            GEMINI_LIVE_API_MODEL_3_1,
             ModelType::Vision,
             true,
             "Không giới hạn",
@@ -320,12 +342,25 @@ lazy_static::lazy_static! {
             "14400 requests/day"
         ),
         ModelConfig::new(
-            "gemini-live-text",
+            GEMINI_LIVE_TEXT_MODEL_ID_2_5,
             "gemini-live",
-            "Thử nghiệm",
-            "실험적",
-            "Experimental",
-            "gemini-2.5-flash-native-audio-preview-12-2025",
+            "Live 2.5",
+            "라이브 2.5",
+            "Live 2.5",
+            GEMINI_LIVE_API_MODEL_2_5,
+            ModelType::Text,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
+        ),
+        ModelConfig::new(
+            GEMINI_LIVE_TEXT_MODEL_ID_3_1,
+            "gemini-live",
+            "Live 3.1",
+            "라이브 3.1",
+            "Live 3.1",
+            GEMINI_LIVE_API_MODEL_3_1,
             ModelType::Text,
             true,
             "Không giới hạn",
@@ -477,12 +512,25 @@ lazy_static::lazy_static! {
             "Unlimited"
         ),
         ModelConfig::new(
-            "gemini-live-audio",
+            GEMINI_LIVE_AUDIO_MODEL_ID_2_5,
             "gemini-live",
-            "Stream online",
-            "Stream online",
-            "Stream online",
-            "gemini-2.5-flash-native-audio-preview-12-2025",
+            "Stream online 2.5",
+            "온라인 스트림 2.5",
+            "Stream online 2.5",
+            GEMINI_LIVE_API_MODEL_2_5,
+            ModelType::Audio,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
+        ),
+        ModelConfig::new(
+            GEMINI_LIVE_AUDIO_MODEL_ID_3_1,
+            "gemini-live",
+            "Stream online 3.1",
+            "온라인 스트림 3.1",
+            "Stream online 3.1",
+            GEMINI_LIVE_API_MODEL_3_1,
             ModelType::Audio,
             true,
             "Không giới hạn",
@@ -570,6 +618,31 @@ pub fn get_model_by_id(id: &str) -> Option<ModelConfig> {
 
     let cached = OLLAMA_MODEL_CACHE.lock().unwrap();
     cached.iter().find(|model| model.id == id).cloned()
+}
+
+pub fn normalize_realtime_transcription_model_id(model_id: &str) -> String {
+    match model_id {
+        "" | "gemini" => GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string(),
+        "parakeet" => "parakeet".to_string(),
+        GEMINI_LIVE_AUDIO_MODEL_ID_2_5 => GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string(),
+        GEMINI_LIVE_AUDIO_MODEL_ID_3_1 | GEMINI_LIVE_API_MODEL_3_1 => {
+            GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string()
+        }
+        _ => {
+            if model_id == "parakeet-local" {
+                "parakeet".to_string()
+            } else {
+                GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string()
+            }
+        }
+    }
+}
+
+pub fn realtime_transcription_api_model(model_id: &str) -> String {
+    let normalized = normalize_realtime_transcription_model_id(model_id);
+    get_model_by_id(&normalized)
+        .map(|model| model.full_name)
+        .unwrap_or_else(|| GEMINI_LIVE_API_MODEL_2_5.to_string())
 }
 
 /// Get all models including dynamically fetched Ollama models

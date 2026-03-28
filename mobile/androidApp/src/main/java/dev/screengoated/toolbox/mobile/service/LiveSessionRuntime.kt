@@ -112,7 +112,10 @@ class LiveSessionRuntime(
                 if (useParakeet) {
                     runParakeetSession()
                 } else {
-                    runGeminiSession(apiKey)
+                    runGeminiSession(
+                        apiKey = apiKey,
+                        model = config.transcriptionProvider.model,
+                    )
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -124,10 +127,14 @@ class LiveSessionRuntime(
         }
     }
 
-    private suspend fun runGeminiSession(apiKey: String) {
+    private suspend fun runGeminiSession(
+        apiKey: String,
+        model: String,
+    ) {
         withContext(Dispatchers.IO) {
             liveSocketClient.runSession(
                 apiKey = apiKey,
+                model = model,
                 audioChunks = audioCaptureController.open(
                     config = repository.currentConfig(),
                     onRms = { rms -> overlayController.updateVolume(rms) },
@@ -172,7 +179,7 @@ class LiveSessionRuntime(
             }
 
             if (!parakeetModelManager.isInstalled()) {
-                repository.updateTranscriptionModel(RealtimeModelIds.TRANSCRIPTION_GEMINI)
+                repository.updateTranscriptionModel(RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5)
                 return
             }
         }

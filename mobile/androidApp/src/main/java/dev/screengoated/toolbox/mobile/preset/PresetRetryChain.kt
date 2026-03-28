@@ -44,6 +44,7 @@ internal fun providerIsAvailable(
     PresetModelProvider.GOOGLE_GTX,
     PresetModelProvider.QRSERVER,
     PresetModelProvider.PARAKEET,
+    PresetModelProvider.TAALAS,
     -> true
 }
 
@@ -194,6 +195,7 @@ private fun providerKey(provider: PresetModelProvider): String = when (provider)
     PresetModelProvider.OLLAMA -> "ollama"
     PresetModelProvider.QRSERVER -> "qrserver"
     PresetModelProvider.PARAKEET -> "parakeet"
+    PresetModelProvider.TAALAS -> "taalas"
 }
 
 private fun extractHttpStatusCode(error: String): Int? {

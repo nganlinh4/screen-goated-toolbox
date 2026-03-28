@@ -41,6 +41,10 @@ fn default_tts_speed() -> String {
     "Fast".to_string()
 }
 
+fn default_tts_gemini_live_model() -> String {
+    crate::model_config::DEFAULT_GEMINI_LIVE_TTS_MODEL.to_string()
+}
+
 fn default_tts_method() -> TtsMethod {
     TtsMethod::GeminiLive
 }
@@ -66,7 +70,7 @@ fn default_realtime_window_size() -> (i32, i32) {
 }
 
 fn default_realtime_transcription_model() -> String {
-    "gemini".to_string()
+    crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string()
 }
 
 fn default_realtime_target_language() -> String {
@@ -205,7 +209,7 @@ pub struct Config {
     #[serde(default = "default_realtime_translation_model")]
     pub realtime_translation_model: String,
 
-    /// Model for realtime transcription: "gemini" or "parakeet"
+    /// Model for realtime transcription.
     #[serde(default = "default_realtime_transcription_model")]
     pub realtime_transcription_model: String,
 
@@ -243,6 +247,10 @@ pub struct Config {
     /// TTS speed: "Normal", "Slow", "Fast"
     #[serde(default = "default_tts_speed")]
     pub tts_speed: String,
+
+    /// Gemini Live model used when `tts_method` is `GeminiLive`
+    #[serde(default = "default_tts_gemini_live_model")]
+    pub tts_gemini_live_model: String,
 
     /// TTS output device ID
     #[serde(default)]
@@ -387,7 +395,8 @@ impl Default for Config {
             // Realtime Audio
             realtime_translation_model: crate::model_config::REALTIME_TRANSLATION_MODEL_TAALAS
                 .to_string(),
-            realtime_transcription_model: "gemini".to_string(),
+            realtime_transcription_model: crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5
+                .to_string(),
             realtime_font_size: 16,
             realtime_transcription_size: (500, 180),
             realtime_translation_size: (500, 180),
@@ -398,6 +407,7 @@ impl Default for Config {
             tts_method: TtsMethod::GeminiLive,
             tts_voice: "Aoede".to_string(),
             tts_speed: "Fast".to_string(),
+            tts_gemini_live_model: crate::model_config::DEFAULT_GEMINI_LIVE_TTS_MODEL.to_string(),
             tts_output_device: String::new(),
             tts_language_conditions: default_tts_language_conditions(),
             edge_tts_settings: EdgeTtsSettings::default(),

@@ -15,10 +15,11 @@ use super::utils::{
 };
 use crate::APP;
 use crate::api::realtime_audio::websocket::{
-    connect_websocket, parse_input_transcription, send_audio_chunk, send_setup_message,
-    set_socket_nonblocking, set_socket_short_timeout,
+    connect_websocket, parse_input_transcription, send_audio_chunk, send_audio_stream_end,
+    send_setup_message, set_socket_nonblocking, set_socket_short_timeout,
 };
 use crate::config::Preset;
+use crate::model_config::{GEMINI_LIVE_API_MODEL_2_5, get_model_by_id};
 use crate::overlay::recording::AUDIO_INITIALIZING;
 use crate::overlay::result::update_window_text;
 
@@ -33,6 +34,7 @@ enum AudioMode {
 struct ReconnectContext<'a> {
     socket: &'a mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
     api_key: &'a str,
+    model: &'a str,
     audio_buffer: &'a Arc<Mutex<Vec<i16>>>,
     silence_buffer: &'a mut Vec<i16>,
     audio_mode: &'a mut AudioMode,
@@ -46,6 +48,7 @@ fn try_reconnect(context: ReconnectContext<'_>) -> bool {
     let ReconnectContext {
         socket,
         api_key,
+        model,
         audio_buffer,
         silence_buffer,
         audio_mode,
@@ -72,7 +75,7 @@ fn try_reconnect(context: ReconnectContext<'_>) -> bool {
 
         match connect_websocket(api_key) {
             Ok(mut new_socket) => {
-                if send_setup_message(&mut new_socket).is_err() {
+                if send_setup_message(&mut new_socket, model).is_err() {
                     std::thread::sleep(Duration::from_millis(500));
                     continue;
                 }
@@ -135,6 +138,13 @@ pub fn record_and_stream_gemini_live(
         let app = APP.lock().unwrap();
         app.config.gemini_api_key.clone()
     };
+    let gemini_live_model = preset
+        .blocks
+        .iter()
+        .find(|block| block.block_type == "audio")
+        .and_then(|block| get_model_by_id(&block.model))
+        .map(|config| config.full_name.clone())
+        .unwrap_or_else(|| GEMINI_LIVE_API_MODEL_2_5.to_string());
 
     if gemini_api_key.trim().is_empty() {
         eprintln!("[GeminiLiveStream] No API key");
@@ -163,7 +173,7 @@ pub fn record_and_stream_gemini_live(
         }
     };
 
-    if let Err(e) = send_setup_message(&mut socket) {
+    if let Err(e) = send_setup_message(&mut socket, &gemini_live_model) {
         println!("[GeminiLiveStream] Setup failed: {}", e);
         AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
         unsafe {
@@ -277,6 +287,7 @@ pub fn record_and_stream_gemini_live(
         preset: &preset,
         socket: &mut socket,
         api_key: &gemini_api_key,
+        model: &gemini_live_model,
         audio_buffer: &audio_buffer,
         accumulated_text: &accumulated_text,
         stop_signal: &stop_signal,
@@ -295,6 +306,7 @@ pub fn record_and_stream_gemini_live(
         if !remaining.is_empty() {
             let _ = send_audio_chunk(&mut socket, &remaining);
         }
+        let _ = send_audio_stream_end(&mut socket);
 
         wait_for_final_transcriptions(&mut socket, &accumulated_text, &preset, streaming_hwnd);
     }
@@ -456,6 +468,7 @@ struct StreamingLoopContext<'a, F> {
     preset: &'a Preset,
     socket: &'a mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
     api_key: &'a str,
+    model: &'a str,
     audio_buffer: &'a Arc<Mutex<Vec<i16>>>,
     accumulated_text: &'a Arc<Mutex<String>>,
     stop_signal: &'a Arc<AtomicBool>,
@@ -473,6 +486,7 @@ where
         preset,
         socket,
         api_key,
+        model,
         audio_buffer,
         accumulated_text,
         stop_signal,
@@ -609,6 +623,7 @@ where
                     if !try_reconnect(ReconnectContext {
                         socket,
                         api_key,
+                        model,
                         audio_buffer,
                         silence_buffer: &mut silence_buffer,
                         audio_mode: &mut audio_mode,
@@ -632,6 +647,7 @@ where
                         && !try_reconnect(ReconnectContext {
                             socket,
                             api_key,
+                            model,
                             audio_buffer,
                             silence_buffer: &mut silence_buffer,
                             audio_mode: &mut audio_mode,
@@ -654,6 +670,7 @@ where
                         if !try_reconnect(ReconnectContext {
                             socket,
                             api_key,
+                            model,
                             audio_buffer,
                             silence_buffer: &mut silence_buffer,
                             audio_mode: &mut audio_mode,
@@ -699,11 +716,10 @@ fn wait_for_final_transcriptions(
     preset: &Preset,
     streaming_hwnd: Option<HWND>,
 ) {
-    // Adaptive wait: Start with 500ms
-    // If we get data, extend by 600ms, up to max 4.0s
-    let mut conclude_end = Instant::now() + Duration::from_millis(500);
-    let max_stop_time = Instant::now() + Duration::from_millis(4000);
-    let extension = Duration::from_millis(600);
+    // Give Gemini Live a real end-of-stream boundary and enough time to flush the tail.
+    let mut conclude_end = Instant::now() + Duration::from_millis(1200);
+    let max_stop_time = Instant::now() + Duration::from_millis(5000);
+    let extension = Duration::from_millis(700);
 
     println!("[GeminiLiveStream] Waiting for tail...");
 

@@ -2,9 +2,6 @@
 
 use std::sync::mpsc;
 
-/// Model for Gemini Live LLM (same as TTS/STT for consistency)
-pub const GEMINI_LIVE_MODEL: &str = "gemini-2.5-flash-native-audio-preview-12-2025";
-
 /// Events sent from worker to caller
 #[derive(Debug)]
 pub enum LiveEvent {
@@ -38,6 +35,8 @@ pub enum LiveInputContent {
 /// A request to the Gemini Live LLM
 #[derive(Clone)]
 pub struct LiveRequest {
+    /// Gemini Live API model name
+    pub model: String,
     /// The input content
     pub content: LiveInputContent,
     /// System instruction (prompt)

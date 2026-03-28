@@ -36,6 +36,7 @@ PROVIDER_MAP = {
     "ollama": "OLLAMA",
     "qrserver": "QRSERVER",
     "parakeet": "PARAKEET",
+    "taalas": "TAALAS",
 }
 
 MODEL_TYPE_MAP = {

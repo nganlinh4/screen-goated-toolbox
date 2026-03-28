@@ -161,6 +161,9 @@ pub struct LocaleText {
     pub tts_method_standard: &'static str,
     pub tts_method_fast: &'static str,
     pub tts_method_edge: &'static str,
+    pub tts_gemini_model_label: &'static str,
+    pub tts_gemini_model_25: &'static str,
+    pub tts_gemini_model_31: &'static str,
     pub tts_google_translate_title: &'static str,
     pub tts_google_translate_desc: &'static str,
     pub tts_edge_title: &'static str,
@@ -186,6 +189,7 @@ pub struct LocaleText {
     pub tts_instructions_label: &'static str,
     pub tts_instructions_hint: &'static str,
     pub tts_add_condition: &'static str,
+    pub remove_label: &'static str,
     // Realtime TTS modal
     pub realtime_tts_title: &'static str,
     pub realtime_tts_speed: &'static str,
