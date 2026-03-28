@@ -359,7 +359,7 @@ tasks.matching {
 }
 
 tasks.matching {
-    it.name.contains("Lint", ignoreCase = false)
+    it.name.contains("lint", ignoreCase = true)
 }.configureEach {
     dependsOn(generatePresetOverlayAssets)
     dependsOn(generatePresetModelCatalog)
