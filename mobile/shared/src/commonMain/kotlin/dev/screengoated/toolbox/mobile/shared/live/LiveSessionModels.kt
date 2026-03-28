@@ -56,14 +56,8 @@ data class LiveSessionConfig(
     val sourceMode: SourceMode = SourceMode.DEVICE,
     val displayMode: DisplayMode = DisplayMode.OVERLAY,
     val targetLanguage: String = "Vietnamese",
-    val transcriptionProvider: ProviderDescriptor = ProviderDescriptor(
-        id = "gemini-live-audio",
-        model = "gemini-2.5-flash-native-audio-preview-12-2025",
-    ),
-    val translationProvider: ProviderDescriptor =
-        LiveTranslationModelCatalog.providerDescriptor(
-            LiveTranslationModelCatalog.PROVIDER_TAALAS,
-        ),
+    val transcriptionProvider: ProviderDescriptor = GeneratedLiveModelCatalog.defaultTranscriptionProvider(),
+    val translationProvider: ProviderDescriptor = GeneratedLiveModelCatalog.translationProviderDescriptor(),
     val authMode: AuthMode = AuthMode.BYOK,
     val engineKind: EngineKind = EngineKind.CLOUD,
     val keepOverlayOnTop: Boolean = true,

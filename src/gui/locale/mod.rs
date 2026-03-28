@@ -162,8 +162,6 @@ pub struct LocaleText {
     pub tts_method_fast: &'static str,
     pub tts_method_edge: &'static str,
     pub tts_gemini_model_label: &'static str,
-    pub tts_gemini_model_25: &'static str,
-    pub tts_gemini_model_31: &'static str,
     pub tts_google_translate_title: &'static str,
     pub tts_google_translate_desc: &'static str,
     pub tts_edge_title: &'static str,

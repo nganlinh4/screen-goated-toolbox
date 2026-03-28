@@ -1,18 +1,17 @@
 use serde::{Deserialize, Serialize};
 
 fn default_image_to_text_priority_chain() -> Vec<String> {
-    vec![
-        crate::model_config::DEFAULT_IMAGE_MODEL_ID.to_string(),
-        "gemini-3.1-flash-lite-preview".to_string(),
-    ]
+    crate::model_config::default_image_to_text_priority_chain_ids()
+        .iter()
+        .map(|id| (*id).to_string())
+        .collect()
 }
 
 fn default_text_to_text_priority_chain() -> Vec<String> {
-    vec![
-        crate::model_config::DEFAULT_CEREBRAS_TEXT_MODEL_ID.to_string(),
-        "text_accurate_kimi".to_string(),
-        "text_gemini_3_1_flash_lite".to_string(),
-    ]
+    crate::model_config::default_text_to_text_priority_chain_ids()
+        .iter()
+        .map(|id| (*id).to_string())
+        .collect()
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

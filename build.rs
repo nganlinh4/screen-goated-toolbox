@@ -5,9 +5,12 @@ use std::path::{Path, PathBuf};
 fn main() {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let model_manifest_path = manifest_dir.join("catalog/model_catalog.json");
 
     // Declare the custom configuration 'nopack' to avoid warnings
     println!("cargo::rustc-check-cfg=cfg(nopack)");
+
+    generate_model_catalog(&model_manifest_path, &out_dir.join("model_catalog_generated.rs"));
 
     // Ensure assets directory exists
     let assets_dir = manifest_dir.join("assets");
@@ -68,6 +71,232 @@ fn main() {
     println!("cargo:rerun-if-changed=assets/tray-icon.png");
     println!("cargo:rerun-if-changed=app.rc");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed={}", model_manifest_path.display());
+}
+
+fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
+    let manifest = fs::read_to_string(manifest_path)
+        .unwrap_or_else(|err| panic!("Failed to read {}: {}", manifest_path.display(), err));
+    let manifest: serde_json::Value = serde_json::from_str(&manifest)
+        .unwrap_or_else(|err| panic!("Failed to parse {}: {}", manifest_path.display(), err));
+
+    let constants = manifest_object(&manifest, "constants");
+    let defaults = manifest_object(&manifest, "defaults");
+
+    let constant_mappings = [
+        ("DEFAULT_IMAGE_MODEL_ID", "default_image_model_id"),
+        ("DEFAULT_CEREBRAS_TEXT_MODEL_ID", "default_cerebras_text_model_id"),
+        (
+            "DEFAULT_CEREBRAS_TEXT_API_MODEL",
+            "default_cerebras_text_api_model",
+        ),
+        ("GEMINI_LIVE_API_MODEL_2_5", "gemini_live_api_model_2_5"),
+        ("GEMINI_LIVE_API_MODEL_3_1", "gemini_live_api_model_3_1"),
+        (
+            "GEMINI_LIVE_AUDIO_MODEL_ID_2_5",
+            "gemini_live_audio_model_id_2_5",
+        ),
+        (
+            "REALTIME_TRANSLATION_MODEL_TAALAS",
+            "realtime_translation_model_taalas",
+        ),
+        (
+            "REALTIME_TRANSLATION_MODEL_GEMMA",
+            "realtime_translation_model_gemma",
+        ),
+        (
+            "REALTIME_TRANSLATION_MODEL_GTX",
+            "realtime_translation_model_gtx",
+        ),
+    ];
+
+    let mut lines = vec![
+        "// Generated from catalog/model_catalog.json. Do not edit by hand.".to_string(),
+        String::new(),
+    ];
+
+    for (const_name, manifest_key) in constant_mappings {
+        let value = manifest_string(constants, manifest_key);
+        lines.push(format!(
+            "pub const {const_name}: &str = {};",
+            rust_string(value)
+        ));
+    }
+
+    lines.push(format!(
+        "pub const DEFAULT_GEMINI_LIVE_TTS_MODEL: &str = {};",
+        rust_string(manifest_string(defaults, "tts_gemini_live_model"))
+    ));
+    lines.push(String::new());
+
+    lines.push("pub const GENERATED_NON_LLM_IDS: &[&str] = &[".to_string());
+    for value in manifest_array(&manifest, "non_llm_ids") {
+        lines.push(format!("    {},", rust_string(value.as_str().unwrap())));
+    }
+    lines.push("];".to_string());
+    lines.push(String::new());
+
+    lines.push("pub const GENERATED_SEARCH_DISABLED_FULL_NAMES: &[&str] = &[".to_string());
+    for value in manifest_array(&manifest, "search_disabled_full_names") {
+        lines.push(format!("    {},", rust_string(value.as_str().unwrap())));
+    }
+    lines.push("];".to_string());
+    lines.push(String::new());
+
+    let priority_chains = manifest_object(&manifest, "priority_chains");
+    lines.push("pub const DEFAULT_IMAGE_TO_TEXT_PRIORITY_CHAIN_IDS: &[&str] = &[".to_string());
+    for value in manifest_array_from_object(priority_chains, "image_to_text") {
+        lines.push(format!("    {},", rust_string(value.as_str().unwrap())));
+    }
+    lines.push("];".to_string());
+    lines.push(String::new());
+    lines.push("pub const DEFAULT_TEXT_TO_TEXT_PRIORITY_CHAIN_IDS: &[&str] = &[".to_string());
+    for value in manifest_array_from_object(priority_chains, "text_to_text") {
+        lines.push(format!("    {},", rust_string(value.as_str().unwrap())));
+    }
+    lines.push("];".to_string());
+    lines.push(String::new());
+
+    lines.push("pub const GENERATED_TTS_GEMINI_MODELS: &[(&str, &str)] = &[".to_string());
+    for value in manifest_array(&manifest, "tts_gemini_models") {
+        let item = value.as_object().expect("tts model entries must be objects");
+        lines.push(format!(
+            "    ({}, {}),",
+            rust_string(manifest_string(item, "api_model")),
+            rust_string(manifest_string(item, "label"))
+        ));
+    }
+    lines.push("];".to_string());
+    lines.push(String::new());
+
+    lines.push("pub fn generated_models() -> Vec<ModelConfig> {".to_string());
+    lines.push("    vec![".to_string());
+    for value in manifest_array(&manifest, "models") {
+        let model = value.as_object().expect("model entries must be objects");
+        if !model
+            .get("enabled")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let model_type = manifest_string(model, "model_type");
+        lines.extend([
+            "        ModelConfig::new(".to_string(),
+            format!("            {},", rust_string(manifest_string(model, "id"))),
+            format!("            {},", rust_string(manifest_string(model, "provider"))),
+            format!("            {},", rust_string(manifest_string(model, "name_vi"))),
+            format!("            {},", rust_string(manifest_string(model, "name_ko"))),
+            format!("            {},", rust_string(manifest_string(model, "name_en"))),
+            format!("            {},", rust_string(manifest_string(model, "full_name"))),
+            format!("            ModelType::{},", model_type),
+            "            true,".to_string(),
+            format!("            {},", rust_string(manifest_string(model, "quota_vi"))),
+            format!("            {},", rust_string(manifest_string(model, "quota_ko"))),
+            format!("            {},", rust_string(manifest_string(model, "quota_en"))),
+            "        ),".to_string(),
+        ]);
+    }
+    lines.push("    ]".to_string());
+    lines.push("}".to_string());
+    lines.push(String::new());
+
+    lines.push(
+        "pub fn generated_normalize_realtime_transcription_model_id(model_id: &str) -> &'static str {"
+            .to_string(),
+    );
+    lines.push("    match model_id {".to_string());
+    for (alias, normalized) in manifest_object(&manifest, "realtime_transcription_aliases") {
+        lines.push(format!(
+            "        {} => {},",
+            rust_string(alias),
+            rust_string(normalized.as_str().unwrap())
+        ));
+    }
+    lines.push(format!(
+        "        _ => {},",
+        rust_string(manifest_string(defaults, "realtime_transcription_model"))
+    ));
+    lines.push("    }".to_string());
+    lines.push("}".to_string());
+    lines.push(String::new());
+
+    lines.push("pub fn generated_realtime_translation_api_model(provider_id: &str) -> &'static str {".to_string());
+    lines.push("    match provider_id {".to_string());
+    for value in manifest_array(&manifest, "live_translation_providers") {
+        let item = value
+            .as_object()
+            .expect("live translation provider entries must be objects");
+        lines.push(format!(
+            "        {} => {},",
+            rust_string(manifest_string(item, "id")),
+            rust_string(manifest_string(item, "api_model"))
+        ));
+    }
+    let default_translation_id = manifest_string(defaults, "live_session_translation_provider_id");
+    let default_translation_model = manifest_array(&manifest, "live_translation_providers")
+        .iter()
+        .find_map(|value| {
+            let item = value.as_object()?;
+            if manifest_string(item, "id") == default_translation_id {
+                Some(manifest_string(item, "api_model"))
+            } else {
+                None
+            }
+        })
+        .expect("default live translation provider must exist in manifest");
+    lines.push(format!(
+        "        _ => {},",
+        rust_string(default_translation_model)
+    ));
+    lines.push("    }".to_string());
+    lines.push("}".to_string());
+    lines.push(String::new());
+
+    fs::write(output_path, lines.join("\n"))
+        .unwrap_or_else(|err| panic!("Failed to write {}: {}", output_path.display(), err));
+}
+
+fn manifest_object<'a>(
+    manifest: &'a serde_json::Value,
+    key: &str,
+) -> &'a serde_json::Map<String, serde_json::Value> {
+    manifest
+        .get(key)
+        .and_then(serde_json::Value::as_object)
+        .unwrap_or_else(|| panic!("manifest key {key:?} must be an object"))
+}
+
+fn manifest_array<'a>(manifest: &'a serde_json::Value, key: &str) -> &'a Vec<serde_json::Value> {
+    manifest
+        .get(key)
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or_else(|| panic!("manifest key {key:?} must be an array"))
+}
+
+fn manifest_array_from_object<'a>(
+    manifest: &'a serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> &'a Vec<serde_json::Value> {
+    manifest
+        .get(key)
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or_else(|| panic!("manifest object key {key:?} must be an array"))
+}
+
+fn manifest_string<'a>(
+    manifest: &'a serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> &'a str {
+    manifest
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_else(|| panic!("manifest object key {key:?} must be a string"))
+}
+
+fn rust_string(value: &str) -> String {
+    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
 }
 
 #[cfg(target_os = "windows")]

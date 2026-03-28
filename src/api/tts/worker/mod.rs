@@ -210,12 +210,8 @@ fn handle_gemini_tts(
     };
     let current_model = {
         let app = APP.lock().unwrap();
-        let model = app.config.tts_gemini_live_model.trim();
-        if model.is_empty() {
-            crate::model_config::DEFAULT_GEMINI_LIVE_TTS_MODEL.to_string()
-        } else {
-            app.config.tts_gemini_live_model.clone()
-        }
+        crate::model_config::normalize_tts_gemini_model(&app.config.tts_gemini_live_model)
+            .to_string()
     };
 
     let mut setup_complete = false;
