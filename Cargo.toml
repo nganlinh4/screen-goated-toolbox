@@ -6,6 +6,7 @@ edition = "2024"
 [build-dependencies]
 winres = "0.1"
 image = { version = "0.25", default-features = false, features = ["png", "bmp"] }
+serde_json = "1.0"
 
 [dependencies]
 # Network & Serialization

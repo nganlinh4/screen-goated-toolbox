@@ -46,7 +46,6 @@ import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsCatalog
 import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
-import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.ui.ExpressiveDialogSectionCard
 import dev.screengoated.toolbox.mobile.ui.UtilityActionButton
 import dev.screengoated.toolbox.mobile.ui.UtilityHeaderRow
@@ -127,14 +126,11 @@ private fun GeminiModelCard(
             accent = MaterialTheme.colorScheme.tertiary,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
-            val modelOptions = listOf(
-                RealtimeModelIds.GEMINI_LIVE_API_MODEL_2_5 to locale.ttsGeminiModel25,
-                RealtimeModelIds.GEMINI_LIVE_API_MODEL_3_1 to locale.ttsGeminiModel31,
-            )
-            modelOptions.forEachIndexed { index, (apiModel, label) ->
+            val modelOptions = MobileTtsCatalog.geminiModels
+            modelOptions.forEachIndexed { index, option ->
                 ToggleButton(
-                    checked = selected == apiModel,
-                    onCheckedChange = { onChanged(apiModel) },
+                    checked = selected == option.apiModel,
+                    onCheckedChange = { onChanged(option.apiModel) },
                     shapes = when (index) {
                         0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
                         modelOptions.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
@@ -142,7 +138,7 @@ private fun GeminiModelCard(
                     },
                     modifier = Modifier.semantics { role = Role.RadioButton },
                 ) {
-                    Text(label, style = MaterialTheme.typography.labelSmall)
+                    Text(option.label, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }

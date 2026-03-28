@@ -337,17 +337,14 @@ internal fun dev.screengoated.toolbox.mobile.shared.preset.Preset.toRealtimeSess
     }
     val translationProvider = translationBlock?.let {
         when (it.model) {
-            "google-gemma" -> ProviderDescriptor(
-                id = RealtimeModelIds.TRANSLATION_GEMMA,
-                model = "google-gemma",
+            RealtimeModelIds.TRANSLATION_GEMMA -> RealtimeModelIds.translationProviderDescriptor(
+                RealtimeModelIds.TRANSLATION_GEMMA,
             )
-            "google-gtx" -> ProviderDescriptor(
-                id = RealtimeModelIds.TRANSLATION_GTX,
-                model = "google-gtx",
+            RealtimeModelIds.TRANSLATION_GTX -> RealtimeModelIds.translationProviderDescriptor(
+                RealtimeModelIds.TRANSLATION_GTX,
             )
-            else -> ProviderDescriptor(
-                id = RealtimeModelIds.TRANSLATION_TAALAS,
-                model = "taalas-rt",
+            else -> RealtimeModelIds.translationProviderDescriptor(
+                RealtimeModelIds.TRANSLATION_TAALAS,
             )
         }
     } ?: fallback.translationProvider

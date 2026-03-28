@@ -1,24 +1,4 @@
-/// Centralized Model Configuration
-pub const DEFAULT_IMAGE_MODEL_ID: &str = "scout";
-pub const GEMINI_LIVE_API_MODEL_2_5: &str = "gemini-2.5-flash-native-audio-preview-12-2025";
-pub const GEMINI_LIVE_API_MODEL_3_1: &str = "gemini-3.1-flash-live-preview";
-pub const GEMINI_LIVE_VISION_MODEL_ID_2_5: &str = "gemini-live-vision";
-pub const GEMINI_LIVE_VISION_MODEL_ID_3_1: &str = "gemini-live-vision-3.1";
-pub const GEMINI_LIVE_TEXT_MODEL_ID_2_5: &str = "gemini-live-text";
-pub const GEMINI_LIVE_TEXT_MODEL_ID_3_1: &str = "gemini-live-text-3.1";
-pub const GEMINI_LIVE_AUDIO_MODEL_ID_2_5: &str = "gemini-live-audio";
-pub const GEMINI_LIVE_AUDIO_MODEL_ID_3_1: &str = "gemini-live-audio-3.1";
-pub const DEFAULT_GEMINI_LIVE_TTS_MODEL: &str = GEMINI_LIVE_API_MODEL_3_1;
-
-pub const DEFAULT_CEREBRAS_TEXT_MODEL_ID: &str = "cerebras_gpt_oss";
-pub const DEFAULT_CEREBRAS_TEXT_API_MODEL: &str = "qwen-3-235b-a22b-instruct-2507";
-
-pub const REALTIME_TRANSLATION_MODEL_TAALAS: &str = "taalas-rt";
-pub const REALTIME_TRANSLATION_MODEL_GEMMA: &str = "google-gemma";
-pub const REALTIME_TRANSLATION_MODEL_GTX: &str = "google-gtx";
-
-pub const REALTIME_TRANSLATION_GEMMA_API_MODEL: &str = "gemma-3-27b-it";
-pub const REALTIME_TRANSLATION_GTX_API_MODEL: &str = "google-translate-gtx";
+/// Centralized model API backed by generated catalog data.
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ModelType {
@@ -76,535 +56,15 @@ impl ModelConfig {
     }
 }
 
-/// Check if a model is a non-LLM model (doesn't use prompts)
-/// These are specialized models that process input directly without instructions.
+include!(concat!(env!("OUT_DIR"), "/model_catalog_generated.rs"));
+
+/// Check if a model is a non-LLM model (doesn't use prompts).
 pub fn model_is_non_llm(model_id: &str) -> bool {
-    match model_id {
-        // QR Scanner - just decodes QR codes
-        "qr-scanner" => true,
-        // Google Translate (GTX) - translation only, language from instruction
-        "google-gtx" => true,
-        // Whisper models - speech-to-text only
-        "whisper-fast" | "whisper-accurate" => true,
-        // Streaming audio models - process input directly
-        GEMINI_LIVE_AUDIO_MODEL_ID_2_5 | GEMINI_LIVE_AUDIO_MODEL_ID_3_1 | "parakeet-local" => true,
-        _ => false,
-    }
+    GENERATED_NON_LLM_IDS.contains(&model_id)
 }
 
 lazy_static::lazy_static! {
-    static ref ALL_MODELS: Vec<ModelConfig> = vec![
-        ModelConfig::new(
-            "google-gtx",
-            "google-gtx",
-            "Google Dịch",
-            "Google 번역",
-            "Google Translate",
-            "translate.googleapis.com/gtx",
-            ModelType::Text,
-            true,
-            "Không giới hạn",
-            "무제한",
-            "Unlimited"
-        ),
-        ModelConfig::new(
-            "qr-scanner",
-            "qrserver",
-            "Quét mã QR",
-            "QR 스캔",
-            "QR Scanner",
-            "api.qrserver.com/read-qr-code",
-            ModelType::Vision,
-            true,
-            "Không giới hạn",
-            "무제한",
-            "Unlimited"
-        ),
-        ModelConfig::new(
-            "scout",
-            "groq",
-            "Nhanh",
-            "빠름",
-            "Fast",
-            "meta-llama/llama-4-scout-17b-16e-instruct",
-            ModelType::Vision,
-            true,
-            "1000 lượt/ngày",
-            "1000 요청/일",
-            "1000 requests/day"
-        ),
-        ModelConfig::new(
-            GEMINI_LIVE_VISION_MODEL_ID_2_5,
-            "gemini-live",
-            "Live 2.5",
-            "라이브 2.5",
-            "Live 2.5",
-            GEMINI_LIVE_API_MODEL_2_5,
-            ModelType::Vision,
-            true,
-            "Không giới hạn",
-            "무제한",
-            "Unlimited"
-        ),
-        ModelConfig::new(
-            GEMINI_LIVE_VISION_MODEL_ID_3_1,
-            "gemini-live",
-            "Live 3.1",
-            "라이브 3.1",
-            "Live 3.1",
-            GEMINI_LIVE_API_MODEL_3_1,
-            ModelType::Vision,
-            true,
-            "Không giới hạn",
-            "무제한",
-            "Unlimited"
-        ),
-        ModelConfig::new(
-            "gemma-3-27b-vision",
-            "google",
-            "Cân bằng, chậm",
-            "균형잡힌, 느림",
-            "Balanced, Slow",
-            "gemma-3-27b-it",
-            ModelType::Vision,
-            true,
-            "14400 lượt/ngày",
-            "14400 요청/일",
-            "14400 requests/day"
-        ),
-        ModelConfig::new(
-            "gemini-flash-lite",
-            "google",
-            "Chính xác hơn",
-            "더 정확함",
-            "More Accurate",
-            "gemini-2.5-flash-lite",
-            ModelType::Vision,
-            true,
-            "20 lượt/ngày",
-            "20 요청/일",
-            "20 requests/day"
-        ),
-        ModelConfig::new(
-            "gemini-3.1-flash-lite-preview",
-            "google",
-            "Chính xác, nhanh",
-            "정확하고 빠름",
-            "Accurate, Fast",
-            "gemini-3.1-flash-lite-preview",
-            ModelType::Vision,
-            true,
-            "500 lượt/ngày",
-            "500 요청/일",
-            "500 requests/day"
-        ),
-        ModelConfig::new(
-            "gemini-flash",
-            "google",
-            "Rất chính xác",
-            "매우 정확함",
-            "Very Accurate",
-            "gemini-2.5-flash",
-            ModelType::Vision,
-            true,
-            "20 lượt/ngày",
-            "20 요청/일",
-            "20 requests/day"
-        ),
-        ModelConfig::new(
-            "gemini-pro",
-            "google",
-            "Siêu ch.xác, chậm",
-            "초정밀, 느림",
-            "Super Accurate, Slow",
-            "gemini-robotics-er-1.5-preview",
-            ModelType::Vision,
-            true,
-            "20 lượt/ngày",
-            "20 요청/일",
-            "20 requests/day"
-        ),
-        ModelConfig::new(
-            "gemini-3-flash-preview",
-            "google",
-            "Siêu chính xác",
-            "초정밀",
-            "Super Accurate",
-            "gemini-3-flash-preview",
-            ModelType::Vision,
-            true,
-            "20 lượt/ngày",
-            "20 요청/일",
-            "20 requests/day"
-        ),
-        ModelConfig::new(
-            "or-nemotron-vl",
-            "openrouter",
-            "OR-Cân bằng",
-            "OR-균형",
-            "OR-Balanced",
-            "nvidia/nemotron-nano-12b-v2-vl:free",
-            ModelType::Vision,
-            true,
-            "50 lượt chung/ngày",
-            "50 공유 요청/일",
-            "50 shared requests/day"
-        ),
-        ModelConfig::new(
-            "taalas-llama-8b",
-            "taalas",
-            "Tức khắc",
-            "즉시",
-            "Instant",
-            "taalas/llama-3.1-8b",
-            ModelType::Text,
-            true,
-            "Không giới hạn",
-            "무제한",
-            "Unlimited"
-        ),
-        ModelConfig::new(
-            "text_fast_120b",
-            "groq",
-            "Nhanh",
-            "빠름",
-            "Fast",
-            "openai/gpt-oss-120b",
-            ModelType::Text,
-            true,
-            "1000 lượt/ngày",
-            "1000 요청/일",
-            "1000 requests/day"
-        ),
-        ModelConfig::new(
-            "text_accurate_kimi",
-            "groq",
-            "Chính xác",
-            "정확함",
-            "Accurate",
-            "moonshotai/kimi-k2-instruct-0905",
-            ModelType::Text,
-            true,
-            "1000 lượt/ngày",
-            "1000 요청/일",
-            "1000 requests/day"
-        ),
-        ModelConfig::new(
-            "compound_mini",
-            "groq",
-            "Search nhanh",
-            "빠른 검색",
-            "Quick Search",
-            "groq/compound-mini",
-            ModelType::Text,
-            true,
-            "250 lượt/ngày",
-            "250 요청/일",
-            "250 requests/day"
-        ),
-        ModelConfig::new(
-            "compound",
-            "groq",
-            "Search kỹ",
-            "상세 검색",
-            "Deep Search",
-            "groq/compound",
-            ModelType::Text,
-            true,
-            "250 lượt/ngày",
-            "250 요청/일",
-            "250 requests/day"
-        ),
-        ModelConfig::new(
-            "cerebras_zai_glm_4_7",
-            "cerebras",
-            "C-Thường",
-            "C-보통",
-            "C-Normal",
-            "llama3.1-8b",
-            ModelType::Text,
-            true,
-            "14400 lượt/ngày",
-            "14400 요청/일",
-            "14400 requests/day"
-        ),
-        ModelConfig::new(
-            "cerebras_gpt_oss",
-            "cerebras",
-            "C-Chính xác",
-            "C-정확함",
-            "C-Accurate",
-            DEFAULT_CEREBRAS_TEXT_API_MODEL,
-            ModelType::Text,
-            true,
-            "14400 lượt/ngày",
-            "14400 요청/일",
-            "14400 requests/day"
-        ),
-        ModelConfig::new(
-            GEMINI_LIVE_TEXT_MODEL_ID_2_5,
-            "gemini-live",
-            "Live 2.5",
-            "라이브 2.5",
-            "Live 2.5",
-            GEMINI_LIVE_API_MODEL_2_5,
-            ModelType::Text,
-            true,
-            "Không giới hạn",
-            "무제한",
-            "Unlimited"
-        ),
-        ModelConfig::new(
-            GEMINI_LIVE_TEXT_MODEL_ID_3_1,
-            "gemini-live",
-            "Live 3.1",
-            "라이브 3.1",
-            "Live 3.1",
-            GEMINI_LIVE_API_MODEL_3_1,
-            ModelType::Text,
-            true,
-            "Không giới hạn",
-            "무제한",
-            "Unlimited"
-        ),
-        ModelConfig::new(
-            "gemma-3-27b",
-            "google",
-            "Cân bằng, chậm",
-            "균형잡힌, 느림",
-            "Balanced, Slow",
-            "gemma-3-27b-it",
-            ModelType::Text,
-            true,
-            "14400 lượt/ngày",
-            "14400 요청/일",
-            "14400 requests/day"
-        ),
-        ModelConfig::new(
-            "text_gemini_flash_lite",
-            "google",
-            "Chính xác hơn",
-            "더 정확함",
-            "More Accurate",
-            "gemini-2.5-flash-lite",
-            ModelType::Text,
-            true,
-            "20 lượt/ngày",
-            "20 요청/일",
-            "20 requests/day"
-        ),
-        ModelConfig::new(
-            "text_gemini_3_1_flash_lite",
-            "google",
-            "Chính xác, nhanh",
-            "정확하고 빠름",
-            "Accurate, Fast",
-            "gemini-3.1-flash-lite-preview",
-            ModelType::Text,
-            true,
-            "500 lượt/ngày",
-            "500 요청/일",
-            "500 requests/day"
-        ),
-        ModelConfig::new(
-            "text_gemini_flash",
-            "google",
-            "Rất chính xác",
-            "매우 정확함",
-            "Very Accurate",
-            "gemini-2.5-flash",
-            ModelType::Text,
-            true,
-            "20 lượt/ngày",
-            "20 요청/일",
-            "20 requests/day"
-        ),
-        ModelConfig::new(
-            "text_gemini_pro",
-            "google",
-            "Siêu ch.xác, chậm",
-            "초정밀, 느림",
-            "Super Accurate, Slow",
-            "gemini-robotics-er-1.5-preview",
-            ModelType::Text,
-            true,
-            "20 lượt/ngày",
-            "20 요청/일",
-            "20 requests/day"
-        ),
-        ModelConfig::new(
-            "text_gemini_3_0_flash",
-            "google",
-            "Siêu chính xác",
-            "초정밀",
-            "Super Accurate",
-            "gemini-3-flash-preview",
-            ModelType::Text,
-            true,
-            "20 lượt/ngày",
-            "20 요청/일",
-            "20 requests/day"
-        ),
-        ModelConfig::new(
-            "or-nemotron-text",
-            "openrouter",
-            "OR-Nhanh",
-            "OR-빠름",
-            "OR-Fast",
-            "nvidia/nemotron-3-nano-30b-a3b:free",
-            ModelType::Text,
-            true,
-            "50 lượt chung/ngày",
-            "50 공유 요청/일",
-            "50 shared requests/day"
-        ),
-        ModelConfig::new(
-            "or-deepseek-chimera",
-            "openrouter",
-            "OR-Ch.xác, chậm",
-            "OR-정확, 느림",
-            "OR-Accurate, Slow",
-            "tngtech/deepseek-r1t2-chimera:free",
-            ModelType::Text,
-            true,
-            "50 lượt chung/ngày",
-            "50 공유 요청/일",
-            "50 shared requests/day"
-        ),
-
-        ModelConfig::new(
-            "whisper-fast",
-            "groq",
-            "Nhanh",
-            "빠름",
-            "Fast",
-            "whisper-large-v3-turbo",
-            ModelType::Audio,
-            true,
-            "8 giờ audio/ngày",
-            "8시간 오디오/일",
-            "8 hours audio/day"
-        ),
-        ModelConfig::new(
-            "whisper-accurate",
-            "groq",
-            "Chính xác",
-            "정확함",
-            "Accurate",
-            "whisper-large-v3",
-            ModelType::Audio,
-            true,
-            "8 giờ audio/ngày",
-            "8시간 오디오/일",
-            "8 hours audio/day"
-        ),
-        ModelConfig::new(
-            "parakeet-local",
-            "parakeet",
-            "Stream offline",
-            "Stream offline",
-            "Stream offline",
-            "parakeet-120m-v1",
-            ModelType::Audio,
-            true,
-            "Không giới hạn",
-            "무제한",
-            "Unlimited"
-        ),
-        ModelConfig::new(
-            GEMINI_LIVE_AUDIO_MODEL_ID_2_5,
-            "gemini-live",
-            "Stream online 2.5",
-            "온라인 스트림 2.5",
-            "Stream online 2.5",
-            GEMINI_LIVE_API_MODEL_2_5,
-            ModelType::Audio,
-            true,
-            "Không giới hạn",
-            "무제한",
-            "Unlimited"
-        ),
-        ModelConfig::new(
-            GEMINI_LIVE_AUDIO_MODEL_ID_3_1,
-            "gemini-live",
-            "Stream online 3.1",
-            "온라인 스트림 3.1",
-            "Stream online 3.1",
-            GEMINI_LIVE_API_MODEL_3_1,
-            ModelType::Audio,
-            true,
-            "Không giới hạn",
-            "무제한",
-            "Unlimited"
-        ),
-        ModelConfig::new(
-            "gemini-audio",
-            "google",
-            "Chính xác hơn",
-            "더 정확함",
-            "More Accurate",
-            "gemini-2.5-flash-lite",
-            ModelType::Audio,
-            true,
-            "20 lượt/ngày",
-            "20 요청/일",
-            "20 requests/day"
-        ),
-        ModelConfig::new(
-            "gemini-audio-3.1-flash-lite",
-            "google",
-            "Chính xác, nhanh",
-            "정확하고 빠름",
-            "Accurate, Fast",
-            "gemini-3.1-flash-lite-preview",
-            ModelType::Audio,
-            true,
-            "500 lượt/ngày",
-            "500 요청/일",
-            "500 requests/day"
-        ),
-        ModelConfig::new(
-            "gemini-audio-flash",
-            "google",
-            "Rất chính xác",
-            "매우 정확함",
-            "Very Accurate",
-            "gemini-2.5-flash",
-            ModelType::Audio,
-            true,
-            "20 lượt/ngày",
-            "20 요청/일",
-            "20 requests/day"
-        ),
-        ModelConfig::new(
-            "gemini-audio-pro",
-            "google",
-            "Siêu ch.xác, chậm",
-            "초정밀, 느림",
-            "Super Accurate, Slow",
-            "gemini-robotics-er-1.5-preview",
-            ModelType::Audio,
-            true,
-            "20 lượt/ngày",
-            "20 요청/일",
-            "20 requests/day"
-        ),
-        ModelConfig::new(
-            "gemini-audio-3.0-flash",
-            "google",
-            "Siêu chính xác",
-            "초정밀",
-            "Super Accurate",
-            "gemini-3-flash-preview",
-            ModelType::Audio,
-            true,
-            "20 lượt/ngày",
-            "20 요청/일",
-            "20 requests/day"
-        ),
-
-
-    ];
+    static ref ALL_MODELS: Vec<ModelConfig> = generated_models();
 }
 
 pub fn get_all_models() -> &'static [ModelConfig] {
@@ -621,21 +81,7 @@ pub fn get_model_by_id(id: &str) -> Option<ModelConfig> {
 }
 
 pub fn normalize_realtime_transcription_model_id(model_id: &str) -> String {
-    match model_id {
-        "" | "gemini" => GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string(),
-        "parakeet" => "parakeet".to_string(),
-        GEMINI_LIVE_AUDIO_MODEL_ID_2_5 => GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string(),
-        GEMINI_LIVE_AUDIO_MODEL_ID_3_1 | GEMINI_LIVE_API_MODEL_3_1 => {
-            GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string()
-        }
-        _ => {
-            if model_id == "parakeet-local" {
-                "parakeet".to_string()
-            } else {
-                GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string()
-            }
-        }
-    }
+    generated_normalize_realtime_transcription_model_id(model_id).to_string()
 }
 
 pub fn realtime_transcription_api_model(model_id: &str) -> String {
@@ -645,12 +91,34 @@ pub fn realtime_transcription_api_model(model_id: &str) -> String {
         .unwrap_or_else(|| GEMINI_LIVE_API_MODEL_2_5.to_string())
 }
 
-/// Get all models including dynamically fetched Ollama models
-/// This combines static models with Ollama models (if Ollama is enabled)
+pub fn realtime_translation_api_model(provider_id: &str) -> &'static str {
+    generated_realtime_translation_api_model(provider_id)
+}
+
+pub fn tts_gemini_model_options() -> &'static [(&'static str, &'static str)] {
+    GENERATED_TTS_GEMINI_MODELS
+}
+
+pub fn normalize_tts_gemini_model(api_model: &str) -> &'static str {
+    GENERATED_TTS_GEMINI_MODELS
+        .iter()
+        .find(|(candidate, _)| *candidate == api_model)
+        .map(|(candidate, _)| *candidate)
+        .unwrap_or(DEFAULT_GEMINI_LIVE_TTS_MODEL)
+}
+
+pub fn default_image_to_text_priority_chain_ids() -> &'static [&'static str] {
+    DEFAULT_IMAGE_TO_TEXT_PRIORITY_CHAIN_IDS
+}
+
+pub fn default_text_to_text_priority_chain_ids() -> &'static [&'static str] {
+    DEFAULT_TEXT_TO_TEXT_PRIORITY_CHAIN_IDS
+}
+
+/// Get all models including dynamically fetched Ollama models.
 pub fn get_all_models_with_ollama() -> Vec<ModelConfig> {
     let mut models: Vec<ModelConfig> = ALL_MODELS.iter().cloned().collect();
 
-    // Add cached Ollama models
     let cached = OLLAMA_MODEL_CACHE.lock().unwrap();
     for ollama_model in cached.iter() {
         models.push(ollama_model.clone());
@@ -659,19 +127,15 @@ pub fn get_all_models_with_ollama() -> Vec<ModelConfig> {
     models
 }
 
-/// Check if a model supports search capabilities (grounding/web search) by its Full Name (API Name)
+/// Check if a model supports search capabilities by its Full Name (API Name).
 pub fn model_supports_search_by_name(full_name: &str) -> bool {
-    // Exclusions
-    if full_name.contains("gemma-3-27b-it") {
-        return false;
-    }
-    if full_name.contains("gemini-3-flash-preview")
-        || full_name.contains("gemini-3.1-flash-lite-preview")
+    if GENERATED_SEARCH_DISABLED_FULL_NAMES
+        .iter()
+        .any(|blocked| full_name.contains(blocked))
     {
         return false;
     }
 
-    // Inclusions
     if full_name.contains("gemini") {
         return true;
     }
@@ -685,27 +149,17 @@ pub fn model_supports_search_by_name(full_name: &str) -> bool {
     false
 }
 
-/// Check if a model supports search capabilities (grounding/web search) by its Internal ID
+/// Check if a model supports search capabilities by its Internal ID.
 pub fn model_supports_search_by_id(id: &str) -> bool {
     if let Some(conf) = get_model_by_id(id) {
         return model_supports_search_by_name(&conf.full_name);
     }
 
-    // Fallback logic for models not in static config (though currently most are)
     if id.contains("compound") {
         return true;
     }
 
     false
-}
-
-pub fn realtime_translation_api_model(provider_id: &str) -> &'static str {
-    match provider_id {
-        REALTIME_TRANSLATION_MODEL_TAALAS => "llama3.1-8B",
-        REALTIME_TRANSLATION_MODEL_GEMMA => REALTIME_TRANSLATION_GEMMA_API_MODEL,
-        REALTIME_TRANSLATION_MODEL_GTX => REALTIME_TRANSLATION_GTX_API_MODEL,
-        _ => "llama3.1-8B",
-    }
 }
 
 // === OLLAMA MODEL CACHE ===
@@ -736,7 +190,6 @@ pub fn is_ollama_scan_in_progress() -> bool {
 /// Trigger background scan for Ollama models (non-blocking)
 /// Returns immediately, models will be populated in cache when ready
 pub fn trigger_ollama_model_scan() {
-    // Check if Ollama is enabled
     let (use_ollama, base_url) = if let Ok(app) = crate::APP.lock() {
         (app.config.use_ollama, app.config.ollama_base_url.clone())
     } else {
@@ -747,7 +200,6 @@ pub fn trigger_ollama_model_scan() {
         return;
     }
 
-    // Debounce: don't scan more than once per 5 seconds
     {
         let last_scan = OLLAMA_LAST_SCAN.lock().unwrap();
         if last_scan.elapsed().as_secs() < 5 {
@@ -755,18 +207,15 @@ pub fn trigger_ollama_model_scan() {
         }
     }
 
-    // Check if already scanning
     if OLLAMA_SCAN_IN_PROGRESS.swap(true, Ordering::SeqCst) {
-        return; // Already scanning
+        return;
     }
 
-    // Update last scan time
     {
         let mut last_scan = OLLAMA_LAST_SCAN.lock().unwrap();
         *last_scan = std::time::Instant::now();
     }
 
-    // Spawn background thread to scan
     std::thread::spawn(move || {
         let result = crate::api::ollama::fetch_ollama_models_with_caps(&base_url);
 
@@ -774,17 +223,13 @@ pub fn trigger_ollama_model_scan() {
             let mut new_models = Vec::new();
 
             for ollama_model in ollama_models {
-                // Create model ID from name (e.g., "qwen3-vl:2b" -> "ollama-qwen3-vl-2b")
                 let model_id = format!(
                     "ollama-{}",
                     ollama_model.name.replace(":", "-").replace("/", "-")
                 );
                 let display_name = format!("{} (Local)", ollama_model.name);
 
-                // Vision models can do BOTH vision and text, so we add them to both
-                // Text-only models just get Text type
                 if ollama_model.has_vision {
-                    // Add as Vision model
                     new_models.push(ModelConfig {
                         id: format!("{}-vision", model_id),
                         provider: "ollama".to_string(),
@@ -799,7 +244,6 @@ pub fn trigger_ollama_model_scan() {
                         quota_limit_en: "Unlimited".to_string(),
                     });
 
-                    // Also add as Text model (vision models can do text too)
                     new_models.push(ModelConfig {
                         id: model_id,
                         provider: "ollama".to_string(),
@@ -814,7 +258,6 @@ pub fn trigger_ollama_model_scan() {
                         quota_limit_en: "Unlimited".to_string(),
                     });
                 } else {
-                    // Text-only model
                     new_models.push(ModelConfig {
                         id: model_id,
                         provider: "ollama".to_string(),
@@ -831,7 +274,6 @@ pub fn trigger_ollama_model_scan() {
                 }
             }
 
-            // Update cache
             let mut cache = OLLAMA_MODEL_CACHE.lock().unwrap();
             *cache = new_models;
         }

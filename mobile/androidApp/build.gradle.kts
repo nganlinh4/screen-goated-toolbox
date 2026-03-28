@@ -221,13 +221,9 @@ val generatePresetOverlayAssets by tasks.registering {
 
 val generatePresetModelCatalog by tasks.registering {
     val repoRoot = rootProject.projectDir.parentFile
-    val modelSource = repoRoot.resolve("src/model_config.rs")
-    val configSource = repoRoot.resolve("src/config/config.rs")
-    val prioritySource = repoRoot.resolve("src/config/types/model_priority.rs")
+    val manifestSource = repoRoot.resolve("catalog/model_catalog.json")
     val generator = repoRoot.resolve("scripts/generate_android_preset_model_catalog.py")
-    inputs.file(modelSource)
-    inputs.file(configSource)
-    inputs.file(prioritySource)
+    inputs.file(manifestSource)
     inputs.file(generator)
     outputs.dir(generatedPresetModelCatalogSources)
 
@@ -241,13 +237,9 @@ val generatePresetModelCatalog by tasks.registering {
                 "py",
                 "-3",
                 generator.absolutePath,
-                "--model-source",
-                modelSource.absolutePath,
-                "--config-source",
-                configSource.absolutePath,
-                "--priority-source",
-                prioritySource.absolutePath,
-                "--output",
+                "--manifest-source",
+                manifestSource.absolutePath,
+                "--preset-output",
                 outputFile.absolutePath,
             )
         }.result.get().assertNormalExitValue()

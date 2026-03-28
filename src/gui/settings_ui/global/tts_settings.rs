@@ -137,19 +137,17 @@ pub fn render_tts_settings_modal(
             if config.tts_method == TtsMethod::GeminiLive {
                 ui.label(egui::RichText::new(text.tts_gemini_model_label).strong());
                 ui.horizontal(|ui| {
-                    if ui.radio_value(
-                        &mut config.tts_gemini_live_model,
-                        crate::model_config::GEMINI_LIVE_API_MODEL_2_5.to_string(),
-                        text.tts_gemini_model_25,
-                    ).clicked() {
-                        changed = true;
-                    }
-                    if ui.radio_value(
-                        &mut config.tts_gemini_live_model,
-                        crate::model_config::GEMINI_LIVE_API_MODEL_3_1.to_string(),
-                        text.tts_gemini_model_31,
-                    ).clicked() {
-                        changed = true;
+                    for (api_model, label) in crate::model_config::tts_gemini_model_options() {
+                        if ui
+                            .radio_value(
+                                &mut config.tts_gemini_live_model,
+                                (*api_model).to_string(),
+                                *label,
+                            )
+                            .clicked()
+                        {
+                            changed = true;
+                        }
                     }
                 });
                 ui.add_space(10.0);

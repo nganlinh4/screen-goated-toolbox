@@ -7,7 +7,6 @@ import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionMetrics
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionPatch
-import dev.screengoated.toolbox.mobile.shared.live.LiveTranslationModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionStore
 import dev.screengoated.toolbox.mobile.shared.live.ProviderDescriptor
@@ -307,7 +306,7 @@ class AndroidLiveSessionRepository(
     }
 
     private fun translationProviderFor(modelId: String): ProviderDescriptor {
-        return LiveTranslationModelCatalog.providerDescriptor(modelId)
+        return RealtimeModelIds.translationProviderDescriptor(modelId)
     }
 
     private fun transcriptionProviderFor(modelId: String): ProviderDescriptor {
@@ -363,13 +362,8 @@ class AndroidLiveSessionRepository(
     }
 
     private fun normalizeGlobalTtsSettings(settings: MobileGlobalTtsSettings): MobileGlobalTtsSettings {
-        val normalizedModel = when (settings.geminiModel) {
-            "",
-            "gemini",
-            RealtimeModelIds.GEMINI_LIVE_API_MODEL_2_5 -> RealtimeModelIds.GEMINI_LIVE_API_MODEL_2_5
-            RealtimeModelIds.GEMINI_LIVE_API_MODEL_3_1 -> RealtimeModelIds.GEMINI_LIVE_API_MODEL_3_1
-            else -> RealtimeModelIds.GEMINI_LIVE_API_MODEL_3_1
-        }
-        return settings.copy(geminiModel = normalizedModel)
+        return settings.copy(
+            geminiModel = RealtimeModelIds.normalizeTtsGeminiModel(settings.geminiModel),
+        )
     }
 }

@@ -194,8 +194,6 @@ pub fn get() -> LocaleText {
         tts_method_fast: "빠름 (Google Translate)",
         tts_method_edge: "좋음 (Edge TTS)",
         tts_gemini_model_label: "Gemini Live 모델",
-        tts_gemini_model_25: "Live 2.5",
-        tts_gemini_model_31: "Live 3.1",
         tts_google_translate_title: "Google Translate TTS",
         tts_google_translate_desc: "이 방식은 더 빠르며 API 키가 필요하지 않습니다.",
         tts_edge_title: "Microsoft Edge TTS",

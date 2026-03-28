@@ -4,7 +4,6 @@ import android.os.SystemClock
 import android.util.Base64
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
-import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray

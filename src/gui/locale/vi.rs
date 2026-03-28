@@ -194,8 +194,6 @@ pub fn get() -> LocaleText {
         tts_method_fast: "Nhanh (Google Translate)",
         tts_method_edge: "Tốt (Edge TTS)",
         tts_gemini_model_label: "Mô hình Gemini Live",
-        tts_gemini_model_25: "Live 2.5",
-        tts_gemini_model_31: "Live 3.1",
         tts_google_translate_title: "Google Translate TTS",
         tts_google_translate_desc: "Phương pháp này nhanh hơn và không cần khóa API.",
         tts_edge_title: "Microsoft Edge TTS",

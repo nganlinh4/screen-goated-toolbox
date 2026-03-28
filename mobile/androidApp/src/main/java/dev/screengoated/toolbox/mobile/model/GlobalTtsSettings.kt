@@ -1,5 +1,7 @@
 package dev.screengoated.toolbox.mobile.model
 
+import dev.screengoated.toolbox.mobile.shared.live.GeneratedGeminiLiveModelOption
+import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
 import kotlinx.serialization.Serializable
 import java.util.Locale
 
@@ -42,7 +44,7 @@ data class MobileEdgeTtsSettings(
 @Serializable
 data class MobileGlobalTtsSettings(
     val method: MobileTtsMethod = MobileTtsMethod.GEMINI_LIVE,
-    val geminiModel: String = RealtimeModelIds.GEMINI_LIVE_API_MODEL_3_1,
+    val geminiModel: String = GeneratedLiveModelCatalog.DEFAULT_TTS_GEMINI_MODEL,
     val voice: String = "Aoede",
     val speedPreset: MobileTtsSpeedPreset = MobileTtsSpeedPreset.FAST,
     val languageConditions: List<MobileTtsLanguageCondition> = defaultTtsLanguageConditions(),
@@ -65,6 +67,7 @@ data class GeminiVoiceOption(
 
 data class GeminiLiveModelOption(
     val apiModel: String,
+    val label: String,
 )
 
 data class TtsLanguageOption(
@@ -93,14 +96,8 @@ fun defaultEdgeTtsVoiceConfigs(): List<MobileEdgeTtsVoiceConfig> {
 }
 
 object MobileTtsCatalog {
-    val geminiModels: List<GeminiLiveModelOption> = listOf(
-        GeminiLiveModelOption(
-            apiModel = RealtimeModelIds.GEMINI_LIVE_API_MODEL_2_5,
-        ),
-        GeminiLiveModelOption(
-            apiModel = RealtimeModelIds.GEMINI_LIVE_API_MODEL_3_1,
-        ),
-    )
+    val geminiModels: List<GeminiLiveModelOption> =
+        GeneratedLiveModelCatalog.ttsGeminiModels.map(GeneratedGeminiLiveModelOption::toAppOption)
 
     val maleVoices: List<GeminiVoiceOption> = listOf(
         GeminiVoiceOption("Achird", "Male"),
@@ -261,4 +258,11 @@ object MobileTtsCatalog {
         ),
     )
 
+}
+
+private fun GeneratedGeminiLiveModelOption.toAppOption(): GeminiLiveModelOption {
+    return GeminiLiveModelOption(
+        apiModel = apiModel,
+        label = label,
+    )
 }
