@@ -32,7 +32,7 @@ class AndroidLiveSessionRepository(
     private val overlaySupported: Boolean,
     private val historyRepository: HistoryRepository,
 ) {
-    private var persistedConfig = settingsStore.loadConfig()
+    private var persistedConfig = normalizeConfig(settingsStore.loadConfig())
     private var transientSessionConfigActive = false
     private val mutableApiKey = MutableStateFlow(settingsStore.loadApiKey())
     private val mutableCerebrasApiKey = MutableStateFlow(settingsStore.loadCerebrasApiKey())
@@ -41,7 +41,9 @@ class AndroidLiveSessionRepository(
     private val mutableOllamaUrl = MutableStateFlow(settingsStore.loadOllamaUrl())
     private val mutablePaneFontSizes = MutableStateFlow(settingsStore.loadPaneFontSizes())
     private val mutableRealtimeTtsSettings = MutableStateFlow(settingsStore.loadRealtimeTtsSettings())
-    private val mutableGlobalTtsSettings = MutableStateFlow(settingsStore.loadGlobalTtsSettings())
+    private val mutableGlobalTtsSettings = MutableStateFlow(
+        normalizeGlobalTtsSettings(settingsStore.loadGlobalTtsSettings()),
+    )
     private val mutableUiPreferences = MutableStateFlow(settingsStore.loadUiPreferences())
     private val mutablePresetRuntimeSettings = MutableStateFlow(settingsStore.loadPresetRuntimeSettings())
 
@@ -309,17 +311,9 @@ class AndroidLiveSessionRepository(
     }
 
     private fun transcriptionProviderFor(modelId: String): ProviderDescriptor {
-        return when (modelId) {
-            RealtimeModelIds.TRANSCRIPTION_PARAKEET -> ProviderDescriptor(
-                id = RealtimeModelIds.TRANSCRIPTION_PARAKEET,
-                model = "realtime_eou_120m-v1-onnx",
-            )
-
-            else -> ProviderDescriptor(
-                id = RealtimeModelIds.TRANSCRIPTION_GEMINI,
-                model = "gemini-2.5-flash-native-audio-preview-12-2025",
-            )
-        }
+        return RealtimeModelIds.defaultTranscriptionProvider(
+            RealtimeModelIds.normalizeTranscriptionModelId(modelId),
+        )
     }
 
     private fun persistCommittedSegment(
@@ -358,5 +352,24 @@ class AndroidLiveSessionRepository(
             current.startsWith(prefixed) -> current.removePrefix(prefixed).trim()
             else -> current.removePrefix(previous).trim()
         }
+    }
+
+    private fun normalizeConfig(config: LiveSessionConfig): LiveSessionConfig {
+        val normalizedId =
+            RealtimeModelIds.normalizeTranscriptionModelId(config.transcriptionProvider.id)
+        return config.copy(
+            transcriptionProvider = RealtimeModelIds.defaultTranscriptionProvider(normalizedId),
+        )
+    }
+
+    private fun normalizeGlobalTtsSettings(settings: MobileGlobalTtsSettings): MobileGlobalTtsSettings {
+        val normalizedModel = when (settings.geminiModel) {
+            "",
+            "gemini",
+            RealtimeModelIds.GEMINI_LIVE_API_MODEL_2_5 -> RealtimeModelIds.GEMINI_LIVE_API_MODEL_2_5
+            RealtimeModelIds.GEMINI_LIVE_API_MODEL_3_1 -> RealtimeModelIds.GEMINI_LIVE_API_MODEL_3_1
+            else -> RealtimeModelIds.GEMINI_LIVE_API_MODEL_3_1
+        }
+        return settings.copy(geminiModel = normalizedModel)
     }
 }

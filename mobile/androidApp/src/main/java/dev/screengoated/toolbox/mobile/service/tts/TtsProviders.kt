@@ -4,6 +4,7 @@ import android.os.SystemClock
 import android.util.Base64
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
+import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -385,30 +386,28 @@ internal class GeminiTtsProvider(
         }
         systemText += "Start reading immediately."
 
+        val generationConfig = JSONObject()
+            .put("responseModalities", JSONArray().put("AUDIO"))
+            .put("mediaResolution", "MEDIA_RESOLUTION_LOW")
+            .put(
+                "speechConfig",
+                JSONObject().put(
+                    "voiceConfig",
+                    JSONObject().put(
+                        "prebuiltVoiceConfig",
+                        JSONObject().put("voiceName", settings.geminiVoice),
+                    ),
+                ),
+            )
+
+        generationConfig.put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+
         return JSONObject()
             .put(
                 "setup",
                 JSONObject()
-                    .put("model", "models/$GEMINI_TTS_MODEL")
-                    .put(
-                        "generationConfig",
-                        JSONObject()
-                            .put("responseModalities", JSONArray().put("AUDIO"))
-                            .put(
-                                "speechConfig",
-                                JSONObject().put(
-                                    "voiceConfig",
-                                    JSONObject().put(
-                                        "prebuiltVoiceConfig",
-                                        JSONObject().put("voiceName", settings.geminiVoice),
-                                    ),
-                                ),
-                            )
-                            .put(
-                                "thinkingConfig",
-                                JSONObject().put("thinkingBudget", 0),
-                            ),
-                    )
+                    .put("model", "models/${settings.geminiModel}")
+                    .put("generationConfig", generationConfig)
                     .put(
                         "systemInstruction",
                         JSONObject().put(
@@ -423,22 +422,7 @@ internal class GeminiTtsProvider(
     private fun buildTextPayload(text: String): String {
         val prompt = "[READ ALOUD VERBATIM - START NOW]\n\n$text"
         return JSONObject()
-            .put(
-                "clientContent",
-                JSONObject()
-                    .put(
-                        "turns",
-                        JSONArray().put(
-                            JSONObject()
-                                .put("role", "user")
-                                .put(
-                                    "parts",
-                                    JSONArray().put(JSONObject().put("text", prompt)),
-                                ),
-                        ),
-                    )
-                    .put("turnComplete", true),
-            )
+            .put("realtimeInput", JSONObject().put("text", prompt))
             .toString()
     }
 
@@ -493,7 +477,6 @@ internal class GeminiTtsProvider(
     }
 
     private companion object {
-        private const val GEMINI_TTS_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
         private const val LIVE_WS_ENDPOINT =
             "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
     }

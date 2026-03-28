@@ -48,6 +48,7 @@ pub fn init_gemini_live() {
 ///
 /// Returns: Complete response text or error
 pub fn gemini_live_generate<F>(
+    model: String,
     text: String,
     instruction: String,
     image_data: Option<(Vec<u8>, String)>,
@@ -92,11 +93,11 @@ where
         (None, None) => LiveInputContent::Text(text),
     };
 
-    // Check if model supports thinking (always enabled for this model)
-    let show_thinking = true;
+    // Native-audio live turns should stay on the low-latency path.
+    let show_thinking = false;
 
     // Send request to the manager
-    let (id, rx) = GEMINI_LIVE_MANAGER.request(content, instruction, show_thinking);
+    let (id, rx) = GEMINI_LIVE_MANAGER.request(model, content, instruction, show_thinking);
     println!("[GeminiLive] Request queued with ID: {}", id);
 
     let mut full_content = String::new();
@@ -165,7 +166,12 @@ where
             }
             Err(e) => {
                 println!("[GeminiLive] Channel error: {:?}", e);
-                // Channel closed - worker finished unexpectedly
+                if full_content.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "Gemini Live channel closed before producing output: {}",
+                        e
+                    ));
+                }
                 break;
             }
         }

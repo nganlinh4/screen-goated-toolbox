@@ -9,7 +9,7 @@ use super::manager::GeminiLiveManager;
 use super::types::LiveEvent;
 use super::websocket::{
     connect_live_websocket, is_setup_complete, parse_error, parse_live_response, send_live_content,
-    send_live_setup,
+    send_live_setup, set_live_read_timeout,
 };
 use crate::APP;
 
@@ -87,7 +87,12 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
             Some(request.req.instruction.as_str())
         };
 
-        if let Err(e) = send_live_setup(&mut socket, instruction, request.req.show_thinking) {
+        if let Err(e) = send_live_setup(
+            &mut socket,
+            &request.req.model,
+            instruction,
+            request.req.show_thinking,
+        ) {
             let _ = request
                 .response_tx
                 .send(LiveEvent::Error(format!("Setup failed: {}", e)));
@@ -123,14 +128,34 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
                     }
                 }
                 Ok(Message::Binary(data)) => {
-                    if let Ok(text) = String::from_utf8(data.to_vec())
-                        && is_setup_complete(&text)
-                    {
-                        setup_complete = true;
-                        break;
+                    if let Ok(text) = String::from_utf8(data.to_vec()) {
+                        if is_setup_complete(&text) {
+                            setup_complete = true;
+                            break;
+                        }
+                        if let Some(error) = parse_error(&text) {
+                            let _ = request.response_tx.send(LiveEvent::Error(error));
+                            break;
+                        }
                     }
                 }
-                Ok(Message::Close(_)) => break,
+                Ok(Message::Close(frame)) => {
+                    let detail = frame
+                        .as_ref()
+                        .map(|frame| {
+                            if frame.reason.is_empty() {
+                                format!("code {}", frame.code)
+                            } else {
+                                format!("code {}: {}", frame.code, frame.reason)
+                            }
+                        })
+                        .unwrap_or_else(|| "no close details".to_string());
+                    let _ = request.response_tx.send(LiveEvent::Error(format!(
+                        "Connection closed during setup ({})",
+                        detail
+                    )));
+                    break;
+                }
                 Ok(_) => {}
                 Err(tungstenite::Error::Io(ref e))
                     if e.kind() == std::io::ErrorKind::WouldBlock =>
@@ -157,6 +182,14 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
             continue;
         }
 
+        if let Err(e) = set_live_read_timeout(&mut socket, Duration::from_millis(250)) {
+            let _ = request
+                .response_tx
+                .send(LiveEvent::Error(format!("Failed to configure live read timeout: {}", e)));
+            let _ = socket.close(None);
+            continue;
+        }
+
         // Send the actual content
         if let Err(e) = send_live_content(&mut socket, &request.req.content) {
             let _ = request
@@ -169,6 +202,10 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
         // Read response loop
         let mut thinking_sent = false;
         let mut content_started = false;
+        let response_start = Instant::now();
+        let response_timeout = Duration::from_secs(20);
+        let idle_finalize_after = Duration::from_millis(1200);
+        let mut last_content_at: Option<Instant> = None;
 
         loop {
             if !manager.is_generation_valid(request.generation)
@@ -199,6 +236,7 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
                             }
                         } else {
                             content_started = true;
+                            last_content_at = Some(Instant::now());
                             let _ = request.response_tx.send(LiveEvent::TextChunk(text));
                         }
                     }
@@ -211,6 +249,11 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
                 Ok(Message::Binary(data)) => {
                     // Try to parse as JSON text (ignore raw audio data)
                     if let Ok(text) = String::from_utf8(data.to_vec()) {
+                        if let Some(error) = parse_error(&text) {
+                            let _ = request.response_tx.send(LiveEvent::Error(error));
+                            break;
+                        }
+
                         let (text_chunk, is_thought, is_turn_complete) = parse_live_response(&text);
 
                         if let Some(chunk) = text_chunk {
@@ -221,6 +264,7 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
                                 }
                             } else {
                                 content_started = true;
+                                last_content_at = Some(Instant::now());
                                 let _ = request.response_tx.send(LiveEvent::TextChunk(chunk));
                             }
                         }
@@ -232,14 +276,44 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
                     }
                     // Ignore binary audio data (not UTF-8)
                 }
-                Ok(Message::Close(_)) => {
-                    let _ = request.response_tx.send(LiveEvent::TurnComplete);
+                Ok(Message::Close(frame)) => {
+                    if content_started {
+                        let _ = request.response_tx.send(LiveEvent::TurnComplete);
+                    } else {
+                        let detail = frame
+                            .as_ref()
+                            .map(|frame| {
+                                if frame.reason.is_empty() {
+                                    format!("code {}", frame.code)
+                                } else {
+                                    format!("code {}: {}", frame.code, frame.reason)
+                                }
+                            })
+                            .unwrap_or_else(|| "no close details".to_string());
+                        let _ = request.response_tx.send(LiveEvent::Error(format!(
+                            "Connection closed before response content was received ({})",
+                            detail
+                        )));
+                    }
                     break;
                 }
                 Ok(_) => {}
                 Err(tungstenite::Error::Io(ref e))
-                    if e.kind() == std::io::ErrorKind::WouldBlock =>
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
                 {
+                    if let Some(last_content_at) = last_content_at
+                        && last_content_at.elapsed() >= idle_finalize_after
+                    {
+                        let _ = request.response_tx.send(LiveEvent::TurnComplete);
+                        break;
+                    }
+                    if !content_started && response_start.elapsed() >= response_timeout {
+                        let _ = request
+                            .response_tx
+                            .send(LiveEvent::Error("Response timeout".to_string()));
+                        break;
+                    }
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 Err(e) => {

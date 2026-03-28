@@ -335,7 +335,8 @@ pub fn create_realtime_webview(
                         TRANSLATION_MODEL_CHANGE.store(true, Ordering::SeqCst);
                     } else if let Some(model) = body.strip_prefix("transcriptionModel:") {
                         // Transcription model change
-                        let model = model.to_string();
+                        let model =
+                            crate::model_config::normalize_realtime_transcription_model_id(model);
                         if let Ok(mut new_model) = NEW_TRANSCRIPTION_MODEL.lock() {
                             *new_model = model.clone();
                         }

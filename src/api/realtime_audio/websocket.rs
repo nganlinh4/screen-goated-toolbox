@@ -5,8 +5,6 @@ use base64::{Engine as _, engine::general_purpose};
 use std::net::TcpStream;
 use std::time::Duration;
 
-use super::REALTIME_MODEL;
-
 /// Create TLS WebSocket connection to Gemini Live API
 pub fn connect_websocket(
     api_key: &str,
@@ -70,25 +68,42 @@ pub fn set_socket_short_timeout(
 /// Send session setup message to configure transcription mode
 pub fn send_setup_message(
     socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>,
+    model: &str,
 ) -> Result<()> {
-    // Using camelCase as per Gemini Live API documentation
-    // We set responseModalities to AUDIO to satisfy the native audio model,
-    // but we'll only use the inputAudioTranscription (ignore audio talkback)
+    let mut generation_config = serde_json::json!({
+        "responseModalities": ["AUDIO"],
+        "mediaResolution": "MEDIA_RESOLUTION_LOW",
+    });
+
+    generation_config["thinkingConfig"] = serde_json::json!({
+        "thinkingBudget": 0
+    });
+
     let setup = serde_json::json!({
         "setup": {
-            "model": format!("models/{}", REALTIME_MODEL),
-            "generationConfig": {
-                "responseModalities": ["AUDIO"],  // Required for native audio model
-                "thinkingConfig": {
-                    "thinkingBudget": 0  // Disable thinking for lower latency
-                }
-            },
-            "inputAudioTranscription": {}  // This is what we actually want - input transcription
+            "model": format!("models/{}", model),
+            "generationConfig": generation_config,
+            "inputAudioTranscription": {}
         }
     });
 
     let msg_str = setup.to_string();
     socket.write(tungstenite::Message::Text(msg_str.into()))?;
+    socket.flush()?;
+
+    Ok(())
+}
+
+pub fn send_audio_stream_end(
+    socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>,
+) -> Result<()> {
+    let msg = serde_json::json!({
+        "realtimeInput": {
+            "audioStreamEnd": true
+        }
+    });
+
+    socket.write(tungstenite::Message::Text(msg.to_string().into()))?;
     socket.flush()?;
 
     Ok(())
@@ -108,11 +123,11 @@ pub fn send_audio_chunk(
     let b64_audio = general_purpose::STANDARD.encode(&bytes);
 
     let msg = serde_json::json!({
-        "realtime_input": {
-            "media_chunks": [{
+        "realtimeInput": {
+            "audio": {
                 "data": b64_audio,
-                "mime_type": "audio/pcm;rate=16000"
-            }]
+                "mimeType": "audio/pcm;rate=16000"
+            }
         }
     });
 

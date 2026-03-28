@@ -128,12 +128,30 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
                                 "generationConfig",
                                 JSONObject()
                                     .put("responseModalities", JSONArray().put("AUDIO"))
+                                    .put("mediaResolution", "MEDIA_RESOLUTION_LOW")
                                     .put("thinkingConfig", JSONObject().put("thinkingBudget", 0)),
                             ).put(
                                 "inputAudioTranscription",
                                 JSONObject(),
                             ),
                         )
+                        .apply {
+                            if (model.fullName == "gemini-3.1-flash-live-preview") {
+                                getJSONObject("setup").put(
+                                    "realtimeInputConfig",
+                                    JSONObject()
+                                        .put(
+                                            "automaticActivityDetection",
+                                            JSONObject()
+                                                .put("startOfSpeechSensitivity", "START_SENSITIVITY_HIGH")
+                                                .put("endOfSpeechSensitivity", "END_SENSITIVITY_HIGH")
+                                                .put("prefixPaddingMs", 80)
+                                                .put("silenceDurationMs", 320),
+                                        )
+                                        .put("turnCoverage", "TURN_INCLUDES_ONLY_ACTIVITY"),
+                                )
+                            }
+                        }
                         .toString(),
                 )
             }
@@ -184,15 +202,13 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
                 .put(
                     "realtimeInput",
                     JSONObject().put(
-                        "mediaChunks",
-                        JSONArray().put(
-                            JSONObject()
-                                .put("mimeType", "audio/pcm;rate=16000")
-                                .put(
-                                    "data",
-                                    android.util.Base64.encodeToString(shortArrayToLittleEndianBytes(chunk), android.util.Base64.NO_WRAP),
-                                ),
-                        ),
+                        "audio",
+                        JSONObject()
+                            .put("mimeType", "audio/pcm;rate=16000")
+                            .put(
+                                "data",
+                                android.util.Base64.encodeToString(shortArrayToLittleEndianBytes(chunk), android.util.Base64.NO_WRAP),
+                            ),
                     ),
                 )
             if (!socket.send(payload.toString())) {
@@ -201,6 +217,7 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
         }
 
         override suspend fun finish(): AudioStreamingTranscriptResult {
+            socket.send(JSONObject().put("realtimeInput", JSONObject().put("audioStreamEnd", true)).toString())
             val concludeUntil = System.currentTimeMillis() + 2_000
             while (System.currentTimeMillis() < concludeUntil) {
                 coroutineContext.ensureActive()

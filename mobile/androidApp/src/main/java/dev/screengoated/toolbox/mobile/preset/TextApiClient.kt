@@ -107,8 +107,13 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                     onChunk = onChunk,
                 )
 
-                PresetModelProvider.GEMINI_LIVE ->
-                    throw IOException("PROVIDER_NOT_READY:gemini-live")
+                PresetModelProvider.GEMINI_LIVE -> httpClient.streamGeminiLiveText(
+                    model = model,
+                    apiKey = apiKeys.geminiKey,
+                    prompt = prompt,
+                    inputText = inputText,
+                    onChunk = onChunk,
+                )
 
                 else ->
                     throw IOException("Unsupported text provider: ${model.provider.name.lowercase()}")

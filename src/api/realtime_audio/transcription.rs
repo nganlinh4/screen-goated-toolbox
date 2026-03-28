@@ -11,6 +11,9 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::APP;
 use crate::config::Preset;
+use crate::model_config::{
+    normalize_realtime_transcription_model_id, realtime_transcription_api_model,
+};
 use crate::overlay::realtime_webview::SELECTED_APP_PID;
 
 use super::capture::{start_device_loopback_capture, start_mic_capture, start_per_app_capture};
@@ -86,7 +89,7 @@ fn transcription_thread_entry(
 
         let trans_model = {
             let app = APP.lock().unwrap();
-            app.config.realtime_transcription_model.clone()
+            normalize_realtime_transcription_model_id(&app.config.realtime_transcription_model)
         };
 
         // Update state with selected method immediately (before potentially slow model loading)
@@ -172,7 +175,8 @@ fn transcription_thread_entry(
         {
             // println!("Changing transcription model to: {}", new_model);
             let mut app = APP.lock().unwrap();
-            app.config.realtime_transcription_model = new_model.clone();
+            app.config.realtime_transcription_model =
+                normalize_realtime_transcription_model_id(&new_model);
         }
 
         // If a restart is triggered, reset stop signal to allow the new transcription to run
@@ -206,10 +210,14 @@ fn run_realtime_transcription(
     _translation_hwnd: Option<HWND>,
     state: SharedRealtimeState,
 ) -> Result<()> {
-    let gemini_api_key = {
+    let (gemini_api_key, selected_model_id) = {
         let app = APP.lock().unwrap();
-        app.config.gemini_api_key.clone()
+        (
+            app.config.gemini_api_key.clone(),
+            normalize_realtime_transcription_model_id(&app.config.realtime_transcription_model),
+        )
     };
+    let gemini_live_model = realtime_transcription_api_model(&selected_model_id);
 
     if gemini_api_key.trim().is_empty() {
         return Err(anyhow::anyhow!("NO_API_KEY:google"));
@@ -218,7 +226,7 @@ fn run_realtime_transcription(
     // println!("Gemini: Connecting to WebSocket...");
     let mut socket = connect_websocket(&gemini_api_key)?;
     // println!("Gemini: Connected! Sending setup...");
-    send_setup_message(&mut socket)?;
+    send_setup_message(&mut socket, &gemini_live_model)?;
     // println!("Gemini: Setup sent, waiting for acknowledgment...");
 
     // Set transcription method to GeminiLive (uses delimiter-based segmentation)
@@ -341,6 +349,7 @@ fn run_realtime_transcription(
         stop_signal,
         overlay_hwnd,
         state,
+        &gemini_live_model,
         &gemini_api_key,
     )?;
 
@@ -354,6 +363,7 @@ fn run_main_loop(
     stop_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
     state: SharedRealtimeState,
+    gemini_live_model: &str,
     gemini_api_key: &str,
 ) -> Result<()> {
     let mut last_send = Instant::now();
@@ -497,6 +507,7 @@ fn run_main_loop(
                 if !try_reconnect(ReconnectContext {
                     socket: &mut socket,
                     api_key: gemini_api_key,
+                    model: gemini_live_model,
                     audio_buffer: &audio_buffer,
                     silence_buffer: &mut silence_buffer,
                     audio_mode: &mut audio_mode,
@@ -519,6 +530,7 @@ fn run_main_loop(
                     && !try_reconnect(ReconnectContext {
                         socket: &mut socket,
                         api_key: gemini_api_key,
+                        model: gemini_live_model,
                         audio_buffer: &audio_buffer,
                         silence_buffer: &mut silence_buffer,
                         audio_mode: &mut audio_mode,
@@ -539,6 +551,7 @@ fn run_main_loop(
                     if !try_reconnect(ReconnectContext {
                         socket: &mut socket,
                         api_key: gemini_api_key,
+                        model: gemini_live_model,
                         audio_buffer: &audio_buffer,
                         silence_buffer: &mut silence_buffer,
                         audio_mode: &mut audio_mode,
@@ -564,6 +577,7 @@ fn run_main_loop(
 struct ReconnectContext<'a> {
     socket: &'a mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
     api_key: &'a str,
+    model: &'a str,
     audio_buffer: &'a Arc<Mutex<Vec<i16>>>,
     silence_buffer: &'a mut Vec<i16>,
     audio_mode: &'a mut AudioMode,
@@ -576,6 +590,7 @@ fn try_reconnect(context: ReconnectContext<'_>) -> bool {
     let ReconnectContext {
         socket,
         api_key,
+        model,
         audio_buffer,
         silence_buffer,
         audio_mode,
@@ -594,7 +609,7 @@ fn try_reconnect(context: ReconnectContext<'_>) -> bool {
 
         match connect_websocket(api_key) {
             Ok(mut new_socket) => {
-                if send_setup_message(&mut new_socket).is_err() {
+                if send_setup_message(&mut new_socket, model).is_err() {
                     continue;
                 }
                 if set_socket_nonblocking(&mut new_socket).is_err() {

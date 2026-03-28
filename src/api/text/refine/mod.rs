@@ -137,6 +137,7 @@ where
             } else if target_provider == "gemini-live" {
                 let mime = "image/jpeg".to_string();
                 crate::api::gemini_live::gemini_live_generate(
+                    target_id_or_name.clone(),
                     final_prompt,
                     String::new(),
                     Some((img_bytes.clone(), mime)),
@@ -217,6 +218,7 @@ where
         )
     } else if provider == "gemini-live" {
         crate::api::gemini_live::gemini_live_generate(
+            model,
             final_prompt.to_string(),
             String::new(),
             None,
@@ -226,11 +228,7 @@ where
             on_chunk,
         )
     } else if provider == "taalas" {
-        providers::refine_taalas(
-            final_prompt,
-            cancel_token,
-            on_chunk,
-        )
+        providers::refine_taalas(final_prompt, cancel_token, on_chunk)
     } else if provider == "cerebras" {
         providers::refine_cerebras(
             cerebras_api_key,

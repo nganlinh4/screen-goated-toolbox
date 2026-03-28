@@ -177,6 +177,12 @@ class MainViewModel(
         )
     }
 
+    fun onGlobalTtsModelChanged(model: String) {
+        repository.updateGlobalTtsSettings(
+            repository.currentGlobalTtsSettings().copy(geminiModel = model),
+        )
+    }
+
     fun onGlobalTtsSpeedPresetChanged(speedPreset: MobileTtsSpeedPreset) {
         repository.updateGlobalTtsSettings(
             repository.currentGlobalTtsSettings().copy(speedPreset = speedPreset),

@@ -1,7 +1,6 @@
 package dev.screengoated.toolbox.mobile.service
 
 import android.util.Base64
-import android.util.Log
 import dev.screengoated.toolbox.mobile.model.LanguageCatalog
 import dev.screengoated.toolbox.mobile.shared.live.LiveTranslationModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.TranslationRequest
@@ -29,8 +28,6 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
-import kotlin.random.Random
 
 class GeminiLiveSocketClient(
     private val httpClient: OkHttpClient,
@@ -47,6 +44,7 @@ class GeminiLiveSocketClient(
      */
     suspend fun runSession(
         apiKey: String,
+        model: String,
         audioChunks: Flow<ShortArray>,
         onTranscript: (String) -> Unit,
     ) {
@@ -59,7 +57,7 @@ class GeminiLiveSocketClient(
         var outboundChunks = 0
 
         // Connect initial socket
-        var session = connectAndSetup(apiKey, onTranscript)
+        var session = connectAndSetup(apiKey, model)
             ?: throw IOException("Gemini Live initial connection failed.")
 
         coroutineScope {
@@ -136,7 +134,7 @@ class GeminiLiveSocketClient(
 
                 if (!sendOk) {
                     // Send failed — reconnect
-                    session = tryReconnect(apiKey, onTranscript, audioBuffer, silenceBuffer)
+                    session = tryReconnect(apiKey, model, audioBuffer, silenceBuffer)
                         ?: break
                     audioMode = AudioMode.CATCH_UP
                     modeStartMs = System.currentTimeMillis()
@@ -161,7 +159,7 @@ class GeminiLiveSocketClient(
                         }
                         is LiveSocketEvent.Closed -> {
                             // Server closed — reconnect
-                            session = tryReconnect(apiKey, onTranscript, audioBuffer, silenceBuffer)
+                            session = tryReconnect(apiKey, model, audioBuffer, silenceBuffer)
                                 ?: throw IOException("Gemini Live reconnection failed.")
                             audioMode = AudioMode.CATCH_UP
                             modeStartMs = System.currentTimeMillis()
@@ -181,7 +179,7 @@ class GeminiLiveSocketClient(
                     timeSinceTranscription > NO_RESULT_THRESHOLD_MS
                 ) {
                     session.socket.close(1000, "stalled")
-                    session = tryReconnect(apiKey, onTranscript, audioBuffer, silenceBuffer)
+                    session = tryReconnect(apiKey, model, audioBuffer, silenceBuffer)
                         ?: throw IOException("Gemini Live reconnection failed after stall.")
                     audioMode = AudioMode.CATCH_UP
                     modeStartMs = System.currentTimeMillis()
@@ -215,7 +213,7 @@ class GeminiLiveSocketClient(
 
     private suspend fun connectAndSetup(
         apiKey: String,
-        onTranscript: (String) -> Unit,
+        model: String,
     ): LiveSession? {
         val events = LinkedBlockingDeque<LiveSocketEvent>()
         val setupReady = CompletableDeferred<Unit>()
@@ -228,7 +226,7 @@ class GeminiLiveSocketClient(
             request,
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    webSocket.send(buildSetupPayload())
+                    webSocket.send(buildSetupPayload(model))
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
@@ -290,7 +288,7 @@ class GeminiLiveSocketClient(
 
     private suspend fun tryReconnect(
         apiKey: String,
-        onTranscript: (String) -> Unit,
+        model: String,
         audioBuffer: LinkedBlockingDeque<ShortArray>,
         silenceBuffer: MutableList<Short>,
     ): LiveSession? {
@@ -308,7 +306,7 @@ class GeminiLiveSocketClient(
                 for (s in chunk) silenceBuffer.add(s)
             }
 
-            val session = connectAndSetup(apiKey, onTranscript)
+            val session = connectAndSetup(apiKey, model)
             if (session != null) {
                 // Final drain before resuming
                 while (true) {
@@ -335,23 +333,22 @@ class GeminiLiveSocketClient(
         return true
     }
 
-    private fun buildSetupPayload(): String {
+    private fun buildSetupPayload(model: String): String {
         val generationConfig = JSONObject()
             .put("responseModalities", JSONArray().put("AUDIO"))
-            .put(
-                "thinkingConfig",
-                JSONObject().put("thinkingBudget", 0),
-            )
+            .put("mediaResolution", "MEDIA_RESOLUTION_LOW")
+            .put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
 
-        return JSONObject()
+        val setup = JSONObject()
             .put(
                 "setup",
                 JSONObject()
-                    .put("model", "models/$LIVE_MODEL")
+                    .put("model", "models/$model")
                     .put("generationConfig", generationConfig)
                     .put("inputAudioTranscription", JSONObject()),
             )
-            .toString()
+
+        return setup.toString()
     }
 
     private fun buildAudioChunkPayload(chunk: ShortArray): String {
@@ -395,8 +392,6 @@ class GeminiLiveSocketClient(
     }
 
     private companion object {
-        private const val TAG = "SGTGeminiLive"
-        private const val LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
         private const val LIVE_WS_ENDPOINT =
             "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
         private const val NORMAL_DURATION_MS = 20_000L

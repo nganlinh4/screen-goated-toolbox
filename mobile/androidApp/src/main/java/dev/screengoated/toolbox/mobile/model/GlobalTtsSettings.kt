@@ -42,6 +42,7 @@ data class MobileEdgeTtsSettings(
 @Serializable
 data class MobileGlobalTtsSettings(
     val method: MobileTtsMethod = MobileTtsMethod.GEMINI_LIVE,
+    val geminiModel: String = RealtimeModelIds.GEMINI_LIVE_API_MODEL_3_1,
     val voice: String = "Aoede",
     val speedPreset: MobileTtsSpeedPreset = MobileTtsSpeedPreset.FAST,
     val languageConditions: List<MobileTtsLanguageCondition> = defaultTtsLanguageConditions(),
@@ -60,6 +61,10 @@ fun MobileGlobalTtsSettings.withMethod(method: MobileTtsMethod): MobileGlobalTts
 data class GeminiVoiceOption(
     val name: String,
     val gender: String,
+)
+
+data class GeminiLiveModelOption(
+    val apiModel: String,
 )
 
 data class TtsLanguageOption(
@@ -88,6 +93,15 @@ fun defaultEdgeTtsVoiceConfigs(): List<MobileEdgeTtsVoiceConfig> {
 }
 
 object MobileTtsCatalog {
+    val geminiModels: List<GeminiLiveModelOption> = listOf(
+        GeminiLiveModelOption(
+            apiModel = RealtimeModelIds.GEMINI_LIVE_API_MODEL_2_5,
+        ),
+        GeminiLiveModelOption(
+            apiModel = RealtimeModelIds.GEMINI_LIVE_API_MODEL_3_1,
+        ),
+    )
+
     val maleVoices: List<GeminiVoiceOption> = listOf(
         GeminiVoiceOption("Achird", "Male"),
         GeminiVoiceOption("Algenib", "Male"),

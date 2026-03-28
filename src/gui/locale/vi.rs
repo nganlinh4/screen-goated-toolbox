@@ -193,6 +193,9 @@ pub fn get() -> LocaleText {
         tts_method_standard: "Xịn (Gemini Live)",
         tts_method_fast: "Nhanh (Google Translate)",
         tts_method_edge: "Tốt (Edge TTS)",
+        tts_gemini_model_label: "Mô hình Gemini Live",
+        tts_gemini_model_25: "Live 2.5",
+        tts_gemini_model_31: "Live 3.1",
         tts_google_translate_title: "Google Translate TTS",
         tts_google_translate_desc: "Phương pháp này nhanh hơn và không cần khóa API.",
         tts_edge_title: "Microsoft Edge TTS",
@@ -229,6 +232,7 @@ pub fn get() -> LocaleText {
         tts_instructions_label: "Giọng điệu theo ngôn ngữ:",
         tts_instructions_hint: "VD: Đọc giọng miền Tây",
         tts_add_condition: "+ Thêm điều kiện...",
+        remove_label: "Xóa",
         // Realtime TTS modal
         realtime_tts_title: "Đọc phần Dịch",
         realtime_tts_speed: "Tốc độ",

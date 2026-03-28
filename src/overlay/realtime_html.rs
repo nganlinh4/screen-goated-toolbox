@@ -69,11 +69,12 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
     // Audio source selector (only for transcription window) - simple mic/device toggle
     let audio_selector = if !is_translation {
         let is_device = audio_source == "device";
-        let gemini_active = if transcription_model == "gemini" {
-            "active"
-        } else {
-            ""
-        };
+        let gemini_2_5_active =
+            if transcription_model == crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5 {
+                "active"
+            } else {
+                ""
+            };
         let parakeet_active = if transcription_model == "parakeet" {
             "active"
         } else {
@@ -87,14 +88,15 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 <span class="material-symbols-rounded audio-icon {device_active}" id="device-btn" data-value="device" title="Device Audio">{device_svg}</span>
             </div>
             <div class="btn-group">
-                <span class="material-symbols-rounded trans-model-icon {gemini_active}" data-value="gemini" title="Gemini Live (Cloud)">{auto_awesome_svg}</span>
+                <span class="material-symbols-rounded trans-model-icon {gemini_2_5_active}" data-value="{gemini_2_5_id}" title="Gemini Live 2.5 (Cloud)">{auto_awesome_svg}</span>
                 <span class="material-symbols-rounded trans-model-icon {parakeet_active}" data-value="parakeet" title="Parakeet (Local)">{bolt_en_svg}</span>
             </div>
         "#,
             mic_active = if !is_device { "active" } else { "" },
             device_active = if is_device { "active" } else { "" },
-            gemini_active = gemini_active,
+            gemini_2_5_active = gemini_2_5_active,
             parakeet_active = parakeet_active,
+            gemini_2_5_id = crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5,
             mic_svg = crate::overlay::html_components::icons::get_icon_svg("mic"),
             device_svg = crate::overlay::html_components::icons::get_icon_svg("speaker_group"),
             auto_awesome_svg = crate::overlay::html_components::icons::get_icon_svg("auto_awesome"),

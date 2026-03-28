@@ -5,8 +5,6 @@ use std::net::TcpStream;
 use std::time::Duration;
 use tungstenite::WebSocket;
 
-use super::types::TTS_MODEL;
-
 /// Create TLS WebSocket connection to Gemini Live API for TTS
 pub fn connect_tts_websocket(api_key: &str) -> Result<WebSocket<TlsStream<TcpStream>>> {
     let ws_url = format!(
@@ -42,6 +40,7 @@ pub fn connect_tts_websocket(api_key: &str) -> Result<WebSocket<TlsStream<TcpStr
 /// Send TTS setup message - configures for audio output only, no input transcription
 pub fn send_tts_setup(
     socket: &mut WebSocket<TlsStream<TcpStream>>,
+    model: &str,
     voice_name: &str,
     speed: &str,
     custom_instructions: Option<&str>,
@@ -66,22 +65,26 @@ pub fn send_tts_setup(
 
     system_text.push_str("Start reading immediately.");
 
+    let mut generation_config = serde_json::json!({
+        "responseModalities": ["AUDIO"],
+        "mediaResolution": "MEDIA_RESOLUTION_LOW",
+        "speechConfig": {
+            "voiceConfig": {
+                "prebuiltVoiceConfig": {
+                    "voiceName": voice_name
+                }
+            }
+        }
+    });
+
+    generation_config["thinkingConfig"] = serde_json::json!({
+        "thinkingBudget": 0
+    });
+
     let setup = serde_json::json!({
         "setup": {
-            "model": format!("models/{}", TTS_MODEL),
-            "generationConfig": {
-                "responseModalities": ["AUDIO"],
-                "speechConfig": {
-                    "voiceConfig": {
-                        "prebuiltVoiceConfig": {
-                            "voiceName": voice_name
-                        }
-                    }
-                },
-                "thinkingConfig": {
-                    "thinkingBudget": 0
-                }
-            },
+            "model": format!("models/{}", model),
+            "generationConfig": generation_config,
             "systemInstruction": {
                 "parts": [{
                     "text": system_text
@@ -103,14 +106,8 @@ pub fn send_tts_text(socket: &mut WebSocket<TlsStream<TcpStream>>, text: &str) -
     let prompt = format!("[READ ALOUD VERBATIM - START NOW]\n\n{}", text);
 
     let msg = serde_json::json!({
-        "clientContent": {
-            "turns": [{
-                "role": "user",
-                "parts": [{
-                    "text": prompt
-                }]
-            }],
-            "turnComplete": true
+        "realtimeInput": {
+            "text": prompt
         }
     });
 

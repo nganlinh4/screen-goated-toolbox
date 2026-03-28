@@ -189,30 +189,19 @@ where
             on_chunk,
         );
     } else if provider == "gemini-live" {
-        // --- GEMINI LIVE API (WebSocket-based low-latency streaming with image) ---
-        // Use image_data which was already populated in the preprocessing step
-        // or use original_bytes for zero-copy path
-        let img_bytes = if let Some(orig) = original_bytes {
-            // Zero-copy path - use original bytes
-            orig
-        } else if !image_data.is_empty() {
-            // Standard path - use processed PNG data
-            image_data.clone()
-        } else {
-            return Err(anyhow::anyhow!("No image data available for Gemini Live"));
-        };
-
         let ui_language = crate::APP
             .lock()
             .ok()
             .map(|app| app.config.ui_language.clone())
             .unwrap_or_else(|| "en".to_string());
+        let live_image_bytes = original_bytes.unwrap_or(image_data);
 
-        return super::gemini_live::gemini_live_generate(
-            prompt.clone(),
-            String::new(), // No separate instruction for vision - prompt already contains it
-            Some((img_bytes, mime_type)),
-            None, // No audio
+        return crate::api::gemini_live::gemini_live_generate(
+            model,
+            prompt,
+            String::new(),
+            Some((live_image_bytes, mime_type)),
+            None,
             streaming_enabled,
             &ui_language,
             on_chunk,

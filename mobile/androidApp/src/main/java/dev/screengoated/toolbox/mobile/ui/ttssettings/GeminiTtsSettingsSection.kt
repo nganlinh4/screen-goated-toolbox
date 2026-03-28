@@ -46,6 +46,7 @@ import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsCatalog
 import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
+import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.ui.ExpressiveDialogSectionCard
 import dev.screengoated.toolbox.mobile.ui.UtilityActionButton
 import dev.screengoated.toolbox.mobile.ui.UtilityHeaderRow
@@ -55,12 +56,19 @@ import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 internal fun GeminiLiveSection(
     settings: MobileGlobalTtsSettings,
     locale: MobileLocaleText,
+    onModelChanged: (String) -> Unit,
     onSpeedPresetChanged: (MobileTtsSpeedPreset) -> Unit,
     onConditionsChanged: (List<MobileTtsLanguageCondition>) -> Unit,
     onVoiceChanged: (String) -> Unit,
     onPreviewVoice: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        GeminiModelCard(
+            selected = settings.geminiModel,
+            locale = locale,
+            onChanged = onModelChanged,
+        )
+
         BoxWithConstraints {
             val stacked = maxWidth < 720.dp
             if (stacked) {
@@ -98,6 +106,45 @@ internal fun GeminiLiveSection(
                 onVoiceChanged = onVoiceChanged,
                 onPreviewVoice = onPreviewVoice,
             )
+        }
+    }
+}
+
+@Composable
+private fun GeminiModelCard(
+    selected: String,
+    locale: MobileLocaleText,
+    onChanged: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ExpressiveDialogSectionCard(
+        accent = MaterialTheme.colorScheme.tertiary,
+        modifier = modifier,
+    ) {
+        UtilityHeaderRow(
+            icon = Icons.Rounded.AutoAwesome,
+            title = locale.ttsGeminiModelLabel,
+            accent = MaterialTheme.colorScheme.tertiary,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
+            val modelOptions = listOf(
+                RealtimeModelIds.GEMINI_LIVE_API_MODEL_2_5 to locale.ttsGeminiModel25,
+                RealtimeModelIds.GEMINI_LIVE_API_MODEL_3_1 to locale.ttsGeminiModel31,
+            )
+            modelOptions.forEachIndexed { index, (apiModel, label) ->
+                ToggleButton(
+                    checked = selected == apiModel,
+                    onCheckedChange = { onChanged(apiModel) },
+                    shapes = when (index) {
+                        0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                        modelOptions.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                        else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                    },
+                    modifier = Modifier.semantics { role = Role.RadioButton },
+                ) {
+                    Text(label, style = MaterialTheme.typography.labelSmall)
+                }
+            }
         }
     }
 }

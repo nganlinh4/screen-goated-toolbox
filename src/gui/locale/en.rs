@@ -192,6 +192,9 @@ pub fn get() -> LocaleText {
         tts_method_standard: "Standard (Gemini Live)",
         tts_method_fast: "Fast (Google Translate)",
         tts_method_edge: "Edge TTS",
+        tts_gemini_model_label: "Gemini Live Model",
+        tts_gemini_model_25: "Live 2.5",
+        tts_gemini_model_31: "Live 3.1",
         tts_google_translate_title: "Google Translate TTS",
         tts_google_translate_desc: "This method is faster and doesn't require an API key.",
         tts_edge_title: "Microsoft Edge TTS",
@@ -228,6 +231,7 @@ pub fn get() -> LocaleText {
         tts_instructions_label: "Per-language Accent:",
         tts_instructions_hint: "e.g. Use a Southern accent",
         tts_add_condition: "+ Add condition...",
+        remove_label: "Remove",
         // Realtime TTS modal
         realtime_tts_title: "Read translation",
         realtime_tts_speed: "Speed",

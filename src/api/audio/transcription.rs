@@ -107,11 +107,12 @@ where
 /// (transcribes what was recorded, not AI response)
 pub fn transcribe_with_gemini_live_input(
     api_key: &str,
+    model: &str,
     wav_data: Vec<u8>,
 ) -> anyhow::Result<String> {
     use crate::api::realtime_audio::websocket::{
-        connect_websocket, parse_input_transcription, send_audio_chunk, send_setup_message,
-        set_socket_nonblocking, set_socket_short_timeout,
+        connect_websocket, parse_input_transcription, send_audio_chunk, send_audio_stream_end,
+        send_setup_message, set_socket_nonblocking, set_socket_short_timeout,
     };
     use crate::overlay::recording::AUDIO_INITIALIZING;
 
@@ -138,7 +139,7 @@ pub fn transcribe_with_gemini_live_input(
     };
 
     println!("[GeminiLiveInput] Sending setup message...");
-    if let Err(e) = send_setup_message(&mut socket) {
+    if let Err(e) = send_setup_message(&mut socket, model) {
         println!("[GeminiLiveInput] Setup message failed: {}", e);
         AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
         return Err(e);
@@ -293,6 +294,8 @@ pub fn transcribe_with_gemini_live_input(
         "[GeminiLiveInput] Sent {} chunks, waiting 2s for final transcriptions...",
         chunks_sent
     );
+
+    let _ = send_audio_stream_end(&mut socket);
 
     // Wait 2 seconds after sending all audio for final transcriptions
     let conclude_start = Instant::now();
@@ -533,7 +536,7 @@ pub fn execute_audio_processing_logic(
         if gemini_api_key.trim().is_empty() {
             Err(anyhow::anyhow!("NO_API_KEY:gemini"))
         } else {
-            transcribe_with_gemini_live_input(&gemini_api_key, wav_data)
+            transcribe_with_gemini_live_input(&gemini_api_key, &model_name, wav_data)
         }
     } else {
         Err(anyhow::anyhow!("Unsupported audio provider: {}", provider))

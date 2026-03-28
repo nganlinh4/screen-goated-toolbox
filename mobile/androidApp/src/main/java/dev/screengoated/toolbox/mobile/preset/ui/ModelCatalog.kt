@@ -16,6 +16,7 @@ enum class ModelProvider(val displayName: String, val icon: String) {
     OPENROUTER("OpenRouter", "\uD83C\uDF10"),
     OLLAMA("Ollama", "\uD83C\uDFE0"),
     GEMINI_LIVE("Gemini Live", "\uD83C\uDFA7"),
+    TAALAS("Taalas", "\u26A1"),
 }
 
 enum class ModelType { TEXT, VISION, AUDIO }
@@ -79,4 +80,5 @@ private fun PresetModelProvider.toUiProvider(): ModelProvider = when (this) {
     PresetModelProvider.OLLAMA -> ModelProvider.OLLAMA
     PresetModelProvider.QRSERVER -> ModelProvider.QR_SCANNER
     PresetModelProvider.PARAKEET -> ModelProvider.PARAKEET
+    PresetModelProvider.TAALAS -> ModelProvider.TAALAS
 }

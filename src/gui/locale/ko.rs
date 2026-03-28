@@ -193,6 +193,9 @@ pub fn get() -> LocaleText {
         tts_method_standard: "표준 (Gemini Live)",
         tts_method_fast: "빠름 (Google Translate)",
         tts_method_edge: "좋음 (Edge TTS)",
+        tts_gemini_model_label: "Gemini Live 모델",
+        tts_gemini_model_25: "Live 2.5",
+        tts_gemini_model_31: "Live 3.1",
         tts_google_translate_title: "Google Translate TTS",
         tts_google_translate_desc: "이 방식은 더 빠르며 API 키가 필요하지 않습니다.",
         tts_edge_title: "Microsoft Edge TTS",
@@ -229,6 +232,7 @@ pub fn get() -> LocaleText {
         tts_instructions_label: "언어별 말투:",
         tts_instructions_hint: "예: 사투리로 말해",
         tts_add_condition: "+ 조건 추가...",
+        remove_label: "삭제",
         // Realtime TTS modal
         realtime_tts_title: "번역 읽기",
         realtime_tts_speed: "속도",

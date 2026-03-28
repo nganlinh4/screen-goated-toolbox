@@ -37,6 +37,7 @@ enum class TtsCompletionStatus {
 
 data class TtsRequestSettingsSnapshot(
     val method: MobileTtsMethod,
+    val geminiModel: String,
     val geminiVoice: String,
     val speedPreset: MobileTtsSpeedPreset,
     val languageConditions: List<MobileTtsLanguageCondition>,
@@ -99,6 +100,7 @@ fun MobileGlobalTtsSettings.toRuntimeSnapshot(
 ): TtsRequestSettingsSnapshot {
     return TtsRequestSettingsSnapshot(
         method = method,
+        geminiModel = geminiModel,
         geminiVoice = voice,
         speedPreset = speedPreset,
         languageConditions = languageConditions,

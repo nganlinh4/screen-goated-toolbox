@@ -115,7 +115,7 @@ internal class RealtimeOverlayHtmlBuilder(
                 <span class="material-symbols-rounded audio-icon" id="device-btn" data-value="device" title="${locale.overlay.deviceAudioTitle}">${RealtimeOverlayIcons.SPEAKER_GROUP}</span>
             </div>
             <div class="btn-group">
-                <span class="material-symbols-rounded trans-model-icon" data-value="gemini" title="${locale.overlay.geminiLiveTitle}">${RealtimeOverlayIcons.AUTO_AWESOME}</span>
+                <span class="material-symbols-rounded trans-model-icon" data-value="gemini-live-audio" title="Gemini Live 2.5 (Cloud)">${RealtimeOverlayIcons.AUTO_AWESOME}</span>
                 <span class="material-symbols-rounded trans-model-icon" data-value="parakeet" title="${locale.overlay.parakeetTitle}">${RealtimeOverlayIcons.BOLT_EN}</span>
             </div>
             """.trimIndent()

@@ -284,7 +284,9 @@ unsafe fn handle_start_overlay(preset_idx: usize) {
                 app.config.realtime_audio_source.clone(),
                 app.config.realtime_target_language.clone(),
                 app.config.realtime_translation_model.clone(),
-                app.config.realtime_transcription_model.clone(),
+                crate::model_config::normalize_realtime_transcription_model_id(
+                    &app.config.realtime_transcription_model,
+                ),
                 app.config.realtime_translation_size,
                 app.config.realtime_transcription_size,
             )

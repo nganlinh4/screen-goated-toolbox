@@ -117,6 +117,7 @@ where
     } else if provider == "gemini-live" {
         // --- GEMINI LIVE API (WebSocket-based low-latency streaming) ---
         return crate::api::gemini_live::gemini_live_generate(
+            model,
             text,
             instruction,
             None, // No image for text-only

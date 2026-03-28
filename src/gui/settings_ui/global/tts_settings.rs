@@ -135,6 +135,25 @@ pub fn render_tts_settings_modal(
 
             // Speed and Tone & Style side by side
             if config.tts_method == TtsMethod::GeminiLive {
+                ui.label(egui::RichText::new(text.tts_gemini_model_label).strong());
+                ui.horizontal(|ui| {
+                    if ui.radio_value(
+                        &mut config.tts_gemini_live_model,
+                        crate::model_config::GEMINI_LIVE_API_MODEL_2_5.to_string(),
+                        text.tts_gemini_model_25,
+                    ).clicked() {
+                        changed = true;
+                    }
+                    if ui.radio_value(
+                        &mut config.tts_gemini_live_model,
+                        crate::model_config::GEMINI_LIVE_API_MODEL_3_1.to_string(),
+                        text.tts_gemini_model_31,
+                    ).clicked() {
+                        changed = true;
+                    }
+                });
+                ui.add_space(10.0);
+
                 ui.columns(2, |columns| {
                     // Left column: Speed
                     columns[0].label(egui::RichText::new(text.tts_speed_label).strong());
@@ -196,7 +215,7 @@ pub fn render_tts_settings_modal(
                             }
 
                             // Remove button - use Icon::Close for proper rendering
-                            if icon_button(ui, Icon::Close).on_hover_text("Remove").clicked() {
+                            if icon_button(ui, Icon::Close).on_hover_text(text.remove_label).clicked() {
                                 to_remove = Some(idx);
                             }
                         });
@@ -430,7 +449,7 @@ pub fn render_tts_settings_modal(
                                 }
 
                                 // Remove button
-                                if icon_button(ui, Icon::Close).on_hover_text("Remove").clicked() {
+                                if icon_button(ui, Icon::Close).on_hover_text(text.remove_label).clicked() {
                                     to_remove = Some(idx);
                                 }
                             });

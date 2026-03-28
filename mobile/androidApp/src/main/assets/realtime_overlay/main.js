@@ -25,7 +25,8 @@
             toggleHeaderTitle: 'Toggle header',
             micInputTitle: 'Microphone input',
             deviceAudioTitle: 'Device audio',
-            geminiLiveTitle: 'Gemini Live (Cloud)',
+            geminiLive25Title: 'Gemini Live 2.5 (Cloud)',
+            geminiLive31Title: 'Gemini Live 3.1 (Cloud)',
             parakeetTitle: 'Parakeet (Local)',
             gemmaTitle: 'AI Translation (Gemma)',
             taalasTitle: 'Instant AI (Taalas)',
@@ -426,7 +427,7 @@
             updateTitleBySelector('.model-icon[data-value="google-gemma"]', overlayLocale.gemmaTitle);
             updateTitleBySelector('.model-icon[data-value="taalas-rt"]', overlayLocale.taalasTitle);
             updateTitleBySelector('.model-icon[data-value="google-gtx"]', overlayLocale.gtxTitle);
-            updateTitleBySelector('.trans-model-icon[data-value="gemini"]', overlayLocale.geminiLiveTitle);
+            updateTitleBySelector('.trans-model-icon[data-value="gemini-live-audio"]', overlayLocale.geminiLive25Title);
             updateTitleBySelector('.trans-model-icon[data-value="parakeet"]', overlayLocale.parakeetTitle);
             updateTextNode('tts-modal-title-text', overlayLocale.ttsTitle);
             updateTextNode('tts-speed-label', overlayLocale.ttsSpeed);

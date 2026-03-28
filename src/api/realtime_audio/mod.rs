@@ -27,9 +27,6 @@ pub use translation::translate_with_google_gtx;
 /// Interval for triggering translation (milliseconds)
 pub const TRANSLATION_INTERVAL_MS: u64 = 1500;
 
-/// Model for realtime audio transcription
-pub const REALTIME_MODEL: &str = "gemini-2.5-flash-native-audio-preview-12-2025";
-
 /// Custom message for updating overlay text
 pub const WM_REALTIME_UPDATE: u32 = WM_APP + 200;
 pub const WM_TRANSLATION_UPDATE: u32 = WM_APP + 201;
@@ -65,16 +62,18 @@ pub fn cancel_download_and_revert_to_gemini() {
         state.is_downloading = false;
     }
 
-    // 3. Revert transcription model to gemini in config
+    let gemini_model_id = crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string();
+
+    // 3. Revert transcription model to Gemini Live 2.5 in config
     {
         let mut app = crate::APP.lock().unwrap();
-        app.config.realtime_transcription_model = "gemini".to_string();
+        app.config.realtime_transcription_model = gemini_model_id.clone();
         crate::config::save_config(&app.config);
     }
 
-    // 4. Signal model change to restart with gemini
+    // 4. Signal model change to restart with Gemini Live 2.5
     if let Ok(mut model) = NEW_TRANSCRIPTION_MODEL.lock() {
-        *model = "gemini".to_string();
+        *model = gemini_model_id.clone();
     }
     TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
 
@@ -87,7 +86,7 @@ pub fn cancel_download_and_revert_to_gemini() {
             let script = r#"
                 if(window.hideDownloadModal) window.hideDownloadModal();
                 document.querySelectorAll('.trans-model-icon').forEach(icon => {
-                    icon.classList.toggle('active', icon.getAttribute('data-value') === 'gemini');
+                    icon.classList.toggle('active', icon.getAttribute('data-value') === 'gemini-live-audio');
                 });
             "#;
             REALTIME_WEBVIEWS.with(|wvs| {

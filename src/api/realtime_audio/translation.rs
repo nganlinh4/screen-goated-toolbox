@@ -156,9 +156,7 @@ pub fn run_translation_loop(
                     } else {
                         primary_failed = true;
                     }
-                } else if current_model
-                    == crate::model_config::REALTIME_TRANSLATION_MODEL_TAALAS
-                {
+                } else if current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_TAALAS {
                     // Taalas / chatjimmy.ai — raw text response (not SSE)
                     match translate_with_taalas(&chunk, &target_language) {
                         Some(text) => {
@@ -178,8 +176,10 @@ pub fn run_translation_loop(
                     }
                 } else {
                     // Gemma (Google) — SSE streaming
-                    let url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-                    let model_name = crate::model_config::realtime_translation_api_model(current_model);
+                    let url =
+                        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+                    let model_name =
+                        crate::model_config::realtime_translation_api_model(current_model);
                     let api_key = &gemini_key;
 
                     let system_instruction = format!(
