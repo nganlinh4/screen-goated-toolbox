@@ -18,6 +18,7 @@ class DownloaderViewModel(
     fun installTools() = repository.installTools()
     fun deleteTools() = repository.deleteTools()
     fun checkUpdates() = repository.checkUpdates()
+    fun totalDepsSize() = repository.calculateTotalDepsSize()
 
     // Multi-tab
     fun addTab() = repository.addTab()

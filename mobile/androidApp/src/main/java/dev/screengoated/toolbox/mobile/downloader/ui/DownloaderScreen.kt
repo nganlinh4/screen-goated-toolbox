@@ -138,7 +138,7 @@ fun DownloaderScreen(
                                     },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text(locale.dlDeleteDeps + " (~80 MB)", color = MaterialTheme.colorScheme.error) },
+                                    text = { Text(locale.dlDeleteDeps + " (${viewModel.totalDepsSize()})", color = MaterialTheme.colorScheme.error) },
                                     leadingIcon = { Icon(Icons.Rounded.Close, contentDescription = null, Modifier.size(18.dp)) },
                                     onClick = {
                                         menuExpanded = false

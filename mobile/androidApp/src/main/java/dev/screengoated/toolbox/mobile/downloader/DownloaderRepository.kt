@@ -67,21 +67,24 @@ class DownloaderRepository(
                 val hasNativeZips = isNativeZipsDownloaded()
                 val alreadyExtracted = isAlreadyExtracted()
                 android.util.Log.d("SGT-DL", "checkTools: hasNativeZips=$hasNativeZips alreadyExtracted=$alreadyExtracted")
-                val ffmpegState = if (hasNativeZips) {
+                // Tools are ready if extracted (zips may have been cleaned up after extraction)
+                val ffmpegPkgDir = File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg")
+                val ffmpegReady = alreadyExtracted && ffmpegPkgDir.exists()
+                val ffmpegState = if (ffmpegReady) {
                     ToolState(ToolInstallStatus.INSTALLED, version = calculateFfmpegSize())
                 } else {
                     ToolState(ToolInstallStatus.MISSING)
                 }
 
-                val extracted = alreadyExtracted && hasNativeZips
-                if (extracted) {
+                if (alreadyExtracted) {
                     try {
                         ensureInit()
                     } catch (_: Exception) {}
-                    val ytdlpSize = calculateYtdlpSize()
+                    // Clean up stale zips from previous installs
+                    cleanupNativeZips()
                     _state.update {
                         it.copy(
-                            ytdlp = ToolState(ToolInstallStatus.INSTALLED, version = ytdlpSize),
+                            ytdlp = ToolState(ToolInstallStatus.INSTALLED, version = calculateYtdlpSize()),
                             ffmpeg = ffmpegState,
                         )
                     }
@@ -132,6 +135,8 @@ class DownloaderRepository(
                     packagesDir.deleteRecursively()
 
                     ensureInit()
+                    // Clean up downloaded zips after successful extraction — they're no longer needed
+                    cleanupNativeZips()
                     val extracted = isAlreadyExtracted()
                     if (!extracted) {
                         _state.update {
@@ -139,12 +144,10 @@ class DownloaderRepository(
                         }
                         return@withContext
                     }
-                    val ytdlpSize = calculateYtdlpSize()
-                    val ffmpegSize = calculateFfmpegSize()
                     _state.update {
                         it.copy(
-                            ytdlp = ToolState(ToolInstallStatus.INSTALLED, version = ytdlpSize),
-                            ffmpeg = ToolState(ToolInstallStatus.INSTALLED, version = ffmpegSize),
+                            ytdlp = ToolState(ToolInstallStatus.INSTALLED, version = calculateYtdlpSize()),
+                            ffmpeg = ToolState(ToolInstallStatus.INSTALLED, version = calculateFfmpegSize()),
                         )
                     }
                 } catch (e: Exception) {
@@ -260,6 +263,7 @@ class DownloaderRepository(
             _state.update {
                 it.copy(
                     ytdlp = ToolState(ToolInstallStatus.MISSING),
+                    ffmpeg = ToolState(ToolInstallStatus.MISSING),
                     ytdlpUpdate = UpdateStatus.IDLE,
                 )
             }
@@ -280,9 +284,8 @@ class DownloaderRepository(
                         )
                     }
                     if (updated) {
-                        val ytdlpSize = calculateYtdlpSize()
                         _state.update {
-                            it.copy(ytdlp = ToolState(ToolInstallStatus.INSTALLED, version = ytdlpSize))
+                            it.copy(ytdlp = ToolState(ToolInstallStatus.INSTALLED, version = calculateYtdlpSize()))
                         }
                     }
                 } catch (_: Exception) {
@@ -292,11 +295,37 @@ class DownloaderRepository(
         }
     }
 
+    /** Delete downloaded zip files after extraction — they're just wasting disk space. */
+    private fun cleanupNativeZips() {
+        for (name in listOf("libpython.zip.so", "libffmpeg.zip.so")) {
+            val f = File(nativeZipDir, name)
+            if (f.exists()) {
+                android.util.Log.d("SGT-DL", "cleanupNativeZips: deleting $name (${f.length() / 1024 / 1024} MB)")
+                f.delete()
+            }
+        }
+    }
+
     private fun calculateYtdlpSize(): String {
+        // yt-dlp + Python extracted content (excludes FFmpeg subdir to avoid double-counting)
         val ytdlDir = File(context.noBackupFilesDir, "youtubedl-android")
-        val sizeMb = dirSizeMb(ytdlDir)
+        val ffmpegPkgPath = File(ytdlDir, "packages/ffmpeg").absolutePath
+        var total = 0L
+        if (ytdlDir.exists()) {
+            ytdlDir.walkTopDown().forEach { f ->
+                if (f.isFile && !f.absolutePath.startsWith(ffmpegPkgPath)) {
+                    total += f.length()
+                }
+            }
+        }
+        val sizeMb = total / (1024.0 * 1024.0)
         val version = try { YoutubeDL.getInstance().version(context) } catch (_: Exception) { null }
         return if (version != null) "$version (%.1f MB)".format(sizeMb) else "%.1f MB".format(sizeMb)
+    }
+
+    private fun calculateFfmpegSize(): String {
+        val sizeMb = dirSizeMb(File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg"))
+        return "%.1f MB".format(sizeMb)
     }
 
     private fun dirSizeMb(dir: File): Double {
@@ -306,16 +335,16 @@ class DownloaderRepository(
         return total / (1024.0 * 1024.0)
     }
 
-    private fun calculateFfmpegSize(): String {
-        val nativeLibDir = File(context.applicationInfo.nativeLibraryDir)
-        val size = fileSizeMb(File(nativeLibDir, "libffmpeg.so")) +
-            fileSizeMb(File(nativeLibDir, "libffprobe.so")) +
-            dirSizeMb(File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg"))
-        return "%.1f MB".format(size)
-    }
-
-    private fun fileSizeMb(file: File): Double {
-        return if (file.exists()) file.length() / (1024.0 * 1024.0) else 0.0
+    /** Total size of all deletable downloaded dependencies. */
+    fun calculateTotalDepsSize(): String {
+        val dir1 = File(context.noBackupFilesDir, "youtubedl-android")
+        val dir2 = File(context.filesDir, "youtubedl-android")
+        val dir3 = nativeZipDir
+        val s1 = dirSizeMb(dir1)
+        val s2 = dirSizeMb(dir2)
+        val s3 = dirSizeMb(dir3)
+        android.util.Log.d("SGT-DL", "totalDepsSize: noBackup/ytdl=%.1f MB, files/ytdl=%.1f MB, zips=%.1f MB".format(s1, s2, s3))
+        return "%.0f MB".format(s1 + s2 + s3)
     }
 
     // ── Multi-tab ──
