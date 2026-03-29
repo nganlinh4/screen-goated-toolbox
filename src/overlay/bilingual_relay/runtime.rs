@@ -99,8 +99,26 @@ fn run_loop(
         match result {
             Ok(()) => break,
             Err(error) => {
-                super::publish_error(RelayConnectionState::Error, error.to_string(), false);
-                std::thread::sleep(Duration::from_millis(1200));
+                let msg = error.to_string();
+                let is_normal_close = msg.contains("closed (1000)")
+                    || msg.contains("closed (1001)")
+                    || msg.contains("closed normally");
+                if is_normal_close {
+                    // Server-side session timeout — reconnect silently
+                    super::publish_connection(
+                        RelayConnectionState::Reconnecting,
+                        true,
+                        None,
+                    );
+                    std::thread::sleep(Duration::from_millis(500));
+                } else {
+                    super::publish_error(
+                        RelayConnectionState::Error,
+                        msg,
+                        false,
+                    );
+                    std::thread::sleep(Duration::from_millis(1200));
+                }
                 reconnecting = true;
             }
         }
@@ -215,7 +233,7 @@ fn send_setup(
     Ok(())
 }
 
-fn current_gemini_tts_settings() -> (String, String) {
+pub(super) fn current_gemini_tts_settings() -> (String, String) {
     APP.lock()
         .map(|app| {
             let model = app.config.tts_gemini_live_model.trim();

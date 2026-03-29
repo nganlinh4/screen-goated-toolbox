@@ -6,6 +6,12 @@ type RelayProfile = {
   tone: string;
 };
 
+type HotkeyItem = {
+  code: number;
+  name: string;
+  modifiers: number;
+};
+
 type RelayState = {
   darkMode: boolean;
   statusLabel: string;
@@ -19,7 +25,9 @@ type RelayState = {
     first: RelayProfile;
     second: RelayProfile;
   };
-  hotkeyLabel: string;
+  hotkeys: HotkeyItem[];
+  ttsModel: string;
+  ttsVoice: string;
   hotkeyError?: string | null;
   lastError?: string | null;
   transcripts: Array<{
@@ -45,6 +53,10 @@ type RelayState = {
     inputChip: string;
     outputChip: string;
     noTranscript: string;
+    guide: string;
+    guideOk: string;
+    currentModel: string;
+    currentVoice: string;
   };
 };
 
@@ -87,29 +99,29 @@ const state = {
   barHeights: new Array(VISIBLE_BARS + 2).fill(6) as number[],
   scrollProgress: 0,
   lastTime: 0,
+  lastTranscriptKey: "",
+  lastHotkeyKey: "",
 };
 
 const app = document.querySelector<HTMLDivElement>("#app");
-
-if (!app) {
-  throw new Error("App root not found");
-}
+if (!app) throw new Error("App root not found");
 
 app.innerHTML = `
   <div class="app-shell">
     <header class="titlebar" id="dragRegion">
       <div class="titlebar-drag">
-        <div class="title" id="title"></div>
+        <div class="status-pill">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText"></span>
+        </div>
       </div>
-      <div class="status-pill">
-        <span class="status-dot" id="statusDot"></span>
-        <span id="statusText"></span>
+      <div class="header-waveform">
+        <canvas class="header-canvas" id="visualizerCanvas"></canvas>
       </div>
-      <div class="header-hotkey">
-        <div class="hotkey-value" id="hotkeyValue">\u2014</div>
-        <button class="text-btn" id="setHotkeyBtn" type="button"></button>
-        <button class="text-btn" id="clearHotkeyBtn" type="button"></button>
+      <div class="settings-btn-wrap" id="settingsWrap">
+        <button class="icon-button" id="settingsBtn" type="button" aria-label="TTS Settings"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></button>
       </div>
+      <div class="header-hotkey" id="hotkeyArea"></div>
       <div class="window-actions">
         <button class="icon-button" id="minimizeBtn" type="button" aria-label="Minimize"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
         <button class="icon-button" id="closeBtn" type="button" aria-label="Close"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
@@ -124,20 +136,11 @@ app.innerHTML = `
           </div>
           <div class="profile-grid">
             <div class="field-row">
-              <label class="field">
-                <span class="field-label" id="language1Label"></span>
-                <input class="text-input" id="firstLanguage" />
-              </label>
+              <input class="text-input" id="firstLanguage" />
             </div>
             <div class="field-row">
-              <label class="field">
-                <span class="field-label" id="accent1Label"></span>
-                <input class="text-input" id="firstAccent" />
-              </label>
-              <label class="field">
-                <span class="field-label" id="tone1Label"></span>
-                <input class="text-input" id="firstTone" />
-              </label>
+              <input class="text-input" id="firstAccent" />
+              <input class="text-input" id="firstTone" />
             </div>
           </div>
         </section>
@@ -148,31 +151,16 @@ app.innerHTML = `
           </div>
           <div class="profile-grid">
             <div class="field-row">
-              <label class="field">
-                <span class="field-label" id="language2Label"></span>
-                <input class="text-input" id="secondLanguage" />
-              </label>
+              <input class="text-input" id="secondLanguage" />
             </div>
             <div class="field-row">
-              <label class="field">
-                <span class="field-label" id="accent2Label"></span>
-                <input class="text-input" id="secondAccent" />
-              </label>
-              <label class="field">
-                <span class="field-label" id="tone2Label"></span>
-                <input class="text-input" id="secondTone" />
-              </label>
+              <input class="text-input" id="secondAccent" />
+              <input class="text-input" id="secondTone" />
             </div>
           </div>
         </section>
 
-        <section class="visualizer-card">
-          <div class="visualizer-header">
-            <div class="visualizer-status" id="visualizerStatus"></div>
-          </div>
-          <div class="visualizer-canvas-wrap">
-            <canvas class="visualizer-canvas" id="visualizerCanvas"></canvas>
-          </div>
+        <section class="card">
           <div class="actions-row">
             <button class="button primary" id="applyBtn" type="button"></button>
             <button class="button secondary" id="toggleBtn" type="button"></button>
@@ -189,30 +177,33 @@ app.innerHTML = `
         <div class="transcript-body" id="transcriptBody"></div>
       </section>
     </section>
+    <div class="guide-overlay" id="guideOverlay" style="display:none">
+      <div class="guide-popup">
+        <div class="guide-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+          <span id="guideTitle"></span>
+        </div>
+        <p class="guide-msg" id="guideMsg"></p>
+        <button class="guide-btn" id="guideBtn" type="button"></button>
+      </div>
+    </div>
   </div>
 `;
 
-const elements = {
+const el = {
   root: document.documentElement,
   dragRegion: document.querySelector<HTMLElement>("#dragRegion")!,
-  title: document.querySelector<HTMLElement>("#title")!,
+  statusDot: document.querySelector<HTMLElement>("#statusDot")!,
+  statusText: document.querySelector<HTMLElement>("#statusText")!,
+  hotkeyArea: document.querySelector<HTMLElement>("#hotkeyArea")!,
   firstTitle: document.querySelector<HTMLElement>("#firstTitle")!,
   secondTitle: document.querySelector<HTMLElement>("#secondTitle")!,
-  language1Label: document.querySelector<HTMLElement>("#language1Label")!,
-  accent1Label: document.querySelector<HTMLElement>("#accent1Label")!,
-  tone1Label: document.querySelector<HTMLElement>("#tone1Label")!,
-  language2Label: document.querySelector<HTMLElement>("#language2Label")!,
-  accent2Label: document.querySelector<HTMLElement>("#accent2Label")!,
-  tone2Label: document.querySelector<HTMLElement>("#tone2Label")!,
   firstLanguage: document.querySelector<HTMLInputElement>("#firstLanguage")!,
   firstAccent: document.querySelector<HTMLInputElement>("#firstAccent")!,
   firstTone: document.querySelector<HTMLInputElement>("#firstTone")!,
   secondLanguage: document.querySelector<HTMLInputElement>("#secondLanguage")!,
   secondAccent: document.querySelector<HTMLInputElement>("#secondAccent")!,
   secondTone: document.querySelector<HTMLInputElement>("#secondTone")!,
-  hotkeyValue: document.querySelector<HTMLElement>("#hotkeyValue")!,
-  setHotkeyBtn: document.querySelector<HTMLButtonElement>("#setHotkeyBtn")!,
-  clearHotkeyBtn: document.querySelector<HTMLButtonElement>("#clearHotkeyBtn")!,
   applyBtn: document.querySelector<HTMLButtonElement>("#applyBtn")!,
   toggleBtn: document.querySelector<HTMLButtonElement>("#toggleBtn")!,
   minimizeBtn: document.querySelector<HTMLButtonElement>("#minimizeBtn")!,
@@ -221,152 +212,171 @@ const elements = {
   transcriptTitle: document.querySelector<HTMLElement>("#transcriptTitle")!,
   transcriptMessage: document.querySelector<HTMLElement>("#transcriptMessage")!,
   transcriptBody: document.querySelector<HTMLElement>("#transcriptBody")!,
-  statusDot: document.querySelector<HTMLElement>("#statusDot")!,
-  statusText: document.querySelector<HTMLElement>("#statusText")!,
-  visualizerStatus: document.querySelector<HTMLElement>("#visualizerStatus")!,
   visualizerCanvas: document.querySelector<HTMLCanvasElement>("#visualizerCanvas")!,
 };
 
 function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
-
-function currentPayload(): RelayState {
-  if (!state.payload) {
-    throw new Error("Bilingual relay state not available");
-  }
-  return state.payload;
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 function invoke(cmd: string, args: Record<string, unknown> = {}): Promise<unknown> {
-  if (window.invoke) {
-    return window.invoke(cmd, args);
-  }
+  if (window.invoke) return window.invoke(cmd, args);
   return Promise.resolve(null);
 }
 
-function bindDraftInput(
-  element: HTMLInputElement,
-  profile: "first" | "second",
-  field: "language" | "accent" | "tone",
-) {
+function bindDraftInput(element: HTMLInputElement, profile: "first" | "second", field: "language" | "accent" | "tone") {
   element.addEventListener("input", () => {
     void invoke("set_draft", { profile, field, value: element.value });
   });
 }
 
 function updateTranscriptScrollAffinity() {
-  const el = elements.transcriptBody;
-  const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-  state.transcriptPinned = distance < 36;
+  const body = el.transcriptBody;
+  state.transcriptPinned = body.scrollHeight - body.scrollTop - body.clientHeight < 36;
+}
+
+function transcriptKey(items: RelayState["transcripts"]): string {
+  if (!items.length) return "";
+  const last = items[items.length - 1];
+  return `${items.length}:${last.id}:${last.text.length}:${last.isFinal ? 1 : 0}`;
 }
 
 function renderTranscripts(payload: RelayState) {
-  const stick = state.transcriptPinned;
   const items = payload.transcripts ?? [];
+  const key = transcriptKey(items);
+  if (key === state.lastTranscriptKey) return;
+  state.lastTranscriptKey = key;
+
+  const stick = state.transcriptPinned;
   if (!items.length) {
-    elements.transcriptBody.innerHTML = `<div class="transcript-empty"><span class="empty-title">${escapeHtml(payload.strings.noTranscript)}</span></div>`;
+    el.transcriptBody.innerHTML = `<div class="transcript-empty"><span class="empty-title">${escapeHtml(payload.strings.noTranscript)}</span></div>`;
     return;
   }
-  elements.transcriptBody.innerHTML = items
+  el.transcriptBody.innerHTML = items
     .map((item) => {
       const chip = item.role === "input" ? payload.strings.inputChip : payload.strings.outputChip;
-      return `
-        <article class="transcript-item">
-          <div class="transcript-line">
-            <span class="chip ${item.role === "output" ? "output" : ""}">${escapeHtml(chip)}</span>
-            <div class="transcript-text">${escapeHtml(item.text)}</div>
-          </div>
-        </article>
-      `;
+      return `<article class="transcript-item"><div class="transcript-line"><span class="chip ${item.role === "output" ? "output" : ""}">${escapeHtml(chip)}</span><div class="transcript-text">${escapeHtml(item.text)}</div></div></article>`;
     })
     .join("");
   if (stick) {
     requestAnimationFrame(() => {
-      elements.transcriptBody.scrollTop = elements.transcriptBody.scrollHeight;
+      el.transcriptBody.scrollTop = el.transcriptBody.scrollHeight;
       state.transcriptPinned = true;
     });
   }
 }
 
-function connectionClass(connectionState: string) {
-  if (connectionState === "ready") return "ready";
-  if (connectionState === "reconnecting") return "reconnecting";
-  if (connectionState === "error") return "error";
+function hotkeyKey(hotkeys: HotkeyItem[]): string {
+  return hotkeys.map((h) => `${h.code}:${h.modifiers}`).join(",");
+}
+
+function renderHotkeys(payload: RelayState) {
+  const key = hotkeyKey(payload.hotkeys ?? []);
+  if (key === state.lastHotkeyKey && !state.hotkeyCaptureArmed) return;
+  state.lastHotkeyKey = key;
+
+  const hotkeys = payload.hotkeys ?? [];
+  let html = "";
+
+  // Hotkey badges with X
+  for (let i = 0; i < hotkeys.length; i++) {
+    html += `<button class="hotkey-badge" data-remove="${i}" type="button">${escapeHtml(hotkeys[i].name)}<svg class="badge-x" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>`;
+  }
+
+  // Capture state or Add button
+  if (state.hotkeyCaptureArmed) {
+    html += `<span class="hotkey-capture">...</span>`;
+  } else {
+    html += `<button class="text-btn" id="addHotkeyBtn" type="button">${escapeHtml(payload.strings.setHotkey)}</button>`;
+  }
+
+  el.hotkeyArea.innerHTML = html;
+
+  // Bind events
+  el.hotkeyArea.querySelectorAll<HTMLButtonElement>("[data-remove]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.remove!, 10);
+      void invoke("remove_hotkey", { index: idx });
+    });
+  });
+
+  const addBtn = el.hotkeyArea.querySelector<HTMLButtonElement>("#addHotkeyBtn");
+  if (addBtn) {
+    addBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      state.hotkeyCaptureArmed = true;
+      if (state.payload) renderHotkeys(state.payload);
+    });
+  }
+}
+
+function connectionClass(cs: string) {
+  if (cs === "ready") return "ready";
+  if (cs === "reconnecting") return "reconnecting";
+  if (cs === "error") return "error";
   return "";
 }
 
 function render(payload: RelayState) {
   state.payload = payload;
-  elements.root.dataset.theme = payload.darkMode ? "dark" : "light";
-  elements.title.textContent = payload.strings.title;
-  elements.firstTitle.textContent = payload.strings.firstProfile;
-  elements.secondTitle.textContent = payload.strings.secondProfile;
-  elements.language1Label.textContent = payload.strings.languageLabel;
-  elements.accent1Label.textContent = payload.strings.accentLabel;
-  elements.tone1Label.textContent = payload.strings.toneLabel;
-  elements.language2Label.textContent = payload.strings.languageLabel;
-  elements.accent2Label.textContent = payload.strings.accentLabel;
-  elements.tone2Label.textContent = payload.strings.toneLabel;
-  // hotkeyLabel removed — hotkey is now in header
-  elements.setHotkeyBtn.textContent = payload.strings.setHotkey;
-  elements.clearHotkeyBtn.textContent = payload.strings.clearHotkey;
-  elements.applyBtn.textContent = payload.strings.apply;
-  elements.toggleBtn.textContent = payload.isRunning ? payload.strings.stop : payload.strings.start;
-  elements.transcriptTitle.textContent = payload.strings.transcriptTitle;
-  elements.statusText.textContent = payload.statusLabel;
-  elements.visualizerStatus.textContent = payload.statusLabel;
-  elements.statusDot.className = `status-dot ${connectionClass(payload.connectionState)}`.trim();
+  el.root.dataset.theme = payload.darkMode ? "dark" : "light";
 
-  const currentMessage = payload.hotkeyError || payload.lastError || "";
-  elements.messageText.textContent = currentMessage;
-  elements.transcriptMessage.textContent = currentMessage;
+  el.firstTitle.textContent = payload.strings.firstProfile;
+  el.secondTitle.textContent = payload.strings.secondProfile;
 
-  elements.hotkeyValue.textContent = state.hotkeyCaptureArmed ? "…" : payload.hotkeyLabel || "—";
-  elements.applyBtn.hidden = !payload.dirty;
-  elements.applyBtn.disabled = !payload.dirty || !payload.canApply;
-  elements.toggleBtn.disabled = !(payload.isRunning || payload.canToggle);
-  elements.clearHotkeyBtn.disabled = !payload.draft.hotkey;
+  // Placeholders as labels
+  el.firstLanguage.placeholder = payload.strings.languageLabel;
+  el.firstAccent.placeholder = payload.strings.accentLabel;
+  el.firstTone.placeholder = payload.strings.toneLabel;
+  el.secondLanguage.placeholder = payload.strings.languageLabel;
+  el.secondAccent.placeholder = payload.strings.accentLabel;
+  el.secondTone.placeholder = payload.strings.toneLabel;
 
-  if (document.activeElement !== elements.firstLanguage) {
-    elements.firstLanguage.value = payload.draft.first.language ?? "";
-  }
-  if (document.activeElement !== elements.firstAccent) {
-    elements.firstAccent.value = payload.draft.first.accent ?? "";
-  }
-  if (document.activeElement !== elements.firstTone) {
-    elements.firstTone.value = payload.draft.first.tone ?? "";
-  }
-  if (document.activeElement !== elements.secondLanguage) {
-    elements.secondLanguage.value = payload.draft.second.language ?? "";
-  }
-  if (document.activeElement !== elements.secondAccent) {
-    elements.secondAccent.value = payload.draft.second.accent ?? "";
-  }
-  if (document.activeElement !== elements.secondTone) {
-    elements.secondTone.value = payload.draft.second.tone ?? "";
+  el.statusText.textContent = payload.statusLabel;
+  el.statusDot.className = `status-dot ${connectionClass(payload.connectionState)}`.trim();
+
+  el.applyBtn.textContent = payload.strings.apply;
+  el.toggleBtn.textContent = payload.isRunning ? payload.strings.stop : payload.strings.start;
+  el.transcriptTitle.textContent = payload.strings.transcriptTitle;
+
+  const errorText = payload.hotkeyError || payload.lastError || "";
+  el.messageText.textContent = errorText;
+  el.transcriptMessage.textContent = errorText;
+
+  el.applyBtn.hidden = !payload.dirty;
+  el.applyBtn.disabled = !payload.dirty || !payload.canApply;
+  el.toggleBtn.disabled = !(payload.isRunning || payload.canToggle);
+
+  if (document.activeElement !== el.firstLanguage) el.firstLanguage.value = payload.draft.first.language ?? "";
+  if (document.activeElement !== el.firstAccent) el.firstAccent.value = payload.draft.first.accent ?? "";
+  if (document.activeElement !== el.firstTone) el.firstTone.value = payload.draft.first.tone ?? "";
+  if (document.activeElement !== el.secondLanguage) el.secondLanguage.value = payload.draft.second.language ?? "";
+  if (document.activeElement !== el.secondAccent) el.secondAccent.value = payload.draft.second.accent ?? "";
+  if (document.activeElement !== el.secondTone) el.secondTone.value = payload.draft.second.tone ?? "";
+
+  // Guide dialog on first visit
+  if (!localStorage.getItem("br_guide_seen")) {
+    document.querySelector<HTMLElement>("#guideTitle")!.textContent = payload.strings.title;
+    document.querySelector<HTMLElement>("#guideMsg")!.textContent = payload.strings.guide;
+    guideBtn.textContent = payload.strings.guideOk;
+    guideOverlay.style.display = "";
   }
 
+  renderHotkeys(payload);
   renderTranscripts(payload);
 }
 
-function drawVisualizer(timestamp: number) {
-  const canvas = elements.visualizerCanvas;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    requestAnimationFrame(drawVisualizer);
-    return;
-  }
+/* ── Waveform visualizer ── */
 
-  // Use fixed backing size like the recording indicator — let CSS handle display scaling.
-  // The recording indicator uses 200x60 for a 100x30 CSS display.
-  // We use a proportionally larger backing for the wider visualizer-canvas-wrap.
-  if (canvas.width !== 400 || canvas.height !== 60) {
-    canvas.width = 400;
-    canvas.height = 60;
+function drawVisualizer(timestamp: number) {
+  const canvas = el.visualizerCanvas;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) { requestAnimationFrame(drawVisualizer); return; }
+
+  if (canvas.width !== 200 || canvas.height !== 52) {
+    canvas.width = 200;
+    canvas.height = 52;
   }
 
   const payload = state.payload;
@@ -375,7 +385,6 @@ function drawVisualizer(timestamp: number) {
   const isDark = payload?.darkMode ?? true;
   const rms = isActive ? (payload?.audioLevel ?? 0) : 0;
 
-  // Scroll bars left-to-right
   const dt = state.lastTime ? (timestamp - state.lastTime) / 1000 : 0.016;
   state.lastTime = timestamp;
   state.scrollProgress += dt / 0.15;
@@ -383,30 +392,21 @@ function drawVisualizer(timestamp: number) {
   while (state.scrollProgress >= 1) {
     state.scrollProgress -= 1;
     state.barHeights.shift();
-
     let displayRMS = rms;
-    if (!isActive) {
-      displayRMS = 0.02;
-    } else if (connectionState === "connecting") {
-      displayRMS = 0.08 + 0.12 * Math.abs(Math.sin(timestamp / 300));
-    } else if (connectionState === "reconnecting") {
-      displayRMS = 0.06 + 0.1 * Math.abs(Math.sin(timestamp / 250));
-    }
-
+    if (!isActive) displayRMS = 0.02;
+    else if (connectionState === "connecting") displayRMS = 0.08 + 0.12 * Math.abs(Math.sin(timestamp / 300));
+    else if (connectionState === "reconnecting") displayRMS = 0.06 + 0.1 * Math.abs(Math.sin(timestamp / 250));
     const h = canvas.height;
-    const v = Math.max(6, Math.min(h - 4, displayRMS * 250 + 6));
-    state.barHeights.push(v);
+    state.barHeights.push(Math.max(6, Math.min(h - 4, displayRMS * 250 + 6)));
   }
 
-  const w = canvas.width;
-  const h = canvas.height;
+  const w = canvas.width, h = canvas.height;
   ctx.clearRect(0, 0, w, h);
 
   const pixelOffset = state.scrollProgress * BAR_SPACING;
   const colorSet = isDark ? COLORS_DARK : COLORS_LIGHT;
   const currentColors = colorSet[connectionState] ?? colorSet.stopped;
 
-  // Vertical gradient (bottom -> top)
   const grad = ctx.createLinearGradient(0, h, 0, 0);
   grad.addColorStop(0, currentColors[0]);
   grad.addColorStop(0.5, currentColors[1]);
@@ -417,87 +417,82 @@ function drawVisualizer(timestamp: number) {
     const pillHeight = state.barHeights[i];
     const x = i * BAR_SPACING - pixelOffset;
     const y = (h - pillHeight) / 2;
-
     if (x > -BAR_WIDTH && x < w) {
       ctx.beginPath();
-      if (ctx.roundRect) {
-        ctx.roundRect(x, y, BAR_WIDTH, pillHeight, BAR_WIDTH / 2);
-      } else {
-        ctx.rect(x, y, BAR_WIDTH, pillHeight);
-      }
+      if (ctx.roundRect) ctx.roundRect(x, y, BAR_WIDTH, pillHeight, BAR_WIDTH / 2);
+      else ctx.rect(x, y, BAR_WIDTH, pillHeight);
       ctx.fill();
     }
   }
 
-  // Fade edges (30px left + right)
   const fadeWidth = 30;
   ctx.save();
   ctx.globalCompositeOperation = "destination-out";
-
   const leftGrad = ctx.createLinearGradient(0, 0, fadeWidth, 0);
-  leftGrad.addColorStop(0, "rgba(0, 0, 0, 1)");
-  leftGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+  leftGrad.addColorStop(0, "rgba(0,0,0,1)");
+  leftGrad.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = leftGrad;
   ctx.fillRect(0, 0, fadeWidth, h);
-
   const rightGrad = ctx.createLinearGradient(w - fadeWidth, 0, w, 0);
-  rightGrad.addColorStop(0, "rgba(0, 0, 0, 0)");
-  rightGrad.addColorStop(1, "rgba(0, 0, 0, 1)");
+  rightGrad.addColorStop(0, "rgba(0,0,0,0)");
+  rightGrad.addColorStop(1, "rgba(0,0,0,1)");
   ctx.fillStyle = rightGrad;
   ctx.fillRect(w - fadeWidth, 0, fadeWidth, h);
-
   ctx.restore();
 
   requestAnimationFrame(drawVisualizer);
 }
 
-elements.dragRegion.addEventListener("mousedown", (event) => {
-  const target = event.target as HTMLElement;
-  if (target.closest("button")) {
-    return;
-  }
+/* ── Events ── */
+
+el.dragRegion.addEventListener("mousedown", (e) => {
+  if ((e.target as HTMLElement).closest("button, .hotkey-badge, .text-btn, .hotkey-capture")) return;
   void invoke("drag_window");
 });
 
-elements.minimizeBtn.addEventListener("click", () => {
-  void invoke("minimize_window");
+const settingsBtn = document.querySelector<HTMLButtonElement>("#settingsBtn")!;
+const settingsWrap = document.querySelector<HTMLElement>("#settingsWrap")!;
+settingsBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  void invoke("open_tts_settings");
 });
 
-elements.closeBtn.addEventListener("click", () => {
-  void invoke("close_window");
+// Custom hover popup for settings
+let settingsPopup: HTMLElement | null = null;
+settingsWrap.addEventListener("mouseenter", () => {
+  const p = state.payload;
+  if (!p || settingsPopup) return;
+  settingsPopup = document.createElement("div");
+  settingsPopup.className = "settings-popup";
+  settingsPopup.innerHTML = `<div class="settings-popup-line">${escapeHtml(p.strings.currentModel)}: <strong>${escapeHtml(p.ttsModel)}</strong></div><div class="settings-popup-line">${escapeHtml(p.strings.currentVoice)}: <strong>${escapeHtml(p.ttsVoice)}</strong></div>`;
+  settingsWrap.appendChild(settingsPopup);
+});
+settingsWrap.addEventListener("mouseleave", () => {
+  if (settingsPopup) { settingsPopup.remove(); settingsPopup = null; }
 });
 
-elements.applyBtn.addEventListener("click", () => {
-  void invoke("apply");
-});
-
-elements.toggleBtn.addEventListener("click", () => {
-  void invoke("toggle_run");
-});
-
-elements.clearHotkeyBtn.addEventListener("click", () => {
-  state.hotkeyCaptureArmed = false;
-  void invoke("clear_hotkey");
-});
-
-elements.setHotkeyBtn.addEventListener("click", () => {
-  state.hotkeyCaptureArmed = true;
-  if (state.payload) {
-    render(state.payload);
-  }
-});
+// Guide dialog (first-time only)
+const guideOverlay = document.querySelector<HTMLElement>("#guideOverlay")!;
+const guideBtn = document.querySelector<HTMLButtonElement>("#guideBtn")!;
+function dismissGuide() {
+  guideOverlay.style.display = "none";
+  try { localStorage.setItem("br_guide_seen", "1"); } catch {}
+}
+guideOverlay.addEventListener("click", dismissGuide);
+guideOverlay.querySelector(".guide-popup")!.addEventListener("click", (e) => e.stopPropagation());
+guideBtn.addEventListener("click", dismissGuide);
+el.minimizeBtn.addEventListener("click", () => void invoke("minimize_window"));
+el.closeBtn.addEventListener("click", () => void invoke("close_window"));
+el.applyBtn.addEventListener("click", () => void invoke("apply"));
+el.toggleBtn.addEventListener("click", () => void invoke("toggle_run"));
 
 document.addEventListener("keydown", (event) => {
-  if (!state.hotkeyCaptureArmed) {
-    return;
-  }
+  if (!state.hotkeyCaptureArmed) return;
   event.preventDefault();
   event.stopPropagation();
-  if (["Control", "Shift", "Alt", "Meta"].includes(event.key)) {
-    return;
-  }
+  if (["Control", "Shift", "Alt", "Meta"].includes(event.key)) return;
   state.hotkeyCaptureArmed = false;
-  void invoke("set_hotkey", {
+  void invoke("add_hotkey", {
     key: event.key,
     code: event.code,
     ctrl: event.ctrlKey,
@@ -505,26 +500,17 @@ document.addEventListener("keydown", (event) => {
     shift: event.shiftKey,
     meta: event.metaKey,
   });
-  if (state.payload) {
-    render(state.payload);
-  }
 });
 
-elements.transcriptBody.addEventListener("scroll", updateTranscriptScrollAffinity);
+el.transcriptBody.addEventListener("scroll", updateTranscriptScrollAffinity);
 
-bindDraftInput(elements.firstLanguage, "first", "language");
-bindDraftInput(elements.firstAccent, "first", "accent");
-bindDraftInput(elements.firstTone, "first", "tone");
-bindDraftInput(elements.secondLanguage, "second", "language");
-bindDraftInput(elements.secondAccent, "second", "accent");
-bindDraftInput(elements.secondTone, "second", "tone");
+bindDraftInput(el.firstLanguage, "first", "language");
+bindDraftInput(el.firstAccent, "first", "accent");
+bindDraftInput(el.firstTone, "first", "tone");
+bindDraftInput(el.secondLanguage, "second", "language");
+bindDraftInput(el.secondAccent, "second", "accent");
+bindDraftInput(el.secondTone, "second", "tone");
 
-window.__BR_SET_STATE = (payload: RelayState) => {
-  render(payload);
-};
-
-if (state.payload) {
-  render(state.payload);
-}
-
+window.__BR_SET_STATE = (payload: RelayState) => render(payload);
+if (state.payload) render(state.payload);
 requestAnimationFrame(drawVisualizer);

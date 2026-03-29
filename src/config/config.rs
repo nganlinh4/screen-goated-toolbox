@@ -338,14 +338,13 @@ impl Config {
             }
         }
 
-        if let Some(h) = self.bilingual_relay.hotkey.as_ref()
-            && h.code == vk
-            && h.modifiers == mods
-        {
-            return Some(format!(
-                "Conflict with global hotkey '{}' (Bilingual Relay)",
-                h.name
-            ));
+        for h in &self.bilingual_relay.hotkeys {
+            if h.code == vk && h.modifiers == mods {
+                return Some(format!(
+                    "Conflict with global hotkey '{}' (Bilingual Relay)",
+                    h.name
+                ));
+            }
         }
 
         // Check all presets

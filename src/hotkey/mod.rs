@@ -93,13 +93,14 @@ pub fn register_all_hotkeys(hwnd: HWND) {
         }
     }
 
-    if let Some(hotkey) = app.config.bilingual_relay.hotkey.as_ref()
-        && ![0x04, 0x05, 0x06].contains(&hotkey.code)
-    {
+    for (idx, hotkey) in app.config.bilingual_relay.hotkeys.iter().enumerate() {
+        if idx >= 100 || [0x04, 0x05, 0x06].contains(&hotkey.code) {
+            continue;
+        }
         unsafe {
             let _ = RegisterHotKey(
                 Some(hwnd),
-                BILINGUAL_RELAY_HOTKEY_ID,
+                BILINGUAL_RELAY_HOTKEY_ID + idx as i32,
                 HOT_KEY_MODIFIERS(hotkey.modifiers),
                 hotkey.code,
             );
@@ -121,8 +122,11 @@ pub fn unregister_all_hotkeys(hwnd: HWND) {
             let _ = UnregisterHotKey(Some(hwnd), 9900 + idx);
         }
     }
-    unsafe {
-        let _ = UnregisterHotKey(Some(hwnd), BILINGUAL_RELAY_HOTKEY_ID);
+    // Unregister Bilingual Relay Hotkeys
+    for idx in 0..100 {
+        unsafe {
+            let _ = UnregisterHotKey(Some(hwnd), BILINGUAL_RELAY_HOTKEY_ID + idx);
+        }
     }
 }
 
@@ -198,12 +202,13 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                         }
                     }
 
-                    if found_id.is_none()
-                        && let Some(hk) = app.config.bilingual_relay.hotkey.as_ref()
-                        && hk.code == vk
-                        && hk.modifiers == mods
-                    {
-                        found_id = Some(BILINGUAL_RELAY_HOTKEY_ID);
+                    if found_id.is_none() {
+                        for (idx, hk) in app.config.bilingual_relay.hotkeys.iter().enumerate() {
+                            if hk.code == vk && hk.modifiers == mods {
+                                found_id = Some(BILINGUAL_RELAY_HOTKEY_ID + idx as i32);
+                                break;
+                            }
+                        }
                     }
                 }
 
