@@ -58,6 +58,12 @@
             android:foregroundServiceType="microphone|mediaProjection" />
 
         <service
+            android:name=".bilingualrelay.BilingualRelayService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <service
             android:name=".service.SgtTileService"
             android:icon="@drawable/ic_qs_tile"
             android:label="SGT"

@@ -4,6 +4,8 @@ import android.content.Context
 import dev.screengoated.toolbox.mobile.downloader.DownloaderPersistence
 import dev.screengoated.toolbox.mobile.downloader.DownloaderRepository
 import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantClient
+import dev.screengoated.toolbox.mobile.bilingualrelay.BilingualRelayRepository
+import dev.screengoated.toolbox.mobile.bilingualrelay.BilingualRelayRuntime
 import dev.screengoated.toolbox.mobile.history.HistoryBackedPresetHistoryRecorder
 import dev.screengoated.toolbox.mobile.history.HistoryPersistence
 import dev.screengoated.toolbox.mobile.history.HistoryRepository
@@ -70,6 +72,7 @@ class AppContainer(
         overlaySupported = BuildConfig.OVERLAY_SUPPORTED,
         historyRepository = historyRepository,
     )
+    val bilingualRelayRepository = BilingualRelayRepository(settingsStore)
 
     val parakeetModelManager = ParakeetModelManager(appContext)
 
@@ -109,6 +112,12 @@ class AppContainer(
 
     val geminiLiveSocketClient = GeminiLiveSocketClient(httpClient)
     val realtimeTranslationClient = RealtimeTranslationClient(httpClient)
+    val bilingualRelayRuntime = BilingualRelayRuntime(
+        context = appContext,
+        projectionConsentStore = projectionConsentStore,
+        repository = bilingualRelayRepository,
+        httpClient = httpClient,
+    )
     val ttsRuntimeService = AndroidTtsRuntimeService(
         context = appContext,
         httpClient = httpClient,

@@ -1,17 +1,21 @@
 //! Configuration types module.
 //!
 //! This module organizes all configuration-related types into logical groups:
+//! - `bilingual_relay`: Settings for the bilingual live relay mini app
 //! - `enums`: Core enums (ThemeMode, BlockType)
 //! - `hotkey`: Hotkey binding type
 //! - `model_priority`: Smart retry priority chains
 //! - `tts`: TTS-related types (TtsMethod, EdgeTtsSettings, etc.)
 
+mod bilingual_relay;
 mod enums;
 mod hotkey;
 mod model_priority;
 mod tts;
 
 // Re-export all types for easy access
+pub use bilingual_relay::BilingualRelaySettings;
+
 pub use enums::{
     BlockType, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, ThemeMode, get_system_ui_language,
 };

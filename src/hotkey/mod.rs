@@ -26,6 +26,7 @@ const MOD_WIN: u32 = 0x0008;
 pub const WM_RELOAD_HOTKEYS: u32 = WM_USER + 101;
 pub const WM_UNREGISTER_HOTKEYS: u32 = WM_USER + 103;
 pub const WM_REGISTER_HOTKEYS: u32 = WM_USER + 104;
+pub const BILINGUAL_RELAY_HOTKEY_ID: i32 = 9800;
 
 lazy_static! {
     /// Global event for inter-process restore signaling (manual-reset event).
@@ -91,6 +92,19 @@ pub fn register_all_hotkeys(hwnd: HWND) {
             );
         }
     }
+
+    if let Some(hotkey) = app.config.bilingual_relay.hotkey.as_ref()
+        && ![0x04, 0x05, 0x06].contains(&hotkey.code)
+    {
+        unsafe {
+            let _ = RegisterHotKey(
+                Some(hwnd),
+                BILINGUAL_RELAY_HOTKEY_ID,
+                HOT_KEY_MODIFIERS(hotkey.modifiers),
+                hotkey.code,
+            );
+        }
+    }
 }
 
 /// Unregister all hotkeys.
@@ -106,6 +120,9 @@ pub fn unregister_all_hotkeys(hwnd: HWND) {
         unsafe {
             let _ = UnregisterHotKey(Some(hwnd), 9900 + idx);
         }
+    }
+    unsafe {
+        let _ = UnregisterHotKey(Some(hwnd), BILINGUAL_RELAY_HOTKEY_ID);
     }
 }
 
@@ -179,6 +196,14 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                                 break;
                             }
                         }
+                    }
+
+                    if found_id.is_none()
+                        && let Some(hk) = app.config.bilingual_relay.hotkey.as_ref()
+                        && hk.code == vk
+                        && hk.modifiers == mods
+                    {
+                        found_id = Some(BILINGUAL_RELAY_HOTKEY_ID);
                     }
                 }
 

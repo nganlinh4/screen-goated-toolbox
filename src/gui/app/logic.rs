@@ -97,6 +97,7 @@ impl SettingsApp {
 
             // D. Update Screen Record WebView
             crate::overlay::screen_record::update_settings();
+            crate::overlay::bilingual_relay::update_settings();
 
             // E. Update Favorite Bubble + Panel
             unsafe {

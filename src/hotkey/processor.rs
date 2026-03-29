@@ -52,6 +52,11 @@ fn handle_pending_file() {
 
 /// Handle a hotkey message.
 fn handle_hotkey(id: i32) {
+    if id == crate::hotkey::BILINGUAL_RELAY_HOTKEY_ID {
+        overlay::bilingual_relay::show_bilingual_relay();
+        return;
+    }
+
     // Screen record hotkey
     if (9900..=9999).contains(&id) {
         overlay::screen_record::toggle_recording();

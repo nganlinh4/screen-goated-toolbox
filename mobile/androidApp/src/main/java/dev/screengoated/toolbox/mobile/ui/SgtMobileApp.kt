@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
+import dev.screengoated.toolbox.mobile.bilingualrelay.BilingualRelayScreen
 import dev.screengoated.toolbox.mobile.history.HistoryUiState
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
@@ -118,6 +119,7 @@ fun SgtMobileApp(
     var showUsageStats by rememberSaveable { mutableStateOf(false) }
     var showDownloader by rememberSaveable { mutableStateOf(false) }
     var showDj by rememberSaveable { mutableStateOf(false) }
+    var showBilingualRelay by rememberSaveable { mutableStateOf(false) }
     var activePresetId by rememberSaveable { mutableStateOf<String?>(null) }
     val presetRepository = (LocalContext.current.applicationContext as SgtMobileApplication)
         .appContainer
@@ -265,6 +267,7 @@ fun SgtMobileApp(
                     onSessionToggle = onSessionToggle,
                     onDownloaderClick = { showDownloader = true },
                     onDjClick = { showDj = true },
+                    onBilingualRelayClick = { showBilingualRelay = true },
                     onPresetClick = { presetId -> activePresetId = presetId },
                     onHistorySearchQueryChanged = onHistorySearchQueryChanged,
                     onClearHistorySearchQuery = onClearHistorySearchQuery,
@@ -343,7 +346,10 @@ fun SgtMobileApp(
                 visible = true,
                 enter = fadeIn(tween(200)) + androidx.compose.animation.scaleIn(
                     initialScale = 0.9f,
-                    animationSpec = tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                    animationSpec = tween(
+                        300,
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                    ),
                 ),
             ) {
                 Box(
@@ -356,16 +362,50 @@ fun SgtMobileApp(
                         lang = presetLang,
                         onBack = { activePresetId = null },
                         onPresetChanged = { updated ->
-                            presetRepository.updateBuiltInOverride(activePreset.preset.id) { updated }
+                            presetRepository.updateBuiltInOverride(activePreset.preset.id) {
+                                updated
+                            }
                         },
                         onRestoreDefault = {
                             presetRepository.restoreBuiltInPreset(activePreset.preset.id)
                         },
                         providerSettings = presetRuntimeSettings.providerSettings,
+                    )
+                }
+            }
+        }
+
+        if (showBilingualRelay) {
+            androidx.activity.compose.BackHandler { showBilingualRelay = false }
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showBilingualRelay,
+            enter = fadeIn(tween(200)) + androidx.compose.animation.scaleIn(
+                initialScale = 0.8f,
+                animationSpec = tween(
+                    350,
+                    easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                ),
+            ),
+            exit = fadeOut(tween(150)) + androidx.compose.animation.scaleOut(
+                targetScale = 0.8f,
+                animationSpec = tween(
+                    250,
+                    easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                ),
+            ),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surface),
+            ) {
+                BilingualRelayScreen(
+                    locale = locale,
+                    onBack = { showBilingualRelay = false },
                 )
             }
         }
     }
-}
 }
 

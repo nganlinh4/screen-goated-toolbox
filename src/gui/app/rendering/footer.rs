@@ -54,6 +54,7 @@ impl SettingsApp {
                     current_tip.clone(),
                     self.tip_fade_state,
                     &mut self.show_tips_modal,
+                    &mut self.show_bilingual_relay,
                     &mut self.pointer_gallery.show_window,
                 );
             });
@@ -63,6 +64,11 @@ impl SettingsApp {
 
         // Pointer Gallery Window
         self.pointer_gallery.render(ctx, &text);
+
+        if self.show_bilingual_relay {
+            self.show_bilingual_relay = false;
+            crate::overlay::bilingual_relay::show_bilingual_relay();
+        }
 
         // Render Download Manager Modal
         self.download_manager.render(ctx, &text);

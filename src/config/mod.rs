@@ -62,3 +62,6 @@ pub use types::ModelPriorityChains;
 
 // TTS types
 pub use types::{EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod};
+
+// Bilingual relay
+pub use types::BilingualRelaySettings;
