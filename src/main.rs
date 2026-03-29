@@ -5,6 +5,7 @@ mod assets;
 mod config;
 mod debug_log;
 pub mod gui;
+pub mod lang_detect;
 mod history;
 mod hotkey;
 mod icon_gen;

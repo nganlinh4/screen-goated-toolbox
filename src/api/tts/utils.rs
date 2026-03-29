@@ -57,14 +57,11 @@ pub fn get_language_instruction_for_text(
     text: &str,
     conditions: &[crate::config::TtsLanguageCondition],
 ) -> Option<String> {
-    // Use whatlang for fast language detection (70 languages supported)
-    // Returns None if text is too short or language is unclear
-    let detected = whatlang::detect_lang(text)?;
-    let detected_code = detected.code(); // ISO 639-3 code (e.g., "vie", "kor", "eng")
+    let detected_code = crate::lang_detect::detect_language(text)?;
 
     // Find matching condition
     for condition in conditions {
-        if condition.language_code.eq_ignore_ascii_case(detected_code) {
+        if condition.language_code.eq_ignore_ascii_case(&detected_code) {
             return Some(condition.instruction.clone());
         }
     }

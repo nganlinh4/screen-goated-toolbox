@@ -22,8 +22,8 @@ pub(super) fn handle_google_tts(
     eprintln!("[TTS Google] Starting Google TTS for {} chars", text.len());
 
     // Detect language for Google TTS TL parameter
-    let lang_code = whatlang::detect_lang(&text).unwrap_or(whatlang::Lang::Eng);
-    let tl = Language::from_639_3(lang_code.code())
+    let detected_code = crate::lang_detect::detect_language(&text).unwrap_or_else(|| "eng".to_string());
+    let tl = Language::from_639_3(&detected_code)
         .and_then(|l| l.to_639_1())
         .unwrap_or("en");
 

@@ -30,12 +30,12 @@ pub(super) fn handle_edge_tts(
         let app = APP.lock().unwrap();
         let settings = &app.config.edge_tts_settings;
 
-        let lang_detect = whatlang::detect(&text);
+        let detected_code = crate::lang_detect::detect_language(&text)
+            .unwrap_or_else(|| "eng".to_string());
 
         let mut voice = "en-US-AriaNeural".to_string();
 
-        let code_2 = lang_detect
-            .and_then(|info| Language::from_639_3(info.lang().code()))
+        let code_2 = Language::from_639_3(&detected_code)
             .and_then(|l| l.to_639_1())
             .unwrap_or("en");
 

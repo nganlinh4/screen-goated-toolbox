@@ -72,6 +72,7 @@ data class BilingualRelayTranscriptItem(
     val text: String,
     val isFinal: Boolean,
     val updatedAtMs: Long,
+    val lang: String = "",
 )
 
 data class BilingualRelayState(

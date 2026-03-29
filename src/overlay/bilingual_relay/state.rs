@@ -165,9 +165,7 @@ pub(super) fn publish_audio_level(level: f32) {
 }
 
 fn detect_lang(text: &str) -> String {
-    whatlang::detect_lang(text)
-        .map(|l| format!("{:?}", l).to_lowercase())
-        .unwrap_or_default()
+    crate::lang_detect::detect_language(text).unwrap_or_default()
 }
 
 pub(super) fn upsert_transcript(role: &'static str, text: String, is_final: bool) {
@@ -184,11 +182,15 @@ pub(super) fn upsert_transcript(role: &'static str, text: String, is_final: bool
         {
             existing.text = merge_transcript_text(&existing.text, text);
             existing.is_final = is_final;
-            if is_final {
-                existing.lang = detect_lang(&existing.text);
+            // Detect language once we have enough text
+            if existing.lang.is_empty() || is_final {
+                let detected = detect_lang(&existing.text);
+                if !detected.is_empty() {
+                    existing.lang = detected;
+                }
             }
         } else {
-            let lang = if is_final { detect_lang(text) } else { String::new() };
+            let lang = detect_lang(text);
             state.transcripts.push(RelayTranscriptItem {
                 id: super::runtime::next_transcript_id(),
                 role,

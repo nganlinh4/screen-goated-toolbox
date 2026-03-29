@@ -231,7 +231,8 @@ function updateTranscriptScrollAffinity() {
 function transcriptKey(items: RelayState["transcripts"]): string {
   if (!items.length) return "";
   const last = items[items.length - 1];
-  return `${items.length}:${last.id}:${last.text.length}:${last.isFinal ? 1 : 0}`;
+  const langs = items.map(i => i.lang || "_").join("");
+  return `${items.length}:${last.id}:${last.text.length}:${last.isFinal ? 1 : 0}:${langs}`;
 }
 
 type TranscriptPair = {
@@ -246,16 +247,16 @@ function groupTranscripts(items: RelayState["transcripts"]): TranscriptPair[] {
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if (item.role === "input") {
-      // Look ahead for a matching output
       const next = items[i + 1];
       if (next && next.role === "output") {
-        pairs.push({ input: item.text, output: next.text, lang: next.lang, isFinal: next.isFinal });
-        i++; // skip output
+        // Use input lang for alignment (more reliable — user's spoken language)
+        const lang = item.lang || next.lang;
+        pairs.push({ input: item.text, output: next.text, lang, isFinal: next.isFinal });
+        i++;
       } else {
-        pairs.push({ input: item.text, output: "", lang: "", isFinal: item.isFinal });
+        pairs.push({ input: item.text, output: "", lang: item.lang, isFinal: item.isFinal });
       }
     } else {
-      // Orphan output
       pairs.push({ input: "", output: item.text, lang: item.lang, isFinal: item.isFinal });
     }
   }

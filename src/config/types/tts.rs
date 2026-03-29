@@ -86,7 +86,7 @@ pub fn default_edge_tts_voice_configs() -> Vec<EdgeTtsVoiceConfig> {
 /// when the detected language matches
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TtsLanguageCondition {
-    /// ISO 639-3 language code from whatlang (e.g., "vie" for Vietnamese, "kor" for Korean)
+    /// ISO 639-3 language code (e.g., "vie" for Vietnamese, "kor" for Korean)
     pub language_code: String,
     /// Human-readable language name for display
     pub language_name: String,
