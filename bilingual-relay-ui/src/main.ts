@@ -56,11 +56,37 @@ declare global {
   }
 }
 
+const BAR_WIDTH = 8;
+const BAR_GAP = 6;
+const BAR_SPACING = BAR_WIDTH + BAR_GAP;
+const VISIBLE_BARS = 20;
+
+const COLORS_DARK: Record<string, string[]> = {
+  ready:        ['#00a8e0', '#00c8ff', '#40e0ff'],
+  reconnecting: ['#FFD700', '#FFA500', '#FFDEAD'],
+  error:        ['#ff6b7a', '#ff8e96', '#ffb3ba'],
+  stopped:      ['#888888', '#AAAAAA', '#CCCCCC'],
+  not_configured: ['#888888', '#AAAAAA', '#CCCCCC'],
+  connecting:   ['#9F7AEA', '#805AD5', '#B794F4'],
+};
+
+const COLORS_LIGHT: Record<string, string[]> = {
+  ready:        ['#0066cc', '#0088dd', '#00aaee'],
+  reconnecting: ['#cc6600', '#dd8800', '#ee9900'],
+  error:        ['#cc3344', '#dd5566', '#ee7788'],
+  stopped:      ['#666666', '#888888', '#aaaaaa'],
+  not_configured: ['#666666', '#888888', '#aaaaaa'],
+  connecting:   ['#6B46C1', '#553C9A', '#805AD5'],
+};
+
 const state = {
   payload: window.__BR_INITIAL_STATE__ ?? null,
   hotkeyCaptureArmed: false,
   transcriptPinned: true,
   visualLevel: 0,
+  barHeights: new Array(VISIBLE_BARS + 2).fill(6) as number[],
+  scrollProgress: 0,
+  lastTime: 0,
 };
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -71,20 +97,22 @@ if (!app) {
 
 app.innerHTML = `
   <div class="app-shell">
-    <header class="titlebar">
-      <div class="titlebar-drag" id="dragRegion">
-        <div class="title-block">
-          <div class="title" id="title"></div>
-          <div class="subtitle" id="subtitle"></div>
-        </div>
-        <div class="status-pill">
-          <span class="status-dot" id="statusDot"></span>
-          <span id="statusText"></span>
-        </div>
+    <header class="titlebar" id="dragRegion">
+      <div class="titlebar-drag">
+        <div class="title" id="title"></div>
+      </div>
+      <div class="status-pill">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText"></span>
+      </div>
+      <div class="header-hotkey">
+        <div class="hotkey-value" id="hotkeyValue">\u2014</div>
+        <button class="text-btn" id="setHotkeyBtn" type="button"></button>
+        <button class="text-btn" id="clearHotkeyBtn" type="button"></button>
       </div>
       <div class="window-actions">
-        <button class="icon-button" id="minimizeBtn" type="button" aria-label="Minimize">−</button>
-        <button class="icon-button" id="closeBtn" type="button" aria-label="Close">×</button>
+        <button class="icon-button" id="minimizeBtn" type="button" aria-label="Minimize"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
+        <button class="icon-button" id="closeBtn" type="button" aria-label="Close"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
       </div>
     </header>
 
@@ -100,6 +128,8 @@ app.innerHTML = `
                 <span class="field-label" id="language1Label"></span>
                 <input class="text-input" id="firstLanguage" />
               </label>
+            </div>
+            <div class="field-row">
               <label class="field">
                 <span class="field-label" id="accent1Label"></span>
                 <input class="text-input" id="firstAccent" />
@@ -122,6 +152,8 @@ app.innerHTML = `
                 <span class="field-label" id="language2Label"></span>
                 <input class="text-input" id="secondLanguage" />
               </label>
+            </div>
+            <div class="field-row">
               <label class="field">
                 <span class="field-label" id="accent2Label"></span>
                 <input class="text-input" id="secondAccent" />
@@ -134,14 +166,12 @@ app.innerHTML = `
           </div>
         </section>
 
-        <section class="card">
-          <div class="card-header">
-            <div class="card-title" id="hotkeyLabel"></div>
+        <section class="visualizer-card">
+          <div class="visualizer-header">
+            <div class="visualizer-status" id="visualizerStatus"></div>
           </div>
-          <div class="hotkey-row">
-            <div class="hotkey-value" id="hotkeyValue">—</div>
-            <button class="button secondary" id="setHotkeyBtn" type="button"></button>
-            <button class="button secondary" id="clearHotkeyBtn" type="button"></button>
+          <div class="visualizer-canvas-wrap">
+            <canvas class="visualizer-canvas" id="visualizerCanvas"></canvas>
           </div>
           <div class="actions-row">
             <button class="button primary" id="applyBtn" type="button"></button>
@@ -151,22 +181,13 @@ app.innerHTML = `
         </section>
       </aside>
 
-      <section class="card transcript-card">
+      <section class="transcript-card">
         <div class="transcript-head">
           <div class="card-title" id="transcriptTitle"></div>
         </div>
         <div class="message" id="transcriptMessage"></div>
         <div class="transcript-body" id="transcriptBody"></div>
       </section>
-    </section>
-
-    <section class="visualizer-dock">
-      <div class="visualizer-copy">
-        <div class="visualizer-status" id="visualizerStatus"></div>
-      </div>
-      <div class="visualizer-canvas-wrap">
-        <canvas class="visualizer-canvas" id="visualizerCanvas"></canvas>
-      </div>
     </section>
   </div>
 `;
@@ -175,7 +196,6 @@ const elements = {
   root: document.documentElement,
   dragRegion: document.querySelector<HTMLElement>("#dragRegion")!,
   title: document.querySelector<HTMLElement>("#title")!,
-  subtitle: document.querySelector<HTMLElement>("#subtitle")!,
   firstTitle: document.querySelector<HTMLElement>("#firstTitle")!,
   secondTitle: document.querySelector<HTMLElement>("#secondTitle")!,
   language1Label: document.querySelector<HTMLElement>("#language1Label")!,
@@ -190,7 +210,6 @@ const elements = {
   secondLanguage: document.querySelector<HTMLInputElement>("#secondLanguage")!,
   secondAccent: document.querySelector<HTMLInputElement>("#secondAccent")!,
   secondTone: document.querySelector<HTMLInputElement>("#secondTone")!,
-  hotkeyLabel: document.querySelector<HTMLElement>("#hotkeyLabel")!,
   hotkeyValue: document.querySelector<HTMLElement>("#hotkeyValue")!,
   setHotkeyBtn: document.querySelector<HTMLButtonElement>("#setHotkeyBtn")!,
   clearHotkeyBtn: document.querySelector<HTMLButtonElement>("#clearHotkeyBtn")!,
@@ -249,7 +268,7 @@ function renderTranscripts(payload: RelayState) {
   const stick = state.transcriptPinned;
   const items = payload.transcripts ?? [];
   if (!items.length) {
-    elements.transcriptBody.innerHTML = `<div class="transcript-empty">${escapeHtml(payload.strings.noTranscript)}</div>`;
+    elements.transcriptBody.innerHTML = `<div class="transcript-empty"><span class="empty-title">${escapeHtml(payload.strings.noTranscript)}</span></div>`;
     return;
   }
   elements.transcriptBody.innerHTML = items
@@ -284,9 +303,6 @@ function render(payload: RelayState) {
   state.payload = payload;
   elements.root.dataset.theme = payload.darkMode ? "dark" : "light";
   elements.title.textContent = payload.strings.title;
-  elements.subtitle.textContent = payload.isRunning
-    ? payload.strings.transcriptTitle
-    : payload.statusLabel;
   elements.firstTitle.textContent = payload.strings.firstProfile;
   elements.secondTitle.textContent = payload.strings.secondProfile;
   elements.language1Label.textContent = payload.strings.languageLabel;
@@ -295,7 +311,7 @@ function render(payload: RelayState) {
   elements.language2Label.textContent = payload.strings.languageLabel;
   elements.accent2Label.textContent = payload.strings.accentLabel;
   elements.tone2Label.textContent = payload.strings.toneLabel;
-  elements.hotkeyLabel.textContent = payload.strings.hotkeyLabel;
+  // hotkeyLabel removed — hotkey is now in header
   elements.setHotkeyBtn.textContent = payload.strings.setHotkey;
   elements.clearHotkeyBtn.textContent = payload.strings.clearHotkey;
   elements.applyBtn.textContent = payload.strings.apply;
@@ -337,79 +353,102 @@ function render(payload: RelayState) {
   renderTranscripts(payload);
 }
 
-function drawVisualizer() {
+function drawVisualizer(timestamp: number) {
   const canvas = elements.visualizerCanvas;
-  const rect = canvas.getBoundingClientRect();
-  const ratio = window.devicePixelRatio || 1;
-  if (canvas.width !== Math.round(rect.width * ratio) || canvas.height !== Math.round(rect.height * ratio)) {
-    canvas.width = Math.max(1, Math.round(rect.width * ratio));
-    canvas.height = Math.max(1, Math.round(rect.height * ratio));
-  }
-
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     requestAnimationFrame(drawVisualizer);
     return;
   }
 
+  // Use fixed backing size like the recording indicator — let CSS handle display scaling.
+  // The recording indicator uses 200x60 for a 100x30 CSS display.
+  // We use a proportionally larger backing for the wider visualizer-canvas-wrap.
+  if (canvas.width !== 400 || canvas.height !== 60) {
+    canvas.width = 400;
+    canvas.height = 60;
+  }
+
   const payload = state.payload;
   const isActive = payload?.isRunning ?? false;
-  const baseLevel = payload?.audioLevel ?? 0;
   const connectionState = payload?.connectionState ?? "stopped";
-  const idleLevel = connectionState === "ready" ? 0.08 : connectionState === "reconnecting" ? 0.12 : 0.02;
-  const target = isActive ? Math.max(baseLevel, idleLevel) : 0;
-  state.visualLevel += (target - state.visualLevel) * 0.12;
-  if (!isActive) {
-    state.visualLevel *= 0.92;
+  const isDark = payload?.darkMode ?? true;
+  const rms = isActive ? (payload?.audioLevel ?? 0) : 0;
+
+  // Scroll bars left-to-right
+  const dt = state.lastTime ? (timestamp - state.lastTime) / 1000 : 0.016;
+  state.lastTime = timestamp;
+  state.scrollProgress += dt / 0.15;
+
+  while (state.scrollProgress >= 1) {
+    state.scrollProgress -= 1;
+    state.barHeights.shift();
+
+    let displayRMS = rms;
+    if (!isActive) {
+      displayRMS = 0.02;
+    } else if (connectionState === "connecting") {
+      displayRMS = 0.08 + 0.12 * Math.abs(Math.sin(timestamp / 300));
+    } else if (connectionState === "reconnecting") {
+      displayRMS = 0.06 + 0.1 * Math.abs(Math.sin(timestamp / 250));
+    }
+
+    const h = canvas.height;
+    const v = Math.max(6, Math.min(h - 4, displayRMS * 250 + 6));
+    state.barHeights.push(v);
   }
 
-  const width = canvas.width;
-  const height = canvas.height;
-  ctx.clearRect(0, 0, width, height);
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
 
-  const barCount = 34;
-  const gap = width * 0.007;
-  const totalGap = gap * (barCount - 1);
-  const barWidth = (width - totalGap) / barCount;
-  const centerY = height / 2;
-  const time = performance.now() / 560;
-  const color = connectionState === "error"
-    ? "255, 142, 150"
-    : connectionState === "reconnecting"
-      ? "255, 215, 143"
-      : "164, 184, 255";
+  const pixelOffset = state.scrollProgress * BAR_SPACING;
+  const colorSet = isDark ? COLORS_DARK : COLORS_LIGHT;
+  const currentColors = colorSet[connectionState] ?? colorSet.stopped;
 
-  for (let index = 0; index < barCount; index += 1) {
-    const x = index * (barWidth + gap);
-    const harmonic = Math.sin(time + index * 0.28) * 0.22 + Math.sin(time * 1.8 + index * 0.12) * 0.16;
-    const envelope = 0.35 + Math.sin((index / barCount) * Math.PI) * 0.65;
-    const amplitude = Math.max(0.08, state.visualLevel + harmonic * 0.26) * envelope;
-    const barHeight = Math.max(height * 0.16, amplitude * height * 0.92);
-    const y = centerY - barHeight / 2;
-    ctx.fillStyle = `rgba(${color}, ${0.18 + amplitude * 0.78})`;
-    roundRect(ctx, x, y, barWidth, barHeight, barWidth / 2);
+  // Vertical gradient (bottom -> top)
+  const grad = ctx.createLinearGradient(0, h, 0, 0);
+  grad.addColorStop(0, currentColors[0]);
+  grad.addColorStop(0.5, currentColors[1]);
+  grad.addColorStop(1, currentColors[2]);
+  ctx.fillStyle = grad;
+
+  for (let i = 0; i < state.barHeights.length; i++) {
+    const pillHeight = state.barHeights[i];
+    const x = i * BAR_SPACING - pixelOffset;
+    const y = (h - pillHeight) / 2;
+
+    if (x > -BAR_WIDTH && x < w) {
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(x, y, BAR_WIDTH, pillHeight, BAR_WIDTH / 2);
+      } else {
+        ctx.rect(x, y, BAR_WIDTH, pillHeight);
+      }
+      ctx.fill();
+    }
   }
+
+  // Fade edges (30px left + right)
+  const fadeWidth = 30;
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-out";
+
+  const leftGrad = ctx.createLinearGradient(0, 0, fadeWidth, 0);
+  leftGrad.addColorStop(0, "rgba(0, 0, 0, 1)");
+  leftGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = leftGrad;
+  ctx.fillRect(0, 0, fadeWidth, h);
+
+  const rightGrad = ctx.createLinearGradient(w - fadeWidth, 0, w, 0);
+  rightGrad.addColorStop(0, "rgba(0, 0, 0, 0)");
+  rightGrad.addColorStop(1, "rgba(0, 0, 0, 1)");
+  ctx.fillStyle = rightGrad;
+  ctx.fillRect(w - fadeWidth, 0, fadeWidth, h);
+
+  ctx.restore();
 
   requestAnimationFrame(drawVisualizer);
-}
-
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number,
-) {
-  const r = Math.min(radius, width / 2, height / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + width, y, x + width, y + height, r);
-  ctx.arcTo(x + width, y + height, x, y + height, r);
-  ctx.arcTo(x, y + height, x, y, r);
-  ctx.arcTo(x, y, x + width, y, r);
-  ctx.closePath();
-  ctx.fill();
 }
 
 elements.dragRegion.addEventListener("mousedown", (event) => {
@@ -488,4 +527,4 @@ if (state.payload) {
   render(state.payload);
 }
 
-drawVisualizer();
+requestAnimationFrame(drawVisualizer);

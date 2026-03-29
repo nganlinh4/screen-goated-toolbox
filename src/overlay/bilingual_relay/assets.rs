@@ -6,7 +6,13 @@ const ASSET_INDEX_CSS: &[u8] = include_bytes!("dist/assets/index.css");
 
 pub(super) fn lookup_packaged_asset(path: &str) -> Option<(Cow<'static, [u8]>, &'static str)> {
     match path {
-        "/" | "/index.html" => Some((Cow::Borrowed(INDEX_HTML), "text/html")),
+        "/" | "/index.html" => {
+            let font_css = crate::overlay::html_components::font_manager::get_font_css();
+            let font_style_tag = format!("<style>{}</style>", font_css);
+            let html = String::from_utf8_lossy(INDEX_HTML);
+            let modified = html.replace("</head>", &format!("{font_style_tag}</head>"));
+            Some((Cow::Owned(modified.into_bytes()), "text/html"))
+        }
         "/assets/index.js" => Some((Cow::Borrowed(ASSET_INDEX_JS), "application/javascript")),
         "/assets/index.css" => Some((Cow::Borrowed(ASSET_INDEX_CSS), "text/css")),
         _ => None,
