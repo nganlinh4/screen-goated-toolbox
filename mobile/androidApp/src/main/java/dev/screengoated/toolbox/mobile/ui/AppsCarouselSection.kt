@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -232,6 +233,7 @@ internal fun AppsCarouselSection(
     canToggle: Boolean,
     onDownloaderClick: () -> Unit = {},
     onDjClick: () -> Unit = {},
+    onBilingualRelayClick: () -> Unit = {},
     onPagerSwipeLockChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
@@ -246,12 +248,23 @@ internal fun AppsCarouselSection(
             canToggle,
             onDownloaderClick,
             onDjClick,
+            onBilingualRelayClick,
             onPagerSwipeLockChanged,
             sharedTransitionScope,
             animatedVisibilityScope,
         )
     } else {
-        AppsVerticalCarousel(state, locale, onSessionToggle, canToggle, onDownloaderClick, onDjClick, sharedTransitionScope, animatedVisibilityScope)
+        AppsVerticalCarousel(
+            state,
+            locale,
+            onSessionToggle,
+            canToggle,
+            onDownloaderClick,
+            onDjClick,
+            onBilingualRelayClick,
+            sharedTransitionScope,
+            animatedVisibilityScope,
+        )
     }
 }
 
@@ -264,6 +277,7 @@ private fun AppsItemContent(
     canToggle: Boolean,
     onDownloaderClick: () -> Unit,
     onDjClick: () -> Unit,
+    onBilingualRelayClick: () -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
@@ -272,7 +286,8 @@ private fun AppsItemContent(
             .fillMaxSize()
             .then(
                 when (index) {
-                    1 -> {
+                    1 -> Modifier.clickable(onClick = onBilingualRelayClick)
+                    2 -> {
                         val sharedMod = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
                             with(sharedTransitionScope) {
                                 Modifier.sharedBounds(
@@ -284,15 +299,16 @@ private fun AppsItemContent(
                         } else Modifier
                         sharedMod.then(Modifier.clickable(onClick = onDownloaderClick))
                     }
-                    2 -> Modifier.clickable(onClick = onDjClick)
+                    3 -> Modifier.clickable(onClick = onDjClick)
                     else -> Modifier
                 },
             ),
     ) {
         when (index) {
             0 -> LiveTranslateCarouselTile(state = state, locale = locale, onSessionToggle = onSessionToggle, canToggle = canToggle)
-            1 -> AppTile(slot = appSlots[1], title = locale.appVideoDownloaderTitle, icon = Icons.Rounded.Download)
-            2 -> AppTile(slot = appSlots[2], title = locale.appDjTitle, icon = Icons.Rounded.GraphicEq)
+            1 -> AppTile(slot = appSlots[1], title = locale.appBilingualRelayTitle, icon = Icons.Rounded.SwapHoriz)
+            2 -> AppTile(slot = appSlots[2], title = locale.appVideoDownloaderTitle, icon = Icons.Rounded.Download)
+            3 -> AppTile(slot = appSlots[3], title = locale.appDjTitle, icon = Icons.Rounded.GraphicEq)
             else -> EmptyAppTile(slot = appSlots[index])
         }
     }
@@ -306,6 +322,7 @@ private fun AppsVerticalCarousel(
     canToggle: Boolean,
     onDownloaderClick: () -> Unit,
     onDjClick: () -> Unit,
+    onBilingualRelayClick: () -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
@@ -325,7 +342,18 @@ private fun AppsVerticalCarousel(
             contentPadding = PaddingValues(top = 4.dp, bottom = fadeSize),
         ) { index ->
             Box(modifier = Modifier.fillMaxSize().maskClip(MaterialTheme.shapes.extraLarge)) {
-                AppsItemContent(index, state, locale, onSessionToggle, canToggle, onDownloaderClick, onDjClick, sharedTransitionScope, animatedVisibilityScope)
+                AppsItemContent(
+                    index,
+                    state,
+                    locale,
+                    onSessionToggle,
+                    canToggle,
+                    onDownloaderClick,
+                    onDjClick,
+                    onBilingualRelayClick,
+                    sharedTransitionScope,
+                    animatedVisibilityScope,
+                )
             }
         }
         Box(modifier = Modifier.fillMaxWidth().height(fadeSize).background(Brush.verticalGradient(listOf(bgColor, Color.Transparent))))
@@ -341,6 +369,7 @@ private fun AppsHorizontalCarousel(
     canToggle: Boolean,
     onDownloaderClick: () -> Unit,
     onDjClick: () -> Unit,
+    onBilingualRelayClick: () -> Unit,
     onPagerSwipeLockChanged: (Boolean) -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
@@ -372,7 +401,18 @@ private fun AppsHorizontalCarousel(
                 shape = MaterialTheme.shapes.extraLarge,
                 colors = CardDefaults.cardColors(containerColor = appSlots[index].colorToken(MaterialTheme.sgtColors).copy(alpha = 0.15f)),
             ) {
-                AppsItemContent(index, state, locale, onSessionToggle, canToggle, onDownloaderClick, onDjClick, sharedTransitionScope, animatedVisibilityScope)
+                AppsItemContent(
+                    index,
+                    state,
+                    locale,
+                    onSessionToggle,
+                    canToggle,
+                    onDownloaderClick,
+                    onDjClick,
+                    onBilingualRelayClick,
+                    sharedTransitionScope,
+                    animatedVisibilityScope,
+                )
             }
         }
         // Left fade
@@ -611,10 +651,10 @@ private fun AppTile(
                     Spacer(Modifier.width(14.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    val words = title.split(" ", limit = 2)
-                    if (words.isNotEmpty()) {
+                    val lines = remember(title) { portraitTitleLines(title) }
+                    if (lines.isNotEmpty()) {
                         Text(
-                            text = words[0],
+                            text = lines[0],
                             fontFamily = stretchedFamily,
                             fontWeight = FontWeight.Black,
                             fontSize = 28.sp,
@@ -622,9 +662,9 @@ private fun AppTile(
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
-                    if (words.size > 1) {
+                    if (lines.size > 1) {
                         Text(
-                            text = words[1],
+                            text = lines[1],
                             fontWeight = FontWeight.Bold,
                             fontSize = 26.sp,
                             lineHeight = 30.sp,
@@ -635,6 +675,36 @@ private fun AppTile(
             }
         }
     }
+}
+
+private fun portraitTitleLines(title: String): List<String> {
+    val normalized = title.trim()
+    if (normalized.isEmpty()) return emptyList()
+    val words = normalized.split(Regex("\\s+")).filter { it.isNotBlank() }
+    if (words.size <= 1) return listOf(normalized)
+
+    var bestLeft = words.first()
+    var bestRight = words.drop(1).joinToString(" ")
+    var bestScore = scoreSplit(bestLeft, bestRight)
+
+    for (splitIndex in 1 until words.lastIndex + 1) {
+        val left = words.take(splitIndex).joinToString(" ")
+        val right = words.drop(splitIndex).joinToString(" ")
+        val score = scoreSplit(left, right)
+        if (score < bestScore) {
+            bestLeft = left
+            bestRight = right
+            bestScore = score
+        }
+    }
+
+    return if (bestRight.isBlank()) listOf(bestLeft) else listOf(bestLeft, bestRight)
+}
+
+private fun scoreSplit(left: String, right: String): Int {
+    val lengthGap = kotlin.math.abs(left.length - right.length)
+    val maxLength = maxOf(left.length, right.length)
+    return lengthGap * 10 + maxLength
 }
 
 @Composable

@@ -10,7 +10,10 @@ fn main() {
     // Declare the custom configuration 'nopack' to avoid warnings
     println!("cargo::rustc-check-cfg=cfg(nopack)");
 
-    generate_model_catalog(&model_manifest_path, &out_dir.join("model_catalog_generated.rs"));
+    generate_model_catalog(
+        &model_manifest_path,
+        &out_dir.join("model_catalog_generated.rs"),
+    );
 
     // Ensure assets directory exists
     let assets_dir = manifest_dir.join("assets");
@@ -85,7 +88,10 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
 
     let constant_mappings = [
         ("DEFAULT_IMAGE_MODEL_ID", "default_image_model_id"),
-        ("DEFAULT_CEREBRAS_TEXT_MODEL_ID", "default_cerebras_text_model_id"),
+        (
+            "DEFAULT_CEREBRAS_TEXT_MODEL_ID",
+            "default_cerebras_text_model_id",
+        ),
         (
             "DEFAULT_CEREBRAS_TEXT_API_MODEL",
             "default_cerebras_text_api_model",
@@ -159,7 +165,9 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
 
     lines.push("pub const GENERATED_TTS_GEMINI_MODELS: &[(&str, &str)] = &[".to_string());
     for value in manifest_array(&manifest, "tts_gemini_models") {
-        let item = value.as_object().expect("tts model entries must be objects");
+        let item = value
+            .as_object()
+            .expect("tts model entries must be objects");
         lines.push(format!(
             "    ({}, {}),",
             rust_string(manifest_string(item, "api_model")),
@@ -184,16 +192,40 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
         lines.extend([
             "        ModelConfig::new(".to_string(),
             format!("            {},", rust_string(manifest_string(model, "id"))),
-            format!("            {},", rust_string(manifest_string(model, "provider"))),
-            format!("            {},", rust_string(manifest_string(model, "name_vi"))),
-            format!("            {},", rust_string(manifest_string(model, "name_ko"))),
-            format!("            {},", rust_string(manifest_string(model, "name_en"))),
-            format!("            {},", rust_string(manifest_string(model, "full_name"))),
+            format!(
+                "            {},",
+                rust_string(manifest_string(model, "provider"))
+            ),
+            format!(
+                "            {},",
+                rust_string(manifest_string(model, "name_vi"))
+            ),
+            format!(
+                "            {},",
+                rust_string(manifest_string(model, "name_ko"))
+            ),
+            format!(
+                "            {},",
+                rust_string(manifest_string(model, "name_en"))
+            ),
+            format!(
+                "            {},",
+                rust_string(manifest_string(model, "full_name"))
+            ),
             format!("            ModelType::{},", model_type),
             "            true,".to_string(),
-            format!("            {},", rust_string(manifest_string(model, "quota_vi"))),
-            format!("            {},", rust_string(manifest_string(model, "quota_ko"))),
-            format!("            {},", rust_string(manifest_string(model, "quota_en"))),
+            format!(
+                "            {},",
+                rust_string(manifest_string(model, "quota_vi"))
+            ),
+            format!(
+                "            {},",
+                rust_string(manifest_string(model, "quota_ko"))
+            ),
+            format!(
+                "            {},",
+                rust_string(manifest_string(model, "quota_en"))
+            ),
             "        ),".to_string(),
         ]);
     }
@@ -221,7 +253,10 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
     lines.push("}".to_string());
     lines.push(String::new());
 
-    lines.push("pub fn generated_realtime_translation_api_model(provider_id: &str) -> &'static str {".to_string());
+    lines.push(
+        "pub fn generated_realtime_translation_api_model(provider_id: &str) -> &'static str {"
+            .to_string(),
+    );
     lines.push("    match provider_id {".to_string());
     for value in manifest_array(&manifest, "live_translation_providers") {
         let item = value

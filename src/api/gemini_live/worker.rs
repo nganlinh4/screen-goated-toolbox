@@ -183,9 +183,10 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
         }
 
         if let Err(e) = set_live_read_timeout(&mut socket, Duration::from_millis(250)) {
-            let _ = request
-                .response_tx
-                .send(LiveEvent::Error(format!("Failed to configure live read timeout: {}", e)));
+            let _ = request.response_tx.send(LiveEvent::Error(format!(
+                "Failed to configure live read timeout: {}",
+                e
+            )));
             let _ = socket.close(None);
             continue;
         }

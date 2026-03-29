@@ -1,0 +1,99 @@
+use serde::{Deserialize, Serialize};
+
+use super::Hotkey;
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct BilingualRelayProfile {
+    #[serde(default)]
+    pub language: String,
+    #[serde(default)]
+    pub accent: String,
+    #[serde(default)]
+    pub tone: String,
+}
+
+impl BilingualRelayProfile {
+    pub fn normalized(&self) -> Self {
+        Self {
+            language: self.language.trim().to_string(),
+            accent: self.accent.trim().to_string(),
+            tone: self.tone.trim().to_string(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct BilingualRelaySettings {
+    #[serde(default)]
+    pub first: BilingualRelayProfile,
+    #[serde(default)]
+    pub second: BilingualRelayProfile,
+    #[serde(default)]
+    pub hotkey: Option<Hotkey>,
+}
+
+impl BilingualRelaySettings {
+    pub fn normalized(&self) -> Self {
+        Self {
+            first: self.first.normalized(),
+            second: self.second.normalized(),
+            hotkey: self.hotkey.clone(),
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        let normalized = self.normalized();
+        !normalized.first.language.is_empty() && !normalized.second.language.is_empty()
+    }
+
+    pub fn build_system_instruction(&self) -> String {
+        fn describe(profile: &BilingualRelayProfile) -> String {
+            let mut value = profile.language.trim().to_string();
+            if !profile.accent.trim().is_empty() {
+                value.push(' ');
+                value.push_str(profile.accent.trim());
+                value.push_str(" accent");
+            }
+            if !profile.tone.trim().is_empty() {
+                value.push_str(" (");
+                value.push_str(profile.tone.trim());
+                value.push_str(" tone)");
+            }
+            value
+        }
+
+        let normalized = self.normalized();
+        format!(
+            "I have 2 languages: {} and {}.\nWhen I speak whatever sentence, detect the language I speak and repeat the sentence but in the other language.\nDO NOT return any other follow up text or introductory text.",
+            describe(&normalized.first),
+            describe(&normalized.second),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BilingualRelayProfile, BilingualRelaySettings};
+
+    #[test]
+    fn build_system_instruction_omits_blank_optional_fields() {
+        let settings = BilingualRelaySettings {
+            first: BilingualRelayProfile {
+                language: "Korean".to_string(),
+                accent: "Busan".to_string(),
+                tone: "polite".to_string(),
+            },
+            second: BilingualRelayProfile {
+                language: "English".to_string(),
+                accent: String::new(),
+                tone: "easy to hear".to_string(),
+            },
+            hotkey: None,
+        };
+
+        let prompt = settings.build_system_instruction();
+        assert!(prompt.contains("Korean Busan accent (polite tone)"));
+        assert!(prompt.contains("English (easy to hear tone)"));
+        assert!(!prompt.contains("()"));
+    }
+}

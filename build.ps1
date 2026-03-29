@@ -32,6 +32,35 @@ else {
     exit 1
 }
 
+# --- Build Bilingual Relay Frontend ---
+Write-Host "Building Bilingual Relay Frontend..." -ForegroundColor Cyan
+$brDir = Join-Path $PSScriptRoot "bilingual-relay-ui"
+$brDist = Join-Path $brDir "dist"
+$brTargetDist = Join-Path $PSScriptRoot "src\overlay\bilingual_relay\dist"
+
+Push-Location $brDir
+try {
+    if (-not (Test-Path "node_modules")) {
+        npm install
+    }
+    npm run build
+}
+finally {
+    Pop-Location
+}
+
+if (Test-Path $brDist) {
+    if (-not (Test-Path $brTargetDist)) {
+        New-Item -ItemType Directory -Path $brTargetDist -Force | Out-Null
+    }
+    Copy-Item -Path "$brDist\*" -Destination $brTargetDist -Recurse -Force
+    Write-Host "Bilingual Relay assets synchronized." -ForegroundColor Green
+}
+else {
+    Write-Host "FAILED: Bilingual Relay build did not produce dist folder." -ForegroundColor Red
+    exit 1
+}
+
 # --- Build Screen Record Frontend ---
 Write-Host "Building Screen Record Frontend..." -ForegroundColor Cyan
 $srDir = Join-Path $PSScriptRoot "screen-record"

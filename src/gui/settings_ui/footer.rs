@@ -3,17 +3,68 @@ use crate::gui::locale::LocaleText;
 use eframe::egui;
 use egui::text::{LayoutJob, TextFormat};
 
+fn render_launch_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    icon: Icon,
+    btn_color: egui::Color32,
+    btn_bg: egui::Color32,
+    btn_bg_hover: egui::Color32,
+) -> egui::Response {
+    let btn_galley = ui.painter().layout_no_wrap(
+        label.to_string(),
+        egui::FontId::proportional(12.0),
+        btn_color,
+    );
+    let icon_sz = 12.0;
+    let icon_gap = 4.0;
+    let h_pad = 6.0;
+    let v_pad = 1.0;
+    let btn_w = h_pad + icon_sz + icon_gap + btn_galley.rect.width() + h_pad;
+    let btn_h = btn_galley.rect.height() + v_pad * 2.0;
+
+    let (btn_rect, btn_response) =
+        ui.allocate_exact_size(egui::vec2(btn_w, btn_h), egui::Sense::click());
+    let painter = ui.painter();
+    painter.rect_filled(
+        btn_rect,
+        6.0,
+        if btn_response.hovered() {
+            btn_bg_hover
+        } else {
+            btn_bg
+        },
+    );
+    let icon_rect = egui::Rect::from_min_size(
+        egui::pos2(btn_rect.left() + h_pad, btn_rect.center().y - icon_sz / 2.0),
+        egui::vec2(icon_sz, icon_sz),
+    );
+    paint_icon(painter, icon_rect, icon, btn_color);
+    painter.galley(
+        egui::pos2(
+            icon_rect.right() + icon_gap,
+            btn_rect.center().y - btn_galley.rect.height() / 2.0,
+        ),
+        btn_galley,
+        btn_color,
+    );
+    if btn_response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    btn_response
+}
+
 pub fn render_footer(
     ui: &mut egui::Ui,
     text: &LocaleText,
     current_tip: String,
     tip_alpha: f32,
     show_modal: &mut bool,
+    show_bilingual_relay: &mut bool,
     show_pointer_gallery: &mut bool,
 ) {
     ui.horizontal(|ui| {
-        // 1. Left Side: Pointer Gallery Button (icon inside, matches header button style)
-        let btn_label = text.pointer_gallery_btn;
+        // 1. Left Side: Quick launch buttons
         let is_dark = ui.visuals().dark_mode;
         let btn_color = if is_dark {
             egui::Color32::from_rgb(245, 248, 255)
@@ -30,48 +81,33 @@ pub fn render_footer(
         } else {
             egui::Color32::from_rgb(80, 138, 236)
         };
-        let btn_galley = ui.painter().layout_no_wrap(
-            btn_label.to_string(),
-            egui::FontId::proportional(12.0),
-            btn_color,
-        );
-        let icon_sz = 12.0;
-        let icon_gap = 4.0;
-        let h_pad = 6.0;
-        let v_pad = 1.0; // match egui::Button default vertical padding
-        let btn_w = h_pad + icon_sz + icon_gap + btn_galley.rect.width() + h_pad;
-        let btn_h = btn_galley.rect.height() + v_pad * 2.0;
 
-        let (btn_rect, btn_response) =
-            ui.allocate_exact_size(egui::vec2(btn_w, btn_h), egui::Sense::click());
-        let p = ui.painter();
-        p.rect_filled(
-            btn_rect,
-            6.0,
-            if btn_response.hovered() {
-                btn_bg_hover
-            } else {
-                btn_bg
-            },
-        );
-        let icon_rect = egui::Rect::from_min_size(
-            egui::pos2(btn_rect.left() + h_pad, btn_rect.center().y - icon_sz / 2.0),
-            egui::vec2(icon_sz, icon_sz),
-        );
-        paint_icon(p, icon_rect, Icon::Pointer, btn_color);
-        p.galley(
-            egui::pos2(
-                icon_rect.right() + icon_gap,
-                btn_rect.center().y - btn_galley.rect.height() / 2.0,
-            ),
-            btn_galley,
+        if render_launch_button(
+            ui,
+            text.pointer_gallery_btn,
+            Icon::Pointer,
             btn_color,
-        );
-        if btn_response.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        }
-        if btn_response.clicked() {
+            btn_bg,
+            btn_bg_hover,
+        )
+        .clicked()
+        {
             *show_pointer_gallery = true;
+        }
+
+        ui.add_space(6.0);
+
+        if render_launch_button(
+            ui,
+            text.bilingual_relay_btn,
+            Icon::Speaker,
+            btn_color,
+            btn_bg,
+            btn_bg_hover,
+        )
+        .clicked()
+        {
+            *show_bilingual_relay = true;
         }
 
         ui.add_space(8.0);

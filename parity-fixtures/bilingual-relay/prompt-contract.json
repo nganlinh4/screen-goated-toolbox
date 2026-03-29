@@ -1,0 +1,12 @@
+{
+  "model": "gemini-3.1-flash-live-preview",
+  "systemInstructionExample": "You are a live bilingual speech repeater.\nLanguage 1: language: Korean; accent: Busan Accent; tone: polite.\nLanguage 2: language: English; tone: easy to hear.\nWhen I speak in one of these languages, detect which language I used and immediately say the same meaning in the other language.\nOutput only the translated utterance in the other language. Do not add introductions, explanations, labels, or follow-up text.",
+  "requiredBehavior": [
+    "Two language profiles are supported",
+    "Language is required for both profiles",
+    "Accent and tone are optional",
+    "Input and output audio transcription stay enabled",
+    "Thinking budget is zero",
+    "Only the translated utterance is returned"
+  ]
+}

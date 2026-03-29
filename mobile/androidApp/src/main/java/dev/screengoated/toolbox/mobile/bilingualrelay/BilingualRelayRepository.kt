@@ -1,0 +1,190 @@
+package dev.screengoated.toolbox.mobile.bilingualrelay
+
+import dev.screengoated.toolbox.mobile.storage.SecureSettingsStore
+import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.atomic.AtomicLong
+
+class BilingualRelayRepository(
+    private val settingsStore: SecureSettingsStore,
+) {
+    private val transcriptIdCounter = AtomicLong(1L)
+    private val mutableState = MutableStateFlow(
+        BilingualRelayState(
+            appliedConfig = settingsStore.loadBilingualRelayConfig().normalized(),
+            draftConfig = settingsStore.loadBilingualRelayConfig().normalized(),
+        ).normalize(),
+    )
+
+    val state: StateFlow<BilingualRelayState> = mutableState.asStateFlow()
+
+    fun updateDraft(
+        transform: (BilingualRelayConfig) -> BilingualRelayConfig,
+    ) {
+        mutableState.value = mutableState.value.copy(
+            draftConfig = transform(mutableState.value.draftConfig).normalized(),
+        ).normalize()
+    }
+
+    fun applyDraft(): BilingualRelayConfig {
+        val applied = mutableState.value.draftConfig.normalized()
+        settingsStore.saveBilingualRelayConfig(applied)
+        mutableState.value = mutableState.value.copy(
+            appliedConfig = applied,
+            draftConfig = applied,
+            dirty = false,
+            lastError = null,
+            transcripts = emptyList(),
+        ).normalize()
+        return applied
+    }
+
+    fun currentAppliedConfig(): BilingualRelayConfig = mutableState.value.appliedConfig.normalized()
+
+    fun currentApiKey(): String = settingsStore.loadApiKey().trim()
+
+    fun currentGeminiVoice(): String = settingsStore.loadGlobalTtsSettings().voice.trim()
+
+    fun currentGeminiModel(): String = settingsStore.loadGlobalTtsSettings().geminiModel.trim()
+
+    fun localeText(): MobileLocaleText =
+        MobileLocaleText.forLanguage(settingsStore.loadUiPreferences().uiLanguage)
+
+    fun markNotConfigured() {
+        mutableState.value = mutableState.value.copy(
+            connectionState = BilingualRelayConnectionState.NOT_CONFIGURED,
+            isRunning = false,
+            lastError = null,
+            visualizerLevel = 0f,
+        ).normalize()
+    }
+
+    fun markConnecting(reconnecting: Boolean) {
+        mutableState.value = mutableState.value.copy(
+            connectionState = if (reconnecting) {
+                BilingualRelayConnectionState.RECONNECTING
+            } else {
+                BilingualRelayConnectionState.CONNECTING
+            },
+            isRunning = true,
+            lastError = null,
+        ).normalize()
+    }
+
+    fun markReady() {
+        mutableState.value = mutableState.value.copy(
+            connectionState = BilingualRelayConnectionState.READY,
+            isRunning = true,
+            lastError = null,
+        ).normalize()
+    }
+
+    fun markStopped() {
+        mutableState.value = mutableState.value.copy(
+            connectionState = if (mutableState.value.appliedConfig.isValid()) {
+                BilingualRelayConnectionState.STOPPED
+            } else {
+                BilingualRelayConnectionState.NOT_CONFIGURED
+            },
+            isRunning = false,
+            visualizerLevel = 0f,
+        ).normalize()
+    }
+
+    fun fail(message: String) {
+        mutableState.value = mutableState.value.copy(
+            connectionState = BilingualRelayConnectionState.ERROR,
+            isRunning = false,
+            lastError = message,
+            visualizerLevel = 0f,
+        ).normalize()
+    }
+
+    fun clearError() {
+        mutableState.value = mutableState.value.copy(lastError = null).normalize()
+    }
+
+    fun clearTranscripts() {
+        mutableState.value = mutableState.value.copy(transcripts = emptyList()).normalize()
+    }
+
+    fun updateVisualizerLevel(level: Float) {
+        mutableState.value = mutableState.value.copy(
+            visualizerLevel = level.coerceIn(0f, 1f),
+        ).normalize()
+    }
+
+    fun upsertTranscript(
+        role: BilingualRelayTranscriptRole,
+        text: String,
+        final: Boolean,
+        nowMs: Long,
+    ) {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) {
+            return
+        }
+        val existing = mutableState.value.transcripts
+        val idx = existing.indexOfLast { it.role == role && !it.isFinal }
+        val updated = existing.toMutableList()
+        if (idx >= 0) {
+            updated[idx] = updated[idx].copy(
+                text = mergeTranscriptText(updated[idx].text, trimmed),
+                isFinal = final,
+                updatedAtMs = nowMs,
+            )
+        } else {
+            updated += BilingualRelayTranscriptItem(
+                id = transcriptIdCounter.getAndIncrement(),
+                role = role,
+                text = trimmed,
+                isFinal = final,
+                updatedAtMs = nowMs,
+            )
+        }
+        mutableState.value = mutableState.value.copy(
+            transcripts = updated.takeLast(MAX_TRANSCRIPTS),
+        ).normalize()
+    }
+
+    fun finalizeActiveTranscripts(nowMs: Long) {
+        val updated = mutableState.value.transcripts.map { item ->
+            if (item.isFinal) item else item.copy(isFinal = true, updatedAtMs = nowMs)
+        }
+        mutableState.value = mutableState.value.copy(transcripts = updated).normalize()
+    }
+
+    private fun BilingualRelayState.normalize(): BilingualRelayState {
+        val applied = appliedConfig.normalized()
+        val draft = draftConfig.normalized()
+        val connection = when {
+            !applied.isValid() && !isRunning -> BilingualRelayConnectionState.NOT_CONFIGURED
+            else -> connectionState
+        }
+        return copy(
+            appliedConfig = applied,
+            draftConfig = draft,
+            dirty = draft != applied,
+            connectionState = connection,
+        )
+    }
+
+    private companion object {
+        private const val MAX_TRANSCRIPTS = 200
+
+        private fun mergeTranscriptText(existing: String, incoming: String): String {
+            val current = existing.trim()
+            val next = incoming.trim()
+            if (current.isEmpty()) return next
+            if (next.isEmpty()) return current
+            if (next.startsWith(current) || next.contains(current)) return next
+            if (current.startsWith(next) || current.contains(next) || current.endsWith(next)) return current
+            if (current.endsWith(" ") || next.startsWith(" ") || next.first() in ",.!?:;)]}") {
+                return current + next
+            }
+            return "$current $next"
+        }
+    }
+}

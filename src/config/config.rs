@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
-    DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey, ModelPriorityChains,
-    ThemeMode, TtsLanguageCondition, TtsMethod, default_tts_language_conditions,
-    get_system_ui_language,
+    BilingualRelaySettings, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey,
+    ModelPriorityChains, ThemeMode, TtsLanguageCondition, TtsMethod,
+    default_tts_language_conditions, get_system_ui_language,
 };
 
 // ============================================================================
@@ -79,6 +79,10 @@ fn default_realtime_target_language() -> String {
 
 fn default_ollama_base_url() -> String {
     "http://localhost:11434".to_string()
+}
+
+fn default_bilingual_relay_settings() -> BilingualRelaySettings {
+    BilingualRelaySettings::default()
 }
 
 // ============================================================================
@@ -297,6 +301,10 @@ pub struct Config {
     /// Last normal (restored) window size for Screen Record UI
     #[serde(default = "default_screen_record_window_size")]
     pub screen_record_window_size: (i32, i32),
+
+    /// Settings for the bilingual relay mini app
+    #[serde(default = "default_bilingual_relay_settings")]
+    pub bilingual_relay: BilingualRelaySettings,
 }
 
 fn default_screen_record_hotkeys() -> Vec<Hotkey> {
@@ -328,6 +336,16 @@ impl Config {
                     h.name
                 ));
             }
+        }
+
+        if let Some(h) = self.bilingual_relay.hotkey.as_ref()
+            && h.code == vk
+            && h.modifiers == mods
+        {
+            return Some(format!(
+                "Conflict with global hotkey '{}' (Bilingual Relay)",
+                h.name
+            ));
         }
 
         // Check all presets
@@ -424,6 +442,7 @@ impl Default for Config {
             // Screen Record
             screen_record_hotkeys: default_screen_record_hotkeys(),
             screen_record_window_size: default_screen_record_window_size(),
+            bilingual_relay: default_bilingual_relay_settings(),
         }
     }
 }

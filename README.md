@@ -96,10 +96,10 @@ The APK will be located in `target/release/`. See `mobile/README.md` for detaile
 
 ### Quick Development Build
 
-To rebuild and run during development (builds PromptDJ frontend, then runs the app):
+To rebuild and run during development (builds PromptDJ and Bilingual Relay frontends, then runs the app):
 
 ```powershell
-cd promptdj-midi; npm install; npm run build; cd ..; New-Item -ItemType Directory -Path src\overlay\prompt_dj\dist -Force | Out-Null; Copy-Item promptdj-midi\dist\* -Destination src\overlay\prompt_dj\dist -Recurse -Force; cargo run
+cd promptdj-midi; npm install; npm run build; cd ..; New-Item -ItemType Directory -Path src\overlay\prompt_dj\dist -Force | Out-Null; Copy-Item promptdj-midi\dist\* -Destination src\overlay\prompt_dj\dist -Recurse -Force; cd bilingual-relay-ui; npm install; npm run build; cd ..; New-Item -ItemType Directory -Path src\overlay\bilingual_relay\dist -Force | Out-Null; Copy-Item bilingual-relay-ui\dist\* -Destination src\overlay\bilingual_relay\dist -Recurse -Force; cargo run
 ```
 
 ### Quick Screen Record Build
