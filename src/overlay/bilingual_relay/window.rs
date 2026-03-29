@@ -6,8 +6,10 @@ use raw_window_handle::{
 };
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
-    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmExtendFrameIntoClientArea,
+    DwmSetWindowAttribute,
 };
+use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
@@ -80,6 +82,14 @@ unsafe extern "system" fn window_proc(
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 LRESULT(0)
             }
+            WM_NCCALCSIZE => {
+                if wparam.0 != 0 {
+                    LRESULT(0)
+                } else {
+                    DefWindowProcW(hwnd, msg, wparam, lparam)
+                }
+            }
+            WM_ERASEBKGND => LRESULT(1),
             WM_SIZE => {
                 resize_webview(hwnd);
                 LRESULT(0)
@@ -112,8 +122,8 @@ unsafe fn internal_create_loop() {
 
     let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
     let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-    let width = ((screen_w as f64 * 0.68) as i32).clamp(1120, 1480);
-    let height = ((screen_h as f64 * 0.76) as i32).clamp(700, 940);
+    let width = ((screen_w as f64 * 0.52) as i32).clamp(820, 1080);
+    let height = ((screen_h as f64 * 0.62) as i32).clamp(560, 720);
     let x = (screen_w - width) / 2;
     let y = (screen_h - height) / 2;
 
@@ -159,6 +169,13 @@ unsafe fn internal_create_loop() {
             std::mem::size_of_val(&corner_pref) as u32,
         )
     };
+    let margins = MARGINS {
+        cxLeftWidth: -1,
+        cxRightWidth: -1,
+        cyTopHeight: -1,
+        cyBottomHeight: -1,
+    };
+    let _ = unsafe { DwmExtendFrameIntoClientArea(hwnd, &margins) };
     refresh_window_chrome(hwnd);
 
     let wrapper = HwndWrapper(hwnd);
@@ -190,7 +207,7 @@ unsafe fn internal_create_loop() {
                     originalPostMessage(JSON.stringify({{ id, cmd, args }}));
                 }});
             }};
-            document.documentElement.dataset.theme = '{theme_name}';
+            if (document.documentElement) document.documentElement.dataset.theme = '{theme_name}';
         }})();
         "#
     );
