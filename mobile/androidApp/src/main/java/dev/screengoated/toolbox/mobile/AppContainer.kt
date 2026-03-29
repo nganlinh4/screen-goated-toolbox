@@ -72,7 +72,8 @@ class AppContainer(
         overlaySupported = BuildConfig.OVERLAY_SUPPORTED,
         historyRepository = historyRepository,
     )
-    val bilingualRelayRepository = BilingualRelayRepository(settingsStore)
+    private val languageDetector = dev.screengoated.toolbox.mobile.service.tts.DeviceLanguageDetector(appContext)
+    val bilingualRelayRepository = BilingualRelayRepository(settingsStore, languageDetector)
 
     val parakeetModelManager = ParakeetModelManager(appContext)
 

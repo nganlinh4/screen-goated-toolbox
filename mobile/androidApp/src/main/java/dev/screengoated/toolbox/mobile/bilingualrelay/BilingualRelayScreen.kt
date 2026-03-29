@@ -446,6 +446,7 @@ private data class TranscriptPair(
     val id: Long,
     val input: String,
     val output: String,
+    val lang: String,
     val isLeft: Boolean,
 )
 
@@ -457,21 +458,25 @@ private fun groupTranscriptPairs(items: List<BilingualRelayTranscriptItem>): Lis
         if (item.role == BilingualRelayTranscriptRole.INPUT) {
             val next = items.getOrNull(i + 1)
             if (next != null && next.role == BilingualRelayTranscriptRole.OUTPUT) {
-                pairs += TranscriptPair(item.id, item.text, next.text, isLeft = true)
+                val lang = item.lang.ifBlank { next.lang }
+                pairs += TranscriptPair(item.id, item.text, next.text, lang, isLeft = true)
                 i += 2
             } else {
-                pairs += TranscriptPair(item.id, item.text, "", isLeft = true)
+                pairs += TranscriptPair(item.id, item.text, "", item.lang, isLeft = true)
                 i++
             }
         } else {
-            pairs += TranscriptPair(item.id, "", item.text, isLeft = true)
+            pairs += TranscriptPair(item.id, "", item.text, item.lang, isLeft = true)
             i++
         }
     }
-    // Alternate alignment: first pair is left, subsequent pairs alternate based on position
-    if (pairs.size > 1) {
-        for (idx in 1 until pairs.size) {
-            pairs[idx] = pairs[idx].copy(isLeft = idx % 2 == 0)
+    // Align based on detected language: first pair's lang = left side
+    val firstLang = pairs.firstOrNull { it.lang.isNotBlank() }?.lang.orEmpty()
+    if (firstLang.isNotBlank()) {
+        for (idx in pairs.indices) {
+            val p = pairs[idx]
+            val isLeft = p.lang.isBlank() || p.lang == firstLang
+            pairs[idx] = p.copy(isLeft = isLeft)
         }
     }
     return pairs

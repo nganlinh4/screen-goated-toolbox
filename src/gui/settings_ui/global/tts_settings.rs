@@ -164,7 +164,7 @@ pub fn render_tts_settings_modal(
                     // Right column: Language-Specific Instructions
                     columns[1].label(egui::RichText::new(text.tts_instructions_label).strong());
 
-                    // Supported languages from whatlang (70 languages) with ISO 639-3 codes
+                    // Supported languages from lingua (75 languages) with ISO 639-3 codes
                     let supported_languages = [
                         ("afr", "Afrikaans"), ("ara", "Arabic"), ("aze", "Azerbaijani"),
                         ("bel", "Belarusian"), ("ben", "Bengali"), ("bul", "Bulgarian"),

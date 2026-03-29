@@ -43,7 +43,7 @@ urlencoding = "2.1"
 
 # Language Data
 isolang = { version = "2.4", features = ["serde", "english_names"] }
-whatlang = "0.18"
+lingua = "1.8"
 
 # GUI & Media
 eframe = { version = "0.33", default-features = false, features = ["glow"] }

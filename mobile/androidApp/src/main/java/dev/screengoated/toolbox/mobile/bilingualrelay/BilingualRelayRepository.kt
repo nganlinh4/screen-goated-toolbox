@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.bilingualrelay
 
+import dev.screengoated.toolbox.mobile.service.tts.DeviceLanguageDetector
 import dev.screengoated.toolbox.mobile.storage.SecureSettingsStore
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,6 +10,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 class BilingualRelayRepository(
     private val settingsStore: SecureSettingsStore,
+    private val languageDetector: DeviceLanguageDetector,
 ) {
     private val transcriptIdCounter = AtomicLong(1L)
     private val mutableState = MutableStateFlow(
@@ -130,10 +132,17 @@ class BilingualRelayRepository(
         val idx = existing.indexOfLast { it.role == role && !it.isFinal }
         val updated = existing.toMutableList()
         if (idx >= 0) {
+            val merged = mergeTranscriptText(updated[idx].text, trimmed)
+            val lang = if (updated[idx].lang.isBlank() || final) {
+                languageDetector.detectIso639_3(merged).ifBlank { updated[idx].lang }
+            } else {
+                updated[idx].lang
+            }
             updated[idx] = updated[idx].copy(
-                text = mergeTranscriptText(updated[idx].text, trimmed),
+                text = merged,
                 isFinal = final,
                 updatedAtMs = nowMs,
+                lang = lang,
             )
         } else {
             updated += BilingualRelayTranscriptItem(
@@ -142,6 +151,7 @@ class BilingualRelayRepository(
                 text = trimmed,
                 isFinal = final,
                 updatedAtMs = nowMs,
+                lang = languageDetector.detectIso639_3(trimmed),
             )
         }
         mutableState.value = mutableState.value.copy(
