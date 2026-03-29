@@ -316,6 +316,7 @@ pub fn get() -> LocaleText {
         bilingual_relay_status_error: "Lỗi",
         bilingual_relay_status_stopped: "Đã dừng",
         bilingual_relay_api_key_required: "Hãy thêm Gemini API key trước khi dùng Bánh mỳ chuyển ngữ.",
+        bilingual_relay_chat_history: "Lịch sử trò chuyện",
         bilingual_relay_tts_settings_hint: "Đổi model Gemini Live và giọng nói theo ý bạn!",
         bilingual_relay_guide: "Cách dùng: Nói câu bằng ngôn ngữ bất kỳ trong 2 ngôn ngữ đã đặt, câu tương ứng sẽ được đọc bằng ngôn ngữ còn lại.",
         bilingual_relay_guide_ok: "Đã hiểu!",

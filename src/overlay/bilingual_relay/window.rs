@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::num::NonZeroIsize;
 
 use raw_window_handle::{
@@ -121,8 +120,8 @@ unsafe fn internal_create_loop() {
 
     let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
     let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-    let width = ((screen_w as f64 * 0.34) as i32).clamp(560, 720);
-    let height = ((screen_h as f64 * 0.42) as i32).clamp(380, 500);
+    let width = ((screen_w as f64 * 0.30) as i32).clamp(480, 620);
+    let height = ((screen_h as f64 * 0.36) as i32).clamp(340, 440);
     let x = (screen_w - width) / 2;
     let y = (screen_h - height) / 2;
 
@@ -211,6 +210,12 @@ unsafe fn internal_create_loop() {
         "#
     );
 
+    // Build inlined HTML and serve via the shared font server
+    // so this WebView joins the shared browser process (same user data dir + origin)
+    let inlined_html = super::assets::build_inlined_html();
+    let page_url =
+        crate::overlay::html_components::font_manager::store_html_page(inlined_html);
+
     super::WEB_CONTEXT.with(|context| {
         let mut context_ref = context.borrow_mut();
         if context_ref.is_none() {
@@ -222,24 +227,17 @@ unsafe fn internal_create_loop() {
         let webview_result = {
             let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
 
+            let url = page_url
+                .as_deref()
+                .unwrap_or("about:blank");
+
             let mut builder = WebViewBuilder::new_with_web_context(context_ref.as_mut().unwrap())
                 .with_background_color(background)
-                .with_custom_protocol("bilingualrelay".to_string(), move |_id, request| {
-                    let path = request.uri().path();
-                    if let Some((content, mime)) = super::assets::lookup_packaged_asset(path) {
-                        return super::assets::wnd_http_response(200, mime, content);
-                    }
-                    super::assets::wnd_http_response(
-                        404,
-                        "text/plain",
-                        Cow::Borrowed(b"Not Found".as_slice()),
-                    )
-                })
                 .with_initialization_script(&init_script)
                 .with_ipc_handler(move |request: wry::http::Request<String>| {
                     super::ipc::handle_ipc(hwnd, request.body());
                 })
-                .with_url("bilingualrelay://localhost/index.html");
+                .with_url(url);
 
             builder = crate::overlay::html_components::font_manager::configure_webview(builder);
             builder.build_as_child(&wrapper)

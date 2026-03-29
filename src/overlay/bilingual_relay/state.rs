@@ -70,6 +70,7 @@ struct WebPayload {
     hotkey_error: Option<String>,
     last_error: Option<String>,
     transcripts: Vec<RelayTranscriptItem>,
+    guide_seen: bool,
     tts_model: String,
     tts_voice: String,
     strings: WebStrings,
@@ -96,6 +97,7 @@ struct WebStrings {
     no_transcript: String,
     guide: String,
     guide_ok: String,
+    chat_history: String,
     current_model: String,
     current_voice: String,
 }
@@ -119,9 +121,31 @@ pub(super) fn refresh_from_config() {
     });
 }
 
-pub(super) fn clear_transcripts() {
+pub(super) fn insert_session_separator() {
     with_state(|state| {
-        state.transcripts.clear();
+        // Don't insert separator if transcripts are empty or last item is already a separator
+        if state.transcripts.is_empty()
+            || state
+                .transcripts
+                .last()
+                .map(|t| t.role == "separator")
+                .unwrap_or(false)
+        {
+            return;
+        }
+        let now = chrono::Local::now().format("%H:%M").to_string();
+        state.transcripts.push(super::RelayTranscriptItem {
+            id: super::runtime::next_transcript_id(),
+            role: "separator",
+            text: now,
+            is_final: true,
+            lang: String::new(),
+        });
+        // Keep max 200 items (100 pairs + separators)
+        if state.transcripts.len() > 200 {
+            let overflow = state.transcripts.len() - 200;
+            state.transcripts.drain(0..overflow);
+        }
         state.last_error = None;
     });
 }
@@ -253,6 +277,7 @@ pub(super) fn payload_json() -> Option<String> {
             }
         }),
         transcripts: state.transcripts.clone(),
+        guide_seen: crate::APP.lock().map(|a| a.config.bilingual_relay.guide_seen).unwrap_or(true),
         tts_model: {
             let (m, _) = super::runtime::current_gemini_tts_settings();
             m
@@ -280,6 +305,7 @@ pub(super) fn payload_json() -> Option<String> {
             no_transcript: text.bilingual_relay_no_transcript_yet.to_string(),
             guide: text.bilingual_relay_guide.to_string(),
             guide_ok: text.bilingual_relay_guide_ok.to_string(),
+            chat_history: text.bilingual_relay_chat_history.to_string(),
             current_model: text.bilingual_relay_current_model.to_string(),
             current_voice: text.bilingual_relay_current_voice.to_string(),
         },

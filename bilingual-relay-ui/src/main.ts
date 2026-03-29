@@ -26,6 +26,7 @@ type RelayState = {
     second: RelayProfile;
   };
   hotkeys: HotkeyItem[];
+  guideSeen: boolean;
   ttsModel: string;
   ttsVoice: string;
   hotkeyError?: string | null;
@@ -56,6 +57,7 @@ type RelayState = {
     noTranscript: string;
     guide: string;
     guideOk: string;
+    chatHistory: string;
     currentModel: string;
     currentVoice: string;
   };
@@ -100,8 +102,9 @@ const state = {
   barHeights: new Array(VISIBLE_BARS + 2).fill(6) as number[],
   scrollProgress: 0,
   lastTime: 0,
-  lastTranscriptKey: "",
+  lastTranscriptKey: "__init__",
   lastHotkeyKey: "",
+  guideShown: false,
 };
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -110,17 +113,15 @@ if (!app) throw new Error("App root not found");
 app.innerHTML = `
   <div class="app-shell">
     <header class="titlebar" id="dragRegion">
-      <div class="titlebar-drag">
-        <div class="status-pill">
-          <span class="status-dot" id="statusDot"></span>
-          <span id="statusText"></span>
-        </div>
-      </div>
       <div class="header-waveform">
         <canvas class="header-canvas" id="visualizerCanvas"></canvas>
       </div>
       <div class="settings-btn-wrap" id="settingsWrap">
         <button class="icon-button" id="settingsBtn" type="button" aria-label="TTS Settings"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></button>
+      </div>
+      <div class="status-pill">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText"></span>
       </div>
       <div class="header-hotkey" id="hotkeyArea"></div>
       <div class="window-actions">
@@ -163,9 +164,6 @@ app.innerHTML = `
       </aside>
 
       <section class="transcript-card">
-        <div class="transcript-head">
-          <div class="card-title" id="transcriptTitle"></div>
-        </div>
         <div class="message" id="transcriptMessage"></div>
         <div class="transcript-body" id="transcriptBody"></div>
       </section>
@@ -202,7 +200,6 @@ const el = {
   minimizeBtn: document.querySelector<HTMLButtonElement>("#minimizeBtn")!,
   closeBtn: document.querySelector<HTMLButtonElement>("#closeBtn")!,
   messageText: document.querySelector<HTMLElement>("#messageText")!,
-  transcriptTitle: document.querySelector<HTMLElement>("#transcriptTitle")!,
   transcriptMessage: document.querySelector<HTMLElement>("#transcriptMessage")!,
   transcriptBody: document.querySelector<HTMLElement>("#transcriptBody")!,
   visualizerCanvas: document.querySelector<HTMLCanvasElement>("#visualizerCanvas")!,
@@ -229,10 +226,10 @@ function updateTranscriptScrollAffinity() {
 }
 
 function transcriptKey(items: RelayState["transcripts"]): string {
-  if (!items.length) return "";
+  if (!items.length) return `empty:${state.payload?.strings.chatHistory}`;
   const last = items[items.length - 1];
   const langs = items.map(i => i.lang || "_").join("");
-  return `${items.length}:${last.id}:${last.text.length}:${last.isFinal ? 1 : 0}:${langs}`;
+  return `${items.length}:${last.id}:${last.text.length}:${last.isFinal ? 1 : 0}:${langs}:${state.payload?.strings.chatHistory}`;
 }
 
 type TranscriptPair = {
@@ -242,25 +239,29 @@ type TranscriptPair = {
   isFinal: boolean;
 };
 
-function groupTranscripts(items: RelayState["transcripts"]): TranscriptPair[] {
-  const pairs: TranscriptPair[] = [];
+type TranscriptEntry = TranscriptPair | { type: "separator"; time: string };
+
+function groupTranscripts(items: RelayState["transcripts"]): TranscriptEntry[] {
+  const entries: TranscriptEntry[] = [];
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
+    if (item.role === "separator") {
+      entries.push({ type: "separator", time: item.text });
+      continue;
+    }
     if (item.role === "input") {
       const next = items[i + 1];
       if (next && next.role === "output") {
-        // Use input lang for alignment (more reliable — user's spoken language)
-        const lang = item.lang || next.lang;
-        pairs.push({ input: item.text, output: next.text, lang, isFinal: next.isFinal });
+        entries.push({ input: item.text, output: next.text, lang: item.lang, isFinal: next.isFinal });
         i++;
       } else {
-        pairs.push({ input: item.text, output: "", lang: item.lang, isFinal: item.isFinal });
+        entries.push({ input: item.text, output: "", lang: item.lang, isFinal: item.isFinal });
       }
     } else {
-      pairs.push({ input: "", output: item.text, lang: item.lang, isFinal: item.isFinal });
+      entries.push({ input: "", output: item.text, lang: item.lang, isFinal: item.isFinal });
     }
   }
-  return pairs;
+  return entries;
 }
 
 function renderTranscripts(payload: RelayState) {
@@ -271,17 +272,19 @@ function renderTranscripts(payload: RelayState) {
 
   const stick = state.transcriptPinned;
   if (!items.length) {
-    el.transcriptBody.innerHTML = `<div class="transcript-empty"><span class="empty-title">${escapeHtml(payload.strings.noTranscript)}</span></div>`;
+    el.transcriptBody.innerHTML = `<div class="transcript-empty"><span class="empty-title">${escapeHtml(payload.strings.chatHistory)}</span></div>`;
     return;
   }
 
-  const pairs = groupTranscripts(items);
-  // First pair's output lang determines "lang A" (left side)
-  const firstLang = pairs.find(p => p.lang)?.lang ?? "";
+  const entries = groupTranscripts(items);
+  const firstLang = (entries.find((e): e is TranscriptPair => "lang" in e && !!e.lang) as TranscriptPair | undefined)?.lang ?? "";
 
-  el.transcriptBody.innerHTML = pairs
-    .map((pair) => {
-      // Align: if output lang matches first pair's lang → left, otherwise right
+  el.transcriptBody.innerHTML = entries
+    .map((entry) => {
+      if ("type" in entry && entry.type === "separator") {
+        return `<div class="session-separator"><span class="separator-time">${escapeHtml(entry.time)}</span></div>`;
+      }
+      const pair = entry as TranscriptPair;
       const isLeft = !pair.lang || !firstLang || pair.lang === firstLang;
       const align = isLeft ? "msg-left" : "msg-right";
 
@@ -311,7 +314,7 @@ function hotkeyKey(hotkeys: HotkeyItem[]): string {
 
 function renderHotkeys(payload: RelayState) {
   const armed = state.hotkeyCaptureArmed ? "1" : "0";
-  const key = hotkeyKey(payload.hotkeys ?? []) + "|" + armed;
+  const key = hotkeyKey(payload.hotkeys ?? []) + "|" + armed + "|" + payload.strings.setHotkey;
   if (key === state.lastHotkeyKey) return;
   state.lastHotkeyKey = key;
 
@@ -367,31 +370,40 @@ function connectionClass(cs: string) {
   return "";
 }
 
+// Helper: only touch DOM if value changed
+function setText(el: HTMLElement, v: string) { if (el.textContent !== v) el.textContent = v; }
+function setAttr(el: HTMLElement, k: string, v: string) { if (el.getAttribute(k) !== v) el.setAttribute(k, v); }
+
+let lastRenderedLang = "";
+
 function render(payload: RelayState) {
   state.payload = payload;
   el.root.dataset.theme = payload.darkMode ? "dark" : "light";
 
-  el.firstTitle.textContent = payload.strings.firstProfile;
-  el.secondTitle.textContent = payload.strings.secondProfile;
+  // Static strings — only update on language change
+  const lang = payload.darkMode + payload.strings.title;
+  if (lang !== lastRenderedLang) {
+    lastRenderedLang = lang;
+    setText(el.firstTitle, payload.strings.firstProfile);
+    setText(el.secondTitle, payload.strings.secondProfile);
+    el.firstLanguage.placeholder = payload.strings.languageLabel;
+    el.firstAccent.placeholder = payload.strings.accentLabel;
+    el.firstTone.placeholder = payload.strings.toneLabel;
+    el.secondLanguage.placeholder = payload.strings.languageLabel;
+    el.secondAccent.placeholder = payload.strings.accentLabel;
+    el.secondTone.placeholder = payload.strings.toneLabel;
+    setText(el.applyBtn, payload.strings.apply);
+  }
 
-  // Placeholders as labels
-  el.firstLanguage.placeholder = payload.strings.languageLabel;
-  el.firstAccent.placeholder = payload.strings.accentLabel;
-  el.firstTone.placeholder = payload.strings.toneLabel;
-  el.secondLanguage.placeholder = payload.strings.languageLabel;
-  el.secondAccent.placeholder = payload.strings.accentLabel;
-  el.secondTone.placeholder = payload.strings.toneLabel;
+  setText(el.statusText, payload.statusLabel);
+  setAttr(el.statusDot, "class", `status-dot ${connectionClass(payload.connectionState)}`.trim());
 
-  el.statusText.textContent = payload.statusLabel;
-  el.statusDot.className = `status-dot ${connectionClass(payload.connectionState)}`.trim();
-
-  el.applyBtn.textContent = payload.strings.apply;
-  el.toggleBtn.textContent = payload.isRunning ? payload.strings.stop : payload.strings.start;
-  el.transcriptTitle.textContent = payload.strings.transcriptTitle;
+  const toggleLabel = payload.isRunning ? payload.strings.stop : payload.strings.start;
+  setText(el.toggleBtn, toggleLabel);
 
   const errorText = payload.hotkeyError || payload.lastError || "";
-  el.messageText.textContent = errorText;
-  el.transcriptMessage.textContent = errorText;
+  setText(el.messageText, errorText);
+  setText(el.transcriptMessage, errorText);
 
   el.applyBtn.hidden = !payload.dirty;
   el.applyBtn.disabled = !payload.dirty || !payload.canApply;
@@ -404,8 +416,9 @@ function render(payload: RelayState) {
   if (document.activeElement !== el.secondAccent) el.secondAccent.value = payload.draft.second.accent ?? "";
   if (document.activeElement !== el.secondTone) el.secondTone.value = payload.draft.second.tone ?? "";
 
-  // Guide dialog on first visit
-  if (!localStorage.getItem("br_guide_seen")) {
+  // Guide dialog on first visit (once per session)
+  if (!payload.guideSeen && !state.guideShown) {
+    state.guideShown = true;
     document.querySelector<HTMLElement>("#guideTitle")!.textContent = payload.strings.title;
     document.querySelector<HTMLElement>("#guideMsg")!.textContent = payload.strings.guide;
     guideBtn.textContent = payload.strings.guideOk;
@@ -525,7 +538,7 @@ const guideOverlay = document.querySelector<HTMLElement>("#guideOverlay")!;
 const guideBtn = document.querySelector<HTMLButtonElement>("#guideBtn")!;
 function dismissGuide() {
   guideOverlay.style.display = "none";
-  try { localStorage.setItem("br_guide_seen", "1"); } catch {}
+  void invoke("dismiss_guide");
 }
 guideOverlay.addEventListener("click", dismissGuide);
 guideOverlay.querySelector(".guide-popup")!.addEventListener("click", (e) => e.stopPropagation());
