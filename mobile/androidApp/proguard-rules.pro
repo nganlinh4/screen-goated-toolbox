@@ -6,6 +6,11 @@
 -keep class com.yausername.youtubedl_android.** { *; }
 -keep class io.github.junkfood02.youtubedl_android.** { *; }
 
+# Apache Commons Compress — reflection-based ZIP extra-field registry
+# R8 makes AsiExtraField abstract, crashing ExtraFieldUtils.<clinit>
+-keep class org.apache.commons.compress.** { *; }
+-dontwarn org.tukaani.xz.**
+
 # kotlinx.serialization — keep @Serializable classes
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.AnnotationsKt

@@ -142,7 +142,7 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
                 icon = Icons.Rounded.Download,
                 statusText = when (downloaderState.ytdlp.status) {
                     ToolInstallStatus.INSTALLED ->
-                        locale.toolBundled.ifBlank { downloaderState.ytdlp.version ?: locale.dlDepsReady }
+                        downloaderState.ytdlp.version ?: locale.dlDepsReady
                     ToolInstallStatus.DOWNLOADING -> locale.dlDepsDownloading
                     ToolInstallStatus.EXTRACTING -> locale.dlDepsExtracting
                     ToolInstallStatus.CHECKING -> locale.dlDepsChecking
@@ -192,7 +192,7 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
                 name = "FFmpeg",
                 icon = Icons.Rounded.GraphicEq,
                 statusText = if (downloaderState.ffmpeg.status == ToolInstallStatus.INSTALLED) {
-                    locale.toolInstalledOnDemand
+                    downloaderState.ffmpeg.version ?: locale.dlDepsReady
                 } else {
                     locale.dlDepsNotInstalled
                 },
