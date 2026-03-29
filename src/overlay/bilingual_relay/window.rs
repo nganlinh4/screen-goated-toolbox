@@ -72,7 +72,6 @@ unsafe extern "system" fn window_proc(
                 LRESULT(0)
             }
             super::WM_APP_SYNC => {
-                refresh_window_chrome(hwnd);
                 super::state::sync_to_webview();
                 LRESULT(0)
             }
@@ -122,8 +121,8 @@ unsafe fn internal_create_loop() {
 
     let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
     let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-    let width = ((screen_w as f64 * 0.52) as i32).clamp(820, 1080);
-    let height = ((screen_h as f64 * 0.62) as i32).clamp(560, 720);
+    let width = ((screen_w as f64 * 0.34) as i32).clamp(560, 720);
+    let height = ((screen_h as f64 * 0.42) as i32).clamp(380, 500);
     let x = (screen_w - width) / 2;
     let y = (screen_h - height) / 2;
 

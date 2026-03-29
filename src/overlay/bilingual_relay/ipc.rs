@@ -55,16 +55,30 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
             super::toggle_run();
             Ok(Value::Null)
         }
-        "clear_hotkey" => {
-            super::state::with_state(|ui| {
-                ui.draft.hotkey = None;
-                ui.hotkey_error = None;
-                ui.normalize();
-            });
-            super::state::request_sync();
+        "add_hotkey" => handle_add_hotkey(envelope.args),
+        "remove_hotkey" => handle_remove_hotkey(envelope.args),
+        "open_tts_settings" => {
+            // Minimize the relay window
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_MINIMIZE);
+            }
+            // Show badge hint
+            let lang = super::current_ui_language();
+            let locale = crate::gui::locale::LocaleText::get(&lang);
+            crate::overlay::auto_copy_badge::show_notification(
+                locale.bilingual_relay_tts_settings_hint,
+            );
+            // Dismiss splash if still showing, then open TTS modal
+            super::REQUEST_DISMISS_SPLASH.store(true, std::sync::atomic::Ordering::SeqCst);
+            super::REQUEST_OPEN_TTS_SETTINGS.store(true, std::sync::atomic::Ordering::SeqCst);
+            crate::gui::signal_restore_window();
+            if let Ok(ctx) = crate::gui::GUI_CONTEXT.lock() {
+                if let Some(ctx) = ctx.as_ref() {
+                    ctx.request_repaint();
+                }
+            }
             Ok(Value::Null)
         }
-        "set_hotkey" => handle_set_hotkey(envelope.args).map(|_| Value::Null),
         "drag_window" => {
             unsafe {
                 let _ = ReleaseCapture();
@@ -124,12 +138,70 @@ fn handle_set_draft(args: Value) -> Result<(), String> {
     Ok(())
 }
 
-fn handle_set_hotkey(args: Value) -> Result<(), String> {
+/// Add hotkey immediately — saves to config and triggers system-wide registration.
+fn handle_add_hotkey(args: Value) -> Result<Value, String> {
     let args = serde_json::from_value::<HotkeyArgs>(args).map_err(|err| err.to_string())?;
-    super::apply_hotkey_capture(
-        &args.key, &args.code, args.ctrl, args.alt, args.shift, args.meta,
-    );
-    Ok(())
+    let Some(mut hotkey) = super::map_hotkey(&args.key, &args.code, args.ctrl, args.alt, args.shift, args.meta) else {
+        return Err("unsupported key".to_string());
+    };
+
+    // Check conflicts
+    {
+        let app = crate::APP.lock().unwrap();
+        if let Some(msg) = app.config.check_hotkey_conflict(hotkey.code, hotkey.modifiers, None) {
+            return Err(msg);
+        }
+    }
+
+    hotkey.name = super::hotkey_label(hotkey.modifiers, &hotkey.name);
+
+    // Save immediately to config
+    {
+        let mut app = crate::APP.lock().unwrap();
+        app.config.bilingual_relay.hotkeys.push(hotkey.clone());
+        crate::config::save_config(&app.config);
+    }
+
+    // Trigger system-wide hotkey re-registration
+    super::reload_hotkeys();
+
+    // Update UI state
+    super::state::with_state(|ui| {
+        ui.draft.hotkeys = crate::APP.lock().unwrap().config.bilingual_relay.hotkeys.clone();
+        ui.applied.hotkeys = ui.draft.hotkeys.clone();
+        ui.hotkey_error = None;
+        ui.normalize();
+    });
+    super::state::request_sync();
+
+    Ok(serde_json::to_value(&hotkey).unwrap_or(Value::Null))
+}
+
+/// Remove hotkey by index immediately.
+fn handle_remove_hotkey(args: Value) -> Result<Value, String> {
+    let index = args
+        .get("index")
+        .and_then(|v| v.as_u64())
+        .ok_or("missing index")? as usize;
+
+    {
+        let mut app = crate::APP.lock().unwrap();
+        if index < app.config.bilingual_relay.hotkeys.len() {
+            app.config.bilingual_relay.hotkeys.remove(index);
+            crate::config::save_config(&app.config);
+        }
+    }
+
+    super::reload_hotkeys();
+
+    super::state::with_state(|ui| {
+        ui.draft.hotkeys = crate::APP.lock().unwrap().config.bilingual_relay.hotkeys.clone();
+        ui.applied.hotkeys = ui.draft.hotkeys.clone();
+        ui.normalize();
+    });
+    super::state::request_sync();
+
+    Ok(Value::Null)
 }
 
 fn reply_to_webview(_id: &str, payload: Value) {

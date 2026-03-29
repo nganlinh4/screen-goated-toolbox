@@ -5,6 +5,7 @@ mod state;
 mod window;
 
 use std::sync::Once;
+use std::sync::atomic::AtomicBool;
 
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -25,6 +26,9 @@ const MOD_WIN: u32 = 0x0008;
 pub(super) const WM_APP_SHOW: u32 = WM_USER + 321;
 pub(super) const WM_APP_SYNC: u32 = WM_USER + 322;
 
+pub static REQUEST_OPEN_TTS_SETTINGS: AtomicBool = AtomicBool::new(false);
+pub static REQUEST_DISMISS_SPLASH: AtomicBool = AtomicBool::new(false);
+
 pub(super) static REGISTER_CLASS: Once = Once::new();
 pub(super) static mut WINDOW_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
 pub(super) static mut IS_READY: bool = false;
@@ -41,6 +45,15 @@ pub fn show_bilingual_relay() {
 
 pub fn update_settings() {
     state::refresh_from_config();
+    // Restart the relay session if running, so new voice/model takes effect
+    let is_running = state::snapshot().is_running;
+    if is_running {
+        runtime::stop_session();
+        let applied = current_settings();
+        if applied.is_valid() {
+            start_if_possible(applied);
+        }
+    }
     state::request_sync();
 }
 
@@ -127,7 +140,10 @@ pub(super) fn apply_draft() {
 
     {
         let mut app = crate::APP.lock().unwrap();
+        // Preserve hotkeys (managed separately via add_hotkey/remove_hotkey)
+        let hotkeys = app.config.bilingual_relay.hotkeys.clone();
         app.config.bilingual_relay = draft.clone();
+        app.config.bilingual_relay.hotkeys = hotkeys;
         save_config(&app.config);
     }
 
@@ -141,7 +157,6 @@ pub(super) fn apply_draft() {
         ui.normalize();
     });
 
-    reload_hotkeys();
     state::request_sync();
     start_if_possible(draft);
 }
@@ -158,51 +173,6 @@ pub(super) fn toggle_run() {
     } else {
         publish_connection(RelayConnectionState::NotConfigured, false, None);
     }
-}
-
-pub(super) fn apply_hotkey_capture(
-    key: &str,
-    code: &str,
-    ctrl: bool,
-    alt: bool,
-    shift: bool,
-    meta: bool,
-) {
-    let Some(mut hotkey) = map_hotkey(key, code, ctrl, alt, shift, meta) else {
-        return;
-    };
-
-    let conflict = {
-        let app = crate::APP.lock().unwrap();
-        if app
-            .config
-            .bilingual_relay
-            .hotkey
-            .as_ref()
-            .map(|existing| existing.code == hotkey.code && existing.modifiers == hotkey.modifiers)
-            .unwrap_or(false)
-        {
-            None
-        } else {
-            app.config
-                .check_hotkey_conflict(hotkey.code, hotkey.modifiers, None)
-        }
-    };
-
-    state::with_state(|ui| {
-        if conflict.is_some() {
-            let locale = LocaleText::get(&current_ui_language());
-            ui.hotkey_error = Some(locale.bilingual_relay_hotkey_conflict.to_string());
-        } else {
-            hotkey.name = hotkey_label(hotkey.modifiers, &hotkey.name);
-            ui.draft.hotkey = Some(hotkey);
-            ui.hotkey_error = None;
-            ui.last_error = None;
-        }
-        ui.normalize();
-    });
-
-    state::request_sync();
 }
 
 pub(super) fn current_settings() -> BilingualRelaySettings {

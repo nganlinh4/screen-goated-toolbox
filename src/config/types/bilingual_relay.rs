@@ -28,16 +28,27 @@ pub struct BilingualRelaySettings {
     pub first: BilingualRelayProfile,
     #[serde(default)]
     pub second: BilingualRelayProfile,
-    #[serde(default)]
+    /// Legacy single hotkey — migrated into `hotkeys` on load.
+    #[serde(default, skip_serializing)]
     pub hotkey: Option<Hotkey>,
+    #[serde(default)]
+    pub hotkeys: Vec<Hotkey>,
 }
 
 impl BilingualRelaySettings {
     pub fn normalized(&self) -> Self {
+        let mut hotkeys = self.hotkeys.clone();
+        // Migrate legacy single hotkey into vec
+        if let Some(ref legacy) = self.hotkey {
+            if !hotkeys.iter().any(|h| h.code == legacy.code && h.modifiers == legacy.modifiers) {
+                hotkeys.insert(0, legacy.clone());
+            }
+        }
         Self {
             first: self.first.normalized(),
             second: self.second.normalized(),
-            hotkey: self.hotkey.clone(),
+            hotkey: None,
+            hotkeys,
         }
     }
 
@@ -89,6 +100,7 @@ mod tests {
                 tone: "easy to hear".to_string(),
             },
             hotkey: None,
+            hotkeys: Vec::new(),
         };
 
         let prompt = settings.build_system_instruction();

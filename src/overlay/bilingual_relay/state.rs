@@ -66,10 +66,12 @@ struct WebPayload {
     can_toggle: bool,
     audio_level: f32,
     draft: BilingualRelaySettings,
-    hotkey_label: String,
+    hotkeys: Vec<crate::config::Hotkey>,
     hotkey_error: Option<String>,
     last_error: Option<String>,
     transcripts: Vec<RelayTranscriptItem>,
+    tts_model: String,
+    tts_voice: String,
     strings: WebStrings,
 }
 
@@ -92,6 +94,10 @@ struct WebStrings {
     input_chip: String,
     output_chip: String,
     no_transcript: String,
+    guide: String,
+    guide_ok: String,
+    current_model: String,
+    current_voice: String,
 }
 
 pub(super) fn with_state<R>(f: impl FnOnce(&mut UiState) -> R) -> R {
@@ -224,12 +230,7 @@ pub(super) fn payload_json() -> Option<String> {
         can_toggle: state.applied.is_valid(),
         audio_level: state.audio_level,
         draft: state.draft.clone(),
-        hotkey_label: state
-            .draft
-            .hotkey
-            .as_ref()
-            .map(|hotkey| hotkey.name.clone())
-            .unwrap_or_default(),
+        hotkeys: state.draft.hotkeys.clone(),
         hotkey_error: state.hotkey_error.clone(),
         last_error: state.last_error.clone().map(|err| {
             if err == "missing_api_key" {
@@ -239,6 +240,14 @@ pub(super) fn payload_json() -> Option<String> {
             }
         }),
         transcripts: state.transcripts.clone(),
+        tts_model: {
+            let (m, _) = super::runtime::current_gemini_tts_settings();
+            m
+        },
+        tts_voice: {
+            let (_, v) = super::runtime::current_gemini_tts_settings();
+            v
+        },
         strings: WebStrings {
             title: text.bilingual_relay_title.to_string(),
             first_profile: text.bilingual_relay_first_profile.to_string(),
@@ -256,6 +265,10 @@ pub(super) fn payload_json() -> Option<String> {
             input_chip: text.bilingual_relay_input_chip.to_string(),
             output_chip: text.bilingual_relay_output_chip.to_string(),
             no_transcript: text.bilingual_relay_no_transcript_yet.to_string(),
+            guide: text.bilingual_relay_guide.to_string(),
+            guide_ok: text.bilingual_relay_guide_ok.to_string(),
+            current_model: text.bilingual_relay_current_model.to_string(),
+            current_voice: text.bilingual_relay_current_voice.to_string(),
         },
     };
     serde_json::to_string(&payload).ok()
