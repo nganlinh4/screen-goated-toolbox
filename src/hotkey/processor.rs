@@ -3,12 +3,28 @@
 
 use crate::APP;
 use crate::overlay;
-use crate::screen_capture::capture_screen_fast;
+use crate::screen_capture::{capture_screen_fast, format_gui_resources, gui_resources_snapshot};
 use crate::win_types::SendHwnd;
+use std::sync::OnceLock;
 use windows::Win32::Foundation::*;
+use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 pub const WM_APP_PROCESS_PENDING_FILE: u32 = WM_USER + 102;
+
+fn capture_diag_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("SGT_CAPTURE_DIAG")
+            .map(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or(false)
+    })
+}
 
 /// Window procedure for handling hotkey and inter-process messages.
 pub unsafe extern "system" fn hotkey_proc(
@@ -454,9 +470,38 @@ fn handle_image_preset(preset_idx: usize, id: i32) {
     let app_clone = APP.clone();
     let p_idx = preset_idx;
     std::thread::spawn(move || {
+        let mut capture_attempt = 0usize;
+        let diag_enabled = capture_diag_enabled();
         loop {
+            capture_attempt += 1;
+            let before = gui_resources_snapshot();
+            let started_at = std::time::Instant::now();
+            if diag_enabled {
+                crate::log_info!(
+                    "[CaptureDiag] attempt={} preset_idx={} hotkey_id={} thread_id={} before={}",
+                    capture_attempt,
+                    p_idx,
+                    id,
+                    unsafe { GetCurrentThreadId() },
+                    format_gui_resources(before)
+                );
+            }
+
             match capture_screen_fast() {
                 Ok(capture) => {
+                    let after = gui_resources_snapshot();
+                    if diag_enabled {
+                        crate::log_info!(
+                            "[CaptureDiag] attempt={} result=success elapsed_ms={} bitmap={}x{} after={} delta_gdi={} delta_user={}",
+                            capture_attempt,
+                            started_at.elapsed().as_millis(),
+                            capture.width,
+                            capture.height,
+                            format_gui_resources(after),
+                            after.gdi_objects as i64 - before.gdi_objects as i64,
+                            after.user_objects as i64 - before.user_objects as i64
+                        );
+                    }
                     if let Ok(mut app) = app_clone.lock() {
                         app.screenshot_handle = Some(capture);
                     } else {
@@ -466,6 +511,16 @@ fn handle_image_preset(preset_idx: usize, id: i32) {
                     overlay::show_selection_overlay(p_idx, id);
                 }
                 Err(e) => {
+                    let after = gui_resources_snapshot();
+                    crate::log_info!(
+                        "[CaptureDiag] attempt={} result=failure elapsed_ms={} after={} delta_gdi={} delta_user={} error={}",
+                        capture_attempt,
+                        started_at.elapsed().as_millis(),
+                        format_gui_resources(after),
+                        after.gdi_objects as i64 - before.gdi_objects as i64,
+                        after.user_objects as i64 - before.user_objects as i64,
+                        e
+                    );
                     eprintln!("Capture Error: {}", e);
                     break;
                 }

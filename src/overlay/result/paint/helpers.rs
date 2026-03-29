@@ -60,6 +60,9 @@ pub unsafe fn measure_text_bounds(
 pub fn create_bitmap_from_pixels(pixels: &[u32], w: i32, h: i32) -> HBITMAP {
     unsafe {
         let hdc = GetDC(None);
+        if hdc.is_invalid() {
+            return HBITMAP::default();
+        }
         let bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: size_of::<BITMAPINFOHEADER>() as u32,
@@ -73,7 +76,13 @@ pub fn create_bitmap_from_pixels(pixels: &[u32], w: i32, h: i32) -> HBITMAP {
             ..Default::default()
         };
         let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
-        let hbm = CreateDIBSection(Some(hdc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0).unwrap();
+        let hbm = match CreateDIBSection(Some(hdc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) {
+            Ok(hbm) => hbm,
+            Err(_) => {
+                let _ = ReleaseDC(None, hdc);
+                return HBITMAP::default();
+            }
+        };
         if !bits.is_null() {
             std::ptr::copy_nonoverlapping(
                 pixels.as_ptr() as *const u8,
@@ -81,7 +90,7 @@ pub fn create_bitmap_from_pixels(pixels: &[u32], w: i32, h: i32) -> HBITMAP {
                 pixels.len() * 4,
             );
         }
-        ReleaseDC(None, hdc);
+        let _ = ReleaseDC(None, hdc);
         hbm
     }
 }

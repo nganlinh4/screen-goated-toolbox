@@ -14,7 +14,14 @@ pub(super) unsafe fn handle_color_pick(pt: POINT) {
         let capture_guard = GESTURE_CAPTURE.lock().unwrap();
         if let Some(capture) = capture_guard.as_ref() {
             let hdc_screen = GetDC(None);
+            if hdc_screen.is_invalid() {
+                return;
+            }
             let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
+            if hdc_mem.is_invalid() {
+                let _ = ReleaseDC(None, hdc_screen);
+                return;
+            }
             let old_bmp = SelectObject(hdc_mem, capture.hbitmap.into());
 
             let sx = GetSystemMetrics(SM_XVIRTUALSCREEN);

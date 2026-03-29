@@ -404,8 +404,16 @@ fn render_cursor_rgba(path: &Path, target_size: u32) -> Result<Vec<u8>, String> 
         };
 
         let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
-        let dib = CreateDIBSection(Some(mem_dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0)
-            .map_err(|e| format!("Failed creating bitmap buffer: {}", e))?;
+        let dib = match CreateDIBSection(Some(mem_dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0)
+        {
+            Ok(dib) => dib,
+            Err(e) => {
+                let _ = DeleteDC(mem_dc);
+                let _ = ReleaseDC(None, screen_dc);
+                let _ = DestroyCursor(cursor);
+                return Err(format!("Failed creating bitmap buffer: {}", e));
+            }
+        };
         let old_bm = SelectObject(mem_dc, dib.into());
 
         if !bits.is_null() {

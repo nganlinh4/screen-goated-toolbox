@@ -32,6 +32,10 @@ pub fn paint_window(hwnd: HWND) {
 
         // --- PHASE 2: COMPOSITOR SETUP ---
         let mem_dc = CreateCompatibleDC(Some(hdc));
+        if mem_dc.is_invalid() {
+            let _ = EndPaint(hwnd, &ps);
+            return;
+        }
 
         let bmi_scratch = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
@@ -46,7 +50,7 @@ pub fn paint_window(hwnd: HWND) {
             ..Default::default()
         };
         let mut scratch_bits: *mut core::ffi::c_void = std::ptr::null_mut();
-        let scratch_bitmap = CreateDIBSection(
+        let scratch_bitmap = match CreateDIBSection(
             Some(hdc),
             &bmi_scratch,
             DIB_RGB_COLORS,
@@ -54,16 +58,25 @@ pub fn paint_window(hwnd: HWND) {
             None,
             0,
         )
-        .unwrap();
+        {
+            Ok(bitmap) => bitmap,
+            Err(_) => {
+                let _ = DeleteDC(mem_dc);
+                let _ = EndPaint(hwnd, &ps);
+                return;
+            }
+        };
         let old_scratch = SelectObject(mem_dc, scratch_bitmap.into());
 
         // Copy Background
         if !state_snapshot.cached_bg_bm.is_invalid() {
             let cache_dc = CreateCompatibleDC(Some(hdc));
-            let old_cbm = SelectObject(cache_dc, state_snapshot.cached_bg_bm.into());
-            let _ = BitBlt(mem_dc, 0, 0, width, height, Some(cache_dc), 0, 0, SRCCOPY).ok();
-            SelectObject(cache_dc, old_cbm);
-            let _ = DeleteDC(cache_dc);
+            if !cache_dc.is_invalid() {
+                let old_cbm = SelectObject(cache_dc, state_snapshot.cached_bg_bm.into());
+                let _ = BitBlt(mem_dc, 0, 0, width, height, Some(cache_dc), 0, 0, SRCCOPY).ok();
+                SelectObject(cache_dc, old_cbm);
+                let _ = DeleteDC(cache_dc);
+            }
         }
 
         // --- PHASE 3: TEXT RENDERING ---
@@ -182,8 +195,17 @@ unsafe fn collect_state_snapshot(
             };
 
             let mut p_bg_bits: *mut core::ffi::c_void = std::ptr::null_mut();
-            let hbm_bg =
-                CreateDIBSection(Some(hdc), &bmi, DIB_RGB_COLORS, &mut p_bg_bits, None, 0).unwrap();
+            let hbm_bg = match CreateDIBSection(
+                Some(hdc),
+                &bmi,
+                DIB_RGB_COLORS,
+                &mut p_bg_bits,
+                None,
+                0,
+            ) {
+                Ok(bitmap) => bitmap,
+                Err(_) => return None,
+            };
 
             if !p_bg_bits.is_null() {
                 let pixels = std::slice::from_raw_parts_mut(
@@ -293,7 +315,14 @@ unsafe fn render_text_content(
             }
 
             cached_text_bm = CreateCompatibleBitmap(hdc, width, height);
+            if cached_text_bm.is_invalid() {
+                return HBITMAP::default();
+            }
             let cache_dc = CreateCompatibleDC(Some(hdc));
+            if cache_dc.is_invalid() {
+                let _ = DeleteObject(cached_text_bm.into());
+                return HBITMAP::default();
+            }
             let old_cache_bm = SelectObject(cache_dc, cached_text_bm.into());
 
             let dark_brush = CreateSolidBrush(COLORREF(snapshot.bg_color_u32));
@@ -435,10 +464,12 @@ unsafe fn render_text_content(
 
         if !cached_text_bm.is_invalid() {
             let cache_dc = CreateCompatibleDC(Some(hdc));
-            let old_cbm = SelectObject(cache_dc, cached_text_bm.into());
-            let _ = BitBlt(mem_dc, 0, 0, width, height, Some(cache_dc), 0, 0, SRCCOPY).ok();
-            SelectObject(cache_dc, old_cbm);
-            let _ = DeleteDC(cache_dc);
+            if !cache_dc.is_invalid() {
+                let old_cbm = SelectObject(cache_dc, cached_text_bm.into());
+                let _ = BitBlt(mem_dc, 0, 0, width, height, Some(cache_dc), 0, 0, SRCCOPY).ok();
+                SelectObject(cache_dc, old_cbm);
+                let _ = DeleteDC(cache_dc);
+            }
         }
 
         cached_text_bm

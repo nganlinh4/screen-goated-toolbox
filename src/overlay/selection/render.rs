@@ -32,14 +32,25 @@ unsafe fn extract_crop_from_hbitmap_internal(
     crop_rect: RECT,
 ) -> image::ImageBuffer<image::Rgba<u8>, Vec<u8>> {
     unsafe {
+        let w = (crop_rect.right - crop_rect.left).abs();
+        let h = (crop_rect.bottom - crop_rect.top).abs();
+        let empty_image = || {
+            image::ImageBuffer::from_raw(w.max(1) as u32, h.max(1) as u32, vec![0; (w.max(1) * h.max(1) * 4) as usize])
+                .unwrap()
+        };
+
         let hdc_screen = GetDC(None);
+        if hdc_screen.is_invalid() {
+            return empty_image();
+        }
         let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
+        if hdc_mem.is_invalid() {
+            let _ = ReleaseDC(None, hdc_screen);
+            return empty_image();
+        }
 
         // Select the big screenshot into DC
         let old_obj = SelectObject(hdc_mem, capture.hbitmap.into());
-
-        let w = (crop_rect.right - crop_rect.left).abs();
-        let h = (crop_rect.bottom - crop_rect.top).abs();
 
         // Create a BMI for just the cropped area
         let mut bmi = BITMAPINFO {
@@ -59,7 +70,20 @@ unsafe fn extract_crop_from_hbitmap_internal(
 
         // Create small temp bitmap, blit crop to it, read bits
         let hdc_temp = CreateCompatibleDC(Some(hdc_screen));
+        if hdc_temp.is_invalid() {
+            SelectObject(hdc_mem, old_obj);
+            let _ = DeleteDC(hdc_mem);
+            let _ = ReleaseDC(None, hdc_screen);
+            return empty_image();
+        }
         let hbm_temp = CreateCompatibleBitmap(hdc_screen, w, h);
+        if hbm_temp.is_invalid() {
+            let _ = DeleteDC(hdc_temp);
+            SelectObject(hdc_mem, old_obj);
+            let _ = DeleteDC(hdc_mem);
+            let _ = ReleaseDC(None, hdc_screen);
+            return empty_image();
+        }
         SelectObject(hdc_temp, hbm_temp.into());
 
         // Copy only the crop region from the huge screenshot
@@ -156,7 +180,14 @@ pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
 
         // 2. Draw using GDI to the DIB
         let hdc_screen = GetDC(None);
+        if hdc_screen.is_invalid() {
+            return;
+        }
         let mem_dc = CreateCompatibleDC(Some(hdc_screen));
+        if mem_dc.is_invalid() {
+            let _ = ReleaseDC(None, hdc_screen);
+            return;
+        }
         let old_bmp = SelectObject(mem_dc, CACHED_BITMAP.0.into());
 
         let effective_alpha = if let Some(zoom_alpha) = ZOOM_ALPHA_OVERRIDE {
@@ -181,11 +212,15 @@ pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
         let has_frozen = if let Some(hbm) = frozen_hbitmap {
             if effective_alpha > 0 {
                 let hdc_src = CreateCompatibleDC(Some(mem_dc));
-                let old = SelectObject(hdc_src, hbm.into());
-                let _ = BitBlt(mem_dc, 0, 0, width, height, Some(hdc_src), 0, 0, SRCCOPY);
-                SelectObject(hdc_src, old);
-                let _ = DeleteDC(hdc_src);
-                true
+                if hdc_src.is_invalid() {
+                    false
+                } else {
+                    let old = SelectObject(hdc_src, hbm.into());
+                    let _ = BitBlt(mem_dc, 0, 0, width, height, Some(hdc_src), 0, 0, SRCCOPY);
+                    SelectObject(hdc_src, old);
+                    let _ = DeleteDC(hdc_src);
+                    true
+                }
             } else {
                 false
             }
@@ -299,7 +334,7 @@ pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
         // Cleanup DC
         SelectObject(mem_dc, old_bmp);
         let _ = DeleteDC(mem_dc);
-        ReleaseDC(None, hdc_screen);
+        let _ = ReleaseDC(None, hdc_screen);
     }
 }
 

@@ -85,8 +85,27 @@ fn extract_icon_data_url_from_exe(exe_path: &str) -> Option<String> {
 
         let width = bitmap.bmWidth as u32;
         let height = bitmap.bmHeight as u32;
+        if width == 0 || height == 0 {
+            let _ = DeleteObject(icon_info.hbmMask.into());
+            let _ = DeleteObject(icon_info.hbmColor.into());
+            let _ = DestroyIcon(large_icon);
+            return None;
+        }
         let hdc_screen = GetDC(None);
+        if hdc_screen.is_invalid() {
+            let _ = DeleteObject(icon_info.hbmMask.into());
+            let _ = DeleteObject(icon_info.hbmColor.into());
+            let _ = DestroyIcon(large_icon);
+            return None;
+        }
         let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
+        if hdc_mem.is_invalid() {
+            let _ = ReleaseDC(None, hdc_screen);
+            let _ = DeleteObject(icon_info.hbmMask.into());
+            let _ = DeleteObject(icon_info.hbmColor.into());
+            let _ = DestroyIcon(large_icon);
+            return None;
+        }
 
         let bitmap_info = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
