@@ -5,28 +5,7 @@ use super::*;
 // === GRAPHICS ===
 
 pub(super) unsafe fn capture_screen_now() -> anyhow::Result<GdiCapture> {
-    unsafe {
-        let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-        let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-        let w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-        let h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-
-        let hdc_screen = GetDC(None);
-        let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
-        let hbm = CreateCompatibleBitmap(hdc_screen, w, h);
-        let _ = SelectObject(hdc_mem, hbm.into());
-
-        BitBlt(hdc_mem, 0, 0, w, h, Some(hdc_screen), x, y, SRCCOPY)?;
-
-        let _ = DeleteDC(hdc_mem);
-        let _ = ReleaseDC(None, hdc_screen);
-
-        Ok(GdiCapture {
-            hbitmap: hbm,
-            width: w,
-            height: h,
-        })
-    }
+    crate::screen_capture::capture_screen_fast()
 }
 
 /// Darken pixels by dim factor and set alpha to 0xFF.
@@ -194,9 +173,12 @@ pub(super) unsafe fn sync_rect_overlay(hwnd: HWND) {
             };
 
             let hdc_screen = GetDC(None);
+            if hdc_screen.is_invalid() {
+                return;
+            }
             let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
             let hbm = CreateDIBSection(Some(hdc_screen), &bmi, DIB_RGB_COLORS, &mut bits, None, 0);
-            ReleaseDC(None, hdc_screen);
+            let _ = ReleaseDC(None, hdc_screen);
 
             if let Ok(dib) = hbm {
                 OVERLAY_DIB = SendHbitmap(dib);
@@ -210,7 +192,14 @@ pub(super) unsafe fn sync_rect_overlay(hwnd: HWND) {
 
         // 2. Render into the cached DIB
         let hdc_screen = GetDC(None);
+        if hdc_screen.is_invalid() {
+            return;
+        }
         let mem_dc = CreateCompatibleDC(Some(hdc_screen));
+        if mem_dc.is_invalid() {
+            let _ = ReleaseDC(None, hdc_screen);
+            return;
+        }
         let old_bmp = SelectObject(mem_dc, OVERLAY_DIB.0.into());
 
         let len = (w * h) as usize;
@@ -221,11 +210,15 @@ pub(super) unsafe fn sync_rect_overlay(hwnd: HWND) {
             let guard = GESTURE_CAPTURE.lock().unwrap();
             if let Some(cap) = guard.as_ref() {
                 let hdc_src = CreateCompatibleDC(Some(mem_dc));
-                let old = SelectObject(hdc_src, cap.hbitmap.into());
-                let _ = BitBlt(mem_dc, 0, 0, w, h, Some(hdc_src), 0, 0, SRCCOPY);
-                SelectObject(hdc_src, old);
-                let _ = DeleteDC(hdc_src);
-                true
+                if hdc_src.is_invalid() {
+                    false
+                } else {
+                    let old = SelectObject(hdc_src, cap.hbitmap.into());
+                    let _ = BitBlt(mem_dc, 0, 0, w, h, Some(hdc_src), 0, 0, SRCCOPY);
+                    SelectObject(hdc_src, old);
+                    let _ = DeleteDC(hdc_src);
+                    true
+                }
             } else {
                 false
             }
@@ -305,7 +298,7 @@ pub(super) unsafe fn sync_rect_overlay(hwnd: HWND) {
         // Cleanup DC only (bitmap is cached and reused)
         SelectObject(mem_dc, old_bmp);
         let _ = DeleteDC(mem_dc);
-        ReleaseDC(None, hdc_screen);
+        let _ = ReleaseDC(None, hdc_screen);
     }
 }
 

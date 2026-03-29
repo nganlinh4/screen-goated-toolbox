@@ -79,7 +79,20 @@ pub(super) fn extract_icon_data_url_from_exe(exe_path: &str) -> Option<String> {
         }
 
         let hdc_screen = GetDC(None);
+        if hdc_screen.is_invalid() {
+            let _ = DeleteObject(icon_info.hbmMask.into());
+            let _ = DeleteObject(icon_info.hbmColor.into());
+            let _ = DestroyIcon(large_icon);
+            return None;
+        }
         let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
+        if hdc_mem.is_invalid() {
+            let _ = ReleaseDC(None, hdc_screen);
+            let _ = DeleteObject(icon_info.hbmMask.into());
+            let _ = DeleteObject(icon_info.hbmColor.into());
+            let _ = DestroyIcon(large_icon);
+            return None;
+        }
         let bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
@@ -171,7 +184,14 @@ pub(crate) fn capture_window_thumbnail(hwnd: HWND) -> Option<String> {
         let t_height = ((height as f32 * scale).round() as i32).max(1);
 
         let hdc_screen = GetDC(None);
+        if hdc_screen.is_invalid() {
+            return None;
+        }
         let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
+        if hdc_mem.is_invalid() {
+            let _ = ReleaseDC(None, hdc_screen);
+            return None;
+        }
         let hbitmap = CreateCompatibleBitmap(hdc_screen, width, height);
         if hbitmap.0.is_null() {
             let _ = DeleteDC(hdc_mem);
@@ -192,6 +212,13 @@ pub(crate) fn capture_window_thumbnail(hwnd: HWND) -> Option<String> {
         }
 
         let hdc_thumb = CreateCompatibleDC(Some(hdc_screen));
+        if hdc_thumb.is_invalid() {
+            let _ = SelectObject(hdc_mem, old_obj);
+            let _ = DeleteObject(hbitmap.into());
+            let _ = DeleteDC(hdc_mem);
+            let _ = ReleaseDC(None, hdc_screen);
+            return None;
+        }
         let hbitmap_thumb = CreateCompatibleBitmap(hdc_screen, t_width, t_height);
         if hbitmap_thumb.0.is_null() {
             let _ = SelectObject(hdc_mem, old_obj);
@@ -289,7 +316,14 @@ pub(super) fn capture_monitor_thumbnail(x: i32, y: i32, width: i32, height: i32)
         let t_h = ((height as f32 * scale).round() as i32).max(1);
 
         let hdc_screen = GetDC(None);
+        if hdc_screen.is_invalid() {
+            return None;
+        }
         let hdc_thumb = CreateCompatibleDC(Some(hdc_screen));
+        if hdc_thumb.is_invalid() {
+            let _ = ReleaseDC(None, hdc_screen);
+            return None;
+        }
         let hbitmap = CreateCompatibleBitmap(hdc_screen, t_w, t_h);
         if hbitmap.0.is_null() {
             let _ = DeleteDC(hdc_thumb);

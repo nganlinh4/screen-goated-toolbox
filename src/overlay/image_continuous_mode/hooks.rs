@@ -82,8 +82,13 @@ pub(super) unsafe extern "system" fn mouse_hook_proc(
 
                 // Capture screen NOW at start of drag
                 // This ensures we get what the user sees before drawing box
-                if let Ok(capture) = graphics::capture_screen_now() {
-                    *GESTURE_CAPTURE.lock().unwrap() = Some(capture);
+                match graphics::capture_screen_now() {
+                    Ok(capture) => {
+                        *GESTURE_CAPTURE.lock().unwrap() = Some(capture);
+                    }
+                    Err(err) => {
+                        eprintln!("[ImageContinuous] Capture Error: {}", err);
+                    }
                 }
 
                 // Restore badges after capture is complete

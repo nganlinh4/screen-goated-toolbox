@@ -11,7 +11,14 @@ pub fn update_bubble_visual(hwnd: HWND) {
 
     unsafe {
         let hdc_screen = GetDC(None);
+        if hdc_screen.is_invalid() {
+            return;
+        }
         let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
+        if hdc_mem.is_invalid() {
+            let _ = ReleaseDC(None, hdc_screen);
+            return;
+        }
 
         let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
 
@@ -30,8 +37,15 @@ pub fn update_bubble_visual(hwnd: HWND) {
         };
 
         let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
-        let hbm =
-            CreateDIBSection(Some(hdc_mem), &bmi, DIB_RGB_COLORS, &mut bits, None, 0).unwrap();
+        let hbm = match CreateDIBSection(Some(hdc_mem), &bmi, DIB_RGB_COLORS, &mut bits, None, 0)
+        {
+            Ok(hbm) => hbm,
+            Err(_) => {
+                let _ = DeleteDC(hdc_mem);
+                let _ = ReleaseDC(None, hdc_screen);
+                return;
+            }
+        };
         let old_bm = SelectObject(hdc_mem, hbm.into());
 
         if !bits.is_null() {

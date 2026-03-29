@@ -81,8 +81,16 @@ impl EscapeOverlay {
             .ok()?;
 
             let hdc_screen = GetDC(None);
+            if hdc_screen.is_invalid() {
+                let _ = DestroyWindow(hwnd);
+                return None;
+            }
             let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
-            ReleaseDC(None, hdc_screen);
+            let _ = ReleaseDC(None, hdc_screen);
+            if hdc_mem.is_invalid() {
+                let _ = DestroyWindow(hwnd);
+                return None;
+            }
 
             let bmi = BITMAPINFO {
                 bmiHeader: BITMAPINFOHEADER {
@@ -98,9 +106,23 @@ impl EscapeOverlay {
             };
 
             let mut bits_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-            let hbmp =
-                CreateDIBSection(Some(hdc_mem), &bmi, DIB_RGB_COLORS, &mut bits_ptr, None, 0)
-                    .ok()?;
+            let hbmp = match CreateDIBSection(
+                Some(hdc_mem),
+                &bmi,
+                DIB_RGB_COLORS,
+                &mut bits_ptr,
+                None,
+                0,
+            )
+            .ok()
+            {
+                Some(hbmp) => hbmp,
+                None => {
+                    let _ = DeleteDC(hdc_mem);
+                    let _ = DestroyWindow(hwnd);
+                    return None;
+                }
+            };
             let old_bmp = SelectObject(hdc_mem, hbmp.into());
 
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);

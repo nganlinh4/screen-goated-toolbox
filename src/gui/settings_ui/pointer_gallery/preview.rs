@@ -343,7 +343,17 @@ fn cursor_file_to_color_image(path: &Path, ani_step: u32, size: i32) -> Option<e
         };
 
         let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
-        let dib = CreateDIBSection(Some(mem_dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0).ok()?;
+        let dib = match CreateDIBSection(Some(mem_dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0)
+            .ok()
+        {
+            Some(dib) => dib,
+            None => {
+                let _ = DeleteDC(mem_dc);
+                let _ = ReleaseDC(None, screen_dc);
+                let _ = DestroyCursor(cursor);
+                return None;
+            }
+        };
         let old_bm = SelectObject(mem_dc, dib.into());
 
         if !bits.is_null() {
