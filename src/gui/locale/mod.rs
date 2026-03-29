@@ -278,6 +278,7 @@ pub struct LocaleText {
     pub bilingual_relay_tts_settings_hint: &'static str,
     pub bilingual_relay_guide: &'static str,
     pub bilingual_relay_guide_ok: &'static str,
+    pub bilingual_relay_chat_history: &'static str,
     pub bilingual_relay_current_model: &'static str,
     pub bilingual_relay_current_voice: &'static str,
     pub screen_record_btn: &'static str,

@@ -143,7 +143,7 @@ fn run_single_session(
     wait_for_setup(&mut socket, stop.clone())?;
     set_socket_nonblocking(&mut socket)?;
 
-    super::clear_transcripts();
+    super::insert_session_separator();
     super::publish_connection(RelayConnectionState::Ready, true, None);
     super::publish_audio_level(0.0);
 

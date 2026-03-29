@@ -55,6 +55,12 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
             super::toggle_run();
             Ok(Value::Null)
         }
+        "dismiss_guide" => {
+            let mut app = crate::APP.lock().unwrap();
+            app.config.bilingual_relay.guide_seen = true;
+            crate::config::save_config(&app.config);
+            Ok(Value::Null)
+        }
         "add_hotkey" => handle_add_hotkey(envelope.args),
         "remove_hotkey" => handle_remove_hotkey(envelope.args),
         "open_tts_settings" => {

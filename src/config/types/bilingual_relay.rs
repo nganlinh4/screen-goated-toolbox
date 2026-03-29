@@ -33,6 +33,8 @@ pub struct BilingualRelaySettings {
     pub hotkey: Option<Hotkey>,
     #[serde(default)]
     pub hotkeys: Vec<Hotkey>,
+    #[serde(default)]
+    pub guide_seen: bool,
 }
 
 impl BilingualRelaySettings {
@@ -49,6 +51,7 @@ impl BilingualRelaySettings {
             second: self.second.normalized(),
             hotkey: None,
             hotkeys,
+            guide_seen: self.guide_seen,
         }
     }
 
@@ -101,6 +104,7 @@ mod tests {
             },
             hotkey: None,
             hotkeys: Vec::new(),
+            guide_seen: false,
         };
 
         let prompt = settings.build_system_instruction();

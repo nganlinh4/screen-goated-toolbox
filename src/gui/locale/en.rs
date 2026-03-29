@@ -315,6 +315,7 @@ pub fn get() -> LocaleText {
         bilingual_relay_status_error: "Error",
         bilingual_relay_status_stopped: "Stopped",
         bilingual_relay_api_key_required: "Add your Gemini API key before starting Translation Gummy.",
+        bilingual_relay_chat_history: "Chat history",
         bilingual_relay_tts_settings_hint: "Change Gemini Live model and voice to your liking!",
         bilingual_relay_guide: "How to use: Speak a sentence in either of the two configured languages, and the corresponding translation will be spoken in the other language.",
         bilingual_relay_guide_ok: "Got it!",

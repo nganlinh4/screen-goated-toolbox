@@ -44,21 +44,25 @@ pub fn show_bilingual_relay() {
 }
 
 pub fn update_settings() {
+    let old_tts = runtime::current_gemini_tts_settings();
     state::refresh_from_config();
-    // Restart the relay session if running, so new voice/model takes effect
-    let is_running = state::snapshot().is_running;
-    if is_running {
-        runtime::stop_session();
-        let applied = current_settings();
-        if applied.is_valid() {
-            start_if_possible(applied);
+    let new_tts = runtime::current_gemini_tts_settings();
+    // Only restart if voice or model actually changed
+    if old_tts != new_tts {
+        let is_running = state::snapshot().is_running;
+        if is_running {
+            runtime::stop_session();
+            let applied = current_settings();
+            if applied.is_valid() {
+                start_if_possible(applied);
+            }
         }
     }
     state::request_sync();
 }
 
-pub(super) fn clear_transcripts() {
-    state::clear_transcripts();
+pub(super) fn insert_session_separator() {
+    state::insert_session_separator();
     state::request_sync();
 }
 
@@ -147,10 +151,10 @@ pub(super) fn apply_draft() {
         save_config(&app.config);
     }
 
+    state::insert_session_separator();
     state::with_state(|ui| {
         ui.applied = draft.clone();
         ui.draft = draft.clone();
-        ui.transcripts.clear();
         ui.last_error = None;
         ui.hotkey_error = None;
         ui.audio_level = 0.0;
