@@ -288,7 +288,8 @@ class DownloaderRepository(
                             it.copy(ytdlp = ToolState(ToolInstallStatus.INSTALLED, version = calculateYtdlpSize()))
                         }
                     }
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    android.util.Log.e("SGT-DL", "checkUpdates failed", e)
                     _state.update { it.copy(ytdlpUpdate = UpdateStatus.ERROR) }
                 }
             }
