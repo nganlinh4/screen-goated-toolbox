@@ -22,8 +22,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -60,6 +60,7 @@ import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 fun BilingualRelayScreen(
     locale: MobileLocaleText,
     onBack: () -> Unit,
+    onNavigateToTtsSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val repository = remember(context) {
@@ -118,6 +119,12 @@ fun BilingualRelayScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onNavigateToTtsSettings) {
+                        Icon(
+                            Icons.Rounded.Settings,
+                            contentDescription = "TTS Settings",
+                        )
+                    }
                     if (state.dirty) {
                         Button(
                             onClick = {
@@ -221,39 +228,58 @@ fun BilingualRelayScreen(
                             )
                         }
                     } else {
+                        val pairs = groupTranscriptPairs(state.transcripts)
                         LazyColumn(
                             state = transcriptListState,
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxSize(),
                         ) {
-                            items(state.transcripts, key = { it.id }) { item ->
-                                val chipText = if (item.role == BilingualRelayTranscriptRole.INPUT) {
-                                    locale.bilingualRelayInputChip
-                                } else {
-                                    locale.bilingualRelayOutputChip
-                                }
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                                    ),
+                            items(pairs.size, key = { pairs[it].id }) { index ->
+                                val pair = pairs[index]
+                                val isLeft = pair.isLeft
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = if (isLeft) Arrangement.Start else Arrangement.End,
                                 ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(10.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        verticalAlignment = Alignment.Top,
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(0.85f),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isLeft) {
+                                                MaterialTheme.colorScheme.surfaceContainerHigh
+                                            } else {
+                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                            },
+                                        ),
+                                        shape = if (isLeft) {
+                                            androidx.compose.foundation.shape.RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp)
+                                        } else {
+                                            androidx.compose.foundation.shape.RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp)
+                                        },
                                     ) {
-                                        AssistChip(
-                                            onClick = {},
-                                            enabled = false,
-                                            label = { Text(chipText) },
-                                        )
-                                        Text(
-                                            item.text,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            modifier = Modifier.weight(1f),
-                                        )
+                                        Column(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                                        ) {
+                                            if (pair.input.isNotBlank()) {
+                                                Text(
+                                                    pair.input,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                            if (pair.output.isNotBlank()) {
+                                                Text(
+                                                    pair.output,
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = if (isLeft) {
+                                                        MaterialTheme.colorScheme.onSurface
+                                                    } else {
+                                                        MaterialTheme.colorScheme.primary
+                                                    },
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -414,6 +440,41 @@ private fun ReadyVisualizer(
             )
         }
     }
+}
+
+private data class TranscriptPair(
+    val id: Long,
+    val input: String,
+    val output: String,
+    val isLeft: Boolean,
+)
+
+private fun groupTranscriptPairs(items: List<BilingualRelayTranscriptItem>): List<TranscriptPair> {
+    val pairs = mutableListOf<TranscriptPair>()
+    var i = 0
+    while (i < items.size) {
+        val item = items[i]
+        if (item.role == BilingualRelayTranscriptRole.INPUT) {
+            val next = items.getOrNull(i + 1)
+            if (next != null && next.role == BilingualRelayTranscriptRole.OUTPUT) {
+                pairs += TranscriptPair(item.id, item.text, next.text, isLeft = true)
+                i += 2
+            } else {
+                pairs += TranscriptPair(item.id, item.text, "", isLeft = true)
+                i++
+            }
+        } else {
+            pairs += TranscriptPair(item.id, "", item.text, isLeft = true)
+            i++
+        }
+    }
+    // Alternate alignment: first pair is left, subsequent pairs alternate based on position
+    if (pairs.size > 1) {
+        for (idx in 1 until pairs.size) {
+            pairs[idx] = pairs[idx].copy(isLeft = idx % 2 == 0)
+        }
+    }
+    return pairs
 }
 
 private fun connectionStateLabel(

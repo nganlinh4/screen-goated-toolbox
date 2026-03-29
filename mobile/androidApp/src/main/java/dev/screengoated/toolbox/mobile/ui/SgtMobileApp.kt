@@ -403,6 +403,10 @@ fun SgtMobileApp(
                 BilingualRelayScreen(
                     locale = locale,
                     onBack = { showBilingualRelay = false },
+                    onNavigateToTtsSettings = {
+                        showBilingualRelay = false
+                        showTtsSettings = true
+                    },
                 )
             }
         }
