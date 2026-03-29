@@ -35,6 +35,7 @@ type RelayState = {
     role: "input" | "output";
     text: string;
     isFinal: boolean;
+    lang: string;
   }>;
   strings: {
     title: string;
@@ -74,21 +75,21 @@ const BAR_SPACING = BAR_WIDTH + BAR_GAP;
 const VISIBLE_BARS = 20;
 
 const COLORS_DARK: Record<string, string[]> = {
-  ready:        ['#00a8e0', '#00c8ff', '#40e0ff'],
-  reconnecting: ['#FFD700', '#FFA500', '#FFDEAD'],
-  error:        ['#ff6b7a', '#ff8e96', '#ffb3ba'],
-  stopped:      ['#888888', '#AAAAAA', '#CCCCCC'],
-  not_configured: ['#888888', '#AAAAAA', '#CCCCCC'],
-  connecting:   ['#9F7AEA', '#805AD5', '#B794F4'],
+  ready:        ['#a92a44', '#ff7387', '#ffb3bc'],
+  reconnecting: ['#f9cc61', '#eabe55', '#ffd78f'],
+  error:        ['#ff716c', '#ff9993', '#ffb3ba'],
+  stopped:      ['#45475a', '#585b70', '#6c7086'],
+  not_configured: ['#45475a', '#585b70', '#6c7086'],
+  connecting:   ['#864958', '#ff7387', '#ffc2cd'],
 };
 
 const COLORS_LIGHT: Record<string, string[]> = {
-  ready:        ['#0066cc', '#0088dd', '#00aaee'],
-  reconnecting: ['#cc6600', '#dd8800', '#ee9900'],
-  error:        ['#cc3344', '#dd5566', '#ee7788'],
-  stopped:      ['#666666', '#888888', '#aaaaaa'],
-  not_configured: ['#666666', '#888888', '#aaaaaa'],
-  connecting:   ['#6B46C1', '#553C9A', '#805AD5'],
+  ready:        ['#a92a44', '#ff7387', '#ffb3bc'],
+  reconnecting: ['#f59f00', '#f9cc61', '#ffe066'],
+  error:        ['#b31b25', '#fb5151', '#ff9993'],
+  stopped:      ['#b3abad', '#7c7577', '#605a5c'],
+  not_configured: ['#b3abad', '#7c7577', '#605a5c'],
+  connecting:   ['#864958', '#ff7387', '#ffc2cd'],
 };
 
 const state = {
@@ -130,33 +131,25 @@ app.innerHTML = `
 
     <section class="body-grid">
       <aside class="rail">
-        <section class="card">
-          <div class="card-header">
+        <section class="card lang-card">
+          <div class="lang-top-row">
             <div class="card-title" id="firstTitle"></div>
+            <input class="text-input" id="firstLanguage" />
           </div>
-          <div class="profile-grid">
-            <div class="field-row">
-              <input class="text-input" id="firstLanguage" />
-            </div>
-            <div class="field-row">
-              <input class="text-input" id="firstAccent" />
-              <input class="text-input" id="firstTone" />
-            </div>
+          <div class="lang-bottom-row">
+            <input class="text-input" id="firstAccent" />
+            <input class="text-input" id="firstTone" />
           </div>
         </section>
 
-        <section class="card">
-          <div class="card-header">
+        <section class="card lang-card">
+          <div class="lang-top-row">
             <div class="card-title" id="secondTitle"></div>
+            <input class="text-input" id="secondLanguage" />
           </div>
-          <div class="profile-grid">
-            <div class="field-row">
-              <input class="text-input" id="secondLanguage" />
-            </div>
-            <div class="field-row">
-              <input class="text-input" id="secondAccent" />
-              <input class="text-input" id="secondTone" />
-            </div>
+          <div class="lang-bottom-row">
+            <input class="text-input" id="secondAccent" />
+            <input class="text-input" id="secondTone" />
           </div>
         </section>
 
@@ -241,6 +234,34 @@ function transcriptKey(items: RelayState["transcripts"]): string {
   return `${items.length}:${last.id}:${last.text.length}:${last.isFinal ? 1 : 0}`;
 }
 
+type TranscriptPair = {
+  input: string;
+  output: string;
+  lang: string; // detected language of the OUTPUT text
+  isFinal: boolean;
+};
+
+function groupTranscripts(items: RelayState["transcripts"]): TranscriptPair[] {
+  const pairs: TranscriptPair[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item.role === "input") {
+      // Look ahead for a matching output
+      const next = items[i + 1];
+      if (next && next.role === "output") {
+        pairs.push({ input: item.text, output: next.text, lang: next.lang, isFinal: next.isFinal });
+        i++; // skip output
+      } else {
+        pairs.push({ input: item.text, output: "", lang: "", isFinal: item.isFinal });
+      }
+    } else {
+      // Orphan output
+      pairs.push({ input: "", output: item.text, lang: item.lang, isFinal: item.isFinal });
+    }
+  }
+  return pairs;
+}
+
 function renderTranscripts(payload: RelayState) {
   const items = payload.transcripts ?? [];
   const key = transcriptKey(items);
@@ -252,12 +273,29 @@ function renderTranscripts(payload: RelayState) {
     el.transcriptBody.innerHTML = `<div class="transcript-empty"><span class="empty-title">${escapeHtml(payload.strings.noTranscript)}</span></div>`;
     return;
   }
-  el.transcriptBody.innerHTML = items
-    .map((item) => {
-      const chip = item.role === "input" ? payload.strings.inputChip : payload.strings.outputChip;
-      return `<article class="transcript-item"><div class="transcript-line"><span class="chip ${item.role === "output" ? "output" : ""}">${escapeHtml(chip)}</span><div class="transcript-text">${escapeHtml(item.text)}</div></div></article>`;
+
+  const pairs = groupTranscripts(items);
+  // First pair's output lang determines "lang A" (left side)
+  const firstLang = pairs.find(p => p.lang)?.lang ?? "";
+
+  el.transcriptBody.innerHTML = pairs
+    .map((pair) => {
+      // Align: if output lang matches first pair's lang → left, otherwise right
+      const isLeft = !pair.lang || !firstLang || pair.lang === firstLang;
+      const align = isLeft ? "msg-left" : "msg-right";
+
+      let html = `<article class="transcript-pill ${align}"><div class="pill-content">`;
+      if (pair.input) {
+        html += `<span class="pill-input">${escapeHtml(pair.input)}</span>`;
+      }
+      if (pair.output) {
+        html += `<span class="pill-output">${escapeHtml(pair.output)}</span>`;
+      }
+      html += `</div></article>`;
+      return html;
     })
     .join("");
+
   if (stick) {
     requestAnimationFrame(() => {
       el.transcriptBody.scrollTop = el.transcriptBody.scrollHeight;
@@ -271,8 +309,9 @@ function hotkeyKey(hotkeys: HotkeyItem[]): string {
 }
 
 function renderHotkeys(payload: RelayState) {
-  const key = hotkeyKey(payload.hotkeys ?? []);
-  if (key === state.lastHotkeyKey && !state.hotkeyCaptureArmed) return;
+  const armed = state.hotkeyCaptureArmed ? "1" : "0";
+  const key = hotkeyKey(payload.hotkeys ?? []) + "|" + armed;
+  if (key === state.lastHotkeyKey) return;
   state.lastHotkeyKey = key;
 
   const hotkeys = payload.hotkeys ?? [];
@@ -285,7 +324,7 @@ function renderHotkeys(payload: RelayState) {
 
   // Capture state or Add button
   if (state.hotkeyCaptureArmed) {
-    html += `<span class="hotkey-capture">...</span>`;
+    html += `<span class="hotkey-capture">...</span><button class="hotkey-cancel" id="cancelHotkeyBtn" type="button"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>`;
   } else {
     html += `<button class="text-btn" id="addHotkeyBtn" type="button">${escapeHtml(payload.strings.setHotkey)}</button>`;
   }
@@ -306,6 +345,15 @@ function renderHotkeys(payload: RelayState) {
     addBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       state.hotkeyCaptureArmed = true;
+      if (state.payload) renderHotkeys(state.payload);
+    });
+  }
+
+  const cancelBtn = el.hotkeyArea.querySelector<HTMLButtonElement>("#cancelHotkeyBtn");
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      state.hotkeyCaptureArmed = false;
       if (state.payload) renderHotkeys(state.payload);
     });
   }
