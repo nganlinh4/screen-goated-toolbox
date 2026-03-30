@@ -18,6 +18,7 @@ import dev.screengoated.toolbox.mobile.preset.PresetExecutionState
 import dev.screengoated.toolbox.mobile.preset.PresetPlaceholderReason
 import dev.screengoated.toolbox.mobile.preset.PresetRepository
 import dev.screengoated.toolbox.mobile.preset.ResolvedPreset
+import dev.screengoated.toolbox.mobile.preset.resolvePrompt
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
 import dev.screengoated.toolbox.mobile.service.ScreenshotCaptureFailureReason
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
@@ -420,12 +421,56 @@ internal class PresetOverlayController(
     /** Captured image bytes from IMAGE preset, waiting for dynamic prompt input. */
     private var pendingImageBytes: ByteArray? = null
 
+
     private fun launchDefaultMicPreset() {
-        val preset = presetRepository.getResolvedPreset("preset_transcribe") ?: return
-        launchPreset(
-            presetId = preset.preset.id,
-            closePanel = false,
-            continuousMode = false,
+        val resolved = presetRepository.getResolvedPreset("preset_transcribe") ?: return
+        if (!inputModule.hasWindow()) {
+            // No input window — normal preset launch
+            launchPreset(presetId = resolved.preset.id, closePanel = false, continuousMode = false)
+            return
+        }
+        // Input window is open — mic is just a speech-to-text input method.
+        // Record audio, transcribe, inject text into input. Do NOT run the preset pipeline.
+        // (matches Windows: show_recording_overlay → set_editor_text, input window stays open)
+        if (audioCaptureSession.toggleOrAbortIfMatching(resolved.preset.id)) return
+        onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.MICROPHONE)
+        audioCaptureSession.start(
+            resolvedPreset = resolved,
+            onRecordingComplete = { capture ->
+                onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
+                val transcript = capture.precomputedTranscript
+                if (!transcript.isNullOrBlank()) {
+                    // Streaming transcript available (Parakeet/Gemini Live)
+                    inputModule.injectText(transcript)
+                    inputModule.bringToFront()
+                } else {
+                    // Standard runtime (Whisper/Groq) — call transcription API directly
+                    val audioBlock = resolved.preset.blocks.firstOrNull {
+                        it.blockType == dev.screengoated.toolbox.mobile.shared.preset.BlockType.AUDIO
+                    } ?: return@start
+                    scope.launch(Dispatchers.Main) {
+                        val result = appContainer.audioApiClient.executeStreaming(
+                            modelId = audioBlock.model,
+                            prompt = audioBlock.resolvePrompt(),
+                            wavBytes = capture.wavBytes,
+                            apiKeys = buildApiKeys(),
+                            uiLanguage = uiLanguage(),
+                            onChunk = {},
+                        )
+                        result.getOrNull()?.takeIf { it.isNotBlank() }?.let { text ->
+                            inputModule.injectText(text)
+                            inputModule.bringToFront()
+                        }
+                    }
+                }
+            },
+            onCancelled = {
+                onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
+            },
+            onFailure = { failure ->
+                onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
+                handleAudioCaptureFailure(resolved, failure)
+            },
         )
     }
 
@@ -735,6 +780,17 @@ internal class PresetOverlayController(
         overlayLocalized(uiLanguage(), en, vi, ko)
 
     private fun isDarkTheme(): Boolean = overlayIsDarkTheme(context, uiPreferencesProvider().themeMode)
+
+    private fun buildApiKeys(): dev.screengoated.toolbox.mobile.preset.ApiKeys {
+        val repo = appContainer.repository
+        return dev.screengoated.toolbox.mobile.preset.ApiKeys(
+            geminiKey = repo.currentApiKey(),
+            cerebrasKey = repo.currentCerebrasApiKey(),
+            groqKey = repo.currentGroqApiKey(),
+            openRouterKey = repo.currentOpenRouterApiKey(),
+            ollamaBaseUrl = repo.currentOllamaUrl(),
+        )
+    }
 
     private fun dp(value: Int): Int = (value * density).roundToInt()
 

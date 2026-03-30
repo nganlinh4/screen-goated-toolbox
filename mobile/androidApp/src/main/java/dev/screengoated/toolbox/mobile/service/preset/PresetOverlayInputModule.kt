@@ -73,6 +73,10 @@ internal class PresetOverlayInputModule(
         inputWindow = null
     }
 
+    fun injectText(text: String) {
+        inputWindow?.runScript("window.insertTextAtCursor(${JSONObject.quote(text)});")
+    }
+
     fun bringToFront() {
         inputWindow?.bringToFront(refocusIme = true)
     }
