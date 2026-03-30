@@ -183,10 +183,6 @@ class SgtAccessibilityService : AccessibilityService() {
      * Skips our own overlay windows. Used for autoPaste.
      */
     fun pasteIntoFocusedField(): Boolean {
-        val clipboardText = getClipboardText() ?: run {
-            Log.d(TAG, "pasteIntoFocusedField: clipboard is empty")
-            return false
-        }
         for (window in windows) {
             val root = window.root ?: continue
             val pkg = root.packageName?.toString()
@@ -194,10 +190,21 @@ class SgtAccessibilityService : AccessibilityService() {
             val focused = findFocusedEditableNode(root)
             if (focused != null) {
                 focused.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-                val result = focused.performAction(AccessibilityNodeInfo.ACTION_PASTE) ||
-                    appendTextToNode(focused, clipboardText)
-                Log.d(TAG, "pasteIntoFocusedField on $pkg: $result")
-                return result
+                // Try ACTION_PASTE first — the target app (focused) can read clipboard
+                // even when our accessibility service cannot on Android 12+.
+                if (focused.performAction(AccessibilityNodeInfo.ACTION_PASTE)) {
+                    Log.d(TAG, "pasteIntoFocusedField on $pkg: ACTION_PASTE succeeded")
+                    return true
+                }
+                // Fall back to ACTION_SET_TEXT if clipboard is readable from our context
+                val clipboardText = getClipboardText()
+                if (clipboardText != null) {
+                    val result = appendTextToNode(focused, clipboardText)
+                    Log.d(TAG, "pasteIntoFocusedField on $pkg via SET_TEXT: $result")
+                    return result
+                }
+                Log.d(TAG, "pasteIntoFocusedField on $pkg: ACTION_PASTE failed and clipboard unreadable")
+                return false
             }
         }
         Log.d(TAG, "pasteIntoFocusedField: no editable field found in any window")
