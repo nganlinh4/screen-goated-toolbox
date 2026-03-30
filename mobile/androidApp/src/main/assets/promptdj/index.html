@@ -154,6 +154,68 @@
             top: auto !important;\
           }\
         }\
+        @media (orientation: portrait) and (min-width: 600px) {\
+          #grid {\
+            grid-template-columns: repeat(8, 1fr) !important;\
+            grid-auto-rows: 10vw !important;\
+            gap: 2vw 0.5vw !important;\
+          }\
+          #sideControls {\
+            padding: 1.5vw 2vw 2vw 2vw !important;\
+          }\
+          play-pause-morph {\
+            width: 7vw !important;\
+            height: 7vw !important;\
+            margin: 0 0 0 3vw !important;\
+          }\
+          .mini-controls {\
+            gap: 1.5vw !important;\
+            margin-bottom: -3vw !important;\
+            margin-right: 2vw !important;\
+          }\
+          .mini-btn {\
+            width: 5.5vw !important;\
+            height: 5.5vw !important;\
+          }\
+          .mini-btn .material-symbols-rounded {\
+            font-size: 2.8vw !important;\
+          }\
+          .rec-timer-container {\
+            bottom: 1vw !important;\
+            right: 2vw !important;\
+          }\
+          .rec-timer { font-size: 1.8vw !important; }\
+        }\
+        @media (orientation: landscape) and (min-height: 600px) {\
+          #grid {\
+            height: 92vh !important;\
+            gap: 0.5vh 0.5vw !important;\
+          }\
+          #sideControls {\
+            width: 12vh !important;\
+            padding-top: 6vh !important;\
+          }\
+          play-pause-morph {\
+            width: 8vh !important;\
+            height: 8vh !important;\
+          }\
+          .mini-controls {\
+            bottom: 12vh !important;\
+            right: 3vw !important;\
+            gap: 1vh !important;\
+          }\
+          .mini-btn {\
+            width: 3vh !important;\
+            height: 3vh !important;\
+          }\
+          .mini-btn .material-symbols-rounded {\
+            font-size: 1.8vh !important;\
+          }\
+          .rec-timer-container {\
+            bottom: 5vh !important;\
+            right: 3vw !important;\
+          }\
+        }\
       ';
 
       var CTRL_CSS_PORTRAIT = '\
@@ -192,6 +254,43 @@
           }\
           #text {\
             font-size: 3.5vh !important;\
+          }\
+        }\
+        @media (orientation: portrait) and (min-width: 600px) {\
+          weight-knob { width: 70% !important; }\
+          .text-wrapper {\
+            width: 10vw !important;\
+            height: 2.5vw !important;\
+            margin-top: -2vw !important;\
+          }\
+          #text-svg text {\
+            font-size: 1.4vw !important;\
+          }\
+          #text {\
+            font-size: 1.3vw !important;\
+            max-width: 10vw !important;\
+          }\
+          .pc-clear {\
+            width: 2.2vw !important;\
+            height: 2.2vw !important;\
+            top: -0.4vw !important;\
+            right: -0.4vw !important;\
+          }\
+          .pc-clear .material-symbols-rounded {\
+            font-size: 1.4vw !important;\
+          }\
+        }\
+        @media (orientation: landscape) and (min-height: 600px) {\
+          .text-wrapper {\
+            width: 8vh !important;\
+            height: 2.5vh !important;\
+            margin-top: -3vh !important;\
+          }\
+          #text-svg text {\
+            font-size: 2vh !important;\
+          }\
+          #text {\
+            font-size: 1.8vh !important;\
           }\
         }\
       ';
