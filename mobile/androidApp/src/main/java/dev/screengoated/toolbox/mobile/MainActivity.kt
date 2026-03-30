@@ -344,7 +344,7 @@ internal fun dev.screengoated.toolbox.mobile.shared.preset.Preset.toRealtimeSess
                 RealtimeModelIds.TRANSLATION_GTX,
             )
             else -> RealtimeModelIds.translationProviderDescriptor(
-                RealtimeModelIds.TRANSLATION_TAALAS,
+                RealtimeModelIds.TRANSLATION_CEREBRAS,
             )
         }
     } ?: fallback.translationProvider

@@ -103,8 +103,8 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
             "gemini_live_audio_model_id_2_5",
         ),
         (
-            "REALTIME_TRANSLATION_MODEL_TAALAS",
-            "realtime_translation_model_taalas",
+            "REALTIME_TRANSLATION_MODEL_CEREBRAS",
+            "realtime_translation_model_cerebras",
         ),
         (
             "REALTIME_TRANSLATION_MODEL_GEMMA",

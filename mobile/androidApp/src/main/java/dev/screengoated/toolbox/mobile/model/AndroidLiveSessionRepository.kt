@@ -358,6 +358,9 @@ class AndroidLiveSessionRepository(
             RealtimeModelIds.normalizeTranscriptionModelId(config.transcriptionProvider.id)
         return config.copy(
             transcriptionProvider = RealtimeModelIds.defaultTranscriptionProvider(normalizedId),
+            translationProvider = RealtimeModelIds.translationProviderDescriptor(
+                RealtimeModelIds.normalizeTranslationModelId(config.translationProvider.id),
+            ),
         )
     }
 

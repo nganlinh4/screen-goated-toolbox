@@ -419,13 +419,14 @@ class RealtimeTranslationClient(
         val primary = TranslationProvider(providerId, model)
 
         // Check if primary provider is available (has API key if needed)
-        val primaryAvailable = isProviderAvailable(primary.id, geminiApiKey)
+        val primaryAvailable = isProviderAvailable(primary.id, geminiApiKey, cerebrasApiKey)
 
         if (primaryAvailable) {
             runCatching {
                 streamWithProvider(
                     provider = primary,
                     geminiApiKey = geminiApiKey,
+                    cerebrasApiKey = cerebrasApiKey,
                     request = request,
                     targetLanguage = targetLanguage,
                     onDelta = onDelta,
@@ -435,10 +436,11 @@ class RealtimeTranslationClient(
         }
 
         // Primary failed or unavailable — try fallback
-        val fallback = fallbackProvider(primary.id)
+        val fallback = fallbackProvider(primary.id, geminiApiKey, cerebrasApiKey)
         streamWithProvider(
             provider = fallback,
             geminiApiKey = geminiApiKey,
+            cerebrasApiKey = cerebrasApiKey,
             request = request,
             targetLanguage = targetLanguage,
             onDelta = onDelta,
@@ -449,6 +451,7 @@ class RealtimeTranslationClient(
     private fun streamWithProvider(
         provider: TranslationProvider,
         geminiApiKey: String,
+        cerebrasApiKey: String,
         request: TranslationRequest,
         targetLanguage: String,
         onDelta: (String) -> Unit,
@@ -462,12 +465,16 @@ class RealtimeTranslationClient(
                 onDelta(text)
             }
 
-            PROVIDER_TAALAS -> {
-                val text = translateWithTaalas(
-                    text = request.chunk,
-                    targetLanguage = targetLanguage,
-                ) ?: error("Taalas translation failed.")
-                onDelta(text)
+            PROVIDER_CEREBRAS -> {
+                val apiKey = cerebrasApiKey.takeIf { it.isNotBlank() }
+                    ?: error("Add your Cerebras API key before using Cerebras translation.")
+                streamChatCompletion(
+                    endpoint = "https://api.cerebras.ai/v1/chat/completions",
+                    apiKey = apiKey,
+                    model = provider.model,
+                    messages = cerebrasMessages(request, targetLanguage),
+                    onDelta = onDelta,
+                )
             }
 
             else -> {
@@ -577,6 +584,39 @@ class RealtimeTranslationClient(
         return messages
     }
 
+    private fun cerebrasMessages(
+        request: TranslationRequest,
+        targetLanguage: String,
+    ): JSONArray {
+        val messages = JSONArray()
+        messages.put(
+            JSONObject()
+                .put("role", "system")
+                .put(
+                    "content",
+                    "You are a professional translator. Translate text to $targetLanguage to append suitably to the context. Output ONLY the translation, nothing else.",
+                ),
+        )
+        request.history.forEach { entry ->
+            messages.put(
+                JSONObject()
+                    .put("role", "user")
+                    .put("content", "Translate to $targetLanguage:\n${entry.source}"),
+            )
+            messages.put(
+                JSONObject()
+                    .put("role", "assistant")
+                    .put("content", entry.translation),
+            )
+        }
+        messages.put(
+            JSONObject()
+                .put("role", "user")
+                .put("content", "Translate to $targetLanguage:\n${request.chunk}"),
+        )
+        return messages
+    }
+
     private fun buildPrompt(
         request: TranslationRequest,
         targetLanguage: String,
@@ -628,37 +668,49 @@ class RealtimeTranslationClient(
         }
     }
 
-    private fun translateWithTaalas(
-        text: String,
-        targetLanguage: String,
-    ): String? {
-        val prompt = "You are a professional translator. Translate the following text to $targetLanguage. Output ONLY the translation, nothing else.\n\n$text"
-        return dev.screengoated.toolbox.mobile.preset.TaalasClient.generate(httpClient, prompt)
-    }
-
     private fun isProviderAvailable(
         providerId: String,
         geminiApiKey: String,
+        cerebrasApiKey: String,
     ): Boolean {
         return when (providerId) {
-            PROVIDER_GTX, PROVIDER_TAALAS -> true // always available, no API key needed
-            else -> geminiApiKey.isNotBlank() // google-gemma
+            PROVIDER_GTX -> true
+            PROVIDER_CEREBRAS -> cerebrasApiKey.isNotBlank()
+            else -> geminiApiKey.isNotBlank()
         }
     }
 
     private fun fallbackProvider(
         providerId: String,
+        geminiApiKey: String,
+        cerebrasApiKey: String,
     ): TranslationProvider {
-        // Taalas ↔ GTX (both free, no API key needed)
-        return when (providerId) {
-            PROVIDER_TAALAS -> TranslationProvider(PROVIDER_GTX, LiveTranslationModelCatalog.GTX_API_MODEL)
-            else -> TranslationProvider(PROVIDER_TAALAS, LiveTranslationModelCatalog.TAALAS_API_MODEL)
+        val candidates = when (providerId) {
+            PROVIDER_CEREBRAS -> listOf(
+                TranslationProvider(PROVIDER_GTX, LiveTranslationModelCatalog.GTX_API_MODEL),
+            )
+            PROVIDER_GTX -> listOf(
+                TranslationProvider(
+                    PROVIDER_CEREBRAS,
+                    LiveTranslationModelCatalog.CEREBRAS_API_MODEL,
+                ),
+                TranslationProvider(PROVIDER_GTX, LiveTranslationModelCatalog.GTX_API_MODEL),
+            )
+            else -> listOf(
+                TranslationProvider(
+                    PROVIDER_CEREBRAS,
+                    LiveTranslationModelCatalog.CEREBRAS_API_MODEL,
+                ),
+                TranslationProvider(PROVIDER_GTX, LiveTranslationModelCatalog.GTX_API_MODEL),
+            )
         }
+        return candidates.firstOrNull { isProviderAvailable(it.id, geminiApiKey, cerebrasApiKey) }
+            ?: TranslationProvider(PROVIDER_GTX, LiveTranslationModelCatalog.GTX_API_MODEL)
     }
 
     private companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
-        private val PROVIDER_TAALAS = LiveTranslationModelCatalog.PROVIDER_TAALAS
+        private val PROVIDER_CEREBRAS = LiveTranslationModelCatalog.PROVIDER_CEREBRAS
         private val PROVIDER_GTX = LiveTranslationModelCatalog.PROVIDER_GTX
     }
 

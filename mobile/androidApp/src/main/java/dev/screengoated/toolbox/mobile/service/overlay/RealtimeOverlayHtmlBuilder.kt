@@ -100,7 +100,7 @@ internal class RealtimeOverlayHtmlBuilder(
             <span class="ctrl-btn speak-btn" id="speak-btn" title="${locale.overlay.ttsSettingsTitle}"><span class="material-symbols-rounded">${RealtimeOverlayIcons.VOLUME_UP}</span></span>
             <div class="btn-group">
                 <span class="material-symbols-rounded model-icon" data-value="google-gemma" title="${locale.overlay.gemmaTitle}">${RealtimeOverlayIcons.AUTO_AWESOME}</span>
-                <span class="material-symbols-rounded model-icon" data-value="taalas-rt" title="${locale.overlay.taalasTitle}">${RealtimeOverlayIcons.SPEED}</span>
+                <span class="material-symbols-rounded model-icon" data-value="cerebras-oss" title="${locale.overlay.cerebrasTitle}">${RealtimeOverlayIcons.SPEED}</span>
                 <span class="material-symbols-rounded model-icon" data-value="google-gtx" title="${locale.overlay.gtxTitle}">${RealtimeOverlayIcons.LANGUAGE}</span>
             </div>
             <button class="language-btn" id="language-select" type="button" title="${locale.overlay.targetLanguageTitle}" data-base-title="${locale.overlay.targetLanguageTitle}" data-language="" data-code="">
