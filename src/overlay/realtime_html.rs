@@ -164,7 +164,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
     let js = format!(
         "{}{}",
         crate::overlay::html_components::js_main::get(font_size),
-        crate::overlay::html_components::js_logic::get(placeholder_text)
+        crate::overlay::html_components::js_logic::get(placeholder_text, is_translation)
     );
 
     // Get local font CSS (cached fonts, no network loading)

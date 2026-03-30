@@ -1,8 +1,8 @@
 {
-  "version": 1,
+  "version": 2,
   "cases": [
     {
-      "name": "finished sentence commits exact bytes",
+      "name": "finished request commits finalized bytes and replaces draft",
       "steps": [
         {
           "type": "appendTranscript",
@@ -12,19 +12,34 @@
         {
           "type": "claimTranslationRequest",
           "expectedRequest": {
-            "chunk": "hello.",
-            "hasFinishedDelimiter": true,
-            "bytesToCommit": 6
+            "sourceStart": 0,
+            "sourceEnd": 11,
+            "finalizedSourceEnd": 6,
+            "pendingSource": "hello. tail",
+            "finalizedSource": "hello.",
+            "draftSource": " tail",
+            "previousDraftTranslation": ""
           }
         },
         {
-          "type": "appendTranslation",
-          "text": "hola.",
+          "type": "applyTranslationResponse",
+          "response": {
+            "patches": [
+              {
+                "sourceStart": 0,
+                "sourceEnd": 6,
+                "state": "final",
+                "translation": "hola."
+              },
+              {
+                "sourceStart": 6,
+                "sourceEnd": 11,
+                "state": "draft",
+                "translation": "cola"
+              }
+            ]
+          },
           "atMs": 140
-        },
-        {
-          "type": "finalizeTranslation",
-          "bytesToCommit": 6
         }
       ],
       "expectedState": {
@@ -33,13 +48,20 @@
         "lastCommittedPos": 6,
         "lastProcessedLen": 11,
         "committedTranslation": "hola.",
-        "uncommittedTranslation": "",
-        "displayTranslation": "hola.",
-        "translationHistory": []
+        "uncommittedTranslation": "cola",
+        "uncommittedSourceStart": 6,
+        "uncommittedSourceEnd": 11,
+        "displayTranslation": "hola. cola",
+        "translationHistory": [
+          {
+            "source": "hello.",
+            "translation": "hola."
+          }
+        ]
       }
     },
     {
-      "name": "unfinished tail stays uncommitted until force commit",
+      "name": "unfinished tail stays draft until force commit",
       "steps": [
         {
           "type": "appendTranscript",
@@ -49,14 +71,27 @@
         {
           "type": "claimTranslationRequest",
           "expectedRequest": {
-            "chunk": "hello tail",
-            "hasFinishedDelimiter": false,
-            "bytesToCommit": 0
+            "sourceStart": 0,
+            "sourceEnd": 10,
+            "finalizedSourceEnd": 0,
+            "pendingSource": "hello tail",
+            "finalizedSource": "",
+            "draftSource": "hello tail",
+            "previousDraftTranslation": ""
           }
         },
         {
-          "type": "appendTranslation",
-          "text": "hola cola",
+          "type": "applyTranslationResponse",
+          "response": {
+            "patches": [
+              {
+                "sourceStart": 0,
+                "sourceEnd": 10,
+                "state": "draft",
+                "translation": "hola cola"
+              }
+            ]
+          },
           "atMs": 150
         },
         {
@@ -70,6 +105,8 @@
         "lastProcessedLen": 10,
         "committedTranslation": "hola cola",
         "uncommittedTranslation": "",
+        "uncommittedSourceStart": 10,
+        "uncommittedSourceEnd": 10,
         "displayTranslation": "hola cola",
         "translationHistory": [
           {
@@ -80,7 +117,7 @@
       }
     },
     {
-      "name": "next request uses only untranslated tail after new transcript arrives",
+      "name": "next request reuses untranslated tail with new source end",
       "steps": [
         {
           "type": "appendTranscript",
@@ -90,19 +127,34 @@
         {
           "type": "claimTranslationRequest",
           "expectedRequest": {
-            "chunk": "one.",
-            "hasFinishedDelimiter": true,
-            "bytesToCommit": 4
+            "sourceStart": 0,
+            "sourceEnd": 8,
+            "finalizedSourceEnd": 4,
+            "pendingSource": "one. two",
+            "finalizedSource": "one.",
+            "draftSource": " two",
+            "previousDraftTranslation": ""
           }
         },
         {
-          "type": "appendTranslation",
-          "text": "uno.",
+          "type": "applyTranslationResponse",
+          "response": {
+            "patches": [
+              {
+                "sourceStart": 0,
+                "sourceEnd": 4,
+                "state": "final",
+                "translation": "uno."
+              },
+              {
+                "sourceStart": 4,
+                "sourceEnd": 8,
+                "state": "draft",
+                "translation": "dos"
+              }
+            ]
+          },
           "atMs": 120
-        },
-        {
-          "type": "finalizeTranslation",
-          "bytesToCommit": 4
         },
         {
           "type": "appendTranscript",
@@ -112,9 +164,13 @@
         {
           "type": "claimTranslationRequest",
           "expectedRequest": {
-            "chunk": " two!",
-            "hasFinishedDelimiter": true,
-            "bytesToCommit": 5
+            "sourceStart": 4,
+            "sourceEnd": 9,
+            "finalizedSourceEnd": 9,
+            "pendingSource": " two!",
+            "finalizedSource": " two!",
+            "draftSource": "",
+            "previousDraftTranslation": ""
           }
         }
       ],
@@ -122,11 +178,18 @@
         "fullTranscript": "one. two!",
         "displayTranscript": "one. two!",
         "lastCommittedPos": 4,
-        "lastProcessedLen": 9,
+        "lastProcessedLen": 8,
         "committedTranslation": "uno.",
-        "uncommittedTranslation": "",
-        "displayTranslation": "uno.",
-        "translationHistory": []
+        "uncommittedTranslation": "dos",
+        "uncommittedSourceStart": 4,
+        "uncommittedSourceEnd": 8,
+        "displayTranslation": "uno. dos",
+        "translationHistory": [
+          {
+            "source": "one.",
+            "translation": "uno."
+          }
+        ]
       }
     },
     {
@@ -140,14 +203,27 @@
         {
           "type": "claimTranslationRequest",
           "expectedRequest": {
-            "chunk": "carry on",
-            "hasFinishedDelimiter": false,
-            "bytesToCommit": 0
+            "sourceStart": 0,
+            "sourceEnd": 8,
+            "finalizedSourceEnd": 0,
+            "pendingSource": "carry on",
+            "finalizedSource": "",
+            "draftSource": "carry on",
+            "previousDraftTranslation": ""
           }
         },
         {
-          "type": "appendTranslation",
-          "text": "sigue",
+          "type": "applyTranslationResponse",
+          "response": {
+            "patches": [
+              {
+                "sourceStart": 0,
+                "sourceEnd": 8,
+                "state": "draft",
+                "translation": "sigue"
+              }
+            ]
+          },
           "atMs": 140
         },
         {
@@ -164,12 +240,14 @@
         "lastProcessedLen": 8,
         "committedTranslation": "sigue",
         "uncommittedTranslation": "",
+        "uncommittedSourceStart": 8,
+        "uncommittedSourceEnd": 8,
         "displayTranslation": "sigue",
         "translationHistory": []
       }
     },
     {
-      "name": "same transcript cannot open duplicate translation request",
+      "name": "same transcript can be retried before success",
       "steps": [
         {
           "type": "appendTranscript",
@@ -179,24 +257,100 @@
         {
           "type": "claimTranslationRequest",
           "expectedRequest": {
-            "chunk": "steady stream",
-            "hasFinishedDelimiter": false,
-            "bytesToCommit": 0
+            "sourceStart": 0,
+            "sourceEnd": 13,
+            "finalizedSourceEnd": 0,
+            "pendingSource": "steady stream",
+            "finalizedSource": "",
+            "draftSource": "steady stream",
+            "previousDraftTranslation": ""
           }
         },
         {
-          "type": "claimTranslationRequest"
+          "type": "claimTranslationRequest",
+          "expectedRequest": {
+            "sourceStart": 0,
+            "sourceEnd": 13,
+            "finalizedSourceEnd": 0,
+            "pendingSource": "steady stream",
+            "finalizedSource": "",
+            "draftSource": "steady stream",
+            "previousDraftTranslation": ""
+          }
         }
       ],
       "expectedState": {
         "fullTranscript": "steady stream",
         "displayTranscript": "steady stream",
         "lastCommittedPos": 0,
-        "lastProcessedLen": 13,
+        "lastProcessedLen": 0,
         "committedTranslation": "",
         "uncommittedTranslation": "",
+        "uncommittedSourceStart": 0,
+        "uncommittedSourceEnd": 0,
         "displayTranslation": "",
         "translationHistory": []
+      }
+    },
+    {
+      "name": "force commit only covers current draft source snapshot",
+      "steps": [
+        {
+          "type": "appendTranscript",
+          "text": "old text",
+          "atMs": 100
+        },
+        {
+          "type": "claimTranslationRequest",
+          "expectedRequest": {
+            "sourceStart": 0,
+            "sourceEnd": 8,
+            "finalizedSourceEnd": 0,
+            "pendingSource": "old text",
+            "finalizedSource": "",
+            "draftSource": "old text",
+            "previousDraftTranslation": ""
+          }
+        },
+        {
+          "type": "applyTranslationResponse",
+          "response": {
+            "patches": [
+              {
+                "sourceStart": 0,
+                "sourceEnd": 8,
+                "state": "draft",
+                "translation": "van ban cu"
+              }
+            ]
+          },
+          "atMs": 140
+        },
+        {
+          "type": "appendTranscript",
+          "text": " plus",
+          "atMs": 180
+        },
+        {
+          "type": "forceCommitAll"
+        }
+      ],
+      "expectedState": {
+        "fullTranscript": "old text plus",
+        "displayTranscript": "old text plus",
+        "lastCommittedPos": 8,
+        "lastProcessedLen": 8,
+        "committedTranslation": "van ban cu",
+        "uncommittedTranslation": "",
+        "uncommittedSourceStart": 8,
+        "uncommittedSourceEnd": 8,
+        "displayTranslation": "van ban cu",
+        "translationHistory": [
+          {
+            "source": "old text",
+            "translation": "van ban cu"
+          }
+        ]
       }
     }
   ]

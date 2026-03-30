@@ -58,7 +58,10 @@ impl BilingualRelaySettings {
         let mut hotkeys = self.hotkeys.clone();
         // Migrate legacy single hotkey into vec
         if let Some(ref legacy) = self.hotkey {
-            if !hotkeys.iter().any(|h| h.code == legacy.code && h.modifiers == legacy.modifiers) {
+            if !hotkeys
+                .iter()
+                .any(|h| h.code == legacy.code && h.modifiers == legacy.modifiers)
+            {
                 hotkeys.insert(0, legacy.clone());
             }
         }

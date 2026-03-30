@@ -106,23 +106,17 @@ impl EscapeOverlay {
             };
 
             let mut bits_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-            let hbmp = match CreateDIBSection(
-                Some(hdc_mem),
-                &bmi,
-                DIB_RGB_COLORS,
-                &mut bits_ptr,
-                None,
-                0,
-            )
-            .ok()
-            {
-                Some(hbmp) => hbmp,
-                None => {
-                    let _ = DeleteDC(hdc_mem);
-                    let _ = DestroyWindow(hwnd);
-                    return None;
-                }
-            };
+            let hbmp =
+                match CreateDIBSection(Some(hdc_mem), &bmi, DIB_RGB_COLORS, &mut bits_ptr, None, 0)
+                    .ok()
+                {
+                    Some(hbmp) => hbmp,
+                    None => {
+                        let _ = DeleteDC(hdc_mem);
+                        let _ = DestroyWindow(hwnd);
+                        return None;
+                    }
+                };
             let old_bmp = SelectObject(hdc_mem, hbmp.into());
 
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);

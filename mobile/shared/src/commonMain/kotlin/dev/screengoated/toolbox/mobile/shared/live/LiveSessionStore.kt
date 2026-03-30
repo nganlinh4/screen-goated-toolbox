@@ -119,40 +119,21 @@ class LiveSessionStore(
     }
 
     fun claimTranslationRequest(): TranslationRequest? {
-        var request: TranslationRequest? = null
-        mutableState.update { current ->
-            val (liveText, nextRequest) = LiveTranslateParity.claimTranslationRequest(current.liveText)
-            request = nextRequest
-            current.copy(
-                liveText = liveText,
-                lastError = null,
-            )
-        }
-        return request
+        return LiveTranslateParity.claimTranslationRequest(mutableState.value.liveText)
     }
 
-    fun appendTranslationDelta(
-        text: String,
+    fun applyTranslationResponse(
+        request: TranslationRequest,
+        response: TranslationResponse,
         nowMs: Long,
     ) {
         mutableState.update { current ->
             current.copy(
-                liveText = LiveTranslateParity.appendTranslationDelta(
+                liveText = LiveTranslateParity.applyTranslationResponse(
                     state = current.liveText,
-                    newText = text,
+                    request = request,
+                    response = response,
                     nowMs = nowMs,
-                ),
-                lastError = null,
-            )
-        }
-    }
-
-    fun finalizeTranslation(bytesToCommit: Int) {
-        mutableState.update { current ->
-            current.copy(
-                liveText = LiveTranslateParity.finalizeTranslation(
-                    state = current.liveText,
-                    bytesToCommit = bytesToCommit,
                 ),
                 lastError = null,
             )

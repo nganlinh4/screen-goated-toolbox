@@ -501,7 +501,7 @@ pub fn get(font_size: u32) -> String {
         }}
 
         let currentOldTextLength = 0;
-        let previousNewText = '';
+        let previousFullText = '';
 "###,
         font_size = font_size,
         check_svg = crate::overlay::html_components::icons::get_icon_svg("check"),

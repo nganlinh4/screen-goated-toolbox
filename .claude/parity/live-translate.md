@@ -17,12 +17,19 @@
 - Transcript is append-only. Incoming Gemini Live transcription chunks are appended to `full_transcript`; they are not treated as full replacements.
 - Translation never retranslates the whole transcript. It only works on the untranslated tail starting at `last_committed_pos`.
 - Translation request dispatch is interval-gated like Windows. The runtime checks for new translation work on a `1500ms` cadence rather than opening a new provider request on every transcript delta.
-- If the untranslated tail contains a finished sentence delimiter, only the text through the last delimiter is eligible for commit in that translation pass.
-- If no delimiter exists, translation output stays uncommitted until the force-commit path runs.
+- Each translation request snapshots the full untranslated tail with absolute source positions:
+  - `source_start = last_committed_pos`
+  - `source_end = transcript length at request time`
+  - `finalized_source_end = last delimiter within that snapshot, or the same value as source_start when there is no delimiter`
+- If the untranslated tail contains a finished sentence delimiter, the provider receives both:
+  - a finalized source span that can be committed immediately on success
+  - a trailing draft source span that stays provisional
+- If no delimiter exists, the request contains only the draft span and translation output stays uncommitted until the force-commit path runs.
 - Translation output is split into `committed_translation` and `uncommitted_translation`. Display output is `committed + uncommitted`, mirroring the Windows old/new text split.
-- Each translation pass sets `last_processed_len` to the current transcript length and clears the previous uncommitted translation before new deltas arrive.
-- Normal finished-chunk commit advances `last_committed_pos` by the exact byte count that was translated.
-- Force commit appends the current uncommitted translation to committed output, advances `last_committed_pos` to the end of the transcript, and records the `(source, translation)` pair in `translation_history`.
+- The current draft translation carries its own source range (`uncommitted_source_start`, `uncommitted_source_end`). Force commit applies only to that exact source snapshot; it must not silently consume newer transcript text that arrived after the draft request started.
+- Translation requests are pure snapshots. The runtime must not advance `last_processed_len`, clear the previous draft, or move `last_committed_pos` until a validated provider response has been applied successfully.
+- Normal finished-span commit records the `(source, translation)` pair in `translation_history`, advances `last_committed_pos` to `finalized_source_end`, and replaces the draft translation with the returned draft patch for the remaining source span.
+- Force commit appends the current uncommitted translation to committed output, advances `last_committed_pos` to `uncommitted_source_end`, and records the `(source, translation)` pair in `translation_history`.
 - Target-language changes clear `translation_history` and keep the rest of the state aligned with the Windows runtime.
 - Launcher UI is intentionally minimal on Android, but overlay UI is not. Overlay controls, control placement, text animation, waveform behavior, and per-pane layout must follow the Windows realtime overlay contract rather than a mobile-specific redesign.
 - Canonical defaults match Windows config:
@@ -69,6 +76,8 @@
   - `google-gemma -> random(cerebras-oss, google-gtx)` as Windows currently does
 - The realtime provider IDs may stay stable, but their backing API model names must come from centralized model configuration rather than scattered raw strings.
 - Translation failure must not silently fall back to whole-transcript translation.
+- Translation failure or empty/no-op output must leave `last_processed_len` unchanged so the same source snapshot is retried on the next interval.
+- Translation cadence is latency-adaptive on top of the `1500ms` base interval. Slower providers stretch the next request interval upward, but success/failure must never skip source ranges.
 - Timeout gating matches the Windows Gemini path:
   - user silence threshold: `800ms`
   - AI silence threshold: `1000ms`

@@ -15,7 +15,7 @@ class LiveTranslateParityFixturesTest {
     @Test
     fun sharedFixturesMatchMobileParityReducer() {
         val fixtures = loadFixtureDocument()
-        assertEquals(1, fixtures.version)
+        assertEquals(2, fixtures.version)
 
         fixtures.cases.forEach { fixtureCase ->
             var state = LiveTranslateParity.reset()
@@ -28,20 +28,17 @@ class LiveTranslateParityFixturesTest {
                     )
 
                     "claimTranslationRequest" -> {
-                        val (nextState, request) = LiveTranslateParity.claimTranslationRequest(state)
+                        val request = LiveTranslateParity.claimTranslationRequest(state)
                         assertRequest(step.expectedRequest, request)
-                        nextState
+                        state
                     }
 
-                    "appendTranslation" -> LiveTranslateParity.appendTranslationDelta(
+                    "applyTranslationResponse" -> LiveTranslateParity.applyTranslationResponse(
                         state = state,
-                        newText = step.text.orEmpty(),
+                        request = LiveTranslateParity.claimTranslationRequest(state)
+                            ?: error("Request required before response"),
+                        response = requireNotNull(step.response),
                         nowMs = step.atMs ?: 0L,
-                    )
-
-                    "finalizeTranslation" -> LiveTranslateParity.finalizeTranslation(
-                        state = state,
-                        bytesToCommit = step.bytesToCommit ?: 0,
                     )
 
                     "forceCommitAll" -> LiveTranslateParity.forceCommitAll(state)
@@ -58,12 +55,25 @@ class LiveTranslateParityFixturesTest {
     fun forceCommitTimeoutMatchesWindowsGeminiThresholds() {
         var state = LiveTranslateParity.reset()
         state = LiveTranslateParity.appendTranscript(state, "hello world", 100L)
-        val (requestedState, request) = LiveTranslateParity.claimTranslationRequest(state)
-        state = requestedState
+        val request = LiveTranslateParity.claimTranslationRequest(state)
         assertNotNull(request)
         assertFalse(request.hasFinishedDelimiter)
 
-        state = LiveTranslateParity.appendTranslationDelta(state, "hola mundo", 200L)
+        state = LiveTranslateParity.applyTranslationResponse(
+            state = state,
+            request = request,
+            response = TranslationResponse(
+                patches = listOf(
+                    TranslationPatch(
+                        sourceStart = 0,
+                        sourceEnd = 11,
+                        state = "draft",
+                        translation = "hola mundo",
+                    ),
+                ),
+            ),
+            nowMs = 200L,
+        )
 
         val beforeThreshold = LiveTranslateParity.forceCommitIfDue(state, 1_100L)
         assertFalse(beforeThreshold.second)
@@ -84,9 +94,13 @@ class LiveTranslateParityFixturesTest {
         }
 
         assertNotNull(actual)
-        assertEquals(expected.chunk, actual.chunk)
-        assertEquals(expected.hasFinishedDelimiter, actual.hasFinishedDelimiter)
-        assertEquals(expected.bytesToCommit, actual.bytesToCommit)
+        assertEquals(expected.sourceStart, actual.sourceStart)
+        assertEquals(expected.sourceEnd, actual.sourceEnd)
+        assertEquals(expected.finalizedSourceEnd, actual.finalizedSourceEnd)
+        assertEquals(expected.pendingSource, actual.pendingSource)
+        assertEquals(expected.finalizedSource, actual.finalizedSource)
+        assertEquals(expected.draftSource, actual.draftSource)
+        assertEquals(expected.previousDraftTranslation, actual.previousDraftTranslation)
     }
 
     private fun assertState(
@@ -99,6 +113,8 @@ class LiveTranslateParityFixturesTest {
         assertEquals(expected.lastProcessedLen, actual.lastProcessedLen)
         assertEquals(expected.committedTranslation, actual.committedTranslation)
         assertEquals(expected.uncommittedTranslation, actual.uncommittedTranslation)
+        assertEquals(expected.uncommittedSourceStart, actual.uncommittedSourceStart)
+        assertEquals(expected.uncommittedSourceEnd, actual.uncommittedSourceEnd)
         assertEquals(expected.displayTranslation, actual.displayTranslation)
         assertEquals(expected.translationHistory, actual.translationHistory)
     }
@@ -138,15 +154,19 @@ private data class FixtureStep(
     val type: String,
     val text: String? = null,
     val atMs: Long? = null,
-    val bytesToCommit: Int? = null,
     val expectedRequest: FixtureExpectedRequest? = null,
+    val response: TranslationResponse? = null,
 )
 
 @Serializable
 private data class FixtureExpectedRequest(
-    val chunk: String,
-    val hasFinishedDelimiter: Boolean,
-    val bytesToCommit: Int,
+    val sourceStart: Int,
+    val sourceEnd: Int,
+    val finalizedSourceEnd: Int,
+    val pendingSource: String,
+    val finalizedSource: String,
+    val draftSource: String,
+    val previousDraftTranslation: String,
 )
 
 @Serializable
@@ -157,6 +177,8 @@ private data class FixtureExpectedState(
     val lastProcessedLen: Int,
     val committedTranslation: String,
     val uncommittedTranslation: String,
+    val uncommittedSourceStart: Int,
+    val uncommittedSourceEnd: Int,
     val displayTranslation: String,
     val translationHistory: List<TranslationHistoryEntry>,
 )

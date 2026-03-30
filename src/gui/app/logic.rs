@@ -294,9 +294,7 @@ impl SettingsApp {
         if RESTORE_SIGNAL.swap(false, Ordering::SeqCst) {
             self.restore_window(ctx);
         }
-        if crate::overlay::bilingual_relay::REQUEST_DISMISS_SPLASH
-            .swap(false, Ordering::SeqCst)
-        {
+        if crate::overlay::bilingual_relay::REQUEST_DISMISS_SPLASH.swap(false, Ordering::SeqCst) {
             self.splash = None;
         }
     }

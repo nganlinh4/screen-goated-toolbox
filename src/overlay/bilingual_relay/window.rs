@@ -8,9 +8,9 @@ use windows::Win32::Graphics::Dwm::{
     DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmExtendFrameIntoClientArea,
     DwmSetWindowAttribute,
 };
-use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{HSTRING, PCWSTR, w};
@@ -213,8 +213,7 @@ unsafe fn internal_create_loop() {
     // Build inlined HTML and serve via the shared font server
     // so this WebView joins the shared browser process (same user data dir + origin)
     let inlined_html = super::assets::build_inlined_html();
-    let page_url =
-        crate::overlay::html_components::font_manager::store_html_page(inlined_html);
+    let page_url = crate::overlay::html_components::font_manager::store_html_page(inlined_html);
 
     super::WEB_CONTEXT.with(|context| {
         let mut context_ref = context.borrow_mut();
@@ -227,9 +226,7 @@ unsafe fn internal_create_loop() {
         let webview_result = {
             let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
 
-            let url = page_url
-                .as_deref()
-                .unwrap_or("about:blank");
+            let url = page_url.as_deref().unwrap_or("about:blank");
 
             let mut builder = WebViewBuilder::new_with_web_context(context_ref.as_mut().unwrap())
                 .with_background_color(background)

@@ -41,6 +41,8 @@ pub struct RealtimeState {
 
     pub committed_translation: String,
     pub uncommitted_translation: String,
+    pub uncommitted_source_start: usize,
+    pub uncommitted_source_end: usize,
     pub display_translation: String,
 
     pub translation_history: Vec<(String, String)>,
@@ -57,6 +59,40 @@ pub struct RealtimeState {
     pub parakeet_segment_start_time: Instant,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TranslationRequest {
+    pub source_start: usize,
+    pub source_end: usize,
+    pub finalized_source_end: usize,
+    pub pending_source: String,
+    pub finalized_source: String,
+    pub draft_source: String,
+    pub previous_draft_translation: String,
+}
+
+impl TranslationRequest {
+    pub fn bytes_to_commit(&self) -> usize {
+        self.finalized_source_end.saturating_sub(self.source_start)
+    }
+
+    pub fn draft_source_start(&self) -> usize {
+        self.finalized_source_end
+    }
+
+    pub fn requires_draft_translation(&self) -> bool {
+        let trimmed = self.draft_source.trim();
+        !trimmed.is_empty() && trimmed.chars().any(|c| c.is_alphanumeric())
+    }
+
+    pub fn fallback_draft_translation(&self) -> String {
+        if self.requires_draft_translation() {
+            String::new()
+        } else {
+            self.draft_source.trim().to_string()
+        }
+    }
+}
+
 impl RealtimeState {
     pub fn new() -> Self {
         Self {
@@ -66,6 +102,8 @@ impl RealtimeState {
             last_processed_len: 0,
             committed_translation: String::new(),
             uncommitted_translation: String::new(),
+            uncommitted_source_start: 0,
+            uncommitted_source_end: 0,
             display_translation: String::new(),
             translation_history: Vec::new(),
             last_transcript_append_time: Instant::now(),
@@ -178,11 +216,18 @@ impl RealtimeState {
     }
 
     pub fn source_ends_with_sentence(&self) -> bool {
+        self.source_range_ends_with_sentence(self.full_transcript.len())
+    }
+
+    fn source_range_ends_with_sentence(&self, end: usize) -> bool {
         let sentence_delimiters = ['.', '!', '?', '。', '！', '？'];
-        if self.last_committed_pos >= self.full_transcript.len() {
+        if self.last_committed_pos >= end || end > self.full_transcript.len() {
             return false;
         }
-        let uncommitted_source = &self.full_transcript[self.last_committed_pos..];
+        if !self.full_transcript.is_char_boundary(end) {
+            return false;
+        }
+        let uncommitted_source = &self.full_transcript[self.last_committed_pos..end];
         uncommitted_source
             .trim()
             .chars()
@@ -212,11 +257,15 @@ impl RealtimeState {
             return false;
         }
 
-        if self.last_committed_pos < self.full_transcript.len() {
-            let pending_len = self.full_transcript.len() - self.last_committed_pos;
-            if pending_len < MIN_FORCE_COMMIT_CHARS {
-                return false;
-            }
+        let pending_end = self.uncommitted_source_end.min(self.full_transcript.len());
+        if pending_end <= self.last_committed_pos
+            || !self.full_transcript.is_char_boundary(pending_end)
+        {
+            return false;
+        }
+        let pending_len = pending_end - self.last_committed_pos;
+        if pending_len < MIN_FORCE_COMMIT_CHARS {
+            return false;
         }
 
         let now = Instant::now();
@@ -225,8 +274,8 @@ impl RealtimeState {
         let ai_silent = now.duration_since(self.last_translation_update_time)
             > Duration::from_millis(AI_SILENCE_TIMEOUT_MS);
 
-        let source_ready = self.source_ends_with_sentence()
-            || self.last_committed_pos < self.full_transcript.len();
+        let source_ready = self.source_range_ends_with_sentence(pending_end)
+            || pending_end > self.last_committed_pos;
 
         source_ready && user_silent && ai_silent
     }
@@ -249,8 +298,11 @@ impl RealtimeState {
         let trans_segment = self.uncommitted_translation.trim().to_string();
 
         if !trans_segment.is_empty() {
-            let source_segment = if self.last_committed_pos < self.full_transcript.len() {
-                self.full_transcript[self.last_committed_pos..]
+            let pending_end = self.uncommitted_source_end.min(self.full_transcript.len());
+            let source_segment = if self.last_committed_pos < pending_end
+                && self.full_transcript.is_char_boundary(pending_end)
+            {
+                self.full_transcript[self.last_committed_pos..pending_end]
                     .trim()
                     .to_string()
             } else {
@@ -266,16 +318,16 @@ impl RealtimeState {
                 self.committed_translation.push_str(&trans_segment);
             }
 
-            self.last_committed_pos = self.full_transcript.len();
-            self.uncommitted_translation.clear();
+            self.last_committed_pos = pending_end;
+            self.clear_uncommitted_translation();
         }
 
         self.update_display_translation();
     }
 
-    /// Get text to translate.
-    /// Returns: Option<(text_string, has_delimiter, byte_length_of_chunk)>
-    pub fn get_translation_chunk(&self) -> Option<(String, bool, usize)> {
+    /// Build a translation request over the full untranslated tail, keeping track of which
+    /// prefix is safe to commit if the provider returns a usable result.
+    pub fn get_translation_request(&self) -> Option<TranslationRequest> {
         if self.last_committed_pos >= self.full_transcript.len() {
             return None;
         }
@@ -286,7 +338,9 @@ impl RealtimeState {
             return None;
         }
 
-        let text = &self.full_transcript[self.last_committed_pos..];
+        let source_start = self.last_committed_pos;
+        let source_end = self.full_transcript.len();
+        let text = &self.full_transcript[source_start..source_end];
         if text.trim().is_empty() {
             return None;
         }
@@ -302,63 +356,117 @@ impl RealtimeState {
             }
         }
 
-        if let Some(idx) = split_idx {
-            // Found delimiter. Return specific chunk and its exact length.
-            let chunk = text[..idx].to_string();
-            Some((chunk, true, idx))
+        let finalized_len = split_idx.unwrap_or(0);
+        let raw_finalized_source = text[..finalized_len].to_string();
+        let raw_draft_source = text[finalized_len..].to_string();
+        let has_meaningful_draft = !raw_draft_source.trim().is_empty();
+        let finalized_source_end = if has_meaningful_draft {
+            source_start + finalized_len
         } else {
-            // No delimiter. Return whole buffer, but length is 0 (don't commit yet).
-            Some((text.to_string(), false, 0))
-        }
+            source_end
+        };
+
+        Some(TranslationRequest {
+            source_start,
+            source_end,
+            finalized_source_end,
+            pending_source: text.to_string(),
+            finalized_source: if has_meaningful_draft {
+                raw_finalized_source
+            } else {
+                text.to_string()
+            },
+            draft_source: if has_meaningful_draft {
+                raw_draft_source
+            } else {
+                String::new()
+            },
+            previous_draft_translation: if self.uncommitted_source_start == source_start
+                && self.uncommitted_source_end == source_end
+            {
+                self.uncommitted_translation.clone()
+            } else {
+                String::new()
+            },
+        })
     }
 
     pub fn is_transcript_unchanged(&self) -> bool {
         self.full_transcript.len() == self.last_processed_len
     }
 
-    pub fn update_last_processed_len(&mut self) {
-        self.last_processed_len = self.full_transcript.len();
-    }
-
-    /// Safely advance the commit pointer by a specific amount.
-    /// Used to commit exactly what was translated, avoiding race conditions.
-    pub fn advance_committed_pos(&mut self, amount: usize) {
-        let new_pos = self.last_committed_pos + amount;
-
-        // Safety bounds check
-        if new_pos <= self.full_transcript.len() && self.full_transcript.is_char_boundary(new_pos) {
-            self.last_committed_pos = new_pos;
-        } else {
-            // Fallback: if boundaries are messed up (rare), just go to end
-            if new_pos > self.full_transcript.len() {
-                self.last_committed_pos = self.full_transcript.len();
-            }
+    pub fn mark_processed_up_to(&mut self, processed_len: usize) {
+        if processed_len <= self.full_transcript.len()
+            && self.full_transcript.is_char_boundary(processed_len)
+        {
+            self.last_processed_len = processed_len;
         }
     }
 
-    pub fn start_new_translation(&mut self) {
+    pub fn clear_uncommitted_translation(&mut self) {
         self.uncommitted_translation.clear();
+        self.uncommitted_source_start = self.last_committed_pos;
+        self.uncommitted_source_end = self.last_committed_pos;
         self.update_display_translation();
     }
 
-    pub fn commit_current_translation(&mut self) {
-        let trans_segment = self.uncommitted_translation.trim().to_string();
-        if !trans_segment.is_empty() {
+    pub fn apply_translation_result(
+        &mut self,
+        request: &TranslationRequest,
+        finalized_translation: &str,
+        draft_translation: &str,
+    ) -> bool {
+        if request.source_start != self.last_committed_pos
+            || request.source_end > self.full_transcript.len()
+            || !self.full_transcript.is_char_boundary(request.source_end)
+            || !self
+                .full_transcript
+                .is_char_boundary(request.finalized_source_end)
+        {
+            return false;
+        }
+
+        if request.bytes_to_commit() > 0 && finalized_translation.trim().is_empty() {
+            return false;
+        }
+
+        let normalized_draft_translation = if draft_translation.trim().is_empty() {
+            request.fallback_draft_translation()
+        } else {
+            draft_translation.trim().to_string()
+        };
+
+        if request.requires_draft_translation() && normalized_draft_translation.is_empty() {
+            return false;
+        }
+
+        if request.bytes_to_commit() > 0 {
+            let final_text = finalized_translation.trim();
             if self.committed_translation.is_empty() {
-                self.committed_translation = trans_segment;
+                self.committed_translation = final_text.to_string();
             } else {
                 self.committed_translation.push(' ');
-                self.committed_translation.push_str(&trans_segment);
+                self.committed_translation.push_str(final_text);
             }
-            self.uncommitted_translation.clear();
+            let source_segment = request.finalized_source.trim().to_string();
+            if !source_segment.is_empty() {
+                self.add_to_history(source_segment, final_text.to_string());
+            }
+            self.last_committed_pos = request.finalized_source_end;
         }
-        self.update_display_translation();
-    }
 
-    pub fn append_translation(&mut self, new_text: &str) {
-        self.uncommitted_translation.push_str(new_text);
-        self.last_translation_update_time = Instant::now();
-        self.update_display_translation();
+        if request.draft_source.is_empty() {
+            self.clear_uncommitted_translation();
+        } else {
+            self.uncommitted_translation = normalized_draft_translation;
+            self.uncommitted_source_start = request.draft_source_start();
+            self.uncommitted_source_end = request.source_end;
+            self.last_translation_update_time = Instant::now();
+            self.update_display_translation();
+        }
+
+        self.mark_processed_up_to(request.source_end);
+        true
     }
 
     pub fn add_to_history(&mut self, source: String, translation: String) {
@@ -366,23 +474,6 @@ impl RealtimeState {
         while self.translation_history.len() > 3 {
             self.translation_history.remove(0);
         }
-    }
-
-    pub fn get_history_messages(&self, target_language: &str) -> Vec<serde_json::Value> {
-        let mut messages = Vec::new();
-
-        for (source, translation) in &self.translation_history {
-            messages.push(serde_json::json!({
-                "role": "user",
-                "content": format!("Translate to {}:\n{}", target_language, source)
-            }));
-            messages.push(serde_json::json!({
-                "role": "assistant",
-                "content": translation
-            }));
-        }
-
-        messages
     }
 }
 

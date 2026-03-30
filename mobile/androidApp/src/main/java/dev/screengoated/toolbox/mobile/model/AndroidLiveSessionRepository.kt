@@ -14,6 +14,7 @@ import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.shared.live.TranscriptionMethod
 import dev.screengoated.toolbox.mobile.shared.live.TranslationRequest
+import dev.screengoated.toolbox.mobile.shared.live.TranslationResponse
 import dev.screengoated.toolbox.mobile.shared.live.LiveTextState
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
@@ -199,16 +200,13 @@ class AndroidLiveSessionRepository(
         return store.claimTranslationRequest()
     }
 
-    fun appendTranslationDelta(
-        text: String,
+    fun applyTranslationResponse(
+        request: TranslationRequest,
+        response: TranslationResponse,
         nowMs: Long,
     ) {
-        store.appendTranslationDelta(text, nowMs)
-    }
-
-    fun finalizeTranslation(bytesToCommit: Int) {
         val previousLiveText = state.value.liveText
-        store.finalizeTranslation(bytesToCommit)
+        store.applyTranslationResponse(request, response, nowMs)
         persistCommittedSegment(previousLiveText, state.value.liveText)
     }
 

@@ -147,14 +147,19 @@ fn handle_set_draft(args: Value) -> Result<(), String> {
 /// Add hotkey immediately — saves to config and triggers system-wide registration.
 fn handle_add_hotkey(args: Value) -> Result<Value, String> {
     let args = serde_json::from_value::<HotkeyArgs>(args).map_err(|err| err.to_string())?;
-    let Some(mut hotkey) = super::map_hotkey(&args.key, &args.code, args.ctrl, args.alt, args.shift, args.meta) else {
+    let Some(mut hotkey) = super::map_hotkey(
+        &args.key, &args.code, args.ctrl, args.alt, args.shift, args.meta,
+    ) else {
         return Err("unsupported key".to_string());
     };
 
     // Check conflicts
     {
         let app = crate::APP.lock().unwrap();
-        if let Some(msg) = app.config.check_hotkey_conflict(hotkey.code, hotkey.modifiers, None) {
+        if let Some(msg) = app
+            .config
+            .check_hotkey_conflict(hotkey.code, hotkey.modifiers, None)
+        {
             return Err(msg);
         }
     }
@@ -173,7 +178,13 @@ fn handle_add_hotkey(args: Value) -> Result<Value, String> {
 
     // Update UI state
     super::state::with_state(|ui| {
-        ui.draft.hotkeys = crate::APP.lock().unwrap().config.bilingual_relay.hotkeys.clone();
+        ui.draft.hotkeys = crate::APP
+            .lock()
+            .unwrap()
+            .config
+            .bilingual_relay
+            .hotkeys
+            .clone();
         ui.applied.hotkeys = ui.draft.hotkeys.clone();
         ui.hotkey_error = None;
         ui.normalize();
@@ -201,7 +212,13 @@ fn handle_remove_hotkey(args: Value) -> Result<Value, String> {
     super::reload_hotkeys();
 
     super::state::with_state(|ui| {
-        ui.draft.hotkeys = crate::APP.lock().unwrap().config.bilingual_relay.hotkeys.clone();
+        ui.draft.hotkeys = crate::APP
+            .lock()
+            .unwrap()
+            .config
+            .bilingual_relay
+            .hotkeys
+            .clone();
         ui.applied.hotkeys = ui.draft.hotkeys.clone();
         ui.normalize();
     });
