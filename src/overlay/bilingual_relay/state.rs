@@ -198,6 +198,12 @@ pub(super) fn upsert_transcript(role: &'static str, text: String, is_final: bool
         return;
     }
     with_state(|state| {
+        let dominated_by_same = state
+            .transcripts
+            .last()
+            .map(|last| last.role == role)
+            .unwrap_or(false);
+        // Try to find an unfinal item of the same role to merge into
         if let Some(existing) = state
             .transcripts
             .iter_mut()
@@ -206,11 +212,27 @@ pub(super) fn upsert_transcript(role: &'static str, text: String, is_final: bool
         {
             existing.text = merge_transcript_text(&existing.text, text);
             existing.is_final = is_final;
-            // Detect language once we have enough text
             if existing.lang.is_empty() || is_final {
                 let detected = detect_lang(&existing.text);
                 if !detected.is_empty() {
                     existing.lang = detected;
+                }
+            }
+        }
+        // If no unfinal item, check if the last item of same role was JUST finalized
+        // (Gemini sometimes splits long translations into multiple chunks after turnComplete)
+        else if let Some(last_same) = state
+            .transcripts
+            .iter_mut()
+            .rev()
+            .find(|item| item.role == role && item.is_final)
+            .filter(|_| dominated_by_same)
+        {
+            last_same.text = merge_transcript_text(&last_same.text, text);
+            if last_same.lang.is_empty() {
+                let detected = detect_lang(&last_same.text);
+                if !detected.is_empty() {
+                    last_same.lang = detected;
                 }
             }
         } else {
