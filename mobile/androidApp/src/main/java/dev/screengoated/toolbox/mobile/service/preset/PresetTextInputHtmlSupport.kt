@@ -444,6 +444,17 @@ internal fun presetTextInputJavascript(): String {
             editor.focus();
         };
 
+        window.insertTextAtCursor = (text) => {
+            const start = editor.selectionStart;
+            const end = editor.selectionEnd;
+            const before = editor.value.substring(0, start);
+            const after = editor.value.substring(end);
+            editor.value = before + text + after;
+            const newPos = start + text.length;
+            editor.selectionStart = editor.selectionEnd = newPos;
+            editor.focus();
+        };
+
         window.clearInput = () => {
             editor.value = '';
             editor.focus();
