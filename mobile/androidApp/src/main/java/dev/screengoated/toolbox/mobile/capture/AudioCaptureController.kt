@@ -53,7 +53,7 @@ class AudioCaptureController(
         check(minBufferSize > 0) { "Unable to allocate microphone capture buffer." }
 
         val audioRecord = AudioRecord.Builder()
-            .setAudioSource(MediaRecorder.AudioSource.MIC)
+            .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
             .setAudioFormat(format)
             .setBufferSizeInBytes(minBufferSize * 2)
             .build()
@@ -61,8 +61,29 @@ class AudioCaptureController(
             "Microphone AudioRecord failed to initialize."
         }
 
+        // Attach acoustic echo canceller to suppress speaker→mic feedback
+        val aec = if (android.media.audiofx.AcousticEchoCanceler.isAvailable()) {
+            runCatching {
+                android.media.audiofx.AcousticEchoCanceler.create(audioRecord.audioSessionId)?.also {
+                    it.enabled = true
+                    Log.d(TAG, "AcousticEchoCanceler attached (session=${audioRecord.audioSessionId})")
+                }
+            }.getOrNull()
+        } else {
+            Log.w(TAG, "AcousticEchoCanceler not available on this device")
+            null
+        }
+        // Also attach noise suppressor
+        val ns = if (android.media.audiofx.NoiseSuppressor.isAvailable()) {
+            runCatching {
+                android.media.audiofx.NoiseSuppressor.create(audioRecord.audioSessionId)?.also {
+                    it.enabled = true
+                }
+            }.getOrNull()
+        } else null
+
         audioRecord.startRecording()
-        Log.d(TAG, "Mic capture started with bufferBytes=${minBufferSize * 2}")
+        Log.d(TAG, "Mic capture started with VOICE_COMMUNICATION + AEC, bufferBytes=${minBufferSize * 2}")
 
         val reader = launch(Dispatchers.IO) {
             val buffer = ShortArray(minBufferSize / 2)
@@ -89,6 +110,8 @@ class AudioCaptureController(
         awaitClose {
             reader.cancel()
             runCatching { audioRecord.stop() }
+            runCatching { aec?.release() }
+            runCatching { ns?.release() }
             audioRecord.release()
         }
     }

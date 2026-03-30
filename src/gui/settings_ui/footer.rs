@@ -95,15 +95,24 @@ pub fn render_footer(
             *show_pointer_gallery = true;
         }
 
-        ui.add_space(6.0);
-
+        let relay_color = egui::Color32::from_rgb(255, 245, 247);
+        let relay_bg = if is_dark {
+            egui::Color32::from_rgb(200, 85, 110)
+        } else {
+            egui::Color32::from_rgb(235, 120, 145)
+        };
+        let relay_bg_hover = if is_dark {
+            egui::Color32::from_rgb(215, 100, 125)
+        } else {
+            egui::Color32::from_rgb(245, 135, 158)
+        };
         if render_launch_button(
             ui,
             text.bilingual_relay_btn,
             Icon::Speaker,
-            btn_color,
-            btn_bg,
-            btn_bg_hover,
+            relay_color,
+            relay_bg,
+            relay_bg_hover,
         )
         .clicked()
         {
