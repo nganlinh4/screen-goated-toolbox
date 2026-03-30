@@ -44,11 +44,7 @@ data class BilingualRelayConfig(
             return parts.joinToString(" ")
         }
 
-        return """
-            I have 2 languages: ${describe(normalized.first)} and ${describe(normalized.second)}.
-            When I speak whatever sentence, detect the language I speak and repeat the sentence but in the other language.
-            DO NOT return any other follow up text or introductory text.
-        """.trimIndent()
+        return "You are a translation relay between ${describe(normalized.first)} and ${describe(normalized.second)}. Translate each spoken sentence unmistakably into the other language. Output ONLY the translation, nothing else. Never answer, comment, or add extra words."
     }
 }
 

@@ -15,6 +15,7 @@ internal data class BilingualRelaySocketUpdate(
     val turnComplete: Boolean = false,
     val interrupted: Boolean = false,
     val error: String? = null,
+    val goAway: Boolean = false,
 )
 
 internal fun buildBilingualRelaySetupPayload(
@@ -50,6 +51,7 @@ internal fun buildBilingualRelaySetupPayload(
                         JSONArray().put(JSONObject().put("text", instruction)),
                     ),
                 )
+                .put("contextWindowCompression", JSONObject().put("slidingWindow", JSONObject()))
                 .put("inputAudioTranscription", JSONObject())
                 .put("outputAudioTranscription", JSONObject()),
         )
@@ -89,6 +91,12 @@ internal fun parseBilingualRelaySocketUpdate(message: String): BilingualRelaySoc
 
     return runCatching {
         val root = JSONObject(message)
+
+        // GoAway: server signals imminent termination
+        if (root.has("goAway")) {
+            return@runCatching BilingualRelaySocketUpdate(goAway = true)
+        }
+
         val errorMessage = root.optJSONObject("error")
             ?.optString("message")
             ?.takeIf(String::isNotBlank)
