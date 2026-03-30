@@ -152,6 +152,7 @@ class BilingualRelayRepository(
         val idx = existing.indexOfLast { it.role == role && !it.isFinal }
         val updated = existing.toMutableList()
         if (idx >= 0) {
+            // Merge into unfinal item of same role
             val merged = mergeTranscriptText(updated[idx].text, trimmed)
             val lang = if (updated[idx].lang.isBlank() || final) {
                 languageDetector.detectIso639_3(merged).ifBlank { updated[idx].lang }
@@ -161,6 +162,21 @@ class BilingualRelayRepository(
             updated[idx] = updated[idx].copy(
                 text = merged,
                 isFinal = final,
+                updatedAtMs = nowMs,
+                lang = lang,
+            )
+        } else if (updated.isNotEmpty() && updated.last().role == role && updated.last().isFinal) {
+            // Merge late fragment into the last finalized item of same role
+            // (Gemini splits long translations into multiple chunks after turnComplete)
+            val lastIdx = updated.lastIndex
+            val merged = mergeTranscriptText(updated[lastIdx].text, trimmed)
+            val lang = if (updated[lastIdx].lang.isBlank()) {
+                languageDetector.detectIso639_3(merged).ifBlank { updated[lastIdx].lang }
+            } else {
+                updated[lastIdx].lang
+            }
+            updated[lastIdx] = updated[lastIdx].copy(
+                text = merged,
                 updatedAtMs = nowMs,
                 lang = lang,
             )
