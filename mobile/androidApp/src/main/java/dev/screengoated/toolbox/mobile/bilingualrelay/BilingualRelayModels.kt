@@ -64,6 +64,7 @@ enum class BilingualRelayConnectionState {
 enum class BilingualRelayTranscriptRole {
     INPUT,
     OUTPUT,
+    SEPARATOR,
 }
 
 data class BilingualRelayTranscriptItem(

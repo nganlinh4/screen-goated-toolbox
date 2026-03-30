@@ -76,10 +76,30 @@ class BilingualRelayRepository(
     }
 
     fun markReady() {
+        insertSessionSeparator()
         mutableState.value = mutableState.value.copy(
             connectionState = BilingualRelayConnectionState.READY,
             isRunning = true,
             lastError = null,
+        ).normalize()
+    }
+
+    fun insertSessionSeparator() {
+        val transcripts = mutableState.value.transcripts
+        if (transcripts.isEmpty()) return
+        if (transcripts.last().role == BilingualRelayTranscriptRole.SEPARATOR) return
+        val formatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        val timeText = formatter.format(java.util.Date())
+        val updated = transcripts + BilingualRelayTranscriptItem(
+            id = transcriptIdCounter.getAndIncrement(),
+            role = BilingualRelayTranscriptRole.SEPARATOR,
+            text = timeText,
+            isFinal = true,
+            updatedAtMs = android.os.SystemClock.elapsedRealtime(),
+            lang = "",
+        )
+        mutableState.value = mutableState.value.copy(
+            transcripts = updated.takeLast(MAX_TRANSCRIPTS),
         ).normalize()
     }
 

@@ -252,7 +252,7 @@ function groupTranscripts(items: RelayState["transcripts"]): TranscriptEntry[] {
     if (item.role === "input") {
       const next = items[i + 1];
       if (next && next.role === "output") {
-        entries.push({ input: item.text, output: next.text, lang: item.lang, isFinal: next.isFinal });
+        entries.push({ input: item.text, output: next.text, lang: next.lang, isFinal: next.isFinal });
         i++;
       } else {
         entries.push({ input: item.text, output: "", lang: item.lang, isFinal: item.isFinal });
