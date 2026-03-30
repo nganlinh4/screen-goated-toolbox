@@ -110,7 +110,9 @@ internal fun audioRecordingWindowDimensions(
         .coerceIn(350.0, 500.0)
         .toFloat()
     val availableCssWidth = (screenCssWidth - WINDOW_SIDE_MARGIN_CSS * 2).coerceAtLeast(MIN_WINDOW_WIDTH_CSS)
-    val outerCssWidth = targetCssWidth.coerceAtMost(availableCssWidth)
+    // On tablets (>600 CSS px), cap width to ~55% of screen to avoid an oversized bar
+    val maxTabletWidth = if (screenCssWidth > 600f) screenCssWidth * 0.55f else availableCssWidth
+    val outerCssWidth = targetCssWidth.coerceAtMost(availableCssWidth).coerceAtMost(maxTabletWidth)
     val outerCssHeight = WINDOW_HEIGHT_CSS
     return (outerCssWidth * safeDensity).roundToInt() to (outerCssHeight * safeDensity).roundToInt()
 }
