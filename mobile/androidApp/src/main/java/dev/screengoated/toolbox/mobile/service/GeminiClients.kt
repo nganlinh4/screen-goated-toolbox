@@ -1,9 +1,12 @@
 package dev.screengoated.toolbox.mobile.service
 
 import android.util.Base64
+import android.util.Log
 import dev.screengoated.toolbox.mobile.model.LanguageCatalog
 import dev.screengoated.toolbox.mobile.shared.live.LiveTranslationModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.TranslationRequest
+import dev.screengoated.toolbox.mobile.shared.live.TranslationResponse
+import dev.screengoated.toolbox.mobile.shared.live.TranslationPatch
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -407,102 +410,94 @@ class GeminiLiveSocketClient(
 class RealtimeTranslationClient(
     private val httpClient: OkHttpClient,
 ) {
-    suspend fun streamTranslation(
+    suspend fun translate(
         geminiApiKey: String,
         cerebrasApiKey: String,
         request: TranslationRequest,
         targetLanguage: String,
         providerId: String,
         model: String,
-        onDelta: (String) -> Unit,
-    ): String = withContext(Dispatchers.IO) {
+    ): TranslationExecutionResult = withContext(Dispatchers.IO) {
         val primary = TranslationProvider(providerId, model)
 
-        // Check if primary provider is available (has API key if needed)
         val primaryAvailable = isProviderAvailable(primary.id, geminiApiKey, cerebrasApiKey)
 
         if (primaryAvailable) {
             runCatching {
-                streamWithProvider(
+                val response = translateWithProvider(
                     provider = primary,
                     geminiApiKey = geminiApiKey,
                     cerebrasApiKey = cerebrasApiKey,
                     request = request,
                     targetLanguage = targetLanguage,
-                    onDelta = onDelta,
                 )
-                return@withContext primary.id
+                return@withContext TranslationExecutionResult(primary.id, response)
             }
         }
 
-        // Primary failed or unavailable — try fallback
         val fallback = fallbackProvider(primary.id, geminiApiKey, cerebrasApiKey)
-        streamWithProvider(
+        val response = translateWithProvider(
             provider = fallback,
             geminiApiKey = geminiApiKey,
             cerebrasApiKey = cerebrasApiKey,
             request = request,
             targetLanguage = targetLanguage,
-            onDelta = onDelta,
         )
-        fallback.id
+        TranslationExecutionResult(fallback.id, response)
     }
 
-    private fun streamWithProvider(
+    private fun translateWithProvider(
         provider: TranslationProvider,
         geminiApiKey: String,
         cerebrasApiKey: String,
         request: TranslationRequest,
         targetLanguage: String,
-        onDelta: (String) -> Unit,
-    ) {
+    ): TranslationResponse {
+        Log.d(
+            TRANSLATION_TAG,
+            "request provider=${provider.id} range=${request.sourceStart}-${request.sourceEnd} finalize=${request.bytesToCommit} draft=${request.draftSource.length}",
+        )
         when (provider.id) {
-            PROVIDER_GTX -> {
-                val text = translateWithGoogleGtx(
-                    text = request.chunk,
-                    targetLanguage = targetLanguage,
-                ) ?: error("GTX translation failed.")
-                onDelta(text)
-            }
+            PROVIDER_GTX -> return translateWithGoogleGtx(request, targetLanguage)
 
             PROVIDER_CEREBRAS -> {
                 val apiKey = cerebrasApiKey.takeIf { it.isNotBlank() }
                     ?: error("Add your Cerebras API key before using Cerebras translation.")
-                streamChatCompletion(
+                return translateWithCerebras(
                     endpoint = "https://api.cerebras.ai/v1/chat/completions",
                     apiKey = apiKey,
                     model = provider.model,
-                    messages = cerebrasMessages(request, targetLanguage),
-                    onDelta = onDelta,
+                    request = request,
+                    targetLanguage = targetLanguage,
                 )
             }
 
             else -> {
                 val apiKey = geminiApiKey.takeIf { it.isNotBlank() }
                     ?: error("Add your Gemini API key before using Gemma translation.")
-                streamChatCompletion(
-                    endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                return translateWithGemini(
+                    endpoint = "https://generativelanguage.googleapis.com/v1beta/models/${provider.model}:generateContent",
                     apiKey = apiKey,
-                    model = provider.model,
-                    messages = gemmaMessages(request, targetLanguage),
-                    onDelta = onDelta,
+                    request = request,
+                    targetLanguage = targetLanguage,
                 )
             }
         }
     }
 
-    private fun streamChatCompletion(
+    private fun translateWithCerebras(
         endpoint: String,
         apiKey: String,
         model: String,
-        messages: JSONArray,
-        onDelta: (String) -> Unit,
-    ) {
+        request: TranslationRequest,
+        targetLanguage: String,
+    ): TranslationResponse {
         val requestBody = JSONObject()
             .put("model", model)
-            .put("messages", messages)
-            .put("stream", true)
+            .put("messages", cerebrasMessages(request, targetLanguage))
+            .put("stream", false)
             .put("max_tokens", 512)
+            .put("response_format", cerebrasResponseFormat())
             .toString()
             .toRequestBody(JSON_MEDIA_TYPE)
 
@@ -517,71 +512,101 @@ class RealtimeTranslationClient(
             if (!response.isSuccessful) {
                 throw IOException("Translation request failed with ${response.code}")
             }
-            val body = response.body ?: throw IOException("Translation response body was empty.")
-            var emittedText = ""
-            body.charStream().buffered().useLines { lines ->
-                lines.forEach { rawLine ->
-                    val line = rawLine.trim()
-                    if (!line.startsWith("data: ")) {
-                        return@forEach
-                    }
-                    val payload = line.removePrefix("data: ").trim()
-                    if (payload.isBlank() || payload == "[DONE]") {
-                        return@forEach
-                    }
-                    val candidateText = extractStreamText(payload)
-                    if (candidateText.isBlank()) {
-                        return@forEach
-                    }
-                    val delta = when {
-                        candidateText.startsWith(emittedText) -> candidateText.removePrefix(emittedText)
-                        emittedText.startsWith(candidateText) -> ""
-                        else -> candidateText
-                    }
-                    if (delta.isNotBlank()) {
-                        emittedText += delta
-                        onDelta(delta)
-                    }
-                }
-            }
+            val body = response.body?.string().orEmpty()
+            val root = JSONObject(body)
+            val jsonText = root.optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+                ?.optString("content")
+                .orEmpty()
+            return parseTranslationResponse(jsonText, request)
         }
     }
 
-    private fun extractStreamText(payload: String): String {
-        return try {
-            val root = JSONObject(payload)
-            val choices = root.optJSONArray("choices") ?: JSONArray()
-            val choice = choices.optJSONObject(0) ?: return ""
-            choice.optJSONObject("delta")?.optString("content").orEmpty()
-        } catch (_error: JSONException) {
-            ""
-        }
-    }
-
-    private fun gemmaMessages(
+    private fun translateWithGemini(
+        endpoint: String,
+        apiKey: String,
         request: TranslationRequest,
         targetLanguage: String,
-    ): JSONArray {
-        val prompt = buildPrompt(request, targetLanguage)
-        val messages = JSONArray()
-        request.history.forEach { entry ->
-            messages.put(
-                JSONObject()
-                    .put("role", "user")
-                    .put("content", "Translate to $targetLanguage:\n${entry.source}"),
+    ): TranslationResponse {
+        val requestBody = JSONObject()
+            .put(
+                "contents",
+                JSONArray().put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put(
+                            "parts",
+                            JSONArray().put(
+                                JSONObject().put("text", buildStructuredPrompt(request, targetLanguage)),
+                            ),
+                        ),
+                ),
             )
-            messages.put(
-                JSONObject()
-                    .put("role", "assistant")
-                    .put("content", entry.translation),
+            .put(
+                "generationConfig",
+                JSONObject().put("responseMimeType", "application/json"),
+            )
+            .toString()
+            .toRequestBody(JSON_MEDIA_TYPE)
+
+        val httpRequest = Request.Builder()
+            .url(endpoint)
+            .header("x-goog-api-key", apiKey)
+            .header("Content-Type", "application/json")
+            .post(requestBody)
+            .build()
+
+        httpClient.newCall(httpRequest).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("Gemini translation request failed with ${response.code}")
+            }
+            val body = response.body?.string().orEmpty()
+            val root = JSONObject(body)
+            val parts = root.optJSONArray("candidates")
+                ?.optJSONObject(0)
+                ?.optJSONObject("content")
+                ?.optJSONArray("parts")
+                ?: throw IOException("Gemini translation response body was empty.")
+            val jsonText = buildString {
+                for (index in 0 until parts.length()) {
+                    append(parts.optJSONObject(index)?.optString("text").orEmpty())
+                }
+            }
+            return parseTranslationResponse(jsonText, request)
+        }
+    }
+
+    private fun translateWithGoogleGtx(
+        request: TranslationRequest,
+        targetLanguage: String,
+    ): TranslationResponse {
+        val patches = mutableListOf<TranslationPatch>()
+        if (request.finalizedSource.isNotBlank()) {
+            val translated = translateWithGoogleGtxText(
+                text = request.finalizedSource,
+                targetLanguage = targetLanguage,
+            ) ?: error("GTX finalized translation failed.")
+            patches += TranslationPatch(
+                sourceStart = request.sourceStart,
+                sourceEnd = request.finalizedSourceEnd,
+                state = "final",
+                translation = translated,
             )
         }
-        messages.put(
-            JSONObject()
-                .put("role", "user")
-                .put("content", prompt),
-        )
-        return messages
+        if (request.draftSource.isNotBlank()) {
+            val translated = translateWithGoogleGtxText(
+                text = request.draftSource,
+                targetLanguage = targetLanguage,
+            ) ?: error("GTX draft translation failed.")
+            patches += TranslationPatch(
+                sourceStart = request.draftSourceStart,
+                sourceEnd = request.sourceEnd,
+                state = "draft",
+                translation = translated,
+            )
+        }
+        return validateTranslationResponse(TranslationResponse(patches), request)
     }
 
     private fun cerebrasMessages(
@@ -594,7 +619,7 @@ class RealtimeTranslationClient(
                 .put("role", "system")
                 .put(
                     "content",
-                    "You are a professional translator. Translate text to $targetLanguage to append suitably to the context. Output ONLY the translation, nothing else.",
+                    "You translate live transcript windows into JSON source patches. Respond with JSON only.",
                 ),
         )
         request.history.forEach { entry ->
@@ -612,38 +637,194 @@ class RealtimeTranslationClient(
         messages.put(
             JSONObject()
                 .put("role", "user")
-                .put("content", "Translate to $targetLanguage:\n${request.chunk}"),
+                .put("content", buildStructuredPrompt(request, targetLanguage)),
         )
         return messages
     }
 
-    private fun buildPrompt(
+    private fun buildStructuredPrompt(
         request: TranslationRequest,
         targetLanguage: String,
     ): String {
-        return buildString {
-            append("You are a professional translator. Translate the next live transcript chunk to ")
-            append(targetLanguage)
-            append(". Output only the translation text that should be appended to the running result.\n\n")
-            if (request.history.isNotEmpty()) {
-                append("Recent committed context:\n")
-                request.history.forEach { entry ->
-                    append("Source: ")
-                    append(entry.source)
-                    append('\n')
-                    append("Translation: ")
-                    append(entry.translation)
-                    append("\n\n")
-                }
+        val history = JSONArray().apply {
+            request.history.forEach { entry ->
+                put(
+                    JSONObject()
+                        .put("source", entry.source)
+                        .put("translation", entry.translation),
+                )
             }
-            append("Translate to ")
+        }
+        val expectedPatches = JSONArray().apply {
+            if (request.finalizedSource.isNotBlank()) {
+                put(
+                    JSONObject()
+                        .put("sourceStart", request.sourceStart)
+                        .put("sourceEnd", request.finalizedSourceEnd)
+                        .put("state", "final"),
+                )
+            }
+            if (request.draftSource.isNotBlank()) {
+                put(
+                    JSONObject()
+                        .put("sourceStart", request.draftSourceStart)
+                        .put("sourceEnd", request.sourceEnd)
+                        .put("state", "draft"),
+                )
+            }
+        }
+        val window = JSONObject()
+            .put("sourceStart", request.sourceStart)
+            .put("sourceEnd", request.sourceEnd)
+            .put("pendingSource", request.pendingSource)
+            .put("finalizedSource", request.finalizedSource)
+            .put("draftSource", request.draftSource)
+            .put("previousDraftTranslation", request.previousDraftTranslation)
+
+        return buildString {
+            append("You are a professional live translator.\n")
+            append("Translate only the provided source window into ")
             append(targetLanguage)
-            append(":\n")
-            append(request.chunk)
+            append(".\n")
+            append("Return JSON with a single key named patches.\n")
+            append("Each patch must keep the exact sourceStart/sourceEnd values from expectedPatches.\n")
+            append("Use state=\"final\" for the finalized source span and state=\"draft\" for the trailing unfinished span.\n")
+            append("Do not add commentary, markdown, or extra keys.\n\n")
+            append("Recent committed context:\n")
+            append(history.toString())
+            append("\n\n")
+            append("Current source window:\n")
+            append(window.toString())
+            append("\n\n")
+            append("Expected patches:\n")
+            append(expectedPatches.toString())
         }
     }
 
-    private fun translateWithGoogleGtx(
+    private fun cerebrasResponseFormat(): JSONObject {
+        val patchSchema = JSONObject()
+            .put("type", "object")
+            .put(
+                "properties",
+                JSONObject()
+                    .put("sourceStart", JSONObject().put("type", "integer"))
+                    .put("sourceEnd", JSONObject().put("type", "integer"))
+                    .put(
+                        "state",
+                        JSONObject()
+                            .put("type", "string")
+                            .put("enum", JSONArray().put("final").put("draft")),
+                    )
+                    .put("translation", JSONObject().put("type", "string")),
+            )
+            .put(
+                "required",
+                JSONArray()
+                    .put("sourceStart")
+                    .put("sourceEnd")
+                    .put("state")
+                    .put("translation"),
+            )
+            .put("additionalProperties", false)
+
+        val schema = JSONObject()
+            .put("type", "object")
+            .put(
+                "properties",
+                JSONObject().put(
+                    "patches",
+                    JSONObject()
+                        .put("type", "array")
+                        .put("items", patchSchema),
+                ),
+            )
+            .put("required", JSONArray().put("patches"))
+            .put("additionalProperties", false)
+
+        return JSONObject()
+            .put("type", "json_schema")
+            .put(
+                "json_schema",
+                JSONObject()
+                    .put("name", "live_translate_patches")
+                    .put("strict", true)
+                    .put("schema", schema),
+            )
+    }
+
+    private fun parseTranslationResponse(
+        payload: String,
+        request: TranslationRequest,
+    ): TranslationResponse {
+        if (payload.isBlank()) {
+            throw IOException("Translation response payload was empty.")
+        }
+        try {
+            val root = JSONObject(payload)
+            val patchesJson = root.optJSONArray("patches")
+                ?: throw IOException("Translation response did not include patches.")
+            val patches = buildList {
+                for (index in 0 until patchesJson.length()) {
+                    val patch = patchesJson.optJSONObject(index) ?: continue
+                    add(
+                        TranslationPatch(
+                            sourceStart = patch.optInt("sourceStart", Int.MIN_VALUE),
+                            sourceEnd = patch.optInt("sourceEnd", Int.MIN_VALUE),
+                            state = patch.optString("state"),
+                            translation = patch.optString("translation"),
+                        ),
+                    )
+                }
+            }
+            return validateTranslationResponse(TranslationResponse(patches), request)
+        } catch (error: JSONException) {
+            throw IOException("Translation response was not valid JSON.", error)
+        }
+    }
+
+    private fun validateTranslationResponse(
+        response: TranslationResponse,
+        request: TranslationRequest,
+    ): TranslationResponse {
+        val expectedPatches = buildList<Triple<Int, Int, String>> {
+            if (request.finalizedSource.isNotBlank()) {
+                add(Triple(request.sourceStart, request.finalizedSourceEnd, "final"))
+            }
+            if (request.draftSource.isNotBlank()) {
+                add(Triple(request.draftSourceStart, request.sourceEnd, "draft"))
+            }
+        }
+        val normalized = mutableListOf<TranslationPatch>()
+        expectedPatches.forEach { expected ->
+            val patch = response.patches.firstOrNull { candidate ->
+                candidate.sourceStart == expected.first &&
+                    candidate.sourceEnd == expected.second &&
+                    candidate.state == expected.third &&
+                    candidate.translation.isNotBlank()
+            }
+            if (patch != null) {
+                normalized += patch.copy(translation = patch.translation.trim())
+                return@forEach
+            }
+
+            if (expected.third == "draft" && !request.requiresDraftTranslation()) {
+                normalized += TranslationPatch(
+                    sourceStart = expected.first,
+                    sourceEnd = expected.second,
+                    state = expected.third,
+                    translation = request.fallbackDraftTranslation(),
+                )
+                return@forEach
+            }
+
+            throw IOException(
+                "Translation response missing expected ${expected.third} patch ${expected.first}-${expected.second}.",
+            )
+        }
+        return TranslationResponse(normalized)
+    }
+
+    private fun translateWithGoogleGtxText(
         text: String,
         targetLanguage: String,
     ): String? {
@@ -712,10 +893,16 @@ class RealtimeTranslationClient(
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private val PROVIDER_CEREBRAS = LiveTranslationModelCatalog.PROVIDER_CEREBRAS
         private val PROVIDER_GTX = LiveTranslationModelCatalog.PROVIDER_GTX
+        private const val TRANSLATION_TAG = "LiveTranslate"
     }
 
     private data class TranslationProvider(
         val id: String,
         val model: String,
+    )
+
+    data class TranslationExecutionResult(
+        val providerId: String,
+        val response: TranslationResponse,
     )
 }

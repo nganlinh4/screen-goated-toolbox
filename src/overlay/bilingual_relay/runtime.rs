@@ -107,18 +107,10 @@ fn run_loop(
                     || msg.contains("closed normally");
                 if is_normal_close {
                     // Server-side session timeout — reconnect silently
-                    super::publish_connection(
-                        RelayConnectionState::Reconnecting,
-                        true,
-                        None,
-                    );
+                    super::publish_connection(RelayConnectionState::Reconnecting, true, None);
                     std::thread::sleep(Duration::from_millis(500));
                 } else {
-                    super::publish_error(
-                        RelayConnectionState::Error,
-                        msg,
-                        false,
-                    );
+                    super::publish_error(RelayConnectionState::Error, msg, false);
                     std::thread::sleep(Duration::from_millis(1200));
                 }
                 reconnecting = true;

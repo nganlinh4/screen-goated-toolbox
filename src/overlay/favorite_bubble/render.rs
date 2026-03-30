@@ -37,8 +37,7 @@ pub fn update_bubble_visual(hwnd: HWND) {
         };
 
         let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
-        let hbm = match CreateDIBSection(Some(hdc_mem), &bmi, DIB_RGB_COLORS, &mut bits, None, 0)
-        {
+        let hbm = match CreateDIBSection(Some(hdc_mem), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) {
             Ok(hbm) => hbm,
             Err(_) => {
                 let _ = DeleteDC(hdc_mem);

@@ -54,54 +54,98 @@ object LiveTranslateParity {
         )
     }
 
-    fun claimTranslationRequest(state: LiveTextState): Pair<LiveTextState, TranslationRequest?> {
+    fun claimTranslationRequest(state: LiveTextState): TranslationRequest? {
         if (state.fullTranscript.length == state.lastProcessedLen) {
-            return state to null
+            return null
         }
 
-        val chunk = getTranslationChunk(state) ?: return state to null
-        val nextState = state.copy(
-            lastProcessedLen = state.fullTranscript.length,
-            uncommittedTranslation = "",
-            displayTranslation = updateDisplayTranslation(
-                committedTranslation = state.committedTranslation,
-                uncommittedTranslation = "",
-            ),
-        )
-        return nextState to TranslationRequest(
-            chunk = chunk.text,
-            hasFinishedDelimiter = chunk.hasFinishedDelimiter,
-            bytesToCommit = chunk.bytesToCommit,
+        val chunk = getTranslationChunk(state) ?: return null
+        return TranslationRequest(
+            sourceStart = chunk.sourceStart,
+            sourceEnd = chunk.sourceEnd,
+            finalizedSourceEnd = chunk.finalizedSourceEnd,
+            pendingSource = chunk.text,
+            finalizedSource = chunk.finalizedSource,
+            draftSource = chunk.draftSource,
+            previousDraftTranslation = if (
+                state.uncommittedSourceStart == chunk.sourceStart &&
+                state.uncommittedSourceEnd == chunk.sourceEnd
+            ) {
+                state.uncommittedTranslation
+            } else {
+                ""
+            },
             history = state.translationHistory,
         )
     }
 
-    fun appendTranslationDelta(
+    fun applyTranslationResponse(
         state: LiveTextState,
-        newText: String,
+        request: TranslationRequest,
+        response: TranslationResponse,
         nowMs: Long,
     ): LiveTextState {
-        if (newText.isEmpty()) {
+        if (request.sourceStart != state.lastCommittedPos || request.sourceEnd > state.fullTranscript.length) {
             return state
         }
 
-        val uncommitted = state.uncommittedTranslation + newText
-        return state.copy(
-            uncommittedTranslation = uncommitted,
-            displayTranslation = updateDisplayTranslation(
-                committedTranslation = state.committedTranslation,
-                uncommittedTranslation = uncommitted,
-            ),
-            lastTranslationUpdateAtMs = nowMs,
-        )
-    }
+        val finalizedPatch = response.patches.firstOrNull { patch ->
+            patch.state == "final" &&
+                patch.sourceStart == request.sourceStart &&
+                patch.sourceEnd == request.finalizedSourceEnd
+        }
+        val draftPatch = response.patches.firstOrNull { patch ->
+            patch.state == "draft" &&
+                patch.sourceStart == request.draftSourceStart &&
+                patch.sourceEnd == request.sourceEnd
+        }
 
-    fun finalizeTranslation(
-        state: LiveTextState,
-        bytesToCommit: Int,
-    ): LiveTextState {
-        val committedState = commitCurrentTranslation(state)
-        return advanceCommittedPos(committedState, bytesToCommit)
+        if (request.bytesToCommit > 0 && finalizedPatch?.translation?.isBlank() != false) {
+            return state
+        }
+        val normalizedDraftTranslation = when {
+            draftPatch?.translation?.isBlank() == false -> draftPatch.translation.trim()
+            else -> request.fallbackDraftTranslation()
+        }
+
+        if (request.requiresDraftTranslation() && normalizedDraftTranslation.isBlank()) {
+            return state
+        }
+
+        var nextState = state
+        if (request.bytesToCommit > 0) {
+            val finalizedTranslation = finalizedPatch?.translation.orEmpty().trim()
+            val committedTranslation = joinCommittedTranslation(
+                committedTranslation = nextState.committedTranslation,
+                newSegment = finalizedTranslation,
+            )
+            nextState = nextState.copy(
+                committedTranslation = committedTranslation,
+                lastCommittedPos = request.finalizedSourceEnd,
+                translationHistory = addToHistory(
+                    history = nextState.translationHistory,
+                    source = request.finalizedSource.trim(),
+                    translation = finalizedTranslation,
+                ),
+            )
+        }
+
+        nextState = if (request.draftSource.isEmpty()) {
+            clearUncommittedTranslation(nextState)
+        } else {
+            nextState.copy(
+                uncommittedTranslation = normalizedDraftTranslation,
+                uncommittedSourceStart = request.draftSourceStart,
+                uncommittedSourceEnd = request.sourceEnd,
+                displayTranslation = updateDisplayTranslation(
+                    committedTranslation = nextState.committedTranslation,
+                    uncommittedTranslation = normalizedDraftTranslation,
+                ),
+                lastTranslationUpdateAtMs = nowMs,
+            )
+        }
+
+        return nextState.copy(lastProcessedLen = request.sourceEnd)
     }
 
     fun clearTranslationHistory(state: LiveTextState): LiveTextState = state.copy(
@@ -128,6 +172,8 @@ object LiveTranslateParity {
             return null
         }
 
+        val sourceStart = state.lastCommittedPos
+        val sourceEnd = state.fullTranscript.length
         var splitIndex: Int? = null
         for (index in text.indices) {
             if (SENTENCE_DELIMITERS.contains(text[index])) {
@@ -135,19 +181,23 @@ object LiveTranslateParity {
             }
         }
 
-        return if (splitIndex != null) {
-            TranslationChunk(
-                text = text.substring(0, splitIndex),
-                hasFinishedDelimiter = true,
-                bytesToCommit = splitIndex,
-            )
+        val finalizedLength = splitIndex ?: 0
+        val rawFinalizedSource = text.substring(0, finalizedLength)
+        val rawDraftSource = text.substring(finalizedLength)
+        val hasMeaningfulDraft = rawDraftSource.isNotBlank()
+        val finalizedSourceEnd = if (hasMeaningfulDraft) {
+            sourceStart + finalizedLength
         } else {
-            TranslationChunk(
-                text = text,
-                hasFinishedDelimiter = false,
-                bytesToCommit = 0,
-            )
+            sourceEnd
         }
+        return TranslationChunk(
+            sourceStart = sourceStart,
+            sourceEnd = sourceEnd,
+            finalizedSourceEnd = finalizedSourceEnd,
+            text = text,
+            finalizedSource = if (hasMeaningfulDraft) rawFinalizedSource else text,
+            draftSource = if (hasMeaningfulDraft) rawDraftSource else "",
+        )
     }
 
     private fun shouldForceCommitOnTimeout(
@@ -172,16 +222,18 @@ object LiveTranslateParity {
             return false
         }
 
-        if (state.lastCommittedPos < state.fullTranscript.length) {
-            val pendingLen = state.fullTranscript.length - state.lastCommittedPos
-            if (pendingLen < MIN_FORCE_COMMIT_CHARS) {
-                return false
-            }
+        val pendingEnd = state.uncommittedSourceEnd.coerceAtMost(state.fullTranscript.length)
+        if (pendingEnd <= state.lastCommittedPos) {
+            return false
+        }
+        val pendingLen = pendingEnd - state.lastCommittedPos
+        if (pendingLen < MIN_FORCE_COMMIT_CHARS) {
+            return false
         }
 
         val userSilent = nowMs - state.lastTranscriptAppendAtMs > USER_SILENCE_TIMEOUT_MS
         val aiSilent = nowMs - state.lastTranslationUpdateAtMs > AI_SILENCE_TIMEOUT_MS
-        val sourceReady = sourceEndsWithSentence(state) || state.lastCommittedPos < state.fullTranscript.length
+        val sourceReady = sourceRangeEndsWithSentence(state, pendingEnd) || pendingEnd > state.lastCommittedPos
         return sourceReady && userSilent && aiSilent
     }
 
@@ -220,12 +272,22 @@ object LiveTranslateParity {
     }
 
     private fun sourceEndsWithSentence(state: LiveTextState): Boolean {
+        return sourceRangeEndsWithSentence(state, state.fullTranscript.length)
+    }
+
+    private fun sourceRangeEndsWithSentence(
+        state: LiveTextState,
+        endExclusive: Int,
+    ): Boolean {
         if (state.lastCommittedPos >= state.fullTranscript.length) {
+            return false
+        }
+        if (endExclusive <= state.lastCommittedPos || endExclusive > state.fullTranscript.length) {
             return false
         }
 
         return state.fullTranscript
-            .substring(state.lastCommittedPos)
+            .substring(state.lastCommittedPos, endExclusive)
             .trim()
             .lastOrNull()
             ?.let(SENTENCE_DELIMITERS::contains)
@@ -250,17 +312,12 @@ object LiveTranslateParity {
 
         val translatedSegment = state.uncommittedTranslation.trim()
         if (translatedSegment.isEmpty()) {
-            return state.copy(
-                uncommittedTranslation = "",
-                displayTranslation = updateDisplayTranslation(
-                    committedTranslation = state.committedTranslation,
-                    uncommittedTranslation = "",
-                ),
-            )
+            return clearUncommittedTranslation(state)
         }
 
-        val sourceSegment = if (state.lastCommittedPos < state.fullTranscript.length) {
-            state.fullTranscript.substring(state.lastCommittedPos).trim()
+        val pendingEnd = state.uncommittedSourceEnd.coerceAtMost(state.fullTranscript.length)
+        val sourceSegment = if (state.lastCommittedPos < pendingEnd) {
+            state.fullTranscript.substring(state.lastCommittedPos, pendingEnd).trim()
         } else {
             "[continued]"
         }
@@ -275,49 +332,15 @@ object LiveTranslateParity {
                 committedTranslation = committedTranslation,
                 uncommittedTranslation = "",
             ),
-            lastCommittedPos = state.fullTranscript.length,
+            lastCommittedPos = pendingEnd,
+            uncommittedSourceStart = pendingEnd,
+            uncommittedSourceEnd = pendingEnd,
             translationHistory = addToHistory(
                 history = state.translationHistory,
                 source = sourceSegment,
                 translation = translatedSegment,
             ),
         )
-    }
-
-    private fun commitCurrentTranslation(state: LiveTextState): LiveTextState {
-        val translatedSegment = state.uncommittedTranslation.trim()
-        if (translatedSegment.isEmpty()) {
-            return state.copy(
-                uncommittedTranslation = "",
-                displayTranslation = updateDisplayTranslation(
-                    committedTranslation = state.committedTranslation,
-                    uncommittedTranslation = "",
-                ),
-            )
-        }
-
-        val committedTranslation = joinCommittedTranslation(
-            committedTranslation = state.committedTranslation,
-            newSegment = translatedSegment,
-        )
-        return state.copy(
-            committedTranslation = committedTranslation,
-            uncommittedTranslation = "",
-            displayTranslation = updateDisplayTranslation(
-                committedTranslation = committedTranslation,
-                uncommittedTranslation = "",
-            ),
-        )
-    }
-
-    private fun advanceCommittedPos(
-        state: LiveTextState,
-        amount: Int,
-    ): LiveTextState {
-        val nextPos = (state.lastCommittedPos + amount)
-            .coerceAtLeast(0)
-            .coerceAtMost(state.fullTranscript.length)
-        return state.copy(lastCommittedPos = nextPos)
     }
 
     private fun addToHistory(
@@ -355,10 +378,25 @@ object LiveTranslateParity {
         }
     }
 
+    private fun clearUncommittedTranslation(state: LiveTextState): LiveTextState {
+        return state.copy(
+            uncommittedTranslation = "",
+            uncommittedSourceStart = state.lastCommittedPos,
+            uncommittedSourceEnd = state.lastCommittedPos,
+            displayTranslation = updateDisplayTranslation(
+                committedTranslation = state.committedTranslation,
+                uncommittedTranslation = "",
+            ),
+        )
+    }
+
     private data class TranslationChunk(
+        val sourceStart: Int,
+        val sourceEnd: Int,
+        val finalizedSourceEnd: Int,
         val text: String,
-        val hasFinishedDelimiter: Boolean,
-        val bytesToCommit: Int,
+        val finalizedSource: String,
+        val draftSource: String,
     )
 
     private val SENTENCE_DELIMITERS = setOf('.', '!', '?', '。', '！', '？')

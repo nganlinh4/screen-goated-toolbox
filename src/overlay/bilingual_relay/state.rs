@@ -277,7 +277,10 @@ pub(super) fn payload_json() -> Option<String> {
             }
         }),
         transcripts: state.transcripts.clone(),
-        guide_seen: crate::APP.lock().map(|a| a.config.bilingual_relay.guide_seen).unwrap_or(true),
+        guide_seen: crate::APP
+            .lock()
+            .map(|a| a.config.bilingual_relay.guide_seen)
+            .unwrap_or(true),
         tts_model: {
             let (m, _) = super::runtime::current_gemini_tts_settings();
             m

@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.service
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import dev.screengoated.toolbox.mobile.capture.AudioCaptureController
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
@@ -38,6 +39,7 @@ class LiveSessionRuntime(
     val parakeetModelManager: ParakeetModelManager,
 ) {
     private var lastTranslationAttemptAtMs: Long = 0L
+    private var translationIntervalMs: Long = TRANSLATION_INTERVAL_MS
     private val audioCaptureController = AudioCaptureController(context, projectionConsentStore)
     private val realtimeTtsCoordinator = RealtimeTtsCoordinator(ttsRuntimeService)
     private val overlayController = OverlayController(
@@ -66,6 +68,7 @@ class LiveSessionRuntime(
         sessionJob?.cancel()
         sessionJob = null
         lastTranslationAttemptAtMs = 0L
+        translationIntervalMs = TRANSLATION_INTERVAL_MS
         realtimeTtsCoordinator.stopAndReset()
         overlayController.hide()
     }
@@ -81,6 +84,7 @@ class LiveSessionRuntime(
 
     private suspend fun launchSession(scope: CoroutineScope) {
         lastTranslationAttemptAtMs = 0L
+        translationIntervalMs = TRANSLATION_INTERVAL_MS
         val config = repository.currentConfig()
         val apiKey = repository.currentApiKey()
         if (apiKey.isBlank()) {
@@ -244,7 +248,7 @@ class LiveSessionRuntime(
         while (currentCoroutineContext().isActive) {
             repository.forceCommitIfDue(SystemClock.elapsedRealtime())
             val nowMs = SystemClock.elapsedRealtime()
-            if (nowMs - lastTranslationAttemptAtMs < TRANSLATION_INTERVAL_MS) {
+            if (nowMs - lastTranslationAttemptAtMs < translationIntervalMs) {
                 maybeSpeakCommittedText()
                 delay(100)
                 continue
@@ -267,19 +271,19 @@ class LiveSessionRuntime(
             val startedAt = SystemClock.elapsedRealtime()
             val requestedProvider = repository.currentConfig().translationProvider.id
             try {
-                val usedProvider = translationClient.streamTranslation(
+                val result = translationClient.translate(
                     geminiApiKey = repository.currentApiKey(),
                     cerebrasApiKey = repository.currentCerebrasApiKey(),
                     request = request,
                     targetLanguage = repository.currentConfig().targetLanguage,
                     providerId = requestedProvider,
                     model = repository.currentConfig().translationProvider.model,
-                    onDelta = { delta ->
-                        repository.appendTranslationDelta(
-                            text = delta,
-                            nowMs = SystemClock.elapsedRealtime(),
-                        )
-                    },
+                )
+                val usedProvider = result.providerId
+                repository.applyTranslationResponse(
+                    request = request,
+                    response = result.response,
+                    nowMs = SystemClock.elapsedRealtime(),
                 )
                 // Only persist fallback switch if user hasn't changed the model during this request
                 if (usedProvider != requestedProvider &&
@@ -287,13 +291,16 @@ class LiveSessionRuntime(
                 ) {
                     repository.updateTranslationModel(usedProvider)
                 }
-                if (request.hasFinishedDelimiter) {
-                    repository.finalizeTranslation(request.bytesToCommit)
-                }
+                val latencyMs = SystemClock.elapsedRealtime() - startedAt
+                translationIntervalMs = computeAdaptiveTranslationIntervalMs(latencyMs)
+                Log.d(
+                    TRANSLATION_TAG,
+                    "success provider=$usedProvider range=${request.sourceStart}-${request.sourceEnd} latency=${latencyMs}ms nextInterval=${translationIntervalMs}ms",
+                )
                 maybeSpeakCommittedText()
                 repository.updateMetrics(
                     repository.state.value.metrics.copy(
-                        translationLatencyMs = SystemClock.elapsedRealtime() - startedAt,
+                        translationLatencyMs = latencyMs,
                         lastUpdatedEpochMs = System.currentTimeMillis(),
                     ),
                 )
@@ -302,8 +309,14 @@ class LiveSessionRuntime(
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Throwable) {
+            } catch (error: Throwable) {
                 // Translation failure should not kill the session — retry next cycle
+                translationIntervalMs = (translationIntervalMs + 250L).coerceAtMost(TRANSLATION_INTERVAL_MAX_MS)
+                Log.w(
+                    TRANSLATION_TAG,
+                    "failure provider=$requestedProvider range=${request.sourceStart}-${request.sourceEnd} nextInterval=${translationIntervalMs}ms",
+                    error,
+                )
                 if (repository.state.value.phase != SessionPhase.ERROR) {
                     repository.markListening()
                 }
@@ -331,6 +344,7 @@ class LiveSessionRuntime(
         sessionJob?.cancelAndJoin()
         sessionJob = null
         lastTranslationAttemptAtMs = 0L
+        translationIntervalMs = TRANSLATION_INTERVAL_MS
         realtimeTtsCoordinator.stopAndReset()
         if (!keepOverlay) {
             overlayController.hide()
@@ -339,6 +353,8 @@ class LiveSessionRuntime(
 }
 
 private const val TRANSLATION_INTERVAL_MS = 1_500L
+private const val TRANSLATION_INTERVAL_MAX_MS = 4_000L
+private const val TRANSLATION_TAG = "LiveTranslate"
 
 /** 160ms chunk at 16kHz = 2560 samples (matches Windows parakeet-rs) */
 private const val PARAKEET_CHUNK_SIZE = 2560
@@ -352,4 +368,10 @@ private fun processSentencePieceText(text: String): String {
     val processed = text.replace("\u2581", " ").replace("▁", " ").trim()
     if (processed.isEmpty()) return ""
     return if (startsWithWord) " $processed" else processed
+}
+
+private fun computeAdaptiveTranslationIntervalMs(latencyMs: Long): Long {
+    return (latencyMs + 250L)
+        .coerceAtLeast(TRANSLATION_INTERVAL_MS)
+        .coerceAtMost(TRANSLATION_INTERVAL_MAX_MS)
 }

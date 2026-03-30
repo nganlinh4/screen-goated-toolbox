@@ -57,8 +57,7 @@ pub fn paint_window(hwnd: HWND) {
             &mut scratch_bits,
             None,
             0,
-        )
-        {
+        ) {
             Ok(bitmap) => bitmap,
             Err(_) => {
                 let _ = DeleteDC(mem_dc);
@@ -195,17 +194,11 @@ unsafe fn collect_state_snapshot(
             };
 
             let mut p_bg_bits: *mut core::ffi::c_void = std::ptr::null_mut();
-            let hbm_bg = match CreateDIBSection(
-                Some(hdc),
-                &bmi,
-                DIB_RGB_COLORS,
-                &mut p_bg_bits,
-                None,
-                0,
-            ) {
-                Ok(bitmap) => bitmap,
-                Err(_) => return None,
-            };
+            let hbm_bg =
+                match CreateDIBSection(Some(hdc), &bmi, DIB_RGB_COLORS, &mut p_bg_bits, None, 0) {
+                    Ok(bitmap) => bitmap,
+                    Err(_) => return None,
+                };
 
             if !p_bg_bits.is_null() {
                 let pixels = std::slice::from_raw_parts_mut(

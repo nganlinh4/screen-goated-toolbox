@@ -404,8 +404,7 @@ fn render_cursor_rgba(path: &Path, target_size: u32) -> Result<Vec<u8>, String> 
         };
 
         let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
-        let dib = match CreateDIBSection(Some(mem_dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0)
-        {
+        let dib = match CreateDIBSection(Some(mem_dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) {
             Ok(dib) => dib,
             Err(e) => {
                 let _ = DeleteDC(mem_dc);

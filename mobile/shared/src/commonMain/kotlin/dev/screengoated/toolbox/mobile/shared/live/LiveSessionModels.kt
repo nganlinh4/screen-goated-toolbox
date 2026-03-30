@@ -120,6 +120,8 @@ data class LiveTextState(
     val lastProcessedLen: Int = 0,
     val committedTranslation: String = "",
     val uncommittedTranslation: String = "",
+    val uncommittedSourceStart: Int = 0,
+    val uncommittedSourceEnd: Int = 0,
     val displayTranslation: String = "",
     val translationHistory: List<TranslationHistoryEntry> = emptyList(),
     val lastTranscriptAppendAtMs: Long = 0L,
@@ -153,10 +155,45 @@ data class LiveSessionState(
 
 @Serializable
 data class TranslationRequest(
-    val chunk: String,
-    val hasFinishedDelimiter: Boolean,
-    val bytesToCommit: Int,
+    val sourceStart: Int,
+    val sourceEnd: Int,
+    val finalizedSourceEnd: Int,
+    val pendingSource: String,
+    val finalizedSource: String,
+    val draftSource: String,
+    val previousDraftTranslation: String = "",
     val history: List<TranslationHistoryEntry> = emptyList(),
+) {
+    val hasFinishedDelimiter: Boolean
+        get() = finalizedSourceEnd > sourceStart
+
+    val bytesToCommit: Int
+        get() = (finalizedSourceEnd - sourceStart).coerceAtLeast(0)
+
+    val draftSourceStart: Int
+        get() = finalizedSourceEnd
+
+    fun requiresDraftTranslation(): Boolean {
+        val trimmed = draftSource.trim()
+        return trimmed.isNotEmpty() && trimmed.any { it.isLetterOrDigit() }
+    }
+
+    fun fallbackDraftTranslation(): String {
+        return if (requiresDraftTranslation()) "" else draftSource.trim()
+    }
+}
+
+@Serializable
+data class TranslationPatch(
+    val sourceStart: Int,
+    val sourceEnd: Int,
+    val state: String,
+    val translation: String,
+)
+
+@Serializable
+data class TranslationResponse(
+    val patches: List<TranslationPatch>,
 )
 
 @Serializable

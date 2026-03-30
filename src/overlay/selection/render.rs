@@ -35,8 +35,12 @@ unsafe fn extract_crop_from_hbitmap_internal(
         let w = (crop_rect.right - crop_rect.left).abs();
         let h = (crop_rect.bottom - crop_rect.top).abs();
         let empty_image = || {
-            image::ImageBuffer::from_raw(w.max(1) as u32, h.max(1) as u32, vec![0; (w.max(1) * h.max(1) * 4) as usize])
-                .unwrap()
+            image::ImageBuffer::from_raw(
+                w.max(1) as u32,
+                h.max(1) as u32,
+                vec![0; (w.max(1) * h.max(1) * 4) as usize],
+            )
+            .unwrap()
         };
 
         let hdc_screen = GetDC(None);

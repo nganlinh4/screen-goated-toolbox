@@ -460,6 +460,27 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
             opacity: 1;
             filter: blur(0);
         }}
+        .text-chunk.diff-updating {{
+            opacity: 1;
+            filter: none;
+            background: linear-gradient(180deg, {tertiary}18 0%, {tertiary}0A 100%);
+            border-radius: 0.18em;
+            transition:
+                background 0.45s cubic-bezier(0.2, 0.0, 0, 1.0),
+                color 0.45s cubic-bezier(0.2, 0.0, 0, 1.0);
+        }}
+        .text-chunk.diff-updating.settled {{
+            background: linear-gradient(180deg, transparent 0%, transparent 100%);
+        }}
+        .text-chunk.commit-promoting {{
+            transition:
+                color 0.42s cubic-bezier(0.2, 0.0, 0, 1.0),
+                font-variation-settings 0.42s cubic-bezier(0.2, 0.0, 0, 1.0);
+        }}
+        .text-chunk.new.commit-promoting.settled {{
+            color: {placeholder_color};
+            font-variation-settings: 'wght' 300, 'wdth' 100, 'slnt' 0, 'GRAD' 0, 'ROND' 100, 'ROUN' 100, 'RNDS' 100;
+        }}
         .placeholder {{
             color: {placeholder_color};
             font-style: italic;
