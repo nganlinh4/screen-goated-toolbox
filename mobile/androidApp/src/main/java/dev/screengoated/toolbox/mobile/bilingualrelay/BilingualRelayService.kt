@@ -53,40 +53,45 @@ class BilingualRelayService : androidx.lifecycle.LifecycleService() {
     }
 
     private fun startSession() {
-        if (!repository.currentAppliedConfig().isValid()) {
-            repository.markNotConfigured()
-            stopSelf()
-            return
-        }
-        if (repository.currentApiKey().isBlank()) {
-            repository.fail(repository.localeText().bilingualRelayApiKeyRequired)
-            stopSelf()
-            return
-        }
+        // Must call startForeground before anything else after startForegroundService()
         startForeground(
             BilingualRelayNotificationFactory.NOTIFICATION_ID,
             notifications.build(repository.state.value),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
         )
+        if (!repository.currentAppliedConfig().isValid()) {
+            repository.markNotConfigured()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
+        if (repository.currentApiKey().isBlank()) {
+            repository.fail(repository.localeText().bilingualRelayApiKeyRequired)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
         runtime.start(serviceScope)
     }
 
     private fun restartSession() {
-        if (!repository.currentAppliedConfig().isValid()) {
-            repository.markNotConfigured()
-            stopSelf()
-            return
-        }
-        if (repository.currentApiKey().isBlank()) {
-            repository.fail(repository.localeText().bilingualRelayApiKeyRequired)
-            stopSelf()
-            return
-        }
         startForeground(
             BilingualRelayNotificationFactory.NOTIFICATION_ID,
             notifications.build(repository.state.value),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
         )
+        if (!repository.currentAppliedConfig().isValid()) {
+            repository.markNotConfigured()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
+        if (repository.currentApiKey().isBlank()) {
+            repository.fail(repository.localeText().bilingualRelayApiKeyRequired)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
         runtime.restart(serviceScope)
     }
 

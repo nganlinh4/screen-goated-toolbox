@@ -1,4 +1,7 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+)
 
 package dev.screengoated.toolbox.mobile.bilingualrelay
 
@@ -6,6 +9,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -13,35 +17,23 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -49,12 +41,17 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+
+private val CoralAccent = Color(0xFFFF7387)
 
 @Composable
 fun BilingualRelayScreen(
@@ -72,19 +69,16 @@ fun BilingualRelayScreen(
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) { granted ->
-        val canRecord = granted[Manifest.permission.RECORD_AUDIO] == true
-        if (canRecord && state.appliedConfig.isValid()) {
+        if (granted[Manifest.permission.RECORD_AUDIO] == true && state.appliedConfig.isValid()) {
             BilingualRelayService.start(context)
         }
     }
 
     fun ensureStarted(forceRestart: Boolean = false) {
-        val hasRecordPermission = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.RECORD_AUDIO,
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.RECORD_AUDIO,
         ) == PackageManager.PERMISSION_GRANTED
-
-        if (hasRecordPermission) {
+        if (hasPermission) {
             BilingualRelayService.start(context, restart = forceRestart)
         } else {
             permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
@@ -109,35 +103,61 @@ fun BilingualRelayScreen(
         }
     }
 
+    val surfaceLow = MaterialTheme.colorScheme.surfaceContainerLow
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
                     }
                 },
-                actions = {
-                    IconButton(onClick = onNavigateToTtsSettings) {
-                        Icon(
-                            Icons.Rounded.Settings,
-                            contentDescription = "TTS Settings",
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        CompactWaveform(
+                            connectionState = state.connectionState,
+                            level = state.visualizerLevel,
+                            accent = CoralAccent,
+                            modifier = Modifier.width(60.dp).height(32.dp),
+                        )
+                        StatusDot(state.connectionState)
+                        Text(
+                            connectionStateLabel(state.connectionState, locale),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    if (state.dirty) {
-                        Button(
+                },
+                actions = {
+                    IconButton(onClick = onNavigateToTtsSettings) {
+                        Icon(Icons.Rounded.Settings, contentDescription = "TTS Settings")
+                    }
+                    AnimatedVisibility(
+                        visible = state.dirty,
+                        enter = fadeIn() + scaleIn(),
+                        exit = fadeOut() + scaleOut(),
+                    ) {
+                        FilledTonalButton(
                             onClick = {
                                 repository.applyDraft()
                                 ensureStarted(forceRestart = true)
                             },
                             enabled = state.draftConfig.isValid(),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = lerp(surfaceLow, CoralAccent, 0.18f),
+                                contentColor = CoralAccent,
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            modifier = Modifier.height(36.dp),
                         ) {
-                            Text(locale.bilingualRelayApply)
+                            Text(locale.bilingualRelayApply, style = MaterialTheme.typography.labelMedium)
                         }
-                        Spacer(Modifier.size(8.dp))
                     }
-                    Button(
+                    FilledTonalButton(
                         onClick = {
                             if (state.isRunning) {
                                 BilingualRelayService.stop(context)
@@ -146,18 +166,31 @@ fun BilingualRelayScreen(
                             }
                         },
                         enabled = state.isRunning || state.appliedConfig.isValid(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = if (state.isRunning) {
+                                lerp(surfaceLow, MaterialTheme.colorScheme.error, 0.18f)
+                            } else {
+                                lerp(surfaceLow, CoralAccent, 0.18f)
+                            },
+                            contentColor = if (state.isRunning) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                CoralAccent
+                            },
                         ),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier.height(36.dp),
                     ) {
                         Icon(
                             if (state.isRunning) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(16.dp),
                         )
-                        Spacer(Modifier.size(6.dp))
-                        Text(if (state.isRunning) locale.bilingualRelayStop else locale.bilingualRelayStart)
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            if (state.isRunning) locale.bilingualRelayStop else locale.bilingualRelayStart,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
                     }
                 },
             )
@@ -167,183 +200,154 @@ fun BilingualRelayScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            ProfileCard(
+            // Language Card 1
+            RelayLanguageCard(
+                number = "1",
                 title = locale.bilingualRelayFirstProfile,
                 profile = state.draftConfig.first,
-                languageLabel = locale.bilingualRelayLanguageLabel,
-                accentLabel = locale.bilingualRelayAccentLabel,
-                toneLabel = locale.bilingualRelayToneLabel,
-                onChanged = { updated ->
-                    repository.updateDraft { it.copy(first = updated) }
-                },
+                languagePlaceholder = locale.bilingualRelayLanguageLabel,
+                accentPlaceholder = locale.bilingualRelayAccentLabel,
+                tonePlaceholder = locale.bilingualRelayToneLabel,
+                accent = CoralAccent,
+                onChanged = { repository.updateDraft { it.copy(first = it.first.copy(
+                    language = if (it.first.language != state.draftConfig.first.language) it.first.language else state.draftConfig.first.language,
+                    accent = if (it.first.accent != state.draftConfig.first.accent) it.first.accent else state.draftConfig.first.accent,
+                    tone = if (it.first.tone != state.draftConfig.first.tone) it.first.tone else state.draftConfig.first.tone,
+                )) } },
+                onLanguageChanged = { repository.updateDraft { c -> c.copy(first = c.first.copy(language = it)) } },
+                onAccentChanged = { repository.updateDraft { c -> c.copy(first = c.first.copy(accent = it)) } },
+                onToneChanged = { repository.updateDraft { c -> c.copy(first = c.first.copy(tone = it)) } },
             )
 
-            ProfileCard(
+            // Language Card 2
+            RelayLanguageCard(
+                number = "2",
                 title = locale.bilingualRelaySecondProfile,
                 profile = state.draftConfig.second,
-                languageLabel = locale.bilingualRelayLanguageLabel,
-                accentLabel = locale.bilingualRelayAccentLabel,
-                toneLabel = locale.bilingualRelayToneLabel,
-                onChanged = { updated ->
-                    repository.updateDraft { it.copy(second = updated) }
-                },
+                languagePlaceholder = locale.bilingualRelayLanguageLabel,
+                accentPlaceholder = locale.bilingualRelayAccentLabel,
+                tonePlaceholder = locale.bilingualRelayToneLabel,
+                accent = CoralAccent,
+                onLanguageChanged = { repository.updateDraft { c -> c.copy(second = c.second.copy(language = it)) } },
+                onAccentChanged = { repository.updateDraft { c -> c.copy(second = c.second.copy(accent = it)) } },
+                onToneChanged = { repository.updateDraft { c -> c.copy(second = c.second.copy(tone = it)) } },
             )
 
+            // Error
             state.lastError?.takeIf(String::isNotBlank)?.let { error ->
                 Text(
                     text = error,
                     color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 4.dp),
                 )
             }
 
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                ),
+            // Transcript
+            TranscriptCard(
+                transcripts = state.transcripts,
+                emptyLabel = locale.bilingualRelayNoTranscriptYet,
+                inputChip = locale.bilingualRelayInputChip,
+                outputChip = locale.bilingualRelayOutputChip,
+                accent = CoralAccent,
+                listState = transcriptListState,
                 modifier = Modifier.weight(1f),
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text(
-                        text = locale.bilingualRelayTranscriptTitle,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    if (state.transcripts.isEmpty()) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = locale.bilingualRelayNoTranscriptYet,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    } else {
-                        val pairs = groupTranscriptPairs(state.transcripts)
-                        LazyColumn(
-                            state = transcriptListState,
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            items(pairs.size, key = { pairs[it].id }) { index ->
-                                val pair = pairs[index]
-                                val isLeft = pair.isLeft
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = if (isLeft) Arrangement.Start else Arrangement.End,
-                                ) {
-                                    Card(
-                                        modifier = Modifier.fillMaxWidth(0.85f),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = if (isLeft) {
-                                                MaterialTheme.colorScheme.surfaceContainerHigh
-                                            } else {
-                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                                            },
-                                        ),
-                                        shape = if (isLeft) {
-                                            androidx.compose.foundation.shape.RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp)
-                                        } else {
-                                            androidx.compose.foundation.shape.RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp)
-                                        },
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(12.dp),
-                                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                                        ) {
-                                            if (pair.input.isNotBlank()) {
-                                                Text(
-                                                    pair.input,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                )
-                                            }
-                                            if (pair.output.isNotBlank()) {
-                                                Text(
-                                                    pair.output,
-                                                    style = MaterialTheme.typography.bodyLarge,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = if (isLeft) {
-                                                        MaterialTheme.colorScheme.onSurface
-                                                    } else {
-                                                        MaterialTheme.colorScheme.primary
-                                                    },
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            ReadyVisualizer(
-                label = connectionStateLabel(state.connectionState, locale),
-                state = state.connectionState,
-                level = state.visualizerLevel,
             )
         }
     }
 }
 
+// ── Language Card ──
+
 @Composable
-private fun ProfileCard(
+private fun RelayLanguageCard(
+    number: String,
     title: String,
     profile: BilingualRelayLanguageProfile,
-    languageLabel: String,
-    accentLabel: String,
-    toneLabel: String,
-    onChanged: (BilingualRelayLanguageProfile) -> Unit,
+    languagePlaceholder: String,
+    accentPlaceholder: String,
+    tonePlaceholder: String,
+    accent: Color,
+    onChanged: ((BilingualRelayLanguageProfile) -> Unit)? = null,
+    onLanguageChanged: (String) -> Unit,
+    onAccentChanged: (String) -> Unit,
+    onToneChanged: (String) -> Unit,
 ) {
+    val surfaceLow = MaterialTheme.colorScheme.surfaceContainerLow
     Card(
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            containerColor = lerp(surfaceLow, accent, 0.05f),
         ),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.15f)),
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            // Row 1: Number badge + title + language input
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedTextField(
-                    value = profile.language,
-                    onValueChange = { onChanged(profile.copy(language = it)) },
-                    label = { Text(languageLabel) },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
+                // Number badge
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = accent.copy(alpha = 0.15f),
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            number,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = accent,
+                        )
+                    }
+                }
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = accent,
+                    fontWeight = FontWeight.SemiBold,
                 )
                 OutlinedTextField(
-                    value = profile.accent,
-                    onValueChange = { onChanged(profile.copy(accent = it)) },
-                    label = { Text(accentLabel) },
-                    modifier = Modifier.weight(1f),
+                    value = profile.language,
+                    onValueChange = onLanguageChanged,
+                    placeholder = { Text(languagePlaceholder, style = MaterialTheme.typography.bodySmall) },
+                    modifier = Modifier.weight(1f).defaultMinSize(minHeight = 44.dp),
                     singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                    shape = MaterialTheme.shapes.large,
+                    colors = relayTextFieldColors(accent),
+                )
+            }
+            // Row 2: Accent + Tone
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                OutlinedTextField(
+                    value = profile.accent,
+                    onValueChange = onAccentChanged,
+                    placeholder = { Text(accentPlaceholder, style = MaterialTheme.typography.bodySmall) },
+                    modifier = Modifier.weight(1f).defaultMinSize(minHeight = 44.dp),
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    shape = MaterialTheme.shapes.large,
+                    colors = relayTextFieldColors(accent),
                 )
                 OutlinedTextField(
                     value = profile.tone,
-                    onValueChange = { onChanged(profile.copy(tone = it)) },
-                    label = { Text(toneLabel) },
-                    modifier = Modifier.weight(1f),
+                    onValueChange = onToneChanged,
+                    placeholder = { Text(tonePlaceholder, style = MaterialTheme.typography.bodySmall) },
+                    modifier = Modifier.weight(1f).defaultMinSize(minHeight = 44.dp),
                     singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    shape = MaterialTheme.shapes.large,
+                    colors = relayTextFieldColors(accent),
                 )
             }
         }
@@ -351,147 +355,276 @@ private fun ProfileCard(
 }
 
 @Composable
-private fun ReadyVisualizer(
-    label: String,
-    state: BilingualRelayConnectionState,
-    level: Float,
-) {
-    val colors = when (state) {
-        BilingualRelayConnectionState.READY -> listOf(Color(0xFF00A8E0), Color(0xFF00C8FF), Color(0xFF40E0FF))
-        BilingualRelayConnectionState.CONNECTING -> listOf(Color(0xFF9F7AEA), Color(0xFF805AD5), Color(0xFFB794F4))
-        BilingualRelayConnectionState.RECONNECTING -> listOf(Color(0xFFFFD700), Color(0xFFFFA500), Color(0xFFFFDEAD))
-        BilingualRelayConnectionState.ERROR -> listOf(Color(0xFFC62828), Color(0xFFE57373), Color(0xFFFFCDD2))
-        BilingualRelayConnectionState.NOT_CONFIGURED -> listOf(Color(0xFF666666), Color(0xFF888888), Color(0xFFAAAAAA))
-        BilingualRelayConnectionState.STOPPED -> listOf(Color(0xFF666666), Color(0xFF888888), Color(0xFFAAAAAA))
+private fun relayTextFieldColors(accent: Color): TextFieldColors {
+    return OutlinedTextFieldDefaults.colors(
+        focusedContainerColor = accent.copy(alpha = 0.08f),
+        unfocusedContainerColor = accent.copy(alpha = 0.04f),
+        focusedBorderColor = accent.copy(alpha = 0.6f),
+        unfocusedBorderColor = accent.copy(alpha = 0.2f),
+        cursorColor = accent,
+    )
+}
+
+// ── Transcript ──
+
+private sealed class TranscriptEntry {
+    data class Pair(val id: Long, val input: String, val output: String, val lang: String, val isLeft: Boolean) : TranscriptEntry()
+    data class Sep(val id: Long, val time: String) : TranscriptEntry()
+}
+
+private fun groupEntries(items: List<BilingualRelayTranscriptItem>): List<TranscriptEntry> {
+    val entries = mutableListOf<TranscriptEntry>()
+    var i = 0
+    while (i < items.size) {
+        val item = items[i]
+        if (item.role == BilingualRelayTranscriptRole.SEPARATOR) {
+            entries += TranscriptEntry.Sep(item.id, item.text)
+            i++
+            continue
+        }
+        if (item.role == BilingualRelayTranscriptRole.INPUT) {
+            val next = items.getOrNull(i + 1)
+            if (next != null && next.role == BilingualRelayTranscriptRole.OUTPUT) {
+                entries += TranscriptEntry.Pair(item.id, item.text, next.text, next.lang, isLeft = true)
+                i += 2
+            } else {
+                entries += TranscriptEntry.Pair(item.id, item.text, "", item.lang, isLeft = true)
+                i++
+            }
+        } else {
+            entries += TranscriptEntry.Pair(item.id, "", item.text, item.lang, isLeft = true)
+            i++
+        }
     }
-    val transition = rememberInfiniteTransition(label = "relay-visualizer")
+    // Determine alignment by first detected lang
+    val firstLang = entries.filterIsInstance<TranscriptEntry.Pair>().firstOrNull { it.lang.isNotBlank() }?.lang.orEmpty()
+    if (firstLang.isNotBlank()) {
+        for (idx in entries.indices) {
+            val e = entries[idx]
+            if (e is TranscriptEntry.Pair) {
+                entries[idx] = e.copy(isLeft = e.lang.isBlank() || e.lang == firstLang)
+            }
+        }
+    }
+    return entries
+}
+
+@Composable
+private fun TranscriptCard(
+    transcripts: List<BilingualRelayTranscriptItem>,
+    emptyLabel: String,
+    inputChip: String,
+    outputChip: String,
+    accent: Color,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    modifier: Modifier = Modifier,
+) {
+    val surfaceLow = MaterialTheme.colorScheme.surfaceContainerLow
+    Card(
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = lerp(surfaceLow, accent, 0.03f),
+        ),
+        modifier = modifier,
+    ) {
+        if (transcripts.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    emptyLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontStyle = FontStyle.Italic,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                )
+            }
+        } else {
+            val entries = remember(transcripts) { groupEntries(transcripts) }
+            LazyColumn(
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(12.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(entries.size, key = { idx ->
+                    when (val e = entries[idx]) {
+                        is TranscriptEntry.Pair -> e.id
+                        is TranscriptEntry.Sep -> -e.id
+                    }
+                }) { idx ->
+                    when (val entry = entries[idx]) {
+                        is TranscriptEntry.Sep -> DashedSeparator(entry.time)
+                        is TranscriptEntry.Pair -> ChatBubble(entry, accent)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatBubble(pair: TranscriptEntry.Pair, accent: Color) {
+    val surfaceLow = MaterialTheme.colorScheme.surfaceContainerLow
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (pair.isLeft) Arrangement.Start else Arrangement.End,
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(0.85f),
+            shape = if (pair.isLeft) {
+                RoundedCornerShape(18.dp, 18.dp, 18.dp, 6.dp)
+            } else {
+                RoundedCornerShape(18.dp, 18.dp, 6.dp, 18.dp)
+            },
+            colors = CardDefaults.cardColors(
+                containerColor = if (pair.isLeft) {
+                    lerp(surfaceLow, accent, 0.06f)
+                } else {
+                    lerp(surfaceLow, accent, 0.14f)
+                },
+            ),
+            border = if (!pair.isLeft) BorderStroke(1.dp, accent.copy(alpha = 0.12f)) else null,
+        ) {
+            Column(modifier = Modifier.padding(12.dp, 10.dp)) {
+                if (pair.input.isNotBlank()) {
+                    Text(
+                        pair.input,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (pair.output.isNotBlank()) {
+                    Text(
+                        pair.output,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (pair.isLeft) MaterialTheme.colorScheme.onSurface else accent,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DashedSeparator(time: String) {
+    val color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        DashedLine(modifier = Modifier.weight(1f), color = color)
+        Text(
+            time,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+        )
+        DashedLine(modifier = Modifier.weight(1f), color = color)
+    }
+}
+
+@Composable
+private fun DashedLine(modifier: Modifier, color: Color) {
+    Canvas(modifier = modifier.height(1.dp)) {
+        drawLine(
+            color = color,
+            start = Offset(0f, size.height / 2),
+            end = Offset(size.width, size.height / 2),
+            strokeWidth = 1.dp.toPx(),
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx())),
+        )
+    }
+}
+
+// ── Status Dot ──
+
+@Composable
+private fun StatusDot(connectionState: BilingualRelayConnectionState) {
+    val color = when (connectionState) {
+        BilingualRelayConnectionState.READY -> Color(0xFF4CAF50)
+        BilingualRelayConnectionState.CONNECTING -> CoralAccent
+        BilingualRelayConnectionState.RECONNECTING -> Color(0xFFFFC107)
+        BilingualRelayConnectionState.ERROR -> Color(0xFFF44336)
+        else -> MaterialTheme.colorScheme.outlineVariant
+    }
+    Canvas(modifier = Modifier.size(8.dp)) {
+        drawCircle(color = color)
+        if (connectionState == BilingualRelayConnectionState.READY) {
+            drawCircle(color = color.copy(alpha = 0.3f), radius = size.minDimension * 0.8f)
+        }
+    }
+}
+
+// ── Compact Waveform ──
+
+@Composable
+private fun CompactWaveform(
+    connectionState: BilingualRelayConnectionState,
+    level: Float,
+    accent: Color,
+    modifier: Modifier = Modifier,
+) {
+    val transition = rememberInfiniteTransition(label = "relay-wf")
     val phase by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "relay-visualizer-phase",
+        animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing), RepeatMode.Restart),
+        label = "relay-wf-phase",
     )
     val animatedLevel by animateFloatAsState(
         targetValue = level.coerceIn(0f, 1f),
         animationSpec = tween(180),
-        label = "relay-visualizer-level",
+        label = "relay-wf-level",
     )
-    Card(
-        colors = CardDefaults.cardColors(containerColor = colors[0].copy(alpha = 0.12f)),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(120.dp)
-                .background(Color.Transparent),
-        ) {
-            Canvas(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-            ) {
-                val barWidth = 8.dp.toPx()
-                val barGap = 6.dp.toPx()
-                val barSpacing = barWidth + barGap
-                val visibleBars = ((size.width / barSpacing).toInt() + 3).coerceAtLeast(12)
-                val scroll = phase * barSpacing
-                val gradient = Brush.verticalGradient(colors)
-                val displayLevel = when (state) {
-                    BilingualRelayConnectionState.READY -> animatedLevel.coerceAtLeast(0.05f)
-                    BilingualRelayConnectionState.CONNECTING -> 0.10f + 0.12f * kotlin.math.abs(kotlin.math.sin((phase * Math.PI.toFloat() * 2f).toDouble())).toFloat()
-                    BilingualRelayConnectionState.RECONNECTING -> 0.08f + 0.10f * kotlin.math.abs(kotlin.math.sin((phase * Math.PI.toFloat() * 4f).toDouble())).toFloat()
-                    BilingualRelayConnectionState.ERROR -> 0.05f
-                    BilingualRelayConnectionState.NOT_CONFIGURED -> 0.02f
-                    BilingualRelayConnectionState.STOPPED -> 0.02f
-                }
+    val gradient = Brush.verticalGradient(listOf(accent.copy(alpha = 0.6f), accent, accent.copy(alpha = 0.7f)))
+    val displayLevel = when (connectionState) {
+        BilingualRelayConnectionState.READY -> animatedLevel.coerceAtLeast(0.05f)
+        BilingualRelayConnectionState.CONNECTING -> 0.10f + 0.12f * kotlin.math.abs(kotlin.math.sin((phase * Math.PI * 2.0).toFloat()))
+        BilingualRelayConnectionState.RECONNECTING -> 0.08f + 0.10f * kotlin.math.abs(kotlin.math.sin((phase * Math.PI * 4.0).toFloat()))
+        else -> 0.02f
+    }
 
-                for (index in 0 until visibleBars) {
-                    val x = index * barSpacing - scroll
-                    if (x + barWidth < 0f || x > size.width) {
-                        continue
-                    }
-                    val wave = kotlin.math.abs(
-                        kotlin.math.sin(((index * 0.48f) + (phase * Math.PI.toFloat() * 2f)).toDouble()),
-                    ).toFloat()
-                    val minHeight = 8.dp.toPx()
-                    val maxHeight = size.height - 8.dp.toPx()
-                    val barHeight = (minHeight + (maxHeight - minHeight) * (0.18f + displayLevel * wave))
-                        .coerceIn(minHeight, maxHeight)
-                    val edgeDistance = kotlin.math.min(x.coerceAtLeast(0f), (size.width - x - barWidth).coerceAtLeast(0f))
-                    val alpha = (edgeDistance / 24.dp.toPx()).coerceIn(0.25f, 1f)
-                    drawRoundRect(
-                        brush = gradient,
-                        topLeft = Offset(x, (size.height - barHeight) / 2f),
-                        size = Size(barWidth, barHeight),
-                        cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
-                        alpha = alpha,
-                    )
-                }
-            }
-            Text(
-                text = label,
-                style = MaterialTheme.typography.headlineSmall,
-                color = colors[1],
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.Center),
+    Canvas(modifier = modifier) {
+        val barWidth = 4.dp.toPx()
+        val barGap = 3.dp.toPx()
+        val barSpacing = barWidth + barGap
+        val visibleBars = ((size.width / barSpacing).toInt() + 2).coerceAtLeast(6)
+        val scroll = phase * barSpacing
+
+        for (index in 0 until visibleBars) {
+            val x = index * barSpacing - scroll
+            if (x + barWidth < 0f || x > size.width) continue
+
+            val wave = kotlin.math.abs(
+                kotlin.math.sin(((index * 0.5f) + (phase * Math.PI.toFloat() * 2f)).toDouble()),
+            ).toFloat()
+            val minH = 4.dp.toPx()
+            val maxH = size.height - 4.dp.toPx()
+            val barHeight = (minH + (maxH - minH) * (0.15f + displayLevel * wave)).coerceIn(minH, maxH)
+            val edgeDist = minOf(x.coerceAtLeast(0f), (size.width - x - barWidth).coerceAtLeast(0f))
+            val alpha = (edgeDist / 12.dp.toPx()).coerceIn(0.2f, 1f)
+
+            drawRoundRect(
+                brush = gradient,
+                topLeft = Offset(x, (size.height - barHeight) / 2f),
+                size = Size(barWidth, barHeight),
+                cornerRadius = CornerRadius(barWidth / 2f),
+                alpha = alpha,
             )
         }
     }
-}
-
-private data class TranscriptPair(
-    val id: Long,
-    val input: String,
-    val output: String,
-    val lang: String,
-    val isLeft: Boolean,
-)
-
-private fun groupTranscriptPairs(items: List<BilingualRelayTranscriptItem>): List<TranscriptPair> {
-    val pairs = mutableListOf<TranscriptPair>()
-    var i = 0
-    while (i < items.size) {
-        val item = items[i]
-        if (item.role == BilingualRelayTranscriptRole.INPUT) {
-            val next = items.getOrNull(i + 1)
-            if (next != null && next.role == BilingualRelayTranscriptRole.OUTPUT) {
-                val lang = item.lang.ifBlank { next.lang }
-                pairs += TranscriptPair(item.id, item.text, next.text, lang, isLeft = true)
-                i += 2
-            } else {
-                pairs += TranscriptPair(item.id, item.text, "", item.lang, isLeft = true)
-                i++
-            }
-        } else {
-            pairs += TranscriptPair(item.id, "", item.text, item.lang, isLeft = true)
-            i++
-        }
-    }
-    // Align based on detected language: first pair's lang = left side
-    val firstLang = pairs.firstOrNull { it.lang.isNotBlank() }?.lang.orEmpty()
-    if (firstLang.isNotBlank()) {
-        for (idx in pairs.indices) {
-            val p = pairs[idx]
-            val isLeft = p.lang.isBlank() || p.lang == firstLang
-            pairs[idx] = p.copy(isLeft = isLeft)
-        }
-    }
-    return pairs
 }
 
 private fun connectionStateLabel(
     state: BilingualRelayConnectionState,
     locale: MobileLocaleText,
-): String {
-    return when (state) {
-        BilingualRelayConnectionState.NOT_CONFIGURED -> locale.bilingualRelayStatusNotConfigured
-        BilingualRelayConnectionState.CONNECTING -> locale.bilingualRelayStatusConnecting
-        BilingualRelayConnectionState.READY -> locale.bilingualRelayStatusReady
-        BilingualRelayConnectionState.RECONNECTING -> locale.bilingualRelayStatusReconnecting
-        BilingualRelayConnectionState.ERROR -> locale.bilingualRelayStatusError
-        BilingualRelayConnectionState.STOPPED -> locale.bilingualRelayStatusStopped
-    }
+): String = when (state) {
+    BilingualRelayConnectionState.NOT_CONFIGURED -> locale.bilingualRelayStatusNotConfigured
+    BilingualRelayConnectionState.CONNECTING -> locale.bilingualRelayStatusConnecting
+    BilingualRelayConnectionState.READY -> locale.bilingualRelayStatusReady
+    BilingualRelayConnectionState.RECONNECTING -> locale.bilingualRelayStatusReconnecting
+    BilingualRelayConnectionState.ERROR -> locale.bilingualRelayStatusError
+    BilingualRelayConnectionState.STOPPED -> locale.bilingualRelayStatusStopped
 }
