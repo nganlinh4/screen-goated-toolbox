@@ -53,6 +53,7 @@
   - if the translation pane is hidden, mobile must skip opening new translation requests just like Windows skips work when translation visibility is off
 - Realtime control contract:
   - translation providers must expose `cerebras-oss`, `google-gemma`, and `google-gtx`
+  - `cerebras-oss` resolves to the centralized Cerebras realtime API model `qwen-3-235b-a22b-instruct-2507` on both Windows and Android
   - transcription providers must expose `gemini` and `parakeet`
   - Android may mark Parakeet unavailable, but must not hide it or pretend it is active
   - TTS Read behavior is part of the canonical overlay surface and must not be omitted from the control model

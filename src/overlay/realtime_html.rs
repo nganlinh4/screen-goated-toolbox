@@ -110,8 +110,8 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             } else {
                 ""
             };
-        let taalas_active =
-            if translation_model == crate::model_config::REALTIME_TRANSLATION_MODEL_TAALAS {
+        let cerebras_active =
+            if translation_model == crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS {
                 "active"
             } else {
                 ""
@@ -128,7 +128,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             <span class="ctrl-btn speak-btn" id="speak-btn" title="Text-to-Speech Settings"><span class="material-symbols-rounded">{volume_up_svg}</span></span>
             <div class="btn-group">
                 <span class="material-symbols-rounded model-icon {gemma_active}" data-value="{gemma_model_id}" title="AI Translation (Gemma)">{auto_awesome_svg}</span>
-                <span class="material-symbols-rounded model-icon {taalas_active}" data-value="{taalas_model_id}" title="Instant AI (Taalas)">{speed_svg}</span>
+                <span class="material-symbols-rounded model-icon {cerebras_active}" data-value="{cerebras_model_id}" title="Instant AI (Cerebras)">{speed_svg}</span>
                 <span class="material-symbols-rounded model-icon {gtx_active}" data-value="{gtx_model_id}" title="Unlimited Translation (Google)">{language_svg}</span>
             </div>
             <select id="language-select" title="Target Language">
@@ -137,14 +137,14 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         "#,
             lang_options = lang_options,
             gemma_active = gemma_active,
-            taalas_active = taalas_active,
+            cerebras_active = cerebras_active,
             gtx_active = gtx_active,
             volume_up_svg = crate::overlay::html_components::icons::get_icon_svg("volume_up"),
             auto_awesome_svg = crate::overlay::html_components::icons::get_icon_svg("auto_awesome"),
             speed_svg = crate::overlay::html_components::icons::get_icon_svg("speed"),
             language_svg = crate::overlay::html_components::icons::get_icon_svg("language"),
             gemma_model_id = crate::model_config::REALTIME_TRANSLATION_MODEL_GEMMA,
-            taalas_model_id = crate::model_config::REALTIME_TRANSLATION_MODEL_TAALAS,
+            cerebras_model_id = crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS,
             gtx_model_id = crate::model_config::REALTIME_TRANSLATION_MODEL_GTX
         )
     };

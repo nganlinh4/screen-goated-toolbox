@@ -114,6 +114,11 @@ fn migrate_config(config: &mut Config) {
         ModelType::Text,
     );
 
+    if config.realtime_translation_model == "taalas-rt" {
+        config.realtime_translation_model =
+            crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS.to_string();
+    }
+
     // -------------------------------------------------------------------------
     // 3. MIGRATE RETIRED MODEL IDS IN SAVED PRESETS
     // -------------------------------------------------------------------------

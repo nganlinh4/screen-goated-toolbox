@@ -4,6 +4,7 @@
     "audioSource": "device",
     "targetLanguage": "Vietnamese",
     "translationModel": "cerebras-oss",
+    "translationApiModel": "qwen-3-235b-a22b-instruct-2507",
     "transcriptionModel": "gemini",
     "fontSize": 16,
     "ttsEnabled": false,

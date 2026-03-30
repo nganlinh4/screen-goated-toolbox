@@ -29,7 +29,7 @@
             geminiLive31Title: 'Gemini Live 3.1 (Cloud)',
             parakeetTitle: 'Parakeet (Local)',
             gemmaTitle: 'AI Translation (Gemma)',
-            taalasTitle: 'Instant AI (Taalas)',
+            cerebrasTitle: 'Instant AI (Cerebras)',
             gtxTitle: 'Unlimited Translation (Google)',
             targetLanguageTitle: 'Target language',
             ttsSettingsTitle: 'Text-to-speech settings',
@@ -425,7 +425,7 @@
             updateTitleById('device-btn', overlayLocale.deviceAudioTitle);
             updateTitleById('speak-btn', overlayLocale.ttsSettingsTitle);
             updateTitleBySelector('.model-icon[data-value="google-gemma"]', overlayLocale.gemmaTitle);
-            updateTitleBySelector('.model-icon[data-value="taalas-rt"]', overlayLocale.taalasTitle);
+            updateTitleBySelector('.model-icon[data-value="cerebras-oss"]', overlayLocale.cerebrasTitle);
             updateTitleBySelector('.model-icon[data-value="google-gtx"]', overlayLocale.gtxTitle);
             updateTitleBySelector('.trans-model-icon[data-value="gemini-live-audio"]', overlayLocale.geminiLive25Title);
             updateTitleBySelector('.trans-model-icon[data-value="parakeet"]', overlayLocale.parakeetTitle);
