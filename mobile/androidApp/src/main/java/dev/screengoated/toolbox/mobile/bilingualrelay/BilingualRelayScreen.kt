@@ -22,7 +22,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -134,7 +133,20 @@ fun BilingualRelayScreen(
                 },
                 actions = {
                     IconButton(onClick = onNavigateToTtsSettings) {
-                        Icon(Icons.Rounded.Settings, contentDescription = "TTS Settings")
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = CoralAccent.copy(alpha = 0.12f),
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Rounded.Settings,
+                                    contentDescription = "TTS Settings",
+                                    tint = CoralAccent,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
                     }
                     AnimatedVisibility(
                         visible = state.dirty,
@@ -282,7 +294,6 @@ private fun RelayLanguageCard(
         colors = CardDefaults.cardColors(
             containerColor = lerp(surfaceLow, accent, 0.05f),
         ),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.15f)),
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -471,7 +482,7 @@ private fun ChatBubble(pair: TranscriptEntry.Pair, accent: Color) {
         horizontalArrangement = if (pair.isLeft) Arrangement.Start else Arrangement.End,
     ) {
         Card(
-            modifier = Modifier.fillMaxWidth(0.85f),
+            modifier = Modifier.widthIn(max = 280.dp),
             shape = if (pair.isLeft) {
                 RoundedCornerShape(18.dp, 18.dp, 18.dp, 6.dp)
             } else {
@@ -484,9 +495,8 @@ private fun ChatBubble(pair: TranscriptEntry.Pair, accent: Color) {
                     lerp(surfaceLow, accent, 0.14f)
                 },
             ),
-            border = if (!pair.isLeft) BorderStroke(1.dp, accent.copy(alpha = 0.12f)) else null,
         ) {
-            Column(modifier = Modifier.padding(12.dp, 10.dp)) {
+            Column(modifier = Modifier.padding(10.dp, 8.dp)) {
                 if (pair.input.isNotBlank()) {
                     Text(
                         pair.input,
@@ -559,6 +569,8 @@ private fun StatusDot(connectionState: BilingualRelayConnectionState) {
 
 // ── Compact Waveform ──
 
+private const val WF_NUM_BARS = 22
+
 @Composable
 private fun CompactWaveform(
     connectionState: BilingualRelayConnectionState,
@@ -566,53 +578,64 @@ private fun CompactWaveform(
     accent: Color,
     modifier: Modifier = Modifier,
 ) {
-    val transition = rememberInfiniteTransition(label = "relay-wf")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing), RepeatMode.Restart),
-        label = "relay-wf-phase",
-    )
-    val animatedLevel by animateFloatAsState(
-        targetValue = level.coerceIn(0f, 1f),
-        animationSpec = tween(180),
-        label = "relay-wf-level",
-    )
-    val gradient = Brush.verticalGradient(listOf(accent.copy(alpha = 0.6f), accent, accent.copy(alpha = 0.7f)))
+    // Real RMS-driven scrolling bars (matches Windows recording indicator pattern)
+    val barHeights = remember { FloatArray(WF_NUM_BARS + 2) { 0f } }
+    var scrollProgress by remember { mutableFloatStateOf(0f) }
+    var lastFrameNanos by remember { mutableLongStateOf(0L) }
+
+    val gradient = Brush.verticalGradient(listOf(accent, accent.copy(alpha = 0.85f), accent.copy(alpha = 0.6f)))
+
     val displayLevel = when (connectionState) {
-        BilingualRelayConnectionState.READY -> animatedLevel.coerceAtLeast(0.05f)
-        BilingualRelayConnectionState.CONNECTING -> 0.10f + 0.12f * kotlin.math.abs(kotlin.math.sin((phase * Math.PI * 2.0).toFloat()))
-        BilingualRelayConnectionState.RECONNECTING -> 0.08f + 0.10f * kotlin.math.abs(kotlin.math.sin((phase * Math.PI * 4.0).toFloat()))
-        else -> 0.02f
+        BilingualRelayConnectionState.READY -> level.coerceAtLeast(0.02f)
+        BilingualRelayConnectionState.CONNECTING -> 0.10f
+        BilingualRelayConnectionState.RECONNECTING -> 0.08f
+        else -> 0.01f
     }
 
     Canvas(modifier = modifier) {
-        val barWidth = 4.dp.toPx()
-        val barGap = 3.dp.toPx()
-        val barSpacing = barWidth + barGap
-        val visibleBars = ((size.width / barSpacing).toInt() + 2).coerceAtLeast(6)
-        val scroll = phase * barSpacing
+        val now = System.nanoTime()
+        val dt = if (lastFrameNanos == 0L) 0.016f else ((now - lastFrameNanos) / 1_000_000_000f).coerceAtMost(0.05f)
+        lastFrameNanos = now
 
-        for (index in 0 until visibleBars) {
-            val x = index * barSpacing - scroll
+        // Scroll bars left-to-right
+        scrollProgress += dt / 0.15f
+        val barWidth = 3.dp.toPx()
+        val barGap = 2.dp.toPx()
+        val barSpacing = barWidth + barGap
+        val fadeWidth = 10.dp.toPx()
+        val minH = 3.dp.toPx()
+        val maxH = size.height - 2.dp.toPx()
+
+        while (scrollProgress >= 1f) {
+            scrollProgress -= 1f
+            // Shift bars left, push new bar with real RMS level
+            for (i in 0 until barHeights.size - 1) {
+                barHeights[i] = barHeights[i + 1]
+            }
+            val newH = (displayLevel * maxH * 4f + minH).coerceIn(minH, maxH)
+            barHeights[barHeights.size - 1] = newH
+        }
+
+        val pixelOffset = scrollProgress * barSpacing
+
+        for (i in barHeights.indices) {
+            val h = barHeights[i]
+            val x = i * barSpacing - pixelOffset
             if (x + barWidth < 0f || x > size.width) continue
 
-            val wave = kotlin.math.abs(
-                kotlin.math.sin(((index * 0.5f) + (phase * Math.PI.toFloat() * 2f)).toDouble()),
-            ).toFloat()
-            val minH = 4.dp.toPx()
-            val maxH = size.height - 4.dp.toPx()
-            val barHeight = (minH + (maxH - minH) * (0.15f + displayLevel * wave)).coerceIn(minH, maxH)
-            val edgeDist = minOf(x.coerceAtLeast(0f), (size.width - x - barWidth).coerceAtLeast(0f))
-            val alpha = (edgeDist / 12.dp.toPx()).coerceIn(0.2f, 1f)
+            val leftDist = x.coerceAtLeast(0f)
+            val rightDist = (size.width - x - barWidth).coerceAtLeast(0f)
+            val alpha = (minOf(leftDist, rightDist) / fadeWidth).coerceIn(0f, 1f)
 
-            drawRoundRect(
-                brush = gradient,
-                topLeft = Offset(x, (size.height - barHeight) / 2f),
-                size = Size(barWidth, barHeight),
-                cornerRadius = CornerRadius(barWidth / 2f),
-                alpha = alpha,
-            )
+            if (alpha > 0.01f && h > 0.5f) {
+                drawRoundRect(
+                    brush = gradient,
+                    topLeft = Offset(x, (size.height - h) / 2f),
+                    size = Size(barWidth, h),
+                    cornerRadius = CornerRadius(barWidth / 2f),
+                    alpha = alpha,
+                )
+            }
         }
     }
 }

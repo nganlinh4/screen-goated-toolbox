@@ -19,8 +19,8 @@ data class BilingualRelayLanguageProfile(
 
 @Serializable
 data class BilingualRelayConfig(
-    val first: BilingualRelayLanguageProfile = BilingualRelayLanguageProfile(),
-    val second: BilingualRelayLanguageProfile = BilingualRelayLanguageProfile(),
+    val first: BilingualRelayLanguageProfile = BilingualRelayLanguageProfile(language = "English"),
+    val second: BilingualRelayLanguageProfile = BilingualRelayLanguageProfile(language = "Korean", accent = "Busan", tone = "polite"),
 ) {
     fun normalized(): BilingualRelayConfig {
         return copy(first = first.normalized(), second = second.normalized())

@@ -24,9 +24,9 @@ impl BilingualRelayProfile {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct BilingualRelaySettings {
-    #[serde(default)]
+    #[serde(default = "default_first_profile")]
     pub first: BilingualRelayProfile,
-    #[serde(default)]
+    #[serde(default = "default_second_profile")]
     pub second: BilingualRelayProfile,
     /// Legacy single hotkey — migrated into `hotkeys` on load.
     #[serde(default, skip_serializing)]
@@ -35,6 +35,22 @@ pub struct BilingualRelaySettings {
     pub hotkeys: Vec<Hotkey>,
     #[serde(default)]
     pub guide_seen: bool,
+}
+
+fn default_first_profile() -> BilingualRelayProfile {
+    BilingualRelayProfile {
+        language: "English".to_string(),
+        accent: String::new(),
+        tone: String::new(),
+    }
+}
+
+fn default_second_profile() -> BilingualRelayProfile {
+    BilingualRelayProfile {
+        language: "Korean".to_string(),
+        accent: "Busan".to_string(),
+        tone: "polite".to_string(),
+    }
 }
 
 impl BilingualRelaySettings {
