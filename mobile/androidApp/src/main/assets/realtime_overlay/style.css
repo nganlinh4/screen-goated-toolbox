@@ -389,6 +389,27 @@
             opacity: 1;
             filter: blur(0);
         }
+        .text-chunk.diff-updating {
+            opacity: 1;
+            filter: none;
+            background: linear-gradient(180deg, {{TERTIARY}}18 0%, {{TERTIARY}}0A 100%);
+            border-radius: 0.18em;
+            transition:
+                background 0.45s cubic-bezier(0.2, 0.0, 0, 1.0),
+                color 0.45s cubic-bezier(0.2, 0.0, 0, 1.0);
+        }
+        .text-chunk.diff-updating.settled {
+            background: linear-gradient(180deg, transparent 0%, transparent 100%);
+        }
+        .text-chunk.commit-promoting {
+            transition:
+                color 0.42s cubic-bezier(0.2, 0.0, 0, 1.0),
+                font-variation-settings 0.42s cubic-bezier(0.2, 0.0, 0, 1.0);
+        }
+        .text-chunk.new.commit-promoting.settled {
+            color: {{PLACEHOLDER_COLOR}};
+            font-variation-settings: 'wght' 300, 'wdth' 100, 'slnt' 0, 'GRAD' 0, 'ROND' 100, 'ROUN' 100, 'RNDS' 100;
+        }
         .placeholder {
             color: {{PLACEHOLDER_COLOR}};
             font-style: italic;

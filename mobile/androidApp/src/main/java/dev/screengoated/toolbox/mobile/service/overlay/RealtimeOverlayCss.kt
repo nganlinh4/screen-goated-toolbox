@@ -118,7 +118,9 @@ internal fun overlayCss(
             .text-chunk.old,
             .text-chunk.new,
             .text-chunk.appearing,
-            .text-chunk.appearing.show {
+            .text-chunk.appearing.show,
+            .text-chunk.diff-updating,
+            .text-chunk.commit-promoting {
                 will-change: opacity, filter, transform, -webkit-mask-position, mask-position;
                 backface-visibility: hidden;
                 transform: translateZ(0);

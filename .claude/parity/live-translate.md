@@ -42,6 +42,11 @@
   - transcription pane header shows the live waveform canvas, not a fake activity stub
   - translation pane has no title text in the header
   - Google Sans Flex, blur/backdrop treatment, chunked text rendering, and bottom-follow autoscroll match the Windows web overlay
+  - Android overlay text rendering follows the same Windows `js_logic.rs` contract:
+    - `fullText = committed + draft`
+    - `previousFullText` is the comparison baseline
+    - commit promotion rebuilds `prefix / promoted / suffix` from exact source slices
+    - translation-only inline diff animation is allowed, but transcription must not use that path
   - `+` and `-` operate independently per pane at runtime
   - the chevron/header collapse affordance overlays content chrome and must not reserve layout width
   - on Android mobile, pane resizing is done with pinch gestures and there is no visible resize button
