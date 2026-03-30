@@ -47,6 +47,7 @@
     "headerOverflowBehavior": "horizontal-swipe",
     "headerScrollRetention": "preserve-on-runtime-control-taps",
     "headerStateSync": "discrete-js-no-html-reload",
+    "textRendererContract": "windows-fulltext-previousFullText-commitAdvance",
     "overlayLocaleSource": "active-ui-language-bundle",
     "overlayLocaleRefresh": "live-on-ui-language-change",
     "roundedWindowMask": true,

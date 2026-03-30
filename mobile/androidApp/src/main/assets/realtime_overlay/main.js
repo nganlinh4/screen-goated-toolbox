@@ -652,8 +652,7 @@
         }
 
         let currentOldTextLength = 0;
-        let previousOldText = '';
-        let previousNewText = '';
+        let previousFullText = '';
 
         function scheduleLayoutUpdate() {
             if (layoutFrame) {

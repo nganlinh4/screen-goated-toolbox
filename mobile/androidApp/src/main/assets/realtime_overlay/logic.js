@@ -1,17 +1,260 @@
+        const inlineDiffEnabled = {{ENABLE_INLINE_DIFF}};
+
+        function createChunk(text, tone, extraClass = '') {
+            const chunk = document.createElement('span');
+            chunk.className = ['text-chunk', tone, extraClass].filter(Boolean).join(' ');
+            chunk.textContent = text;
+            return chunk;
+        }
+
+        function appendClassifiedText(target, text, startIndex, committedLength, extraClass = '') {
+            if (!text) return;
+
+            const endIndex = startIndex + text.length;
+            if (endIndex <= committedLength) {
+                target.appendChild(createChunk(text, 'old', extraClass));
+                return;
+            }
+            if (startIndex >= committedLength) {
+                target.appendChild(createChunk(text, 'new', extraClass));
+                return;
+            }
+
+            const splitPoint = committedLength - startIndex;
+            const committedPart = text.substring(0, splitPoint);
+            const draftPart = text.substring(splitPoint);
+            if (committedPart) {
+                target.appendChild(createChunk(committedPart, 'old', extraClass));
+            }
+            if (draftPart) {
+                target.appendChild(createChunk(draftPart, 'new', extraClass));
+            }
+        }
+
+        function rebuildStaticText(fullText, committedLength) {
+            content.innerHTML = '';
+            appendClassifiedText(content, fullText, 0, committedLength);
+        }
+
+        function appendAnimatedDelta(delta, deltaStart, committedLength) {
+            if (!delta) return;
+
+            const chunk = document.createElement('span');
+            chunk.className = 'text-chunk appearing';
+            chunk.textContent = delta;
+            content.appendChild(chunk);
+
+            requestAnimationFrame(() => {
+                chunk.classList.add('show');
+                setTimeout(() => {
+                    chunk.classList.remove('appearing', 'show');
+                    if (deltaStart + delta.length <= committedLength) {
+                        chunk.classList.add('old');
+                    } else if (deltaStart >= committedLength) {
+                        chunk.classList.add('new');
+                    } else {
+                        const committedPart = delta.substring(0, committedLength - deltaStart);
+                        const draftPart = delta.substring(committedLength - deltaStart);
+                        const fragment = document.createDocumentFragment();
+                        appendClassifiedText(fragment, committedPart, deltaStart, committedLength);
+                        appendClassifiedText(fragment, draftPart, committedLength, committedLength);
+                        chunk.replaceWith(fragment);
+                    }
+                }, 350);
+            });
+        }
+
+        function appendSequentialDiffText(target, text, startIndex, committedLength) {
+            if (!text) return;
+
+            const tokens = text.match(/\s+|[^\s]+/gu) || [];
+            const highlightableCount = tokens.filter((token) => !/^\s+$/u.test(token)).length;
+            const highlightStep = highlightableCount > 1 ? Math.min(55, 260 / (highlightableCount - 1)) : 0;
+            let tokenStart = startIndex;
+            let highlightIndex = 0;
+
+            for (const token of tokens) {
+                if (/^\s+$/u.test(token)) {
+                    appendClassifiedText(target, token, tokenStart, committedLength);
+                } else {
+                    const appendDiffPiece = (pieceText, pieceStart) => {
+                        if (!pieceText) return;
+
+                        const pieceEnd = pieceStart + pieceText.length;
+                        let tone = 'new';
+                        if (pieceEnd <= committedLength) {
+                            tone = 'old';
+                        } else if (pieceStart < committedLength) {
+                            const committedPart = pieceText.substring(0, committedLength - pieceStart);
+                            const draftPart = pieceText.substring(committedLength - pieceStart);
+                            appendDiffPiece(committedPart, pieceStart);
+                            appendDiffPiece(draftPart, committedLength);
+                            return;
+                        }
+
+                        const chunk = createChunk(pieceText, tone, 'diff-updating');
+                        chunk.style.transitionDelay = `${Math.round(highlightIndex * highlightStep)}ms`;
+                        target.appendChild(chunk);
+                    };
+
+                    appendDiffPiece(token, tokenStart);
+                    highlightIndex += 1;
+                }
+
+                tokenStart += token.length;
+            }
+        }
+
+        function tokenizeForDiff(text) {
+            return text.match(/\s+|[^\s]+/gu) || [];
+        }
+
+        function canAnimateWordDiff(previousText, nextText) {
+            const previousTokens = tokenizeForDiff(previousText);
+            const nextTokens = tokenizeForDiff(nextText);
+
+            let prefixCount = 0;
+            const maxPrefix = Math.min(previousTokens.length, nextTokens.length);
+            while (prefixCount < maxPrefix && previousTokens[prefixCount] === nextTokens[prefixCount]) {
+                prefixCount += 1;
+            }
+
+            let suffixCount = 0;
+            const maxSuffix = Math.min(previousTokens.length - prefixCount, nextTokens.length - prefixCount);
+            while (
+                suffixCount < maxSuffix &&
+                previousTokens[previousTokens.length - 1 - suffixCount] === nextTokens[nextTokens.length - 1 - suffixCount]
+            ) {
+                suffixCount += 1;
+            }
+
+            const changedPrev = previousTokens.slice(prefixCount, previousTokens.length - suffixCount);
+            const changedNext = nextTokens.slice(prefixCount, nextTokens.length - suffixCount);
+            if (changedPrev.length === 0 || changedNext.length === 0) {
+                return false;
+            }
+
+            const compactChangedPrev = changedPrev.filter((token) => !/^\s+$/u.test(token));
+            const compactChangedNext = changedNext.filter((token) => !/^\s+$/u.test(token));
+            if (compactChangedPrev.length === 0 || compactChangedNext.length === 0) {
+                return false;
+            }
+
+            if (compactChangedPrev.length !== compactChangedNext.length) {
+                return false;
+            }
+
+            if (compactChangedNext.length > 8) {
+                return false;
+            }
+
+            return compactChangedNext.every((token) => /^[\p{L}\p{N}'’"-]+$/u.test(token));
+        }
+
+        function renderCommitAdvance(fullText, previousCommittedLength, committedLength) {
+            content.innerHTML = '';
+
+            const prefixText = fullText.substring(0, previousCommittedLength);
+            const promotingText = fullText.substring(previousCommittedLength, committedLength);
+            const suffixText = fullText.substring(committedLength);
+            const wordMatches = Array.from(promotingText.matchAll(/[^\s]+/gu));
+            const highlightableCount = wordMatches.length;
+            const highlightStep = highlightableCount > 1 ? Math.min(55, 320 / (highlightableCount - 1)) : 0;
+            let highlightIndex = 0;
+            let localIndex = 0;
+
+            appendClassifiedText(content, prefixText, 0, committedLength);
+
+            for (const match of wordMatches) {
+                const wordStart = match.index ?? 0;
+                const wordText = match[0];
+                const gapText = promotingText.substring(localIndex, wordStart);
+                if (gapText) {
+                    appendClassifiedText(
+                        content,
+                        gapText,
+                        previousCommittedLength + localIndex,
+                        committedLength
+                    );
+                }
+
+                const chunk = createChunk(wordText, 'new', 'commit-promoting');
+                chunk.style.transitionDelay = `${Math.round(highlightIndex * highlightStep)}ms`;
+                content.appendChild(chunk);
+                highlightIndex += 1;
+                localIndex = wordStart + wordText.length;
+            }
+
+            const trailingGap = promotingText.substring(localIndex);
+            if (trailingGap) {
+                appendClassifiedText(
+                    content,
+                    trailingGap,
+                    previousCommittedLength + localIndex,
+                    committedLength
+                );
+            }
+
+            appendClassifiedText(content, suffixText, committedLength, committedLength);
+
+            requestAnimationFrame(() => {
+                for (const chunk of content.querySelectorAll('.commit-promoting')) {
+                    chunk.classList.add('settled');
+                }
+            });
+        }
+
+        function renderWordDiff(previousText, nextText, committedLength) {
+            content.innerHTML = '';
+
+            const previousTokens = tokenizeForDiff(previousText);
+            const nextTokens = tokenizeForDiff(nextText);
+
+            let prefixCount = 0;
+            const maxPrefix = Math.min(previousTokens.length, nextTokens.length);
+            while (prefixCount < maxPrefix && previousTokens[prefixCount] === nextTokens[prefixCount]) {
+                prefixCount += 1;
+            }
+
+            let suffixCount = 0;
+            const maxSuffix = Math.min(previousTokens.length - prefixCount, nextTokens.length - prefixCount);
+            while (
+                suffixCount < maxSuffix &&
+                previousTokens[previousTokens.length - 1 - suffixCount] === nextTokens[nextTokens.length - 1 - suffixCount]
+            ) {
+                suffixCount += 1;
+            }
+
+            let tokenStart = 0;
+            nextTokens.forEach((token, index) => {
+                const isChanged = index >= prefixCount && index < nextTokens.length - suffixCount;
+                if (isChanged) {
+                    appendSequentialDiffText(content, token, tokenStart, committedLength);
+                } else {
+                    appendClassifiedText(content, token, tokenStart, committedLength);
+                }
+                tokenStart += token.length;
+            });
+
+            requestAnimationFrame(() => {
+                for (const chunk of content.querySelectorAll('.diff-updating')) {
+                    chunk.classList.add('settled');
+                }
+            });
+        }
+
         function updateText(oldText, newText) {
-            const startedAt = performance.now();
             const hasContent = oldText || newText;
-            const previousFullText = previousOldText + previousNewText;
-            let branch = 'noop';
-            let queriedChunkCount = 0;
+            const fullText = oldText + newText;
+            const previousCommittedLength = currentOldTextLength;
+            const committedAdvanced = oldText.length > previousCommittedLength;
 
             if (isFirstText && hasContent) {
                 content.innerHTML = '';
                 isFirstText = false;
                 minContentHeight = 0;
                 currentOldTextLength = 0;
-                previousOldText = '';
-                previousNewText = '';
+                previousFullText = '';
             }
 
             if (!hasContent) {
@@ -23,178 +266,58 @@
                 currentScrollTop = 0;
                 viewport.scrollTop = 0;
                 currentOldTextLength = 0;
-                previousOldText = '';
-                previousNewText = '';
+                previousFullText = '';
                 return;
             }
 
-            // Detect if newText was REPLACED (not extended)
-            // This happens when new translation starts - must do atomic rebuild
-            // BUT: only if oldText didn't grow (if oldText grew, it's a commit with smooth transition)
-            const isNewTextReplacement = previousNewText.length > 0 &&
-                newText.length > 0 &&
-                !newText.startsWith(previousNewText) &&
-                oldText.length === previousOldText.length;  // oldText unchanged = translation restart
-
-            // 1. Handle history rewrite or shrink
-            if (oldText.length < previousOldText.length) {
+            if (oldText.length < currentOldTextLength && !previousFullText.startsWith(fullText)) {
                 content.innerHTML = '';
                 currentOldTextLength = 0;
-                previousOldText = '';
-                previousNewText = '';
+                previousFullText = '';
             }
 
-            const fullText = oldText + newText;
-
-            // 2. If old text grew, transition chunks from new to old
-            // Handle chunk splitting when a chunk spans the commit boundary
-            if (oldText.length > previousOldText.length) {
-                const allChunks = Array.from(content.querySelectorAll('.text-chunk'));
-                queriedChunkCount = allChunks.length;
-                let committedLen = oldText.length;
-                let accumulatedLen = 0;
-
-                for (const chunk of allChunks) {
-                    const chunkText = chunk.textContent;
-                    const chunkLen = chunkText.length;
-                    const chunkStart = accumulatedLen;
-                    const chunkEnd = accumulatedLen + chunkLen;
-
-                    if (chunkEnd <= committedLen) {
-                        // Entire chunk is within committed range - transition to old
-                        if (!chunk.classList.contains('old')) {
-                            chunk.classList.remove('appearing', 'new');
-                            chunk.classList.add('old');
-                        }
-                    } else if (chunkStart < committedLen && chunkEnd > committedLen) {
-                        // Chunk SPANS the commit boundary - need to split it
-                        const splitPoint = committedLen - chunkStart;
-                        const committedPart = chunkText.substring(0, splitPoint);
-                        const uncommittedPart = chunkText.substring(splitPoint);
-
-                        // Update current chunk to be just the committed part (old style)
-                        chunk.textContent = committedPart;
-                        chunk.classList.remove('appearing', 'new');
-                        chunk.classList.add('old');
-
-                        // Create new chunk for uncommitted part (stays new style)
-                        if (uncommittedPart) {
-                            const newPartChunk = document.createElement('span');
-                            newPartChunk.className = 'text-chunk new';
-                            newPartChunk.textContent = uncommittedPart;
-                            chunk.after(newPartChunk);
-                        }
+            if (fullText === previousFullText) {
+                if (oldText.length !== previousCommittedLength) {
+                    if (committedAdvanced) {
+                        renderCommitAdvance(fullText, previousCommittedLength, oldText.length);
+                    } else {
+                        rebuildStaticText(fullText, oldText.length);
                     }
-                    // else: chunk is entirely after committed range, stays as-is
-                    accumulatedLen = chunkEnd;
                 }
+            } else if (committedAdvanced) {
+                renderCommitAdvance(fullText, previousCommittedLength, oldText.length);
+            } else if (previousFullText && fullText.startsWith(previousFullText)) {
+                if (oldText.length !== previousCommittedLength) {
+                    rebuildStaticText(previousFullText, oldText.length);
+                }
+                appendAnimatedDelta(fullText.substring(previousFullText.length), previousFullText.length, oldText.length);
+            } else if (previousFullText && inlineDiffEnabled && canAnimateWordDiff(previousFullText, fullText)) {
+                renderWordDiff(previousFullText, fullText, oldText.length);
+            } else {
+                rebuildStaticText(fullText, oldText.length);
             }
+
             currentOldTextLength = oldText.length;
-            previousOldText = oldText;
-            previousNewText = newText;
+            previousFullText = fullText;
 
-            // 3. Handle text changes
-            // Priority: replacement detection > append > general rebuild
-            if (isNewTextReplacement) {
-                branch = 'replacement';
-                // Atomic replacement: rebuild with new content immediately
-                content.innerHTML = '';
-                if (oldText) {
-                    const oldChunk = document.createElement('span');
-                    oldChunk.className = 'text-chunk old';
-                    oldChunk.textContent = oldText;
-                    content.appendChild(oldChunk);
-                }
-                if (newText) {
-                    const newChunk = document.createElement('span');
-                    newChunk.className = 'text-chunk new';
-                    newChunk.textContent = newText;
-                    content.appendChild(newChunk);
-                }
-                compactChunks();
-            } else if (fullText.length > previousFullText.length && fullText.startsWith(previousFullText)) {
-                branch = 'append';
-                // Normal append mode - text grew
-                const delta = fullText.substring(previousFullText.length);
-
-                const chunk = document.createElement('span');
-                chunk.className = 'text-chunk appearing';
-                chunk.textContent = delta;
-                content.appendChild(chunk);
-
-                // Trigger wipe animation
-                requestAnimationFrame(() => {
-                    chunk.classList.add('show');
-                    setTimeout(() => {
-                        chunk.classList.remove('appearing', 'show');
-                        const chunkStart = previousFullText.length;
-                        if (chunkStart < currentOldTextLength) {
-                            chunk.classList.add('old');
-                        } else {
-                            chunk.classList.add('new');
-                        }
-                        compactChunks();
-                    }, 350);
-                });
-            } else if (fullText !== previousFullText) {
-                branch = 'rebuild';
-                // General rebuild for other cases
-                content.innerHTML = '';
-                if (oldText) {
-                    const oldChunk = document.createElement('span');
-                    oldChunk.className = 'text-chunk old';
-                    oldChunk.textContent = oldText;
-                    content.appendChild(oldChunk);
-                }
-                if (newText) {
-                    const newChunk = document.createElement('span');
-                    newChunk.className = 'text-chunk new';
-                    newChunk.textContent = newText;
-                    content.appendChild(newChunk);
-                }
-                compactChunks();
+            const naturalHeight = content.offsetHeight;
+            if (naturalHeight > minContentHeight) {
+                minContentHeight = naturalHeight;
             }
-
-            scheduleLayoutUpdate();
-            const durationMs = performance.now() - startedAt;
-            if (durationMs > PERF_THRESHOLD_MS && window.logPerf) {
-                window.logPerf('updateText', {
-                    durationMs: Number(durationMs.toFixed(2)),
-                    branch,
-                    oldLen: oldText.length,
-                    newLen: newText.length,
-                    prevLen: previousFullText.length,
-                    childCount: content.childElementCount,
-                    queriedChunkCount
-                });
+            content.style.minHeight = minContentHeight + 'px';
+            const viewportHeight = viewport.offsetHeight;
+            if (minContentHeight > viewportHeight) {
+                const maxScroll = minContentHeight - viewportHeight;
+                if (maxScroll > targetScrollTop) {
+                    targetScrollTop = maxScroll;
+                }
             }
-            lastTextPerfAt = performance.now();
+            if (!animationFrame) {
+                animationFrame = requestAnimationFrame(animateScroll);
+            }
         }
 
         window.updateText = updateText;
-
-        function compactChunks() {
-            mergeAdjacentChunks('old');
-            mergeAdjacentChunks('new');
-        }
-
-        function mergeAdjacentChunks(className) {
-            let previous = null;
-            const chunks = Array.from(content.querySelectorAll('.text-chunk'));
-            for (const chunk of chunks) {
-                const compatible = chunk.classList.contains(className) && !chunk.classList.contains('appearing');
-                if (!compatible) {
-                    previous = null;
-                    continue;
-                }
-                if (previous && previous.classList.contains(className) && !previous.classList.contains('appearing')) {
-                    previous.textContent += chunk.textContent;
-                    chunk.remove();
-                } else {
-                    previous = chunk;
-                }
-            }
-        }
 
         // Canvas-based volume visualizer - cute pill bars scrolling left
         const volumeCanvas = document.getElementById('volume-canvas');
@@ -339,7 +462,7 @@
             currentScrollTop = 0;
             viewport.scrollTop = 0;
             currentOldTextLength = 0;
-            previousNewText = '';
+            previousFullText = '';
         }
 
         window.clearText = clearText;

@@ -28,7 +28,7 @@ internal class RealtimeOverlayHtmlBuilder(
                     fontSize = 16,
                     isDark = settings.isDark,
                 ),
-                "JS_CONTENT" to javascript(locale),
+                "JS_CONTENT" to javascript(locale, settings.isTranslation),
                 "TITLE_CONTENT" to "",
                 "AUDIO_SELECTOR" to controls(settings.isTranslation, locale),
                 "LOADING_ICON" to if (settings.isTranslation) {
@@ -74,7 +74,10 @@ internal class RealtimeOverlayHtmlBuilder(
         }
     }
 
-    private fun javascript(locale: MobileLocaleText): String {
+    private fun javascript(
+        locale: MobileLocaleText,
+        isTranslation: Boolean,
+    ): String {
         return buildString {
             append(overlayBridgePrelude())
             append('\n')
@@ -85,7 +88,11 @@ internal class RealtimeOverlayHtmlBuilder(
                     .replace("{{COPY_SVG}}", RealtimeOverlayIcons.CONTENT_COPY),
             )
             append('\n')
-            append(baseLogicJs.replace("{{PLACEHOLDER_TEXT}}", locale.overlay.placeholderText))
+            append(
+                baseLogicJs
+                    .replace("{{PLACEHOLDER_TEXT}}", locale.overlay.placeholderText)
+                    .replace("{{ENABLE_INLINE_DIFF}}", isTranslation.toString()),
+            )
             append('\n')
             append(overlayMobileShim())
         }
