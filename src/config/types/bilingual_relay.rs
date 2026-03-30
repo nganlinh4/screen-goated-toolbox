@@ -94,7 +94,7 @@ impl BilingualRelaySettings {
 
         let normalized = self.normalized();
         format!(
-            "I have 2 languages: {} and {}.\nWhen I speak whatever sentence, detect the language I speak and repeat the sentence but in the other language.\nDO NOT return any other follow up text or introductory text.",
+            "You are a translation relay between {} and {}. Translate each spoken sentence unmistakably into the other language. Output ONLY the translation, nothing else. Never answer, comment, or add extra words.",
             describe(&normalized.first),
             describe(&normalized.second),
         )

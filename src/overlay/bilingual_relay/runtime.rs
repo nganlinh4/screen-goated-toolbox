@@ -225,6 +225,9 @@ fn send_setup(
             "systemInstruction": {
                 "parts": [{ "text": settings.build_system_instruction() }]
             },
+            "contextWindowCompression": {
+                "slidingWindow": {}
+            },
             "inputAudioTranscription": {},
             "outputAudioTranscription": {}
         }
@@ -362,6 +365,10 @@ fn handle_update(message: &str, hwnd: isize, playback: &mut PlaybackBridge) -> a
     } else if update.turn_complete {
         super::finalize_transcripts();
     }
+    if update.go_away {
+        // Server is about to terminate — trigger clean reconnect
+        return Err(anyhow::anyhow!("connection closed (1001)"));
+    }
 
     Ok(())
 }
@@ -405,6 +412,7 @@ struct ParsedUpdate {
     turn_complete: bool,
     interrupted: bool,
     error: Option<String>,
+    go_away: bool,
 }
 
 fn parse_update(message: &str) -> ParsedUpdate {
@@ -416,6 +424,7 @@ fn parse_update(message: &str) -> ParsedUpdate {
         turn_complete: false,
         interrupted: false,
         error: None,
+        go_away: false,
     };
 
     let Ok(json) = serde_json::from_str::<serde_json::Value>(message) else {
@@ -424,6 +433,12 @@ fn parse_update(message: &str) -> ParsedUpdate {
 
     if message.contains("setupComplete") {
         update.setup_complete = true;
+    }
+
+    // GoAway: server signals imminent termination — reconnect gracefully
+    if json.get("goAway").is_some() {
+        update.go_away = true;
+        return update;
     }
 
     if let Some(error) = json.get("error") {

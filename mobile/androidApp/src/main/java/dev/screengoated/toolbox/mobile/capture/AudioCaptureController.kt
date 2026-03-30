@@ -61,19 +61,17 @@ class AudioCaptureController(
             "Microphone AudioRecord failed to initialize."
         }
 
-        // Attach acoustic echo canceller to suppress speaker→mic feedback
+        // Hardware echo cancellation — prevents the AI from recapturing its own TTS playback
         val aec = if (android.media.audiofx.AcousticEchoCanceler.isAvailable()) {
             runCatching {
                 android.media.audiofx.AcousticEchoCanceler.create(audioRecord.audioSessionId)?.also {
                     it.enabled = true
-                    Log.d(TAG, "AcousticEchoCanceler attached (session=${audioRecord.audioSessionId})")
+                    Log.d(TAG, "AcousticEchoCanceler enabled (session=${audioRecord.audioSessionId})")
                 }
             }.getOrNull()
-        } else {
-            Log.w(TAG, "AcousticEchoCanceler not available on this device")
-            null
-        }
-        // Also attach noise suppressor
+        } else null
+
+        // Noise suppression — reduces background noise before sending to Gemini
         val ns = if (android.media.audiofx.NoiseSuppressor.isAvailable()) {
             runCatching {
                 android.media.audiofx.NoiseSuppressor.create(audioRecord.audioSessionId)?.also {
@@ -83,7 +81,7 @@ class AudioCaptureController(
         } else null
 
         audioRecord.startRecording()
-        Log.d(TAG, "Mic capture started with VOICE_COMMUNICATION + AEC, bufferBytes=${minBufferSize * 2}")
+        Log.d(TAG, "Mic capture started (VOICE_COMMUNICATION + AEC + NS), bufferBytes=${minBufferSize * 2}")
 
         val reader = launch(Dispatchers.IO) {
             val buffer = ShortArray(minBufferSize / 2)

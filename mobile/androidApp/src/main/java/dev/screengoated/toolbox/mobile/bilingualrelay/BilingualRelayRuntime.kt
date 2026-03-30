@@ -221,6 +221,9 @@ class BilingualRelayRuntime(
         } else if (update.turnComplete) {
             repository.finalizeActiveTranscripts(nowMs)
         }
+        if (update.goAway) {
+            throw IOException("Server GoAway — reconnecting")
+        }
     }
 
     private companion object {
