@@ -13,6 +13,14 @@ use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::Rect;
 
+fn clamp_to_char_boundary(text: &str, index: usize) -> usize {
+    let mut clamped = index.min(text.len());
+    while clamped > 0 && !text.is_char_boundary(clamped) {
+        clamped -= 1;
+    }
+    clamped
+}
+
 fn sync_tts_ui_state(hwnd: HWND) {
     let enabled = REALTIME_TTS_ENABLED.load(Ordering::SeqCst);
     let speed = CURRENT_TTS_SPEED.load(Ordering::Relaxed);
@@ -97,10 +105,11 @@ pub unsafe extern "system" fn realtime_wnd_proc(
                 // Get old (committed) and new (current sentence) text from state
                 let (old_text, new_text) = {
                     if let Ok(state) = REALTIME_STATE.lock() {
-                        // Everything before last_committed_pos is "old"
+                        // Everything before transcript_committed_pos is "old"
                         // Everything after is "new" (current sentence)
                         let full = &state.full_transcript;
-                        let pos = state.last_committed_pos.min(full.len());
+                        let pos =
+                            clamp_to_char_boundary(full, state.transcript_committed_pos.min(full.len()));
                         let old_raw = &full[..pos];
                         let new_raw = &full[pos..];
 
@@ -324,7 +333,8 @@ pub unsafe extern "system" fn translation_wnd_proc(
                     if LAST_SPOKEN_LENGTH.load(Ordering::SeqCst) == 0 && old_len > 50 {
                         let text = old_text.trim_end();
                         // Ignore the very last char if it's punctuation, to find the PREVIOUS sentence boundary
-                        let search_limit = text.len().saturating_sub(1);
+                        let search_limit =
+                            clamp_to_char_boundary(text, text.len().saturating_sub(1));
                         if search_limit > 0 {
                             // Find last sentence terminator (. ? ! or newline)
                             let last_boundary = text[..search_limit].rfind(['.', '?', '!', '\n']);
@@ -341,7 +351,8 @@ pub unsafe extern "system" fn translation_wnd_proc(
 
                     if old_len > last_spoken {
                         // We have new committed text since last spoken
-                        let new_committed = old_text[last_spoken..].to_string();
+                        let safe_last_spoken = clamp_to_char_boundary(&old_text, last_spoken);
+                        let new_committed = old_text[safe_last_spoken..].to_string();
 
                         // Only queue non-empty, non-whitespace segments
                         if !new_committed.trim().is_empty() {

@@ -28,11 +28,13 @@ pub enum TranscriptionMethod {
     #[default]
     GeminiLive,
     Parakeet,
+    Qwen3TurboQuant,
 }
 
 pub struct RealtimeState {
     pub full_transcript: String,
     pub display_transcript: String,
+    pub transcript_committed_pos: usize,
 
     /// Position after the last FULLY FINISHED sentence that was translated
     pub last_committed_pos: usize,
@@ -98,6 +100,7 @@ impl RealtimeState {
         Self {
             full_transcript: String::new(),
             display_transcript: String::new(),
+            transcript_committed_pos: 0,
             last_committed_pos: 0,
             last_processed_len: 0,
             committed_translation: String::new(),
@@ -119,6 +122,56 @@ impl RealtimeState {
 
     fn update_display_transcript(&mut self) {
         self.display_transcript = self.full_transcript.clone();
+    }
+
+    fn sync_transcript_commit_pos_with_translation(&mut self) {
+        if self.transcription_method != TranscriptionMethod::Qwen3TurboQuant {
+            self.transcript_committed_pos = self.last_committed_pos.min(self.full_transcript.len());
+        }
+    }
+
+    fn clamp_to_char_boundary(text: &str, mut index: usize) -> usize {
+        index = index.min(text.len());
+        while index > 0 && !text.is_char_boundary(index) {
+            index -= 1;
+        }
+        index
+    }
+
+    fn shared_prefix_len(left: &str, right: &str) -> usize {
+        let max = left.len().min(right.len());
+        let mut last_boundary = 0;
+
+        for (idx, (a, b)) in left.chars().zip(right.chars()).enumerate() {
+            if a != b {
+                break;
+            }
+            let byte_idx = left
+                .char_indices()
+                .nth(idx + 1)
+                .map(|(byte_idx, _)| byte_idx)
+                .unwrap_or(left.len());
+            last_boundary = byte_idx.min(max);
+        }
+
+        if left.starts_with(right) {
+            right.len()
+        } else if right.starts_with(left) {
+            left.len()
+        } else {
+            last_boundary
+        }
+    }
+
+    fn reset_translation_state(&mut self) {
+        self.last_committed_pos = 0;
+        self.last_processed_len = 0;
+        self.committed_translation.clear();
+        self.uncommitted_translation.clear();
+        self.uncommitted_source_start = 0;
+        self.uncommitted_source_end = 0;
+        self.display_translation.clear();
+        self.translation_history.clear();
     }
 
     fn update_display_translation(&mut self) {
@@ -161,12 +214,68 @@ impl RealtimeState {
         self.full_transcript.push_str(&text_to_append);
         self.last_transcript_append_time = Instant::now();
         self.update_display_transcript();
+        self.sync_transcript_commit_pos_with_translation();
     }
 
     pub fn set_transcription_method(&mut self, method: TranscriptionMethod) {
         self.transcription_method = method;
         if method == TranscriptionMethod::Parakeet {
             self.parakeet_segment_start_time = Instant::now();
+        }
+        self.sync_transcript_commit_pos_with_translation();
+    }
+
+    pub fn set_transcript_segments(&mut self, committed: &str, draft: &str) {
+        let committed = Self::sanitize_transcript_segment(committed);
+        let draft = Self::sanitize_transcript_segment(draft);
+
+        let (full_transcript, transcript_committed_pos) = if committed.is_empty() {
+            (draft.trim_start().to_string(), 0)
+        } else if draft.is_empty() {
+            (committed.clone(), committed.len())
+        } else {
+            let combined = Self::join_transcript_segments(&committed, &draft);
+            let pos = committed.len();
+            (combined, pos)
+        };
+
+        let transcript_committed_pos =
+            Self::clamp_to_char_boundary(&full_transcript, transcript_committed_pos);
+        let previous_transcript = self.full_transcript.clone();
+        let translation_boundary = self.last_committed_pos.min(previous_transcript.len());
+
+        self.full_transcript = full_transcript;
+        self.display_transcript = self.full_transcript.clone();
+        self.transcript_committed_pos = transcript_committed_pos;
+        self.last_transcript_append_time = Instant::now();
+
+        let shared_prefix = Self::shared_prefix_len(&previous_transcript, &self.full_transcript);
+        if shared_prefix < translation_boundary {
+            self.reset_translation_state();
+        } else {
+            self.last_processed_len = self.last_committed_pos.min(self.full_transcript.len());
+            self.clear_uncommitted_translation();
+        }
+    }
+
+    fn sanitize_transcript_segment(segment: &str) -> String {
+        segment.replace('\n', " ").replace('\t', " ")
+    }
+
+    fn join_transcript_segments(left: &str, right: &str) -> String {
+        match (left.is_empty(), right.is_empty()) {
+            (true, true) => String::new(),
+            (true, false) => right.trim_start().to_string(),
+            (false, true) => left.to_string(),
+            (false, false) => {
+                let left_has_space = left.chars().last().is_some_and(char::is_whitespace);
+                let right_has_space = right.chars().next().is_some_and(char::is_whitespace);
+                if left_has_space || right_has_space {
+                    format!("{left}{right}")
+                } else {
+                    format!("{left} {right}")
+                }
+            }
         }
     }
 
@@ -287,6 +396,7 @@ impl RealtimeState {
             {
                 self.full_transcript.push_str(". ");
                 self.update_display_transcript();
+                self.sync_transcript_commit_pos_with_translation();
             }
             return;
         }
@@ -323,6 +433,7 @@ impl RealtimeState {
         }
 
         self.update_display_translation();
+        self.sync_transcript_commit_pos_with_translation();
     }
 
     /// Build a translation request over the full untranslated tail, keeping track of which
@@ -466,6 +577,7 @@ impl RealtimeState {
         }
 
         self.mark_processed_up_to(request.source_end);
+        self.sync_transcript_commit_pos_with_translation();
         true
     }
 

@@ -1,0 +1,43 @@
+[package]
+name = "qwen3-asr-rs"
+version = "0.2.0"
+edition = "2021"
+description = "Pure Rust implementation of Qwen3 ASR (Automatic Speech Recognition) with libtorch and MLX backends"
+license = "Apache-2.0"
+repository = "https://github.com/second-state/qwen3_asr_rs"
+exclude = ["mlx-c/", "test_audio/", "skills/", "Qwen3-ASR-*"]
+
+[[bin]]
+name = "asr"
+path = "src/main.rs"
+
+[[bin]]
+name = "asr-server"
+path = "src/bin/server.rs"
+
+[dependencies]
+tch = { version = "0.20", optional = true }
+tokenizers = "0.21"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hound = "3.5"
+rubato = "0.16"
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+safetensors = "0.5"
+symphonia = { version = "0.5", features = ["mp3", "aac", "flac", "ogg", "wav"] }
+clap = { version = "4", features = ["derive"] }
+axum = { version = "0.7", features = ["multipart"] }
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+tempfile = "3"
+
+[build-dependencies]
+cmake = "0.1"
+
+[features]
+default = ["tch-backend"]
+tch-backend = ["dep:tch"]
+mlx = []

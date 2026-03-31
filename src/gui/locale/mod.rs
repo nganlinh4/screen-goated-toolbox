@@ -289,6 +289,13 @@ pub struct LocaleText {
     pub parakeet_downloading_message: &'static str,
     pub parakeet_downloading_file: &'static str, // "Downloading {}..."
     pub parakeet_supports_english_only: &'static str,
+    pub qwen3_downloading_title: &'static str,
+    pub qwen3_downloading_message: &'static str,
+    pub qwen3_downloading_file: &'static str, // "Downloading {}..."
+    pub qwen3_server_downloading_title: &'static str,
+    pub qwen3_server_downloading_message: &'static str,
+    pub qwen3_server_downloading_file: &'static str, // "Downloading {}..."
+    pub qwen3_requires_nvidia: &'static str,
     // --- OVERLAY BUTTONS TOOLTIPS ---
     pub overlay_copy_tooltip: &'static str,
     pub overlay_undo_tooltip: &'static str,
@@ -356,6 +363,8 @@ pub struct LocaleText {
     pub downloaded_tools_title: &'static str,
     pub tool_ai_runtime: &'static str,
     pub tool_parakeet: &'static str,
+    pub tool_qwen3: &'static str,
+    pub tool_qwen3_server: &'static str,
     pub tool_ytdlp: &'static str,
     pub tool_deno: &'static str,
     pub tool_ffmpeg: &'static str,
@@ -366,6 +375,8 @@ pub struct LocaleText {
     pub tool_action_delete: &'static str,
     pub tool_desc_ai_runtime: &'static str,
     pub tool_desc_parakeet: &'static str,
+    pub tool_desc_qwen3: &'static str,
+    pub tool_desc_qwen3_server: &'static str,
     pub tool_desc_ytdlp: &'static str,
     pub tool_desc_deno: &'static str,
     pub tool_desc_ffmpeg: &'static str,

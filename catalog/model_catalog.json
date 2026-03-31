@@ -11,6 +11,7 @@
     "gemini_live_text_model_id_3_1": "gemini-live-text-3.1",
     "gemini_live_audio_model_id_2_5": "gemini-live-audio",
     "gemini_live_audio_model_id_3_1": "gemini-live-audio-3.1",
+    "qwen3_asr_turboquant_model_id": "qwen3-asr-turboquant",
     "realtime_translation_model_cerebras": "cerebras-oss",
     "realtime_translation_model_gemma": "google-gemma",
     "realtime_translation_model_gtx": "google-gtx",
@@ -51,6 +52,7 @@
     "gemini-live-audio-3.1",
     "google-gtx",
     "parakeet-local",
+    "qwen3-asr-turboquant",
     "qr-scanner",
     "whisper-accurate",
     "whisper-fast"
@@ -63,7 +65,10 @@
     "gemini-2.5-flash-native-audio-preview-12-2025": "gemini-live-audio",
     "gemini-3.1-flash-live-preview": "gemini-live-audio",
     "parakeet": "parakeet",
-    "parakeet-local": "parakeet"
+    "parakeet-local": "parakeet",
+    "qwen3-asr-turboquant": "qwen3-asr-turboquant",
+    "qwen3-asr-0.6b-turboquant-local": "qwen3-asr-turboquant",
+    "qwen3-asr-local": "qwen3-asr-turboquant"
   },
   "tts_gemini_models": [
     {

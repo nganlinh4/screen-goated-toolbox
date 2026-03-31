@@ -9,6 +9,7 @@
 mod capture;
 pub mod model_loader;
 pub mod parakeet;
+pub mod qwen3;
 mod state;
 #[cfg(test)]
 mod state_tests;
