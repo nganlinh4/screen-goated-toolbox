@@ -289,7 +289,7 @@ internal fun ToolCategoryRow(
                         scaleY = deleteScale
                     }
                     .maskClip(MaterialTheme.shapes.large)
-                    .clickable(enabled = !isActionMode && !isDeleting) { onPresetClick(presetId) },
+                    .clickable(enabled = !isDeleting) { onPresetClick(presetId) },
             ) {
                 Card(
                     modifier = Modifier.fillMaxSize(),

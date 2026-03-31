@@ -237,6 +237,64 @@ html, body {
 /* ── Window controls ── */
 
 .settings-btn-wrap { position: relative; }
+.volume-btn-wrap { position: relative; }
+
+.volume-popup {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+  z-index: 90;
+  white-space: nowrap;
+  align-items: center;
+  gap: 8px;
+  animation: volPopIn 0.15s ease;
+}
+
+/* Hover bridge: invisible padding fills the gap between button and popup */
+.volume-popup::before {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  height: 8px;
+}
+
+/* Popup visibility controlled by JS (.vol-open) to support slider drag without closing */
+.volume-btn-wrap.vol-open .volume-popup { display: flex; }
+
+@keyframes volPopIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+.volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 80px;
+  height: 3px;
+  background: var(--border);
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+}
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+.volume-label {
+  font-size: 10px;
+  color: var(--muted);
+  min-width: 28px;
+  text-align: right;
+}
 
 .window-actions {
   display: flex;
@@ -640,6 +698,7 @@ html[data-theme="light"] .msg-right .pill-content { background: rgba(255, 107, 1
 html[data-theme="light"] .session-separator::before,
 html[data-theme="light"] .session-separator::after { border-color: #ddd4d8; }
 html[data-theme="light"] .settings-popup { background: #ffffff; border-color: rgba(0, 0, 0, 0.08); }
+html[data-theme="light"] .volume-popup { background: #ffffff; border-color: rgba(0, 0, 0, 0.08); }
 html[data-theme="light"] .guide-popup { background: #ffffff; border-color: rgba(0, 0, 0, 0.08); }
 html[data-theme="light"] #statusText { color: var(--ok); }
 

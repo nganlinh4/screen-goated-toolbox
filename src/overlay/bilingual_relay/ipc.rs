@@ -63,6 +63,14 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
         }
         "add_hotkey" => handle_add_hotkey(envelope.args),
         "remove_hotkey" => handle_remove_hotkey(envelope.args),
+        "set_tts_volume" => {
+            let vol = envelope.args.get("volume")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(100) as u32;
+            crate::overlay::realtime_webview::state::CURRENT_TTS_VOLUME
+                .store(vol.min(100), std::sync::atomic::Ordering::Relaxed);
+            Ok(Value::Null)
+        }
         "open_tts_settings" => {
             // Minimize the relay window
             unsafe {
@@ -71,8 +79,11 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
             // Show badge hint
             let lang = super::current_ui_language();
             let locale = crate::gui::locale::LocaleText::get(&lang);
-            crate::overlay::auto_copy_badge::show_notification(
-                locale.bilingual_relay_tts_settings_hint,
+            crate::overlay::auto_copy_badge::enqueue_notification_with_duration(
+                locale.bilingual_relay_tts_settings_hint.to_string(),
+                String::new(),
+                crate::overlay::auto_copy_badge::NotificationType::Info,
+                Some(4000),
             );
             // Dismiss splash if still showing, then open TTS modal
             super::REQUEST_DISMISS_SPLASH.store(true, std::sync::atomic::Ordering::SeqCst);
