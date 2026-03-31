@@ -65,15 +65,23 @@ internal fun PresetOverlayResultModule.syncResultWindowsSupport(
         }
         val bounds = window.currentBounds()
         placed += PresetResultWindowPlacement(windowState.id, bounds)
-        updateResultWindowSupport(
-            ActivePresetResultWindow(
-                id = windowState.id,
-                presetId = activePreset.preset.id,
-                runtimeState = runtime,
-                windowState = windowState,
-                window = window,
-            ),
+        // Only re-render if the window state actually changed or the window is new.
+        // Prevents sibling overlays from having their loading animation reset or
+        // triggering unnecessary DOM re-layout when another overlay streams chunks.
+        // (Windows achieves this via per-HWND state in HashMap — each window updates independently.)
+        val stateChanged = existing == null || existing.windowState != windowState
+        val active = ActivePresetResultWindow(
+            id = windowState.id,
+            presetId = activePreset.preset.id,
+            runtimeState = runtime,
+            windowState = windowState,
+            window = window,
         )
+        if (stateChanged) {
+            updateResultWindowSupport(active)
+        } else {
+            resultWindows[active.id] = active
+        }
         if (topmostResultWindowId == null) {
             topmostResultWindowId = windowState.id
         }
@@ -125,15 +133,19 @@ internal fun PresetOverlayResultModule.syncStandaloneResultWindowsSupport(
         }
         val bounds = window.currentBounds()
         placed += PresetResultWindowPlacement(windowState.id, bounds)
-        updateResultWindowSupport(
-            ActivePresetResultWindow(
-                id = windowState.id,
-                presetId = "standalone:$sessionId",
-                runtimeState = runtime,
-                windowState = windowState,
-                window = window,
-            ),
+        val stateChanged = existing == null || existing.windowState != windowState
+        val active = ActivePresetResultWindow(
+            id = windowState.id,
+            presetId = "standalone:$sessionId",
+            runtimeState = runtime,
+            windowState = windowState,
+            window = window,
         )
+        if (stateChanged) {
+            updateResultWindowSupport(active)
+        } else {
+            resultWindows[active.id] = active
+        }
         if (topmostResultWindowId == null) {
             topmostResultWindowId = windowState.id
         }
@@ -194,6 +206,12 @@ internal fun PresetOverlayResultModule.updateResultWindowSupport(active: ActiveP
         )
         active.windowState.isError -> PresetRenderedContent(
             html = errorHtml(active.windowState.markdownText),
+            isRawHtmlDocument = false,
+        )
+        // Keep showing loading animation while streaming hasn't produced content yet
+        // (e.g. model is searching sources). Prevents blank overlay during transient states.
+        active.windowState.isStreaming && active.windowState.markdownText.isBlank() -> PresetRenderedContent(
+            html = loadingHtml(active.windowState.loadingStatusText ?: loadingStatusText()),
             isRawHtmlDocument = false,
         )
         else -> renderer.render(active.windowState.markdownText, isDarkTheme())
