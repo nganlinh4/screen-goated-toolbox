@@ -119,6 +119,7 @@ fun SgtMobileApp(
 ) {
     val appContext = LocalContext.current
     var showTtsSettings by rememberSaveable { mutableStateOf(false) }
+    var ttsGeminiOnly by rememberSaveable { mutableStateOf(false) }
     var showPresetRuntimeSettings by rememberSaveable { mutableStateOf(false) }
     var showUsageStats by rememberSaveable { mutableStateOf(false) }
     var showDownloader by rememberSaveable { mutableStateOf(false) }
@@ -149,6 +150,7 @@ fun SgtMobileApp(
                         restart = true,
                     )
                 }
+                ttsGeminiOnly = false
             },
             onMethodChanged = onGlobalTtsMethodChanged,
             onGeminiModelChanged = onGlobalTtsModelChanged,
@@ -160,6 +162,7 @@ fun SgtMobileApp(
             onPreviewGeminiVoice = onPreviewGeminiVoice,
             onPreviewEdgeVoice = onPreviewEdgeVoice,
             onPreviewGoogleTranslate = onPreviewGoogleTranslate,
+            geminiOnly = ttsGeminiOnly,
         )
     }
 
@@ -422,6 +425,7 @@ fun SgtMobileApp(
                     locale = locale,
                     onBack = { showBilingualRelay = false },
                     onNavigateToTtsSettings = {
+                        ttsGeminiOnly = true
                         showTtsSettings = true
                         val hint = when (uiPreferences.uiLanguage) {
                             "vi" -> "Đổi model Gemini Live và giọng nói theo ý bạn!"

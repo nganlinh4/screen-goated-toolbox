@@ -52,6 +52,36 @@ import dev.screengoated.toolbox.mobile.ui.UtilityHeaderRow
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 @Composable
+internal fun GeminiLiveModelAndVoiceOnly(
+    settings: MobileGlobalTtsSettings,
+    locale: MobileLocaleText,
+    onModelChanged: (String) -> Unit,
+    onVoiceChanged: (String) -> Unit,
+    onPreviewVoice: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        GeminiModelCard(
+            selected = settings.geminiModel,
+            locale = locale,
+            onChanged = onModelChanged,
+        )
+        ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.tertiary) {
+            UtilityHeaderRow(
+                icon = Icons.AutoMirrored.Rounded.VolumeUp,
+                title = locale.ttsVoiceLabel,
+                accent = MaterialTheme.colorScheme.tertiary,
+            )
+            GeminiVoiceGrid(
+                selectedVoice = settings.voice,
+                locale = locale,
+                onVoiceChanged = onVoiceChanged,
+                onPreviewVoice = onPreviewVoice,
+            )
+        }
+    }
+}
+
+@Composable
 internal fun GeminiLiveSection(
     settings: MobileGlobalTtsSettings,
     locale: MobileLocaleText,

@@ -26,6 +26,7 @@ fun GlobalTtsSettingsDialog(
     onPreviewGeminiVoice: (String) -> Unit,
     onPreviewEdgeVoice: (String, String) -> Unit,
     onPreviewGoogleTranslate: () -> Unit,
+    geminiOnly: Boolean = false,
 ) {
     RenderGlobalTtsSettingsDialog(
         settings = settings,
@@ -42,5 +43,6 @@ fun GlobalTtsSettingsDialog(
         onPreviewGeminiVoice = onPreviewGeminiVoice,
         onPreviewEdgeVoice = onPreviewEdgeVoice,
         onPreviewGoogleTranslate = onPreviewGoogleTranslate,
+        geminiOnly = geminiOnly,
     )
 }
