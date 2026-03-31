@@ -350,6 +350,10 @@ internal class PresetOverlayResultModule(
                 })();
                 """.trimIndent(),
             )
+            // Re-apply current state now that the page is ready.
+            // The initial updateResultWindowSupport call races with page load —
+            // applyResultState may have silently failed before the base JS was parsed.
+            updateResultWindowSupport(active)
         }
         handleResultPageFinishedSupport(id, url)
     }

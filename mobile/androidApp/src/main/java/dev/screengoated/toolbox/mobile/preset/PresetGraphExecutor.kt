@@ -94,52 +94,80 @@ internal class PresetGraphExecutor(
         executionOrder.forEach { index ->
             val block = preset.blocks[index]
             val shouldSurfaceOverlay = index in overlayOrder
-            when (block.blockType) {
-                BlockType.INPUT_ADAPTER -> executeInputAdapterBlock(
-                    preset = preset,
-                    input = input,
-                    inputText = inputText,
-                    index = index,
-                    overlayOrder = overlayOrder,
-                    outputs = outputs,
-                    shouldSurfaceOverlay = shouldSurfaceOverlay,
-                    sessionId = sessionId,
-                )
+            // Isolate per-block errors so one failure doesn't kill all sibling overlays.
+            // (Matches Windows: each block's error renders in its own window via per-HWND state.)
+            try {
+                when (block.blockType) {
+                    BlockType.INPUT_ADAPTER -> executeInputAdapterBlock(
+                        preset = preset,
+                        input = input,
+                        inputText = inputText,
+                        index = index,
+                        overlayOrder = overlayOrder,
+                        outputs = outputs,
+                        shouldSurfaceOverlay = shouldSurfaceOverlay,
+                        sessionId = sessionId,
+                    )
 
-                BlockType.TEXT -> executeTextBlock(
-                    preset = preset,
-                    inputText = inputText,
-                    index = index,
-                    incoming = incoming,
-                    outputs = outputs,
-                    overlayOrder = overlayOrder,
-                    shouldSurfaceOverlay = shouldSurfaceOverlay,
-                    sessionId = sessionId,
-                )
+                    BlockType.TEXT -> executeTextBlock(
+                        preset = preset,
+                        inputText = inputText,
+                        index = index,
+                        incoming = incoming,
+                        outputs = outputs,
+                        overlayOrder = overlayOrder,
+                        shouldSurfaceOverlay = shouldSurfaceOverlay,
+                        sessionId = sessionId,
+                    )
 
-                BlockType.IMAGE -> executeImageBlock(
-                    preset = preset,
-                    imageBytes = (input as? PresetInput.Image)?.pngBytes
-                        ?: error("Image bytes required for IMAGE block"),
-                    index = index,
-                    incoming = incoming,
-                    outputs = outputs,
-                    overlayOrder = overlayOrder,
-                    shouldSurfaceOverlay = shouldSurfaceOverlay,
-                    sessionId = sessionId,
-                )
+                    BlockType.IMAGE -> executeImageBlock(
+                        preset = preset,
+                        imageBytes = (input as? PresetInput.Image)?.pngBytes
+                            ?: error("Image bytes required for IMAGE block"),
+                        index = index,
+                        incoming = incoming,
+                        outputs = outputs,
+                        overlayOrder = overlayOrder,
+                        shouldSurfaceOverlay = shouldSurfaceOverlay,
+                        sessionId = sessionId,
+                    )
 
-                BlockType.AUDIO -> audioBlockExecutor.execute(
-                    preset = preset,
-                    input = (input as? PresetInput.Audio)
-                        ?: error("Audio bytes required for AUDIO block"),
-                    index = index,
-                    incoming = incoming,
-                    outputs = outputs,
-                    overlayOrder = overlayOrder,
-                    shouldSurfaceOverlay = shouldSurfaceOverlay,
-                    sessionId = sessionId,
-                )
+                    BlockType.AUDIO -> audioBlockExecutor.execute(
+                        preset = preset,
+                        input = (input as? PresetInput.Audio)
+                            ?: error("Audio bytes required for AUDIO block"),
+                        index = index,
+                        incoming = incoming,
+                        outputs = outputs,
+                        overlayOrder = overlayOrder,
+                        shouldSurfaceOverlay = shouldSurfaceOverlay,
+                        sessionId = sessionId,
+                    )
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e // Don't swallow coroutine cancellation
+            } catch (e: Exception) {
+                // Emit per-window error state; other overlays continue unaffected
+                outputs[index] = ""
+                if (shouldSurfaceOverlay) {
+                    val resultWindowId = PresetResultWindowId(sessionId = sessionId, blockIdx = index)
+                    executionState.update {
+                        it.withWindowState(
+                            PresetResultWindowState(
+                                id = resultWindowId,
+                                blockIdx = index,
+                                title = preset.nameEn,
+                                markdownText = e.message ?: "Block execution failed",
+                                isLoading = false,
+                                loadingStatusText = null,
+                                isStreaming = false,
+                                isError = true,
+                                renderMode = block.renderMode,
+                                overlayOrder = overlayOrder.getOrElse(index) { 0 },
+                            ),
+                        )
+                    }
+                }
             }
 
             // ── Centralized per-block post-processing (matches Windows step.rs) ──
