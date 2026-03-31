@@ -572,6 +572,9 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
         .trans-model-icon.active[data-value="parakeet"] {{
             color: {primary};
         }}
+        .trans-model-icon.active[data-value="qwen3-asr-turboquant"] {{
+            color: {tertiary};
+        }}
 
         /* Waveform animation for listening state */
         .wave-line {{

@@ -35,3 +35,6 @@ target_bench
 mobile/.gradle/
 mobile/local.properties
 mobile/**/build/
+
+# Vendored Qwen reference backend build/cache artifacts
+third_party/qwen3-asr-rs/target_stream_check/

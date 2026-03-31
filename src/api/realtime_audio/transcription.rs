@@ -96,25 +96,32 @@ fn transcription_thread_entry(
         if let Ok(mut s) = state.lock() {
             if trans_model == "parakeet" {
                 s.set_transcription_method(super::state::TranscriptionMethod::Parakeet);
+            } else if trans_model == crate::model_config::QWEN3_ASR_TURBOQUANT_MODEL_ID {
+                s.set_transcription_method(super::state::TranscriptionMethod::Qwen3TurboQuant);
             } else {
                 s.set_transcription_method(super::state::TranscriptionMethod::GeminiLive);
             }
         }
 
         let result = if trans_model == "parakeet" {
-            // println!(">>> Starting Parakeet transcription");
             let dummy_pause = Arc::new(AtomicBool::new(false));
             super::parakeet::run_parakeet_transcription(
                 current_preset.clone(),
                 stop_signal.clone(),
                 dummy_pause,
-                None,  // No full audio buffer for standard realtime
-                false, // hide_recording_ui
+                None,
+                false,
                 Some(hwnd_overlay),
                 state.clone(),
             )
+        } else if trans_model == crate::model_config::QWEN3_ASR_TURBOQUANT_MODEL_ID {
+            super::qwen3::run_qwen3_transcription(
+                current_preset.clone(),
+                stop_signal.clone(),
+                hwnd_overlay,
+                state.clone(),
+            )
         } else {
-            // println!(">>> Starting Gemini Live transcription");
             run_realtime_transcription(
                 current_preset.clone(),
                 stop_signal.clone(),

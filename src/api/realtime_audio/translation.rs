@@ -151,14 +151,6 @@ pub fn run_translation_loop(
             if applied {
                 let latency_ms = started_at.elapsed().as_millis() as u64;
                 interval_ms = compute_adaptive_translation_interval_ms(latency_ms);
-                eprintln!(
-                    "Live translate success: provider={} range={}-{} latency={}ms next_interval={}ms",
-                    current_model,
-                    request.source_start,
-                    request.source_end,
-                    latency_ms,
-                    interval_ms
-                );
             } else {
                 let fallback_applied = handle_fallback_translation(FallbackTranslationRequest {
                     request: &request,
@@ -176,10 +168,6 @@ pub fn run_translation_loop(
                     interval_ms = compute_adaptive_translation_interval_ms(latency_ms);
                 } else {
                     interval_ms = (interval_ms + 250).min(TRANSLATION_INTERVAL_MAX_MS);
-                    eprintln!(
-                        "Live translate failure: provider={} range={}-{} next_interval={}ms",
-                        current_model, request.source_start, request.source_end, interval_ms
-                    );
                 }
             }
 
@@ -303,10 +291,6 @@ fn handle_fallback_translation(request: FallbackTranslationRequest<'_>) -> bool 
     if let Some(result) = translated
         && apply_translation_update(state, translation_hwnd, request, &result)
     {
-        eprintln!(
-            "Live translate fallback success: provider={} range={}-{}",
-            alt_model, request.source_start, request.source_end
-        );
         return true;
     }
 
@@ -321,15 +305,6 @@ fn translate_with_provider(
     target_language: &str,
     history_entries: &[(String, String)],
 ) -> Option<ValidatedTranslationResponse> {
-    eprintln!(
-        "Live translate request: provider={} range={}-{} finalize={} draft={}",
-        current_model,
-        request.source_start,
-        request.source_end,
-        request.bytes_to_commit(),
-        request.draft_source.len()
-    );
-
     if current_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GTX {
         return translate_with_google_gtx_request(request, target_language);
     }

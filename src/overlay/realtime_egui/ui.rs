@@ -459,9 +459,14 @@ fn render_content_area(
         }
     }
 
-    let (full_transcript, last_committed_pos, committed_translation, uncommitted_translation) = (
+    let (
+        full_transcript,
+        transcript_committed_pos,
+        committed_translation,
+        uncommitted_translation,
+    ) = (
         state_data.full_transcript.clone(),
-        state_data.last_committed_pos,
+        state_data.transcript_committed_pos,
         state_data.committed_translation.clone(),
         state_data.uncommitted_translation.clone(),
     );
@@ -520,7 +525,7 @@ fn render_content_area(
                     .auto_shrink([false, false])
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
-                        render_transcript(ui, &full_transcript, last_committed_pos, &font);
+                        render_transcript(ui, &full_transcript, transcript_committed_pos, &font);
                     });
             });
 
@@ -551,7 +556,7 @@ fn render_content_area(
             .auto_shrink([false, false])
             .stick_to_bottom(true)
             .show(ui, |ui| {
-                render_transcript(ui, &full_transcript, last_committed_pos, &font);
+                render_transcript(ui, &full_transcript, transcript_committed_pos, &font);
             });
     } else if state.show_translation {
         egui::ScrollArea::vertical()
