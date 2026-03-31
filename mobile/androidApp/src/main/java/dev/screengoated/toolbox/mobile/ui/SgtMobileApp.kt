@@ -35,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -66,6 +67,8 @@ import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
 
@@ -114,6 +117,7 @@ fun SgtMobileApp(
     onCheckForAppUpdates: () -> Unit,
     onOverlayOpacityChanged: (Int) -> Unit = {},
 ) {
+    val appContext = LocalContext.current
     var showTtsSettings by rememberSaveable { mutableStateOf(false) }
     var showPresetRuntimeSettings by rememberSaveable { mutableStateOf(false) }
     var showUsageStats by rememberSaveable { mutableStateOf(false) }
@@ -127,11 +131,25 @@ fun SgtMobileApp(
     val presetCatalog by presetRepository.catalogState.collectAsState()
 
     if (showTtsSettings) {
+        val ttsSnapshotAtOpen = remember { globalTtsSettings }
         GlobalTtsSettingsDialog(
             settings = globalTtsSettings,
             locale = locale,
             edgeVoiceCatalogState = edgeVoiceCatalogState,
-            onDismiss = { showTtsSettings = false },
+            onDismiss = {
+                showTtsSettings = false
+                // Restart bilingual relay websocket if voice or model changed
+                // (matches Windows bilingual_relay::update_settings)
+                if (showBilingualRelay &&
+                    (globalTtsSettings.geminiModel != ttsSnapshotAtOpen.geminiModel ||
+                        globalTtsSettings.voice != ttsSnapshotAtOpen.voice)
+                ) {
+                    dev.screengoated.toolbox.mobile.bilingualrelay.BilingualRelayService.start(
+                        appContext,
+                        restart = true,
+                    )
+                }
+            },
             onMethodChanged = onGlobalTtsMethodChanged,
             onGeminiModelChanged = onGlobalTtsModelChanged,
             onSpeedPresetChanged = onGlobalTtsSpeedPresetChanged,
@@ -404,8 +422,13 @@ fun SgtMobileApp(
                     locale = locale,
                     onBack = { showBilingualRelay = false },
                     onNavigateToTtsSettings = {
-                        showBilingualRelay = false
                         showTtsSettings = true
+                        val hint = when (uiPreferences.uiLanguage) {
+                            "vi" -> "Đổi model Gemini Live và giọng nói theo ý bạn!"
+                            "ko" -> "Gemini Live 모델과 음성을 원하는 대로 변경하세요!"
+                            else -> "Change Gemini Live model and voice to your liking!"
+                        }
+                        Toast.makeText(appContext, hint, Toast.LENGTH_SHORT).show()
                     },
                 )
             }

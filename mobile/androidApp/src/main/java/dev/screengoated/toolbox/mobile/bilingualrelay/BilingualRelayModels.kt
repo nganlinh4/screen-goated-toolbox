@@ -57,12 +57,14 @@ enum class BilingualRelayConnectionState {
     STOPPED,
 }
 
+@Serializable
 enum class BilingualRelayTranscriptRole {
     INPUT,
     OUTPUT,
     SEPARATOR,
 }
 
+@Serializable
 data class BilingualRelayTranscriptItem(
     val id: Long,
     val role: BilingualRelayTranscriptRole,

@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::BilingualRelaySettings;
 use crate::gui::locale::LocaleText;
@@ -33,7 +33,7 @@ impl UiState {
             dirty: false,
             is_running: false,
             connection_state: RelayConnectionState::NotConfigured,
-            transcripts: Vec::new(),
+            transcripts: load_persisted_transcripts(),
             last_error: None,
             hotkey_error: None,
             audio_level: 0.0,
@@ -148,6 +148,7 @@ pub(super) fn insert_session_separator() {
         }
         state.last_error = None;
     });
+    persist_transcripts();
 }
 
 pub(super) fn publish_connection(
@@ -258,6 +259,7 @@ pub(super) fn finalize_transcripts() {
             item.is_final = true;
         }
     });
+    persist_transcripts();
 }
 
 pub(super) fn request_sync() {
@@ -375,4 +377,70 @@ fn merge_transcript_text(existing: &str, incoming: &str) -> String {
         return format!("{current}{next}");
     }
     format!("{current} {next}")
+}
+
+// ── Transcript persistence ──────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize)]
+struct PersistedTranscript {
+    role: String,
+    text: String,
+    lang: String,
+}
+
+fn transcripts_path() -> std::path::PathBuf {
+    let dir = dirs::config_dir()
+        .unwrap_or_default()
+        .join("screen-goated-toolbox");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("bilingual_relay_transcripts.json")
+}
+
+pub(super) fn persist_transcripts() {
+    let items: Vec<PersistedTranscript> = {
+        let state = UI_STATE.lock().unwrap();
+        state
+            .transcripts
+            .iter()
+            .filter(|t| t.is_final)
+            .map(|t| PersistedTranscript {
+                role: t.role.to_string(),
+                text: t.text.clone(),
+                lang: t.lang.clone(),
+            })
+            .collect()
+    };
+    if let Ok(json) = serde_json::to_string(&items) {
+        let _ = std::fs::write(transcripts_path(), json);
+    }
+}
+
+fn load_persisted_transcripts() -> Vec<RelayTranscriptItem> {
+    let path = transcripts_path();
+    let data = match std::fs::read_to_string(&path) {
+        Ok(d) => d,
+        Err(_) => return Vec::new(),
+    };
+    let items: Vec<PersistedTranscript> = match serde_json::from_str(&data) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    items
+        .into_iter()
+        .map(|p| {
+            let role: &'static str = match p.role.as_str() {
+                "input" => "input",
+                "output" => "output",
+                "separator" => "separator",
+                _ => "input",
+            };
+            RelayTranscriptItem {
+                id: super::runtime::next_transcript_id(),
+                role,
+                text: p.text,
+                is_final: true,
+                lang: p.lang,
+            }
+        })
+        .collect()
 }

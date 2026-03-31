@@ -7,6 +7,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.bilingualrelay.BilingualRelayConfig
+import dev.screengoated.toolbox.mobile.bilingualrelay.BilingualRelayTranscriptItem
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
@@ -54,6 +55,22 @@ class SecureSettingsStore(
             .putString(
                 KEY_BILINGUAL_RELAY_CONFIG,
                 json.encodeToString(BilingualRelayConfig.serializer(), config),
+            )
+            .apply()
+    }
+
+    fun loadBilingualRelayTranscripts(): List<BilingualRelayTranscriptItem> {
+        val payload = prefs.getString(KEY_BILINGUAL_RELAY_TRANSCRIPTS, null) ?: return emptyList()
+        return runCatching {
+            json.decodeFromString<List<BilingualRelayTranscriptItem>>(payload)
+        }.getOrDefault(emptyList())
+    }
+
+    fun saveBilingualRelayTranscripts(transcripts: List<BilingualRelayTranscriptItem>) {
+        prefs.edit()
+            .putString(
+                KEY_BILINGUAL_RELAY_TRANSCRIPTS,
+                json.encodeToString(transcripts),
             )
             .apply()
     }
@@ -199,6 +216,7 @@ class SecureSettingsStore(
         private const val PREFS_NAME = "sgt_mobile_secure"
         private const val KEY_SESSION_CONFIG = "session_config"
         private const val KEY_BILINGUAL_RELAY_CONFIG = "bilingual_relay_config"
+        private const val KEY_BILINGUAL_RELAY_TRANSCRIPTS = "bilingual_relay_transcripts"
         private const val KEY_GEMINI_API_KEY = "gemini_api_key"
         private const val KEY_CEREBRAS_API_KEY = "cerebras_api_key"
         private const val KEY_GROQ_API_KEY = "groq_api_key"

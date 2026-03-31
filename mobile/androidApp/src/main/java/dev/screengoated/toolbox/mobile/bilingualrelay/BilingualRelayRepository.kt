@@ -12,11 +12,15 @@ class BilingualRelayRepository(
     private val settingsStore: SecureSettingsStore,
     private val languageDetector: DeviceLanguageDetector,
 ) {
-    private val transcriptIdCounter = AtomicLong(1L)
+    private val savedTranscripts = settingsStore.loadBilingualRelayTranscripts()
+    private val transcriptIdCounter = AtomicLong(
+        (savedTranscripts.maxOfOrNull { it.id } ?: 0L) + 1L,
+    )
     private val mutableState = MutableStateFlow(
         BilingualRelayState(
             appliedConfig = settingsStore.loadBilingualRelayConfig().normalized(),
             draftConfig = settingsStore.loadBilingualRelayConfig().normalized(),
+            transcripts = savedTranscripts,
         ).normalize(),
     )
 
@@ -25,8 +29,10 @@ class BilingualRelayRepository(
     fun updateDraft(
         transform: (BilingualRelayConfig) -> BilingualRelayConfig,
     ) {
+        // Don't call .normalized() here — trim() strips trailing spaces while typing.
+        // Normalization happens in applyDraft() and buildSystemInstruction() instead.
         mutableState.value = mutableState.value.copy(
-            draftConfig = transform(mutableState.value.draftConfig).normalized(),
+            draftConfig = transform(mutableState.value.draftConfig),
         ).normalize()
     }
 
@@ -101,6 +107,7 @@ class BilingualRelayRepository(
         mutableState.value = mutableState.value.copy(
             transcripts = updated.takeLast(MAX_TRANSCRIPTS),
         ).normalize()
+        persistTranscripts()
     }
 
     fun markStopped() {
@@ -130,6 +137,7 @@ class BilingualRelayRepository(
 
     fun clearTranscripts() {
         mutableState.value = mutableState.value.copy(transcripts = emptyList()).normalize()
+        persistTranscripts()
     }
 
     fun updateVisualizerLevel(level: Float) {
@@ -200,20 +208,27 @@ class BilingualRelayRepository(
             if (item.isFinal) item else item.copy(isFinal = true, updatedAtMs = nowMs)
         }
         mutableState.value = mutableState.value.copy(transcripts = updated).normalize()
+        persistTranscripts()
     }
 
     private fun BilingualRelayState.normalize(): BilingualRelayState {
         val applied = appliedConfig.normalized()
-        val draft = draftConfig.normalized()
+        // Compare normalized versions for dirty check, but keep raw draft for typing
+        val draftNormalized = draftConfig.normalized()
         val connection = when {
             !applied.isValid() && !isRunning -> BilingualRelayConnectionState.NOT_CONFIGURED
             else -> connectionState
         }
         return copy(
             appliedConfig = applied,
-            draftConfig = draft,
-            dirty = draft != applied,
+            dirty = draftNormalized != applied,
             connectionState = connection,
+        )
+    }
+
+    private fun persistTranscripts() {
+        settingsStore.saveBilingualRelayTranscripts(
+            mutableState.value.transcripts.filter { it.isFinal },
         )
     }
 

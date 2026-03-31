@@ -119,6 +119,13 @@ app.innerHTML = `
       <div class="settings-btn-wrap" id="settingsWrap">
         <button class="icon-button" id="settingsBtn" type="button" aria-label="TTS Settings"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></button>
       </div>
+      <div class="volume-btn-wrap" id="volumeWrap">
+        <button class="icon-button" id="volumeBtn" type="button" aria-label="Volume"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></svg></button>
+        <div class="volume-popup" id="volumePopup">
+          <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="100" step="5">
+          <span class="volume-label" id="volumeLabel">100%</span>
+        </div>
+      </div>
       <div class="status-pill">
         <span class="status-dot" id="statusDot"></span>
         <span id="statusText"></span>
@@ -508,7 +515,7 @@ function drawVisualizer(timestamp: number) {
 /* ── Events ── */
 
 el.dragRegion.addEventListener("mousedown", (e) => {
-  if ((e.target as HTMLElement).closest("button, .hotkey-badge, .text-btn, .hotkey-capture")) return;
+  if ((e.target as HTMLElement).closest("button, .hotkey-badge, .text-btn, .hotkey-capture, .volume-popup, input")) return;
   void invoke("drag_window");
 });
 
@@ -531,6 +538,56 @@ settingsWrap.addEventListener("mouseenter", () => {
 });
 settingsWrap.addEventListener("mouseleave", () => {
   if (settingsPopup) { settingsPopup.remove(); settingsPopup = null; }
+});
+
+// Volume slider with drag-safe popup + mute toggle
+const volumeWrap = document.querySelector<HTMLElement>("#volumeWrap")!;
+const volumeBtn = document.querySelector<HTMLButtonElement>("#volumeBtn")!;
+const volumeSlider = document.querySelector<HTMLInputElement>("#volumeSlider")!;
+const volumeLabel = document.querySelector<HTMLElement>("#volumeLabel")!;
+let volDragging = false;
+let volBeforeMute = 100;
+let volMuted = false;
+const volIconOn = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></svg>`;
+const volIconOff = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>`;
+
+function updateVolIcon() {
+  volumeBtn.innerHTML = volMuted ? volIconOff : volIconOn;
+}
+
+function applyVolume(vol: number) {
+  volumeSlider.value = String(vol);
+  volumeLabel.textContent = `${vol}%`;
+  updateVolIcon();
+  void invoke("set_tts_volume", { volume: vol });
+}
+
+volumeBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (volMuted) {
+    volMuted = false;
+    applyVolume(volBeforeMute || 100);
+  } else {
+    volBeforeMute = parseInt(volumeSlider.value, 10) || 100;
+    volMuted = true;
+    applyVolume(0);
+  }
+});
+
+volumeWrap.addEventListener("mouseenter", () => { volumeWrap.classList.add("vol-open"); });
+volumeWrap.addEventListener("mouseleave", () => { if (!volDragging) volumeWrap.classList.remove("vol-open"); });
+volumeSlider.addEventListener("mousedown", () => { volDragging = true; });
+window.addEventListener("mouseup", () => {
+  if (!volDragging) return;
+  volDragging = false;
+  if (!volumeWrap.matches(":hover")) volumeWrap.classList.remove("vol-open");
+});
+volumeSlider.addEventListener("input", () => {
+  const vol = parseInt(volumeSlider.value, 10);
+  volMuted = vol === 0;
+  volumeLabel.textContent = `${vol}%`;
+  updateVolIcon();
+  void invoke("set_tts_volume", { volume: vol });
 });
 
 // Guide dialog (first-time only)

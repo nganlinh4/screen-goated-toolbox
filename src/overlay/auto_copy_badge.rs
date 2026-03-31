@@ -88,7 +88,7 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
     }
 }
 
-fn enqueue_notification_with_duration(
+pub fn enqueue_notification_with_duration(
     title: String,
     snippet: String,
     n_type: NotificationType,
