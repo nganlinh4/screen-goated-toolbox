@@ -990,17 +990,27 @@ Error generating stack: `+i.message+`
       grid-template-columns: repeat(6, 1fr);
       gap: 12vh clamp(4px, 1cqi, 12px);
     }
-    /* Portrait: 4 columns, controls below grid */
+    /* Portrait phone: 3 columns */
     @media (orientation: portrait) {
       #grid {
-        grid-template-columns: repeat(4, 1fr);
-        row-gap: 60px;
+        grid-template-columns: repeat(3, 1fr);
+        row-gap: 40px;
         column-gap: 6px;
         flex: 1;
       }
       prompt-controller {
-        --knob-scale: 38%;
+        --knob-scale: 45%;
         --text-max: 11px;
+      }
+    }
+    /* Portrait tablet (wider): 4 columns */
+    @media (orientation: portrait) and (min-width: 600px) {
+      #grid {
+        grid-template-columns: repeat(4, 1fr);
+        row-gap: 60px;
+      }
+      prompt-controller {
+        --knob-scale: 38%;
       }
     }
     /* Landscape wide enough for 8 cols */
@@ -1157,7 +1167,8 @@ Error generating stack: `+i.message+`
         flex: 1;
         order: 2;
         margin: 0;
-        padding-top: 10px;
+        max-width: 140px;
+        transform: translateY(7px);
       }
       play-pause-morph { order: 1; }
       .mini-controls { order: 3; margin-top: 0; margin-left: 0; }
