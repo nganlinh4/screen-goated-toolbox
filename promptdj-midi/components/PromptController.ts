@@ -20,11 +20,11 @@ export class PromptController extends LitElement {
     @keyframes pulse-orange {
       0%,
       100% {
-        box-shadow: 0 0 0.8vmin orange;
+        box-shadow: 0 0 4px orange;
         transform: translateX(-50%) scale(1);
       }
       50% {
-        box-shadow: 0 0 1.5vmin orange, 0 0 0.1vmin orange inset;
+        box-shadow: 0 0 8px orange, 0 0 1px orange inset;
         transform: translateX(-50%) scale(1.05);
       }
     }
@@ -35,11 +35,13 @@ export class PromptController extends LitElement {
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      /* Establish a positioning context for the MIDI label */
       position: relative;
+      container-type: inline-size;
+      container-name: prompt-cell;
+      font-variation-settings: 'ROND' 100;
     }
     weight-knob {
-      width: 70%;
+      width: var(--knob-scale, 55%);
       flex-shrink: 0;
       order: 2;
       cursor: ns-resize;
@@ -47,27 +49,27 @@ export class PromptController extends LitElement {
     
     #midi {
       position: absolute;
-      top: 1vmin;
+      top: 5cqi;
       left: 50%;
       transform: translateX(-50%);
       z-index: 10;
       font-family: 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif;
       text-align: center;
-      font-size: 1.5vmin;
-      border-radius: 1.5vmin;
+      font-size: clamp(7px, 10cqi, 12px);
+      border-radius: clamp(6px, 10cqi, 12px);
       padding: 2px 5px;
       color: #fff;
       background: #222;
       cursor: pointer;
       visibility: hidden;
       user-select: none;
-      box-shadow: 0 0 0 0.1vmin #fff4;
+      box-shadow: 0 0 0 1px #fff4;
       transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
-    
+
     #midi:hover {
       transform: translateX(-50%) scale(1.1);
-      box-shadow: 0 0 0.5vmin #fff;
+      box-shadow: 0 0 4px #fff;
     }
     
     .learn-mode #midi {
@@ -81,9 +83,9 @@ export class PromptController extends LitElement {
 
     .text-wrapper {
       position: relative;
-      width: 17vmin;
-      height: 6vmin;
-      margin-top: -7.5vmin;
+      width: 85%;
+      height: 30cqi;
+      margin-top: -38cqi;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -114,11 +116,11 @@ export class PromptController extends LitElement {
       font-family: 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif;
       font-stretch: 70%;
       font-weight: 500;
-      font-size: 2.3vmin;
+      font-size: clamp(8px, 14cqi, var(--text-max, 15px));
       fill: #fff;
       text-anchor: middle;
       -webkit-font-smoothing: antialiased;
-      text-shadow: 0 0 0.5vmin #000, 0 0 0.5vmin #000;
+      text-shadow: 0 0 3px #000, 0 0 3px #000;
       /* FIX: Re-enable pointer events for the text so it can be clicked */
       pointer-events: auto; 
       cursor: text;
@@ -130,26 +132,26 @@ export class PromptController extends LitElement {
     /* Light theme: black text with white shadows */
     :host-context([data-theme="light"]) #text-svg text {
       fill: #000;
-      text-shadow: 0 0 0.6vmin #fff, 0 0 1.2vmin rgba(255,255,255,0.85);
+      text-shadow: 0 0 4px #fff, 0 0 8px rgba(255,255,255,0.85);
     }
 
     .edit-icon {
       position: absolute;
-      right: -4vmin; /* Adjusted for text label */
-      top: 1.5vmin;
+      right: -20cqi;
+      top: 8cqi;
       color: #fff;
-      text-shadow: 0 0 0.3vmin #000;
+      text-shadow: 0 0 2px #000;
       opacity: 0;
       transform: translateX(5px);
       transition: all 0.2s ease-out;
       pointer-events: none;
-      font-size: 1.8vmin;
+      font-size: clamp(8px, 12cqi, 14px);
       font-weight: 500;
     }
 
     .is-hovering #text-svg text {
       transform: scale(1.2) translateY(-4px);
-      text-shadow: 0 0 1.5vmin #fff, 0 0 0.5vmin #000;
+      text-shadow: 0 0 8px #fff, 0 0 3px #000;
     }
 
     .is-hovering .edit-icon {
@@ -159,12 +161,12 @@ export class PromptController extends LitElement {
 
     #text {
       font-weight: 500;
-      font-size: 2.2vmin;
-      text-shadow: 0 0 0.8vmin #000, 0 0 0.2vmin #000;
-      max-width: 17vmin;
-      min-width: 2vmin;
+      font-size: clamp(8px, 13cqi, 16px);
+      text-shadow: 0 0 4px #000, 0 0 1px #000;
+      max-width: 90%;
+      min-width: 10px;
       padding: 0.1em 0.3em;
-      border-radius: 0.25vmin;
+      border-radius: 2px;
       text-align: center;
       white-space: pre;
       overflow: hidden;
@@ -196,7 +198,7 @@ export class PromptController extends LitElement {
       visibility: visible;
       opacity: 1; /* show input for cursor */
       border: 1px solid #fff;
-      border-radius: 1vmin;
+      border-radius: 4px;
       background: rgba(0, 0, 0, 0.7);
       /* Stabilize caret behavior in production builds */
       text-align: left;
@@ -210,13 +212,13 @@ export class PromptController extends LitElement {
       transform: scale(1.2) translateY(-4px);
       /* Invert colors to make the editing mode highly visible. */
       fill: #000;
-      text-shadow: 0 0 0.6vmin #fff, 0 0 1.2vmin rgba(255, 255, 255, 0.85);
+      text-shadow: 0 0 4px #fff, 0 0 8px rgba(255, 255, 255, 0.85);
     }
 
     /* Invert editing mode colors for the light theme too. */
     :host-context([data-theme='light']) .is-editing #text-svg text {
       fill: #fff;
-      text-shadow: 0 0 0.5vmin #000, 0 0 0.5vmin #000;
+      text-shadow: 0 0 3px #000, 0 0 3px #000;
     }
 
     :host([filtered]) {
@@ -225,7 +227,7 @@ export class PromptController extends LitElement {
       }
       .text-wrapper {
         background: #da2000;
-        border-radius: 0.25vmin;
+        border-radius: 2px;
         z-index: 1;
       }
       #text {
@@ -233,14 +235,6 @@ export class PromptController extends LitElement {
       }
     }
 
-    @media only screen and (max-width: 600px) {
-      #text,
-      #text-svg text {
-        font-size: 3.8vmin;
-      }
-      weight-knob {
-        width: 60%;
-      }
     .material-symbols-rounded {
       font-family: 'Material Symbols Rounded';
       font-weight: normal;

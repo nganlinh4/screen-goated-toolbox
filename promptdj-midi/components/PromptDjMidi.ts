@@ -5,8 +5,10 @@
 import { css, html, LitElement } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { styleMap } from 'lit/directives/style-map.js';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 
 import { throttle } from '../utils/throttle';
+import { ICONS } from '../utils/Icons';
 
 import './PromptController';
 import './PlayPauseMorphWrapper';
@@ -27,10 +29,12 @@ export class PromptDjMidi extends LitElement {
       align-items: center;
       box-sizing: border-box;
       font-family: 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif;
+      font-variation-settings: 'ROND' 100;
+      container-type: size;
+      container-name: dj-host;
     }
-    button {
-      font-family: inherit;
-    }
+    button { font-family: inherit; }
+
     #background {
       will-change: background-image;
       position: absolute;
@@ -39,39 +43,90 @@ export class PromptDjMidi extends LitElement {
       z-index: -1;
       background: var(--md-surface);
     }
-    /* Main layout: grid on the left, controls on the right */
+
+    /* ── Main layout ── */
     #content {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 8vmin;
+      gap: clamp(8px, 3cqi, 40px);
       position: relative;
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+    }
+    @media (orientation: portrait) {
+      #content {
+        flex-direction: column;
+        justify-content: space-evenly;
+        overflow: hidden;
+        padding: 2% 6%;
+        height: 100%;
+      }
+    }
+    @media (orientation: landscape) {
+      #content {
+        flex-direction: row;
+        overflow: hidden;
+        padding: 4vh 8%;
+      }
     }
 
-    /* Grid wrapper includes just the grid now */
+    /* ── Grid wrapper ── */
     #gridWrap {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 2.5vmin;
-      height: 80vmin;
+      container-type: inline-size;
+      container-name: grid-wrap;
+    }
+    @media (orientation: portrait) {
+      #gridWrap { width: 100%; flex: 1; }
+    }
+    @media (orientation: landscape) {
+      #gridWrap { flex: 1; height: 100%; }
     }
 
-    /* #addColumn removed */
+    /* ── Grid ── */
+    #grid {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12vh clamp(4px, 1cqi, 12px);
+    }
+    /* Portrait: 4 columns, controls below grid */
+    @media (orientation: portrait) {
+      #grid {
+        grid-template-columns: repeat(4, 1fr);
+        row-gap: 60px;
+        column-gap: 6px;
+        flex: 1;
+      }
+      prompt-controller {
+        --knob-scale: 38%;
+        --text-max: 11px;
+      }
+    }
+    /* Landscape wide enough for 8 cols */
+    @media (orientation: landscape) {
+      @container grid-wrap (min-width: 700px) {
+        #grid { grid-template-columns: repeat(8, 1fr); }
+      }
+    }
 
     .add-slot {
-      width: 17vmin;
-      height: 11vmin;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       background: transparent;
       border: none;
       cursor: pointer;
+      width: 100%;
+      height: 100%;
     }
     .add-slot .add-icon {
-      width: 9vmin;
-      height: 9vmin;
+      width: 60%;
+      height: 60%;
       color: #fff;
       filter: drop-shadow(0 12px 22px rgba(0,0,0,0.25)) drop-shadow(0 4px 10px rgba(0,0,0,0.18));
       transition: transform var(--md-duration-short3) var(--md-easing-emphasized);
@@ -79,23 +134,14 @@ export class PromptDjMidi extends LitElement {
     :host([data-theme="light"]) .add-slot .add-icon { color: #fff; }
     .add-slot:hover .add-icon { transform: scale(1.05); }
 
-    #grid {
-      width: 120vmin;
-      height: 80vmin;
-      display: grid;
-      grid-template-columns: repeat(6, 1fr);
-      gap: 2.5vmin;
-    }
-    .pc-wrap {
-      position: relative;
-      overflow: visible;
-    }
+    /* ── Clear button on knobs ── */
+    .pc-wrap { position: relative; overflow: visible; }
     .pc-clear {
       position: absolute;
-      top: -1.2vmin;
-      right: -1.2vmin;
-      width: 4.2vmin;
-      height: 4.2vmin;
+      top: -6px;
+      right: -6px;
+      width: clamp(16px, 3cqi, 28px);
+      height: clamp(16px, 3cqi, 28px);
       border-radius: 9999px;
       border: 1px solid var(--md-outline-variant);
       background: var(--md-surface);
@@ -126,22 +172,13 @@ export class PromptDjMidi extends LitElement {
       box-shadow: var(--md-elevation-level2);
       transform: scale(1.06);
     }
-    .pc-clear:active {
-      transform: scale(0.96);
-      box-shadow: var(--md-elevation-level1);
-    }
-    .pc-clear:focus-visible {
-      outline: none;
-      box-shadow: 0 0 0 0.22vmin rgba(0,0,0,0.3), var(--md-elevation-level2);
-    }
+    .pc-clear:active { transform: scale(0.96); box-shadow: var(--md-elevation-level1); }
+    .pc-clear:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(0,0,0,0.3), var(--md-elevation-level2); }
 
-    /* Modal Styling */
+    /* ── Modal ── */
     .modal-overlay {
       position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+      top: 0; left: 0; width: 100%; height: 100%;
       background: rgba(0, 0, 0, 0.6);
       backdrop-filter: blur(5px);
       z-index: 1000;
@@ -152,26 +189,24 @@ export class PromptDjMidi extends LitElement {
     }
     .modal-content {
       background: var(--md-surface, #222);
-      padding: 3vmin;
-      border-radius: 2vmin;
+      padding: 16px;
+      border-radius: 12px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.5);
       border: 1px solid rgba(255,255,255,0.1);
       display: flex;
       flex-direction: column;
-      gap: 2vmin;
-      min-width: 40vmin;
+      gap: 12px;
+      min-width: 240px;
       max-width: 90%;
-      transform: translateY(0);
       animation: slideIn 0.3s ease;
     }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-
     .modal-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 2.2vmin;
+      font-size: clamp(12px, 1.8cqi, 18px);
       font-weight: bold;
       color: var(--md-on-surface, #fff);
       font-family: 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif;
@@ -181,63 +216,102 @@ export class PromptDjMidi extends LitElement {
       border: none;
       color: rgba(255,255,255,0.6);
       cursor: pointer;
-      font-size: 3vmin;
+      font-size: clamp(16px, 2.5cqi, 24px);
       line-height: 1;
       padding: 0;
       font-family: 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif;
     }
     .close-modal:hover { color: #fff; }
-
-    .audio-player {
-      width: 100%;
-      height: 6vmin;
-      border-radius: 999px;
-      margin-top: 1vmin;
-    }
-    
+    .audio-player { width: 100%; height: 36px; border-radius: 999px; margin-top: 4px; }
     .download-btn {
       background: var(--md-primary, #6200ea);
       color: var(--md-on-primary, #fff);
       border: none;
-      padding: 1.5vmin 3vmin;
-      border-radius: 4vmin;
-      font-size: 2vmin;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: clamp(11px, 1.5cqi, 14px);
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 1vmin;
+      gap: 6px;
       font-weight: 500;
       font-family: inherit;
       transition: background 0.2s;
     }
-    .download-btn:hover {
-      filter: brightness(1.2);
-    }
+    .download-btn:hover { filter: brightness(1.2); }
 
+    /* ── Side controls ── */
     #sideControls {
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
-      height: 80vmin;
+      flex-shrink: 0;
     }
+    @media (orientation: portrait) {
+      #sideControls {
+        flex-direction: row;
+        width: 100%;
+        padding: 16px 6%;
+        gap: 12px;
+        justify-content: center;
+        align-items: center;
+      }
+      .volume-container {
+        flex: 1;
+        order: 2;
+        margin: 0;
+        padding-top: 10px;
+      }
+      play-pause-morph { order: 1; }
+      .mini-controls { order: 3; margin-top: 0; margin-left: 0; }
+    }
+    @media (orientation: landscape) {
+      #sideControls {
+        flex-direction: column;
+        height: 100%;
+        width: auto;
+        min-width: 80px;
+        max-width: 140px;
+      }
+    }
+
     play-pause-morph {
-      width: 23vmin;
-      height: 23vmin;
       display: inline-block;
+      width: clamp(48px, 15cqi, 140px);
+      height: clamp(48px, 15cqi, 140px);
+    }
+    @media (orientation: portrait) {
+      play-pause-morph {
+        width: clamp(64px, 18vw, 120px);
+        height: clamp(64px, 18vw, 120px);
+      }
     }
 
-
-  
     .mini-controls {
       display: flex;
-      gap: 1.5vmin;
-      margin-top: 4vmin;
+      gap: clamp(4px, 1cqi, 10px);
+      margin-top: clamp(4px, 1.5cqi, 20px);
     }
+    @media (orientation: portrait) {
+      .mini-controls {
+        margin-top: 0;
+        margin-left: auto;
+        gap: clamp(8px, 4vw, 20px);
+      }
+      .mini-btn {
+        width: clamp(36px, 8vw, 56px);
+        height: clamp(36px, 8vw, 56px);
+      }
+      .mini-btn svg {
+        width: clamp(18px, 5vw, 32px);
+        height: clamp(18px, 5vw, 32px);
+      }
+    }
+
     .mini-btn {
-      width: 7vmin;
-      height: 7vmin;
+      width: clamp(28px, 5cqi, 48px);
+      height: clamp(28px, 5cqi, 48px);
       background: transparent;
       border: none;
       color: white;
@@ -248,39 +322,33 @@ export class PromptDjMidi extends LitElement {
       transition: all 0.2s ease;
     }
     .mini-btn:hover { transform: scale(1.15); }
-    .mini-btn.active { color: #ff3c3c; filter: drop-shadow(0 0 1vmin #ff3c3c); }
-    .mini-btn.toggled { color: var(--md-primary); filter: drop-shadow(0 0 1vmin var(--md-primary)); }
-    .material-symbols-rounded {
-      font-family: 'Material Symbols Rounded';
-      font-weight: normal;
-      font-style: normal;
+    .mini-btn.active { color: #ff3c3c; filter: drop-shadow(0 0 6px #ff3c3c); }
+    .mini-btn.toggled { color: var(--md-primary); filter: drop-shadow(0 0 6px var(--md-primary)); }
+
+    /* Inline SVG icons inherit color via fill="currentColor" */
+    .mini-btn svg, .pc-clear svg, .add-icon svg, .volume-icon svg, .download-btn svg {
       display: inline-block;
-      line-height: 1;
-      text-transform: none;
-      letter-spacing: normal;
-      word-wrap: normal;
-      white-space: nowrap;
-      direction: ltr;
-      -webkit-font-smoothing: antialiased;
-      font-variation-settings: 'FILL' 1, 'wght' 400, 'grad' 0, 'opsz' 24;
-      font-size: 4vmin;
       filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
     }
-    :host([data-theme="light"]) .material-symbols-rounded {
+    :host([data-theme="light"]) .mini-btn svg,
+    :host([data-theme="light"]) .pc-clear svg,
+    :host([data-theme="light"]) .add-icon svg {
       filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
     }
-    .mini-btn .material-symbols-rounded { font-size: 3.5vmin; }
-    .pc-clear .material-symbols-rounded { font-size: 2.8vmin; }
-    .add-slot .material-symbols-rounded { font-size: 10vmin; }
+    .mini-btn svg { width: clamp(14px, 2.5cqi, 24px); height: clamp(14px, 2.5cqi, 24px); }
+    .pc-clear svg { width: clamp(10px, 2cqi, 18px); height: clamp(10px, 2cqi, 18px); }
+    .add-icon svg { width: clamp(24px, 8cqi, 64px); height: clamp(24px, 8cqi, 64px); }
+    .volume-icon svg { width: clamp(14px, 2cqi, 20px); height: clamp(14px, 2cqi, 20px); }
+    .download-btn svg { width: 16px; height: 16px; }
 
     .rec-timer-container {
-      min-height: 5vmin;
+      min-height: 20px;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       font-variant-numeric: tabular-nums;
-      margin-top: 1vmin;
+      margin-top: 4px;
       pointer-events: none;
     }
     .rec-timer-elapsed {
@@ -291,44 +359,40 @@ export class PromptDjMidi extends LitElement {
       font-stretch: 125%;
       font-variation-settings: 'wdth' 125;
     }
-    .rec-timer-audio {
-      font-size: 0.75em; 
-      opacity: 0.7;
-      margin-top: 2px;
-    }
+    .rec-timer-audio { font-size: 0.75em; opacity: 0.7; margin-top: 2px; }
 
+    /* Volume: fade-in on hover for desktop, always visible on touch */
     .volume-container {
       display: flex;
       align-items: center;
       justify-content: center;
       width: 100%;
-      margin-bottom: 4vmin;
+      margin-bottom: 16px;
       box-sizing: border-box;
-      gap: 1vmin;
-      opacity: 0;
+      gap: 6px;
+      opacity: 1;
       transition: opacity 0.3s ease;
     }
-    #sideControls:hover .volume-container {
-      opacity: 1;
+    @media (hover: hover) {
+      .volume-container { opacity: 0; }
+      #sideControls:hover .volume-container { opacity: 1; }
     }
-    .volume-icon {
-      color: #fff;
-      font-size: 3vmin;
-    }
+    .volume-icon { color: #fff; display: flex; align-items: center; }
+    .volume-icon svg { width: 18px; height: 18px; }
     .volume-slider {
       flex: 1;
       -webkit-appearance: none;
-      height: 0.6vmin;
-      border-radius: 1vmin;
-      /* Background handled via inline style for active/inactive range opacity */
+      height: 3px;
+      border-radius: 4px;
       outline: none;
       cursor: pointer;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+      max-width: 120px;
     }
     .volume-slider::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 2vmin;
-      height: 2vmin;
+      width: 12px;
+      height: 12px;
       border-radius: 50%;
       background: #ffffff;
       cursor: pointer;
@@ -492,7 +556,7 @@ export class PromptDjMidi extends LitElement {
           </div>
           <audio class="audio-player" src=${this.recordingUrl} controls></audio>
           <button class="download-btn" @click=${this.downloadRecording}>
-            <span class="material-symbols-rounded">${this.downloaded ? 'check_circle' : 'download'}</span>
+            ${unsafeHTML(this.downloaded ? ICONS.check_circle : ICONS.download)}
             ${this.downloaded ? labels.downloaded_msg : labels.download_btn}
           </button>
         </div>
@@ -923,8 +987,8 @@ export class PromptDjMidi extends LitElement {
         <div id="sideControls">
           <!-- Volume at the top -->
           <div class="volume-container" title="Master Volume">
-            <span class="material-symbols-rounded volume-icon">
-              ${this.volume <= 0.001 ? 'volume_off' : this.volume < 0.5 ? 'volume_down' : 'volume_up'}
+            <span class="volume-icon">
+              ${unsafeHTML(this.volume <= 0.001 ? ICONS.volume_off : this.volume < 0.5 ? ICONS.volume_down : ICONS.volume_up)}
             </span>
             <input type="range" class="volume-slider" min="0" max="1" step="0.01"
               style=${styleMap({
@@ -943,17 +1007,17 @@ export class PromptDjMidi extends LitElement {
           <div class="mini-controls">
              <!-- MIDI Toggle -->
              <button class="mini-btn ${this.showMidi ? 'toggled' : ''}" @click=${this.toggleMidiPanel} title=${LOCALES[this.lang as Lang].midi_tooltip}>
-               <span class="material-symbols-rounded">piano</span>
+               ${unsafeHTML(ICONS.piano)}
              </button>
 
              <!-- Record Toggle -->
              <button class="mini-btn ${this.isRecording ? 'active' : ''}" @click=${this.toggleRecording} title="${this.isRecording ? LOCALES[this.lang as Lang].stop_tooltip : LOCALES[this.lang as Lang].record_tooltip}">
-               <span class="material-symbols-rounded">${this.isRecording ? 'stop' : 'radio_button_checked'}</span>
+               ${unsafeHTML(this.isRecording ? ICONS.stop : ICONS.radio_button_checked)}
              </button>
 
              <!-- Reset -->
              <button class="mini-btn" @click=${() => this.resetAll()} title=${LOCALES[this.lang as Lang].reset_tooltip}>
-               <span class="material-symbols-rounded">restart_alt</span>
+               ${unsafeHTML(ICONS.restart_alt)}
              </button>
           </div>
 
@@ -972,7 +1036,7 @@ export class PromptDjMidi extends LitElement {
     if (!p) return html``;
     return html`<div class="pc-wrap">
       <button class="pc-clear" title=${LOCALES[this.lang as Lang].clear_tooltip} @click=${() => this.clearPrompt(promptId)}>
-        <span class="material-symbols-rounded">close</span>
+        ${unsafeHTML(ICONS.close)}
       </button>
       <prompt-controller
         promptId=${p.promptId}
@@ -997,7 +1061,7 @@ export class PromptDjMidi extends LitElement {
       const p = this.prompts.get(id);
       if (!p || this.removedSlots.has(id)) {
         nodes.push(html`<button class="add-slot" @click=${() => this.addBaseSlot(idx)} title=${LOCALES[this.lang as Lang].add_tooltip}>
-          <span class="material-symbols-rounded add-icon">add</span>
+          <span class="add-icon">${unsafeHTML(ICONS.add)}</span>
         </button>`);
       } else {
         nodes.push(this.renderPromptWithClear(id));

@@ -1,7 +1,6 @@
 use raw_window_handle::{
     HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
 };
-use std::borrow::Cow;
 use std::num::NonZeroIsize;
 use std::sync::Once;
 use windows::Win32::Foundation::*;
@@ -38,14 +37,30 @@ thread_local! {
     static PDJ_WEB_CONTEXT: std::cell::RefCell<Option<WebContext>> = const { std::cell::RefCell::new(None) };
 }
 
-// Assets
+// Assets (single bundle — no code splitting)
 const INDEX_HTML: &[u8] = include_bytes!("dist/index.html");
 const ASSET_INDEX_JS: &[u8] = include_bytes!("dist/assets/index.js");
 const ASSET_INDEX_CSS: &[u8] = include_bytes!("dist/assets/index.css");
-const ASSET_CUBIC_JS: &[u8] = include_bytes!("dist/assets/cubic.js");
-const ASSET_MORPH_JS: &[u8] = include_bytes!("dist/assets/morph-fixed.js");
-const ASSET_ROUNDED_JS: &[u8] = include_bytes!("dist/assets/roundedPolygon.js");
-const ASSET_UTILS_JS: &[u8] = include_bytes!("dist/assets/utils.js");
+
+/// Build a self-contained HTML with CSS/JS/font inlined.
+/// Served via the shared font server so all WebViews share one browser process.
+fn build_inlined_html() -> String {
+    let html = String::from_utf8_lossy(INDEX_HTML);
+    let css = String::from_utf8_lossy(ASSET_INDEX_CSS);
+    let js = String::from_utf8_lossy(ASSET_INDEX_JS);
+    let font_css = crate::overlay::html_components::font_manager::get_font_css();
+
+    let mut result = html.to_string();
+    result = result.replace(
+        r#"<link rel="stylesheet" crossorigin href="/assets/index.css">"#,
+        &format!("<style>{font_css}\n{css}</style>"),
+    );
+    result = result.replace(
+        r#"<script type="module" crossorigin src="/assets/index.js"></script>"#,
+        &format!("<script type=\"module\">{js}</script>"),
+    );
+    result
+}
 
 lazy_static::lazy_static! {
     static ref CHILD_PIDS: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
@@ -312,23 +327,6 @@ impl HasWindowHandle for HwndWrapper {
     }
 }
 
-fn wnd_http_response(
-    status: u16,
-    content_type: &str,
-    body: Cow<'static, [u8]>,
-) -> wry::http::Response<Cow<'static, [u8]>> {
-    wry::http::Response::builder()
-        .status(status)
-        .header("Content-Type", content_type)
-        .header("Access-Control-Allow-Origin", "*")
-        .body(body)
-        .unwrap_or_else(|_| {
-            wry::http::Response::builder()
-                .status(500)
-                .body(Cow::Borrowed(b"Internal Error".as_slice()))
-                .unwrap()
-        })
-}
 
 pub fn show_prompt_dj() {
     unsafe {
@@ -468,8 +466,6 @@ unsafe fn internal_create_pdj_loop() {
         };
 
         // Font CSS from local HTTP server — CSS @font-face url() only works over http/https, not custom protocols
-        let font_css = crate::overlay::html_components::font_manager::get_font_css();
-        let font_style_tag = format!("<style>{}</style>", font_css);
 
         let init_script = format!(
             r#"
@@ -634,6 +630,11 @@ unsafe fn internal_create_pdj_loop() {
 
         let hwnd_ipc = hwnd;
 
+        // Build inlined HTML and serve via the shared font server
+        // so this WebView joins the shared browser process (same user data dir + origin)
+        let inlined_html = build_inlined_html();
+        let page_url = crate::overlay::html_components::font_manager::store_html_page(inlined_html);
+
         PDJ_WEB_CONTEXT.with(|ctx| {
             if ctx.borrow().is_none() {
                 let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
@@ -651,39 +652,8 @@ unsafe fn internal_create_pdj_loop() {
 
             let build_res = PDJ_WEB_CONTEXT.with(|ctx| {
                 let mut ctx_ref = ctx.borrow_mut();
+                let url = page_url.as_deref().unwrap_or("about:blank");
                 let mut builder = WebViewBuilder::new_with_web_context(ctx_ref.as_mut().unwrap())
-                    .with_custom_protocol("promptdj".to_string(), {
-                        let font_style_tag = font_style_tag.clone();
-                        move |_id, request| {
-                            let path = request.uri().path();
-                            let (content, mime) = if path == "/" || path == "/index.html" {
-                                // Inject font CSS into HTML <head> for instant font rendering
-                                let html = String::from_utf8_lossy(INDEX_HTML);
-                                let modified =
-                                    html.replace("</head>", &format!("{font_style_tag}</head>"));
-                                (Cow::Owned(modified.into_bytes()), "text/html")
-                            } else if path.ends_with("index.js") {
-                                (Cow::Borrowed(ASSET_INDEX_JS), "application/javascript")
-                            } else if path.ends_with("index.css") {
-                                (Cow::Borrowed(ASSET_INDEX_CSS), "text/css")
-                            } else if path.ends_with("cubic.js") {
-                                (Cow::Borrowed(ASSET_CUBIC_JS), "application/javascript")
-                            } else if path.ends_with("morph-fixed.js") {
-                                (Cow::Borrowed(ASSET_MORPH_JS), "application/javascript")
-                            } else if path.ends_with("roundedPolygon.js") {
-                                (Cow::Borrowed(ASSET_ROUNDED_JS), "application/javascript")
-                            } else if path.ends_with("utils.js") {
-                                (Cow::Borrowed(ASSET_UTILS_JS), "application/javascript")
-                            } else {
-                                return wnd_http_response(
-                                    404,
-                                    "text/plain",
-                                    Cow::Borrowed(b"Not Found".as_slice()),
-                                );
-                            };
-                            wnd_http_response(200, mime, content)
-                        }
-                    })
                     .with_initialization_script(&init_script)
                     .with_ipc_handler(move |msg: wry::http::Request<String>| {
                         let body = msg.body().as_str();
@@ -705,7 +675,7 @@ unsafe fn internal_create_pdj_loop() {
                             let _ = set_app_volume(val);
                         }
                     })
-                    .with_url("promptdj://localhost/index.html");
+                    .with_url(url);
 
                 builder = crate::overlay::html_components::font_manager::configure_webview(builder);
                 builder.build_as_child(&wrapper)

@@ -76,6 +76,7 @@ internal fun RenderGlobalTtsSettingsDialog(
     onPreviewGeminiVoice: (String) -> Unit,
     onPreviewEdgeVoice: (String, String) -> Unit,
     onPreviewGoogleTranslate: () -> Unit,
+    geminiOnly: Boolean = false,
 ) {
     val isLandscape =
         LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -106,7 +107,7 @@ internal fun RenderGlobalTtsSettingsDialog(
             MobileTtsMethod.EDGE_TTS -> locale.ttsMethodEdge
             MobileTtsMethod.GOOGLE_TRANSLATE -> locale.ttsMethodFast
         },
-        headerTrailing = if (isLandscape) {
+        headerTrailing = if (isLandscape && !geminiOnly) {
             {
                 MethodToggleRow(
                     currentMethod = settings.method,
@@ -130,7 +131,7 @@ internal fun RenderGlobalTtsSettingsDialog(
                 .weight(1f),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (!isLandscape) {
+            if (!isLandscape && !geminiOnly) {
                 MethodToggleRow(
                     currentMethod = settings.method,
                     locale = locale,
@@ -147,32 +148,43 @@ internal fun RenderGlobalTtsSettingsDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                when (settings.method) {
-                    MobileTtsMethod.GEMINI_LIVE -> GeminiLiveSection(
+                if (geminiOnly) {
+                    // Distilled: model + voice only (for Translation Gummy gear)
+                    GeminiLiveModelAndVoiceOnly(
                         settings = settings,
                         locale = locale,
                         onModelChanged = onGeminiModelChanged,
-                        onSpeedPresetChanged = onSpeedPresetChanged,
-                        onConditionsChanged = onConditionsChanged,
                         onVoiceChanged = onVoiceChanged,
                         onPreviewVoice = onPreviewGeminiVoice,
                     )
+                } else {
+                    when (settings.method) {
+                        MobileTtsMethod.GEMINI_LIVE -> GeminiLiveSection(
+                            settings = settings,
+                            locale = locale,
+                            onModelChanged = onGeminiModelChanged,
+                            onSpeedPresetChanged = onSpeedPresetChanged,
+                            onConditionsChanged = onConditionsChanged,
+                            onVoiceChanged = onVoiceChanged,
+                            onPreviewVoice = onPreviewGeminiVoice,
+                        )
 
-                    MobileTtsMethod.GOOGLE_TRANSLATE -> GoogleTranslateSection(
-                        selected = settings.speedPreset,
-                        locale = locale,
-                        onSpeedPresetChanged = onSpeedPresetChanged,
-                        onPreview = onPreviewGoogleTranslate,
-                    )
+                        MobileTtsMethod.GOOGLE_TRANSLATE -> GoogleTranslateSection(
+                            selected = settings.speedPreset,
+                            locale = locale,
+                            onSpeedPresetChanged = onSpeedPresetChanged,
+                            onPreview = onPreviewGoogleTranslate,
+                        )
 
-                    MobileTtsMethod.EDGE_TTS -> EdgeTtsSection(
-                        settings = settings.edgeSettings,
-                        locale = locale,
-                        catalogState = edgeVoiceCatalogState,
-                        onChanged = onEdgeSettingsChanged,
-                        onRetryCatalog = onRetryEdgeVoiceCatalog,
-                        onPreviewVoice = onPreviewEdgeVoice,
-                    )
+                        MobileTtsMethod.EDGE_TTS -> EdgeTtsSection(
+                            settings = settings.edgeSettings,
+                            locale = locale,
+                            catalogState = edgeVoiceCatalogState,
+                            onChanged = onEdgeSettingsChanged,
+                            onRetryCatalog = onRetryEdgeVoiceCatalog,
+                            onPreviewVoice = onPreviewEdgeVoice,
+                        )
+                    }
                 }
             }
         }

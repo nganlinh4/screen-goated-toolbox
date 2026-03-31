@@ -9,6 +9,7 @@ class PlayPauseMorphElement extends HTMLElement {
   private _loading = false;
   private _size = 140;
   private _color = '#ffffff';
+  private _resizeObserver: ResizeObserver | null = null;
 
   static get observedAttributes() {
     return ['playing', 'loading', 'size', 'color'];
@@ -38,6 +39,17 @@ class PlayPauseMorphElement extends HTMLElement {
       const c = String(this.getAttribute('color'));
       if (c) this._color = c;
     }
+    // Dynamically adapt size to container dimensions
+    this._resizeObserver = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const w = Math.round(entry.contentRect.width);
+        if (w > 0 && Math.abs(w - this._size) > 2) {
+          this._size = w;
+          this.renderReact();
+        }
+      }
+    });
+    this._resizeObserver.observe(this);
     this.renderReact();
   }
 
@@ -62,6 +74,8 @@ class PlayPauseMorphElement extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._resizeObserver?.disconnect();
+    this._resizeObserver = null;
     try { this._root?.unmount(); } catch { }
     this._root = null;
     this._container = null;

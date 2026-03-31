@@ -19,7 +19,11 @@ export default defineConfig(({ mode }) => {
         output: {
           entryFileNames: `assets/[name].js`,
           chunkFileNames: `assets/[name].js`,
-          assetFileNames: `assets/[name].[ext]`
+          assetFileNames: `assets/[name].[ext]`,
+          // Single bundle — no code splitting. Required for inlining into HTML
+          // so the shared font server can serve everything as one page.
+          manualChunks: undefined,
+          inlineDynamicImports: true,
         }
       }
     },
