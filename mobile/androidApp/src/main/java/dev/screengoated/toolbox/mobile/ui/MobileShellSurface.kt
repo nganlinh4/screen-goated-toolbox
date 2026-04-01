@@ -198,7 +198,7 @@ internal fun MobileShellSurface(
             // Wide rail layout only for portrait tablets (wide AND tall).
             // Landscape phones (wide but short) use the pager layout to avoid
             // VerticalCarousel-in-scrollable-parent crashes.
-            val wideLayout = maxWidth >= 760.dp && maxHeight >= maxWidth
+            val wideLayout = false // Disabled: tablets use pager layout like phones
             if (wideLayout) {
                 Row(
                     modifier = Modifier
