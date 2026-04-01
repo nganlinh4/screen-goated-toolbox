@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.rounded.FormatQuote
 import androidx.compose.material.icons.rounded.GTranslate
 import androidx.compose.material.icons.rounded.Gamepad
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.ImageSearch
 import androidx.compose.material.icons.rounded.Keyboard
@@ -257,6 +259,62 @@ internal fun ToolsSection(
     val sgtColors = MaterialTheme.sgtColors
     var toolbarMode by remember { mutableStateOf(ToolbarMode.NONE) }
     var fabMenuExpanded by rememberSaveable { mutableStateOf(false) }
+    var showHelpDialog by remember { mutableStateOf(false) }
+
+    if (showHelpDialog) {
+        val helpTitle = when (lang) {
+            "vi" -> "Hướng dẫn sử dụng"
+            "ko" -> "사용 가이드"
+            else -> "Quick Guide"
+        }
+        val helpBubbleTitle = when (lang) {
+            "vi" -> "Bong bóng Quick Settings"
+            "ko" -> "Quick Settings 버블"
+            else -> "Quick Settings Bubble"
+        }
+        val helpBubbleDesc = when (lang) {
+            "vi" -> "Thêm mục bong bóng SGT vào Quick Settings, bật bong bóng và cấp quyền overlay (có thể phải mở khoá Restricted settings của SGT trước), một bong bóng nổi sẽ xuất hiện trên màn hình. Nhấn vào để mở bảng công cụ yêu thích và dùng tại bất kỳ ứng dụng nào."
+            "ko" -> "Quick Settings에 SGT 버블 타일을 추가하고, 버블을 켜고 오버레이 권한을 부여하세요 (먼저 SGT의 제한된 설정을 해제해야 할 수 있습니다). 화면에 플로팅 버블이 나타납니다. 탭하면 즐겨찾기 도구 패널이 열리고 어떤 앱에서든 바로 사용할 수 있습니다."
+            else -> "Add the SGT bubble tile to Quick Settings, enable the bubble and grant overlay permission (you may need to unlock Restricted settings for SGT first). A floating bubble will appear on your screen. Tap it to open your favorite tools panel and use them from any app."
+        }
+        val helpFavTitle = when (lang) {
+            "vi" -> "Đánh dấu yêu thích"
+            "ko" -> "즐겨찾기 추가"
+            else -> "Favoriting Tools"
+        }
+        val helpFavDesc = when (lang) {
+            "vi" -> "Nhấn nút ★ ở thanh công cụ bên dưới, sau đó đánh dấu vào công cụ ưa thích để thêm/xóa yêu thích. Các tool yêu thích sẽ hiển thị trong bong bóng nổi. Một số công cụ sẽ yêu cầu bật Dịch vụ trợ năng lần đầu cho SGT."
+            "ko" -> "하단 툴바의 ★ 버튼을 누른 후 각 도구 카드의 배지를 탭하여 즐겨찾기를 추가/제거하세요. 즐겨찾기 도구는 플로팅 버블에 표시됩니다. 일부 도구는 처음 사용 시 SGT 접근성 서비스를 켜야 합니다."
+            else -> "Tap the ★ button in the bottom toolbar, then tap the badge on each tool card to add/remove favorites. Favorited tools appear in the floating bubble. Some tools will require enabling the Accessibility Service for SGT on first use."
+        }
+        val helpDismiss = when (lang) {
+            "vi" -> "Đã hiểu"
+            "ko" -> "알겠습니다"
+            else -> "Got it"
+        }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showHelpDialog = false },
+            icon = { Icon(Icons.Rounded.HelpOutline, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text(helpTitle, style = MaterialTheme.typography.headlineSmall) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(helpBubbleTitle, style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        Text(helpBubbleDesc, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(helpFavTitle, style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        Text(helpFavDesc, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { showHelpDialog = false }) {
+                    Text(helpDismiss)
+                }
+            },
+        )
+    }
 
     if (fabMenuExpanded) {
         androidx.activity.compose.BackHandler { fabMenuExpanded = false }
@@ -335,6 +393,16 @@ internal fun ToolsSection(
                 )
             },
             content = {
+                // Help button on the left
+                ToolbarModeButton(
+                    active = false,
+                    icon = Icons.Rounded.HelpOutline,
+                    contentDescription = when (lang) { "vi" -> "Trợ giúp"; "ko" -> "도움말"; else -> "Help" },
+                    activeContainer = MaterialTheme.colorScheme.primary,
+                    activeContent = MaterialTheme.colorScheme.onPrimary,
+                    onClick = { showHelpDialog = true },
+                )
+
                 // Each button: icon only when inactive, icon + label when active
                 data class ToolAction(
                     val mode: ToolbarMode,
