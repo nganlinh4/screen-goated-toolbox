@@ -8,9 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.BarChart
-import androidx.compose.material.icons.rounded.Settings
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -81,14 +79,14 @@ internal fun GlobalSection(
                 )
                 SettingsActionButton(
                     text = locale.presetRuntimeButton,
-                    icon = Icons.Rounded.Settings,
+                    icon = R.drawable.ms_settings,
                     onClick = onPresetRuntimeSettingsClick,
                     morphStyle = SettingsActionMorphStyle.PRIORITY,
                     modifier = Modifier.weight(1f),
                 )
                 SettingsActionButton(
                     text = locale.usageStatsButton,
-                    icon = Icons.Rounded.BarChart,
+                    icon = R.drawable.ms_bar_chart,
                     onClick = onUsageStatsClick,
                     morphStyle = SettingsActionMorphStyle.STATS,
                     modifier = Modifier.weight(1f),
@@ -142,14 +140,14 @@ internal fun GlobalSection(
             ) {
                 SettingsActionButton(
                     text = locale.presetRuntimeButton,
-                    icon = Icons.Rounded.Settings,
+                    icon = R.drawable.ms_settings,
                     onClick = onPresetRuntimeSettingsClick,
                     morphStyle = SettingsActionMorphStyle.PRIORITY,
                     modifier = Modifier.weight(1f),
                 )
                 SettingsActionButton(
                     text = locale.usageStatsButton,
-                    icon = Icons.Rounded.BarChart,
+                    icon = R.drawable.ms_bar_chart,
                     onClick = onUsageStatsClick,
                     morphStyle = SettingsActionMorphStyle.STATS,
                     modifier = Modifier.weight(1f),

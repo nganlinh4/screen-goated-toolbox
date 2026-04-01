@@ -26,23 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.AccountTree
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.ContentPaste
-import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.RestartAlt
-import androidx.compose.material.icons.rounded.SpeakerPhone
-import androidx.compose.material.icons.rounded.TextFields
+import androidx.annotation.DrawableRes
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -72,13 +56,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_IMAGE_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
@@ -140,10 +125,11 @@ private fun editorTypeLabel(group: EditorTypeGroup, lang: String): String = when
     }
 }
 
-private fun editorTypeIcon(group: EditorTypeGroup): ImageVector = when (group) {
-    EditorTypeGroup.IMAGE -> Icons.Rounded.Image
-    EditorTypeGroup.TEXT -> Icons.Rounded.TextFields
-    EditorTypeGroup.AUDIO -> Icons.Rounded.GraphicEq
+@DrawableRes
+private fun editorTypeIcon(group: EditorTypeGroup): Int = when (group) {
+    EditorTypeGroup.IMAGE -> R.drawable.ms_image
+    EditorTypeGroup.TEXT -> R.drawable.ms_text_fields
+    EditorTypeGroup.AUDIO -> R.drawable.ms_audio_file
 }
 
 private fun localized(lang: String, en: String, vi: String, ko: String): String = when (lang) {
@@ -193,7 +179,7 @@ fun PresetEditorScreen(
                                 IconButton(onClick = {
                                     autoSave(editState.copy(nameEn = renameText))
                                     isRenamingPreset = false
-                                }) { Icon(Icons.Rounded.Check, contentDescription = null) }
+                                }) { Icon(painterResource(R.drawable.ms_check), contentDescription = null) }
                             },
                         )
                     } else {
@@ -207,7 +193,7 @@ fun PresetEditorScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = { if (isRenamingPreset) isRenamingPreset = false else onBack() }) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
+                        Icon(painterResource(R.drawable.ms_arrow_back), contentDescription = null)
                     }
                 },
                 actions = {
@@ -216,7 +202,7 @@ fun PresetEditorScreen(
                             onRestoreDefault()
                             resetCounter++
                         }) {
-                            Icon(Icons.Rounded.RestartAlt, contentDescription = localized(lang, "Restore", "Khôi phục", "복원"), tint = MaterialTheme.colorScheme.primary)
+                            Icon(painterResource(R.drawable.ms_settings_backup_restore), contentDescription = localized(lang, "Restore", "Khôi phục", "복원"), tint = MaterialTheme.colorScheme.primary)
                         }
                     }
                 },
@@ -390,7 +376,7 @@ private fun HeaderSection(
                             .semantics { role = Role.RadioButton },
                     ) {
                         Icon(
-                            editorTypeIcon(group),
+                            painterResource(editorTypeIcon(group)),
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                         )
@@ -528,8 +514,8 @@ private fun AudioModeSelectors(
             optionA = localized(lang, "Microphone", "Microphone", "마이크"),
             optionB = localized(lang, "Device Audio", "Âm thanh máy tính", "컴퓨터 오디오"),
             isB = !isMic,
-            iconA = Icons.Rounded.Mic,
-            iconB = Icons.Rounded.SpeakerPhone,
+            iconA = R.drawable.ms_mic,
+            iconB = R.drawable.ms_speaker_phone,
             onChanged = { isDevice ->
                 val newType = if (isDevice) PresetType.DEVICE_AUDIO else PresetType.MIC
                 val newSource = if (isDevice) "device" else "mic"
@@ -757,7 +743,7 @@ private fun NodeGraphSection(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    Icons.Rounded.AccountTree,
+                    painterResource(R.drawable.ms_account_tree),
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.primary,
@@ -888,7 +874,7 @@ private fun NodeGraphSection(
                 Box {
                     FilledTonalButton(onClick = { showAddMenu = true }) {
                         Icon(
-                            Icons.Rounded.Add,
+                            painterResource(R.drawable.ms_add),
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
                         )
@@ -925,7 +911,7 @@ private fun NodeGraphSection(
                             },
                             leadingIcon = {
                                 Icon(
-                                    Icons.Rounded.TextFields,
+                                    painterResource(R.drawable.ms_text_fields),
                                     contentDescription = null,
                                     modifier = Modifier.size(18.dp),
                                 )
@@ -972,11 +958,11 @@ private fun NodeGraphSection(
                                 },
                                 leadingIcon = {
                                     Icon(
-                                        when (editorTypeGroup) {
-                                            EditorTypeGroup.IMAGE -> Icons.Rounded.Image
-                                            EditorTypeGroup.AUDIO -> Icons.Rounded.Mic
-                                            else -> Icons.Rounded.AutoAwesome
-                                        },
+                                        painterResource(when (editorTypeGroup) {
+                                            EditorTypeGroup.IMAGE -> R.drawable.ms_image
+                                            EditorTypeGroup.AUDIO -> R.drawable.ms_mic
+                                            else -> R.drawable.ms_auto_awesome
+                                        }),
                                         contentDescription = null,
                                         modifier = Modifier.size(18.dp),
                                     )
@@ -1005,7 +991,7 @@ private fun AutoPasteSection(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    Icons.Rounded.ContentPaste,
+                    painterResource(R.drawable.ms_content_paste),
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.primary,
@@ -1045,7 +1031,7 @@ private fun MasterDescriptionSection(lang: String) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    Icons.Rounded.Description,
+                    painterResource(R.drawable.ms_description),
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.primary,
@@ -1082,7 +1068,7 @@ private fun RealtimeDescriptionSection(lang: String) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    Icons.Rounded.GraphicEq,
+                    painterResource(R.drawable.ms_audio_file),
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.primary,
@@ -1176,8 +1162,8 @@ private fun TogglePair(
     optionB: String,
     isB: Boolean,
     onChanged: (Boolean) -> Unit,
-    iconA: ImageVector? = null,
-    iconB: ImageVector? = null,
+    @DrawableRes iconA: Int? = null,
+    @DrawableRes iconB: Int? = null,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
@@ -1198,7 +1184,7 @@ private fun TogglePair(
                     .semantics { role = Role.RadioButton },
             ) {
                 if (iconA != null) {
-                    Icon(iconA, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(painterResource(iconA), contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                 }
                 Text(optionA, style = MaterialTheme.typography.labelMedium,
@@ -1213,7 +1199,7 @@ private fun TogglePair(
                     .semantics { role = Role.RadioButton },
             ) {
                 if (iconB != null) {
-                    Icon(iconB, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(painterResource(iconB), contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                 }
                 Text(optionB, style = MaterialTheme.typography.labelMedium,

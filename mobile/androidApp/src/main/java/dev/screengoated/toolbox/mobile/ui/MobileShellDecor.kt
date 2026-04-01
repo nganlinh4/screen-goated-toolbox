@@ -16,7 +16,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
@@ -31,12 +31,12 @@ internal object ShellSpacing {
 
 @Composable
 internal fun GradientMaskedIcon(
-    imageVector: ImageVector,
+    @androidx.annotation.DrawableRes iconRes: Int,
     brush: Brush,
     modifier: Modifier = Modifier,
 ) {
     Icon(
-        imageVector = imageVector,
+        painter = painterResource(iconRes),
         contentDescription = null,
         modifier = modifier
             .graphicsLayer(alpha = 0.99f)

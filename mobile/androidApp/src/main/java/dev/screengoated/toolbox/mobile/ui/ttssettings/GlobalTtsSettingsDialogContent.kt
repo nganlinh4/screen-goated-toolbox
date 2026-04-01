@@ -21,12 +21,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.VolumeUp
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.Language
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -95,9 +91,9 @@ internal fun RenderGlobalTtsSettingsDialog(
     ExpressiveDialogSurface(
         title = locale.ttsSettingsTitle,
         icon = when (settings.method) {
-            MobileTtsMethod.GEMINI_LIVE -> Icons.Rounded.AutoAwesome
-            MobileTtsMethod.EDGE_TTS -> Icons.Rounded.GraphicEq
-            MobileTtsMethod.GOOGLE_TRANSLATE -> Icons.Rounded.Language
+            MobileTtsMethod.GEMINI_LIVE -> R.drawable.ms_auto_awesome
+            MobileTtsMethod.EDGE_TTS -> R.drawable.ms_graphic_eq
+            MobileTtsMethod.GOOGLE_TRANSLATE -> R.drawable.ms_language
         },
         accent = accent,
         morphPair = ExpressiveMorphPair(MaterialShapes.Square, MaterialShapes.Cookie6Sided),
@@ -292,7 +288,7 @@ private fun MethodToggleRow(
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Icon(
-                                            Icons.Rounded.Check,
+                                            painterResource(R.drawable.ms_check),
                                             contentDescription = null,
                                             modifier = Modifier.size(if (compact) 14.dp else 16.dp),
                                         )
@@ -395,7 +391,7 @@ private fun GoogleTranslateSection(
                 onClick = onPreview,
             ) {
                 Icon(
-                    Icons.AutoMirrored.Rounded.VolumeUp,
+                    painterResource(R.drawable.ms_volume_up),
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.secondary,
                 )

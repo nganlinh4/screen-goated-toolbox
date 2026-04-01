@@ -5,10 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -49,7 +47,7 @@ internal fun AppUpdateSection(
         Column(verticalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap)) {
             ExpressiveSettingsHeader(
                 title = locale.softwareUpdateHeader,
-                icon = Icons.Rounded.SystemUpdate,
+                icon = R.drawable.ms_upgrade,
                 accent = accent,
             )
             when (state.status) {
@@ -104,7 +102,7 @@ internal fun AppUpdateSection(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Rounded.Info,
+                                        painter = painterResource(R.drawable.ms_info),
                                         contentDescription = null,
                                         tint = accent,
                                         modifier = Modifier.size(16.dp),
@@ -182,7 +180,7 @@ private fun UpdateSectionPrimaryButton(
     ) {
         SettingsActionButton(
             text = text,
-            icon = Icons.Rounded.Download,
+            icon = R.drawable.ms_download,
             onClick = onClick,
             morphStyle = SettingsActionMorphStyle.STATS,
         )

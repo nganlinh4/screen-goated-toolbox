@@ -18,15 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.KeyboardArrowUp
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.SpeakerPhone
-import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material.icons.rounded.StarOutline
-import androidx.compose.material.icons.rounded.TextFields
-import androidx.compose.material.icons.rounded.Translate
+import androidx.annotation.DrawableRes
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -42,8 +34,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets
 import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
@@ -54,7 +47,7 @@ private data class CategoryDef(
     val labelEn: String,
     val labelVi: String,
     val labelKo: String,
-    val icon: ImageVector,
+    @DrawableRes val icon: Int,
     val dotColor: Color,
     val presets: List<Preset>,
 ) {
@@ -80,7 +73,7 @@ fun PresetListSection(
             labelEn = "Image",
             labelVi = "Hình ảnh",
             labelKo = "이미지",
-            icon = Icons.Rounded.Translate,
+            icon = R.drawable.ms_image,
             dotColor = sgtColors.categoryImage,
             presets = DefaultPresets.imagePresets,
         ),
@@ -89,7 +82,7 @@ fun PresetListSection(
             labelEn = "Text Select",
             labelVi = "Chọn text",
             labelKo = "텍스트 선택",
-            icon = Icons.Rounded.TextFields,
+            icon = R.drawable.ms_text_fields,
             dotColor = sgtColors.categoryTextSelect,
             presets = DefaultPresets.textSelectPresets,
         ),
@@ -98,7 +91,7 @@ fun PresetListSection(
             labelEn = "Text Input",
             labelVi = "Nhập text",
             labelKo = "텍스트 입력",
-            icon = Icons.Rounded.TextFields,
+            icon = R.drawable.ms_text_fields,
             dotColor = sgtColors.categoryTextInput,
             presets = DefaultPresets.textInputPresets,
         ),
@@ -107,7 +100,7 @@ fun PresetListSection(
             labelEn = "Mic",
             labelVi = "Mic",
             labelKo = "마이크",
-            icon = Icons.Rounded.Mic,
+            icon = R.drawable.ms_mic,
             dotColor = sgtColors.categoryMic,
             presets = DefaultPresets.micPresets,
         ),
@@ -116,7 +109,7 @@ fun PresetListSection(
             labelEn = "Device Audio",
             labelVi = "Âm thanh máy",
             labelKo = "기기 오디오",
-            icon = Icons.Rounded.SpeakerPhone,
+            icon = R.drawable.ms_speaker_phone,
             dotColor = sgtColors.categoryDevice,
             presets = DefaultPresets.deviceAudioPresets,
         ),
@@ -180,11 +173,11 @@ private fun CategorySection(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Icon(
-                imageVector = if (expanded.value) {
-                    Icons.Rounded.KeyboardArrowUp
+                painter = painterResource(if (expanded.value) {
+                    R.drawable.ms_keyboard_arrow_up
                 } else {
-                    Icons.Rounded.KeyboardArrowDown
-                },
+                    R.drawable.ms_keyboard_arrow_down
+                }),
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -223,7 +216,7 @@ private fun CategorySection(
 private fun PresetItemCard(
     preset: Preset,
     lang: String,
-    icon: ImageVector,
+    @DrawableRes icon: Int,
     iconTint: Color,
     isFavorite: Boolean,
     onClick: () -> Unit,
@@ -249,7 +242,7 @@ private fun PresetItemCard(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    imageVector = icon,
+                    painter = painterResource(icon),
                     contentDescription = null,
                     modifier = Modifier.size(20.dp),
                     tint = iconTint,
@@ -272,11 +265,11 @@ private fun PresetItemCard(
                 modifier = Modifier.size(36.dp),
             ) {
                 Icon(
-                    imageVector = if (isFavorite) {
-                        Icons.Rounded.Star
+                    painter = painterResource(if (isFavorite) {
+                        R.drawable.ms_star
                     } else {
-                        Icons.Rounded.StarOutline
-                    },
+                        R.drawable.ms_star_outline
+                    }),
                     contentDescription = null,
                     modifier = Modifier.size(20.dp),
                     tint = if (isFavorite) {

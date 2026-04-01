@@ -28,20 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Bolt
-import androidx.compose.material.icons.rounded.Computer
-import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.LocalFireDepartment
-import androidx.compose.material.icons.rounded.Public
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Translate
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.material.icons.automirrored.rounded.VolumeOff
-import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -69,6 +56,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -545,7 +533,7 @@ private fun NodeCard(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.Close,
+                            painter = painterResource(R.drawable.ms_close),
                             contentDescription = null,
                             modifier = Modifier.size(12.dp),
                             tint = contentCol.copy(alpha = 0.5f),
@@ -638,14 +626,14 @@ private fun NodeCard(
                                     val providerIcon = when (model.provider) {
                                         dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GOOGLE,
                                         dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GEMINI_LIVE,
-                                        -> Icons.Rounded.AutoAwesome
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GOOGLE_GTX -> Icons.Rounded.Translate
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GROQ -> Icons.Rounded.Bolt
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.CEREBRAS -> Icons.Rounded.LocalFireDepartment
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OPENROUTER -> Icons.Rounded.Public
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OLLAMA -> Icons.Rounded.Computer
-                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.TAALAS -> Icons.Rounded.AutoAwesome
-                                        else -> Icons.Rounded.AutoAwesome
+                                        -> R.drawable.ms_auto_awesome
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GOOGLE_GTX -> R.drawable.ms_translate
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GROQ -> R.drawable.ms_bolt
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.CEREBRAS -> R.drawable.ms_local_fire_department
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OPENROUTER -> R.drawable.ms_public
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OLLAMA -> R.drawable.ms_computer
+                                        dev.screengoated.toolbox.mobile.preset.PresetModelProvider.TAALAS -> R.drawable.ms_auto_awesome
+                                        else -> R.drawable.ms_auto_awesome
                                     }
                                     val hasSearch = catalog.supportsSearchById(model.id)
                                     val isSelected = model.id == block.model
@@ -658,12 +646,12 @@ private fun NodeCard(
                                             )
                                         else Modifier,
                                         leadingIcon = {
-                                            Icon(providerIcon, null, modifier = Modifier.size(16.dp))
+                                            Icon(painterResource(providerIcon), null, modifier = Modifier.size(16.dp))
                                         },
                                         trailingIcon = {
                                             if (hasSearch) {
                                                 Icon(
-                                                    Icons.Rounded.Search,
+                                                    painterResource(R.drawable.ms_search),
                                                     null,
                                                     modifier = Modifier.size(14.dp),
                                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -879,7 +867,7 @@ private fun NodeCard(
                             modifier = Modifier.size(24.dp),
                         ) {
                             Icon(
-                                imageVector = if (block.showOverlay) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                                painter = painterResource(if (block.showOverlay) R.drawable.ms_visibility else R.drawable.ms_visibility_off),
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
                             )
@@ -954,8 +942,7 @@ private fun NodeCard(
                             modifier = Modifier.size(24.dp),
                         ) {
                             Icon(
-                                imageVector = if (block.autoSpeak) Icons.AutoMirrored.Rounded.VolumeUp
-                                    else Icons.AutoMirrored.Rounded.VolumeOff,
+                                painter = painterResource(if (block.autoSpeak) R.drawable.ms_volume_up else R.drawable.ms_volume_off),
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
                             )
@@ -975,7 +962,7 @@ private fun NodeCard(
                             modifier = Modifier.size(24.dp),
                         ) {
                             Icon(
-                                imageVector = if (block.showOverlay) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                                painter = painterResource(if (block.showOverlay) R.drawable.ms_visibility else R.drawable.ms_visibility_off),
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
                             )
@@ -1049,8 +1036,7 @@ private fun NodeCard(
                             modifier = Modifier.size(24.dp),
                         ) {
                             Icon(
-                                imageVector = if (block.autoSpeak) Icons.AutoMirrored.Rounded.VolumeUp
-                                    else Icons.AutoMirrored.Rounded.VolumeOff,
+                                painter = painterResource(if (block.autoSpeak) R.drawable.ms_volume_up else R.drawable.ms_volume_off),
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
                             )

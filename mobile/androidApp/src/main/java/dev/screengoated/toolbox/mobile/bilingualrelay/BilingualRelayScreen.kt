@@ -26,11 +26,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,8 +38,15 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.asAndroidPath
+import androidx.compose.ui.graphics.asComposePath
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.MaterialShapes
+import androidx.graphics.shapes.Morph
+import androidx.graphics.shapes.RoundedPolygon
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -109,7 +113,7 @@ fun BilingualRelayScreen(
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
+                        Icon(painterResource(R.drawable.ms_arrow_back), contentDescription = null)
                     }
                 },
                 title = {
@@ -124,32 +128,54 @@ fun BilingualRelayScreen(
                             modifier = Modifier.width(60.dp).height(32.dp),
                         )
                         StatusDot(state.connectionState)
-                        Text(
-                            connectionStateLabel(state.connectionState, locale),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        // Delay showing status text until Apply button is fully gone
+                        var showStatusText by remember { mutableStateOf(!state.dirty) }
+                        LaunchedEffect(state.dirty) {
+                            if (state.dirty) {
+                                showStatusText = false
+                            } else {
+                                kotlinx.coroutines.delay(500)
+                                showStatusText = true
+                            }
+                        }
+                        if (showStatusText) {
+                            Text(
+                                connectionStateLabel(state.connectionState, locale),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 },
                 actions = {
                     IconButton(onClick = onNavigateToTtsSettings) {
-                        Surface(
-                            shape = MaterialTheme.shapes.small,
-                            color = CoralAccent.copy(alpha = 0.12f),
+                        MorphBadge(
+                            from = MaterialShapes.Cookie6Sided,
+                            to = MaterialShapes.Cookie6Sided,
+                            progress = 0f,
+                            containerColor = CoralAccent.copy(alpha = 0.14f),
                             modifier = Modifier.size(32.dp),
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    Icons.Rounded.Settings,
-                                    contentDescription = "TTS Settings",
-                                    tint = CoralAccent,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
+                            Icon(
+                                painterResource(R.drawable.ms_settings),
+                                contentDescription = "TTS Settings",
+                                tint = CoralAccent,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                    // Delay Apply appearance until status text is gone
+                    var showApply by remember { mutableStateOf(false) }
+                    LaunchedEffect(state.dirty) {
+                        if (state.dirty) {
+                            kotlinx.coroutines.delay(150)
+                            showApply = true
+                        } else {
+                            showApply = false
                         }
                     }
                     AnimatedVisibility(
-                        visible = state.dirty,
+                        visible = showApply,
                         enter = fadeIn() + scaleIn(),
                         exit = fadeOut() + scaleOut(),
                     ) {
@@ -169,6 +195,7 @@ fun BilingualRelayScreen(
                             Text(locale.bilingualRelayApply, style = MaterialTheme.typography.labelMedium)
                         }
                     }
+                    Spacer(Modifier.width(4.dp))
                     FilledTonalButton(
                         onClick = {
                             if (state.isRunning) {
@@ -191,10 +218,10 @@ fun BilingualRelayScreen(
                             },
                         ),
                         contentPadding = PaddingValues(horizontal = 12.dp),
-                        modifier = Modifier.height(36.dp),
+                        modifier = Modifier.height(36.dp).padding(end = 10.dp),
                     ) {
                         Icon(
-                            if (state.isRunning) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
+                            painterResource(if (state.isRunning) R.drawable.ms_stop else R.drawable.ms_play_arrow),
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                         )
@@ -304,20 +331,20 @@ private fun RelayLanguageCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // Number badge
-                Surface(
-                    shape = MaterialTheme.shapes.small,
-                    color = accent.copy(alpha = 0.15f),
+                // Number badge — soft Bun shape
+                MorphBadge(
+                    from = MaterialShapes.SoftBoom,
+                    to = MaterialShapes.SoftBoom,
+                    progress = 0f,
+                    containerColor = accent.copy(alpha = 0.15f),
                     modifier = Modifier.size(28.dp),
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            number,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = accent,
-                        )
-                    }
+                    Text(
+                        number,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = accent,
+                    )
                 }
                 Text(
                     title,
@@ -638,6 +665,44 @@ private fun CompactWaveform(
             }
         }
     }
+}
+
+// ── MorphBadge (local M3E shape badge) ──
+
+@Composable
+private fun MorphBadge(
+    from: RoundedPolygon,
+    to: RoundedPolygon,
+    progress: Float,
+    containerColor: Color,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val morph = remember(from, to) { Morph(from, to) }
+    Box(
+        modifier = modifier.drawWithCache {
+            val path = morphToPath(morph, progress, size)
+            onDrawBehind { drawPath(path, containerColor) }
+        },
+        contentAlignment = Alignment.Center,
+        content = content,
+    )
+}
+
+private fun morphToPath(morph: Morph, progress: Float, size: Size): androidx.compose.ui.graphics.Path {
+    val composePath = morph.toPath(progress)
+    val aPath = composePath.asAndroidPath()
+    val bounds = android.graphics.RectF()
+    aPath.computeBounds(bounds, true)
+    val pw = maxOf(bounds.width(), 1f)
+    val ph = maxOf(bounds.height(), 1f)
+    val scale = minOf(size.width / pw, size.height / ph) * 0.9f
+    val matrix = android.graphics.Matrix()
+    matrix.postTranslate(-bounds.centerX(), -bounds.centerY())
+    matrix.postScale(scale, scale)
+    matrix.postTranslate(size.width / 2f, size.height / 2f)
+    aPath.transform(matrix)
+    return aPath.asComposePath()
 }
 
 private fun connectionStateLabel(

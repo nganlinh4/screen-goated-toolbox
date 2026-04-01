@@ -15,8 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Lightbulb
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
@@ -99,7 +99,7 @@ internal fun UsageTipsCard(
                     modifier = Modifier.size(42.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Lightbulb,
+                        painter = painterResource(R.drawable.ms_lightbulb),
                         contentDescription = null,
                         modifier = Modifier.size(20.dp),
                         tint = accent,
@@ -155,7 +155,7 @@ private fun UsageTipsDialog(
 ) {
     ExpressiveDialogSurface(
         title = locale.usageTipsTitle,
-        icon = Icons.Rounded.Lightbulb,
+        icon = R.drawable.ms_lightbulb,
         accent = MaterialTheme.colorScheme.primary,
         morphPair = ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Cookie6Sided),
         onDismiss = onDismiss,

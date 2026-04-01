@@ -22,13 +22,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.SwapHoriz
-import androidx.compose.material.icons.rounded.Translate
+import androidx.annotation.DrawableRes
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -53,7 +49,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Matrix
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.FontFamily
@@ -306,9 +301,9 @@ private fun AppsItemContent(
     ) {
         when (index) {
             0 -> LiveTranslateCarouselTile(state = state, locale = locale, onSessionToggle = onSessionToggle, canToggle = canToggle)
-            1 -> AppTile(slot = appSlots[1], title = locale.appBilingualRelayTitle, icon = Icons.Rounded.SwapHoriz)
-            2 -> AppTile(slot = appSlots[2], title = locale.appVideoDownloaderTitle, icon = Icons.Rounded.Download)
-            3 -> AppTile(slot = appSlots[3], title = locale.appDjTitle, icon = Icons.Rounded.GraphicEq)
+            1 -> AppTile(slot = appSlots[1], title = locale.appBilingualRelayTitle, drawableRes = dev.screengoated.toolbox.mobile.R.drawable.ms_breakfast_dining)
+            2 -> AppTile(slot = appSlots[2], title = locale.appVideoDownloaderTitle, drawableRes = R.drawable.ms_movie)
+            3 -> AppTile(slot = appSlots[3], title = locale.appDjTitle, drawableRes = R.drawable.ms_album)
             else -> EmptyAppTile(slot = appSlots[index])
         }
     }
@@ -475,7 +470,7 @@ private fun LiveTranslateCarouselTile(
                     verticalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Icon(
-                        Icons.Rounded.Translate,
+                        painterResource(R.drawable.ms_rtt),
                         contentDescription = null,
                         tint = slotColor,
                         modifier = Modifier.size(AppCardLandscapeIconSize),
@@ -502,7 +497,7 @@ private fun LiveTranslateCarouselTile(
                     modifier = Modifier.align(Alignment.TopEnd),
                 ) {
                     Icon(
-                        if (isRunning) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
+                        painterResource(if (isRunning) R.drawable.ms_stop else R.drawable.ms_play_arrow),
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
                     )
@@ -518,7 +513,7 @@ private fun LiveTranslateCarouselTile(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    Icons.Rounded.Translate,
+                    painterResource(R.drawable.ms_rtt),
                     contentDescription = null,
                     tint = slotColor,
                     modifier = Modifier.size(AppCardPortraitIconSize),
@@ -561,7 +556,7 @@ private fun LiveTranslateCarouselTile(
                         },
                     ) {
                         Icon(
-                            if (isRunning) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
+                            painterResource(if (isRunning) R.drawable.ms_stop else R.drawable.ms_play_arrow),
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                         )
@@ -578,7 +573,7 @@ private fun LiveTranslateCarouselTile(
 private fun AppTile(
     slot: AppSlot,
     title: String,
-    icon: ImageVector?,
+    @DrawableRes drawableRes: Int? = null,
 ) {
     val isLandscape =
         LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -616,13 +611,8 @@ private fun AppTile(
                     .padding(horizontal = 18.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                if (icon != null) {
-                    Icon(
-                        icon,
-                        contentDescription = null,
-                        tint = slotColor,
-                        modifier = Modifier.size(AppCardLandscapeIconSize),
-                    )
+                if (drawableRes != null) {
+                    Icon(painterResource(drawableRes), contentDescription = null, tint = slotColor, modifier = Modifier.size(AppCardLandscapeIconSize))
                 }
                 Text(
                     text = title,
@@ -641,13 +631,8 @@ private fun AppTile(
                     .padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (icon != null) {
-                    Icon(
-                        icon,
-                        contentDescription = null,
-                        tint = slotColor,
-                        modifier = Modifier.size(AppCardPortraitIconSize),
-                    )
+                if (drawableRes != null) {
+                    Icon(painterResource(drawableRes), contentDescription = null, tint = slotColor, modifier = Modifier.size(AppCardPortraitIconSize))
                     Spacer(Modifier.width(14.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {

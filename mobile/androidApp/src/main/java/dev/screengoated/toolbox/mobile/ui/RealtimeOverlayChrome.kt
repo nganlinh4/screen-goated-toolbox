@@ -25,9 +25,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.KeyboardArrowUp
-import androidx.compose.material.icons.outlined.OpenInFull
+import androidx.annotation.DrawableRes
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -42,7 +42,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -116,7 +115,7 @@ internal fun OverlayPane(
                 modifier = Modifier.size(20.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.KeyboardArrowUp,
+                    painter = painterResource(R.drawable.ms_keyboard_arrow_up),
                     contentDescription = "Toggle header",
                     tint = sgtColors.overlayResizeHandle,
                     modifier = Modifier.size(14.dp),
@@ -254,7 +253,7 @@ internal fun OverlayTranslationBody(
 
 @Composable
 internal fun OverlayActionButton(
-    icon: ImageVector,
+    @DrawableRes icon: Int,
     tint: Color,
     enabled: Boolean = true,
     onClick: () -> Unit,
@@ -269,7 +268,7 @@ internal fun OverlayActionButton(
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
-                imageVector = icon,
+                painter = painterResource(icon),
                 contentDescription = null,
                 tint = if (enabled) tint else tint.copy(alpha = 0.35f),
                 modifier = Modifier.size(16.dp),
@@ -280,7 +279,7 @@ internal fun OverlayActionButton(
 
 @Composable
 internal fun OverlayVisibilityButton(
-    icon: ImageVector,
+    @DrawableRes icon: Int,
     tint: Color,
     active: Boolean,
     onClick: () -> Unit,
@@ -293,7 +292,7 @@ internal fun OverlayVisibilityButton(
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
-                imageVector = icon,
+                painter = painterResource(icon),
                 contentDescription = null,
                 tint = if (active) tint else tint.copy(alpha = 0.35f),
                 modifier = Modifier.size(18.dp),
@@ -304,7 +303,7 @@ internal fun OverlayVisibilityButton(
 
 @Composable
 internal fun OverlayIconBadge(
-    icon: ImageVector,
+    @DrawableRes icon: Int,
     tint: Color,
 ) {
     Box(
@@ -312,7 +311,7 @@ internal fun OverlayIconBadge(
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            imageVector = icon,
+            painter = painterResource(icon),
             contentDescription = null,
             tint = tint,
             modifier = Modifier.size(18.dp),
@@ -341,7 +340,7 @@ internal fun OverlayResizeHandle(
         contentAlignment = Alignment.BottomEnd,
     ) {
         Icon(
-            imageVector = Icons.Outlined.OpenInFull,
+            painter = painterResource(R.drawable.ms_open_in_full),
             contentDescription = "Resize window",
             tint = sgtColors.overlayResizeHandle,
             modifier = Modifier.size(18.dp),

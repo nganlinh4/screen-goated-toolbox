@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.HelpOutline
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
@@ -69,7 +69,7 @@ internal fun HelpAssistantCard(
                     modifier = Modifier.size(42.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.HelpOutline,
+                        painter = painterResource(R.drawable.ms_auto_stories),
                         contentDescription = null,
                         modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.primary,
@@ -108,7 +108,7 @@ internal fun HelpAssistantActionButton(
 
     SettingsActionButton(
         text = locale.shellHelpLabel,
-        icon = Icons.AutoMirrored.Rounded.HelpOutline,
+        icon = R.drawable.ms_auto_stories,
         onClick = { showDialog = true },
         modifier = modifier,
         morphStyle = SettingsActionMorphStyle.HELP,
@@ -144,7 +144,7 @@ private fun HelpAssistantDialog(
 
     ExpressiveDialogSurface(
         title = locale.helpAssistantTitle,
-        icon = Icons.AutoMirrored.Rounded.HelpOutline,
+        icon = R.drawable.ms_auto_stories,
         accent = MaterialTheme.colorScheme.primary,
         morphPair = ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Cookie4Sided),
         onDismiss = onDismiss,

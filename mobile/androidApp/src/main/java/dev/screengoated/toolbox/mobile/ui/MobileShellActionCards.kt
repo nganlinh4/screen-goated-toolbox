@@ -14,8 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.RestartAlt
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -32,7 +31,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
@@ -40,7 +39,7 @@ import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 @Composable
 internal fun SettingsActionButton(
     text: String,
-    icon: ImageVector,
+    @androidx.annotation.DrawableRes icon: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     morphStyle: SettingsActionMorphStyle = SettingsActionMorphStyle.PRIORITY,
@@ -80,7 +79,7 @@ internal fun SettingsActionButton(
                 modifier = Modifier.size(44.dp),
             ) {
                 Icon(
-                    imageVector = icon,
+                    painter = painterResource(icon),
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                     tint = accent,
@@ -186,7 +185,7 @@ internal fun ResetDefaultsActionButton(
 
     SettingsActionButton(
         text = locale.resetDefaultsButton,
-        icon = Icons.Rounded.RestartAlt,
+        icon = R.drawable.ms_settings_backup_restore,
         onClick = { showConfirm = true },
         modifier = modifier,
         morphStyle = SettingsActionMorphStyle.RESET,

@@ -14,16 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.VolumeUp
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.GraphicEq
-import androidx.compose.material.icons.outlined.Mic
-import androidx.compose.material.icons.outlined.Remove
-import androidx.compose.material.icons.outlined.Subtitles
-import androidx.compose.material.icons.outlined.Translate
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -159,13 +150,13 @@ private fun OverlayPanels(
             controls = {
                 OverlayIconBadge(
                     icon = if (state.sourceMode == SourceMode.MIC) {
-                        Icons.Outlined.Mic
+                        R.drawable.ms_mic
                     } else {
-                        Icons.Outlined.GraphicEq
+                        R.drawable.ms_surround_sound
                     },
                     tint = sgtColors.overlaySubtitleActiveTint,
                 )
-                OverlayIconBadge(icon = Icons.Outlined.AutoAwesome, tint = sgtColors.overlaySubtitleActiveTint)
+                OverlayIconBadge(icon = R.drawable.ms_auto_awesome, tint = sgtColors.overlaySubtitleActiveTint)
                 OverlayLanguageChip(
                     label = "EN",
                     enabled = false,
@@ -174,28 +165,28 @@ private fun OverlayPanels(
                     onTargetLanguageSelected = {},
                 )
                 OverlayActionButton(
-                    icon = Icons.Outlined.ContentCopy,
+                    icon = R.drawable.ms_content_copy,
                     tint = sgtColors.overlayIconTint,
                     onClick = onCopyTranscript,
                 )
                 OverlayActionButton(
-                    icon = Icons.Outlined.Remove,
+                    icon = R.drawable.ms_remove,
                     tint = sgtColors.overlayIconTint,
                     onClick = onDecreaseFont,
                 )
                 OverlayActionButton(
-                    icon = Icons.Outlined.Add,
+                    icon = R.drawable.ms_add,
                     tint = sgtColors.overlayIconTint,
                     onClick = onIncreaseFont,
                 )
                 OverlayVisibilityButton(
-                    icon = Icons.Outlined.Subtitles,
+                    icon = R.drawable.ms_subtitles,
                     tint = sgtColors.overlaySubtitleActiveTint,
                     active = state.listeningVisible,
                     onClick = onToggleListeningVisibility,
                 )
                 OverlayVisibilityButton(
-                    icon = Icons.Outlined.Translate,
+                    icon = R.drawable.ms_translate,
                     tint = sgtColors.overlayTranslateActiveTint,
                     active = state.translationVisible,
                     onClick = onToggleTranslationVisibility,
@@ -226,12 +217,12 @@ private fun OverlayPanels(
             onWindowDrag = onWindowDrag,
             controls = {
                 OverlayActionButton(
-                    icon = Icons.AutoMirrored.Outlined.VolumeUp,
+                    icon = R.drawable.ms_volume_up,
                     tint = sgtColors.overlayIconTint,
                     enabled = false,
                     onClick = {},
                 )
-                OverlayIconBadge(icon = Icons.Outlined.AutoAwesome, tint = sgtColors.overlayIconTint)
+                OverlayIconBadge(icon = R.drawable.ms_auto_awesome, tint = sgtColors.overlayIconTint)
                 OverlayLanguageChip(
                     label = LanguageCatalog.codeForName(state.targetLanguage),
                     enabled = true,
@@ -240,28 +231,28 @@ private fun OverlayPanels(
                     onTargetLanguageSelected = onTargetLanguageSelected,
                 )
                 OverlayActionButton(
-                    icon = Icons.Outlined.ContentCopy,
+                    icon = R.drawable.ms_content_copy,
                     tint = sgtColors.overlayIconTint,
                     onClick = onCopyTranslation,
                 )
                 OverlayActionButton(
-                    icon = Icons.Outlined.Remove,
+                    icon = R.drawable.ms_remove,
                     tint = sgtColors.overlayIconTint,
                     onClick = onDecreaseFont,
                 )
                 OverlayActionButton(
-                    icon = Icons.Outlined.Add,
+                    icon = R.drawable.ms_add,
                     tint = sgtColors.overlayIconTint,
                     onClick = onIncreaseFont,
                 )
                 OverlayVisibilityButton(
-                    icon = Icons.Outlined.Subtitles,
+                    icon = R.drawable.ms_subtitles,
                     tint = sgtColors.overlaySubtitleActiveTint,
                     active = state.listeningVisible,
                     onClick = onToggleListeningVisibility,
                 )
                 OverlayVisibilityButton(
-                    icon = Icons.Outlined.Translate,
+                    icon = R.drawable.ms_translate,
                     tint = sgtColors.overlayTranslateActiveTint,
                     active = state.translationVisible,
                     onClick = onToggleTranslationVisibility,

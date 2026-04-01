@@ -21,16 +21,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.TextSnippet
-import androidx.compose.material.icons.automirrored.rounded.OpenInNew
-import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.Image
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -174,7 +166,7 @@ internal fun HistorySection(
                                             contentAlignment = Alignment.Center,
                                         ) {
                                             IconButton(onClick = onClearSearchQuery) {
-                                                Icon(Icons.Rounded.Close, contentDescription = locale.historyClearSearch)
+                                                Icon(painterResource(R.drawable.ms_close), contentDescription = locale.historyClearSearch)
                                             }
                                         }
                                     }
@@ -186,7 +178,7 @@ internal fun HistorySection(
                                 ) {
                                     HistoryActionButton(
                                         text = locale.historyOpenFolder,
-                                        icon = Icons.Rounded.Folder,
+                                        icon = R.drawable.ms_folder,
                                         role = HistoryActionRole.FOLDER,
                                         badgeRotationDegrees = -90f,
                                         iconRotationDegrees = -90f,
@@ -208,7 +200,7 @@ internal fun HistorySection(
                                     )
                                     HistoryActionButton(
                                         text = locale.historyClearAll,
-                                        icon = Icons.Rounded.Delete,
+                                        icon = R.drawable.ms_delete,
                                         role = HistoryActionRole.DELETE,
                                         onClick = onClearAll,
                                         modifier = Modifier.weight(1f),
@@ -288,7 +280,7 @@ internal fun HistorySection(
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     IconButton(onClick = onClearSearchQuery) {
-                                        Icon(Icons.Rounded.Close, contentDescription = locale.historyClearSearch)
+                                        Icon(painterResource(R.drawable.ms_close), contentDescription = locale.historyClearSearch)
                                     }
                                 }
                             }
@@ -301,7 +293,7 @@ internal fun HistorySection(
                         ) {
                             HistoryActionButton(
                                 text = locale.historyOpenFolder,
-                                icon = Icons.Rounded.Folder,
+                                icon = R.drawable.ms_folder,
                                 role = HistoryActionRole.FOLDER,
                                 badgeRotationDegrees = -90f,
                                 iconRotationDegrees = -90f,
@@ -323,7 +315,7 @@ internal fun HistorySection(
                             )
                             HistoryActionButton(
                                 text = locale.historyClearAll,
-                                icon = Icons.Rounded.Delete,
+                                icon = R.drawable.ms_delete,
                                 role = HistoryActionRole.DELETE,
                                 onClick = onClearAll,
                                 modifier = Modifier.weight(1f),
@@ -476,7 +468,7 @@ private fun HistoryItemCard(
             ) {
                 HistoryActionButton(
                     text = locale.historyCopyText,
-                    icon = Icons.Rounded.ContentCopy,
+                    icon = R.drawable.ms_content_copy,
                     role = HistoryActionRole.COPY,
                     onClick = onCopy,
                     modifier = Modifier.weight(if (hasOpenAction) 1.18f else 1f),
@@ -484,7 +476,7 @@ private fun HistoryItemCard(
                 if (hasOpenAction) {
                     HistoryActionButton(
                         text = historyOpenLabel(item.itemType, locale),
-                        icon = Icons.AutoMirrored.Rounded.OpenInNew,
+                        icon = R.drawable.ms_open_in_new,
                         role = HistoryActionRole.OPEN,
                         onClick = onOpen,
                         modifier = Modifier.weight(1.08f),
@@ -510,7 +502,7 @@ private fun HistoryDeleteAction(
         modifier = modifier.size(44.dp),
     ) {
         Icon(
-            imageVector = Icons.Rounded.Delete,
+            painter = painterResource(R.drawable.ms_delete),
             contentDescription = contentDescription,
             tint = MaterialTheme.colorScheme.error,
             modifier = Modifier.size(24.dp),
