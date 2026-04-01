@@ -9,12 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -35,7 +31,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus
@@ -97,7 +92,7 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
 
             DownloadedToolRow(
                 name = "Parakeet",
-                icon = Icons.Rounded.Mic,
+                icon = R.drawable.ms_raven,
                 statusText = when (val state = parakeetState) {
                     is ParakeetModelState.Missing -> locale.dlDepsNotInstalled
                     is ParakeetModelState.Downloading ->
@@ -139,7 +134,7 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
 
             DownloadedToolRow(
                 name = "yt-dlp",
-                icon = Icons.Rounded.Download,
+                icon = R.drawable.ms_emoji_symbols,
                 statusText = when (downloaderState.ytdlp.status) {
                     ToolInstallStatus.INSTALLED ->
                         downloaderState.ytdlp.version ?: locale.dlDepsReady
@@ -190,7 +185,7 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
 
             DownloadedToolRow(
                 name = "FFmpeg",
-                icon = Icons.Rounded.GraphicEq,
+                icon = R.drawable.ms_display_settings,
                 statusText = if (downloaderState.ffmpeg.status == ToolInstallStatus.INSTALLED) {
                     downloaderState.ffmpeg.version ?: locale.dlDepsReady
                 } else {
@@ -229,7 +224,7 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
 @Composable
 private fun DownloadedToolRow(
     name: String,
-    icon: ImageVector,
+    @androidx.annotation.DrawableRes icon: Int,
     statusText: String,
     statusColor: androidx.compose.ui.graphics.Color,
     accent: androidx.compose.ui.graphics.Color,
@@ -245,7 +240,7 @@ private fun DownloadedToolRow(
         horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
     ) {
         Icon(
-            imageVector = icon,
+            painter = painterResource(icon),
             contentDescription = null,
             modifier = Modifier.size(22.dp),
             tint = accent,
@@ -268,7 +263,7 @@ private fun DownloadedToolRow(
                     modifier = Modifier.size(24.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Info,
+                        painter = painterResource(R.drawable.ms_info),
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,

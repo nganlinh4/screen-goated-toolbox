@@ -14,21 +14,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.BarChart
-import androidx.compose.material.icons.rounded.Bolt
-import androidx.compose.material.icons.rounded.Computer
-import androidx.compose.material.icons.rounded.Key
-import androidx.compose.material.icons.rounded.LocalFireDepartment
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Public
-import androidx.compose.material.icons.rounded.RestartAlt
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.Translate
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.annotation.DrawableRes
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -53,7 +41,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -74,7 +61,7 @@ import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 private data class ProviderDef(
     val label: String,
-    val icon: ImageVector,
+    @DrawableRes val icon: Int,
     val keyLabel: String,
     val getKeyUrl: String? = null,
     val getKeyLabel: String? = null,
@@ -100,35 +87,35 @@ internal fun CredentialsCard(
         when (provider) {
             CredentialsProviderId.GROQ -> ProviderDef(
                 label = provider.label,
-                icon = Icons.Rounded.Bolt,
+                icon = R.drawable.ms_electric_bolt,
                 keyLabel = locale.groqKeyLabel,
                 getKeyUrl = "https://console.groq.com/keys",
                 getKeyLabel = locale.groqGetKeyLink,
             )
             CredentialsProviderId.CEREBRAS -> ProviderDef(
                 label = provider.label,
-                icon = Icons.Rounded.LocalFireDepartment,
+                icon = R.drawable.ms_local_fire_department,
                 keyLabel = locale.cerebrasKeyLabel,
                 getKeyUrl = "https://cloud.cerebras.ai/",
                 getKeyLabel = locale.cerebrasGetKeyLink,
             )
             CredentialsProviderId.GEMINI -> ProviderDef(
                 label = provider.label,
-                icon = Icons.Rounded.AutoAwesome,
+                icon = R.drawable.ms_auto_awesome,
                 keyLabel = locale.geminiKeyLabel,
                 getKeyUrl = "https://aistudio.google.com/app/apikey",
                 getKeyLabel = locale.geminiGetKeyLink,
             )
             CredentialsProviderId.OPEN_ROUTER -> ProviderDef(
                 label = provider.label,
-                icon = Icons.Rounded.Public,
+                icon = R.drawable.ms_public,
                 keyLabel = locale.openRouterKeyLabel,
                 getKeyUrl = "https://openrouter.ai/settings/keys",
                 getKeyLabel = locale.openRouterGetKeyLink,
             )
             CredentialsProviderId.OLLAMA -> ProviderDef(
                 label = provider.label,
-                icon = Icons.Rounded.Computer,
+                icon = R.drawable.ms_terminal,
                 keyLabel = locale.ollamaUrlLabel,
                 getKeyUrl = "https://ollama.com/download",
                 getKeyLabel = locale.ollamaLearnMoreLink,
@@ -149,7 +136,7 @@ internal fun CredentialsCard(
         ) {
             ExpressiveSettingsHeader(
                 title = locale.shellCredentialsTitle,
-                icon = Icons.Rounded.Key,
+                icon = R.drawable.ms_key,
                 accent = cardAccent,
             )
 
@@ -208,7 +195,7 @@ internal fun CredentialsCard(
                                     modifier = Modifier.size(28.dp),
                                 ) {
                                     Icon(
-                                        imageVector = provider.icon,
+                                        painter = painterResource(provider.icon),
                                         contentDescription = null,
                                         tint = accent,
                                         modifier = Modifier.size(14.dp),
@@ -393,7 +380,7 @@ internal fun PresetRuntimeCard(
             horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
         ) {
             GradientMaskedIcon(
-                Icons.Rounded.Settings,
+                R.drawable.ms_settings,
                 Brush.linearGradient(
                     listOf(
                         MaterialTheme.colorScheme.tertiary,
@@ -451,7 +438,7 @@ internal fun LiveControlCard(
             horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
         ) {
             GradientMaskedIcon(
-                Icons.Rounded.Translate,
+                R.drawable.ms_translate,
                 if (isRunning) {
                     Brush.linearGradient(
                         listOf(
@@ -493,7 +480,7 @@ internal fun LiveControlCard(
                 },
             ) {
                 Icon(
-                    if (isRunning) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
+                    painterResource(if (isRunning) R.drawable.ms_stop else R.drawable.ms_play_arrow),
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )
@@ -528,7 +515,7 @@ internal fun UsageStatsCard(
             horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
         ) {
             GradientMaskedIcon(
-                Icons.Rounded.BarChart,
+                R.drawable.ms_bar_chart,
                 Brush.linearGradient(
                     listOf(
                         MaterialTheme.colorScheme.primary,
@@ -584,7 +571,7 @@ internal fun ResetDefaultsCard(
             horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap),
         ) {
             Icon(
-                Icons.Rounded.RestartAlt,
+                painterResource(R.drawable.ms_settings_backup_restore),
                 contentDescription = null,
                 modifier = Modifier.size(22.dp),
                 tint = MaterialTheme.colorScheme.error,

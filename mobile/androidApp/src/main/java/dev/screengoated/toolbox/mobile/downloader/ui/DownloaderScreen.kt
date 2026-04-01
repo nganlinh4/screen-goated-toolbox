@@ -20,13 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -85,7 +80,7 @@ fun DownloaderScreen(
                 title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
+                        Icon(painterResource(R.drawable.ms_arrow_back), contentDescription = null)
                     }
                 },
                 actions = {
@@ -111,7 +106,7 @@ fun DownloaderScreen(
                                 } catch (_: Exception) {}
                             },
                         ) {
-                            Icon(Icons.Rounded.Folder, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(painterResource(R.drawable.ms_folder), contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 text = dlDisplayPath,
@@ -126,12 +121,12 @@ fun DownloaderScreen(
                         var menuExpanded by remember { mutableStateOf(false) }
                         Box {
                             IconButton(onClick = { menuExpanded = true }) {
-                                Icon(Icons.Rounded.Settings, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Icon(painterResource(R.drawable.ms_settings), contentDescription = null, modifier = Modifier.size(20.dp))
                             }
                             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                                 DropdownMenuItem(
                                     text = { Text(locale.dlChangeFolder) },
-                                    leadingIcon = { Icon(Icons.Rounded.Folder, contentDescription = null, Modifier.size(18.dp)) },
+                                    leadingIcon = { Icon(painterResource(R.drawable.ms_folder), contentDescription = null, Modifier.size(18.dp)) },
                                     onClick = {
                                         menuExpanded = false
                                         folderPicker.launch(null)
@@ -139,7 +134,7 @@ fun DownloaderScreen(
                                 )
                                 DropdownMenuItem(
                                     text = { Text(locale.dlDeleteDeps + " (${viewModel.totalDepsSize()})", color = MaterialTheme.colorScheme.error) },
-                                    leadingIcon = { Icon(Icons.Rounded.Close, contentDescription = null, Modifier.size(18.dp)) },
+                                    leadingIcon = { Icon(painterResource(R.drawable.ms_close), contentDescription = null, Modifier.size(18.dp)) },
                                     onClick = {
                                         menuExpanded = false
                                         viewModel.deleteTools()
@@ -213,7 +208,7 @@ private fun ToolInstallSection(
                 .widthIn(max = 460.dp),
         ) {
             UtilityHeaderRow(
-                icon = Icons.Rounded.Download,
+                icon = R.drawable.ms_person_play,
                 title = locale.dlDepsRequired,
                 accent = MaterialTheme.colorScheme.primary,
                 supporting = locale.shellDownloadedToolsLabel,
@@ -237,7 +232,7 @@ private fun ToolInstallSection(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Icon(
-                            Icons.Rounded.Download,
+                            painterResource(R.drawable.ms_download),
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.primary,
@@ -327,13 +322,13 @@ private fun TabStrip(
                         onClick = { onTabClose(idx) },
                         modifier = Modifier.size(16.dp),
                     ) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Close", modifier = Modifier.size(12.dp))
+                        Icon(painterResource(R.drawable.ms_close), contentDescription = "Close", modifier = Modifier.size(12.dp))
                     }
                 },
             )
         }
         IconButton(onClick = onAddTab, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Rounded.Add, contentDescription = "New tab", modifier = Modifier.size(18.dp))
+            Icon(painterResource(R.drawable.ms_add), contentDescription = "New tab", modifier = Modifier.size(18.dp))
         }
     }
 }

@@ -21,11 +21,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material.icons.rounded.StarOutline
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -323,7 +320,7 @@ internal fun ToolCategoryRow(
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
-                                preset.icon,
+                                painterResource(preset.icon),
                                 contentDescription = null,
                                 tint = accentColor,
                                 modifier = Modifier.size(24.dp),
@@ -350,7 +347,7 @@ internal fun ToolCategoryRow(
                             ),
                     ) {
                         Icon(
-                            imageVector = if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarOutline,
+                            painter = painterResource(if (isFavorite) R.drawable.ms_star else R.drawable.ms_star_outline),
                             contentDescription = null,
                             tint = if (isFavorite) MaterialTheme.sgtColors.favoriteStar else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -369,7 +366,7 @@ internal fun ToolCategoryRow(
                             ),
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.ContentCopy,
+                            painter = painterResource(R.drawable.ms_content_copy),
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                         )
@@ -388,7 +385,7 @@ internal fun ToolCategoryRow(
                             ),
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.Delete,
+                            painter = painterResource(R.drawable.ms_delete),
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.error,
                         )

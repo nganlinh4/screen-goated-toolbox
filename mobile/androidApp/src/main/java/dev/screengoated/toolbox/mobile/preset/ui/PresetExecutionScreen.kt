@@ -16,11 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.Send
-import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -69,7 +66,7 @@ fun PresetExecutionScreen(
                         presetRepository.resetState()
                         onBack()
                     }) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
+                        Icon(painterResource(R.drawable.ms_arrow_back), contentDescription = null)
                     }
                 },
             )
@@ -144,7 +141,7 @@ private fun TextInputPresetContent(
                     onClick = { onExecute(inputText) },
                     enabled = inputText.isNotBlank() && !state.isExecuting,
                 ) {
-                    Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = "Send")
+                    Icon(painterResource(R.drawable.ms_send), contentDescription = "Send")
                 }
             },
         )
@@ -191,7 +188,7 @@ private fun TextSelectPresetContent(
                 onClick = { onExecute(inputText) },
                 enabled = inputText.isNotBlank() && !state.isExecuting,
             ) {
-                Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = null, Modifier.size(16.dp))
+                Icon(painterResource(R.drawable.ms_send), contentDescription = null, Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("Process")
             }
@@ -247,7 +244,7 @@ private fun ResultArea(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (state.isExecuting) {
                         FilledTonalButton(onClick = onCancel) {
-                            Icon(Icons.Rounded.Stop, contentDescription = null, Modifier.size(16.dp))
+                            Icon(painterResource(R.drawable.ms_stop), contentDescription = null, Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("Stop")
                         }
@@ -256,7 +253,7 @@ private fun ResultArea(
                         FilledTonalButton(onClick = {
                             clipboard.setText(AnnotatedString(combinedText))
                         }) {
-                            Icon(Icons.Rounded.ContentCopy, contentDescription = null, Modifier.size(16.dp))
+                            Icon(painterResource(R.drawable.ms_content_copy), contentDescription = null, Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("Copy")
                         }

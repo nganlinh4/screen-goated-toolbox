@@ -373,7 +373,7 @@ dependencies {
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.foundation)
-    implementation(libs.androidx.compose.material.icons.extended)
+    // material-icons-extended removed — replaced by Material Symbols vector drawables (res/drawable/ms_*.xml)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.graphics.shapes)
     implementation(libs.androidx.compose.ui)

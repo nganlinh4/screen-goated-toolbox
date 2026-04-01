@@ -13,13 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.rounded.ArrowDropDown
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.SettingsVoice
-import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.DropdownMenu
@@ -62,7 +57,7 @@ internal fun EdgeTtsSection(
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.primary) {
             UtilityHeaderRow(
-                icon = Icons.Rounded.SettingsVoice,
+                icon = R.drawable.ms_settings_voice,
                 title = locale.ttsEdgeTitle,
                 accent = MaterialTheme.colorScheme.primary,
                 supporting = locale.ttsEdgeDesc,
@@ -114,7 +109,7 @@ private fun EdgeVoiceRoutingCard(
 
     ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.secondary) {
         UtilityHeaderRow(
-            icon = Icons.Rounded.SettingsVoice,
+            icon = R.drawable.ms_settings_voice,
             title = locale.ttsVoicePerLanguageLabel,
             accent = MaterialTheme.colorScheme.secondary,
         )
@@ -143,7 +138,7 @@ private fun EdgeVoiceRoutingCard(
                     accent = MaterialTheme.colorScheme.error,
                     onClick = onRetryCatalog,
                 ) {
-                    Icon(Icons.Rounded.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                    Icon(painterResource(R.drawable.ms_refresh), contentDescription = null, tint = MaterialTheme.colorScheme.error)
                 }
             }
         }
@@ -193,7 +188,7 @@ private fun EdgeVoiceRoutingCard(
                         onClick = { onChanged(MobileEdgeTtsSettings()) },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(painterResource(R.drawable.ms_refresh), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             } else {
@@ -214,7 +209,7 @@ private fun EdgeVoiceRoutingCard(
                         accent = MaterialTheme.colorScheme.primary,
                         onClick = { onChanged(MobileEdgeTtsSettings()) },
                     ) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(painterResource(R.drawable.ms_refresh), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -316,10 +311,10 @@ private fun EdgeVoiceConfigRow(
                         modifier = Modifier.weight(1f),
                     )
                     IconButton(onClick = onPreview) {
-                        Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = locale.ttsVoiceLabel)
+                        Icon(painterResource(R.drawable.ms_volume_up), contentDescription = locale.ttsVoiceLabel)
                     }
                     IconButton(onClick = onRemove) {
-                        Icon(Icons.Rounded.Close, contentDescription = locale.removeLabel)
+                        Icon(painterResource(R.drawable.ms_close), contentDescription = locale.removeLabel)
                     }
                 }
             }
@@ -335,7 +330,7 @@ private fun EdgeVoiceConfigRow(
             ) {
                 ConditionLanguageLabel(config.languageName, Modifier.width(138.dp))
                 Icon(
-                    Icons.AutoMirrored.Rounded.ArrowForward,
+                    painterResource(R.drawable.ms_arrow_forward),
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -349,10 +344,10 @@ private fun EdgeVoiceConfigRow(
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onPreview) {
-                    Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = locale.ttsVoiceLabel)
+                    Icon(painterResource(R.drawable.ms_volume_up), contentDescription = locale.ttsVoiceLabel)
                 }
                 IconButton(onClick = onRemove) {
-                    Icon(Icons.Rounded.Close, contentDescription = locale.removeLabel)
+                    Icon(painterResource(R.drawable.ms_close), contentDescription = locale.removeLabel)
                 }
             }
         }
@@ -381,7 +376,7 @@ private fun EdgeVoiceSelector(
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
             )
-            Icon(Icons.Rounded.ArrowDropDown, contentDescription = locale.ttsVoiceLabel)
+            Icon(painterResource(R.drawable.ms_arrow_drop_down), contentDescription = locale.ttsVoiceLabel)
         }
         DropdownMenu(
             expanded = expanded,

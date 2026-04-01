@@ -25,14 +25,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.rounded.RemoveRedEye
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -207,7 +201,7 @@ internal fun InputNodeBody(
 
     // Show overlay toggle
     SheetSwitchRow(
-        icon = Icons.Rounded.RemoveRedEye,
+        icon = R.drawable.ms_visibility,
         label = l(lang, "Show overlay", "Hiện overlay", "오버레이 표시"),
         checked = block.showOverlay,
         onCheckedChange = { onUpdate(block.copy(showOverlay = it)) },
@@ -227,7 +221,7 @@ internal fun InputNodeBody(
     // Auto-copy: text input = locked ON; image = toggleable; audio = hidden
     if (!isAudio) {
         SheetSwitchRow(
-            icon = Icons.Rounded.ContentCopy,
+            icon = R.drawable.ms_content_copy,
             label = if (isTextInput) {
                 l(lang, "Auto-copy (always on)", "Tự sao chép (luôn bật)", "자동 복사 (항상 켜짐)")
             } else {
@@ -245,7 +239,7 @@ internal fun InputNodeBody(
     // Auto-speak: only for text input presets
     if (isTextInput) {
         SheetSwitchRow(
-            icon = Icons.Rounded.VolumeUp,
+            icon = R.drawable.ms_volume_up,
             label = l(lang, "Auto-speak", "Tự phát âm", "자동 말하기"),
             checked = block.autoSpeak,
             onCheckedChange = { onUpdate(block.copy(autoSpeak = it)) },
@@ -315,7 +309,7 @@ internal fun ProcessNodeBody(
     SheetLabel(l(lang, "Display", "Hiển thị", "표시"))
 
     SheetSwitchRow(
-        icon = Icons.Rounded.RemoveRedEye,
+        icon = R.drawable.ms_visibility,
         label = l(lang, "Show overlay", "Hiện overlay", "오버레이 표시"),
         checked = block.showOverlay,
         onCheckedChange = { onUpdate(block.copy(showOverlay = it)) },
@@ -336,14 +330,14 @@ internal fun ProcessNodeBody(
     SheetLabel(l(lang, "Auto behaviors", "Hành vi tự động", "자동 동작"))
 
     SheetSwitchRow(
-        icon = Icons.Rounded.ContentCopy,
+        icon = R.drawable.ms_content_copy,
         label = l(lang, "Auto-copy", "Tự sao chép", "자동 복사"),
         checked = block.autoCopy,
         onCheckedChange = { onUpdate(block.copy(autoCopy = it)) },
     )
 
     SheetSwitchRow(
-        icon = Icons.Rounded.VolumeUp,
+        icon = R.drawable.ms_volume_up,
         label = l(lang, "Auto-speak", "Tự phát âm", "자동 말하기"),
         checked = block.autoSpeak,
         onCheckedChange = { onUpdate(block.copy(autoSpeak = it)) },
@@ -391,7 +385,7 @@ internal fun ModelSelectorSection(
                     modifier = Modifier.weight(1f),
                 )
                 Icon(
-                    if (showPicker) Icons.Rounded.Close else Icons.Rounded.Search,
+                    painterResource(if (showPicker) R.drawable.ms_close else R.drawable.ms_search),
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -413,7 +407,7 @@ internal fun ModelSelectorSection(
                     singleLine = true,
                     placeholder = { Text(l(lang, "Search models...", "Tìm model...", "모델 검색...")) },
                     leadingIcon = {
-                        Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(painterResource(R.drawable.ms_search), contentDescription = null, modifier = Modifier.size(18.dp))
                     },
                 )
 
@@ -521,7 +515,7 @@ internal fun PromptEditorSection(
                     onUpdate(block.copy(prompt = newPrompt, languageVars = newVars))
                 },
             ) {
-                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(painterResource(R.drawable.ms_add), contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(
                     l(lang, "+ Language", "+ Ngôn ngữ", "+ 언어"),
@@ -557,7 +551,7 @@ internal fun LanguageVariablesSection(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                Icons.Rounded.Language,
+                painterResource(R.drawable.ms_language),
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.tertiary,
@@ -631,7 +625,7 @@ internal fun LanguageVariableRow(
 
             IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
                 Icon(
-                    Icons.Rounded.Close,
+                    painterResource(R.drawable.ms_close),
                     contentDescription = l(lang, "Remove", "Xóa", "삭제"),
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.error,
@@ -655,7 +649,7 @@ internal fun LanguageVariableRow(
                     singleLine = true,
                     placeholder = { Text(l(lang, "Search languages...", "Tìm ngôn ngữ...", "언어 검색...")) },
                     leadingIcon = {
-                        Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(painterResource(R.drawable.ms_search), contentDescription = null, modifier = Modifier.size(16.dp))
                     },
                 )
 
@@ -764,7 +758,7 @@ internal fun SheetLabel(text: String) {
 
 @Composable
 internal fun SheetSwitchRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    @androidx.annotation.DrawableRes icon: Int,
     label: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
@@ -775,7 +769,7 @@ internal fun SheetSwitchRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            icon,
+            painterResource(icon),
             contentDescription = null,
             modifier = Modifier.size(20.dp),
             tint = if (checked) MaterialTheme.colorScheme.primary

@@ -20,9 +20,9 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.annotation.DrawableRes
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -40,7 +40,6 @@ import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
@@ -100,7 +99,7 @@ internal fun ExpressiveSettingsCard(
 @Composable
 internal fun ExpressiveSettingsHeader(
     title: String,
-    icon: ImageVector,
+    @DrawableRes icon: Int,
     accent: Color,
     supporting: String? = null,
 ) {
@@ -115,7 +114,7 @@ internal fun ExpressiveSettingsHeader(
             contentAlignment = Alignment.Center,
         ) {
             GradientMaskedIcon(
-                imageVector = icon,
+                iconRes = icon,
                 brush = Brush.linearGradient(listOf(accent, MaterialTheme.colorScheme.primary)),
                 modifier = Modifier.size(20.dp),
             )
@@ -192,7 +191,7 @@ internal fun ExpressiveSettingsInsetCard(
 @Composable
 internal fun ExpressiveProviderToggleChip(
     text: String,
-    icon: ImageVector,
+    @DrawableRes icon: Int,
     accent: Color,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
@@ -280,7 +279,7 @@ internal fun ExpressiveProviderToggleChip(
                 modifier = Modifier.size(30.dp),
             ) {
                 Icon(
-                    imageVector = icon,
+                    painter = painterResource(icon),
                     contentDescription = null,
                     tint = contentColor,
                     modifier = Modifier.size(15.dp),
@@ -401,7 +400,7 @@ internal fun MorphingVisibilityToggleButton(
             ),
     ) {
         Icon(
-            imageVector = if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+            painter = painterResource(if (visible) R.drawable.ms_visibility_off else R.drawable.ms_visibility),
             contentDescription = null,
             tint = iconTint,
             modifier = Modifier.padding(8.dp),

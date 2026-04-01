@@ -21,8 +21,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -37,7 +37,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -52,7 +51,7 @@ internal val DialogCloseMorphPair = ExpressiveMorphPair(
 @Composable
 internal fun ExpressiveDialogSurface(
     title: String,
-    icon: ImageVector,
+    @androidx.annotation.DrawableRes icon: Int,
     accent: Color,
     morphPair: ExpressiveMorphPair,
     onDismiss: () -> Unit,
@@ -136,7 +135,7 @@ internal fun ExpressiveDialogSurface(
                             modifier = Modifier.size(46.dp),
                         ) {
                             Icon(
-                                imageVector = icon,
+                                painter = painterResource(icon),
                                 contentDescription = null,
                                 tint = accent,
                                 modifier = Modifier.size(22.dp),
@@ -267,7 +266,7 @@ private fun ExpressiveDialogCloseButton(
             ),
     ) {
         Icon(
-            imageVector = Icons.Rounded.Close,
+            painter = painterResource(R.drawable.ms_close),
             contentDescription = null,
             tint = lerp(
                 MaterialTheme.colorScheme.onSurfaceVariant,

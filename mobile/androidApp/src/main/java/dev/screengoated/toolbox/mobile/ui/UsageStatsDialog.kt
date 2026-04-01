@@ -10,12 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Bolt
-import androidx.compose.material.icons.rounded.Computer
-import androidx.compose.material.icons.rounded.LocalFireDepartment
-import androidx.compose.material.icons.rounded.Public
+import androidx.annotation.DrawableRes
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
@@ -25,7 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
@@ -39,7 +35,7 @@ import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 private data class ProviderSection(
     val name: String,
-    val icon: ImageVector,
+    @DrawableRes val icon: Int,
     val providerMatch: (PresetModelProvider) -> Boolean,
     val enabled: Boolean,
     val dashboardUrl: String? = null,
@@ -61,34 +57,34 @@ internal fun UsageStatsDialog(
     val sections = listOf(
         ProviderSection(
             name = "Groq",
-            icon = Icons.Rounded.Bolt,
+            icon = R.drawable.ms_electric_bolt,
             providerMatch = { it == PresetModelProvider.GROQ },
             enabled = providerSettings.useGroq,
         ),
         ProviderSection(
             name = "Cerebras",
-            icon = Icons.Rounded.LocalFireDepartment,
+            icon = R.drawable.ms_local_fire_department,
             providerMatch = { it == PresetModelProvider.CEREBRAS },
             enabled = providerSettings.useCerebras,
             dashboardUrl = "https://cloud.cerebras.ai/",
         ),
         ProviderSection(
             name = "Google Gemini",
-            icon = Icons.Rounded.AutoAwesome,
+            icon = R.drawable.ms_auto_awesome,
             providerMatch = { it == PresetModelProvider.GOOGLE || it == PresetModelProvider.GEMINI_LIVE },
             enabled = providerSettings.useGemini,
             dashboardUrl = "https://aistudio.google.com/usage?timeRange=last-1-day&tab=rate-limit",
         ),
         ProviderSection(
             name = "OpenRouter",
-            icon = Icons.Rounded.Public,
+            icon = R.drawable.ms_public,
             providerMatch = { it == PresetModelProvider.OPENROUTER },
             enabled = providerSettings.useOpenRouter,
             dashboardUrl = "https://openrouter.ai/activity",
         ),
         ProviderSection(
             name = "Ollama",
-            icon = Icons.Rounded.Computer,
+            icon = R.drawable.ms_terminal,
             providerMatch = { it == PresetModelProvider.OLLAMA },
             enabled = providerSettings.useOllama,
         ),
@@ -96,7 +92,7 @@ internal fun UsageStatsDialog(
 
     ExpressiveDialogSurface(
         title = locale.usageStatsTitle,
-        icon = Icons.Rounded.AutoAwesome,
+        icon = R.drawable.ms_auto_awesome,
         accent = MaterialTheme.colorScheme.primary,
         morphPair = ExpressiveMorphPair(MaterialShapes.Oval, MaterialShapes.Gem),
         onDismiss = onDismiss,
@@ -143,7 +139,7 @@ internal fun UsageStatsDialog(
                             modifier = Modifier.size(40.dp),
                         ) {
                             Icon(
-                                imageVector = section.icon,
+                                painter = painterResource(section.icon),
                                 contentDescription = null,
                                 tint = accent,
                                 modifier = Modifier.size(18.dp),

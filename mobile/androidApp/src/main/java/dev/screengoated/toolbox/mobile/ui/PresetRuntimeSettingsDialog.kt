@@ -20,18 +20,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Bolt
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Computer
-import androidx.compose.material.icons.rounded.DragIndicator
-import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.LocalFireDepartment
-import androidx.compose.material.icons.rounded.Public
-import androidx.compose.material.icons.rounded.RestartAlt
-import androidx.compose.material.icons.rounded.Translate
-import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -51,7 +41,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -69,15 +58,16 @@ import kotlin.math.roundToInt
 
 private const val PRESET_RUNTIME_DRAG_LOG_TAG = "PresetRuntimeDrag"
 
-private fun providerIcon(provider: PresetModelProvider): ImageVector = when (provider) {
-    PresetModelProvider.GOOGLE, PresetModelProvider.GEMINI_LIVE -> Icons.Rounded.AutoAwesome
-    PresetModelProvider.GOOGLE_GTX -> Icons.Rounded.Translate
-    PresetModelProvider.GROQ -> Icons.Rounded.Bolt
-    PresetModelProvider.CEREBRAS -> Icons.Rounded.LocalFireDepartment
-    PresetModelProvider.OPENROUTER -> Icons.Rounded.Public
-    PresetModelProvider.OLLAMA -> Icons.Rounded.Computer
-    PresetModelProvider.TAALAS -> Icons.Rounded.AutoAwesome
-    else -> Icons.Rounded.AutoAwesome
+@androidx.annotation.DrawableRes
+private fun providerIcon(provider: PresetModelProvider): Int = when (provider) {
+    PresetModelProvider.GOOGLE, PresetModelProvider.GEMINI_LIVE -> R.drawable.ms_auto_awesome
+    PresetModelProvider.GOOGLE_GTX -> R.drawable.ms_translate
+    PresetModelProvider.GROQ -> R.drawable.ms_electric_bolt
+    PresetModelProvider.CEREBRAS -> R.drawable.ms_local_fire_department
+    PresetModelProvider.OPENROUTER -> R.drawable.ms_public
+    PresetModelProvider.OLLAMA -> R.drawable.ms_terminal
+    PresetModelProvider.TAALAS -> R.drawable.ms_auto_awesome
+    else -> R.drawable.ms_auto_awesome
 }
 
 @Composable
@@ -95,7 +85,7 @@ fun PresetRuntimeSettingsDialog(
     if (showHelpDialog) {
         ExpressiveDialogSurface(
             title = locale.presetRuntimeTitle,
-            icon = Icons.Rounded.Info,
+            icon = R.drawable.ms_info,
             accent = MaterialTheme.colorScheme.primary,
             morphPair = ExpressiveMorphPair(
                 MaterialShapes.Circle,
@@ -125,7 +115,7 @@ fun PresetRuntimeSettingsDialog(
 
     ExpressiveDialogSurface(
         title = locale.presetRuntimeTitle,
-        icon = Icons.Rounded.Settings,
+        icon = R.drawable.ms_settings,
         accent = MaterialTheme.colorScheme.primary,
         morphPair = ExpressiveMorphPair(
             MaterialShapes.Square,
@@ -139,7 +129,7 @@ fun PresetRuntimeSettingsDialog(
         fitContentHeight = true,
         headerTrailing = {
             IconButton(onClick = { showHelpDialog = true }) {
-                Icon(Icons.Rounded.Info, contentDescription = locale.presetRuntimeDescription)
+                Icon(painterResource(R.drawable.ms_info), contentDescription = locale.presetRuntimeDescription)
             }
         },
     ) {
@@ -240,12 +230,12 @@ private fun ChainEditor(
         modifier = Modifier.fillMaxWidth(),
     ) {
         UtilityHeaderRow(
-            icon = if (modelType == PresetModelType.VISION) Icons.Rounded.AutoAwesome else Icons.Rounded.Translate,
+            icon = if (modelType == PresetModelType.VISION) R.drawable.ms_auto_awesome else R.drawable.ms_translate,
             title = title,
             accent = accent,
             trailing = {
                 TextButton(onClick = { onChainChanged(defaultChain) }) {
-                    Icon(Icons.Rounded.RestartAlt, null, modifier = Modifier.size(16.dp), tint = accent)
+                    Icon(painterResource(R.drawable.ms_settings_backup_restore), null, modifier = Modifier.size(16.dp), tint = accent)
                     Spacer(Modifier.width(6.dp))
                     Text(locale.presetRuntimeRestoreDefault, color = accent)
                 }
@@ -473,7 +463,7 @@ private fun ModelPill(
                 "handle_bound modelId=$modelId isDragging=$isDragging",
             )
             Icon(
-                Icons.Rounded.DragIndicator,
+                painterResource(R.drawable.ms_drag_indicator),
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
                 tint = accent,
@@ -489,7 +479,7 @@ private fun ModelPill(
         Box(modifier = Modifier.weight(1f)) {
             TextButton(onClick = { showDropdown = true }, modifier = Modifier.fillMaxWidth()) {
                 if (descriptor != null) {
-                    Icon(providerIcon(descriptor.provider), null, modifier = Modifier.size(16.dp), tint = accent)
+                    Icon(painterResource(providerIcon(descriptor.provider)), null, modifier = Modifier.size(16.dp), tint = accent)
                     Spacer(Modifier.width(4.dp))
                 }
                 Text(
@@ -509,7 +499,7 @@ private fun ModelPill(
             }
         }
         IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
-            Icon(Icons.Rounded.Close, null, modifier = Modifier.size(14.dp))
+            Icon(painterResource(R.drawable.ms_close), null, modifier = Modifier.size(14.dp))
         }
     }
 }
@@ -518,7 +508,7 @@ private fun ModelPill(
 private fun ModelDropdownItem(model: PresetModelDescriptor, uiLanguage: String, onClick: () -> Unit) {
     DropdownMenuItem(
         leadingIcon = {
-            Icon(providerIcon(model.provider), null, modifier = Modifier.size(18.dp))
+            Icon(painterResource(providerIcon(model.provider)), null, modifier = Modifier.size(18.dp))
         },
         text = {
             Column {

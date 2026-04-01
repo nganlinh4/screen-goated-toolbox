@@ -17,19 +17,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.automirrored.rounded.OpenInNew
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.ContentPaste
-import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.ExpandLess
-import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
@@ -92,7 +81,7 @@ internal fun FolderBar(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Rounded.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
+        Icon(painterResource(R.drawable.ms_folder), contentDescription = null, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(6.dp))
         Text(
             path,
@@ -104,12 +93,12 @@ internal fun FolderBar(
         )
         Box {
             IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Rounded.Settings, contentDescription = "Settings", modifier = Modifier.size(16.dp))
+                Icon(painterResource(R.drawable.ms_settings), contentDescription = "Settings", modifier = Modifier.size(16.dp))
             }
             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                 DropdownMenuItem(
                     text = { Text(changeFolderLabel) },
-                    leadingIcon = { Icon(Icons.Rounded.Folder, contentDescription = null, Modifier.size(18.dp)) },
+                    leadingIcon = { Icon(painterResource(R.drawable.ms_folder), contentDescription = null, Modifier.size(18.dp)) },
                     onClick = {
                         menuExpanded = false
                         onChangeFolder()
@@ -117,7 +106,7 @@ internal fun FolderBar(
                 )
                 DropdownMenuItem(
                     text = { Text("$deleteDepsLabel ($depsSize)", color = MaterialTheme.colorScheme.error) },
-                    leadingIcon = { Icon(Icons.Rounded.Close, contentDescription = null, Modifier.size(18.dp)) },
+                    leadingIcon = { Icon(painterResource(R.drawable.ms_close), contentDescription = null, Modifier.size(18.dp)) },
                     onClick = {
                         menuExpanded = false
                         onDeleteDeps()
@@ -150,7 +139,7 @@ internal fun SessionContent(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         UtilityExpressiveCard(accent = sourceAccent) {
             UtilityHeaderRow(
-                icon = Icons.Rounded.Download,
+                icon = R.drawable.ms_link,
                 title = locale.dlUrlLabel,
                 accent = sourceAccent,
                 supporting = if (session.downloadType == DownloadType.VIDEO) {
@@ -171,7 +160,7 @@ internal fun SessionContent(
                     Row {
                         if (session.inputUrl.isNotEmpty()) {
                             IconButton(onClick = { viewModel.updateUrl("") }) {
-                                Icon(Icons.Rounded.Close, contentDescription = "Clear", modifier = Modifier.size(20.dp))
+                                Icon(painterResource(R.drawable.ms_close), contentDescription = "Clear", modifier = Modifier.size(20.dp))
                             }
                         }
                         FilledTonalIconButton(
@@ -191,7 +180,7 @@ internal fun SessionContent(
                                 .graphicsLayer { rotationZ = 90f },
                         ) {
                             Icon(
-                                Icons.Rounded.ContentPaste,
+                                painterResource(R.drawable.ms_content_paste),
                                 contentDescription = "Paste",
                                 modifier = Modifier.graphicsLayer { rotationZ = -90f },
                             )
@@ -207,7 +196,7 @@ internal fun SessionContent(
                     shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
                     modifier = Modifier.weight(1f).semantics { role = Role.RadioButton },
                 ) {
-                    Icon(Icons.Rounded.Videocam, contentDescription = null, Modifier.size(16.dp))
+                    Icon(painterResource(R.drawable.ms_videocam), contentDescription = null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(locale.dlVideoLabel)
                 }
@@ -217,7 +206,7 @@ internal fun SessionContent(
                     shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
                     modifier = Modifier.weight(1f).semantics { role = Role.RadioButton },
                 ) {
-                    Icon(Icons.Rounded.MusicNote, contentDescription = null, Modifier.size(16.dp))
+                    Icon(painterResource(R.drawable.ms_music_note), contentDescription = null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(locale.dlAudioLabel)
                 }
@@ -247,7 +236,7 @@ internal fun SessionContent(
         if (hasQuality || hasSubs) {
             UtilityExpressiveCard(accent = MaterialTheme.colorScheme.secondary) {
                 UtilityHeaderRow(
-                    icon = Icons.Rounded.Settings,
+                    icon = R.drawable.ms_tune,
                     title = locale.dlAdvanced,
                     accent = MaterialTheme.colorScheme.secondary,
                     supporting = listOfNotNull(
@@ -314,7 +303,7 @@ internal fun SessionContent(
                     enabled = session.inputUrl.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Icon(Icons.Rounded.Download, contentDescription = null, Modifier.size(18.dp))
+                    Icon(painterResource(R.drawable.ms_download), contentDescription = null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(if (session.isAnalyzing) locale.dlStartNowBtn else locale.dlStartBtn)
                 }
@@ -344,7 +333,7 @@ internal fun SessionContent(
                         onClick = { viewModel.cancelDownload() },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Icon(Icons.Rounded.Stop, contentDescription = null, Modifier.size(16.dp))
+                        Icon(painterResource(R.drawable.ms_stop), contentDescription = null, Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
                         Text(locale.dlCancel)
                     }
@@ -371,7 +360,7 @@ internal fun SessionContent(
                                     ),
                             ) {
                                 Icon(
-                                    Icons.Rounded.Check,
+                                    painterResource(R.drawable.ms_check),
                                     contentDescription = null,
                                     modifier = Modifier.size(18.dp),
                                     tint = MaterialTheme.colorScheme.onTertiary,
@@ -412,7 +401,7 @@ internal fun SessionContent(
                                     } catch (_: Exception) {}
                                 }
                             }) {
-                                Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, Modifier.size(16.dp))
+                                Icon(painterResource(R.drawable.ms_open_in_new), contentDescription = null, Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
                                 Text(locale.dlOpenFile)
                             }
@@ -444,7 +433,7 @@ internal fun SessionContent(
                                     }
                                 }
                             }) {
-                                Icon(Icons.Rounded.Folder, contentDescription = null, Modifier.size(16.dp))
+                                Icon(painterResource(R.drawable.ms_folder), contentDescription = null, Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
                                 Text(locale.dlOpenFolder)
                             }
@@ -494,7 +483,7 @@ internal fun DropdownSelector(
             Text("$label $selected", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.width(4.dp))
             Icon(
-                if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                painterResource(if (expanded) R.drawable.ms_expand_less else R.drawable.ms_expand_more),
                 contentDescription = null,
                 Modifier.size(16.dp),
             )
@@ -533,12 +522,12 @@ internal fun AdvancedSection(
     var expanded by remember { mutableStateOf(false) }
     Column {
         OutlinedButton(onClick = { expanded = !expanded }) {
-            Icon(Icons.Rounded.Settings, contentDescription = null, Modifier.size(14.dp))
+            Icon(painterResource(R.drawable.ms_settings), contentDescription = null, Modifier.size(14.dp))
             Spacer(Modifier.width(4.dp))
             Text(locale.dlAdvanced, style = MaterialTheme.typography.labelSmall)
             Spacer(Modifier.width(2.dp))
             Icon(
-                if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                painterResource(if (expanded) R.drawable.ms_expand_less else R.drawable.ms_expand_more),
                 contentDescription = null,
                 Modifier.size(14.dp),
             )

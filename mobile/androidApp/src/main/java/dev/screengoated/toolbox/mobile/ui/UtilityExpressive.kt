@@ -29,7 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -62,7 +62,7 @@ internal fun UtilityExpressiveCard(
 
 @Composable
 internal fun UtilityHeaderRow(
-    icon: ImageVector,
+    @androidx.annotation.DrawableRes icon: Int,
     title: String,
     accent: Color,
     supporting: String? = null,
@@ -82,7 +82,7 @@ internal fun UtilityHeaderRow(
             modifier = Modifier.size(40.dp),
         ) {
             Icon(
-                imageVector = icon,
+                painter = painterResource(icon),
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
                 tint = accent,

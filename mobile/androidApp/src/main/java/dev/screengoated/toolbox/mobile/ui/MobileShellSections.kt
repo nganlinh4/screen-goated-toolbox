@@ -37,61 +37,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.HelpOutline
-import androidx.compose.material.icons.automirrored.rounded.Note
-import androidx.compose.material.icons.automirrored.rounded.TextSnippet
-import androidx.compose.material.icons.automirrored.rounded.VolumeUp
-import androidx.compose.material.icons.rounded.Apps
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.AutoFixHigh
-import androidx.compose.material.icons.rounded.BarChart
-import androidx.compose.material.icons.rounded.SwapHoriz
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.CameraAlt
-import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material.icons.rounded.StarOutline
-import androidx.compose.material.icons.rounded.ContentCut
-import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.FiberSmartRecord
-import androidx.compose.material.icons.rounded.FormatQuote
-import androidx.compose.material.icons.rounded.GTranslate
-import androidx.compose.material.icons.rounded.Gamepad
-import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.Keyboard
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.GridView
-import androidx.compose.material.icons.rounded.Hearing
-import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.ImageSearch
-import androidx.compose.material.icons.rounded.Lightbulb
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.PhotoCamera
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.QrCodeScanner
-import androidx.compose.material.icons.rounded.QuestionAnswer
-import androidx.compose.material.icons.rounded.RecordVoiceOver
-import androidx.compose.material.icons.rounded.School
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.SmartToy
-import androidx.compose.material.icons.rounded.Spellcheck
-import androidx.compose.material.icons.rounded.SpeakerPhone
-import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.Summarize
-import androidx.compose.material.icons.rounded.TableChart
-import androidx.compose.material.icons.rounded.TextFields
-import androidx.compose.material.icons.rounded.Translate
-import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.VoiceChat
-import androidx.compose.material.icons.rounded.Verified
+import androidx.annotation.DrawableRes
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
@@ -127,7 +73,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -140,7 +85,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Matrix
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -153,6 +98,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
+import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.history.HistoryUiState
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
@@ -162,7 +108,7 @@ import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
 
-internal enum class MobileShellSection(val icon: ImageVector) { APPS(Icons.Rounded.GridView), TOOLS(Icons.Rounded.Apps), SETTINGS(Icons.Rounded.Settings), HISTORY(Icons.Rounded.History);
+internal enum class MobileShellSection(@DrawableRes val icon: Int) { APPS(R.drawable.ms_grid_view), TOOLS(R.drawable.ms_apps), SETTINGS(R.drawable.ms_settings), HISTORY(R.drawable.ms_history);
     fun label(locale: MobileLocaleText): String = when (this) {
         APPS -> locale.shellAppsLabel
         TOOLS -> locale.shellToolsLabel
@@ -250,7 +196,7 @@ internal fun SectionSegmentedRow(
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Icon(
-                                        section.icon,
+                                        painterResource(section.icon),
                                         contentDescription = null,
                                         modifier = Modifier.size(16.dp),
                                     )
@@ -349,14 +295,14 @@ internal fun ShellRail(
 private fun ShellRailItem(
     selected: Boolean,
     onClick: () -> Unit,
-    icon: ImageVector,
+    @DrawableRes icon: Int,
     label: String,
     description: String,
 ) {
     WideNavigationRailItem(
         selected = selected,
         onClick = onClick,
-        icon = { Icon(icon, contentDescription = null) },
+        icon = { Icon(painterResource(icon), contentDescription = null) },
         label = {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(label)
@@ -381,7 +327,7 @@ internal fun QuickActionsRow(locale: MobileLocaleText) {
         UtilityTile(
             label = locale.shellDownloadedToolsLabel,
             description = locale.shellDownloadedToolsDescription,
-            icon = Icons.Rounded.Download,
+            icon = R.drawable.ms_person_play,
             brush = Brush.linearGradient(
                 listOf(
                     MaterialTheme.colorScheme.secondary,
@@ -393,7 +339,7 @@ internal fun QuickActionsRow(locale: MobileLocaleText) {
         UtilityTile(
             label = locale.shellHelpLabel,
             description = locale.shellHelpDescription,
-            icon = Icons.AutoMirrored.Rounded.HelpOutline,
+            icon = R.drawable.ms_auto_stories,
             brush = Brush.linearGradient(
                 listOf(
                     MaterialTheme.colorScheme.tertiary,
@@ -409,7 +355,7 @@ internal fun QuickActionsRow(locale: MobileLocaleText) {
 private fun UtilityTile(
     label: String,
     description: String,
-    icon: ImageVector,
+    @DrawableRes icon: Int,
     brush: Brush,
     modifier: Modifier = Modifier,
 ) {

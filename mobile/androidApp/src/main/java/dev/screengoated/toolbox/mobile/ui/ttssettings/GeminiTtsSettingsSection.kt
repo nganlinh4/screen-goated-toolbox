@@ -12,12 +12,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.automirrored.rounded.VolumeUp
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -67,7 +63,7 @@ internal fun GeminiLiveModelAndVoiceOnly(
         )
         ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.tertiary) {
             UtilityHeaderRow(
-                icon = Icons.AutoMirrored.Rounded.VolumeUp,
+                icon = R.drawable.ms_volume_up,
                 title = locale.ttsVoiceLabel,
                 accent = MaterialTheme.colorScheme.tertiary,
             )
@@ -125,7 +121,7 @@ internal fun GeminiLiveSection(
 
         ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.tertiary) {
             UtilityHeaderRow(
-                icon = Icons.AutoMirrored.Rounded.VolumeUp,
+                icon = R.drawable.ms_volume_up,
                 title = locale.ttsVoiceLabel,
                 accent = MaterialTheme.colorScheme.tertiary,
             )
@@ -151,7 +147,7 @@ private fun GeminiModelCard(
         modifier = modifier,
     ) {
         UtilityHeaderRow(
-            icon = Icons.Rounded.AutoAwesome,
+            icon = R.drawable.ms_auto_awesome,
             title = locale.ttsGeminiModelLabel,
             accent = MaterialTheme.colorScheme.tertiary,
         )
@@ -187,7 +183,7 @@ private fun GeminiSpeedCard(
         modifier = modifier,
     ) {
         UtilityHeaderRow(
-            icon = Icons.Rounded.AutoAwesome,
+            icon = R.drawable.ms_auto_awesome,
             title = locale.ttsSpeedLabel,
             accent = MaterialTheme.colorScheme.primary,
         )
@@ -229,7 +225,7 @@ private fun GeminiConditionsCard(
         modifier = modifier,
     ) {
         UtilityHeaderRow(
-            icon = Icons.Rounded.Translate,
+            icon = R.drawable.ms_translate,
             title = locale.ttsInstructionsLabel,
             accent = MaterialTheme.colorScheme.secondary,
         )
@@ -270,7 +266,7 @@ private fun GeminiConditionsCard(
                                     onChanged(conditions.filterIndexed { current, _ -> current != index })
                                 },
                             ) {
-                                Icon(Icons.Rounded.Close, contentDescription = locale.removeLabel)
+                                Icon(painterResource(R.drawable.ms_close), contentDescription = locale.removeLabel)
                             }
                         }
                     }
@@ -282,7 +278,7 @@ private fun GeminiConditionsCard(
                     ) {
                         ConditionLanguageLabel(condition.languageName, Modifier.width(128.dp))
                         Icon(
-                            Icons.AutoMirrored.Rounded.ArrowForward,
+                            painterResource(R.drawable.ms_arrow_forward),
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -304,7 +300,7 @@ private fun GeminiConditionsCard(
                                 onChanged(conditions.filterIndexed { current, _ -> current != index })
                             },
                         ) {
-                            Icon(Icons.Rounded.Close, contentDescription = locale.removeLabel)
+                            Icon(painterResource(R.drawable.ms_close), contentDescription = locale.removeLabel)
                         }
                     }
                 }
@@ -528,7 +524,7 @@ private fun VoiceColumnCard(
                     },
                 ) {
                     Icon(
-                        Icons.AutoMirrored.Rounded.VolumeUp,
+                        painterResource(R.drawable.ms_volume_up),
                         contentDescription = locale.ttsVoiceLabel,
                     )
                 }

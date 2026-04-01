@@ -15,12 +15,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.TextSnippet
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.Image
+import androidx.annotation.DrawableRes
+import androidx.compose.ui.res.painterResource
+import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -36,7 +33,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.history.HistoryType
@@ -141,7 +137,7 @@ internal fun HistorySearchClearButton(
             ),
     ) {
         androidx.compose.material3.Icon(
-            imageVector = Icons.Rounded.Close,
+            painter = painterResource(R.drawable.ms_close),
             contentDescription = contentDescription,
             tint = Color.White,
             modifier = Modifier.size(16.dp),
@@ -164,7 +160,7 @@ internal fun HistorySectionHeroBadge(
         modifier = modifier,
     ) {
         androidx.compose.material3.Icon(
-            imageVector = Icons.Rounded.History,
+            painter = painterResource(R.drawable.ms_history),
             contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(20.dp),
@@ -181,17 +177,17 @@ internal fun HistoryTypeBadge(
         HistoryType.TEXT -> Triple(
             ExpressiveMorphPair(MaterialShapes.Square, MaterialShapes.Gem),
             MaterialTheme.colorScheme.primary,
-            Icons.AutoMirrored.Rounded.TextSnippet,
+            R.drawable.ms_text_snippet,
         )
         HistoryType.IMAGE -> Triple(
             ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Flower),
             MaterialTheme.colorScheme.secondary,
-            Icons.Rounded.Image,
+            R.drawable.ms_image,
         )
         HistoryType.AUDIO -> Triple(
             ExpressiveMorphPair(MaterialShapes.Pill, MaterialShapes.Clover4Leaf),
             MaterialTheme.colorScheme.tertiary,
-            Icons.Rounded.GraphicEq,
+            R.drawable.ms_audio_file,
         )
     }
     MorphingShapeBadge(
@@ -205,7 +201,7 @@ internal fun HistoryTypeBadge(
         modifier = modifier,
     ) {
         androidx.compose.material3.Icon(
-            imageVector = icon,
+            painter = painterResource(icon),
             contentDescription = null,
             tint = accent,
             modifier = Modifier.size(16.dp),
@@ -216,7 +212,7 @@ internal fun HistoryTypeBadge(
 @Composable
 internal fun HistoryActionButton(
     text: String?,
-    icon: ImageVector,
+    @DrawableRes icon: Int,
     role: HistoryActionRole,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -306,7 +302,7 @@ internal fun HistoryActionButton(
                     .graphicsLayer(rotationZ = badgeRotationDegrees),
             ) {
                 androidx.compose.material3.Icon(
-                    imageVector = icon,
+                    painter = painterResource(icon),
                     contentDescription = contentDescription,
                     tint = iconTint,
                     modifier = Modifier

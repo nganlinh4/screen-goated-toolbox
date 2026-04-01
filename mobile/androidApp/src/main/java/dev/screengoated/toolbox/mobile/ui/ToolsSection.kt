@@ -19,48 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Note
-import androidx.compose.material.icons.automirrored.rounded.TextSnippet
-import androidx.compose.material.icons.automirrored.rounded.VolumeUp
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.AutoFixHigh
-import androidx.compose.material.icons.rounded.CameraAlt
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.ContentCut
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.FiberSmartRecord
-import androidx.compose.material.icons.rounded.FormatQuote
-import androidx.compose.material.icons.rounded.GTranslate
-import androidx.compose.material.icons.rounded.Gamepad
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.HelpOutline
-import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.ImageSearch
-import androidx.compose.material.icons.rounded.Keyboard
-import androidx.compose.material.icons.rounded.Lightbulb
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.PhotoCamera
-import androidx.compose.material.icons.rounded.QrCodeScanner
-import androidx.compose.material.icons.rounded.QuestionAnswer
-import androidx.compose.material.icons.rounded.RecordVoiceOver
-import androidx.compose.material.icons.rounded.School
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.SmartToy
-import androidx.compose.material.icons.rounded.SpeakerPhone
-import androidx.compose.material.icons.rounded.Spellcheck
-import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material.icons.rounded.Summarize
-import androidx.compose.material.icons.rounded.SwapHoriz
-import androidx.compose.material.icons.rounded.TableChart
-import androidx.compose.material.icons.rounded.TextFields
-import androidx.compose.material.icons.rounded.Translate
-import androidx.compose.material.icons.rounded.Verified
-import androidx.compose.material.icons.rounded.VoiceChat
+import androidx.annotation.DrawableRes
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingActionButtonMenu
@@ -85,13 +44,14 @@ import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.toPath
+import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.theme.SgtExtendedColors
@@ -104,7 +64,7 @@ internal data class ToolPresetItem(
     val nameEn: String,
     val nameVi: String,
     val nameKo: String,
-    val icon: ImageVector,
+    @DrawableRes val icon: Int,
     /** If true, `id` is the full preset ID. If false, needs "preset_" prefix. */
     val isFullId: Boolean = false,
 ) {
@@ -148,22 +108,22 @@ private val toolCategories = listOf(
         accentColorToken = { it.statusProcessing },
         acceptsTypes = setOf(dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE),
         presets = listOf(
-            ToolPresetItem("translate", "Translate region", "Dịch vùng", "영역 번역", Icons.Rounded.Translate),
-            ToolPresetItem("extract_retranslate", "Trans (ACCURATE)", "Dịch vùng (CHUẨN)", "영역 번역 (정확)", Icons.Rounded.Verified),
-            ToolPresetItem("translate_auto_paste", "Trans (Auto paste)", "Dịch vùng (Tự dán)", "영역 번역 (자동 붙.)", Icons.Rounded.ContentCut),
-            ToolPresetItem("extract_table", "Extract Table", "Trích bảng", "표 추출", Icons.Rounded.TableChart),
-            ToolPresetItem("translate_retranslate", "Trans+Retrans", "Dịch vùng+Dịch lại", "번역+재번역", Icons.Rounded.Translate),
-            ToolPresetItem("extract_retrans_retrans", "Trans (ACC)+Retrans", "D.vùng (CHUẨN)+D.lại", "번역(정확)+재번역", Icons.Rounded.Verified),
-            ToolPresetItem("ocr", "Extract text", "Lấy text từ ảnh", "텍스트 추출", Icons.Rounded.TextFields),
-            ToolPresetItem("ocr_read", "Read this region", "Đọc vùng này", "영역 읽기", Icons.AutoMirrored.Rounded.VolumeUp),
-            ToolPresetItem("quick_screenshot", "Quick Screenshot", "Chụp MH nhanh", "빠른 스크린샷", Icons.Rounded.PhotoCamera),
-            ToolPresetItem("qr_scanner", "QR Scanner", "Quét mã QR", "QR 스캔", Icons.Rounded.QrCodeScanner),
-            ToolPresetItem("summarize", "Summarize region", "Tóm tắt vùng", "영역 요약", Icons.Rounded.Summarize),
-            ToolPresetItem("desc", "Describe image", "Mô tả ảnh", "이미지 설명", Icons.Rounded.Description),
-            ToolPresetItem("ask_image", "Ask about image", "Hỏi về ảnh", "이미지 질문", Icons.Rounded.ImageSearch),
-            ToolPresetItem("fact_check", "Fact Check", "Kiểm chứng thông tin", "정보 확인", Icons.Rounded.Verified),
-            ToolPresetItem("omniscient_god", "Omniscient God", "Thần Trí tuệ", "전지전능", Icons.Rounded.AutoAwesome),
-            ToolPresetItem("hang_image", "Image Overlay", "Treo ảnh", "이미지 오버레이", Icons.Rounded.CameraAlt),
+            ToolPresetItem("translate", "Translate region", "Dịch vùng", "영역 번역", R.drawable.ms_translate),
+            ToolPresetItem("extract_retranslate", "Trans (ACCURATE)", "Dịch vùng (CHUẨN)", "영역 번역 (정확)", R.drawable.ms_verified),
+            ToolPresetItem("translate_auto_paste", "Trans (Auto paste)", "Dịch vùng (Tự dán)", "영역 번역 (자동 붙.)", R.drawable.ms_content_paste_go),
+            ToolPresetItem("extract_table", "Extract Table", "Trích bảng", "표 추출", R.drawable.ms_table_chart),
+            ToolPresetItem("translate_retranslate", "Trans+Retrans", "Dịch vùng+Dịch lại", "번역+재번역", R.drawable.ms_translate),
+            ToolPresetItem("extract_retrans_retrans", "Trans (ACC)+Retrans", "D.vùng (CHUẨN)+D.lại", "번역(정확)+재번역", R.drawable.ms_verified),
+            ToolPresetItem("ocr", "Extract text", "Lấy text từ ảnh", "텍스트 추출", R.drawable.ms_text_fields),
+            ToolPresetItem("ocr_read", "Read this region", "Đọc vùng này", "영역 읽기", R.drawable.ms_volume_up),
+            ToolPresetItem("quick_screenshot", "Quick Screenshot", "Chụp MH nhanh", "빠른 스크린샷", R.drawable.ms_photo_camera),
+            ToolPresetItem("qr_scanner", "QR Scanner", "Quét mã QR", "QR 스캔", R.drawable.ms_qr_code_scanner),
+            ToolPresetItem("summarize", "Summarize region", "Tóm tắt vùng", "영역 요약", R.drawable.ms_summarize),
+            ToolPresetItem("desc", "Describe image", "Mô tả ảnh", "이미지 설명", R.drawable.ms_description),
+            ToolPresetItem("ask_image", "Ask about image", "Hỏi về ảnh", "이미지 질문", R.drawable.ms_image_search),
+            ToolPresetItem("fact_check", "Fact Check", "Kiểm chứng thông tin", "정보 확인", R.drawable.ms_fact_check),
+            ToolPresetItem("omniscient_god", "Omniscient God", "Thần Trí tuệ", "전지전능", R.drawable.ms_psychology),
+            ToolPresetItem("hang_image", "Image Overlay", "Treo ảnh", "이미지 오버레이", R.drawable.ms_layers),
         ),
     ),
     // Column 2a: Text Select presets
@@ -172,19 +132,19 @@ private val toolCategories = listOf(
         accentColorToken = { it.statusSuccess },
         acceptsTypes = setOf(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT),
         presets = listOf(
-            ToolPresetItem("read_aloud", "Read aloud", "Đọc to", "크게 읽기", Icons.Rounded.RecordVoiceOver),
-            ToolPresetItem("translate_select", "Translate", "Dịch", "번역", Icons.Rounded.GTranslate),
-            ToolPresetItem("translate_arena", "Trans (Arena)", "Dịch (Arena)", "번역 (아레나)", Icons.Rounded.Translate),
-            ToolPresetItem("trans_retrans_select", "Trans+Retrans", "Dịch+Dịch lại", "번역+재번역", Icons.Rounded.Translate),
-            ToolPresetItem("select_translate_replace", "Trans & Replace", "Dịch và Thay", "번역 후 교체", Icons.Rounded.SwapHoriz),
-            ToolPresetItem("fix_grammar", "Fix Grammar", "Sửa ngữ pháp", "문법 수정", Icons.Rounded.Spellcheck),
-            ToolPresetItem("rephrase", "Rephrase", "Viết lại", "다시 쓰기", Icons.Rounded.FormatQuote),
-            ToolPresetItem("make_formal", "Make Formal", "Chuyên nghiệp hóa", "공식적으로", Icons.Rounded.AutoFixHigh),
-            ToolPresetItem("explain", "Explain", "Giải thích", "설명", Icons.Rounded.Lightbulb),
-            ToolPresetItem("ask_text", "Ask about text...", "Hỏi về text...", "텍스트 질문", Icons.Rounded.QuestionAnswer),
-            ToolPresetItem("edit_as_follows", "Edit as follows:", "Sửa như sau:", "다음과 같이 수정:", Icons.Rounded.Edit),
-            ToolPresetItem("101_on_this", "101 on this", "Tất tần tật", "이것의 모든 것", Icons.Rounded.School),
-            ToolPresetItem("hang_text", "Text Overlay", "Treo text", "텍스트 오버레이", Icons.AutoMirrored.Rounded.TextSnippet),
+            ToolPresetItem("read_aloud", "Read aloud", "Đọc to", "크게 읽기", R.drawable.ms_record_voice_over),
+            ToolPresetItem("translate_select", "Translate", "Dịch", "번역", R.drawable.ms_g_translate),
+            ToolPresetItem("translate_arena", "Trans (Arena)", "Dịch (Arena)", "번역 (아레나)", R.drawable.ms_translate),
+            ToolPresetItem("trans_retrans_select", "Trans+Retrans", "Dịch+Dịch lại", "번역+재번역", R.drawable.ms_translate),
+            ToolPresetItem("select_translate_replace", "Trans & Replace", "Dịch và Thay", "번역 후 교체", R.drawable.ms_find_replace),
+            ToolPresetItem("fix_grammar", "Fix Grammar", "Sửa ngữ pháp", "문법 수정", R.drawable.ms_spellcheck),
+            ToolPresetItem("rephrase", "Rephrase", "Viết lại", "다시 쓰기", R.drawable.ms_wand_stars),
+            ToolPresetItem("make_formal", "Make Formal", "Chuyên nghiệp hóa", "공식적으로", R.drawable.ms_workspace_premium),
+            ToolPresetItem("explain", "Explain", "Giải thích", "설명", R.drawable.ms_lightbulb),
+            ToolPresetItem("ask_text", "Ask about text...", "Hỏi về text...", "텍스트 질문", R.drawable.ms_chat),
+            ToolPresetItem("edit_as_follows", "Edit as follows:", "Sửa như sau:", "다음과 같이 수정:", R.drawable.ms_edit),
+            ToolPresetItem("101_on_this", "101 on this", "Tất tần tật", "이것의 모든 것", R.drawable.ms_school),
+            ToolPresetItem("hang_text", "Text Overlay", "Treo text", "텍스트 오버레이", R.drawable.ms_sticky_note_2),
         ),
     ),
     // Column 2b: Text Input (Type) presets
@@ -193,11 +153,11 @@ private val toolCategories = listOf(
         accentColorToken = { it.statusSuccess },
         acceptsTypes = setOf(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT),
         presets = listOf(
-            ToolPresetItem("trans_retrans_typing", "Trans+Retrans (Type)", "Dịch+Dịch lại (Tự gõ)", "번역+재번역 (입력)", Icons.Rounded.Translate),
-            ToolPresetItem("ask_ai", "Ask AI", "Hỏi AI", "AI 질문", Icons.Rounded.SmartToy),
-            ToolPresetItem("internet_search", "Internet Search", "Tìm kiếm internet", "인터넷 검색", Icons.Rounded.Search),
-            ToolPresetItem("make_game", "Make a Game", "Tạo con game", "게임 만들기", Icons.Rounded.Gamepad),
-            ToolPresetItem("quick_note", "Quick Note", "Note nhanh", "빠른 메모", Icons.AutoMirrored.Rounded.Note),
+            ToolPresetItem("trans_retrans_typing", "Trans+Retrans (Type)", "Dịch+Dịch lại (Tự gõ)", "번역+재번역 (입력)", R.drawable.ms_translate),
+            ToolPresetItem("ask_ai", "Ask AI", "Hỏi AI", "AI 질문", R.drawable.ms_cognition_2),
+            ToolPresetItem("internet_search", "Internet Search", "Tìm kiếm internet", "인터넷 검색", R.drawable.ms_travel_explore),
+            ToolPresetItem("make_game", "Make a Game", "Tạo con game", "게임 만들기", R.drawable.ms_gamepad),
+            ToolPresetItem("quick_note", "Quick Note", "Note nhanh", "빠른 메모", R.drawable.ms_edit_note),
         ),
     ),
     // Column 3a: Mic presets
@@ -206,14 +166,14 @@ private val toolCategories = listOf(
         accentColorToken = { it.statusWarning },
         acceptsTypes = setOf(dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC),
         presets = listOf(
-            ToolPresetItem("transcribe", "Transcribe speech", "Lời nói thành văn", "음성 받아쓰기", Icons.Rounded.Mic),
-            ToolPresetItem("continuous_writing_online", "Continuous Writing", "Viết liên tục", "연속 입력", Icons.Rounded.Keyboard),
-            ToolPresetItem("fix_pronunciation", "Fix pronunciation", "Chỉnh phát âm", "발음 교정", Icons.Rounded.RecordVoiceOver),
-            ToolPresetItem("transcribe_retranslate", "Quick 4NR reply 1", "Trả lời ng.nc.ngoài 1", "빠른 외국인 답변 1", Icons.Rounded.Translate),
-            ToolPresetItem("quicker_foreigner_reply", "Quick 4NR reply 2", "Trả lời ng.nc.ngoài 2", "빠른 외국인 답변 2", Icons.Rounded.Translate),
-            ToolPresetItem("quick_ai_question", "Quick AI Question", "Hỏi nhanh AI", "빠른 AI 질문", Icons.Rounded.VoiceChat),
-            ToolPresetItem("voice_search", "Voice Search", "Nói để search", "음성 검색", Icons.Rounded.Search),
-            ToolPresetItem("quick_record", "Quick Record", "Thu âm nhanh", "빠른 녹음", Icons.Rounded.FiberSmartRecord),
+            ToolPresetItem("transcribe", "Transcribe speech", "Lời nói thành văn", "음성 받아쓰기", R.drawable.ms_mic),
+            ToolPresetItem("continuous_writing_online", "Continuous Writing", "Viết liên tục", "연속 입력", R.drawable.ms_keyboard),
+            ToolPresetItem("fix_pronunciation", "Fix pronunciation", "Chỉnh phát âm", "발음 교정", R.drawable.ms_record_voice_over),
+            ToolPresetItem("transcribe_retranslate", "Quick 4NR reply 1", "Trả lời ng.nc.ngoài 1", "빠른 외국인 답변 1", R.drawable.ms_translate),
+            ToolPresetItem("quicker_foreigner_reply", "Quick 4NR reply 2", "Trả lời ng.nc.ngoài 2", "빠른 외국인 답변 2", R.drawable.ms_translate),
+            ToolPresetItem("quick_ai_question", "Quick AI Question", "Hỏi nhanh AI", "빠른 AI 질문", R.drawable.ms_quick_phrases),
+            ToolPresetItem("voice_search", "Voice Search", "Nói để search", "음성 검색", R.drawable.ms_travel_explore),
+            ToolPresetItem("quick_record", "Quick Record", "Thu âm nhanh", "빠른 녹음", R.drawable.ms_screen_record),
         ),
     ),
     // Column 3b: Device Audio presets
@@ -222,9 +182,9 @@ private val toolCategories = listOf(
         accentColorToken = { it.statusWarning },
         acceptsTypes = setOf(dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO),
         presets = listOf(
-            ToolPresetItem("study_language", "Study language", "Học ngoại ngữ", "언어 학습", Icons.Rounded.School),
-            ToolPresetItem("record_device", "Device Record", "Thu âm máy", "시스템 녹음", Icons.Rounded.SpeakerPhone),
-            ToolPresetItem("transcribe_english_offline", "Transcribe English", "Chép lời TA", "영어 받아쓰기", Icons.Rounded.GraphicEq),
+            ToolPresetItem("study_language", "Study language", "Học ngoại ngữ", "언어 학습", R.drawable.ms_school),
+            ToolPresetItem("record_device", "Device Record", "Thu âm máy", "시스템 녹음", R.drawable.ms_surround_sound),
+            ToolPresetItem("transcribe_english_offline", "Transcribe English", "Chép lời TA", "영어 받아쓰기", R.drawable.ms_speech_to_text),
         ),
     ),
 )
@@ -294,7 +254,7 @@ internal fun ToolsSection(
         }
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showHelpDialog = false },
-            icon = { Icon(Icons.Rounded.HelpOutline, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            icon = { Icon(painterResource(R.drawable.ms_help_outline), contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text(helpTitle, style = MaterialTheme.typography.headlineSmall) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -344,7 +304,7 @@ internal fun ToolsSection(
                             nameEn = resolved.preset.nameEn,
                             nameVi = resolved.preset.nameVi,
                             nameKo = resolved.preset.nameKo,
-                            icon = Icons.Rounded.AutoAwesome,
+                            icon = R.drawable.ms_auto_awesome,
                             isFullId = true,
                         )
                     }
@@ -396,7 +356,7 @@ internal fun ToolsSection(
                 // Help button on the left
                 ToolbarModeButton(
                     active = false,
-                    icon = Icons.Rounded.HelpOutline,
+                    icon = R.drawable.ms_help_outline,
                     contentDescription = when (lang) { "vi" -> "Trợ giúp"; "ko" -> "도움말"; else -> "Help" },
                     activeContainer = MaterialTheme.colorScheme.primary,
                     activeContent = MaterialTheme.colorScheme.onPrimary,
@@ -406,21 +366,21 @@ internal fun ToolsSection(
                 // Each button: icon only when inactive, icon + label when active
                 data class ToolAction(
                     val mode: ToolbarMode,
-                    val icon: ImageVector,
+                    @DrawableRes val icon: Int,
                     val label: String,
                     val activeContainer: Color,
                     val activeContent: Color,
                 )
                 val actions = listOf(
-                    ToolAction(ToolbarMode.DUPLICATE, Icons.Rounded.ContentCopy,
+                    ToolAction(ToolbarMode.DUPLICATE, R.drawable.ms_content_copy,
                         when (lang) { "vi" -> "Nhân bản"; "ko" -> "복제"; else -> "Duplicate" },
                         MaterialTheme.colorScheme.primary,
                         MaterialTheme.colorScheme.onPrimary),
-                    ToolAction(ToolbarMode.FAVORITE, Icons.Rounded.Star,
+                    ToolAction(ToolbarMode.FAVORITE, R.drawable.ms_star,
                         when (lang) { "vi" -> "Yêu thích"; "ko" -> "즐겨찾기"; else -> "Favorite" },
                         MaterialTheme.colorScheme.primary,
                         MaterialTheme.colorScheme.onPrimary),
-                    ToolAction(ToolbarMode.DELETE, Icons.Rounded.Delete,
+                    ToolAction(ToolbarMode.DELETE, R.drawable.ms_delete,
                         when (lang) { "vi" -> "Xóa"; "ko" -> "삭제"; else -> "Delete" },
                         MaterialTheme.colorScheme.error,
                         MaterialTheme.colorScheme.onError),
@@ -442,13 +402,13 @@ internal fun ToolsSection(
         )
 
         if (fabMenuExpanded) androidx.activity.compose.BackHandler { fabMenuExpanded = false }
-        data class CreateOption(val type: dev.screengoated.toolbox.mobile.shared.preset.PresetType, val icon: ImageVector, val label: String, val accentColor: Color)
+        data class CreateOption(val type: dev.screengoated.toolbox.mobile.shared.preset.PresetType, @DrawableRes val icon: Int, val label: String, val accentColor: Color)
         val createOptions = listOf(
-            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE, Icons.Rounded.Image, locale.toolsCategoryImage, sgtColors.statusProcessing),
-            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT, Icons.Rounded.TextFields, locale.toolsCategoryTextSelect, sgtColors.statusSuccess),
-            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT, Icons.Rounded.Keyboard, locale.toolsCategoryTextInput, sgtColors.statusSuccess),
-            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC, Icons.Rounded.Mic, locale.toolsCategoryMicRecording, sgtColors.statusWarning),
-            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO, Icons.Rounded.SpeakerPhone, locale.toolsCategoryDeviceAudio, sgtColors.statusWarning),
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE, R.drawable.ms_image, locale.toolsCategoryImage, sgtColors.statusProcessing),
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT, R.drawable.ms_text_fields, locale.toolsCategoryTextSelect, sgtColors.statusSuccess),
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT, R.drawable.ms_keyboard, locale.toolsCategoryTextInput, sgtColors.statusSuccess),
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC, R.drawable.ms_mic, locale.toolsCategoryMicRecording, sgtColors.statusWarning),
+            CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO, R.drawable.ms_speaker_phone, locale.toolsCategoryDeviceAudio, sgtColors.statusWarning),
         )
 
         if (isLandscape) {
@@ -470,7 +430,7 @@ internal fun ToolsSection(
                                 fabMenuExpanded = false
                                 presetRepository.createCustomPreset(type = opt.type, lang = lang)
                             },
-                            leadingIcon = { Icon(opt.icon, null, modifier = Modifier.size(18.dp), tint = opt.accentColor) },
+                            leadingIcon = { Icon(painterResource(opt.icon), null, modifier = Modifier.size(18.dp), tint = opt.accentColor) },
                             text = { Text(opt.label, style = MaterialTheme.typography.labelLarge, color = optionContentColor) },
                         )
                     }
@@ -493,7 +453,7 @@ internal fun ToolsSection(
                             fabMenuExpanded = false
                             presetRepository.createCustomPreset(type = opt.type, lang = lang)
                         },
-                        icon = { Icon(opt.icon, null, tint = optionContentColor) },
+                        icon = { Icon(painterResource(opt.icon), null, tint = optionContentColor) },
                         text = { Text(opt.label, style = MaterialTheme.typography.labelLarge, color = optionContentColor) },
                         modifier = if (i == createOptions.lastIndex) Modifier.padding(bottom = 12.dp) else Modifier,
                         containerColor = opt.accentColor,
@@ -548,7 +508,7 @@ private fun MorphingCreateFab(
             )
         }
         Icon(
-            imageVector = Icons.Rounded.Add,
+            painter = painterResource(R.drawable.ms_add),
             contentDescription = "Create",
             tint = iconColor,
             modifier = Modifier
@@ -561,7 +521,7 @@ private fun MorphingCreateFab(
 @Composable
 private fun ToolbarModeButton(
     active: Boolean,
-    icon: ImageVector,
+    @DrawableRes icon: Int,
     contentDescription: String,
     activeContainer: Color,
     activeContent: Color,
@@ -599,7 +559,7 @@ private fun ToolbarModeButton(
             )
         }
         Icon(
-            imageVector = icon,
+            painter = painterResource(icon),
             contentDescription = contentDescription,
             modifier = Modifier.size(if (active) 22.dp else 20.dp),
             tint = iconTint,
