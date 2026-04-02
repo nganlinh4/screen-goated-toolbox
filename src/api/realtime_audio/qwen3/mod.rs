@@ -34,7 +34,15 @@ pub fn run_qwen3_transcription(
     }
 
     if !assets::is_qwen3_model_downloaded() {
-        assets::download_qwen3_model(stop_signal.clone(), false)?;
+        assets::download_qwen3_model(stop_signal.clone(), true)?;
+    }
+
+    if stop_signal.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+
+    if !runtime::is_qwen3_runtime_downloaded() {
+        runtime::download_qwen3_runtime(stop_signal.clone(), true)?;
     }
 
     if stop_signal.load(Ordering::Relaxed) {
