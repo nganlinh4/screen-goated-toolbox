@@ -1,7 +1,16 @@
-use std::collections::HashMap;
-use anyhow::Result;
-use crate::tensor::{Device, Tensor};
+use crate::tensor::{DType, Device, Tensor};
+use crate::text_decoder::{KvCacheEntry, KvCacheMode};
 use crate::weights::{get_weight, get_weight_opt};
+use anyhow::Result;
+use std::collections::HashMap;
+
+fn cast_for_compute(tensor: &Tensor, dtype: DType) -> Tensor {
+    if tensor.kind() == dtype {
+        tensor.shallow_clone()
+    } else {
+        tensor.to_dtype(dtype)
+    }
+}
 
 // ============================================================================
 // LayerNorm (with bias, used in audio encoder)
@@ -24,7 +33,10 @@ impl LayerNorm {
 
     pub fn forward(&self, x: &Tensor) -> Tensor {
         let ndim = x.dim();
-        x.layer_norm(&[x.size()[ndim - 1]], Some(&self.weight), Some(&self.bias), self.eps)
+        let dtype = x.kind();
+        let weight = cast_for_compute(&self.weight, dtype);
+        let bias = cast_for_compute(&self.bias, dtype);
+        x.layer_norm(&[x.size()[ndim - 1]], Some(&weight), Some(&bias), self.eps)
     }
 }
 
@@ -63,15 +75,17 @@ impl Linear {
     pub fn load(weights: &HashMap<String, Tensor>, prefix: &str) -> Result<Self> {
         let weight = get_weight(weights, prefix, "weight")?;
         Ok(Self {
-            weight_t: weight.tr(), // Pre-transpose at load time
+            weight_t: weight.tr().contiguous(), // Pre-transpose at load time for faster matmul
             bias: get_weight_opt(weights, prefix, "bias"),
         })
     }
 
     pub fn forward(&self, x: &Tensor) -> Tensor {
+        let compute_dtype = self.weight_t.kind();
+        let x = cast_for_compute(x, compute_dtype);
         let out = x.matmul(&self.weight_t);
         match &self.bias {
-            Some(b) => out + b,
+            Some(b) => out + cast_for_compute(b, compute_dtype),
             None => out,
         }
     }
@@ -104,13 +118,19 @@ impl Conv2d {
     }
 
     pub fn forward(&self, x: &Tensor) -> Tensor {
+        let compute_dtype = self.weight.kind();
+        let x = cast_for_compute(x, compute_dtype);
+        let bias = self
+            .bias
+            .as_ref()
+            .map(|bias| cast_for_compute(bias, compute_dtype));
         x.conv2d(
             &self.weight,
-            self.bias.as_ref(),
+            bias.as_ref(),
             &self.stride,
             &self.padding,
             &[1, 1], // dilation
-            1,        // groups
+            1,       // groups
         )
     }
 }
@@ -151,9 +171,21 @@ impl AudioAttention {
         let nh = self.num_heads as i64;
         let hd = self.head_dim as i64;
 
-        let q = self.q_proj.forward(x).reshape(&[bsz, seq_len, nh, hd]).permute(&[0, 2, 1, 3]);
-        let k = self.k_proj.forward(x).reshape(&[bsz, seq_len, nh, hd]).permute(&[0, 2, 1, 3]);
-        let v = self.v_proj.forward(x).reshape(&[bsz, seq_len, nh, hd]).permute(&[0, 2, 1, 3]);
+        let q = self
+            .q_proj
+            .forward(x)
+            .reshape(&[bsz, seq_len, nh, hd])
+            .permute(&[0, 2, 1, 3]);
+        let k = self
+            .k_proj
+            .forward(x)
+            .reshape(&[bsz, seq_len, nh, hd])
+            .permute(&[0, 2, 1, 3]);
+        let v = self
+            .v_proj
+            .forward(x)
+            .reshape(&[bsz, seq_len, nh, hd])
+            .permute(&[0, 2, 1, 3]);
 
         let scale = 1.0 / (hd as f64).sqrt();
         let out = Tensor::scaled_dot_product_attention(&q, &k, &v, scale, mask);
@@ -205,13 +237,20 @@ impl AudioEncoderLayer {
     ) -> Result<Self> {
         Ok(Self {
             self_attn_layer_norm: LayerNorm::load(
-                weights, &format!("{}.self_attn_layer_norm", prefix), 1e-5,
+                weights,
+                &format!("{}.self_attn_layer_norm", prefix),
+                1e-5,
             )?,
             self_attn: AudioAttention::load(
-                weights, &format!("{}.self_attn", prefix), num_heads, d_model,
+                weights,
+                &format!("{}.self_attn", prefix),
+                num_heads,
+                d_model,
             )?,
             final_layer_norm: LayerNorm::load(
-                weights, &format!("{}.final_layer_norm", prefix), 1e-5,
+                weights,
+                &format!("{}.final_layer_norm", prefix),
+                1e-5,
             )?,
             ffn: AudioFfn::load(weights, prefix)?,
         })
@@ -282,14 +321,13 @@ impl TextAttention {
         x: &Tensor,
         cos: &Tensor,
         sin: &Tensor,
-        kv_cache: Option<&(Tensor, Tensor)>,
+        kv_cache: &mut Option<KvCacheEntry>,
+        kv_cache_mode: KvCacheMode,
         mask: Option<&Tensor>,
-    ) -> (Tensor, (Tensor, Tensor)) {
+    ) -> Tensor {
         let projection = self.project_qkv(x, cos, sin);
-        let (q, k, v, new_cache) = self.merge_kv_cache(projection, kv_cache);
-        let out = self.attend(&q, &k, &v, mask);
-
-        (out, new_cache)
+        let scale = 1.0 / (self.head_dim as f64).sqrt();
+        self.merge_kv_cache(projection, kv_cache, kv_cache_mode, scale, mask)
     }
 
     fn apply_head_norm(&self, x: &Tensor, norm: &RmsNorm) -> Tensor {
@@ -302,9 +340,21 @@ impl TextAttention {
         let nkvh = self.num_kv_heads as i64;
         let hd = self.head_dim as i64;
 
-        let q = self.q_proj.forward(x).reshape(&[bsz, seq_len, nqh, hd]).transpose(1, 2);
-        let k = self.k_proj.forward(x).reshape(&[bsz, seq_len, nkvh, hd]).transpose(1, 2);
-        let v = self.v_proj.forward(x).reshape(&[bsz, seq_len, nkvh, hd]).transpose(1, 2);
+        let q = self
+            .q_proj
+            .forward(x)
+            .reshape(&[bsz, seq_len, nqh, hd])
+            .transpose(1, 2);
+        let k = self
+            .k_proj
+            .forward(x)
+            .reshape(&[bsz, seq_len, nkvh, hd])
+            .transpose(1, 2);
+        let v = self
+            .v_proj
+            .forward(x)
+            .reshape(&[bsz, seq_len, nkvh, hd])
+            .transpose(1, 2);
         let q = self.apply_head_norm(&q, &self.q_norm).apply_rope(cos, sin);
         let k = self.apply_head_norm(&k, &self.k_norm).apply_rope(cos, sin);
 
@@ -314,30 +364,32 @@ impl TextAttention {
     fn merge_kv_cache(
         &self,
         projection: AttentionProjection,
-        kv_cache: Option<&(Tensor, Tensor)>,
-    ) -> (Tensor, Tensor, Tensor, (Tensor, Tensor)) {
+        kv_cache: &mut Option<KvCacheEntry>,
+        kv_cache_mode: KvCacheMode,
+        scale: f64,
+        mask: Option<&Tensor>,
+    ) -> Tensor {
         let AttentionProjection { q, k, v } = projection;
-        let (k, v) = if let Some((past_k, past_v)) = kv_cache {
-            (Tensor::cat(&[past_k.clone(), k], 2), Tensor::cat(&[past_v.clone(), v], 2))
-        } else {
-            (k, v)
+        let output = match kv_cache {
+            Some(cache) => {
+                cache.append(&k, &v);
+                cache
+                    .attend_with_quantized_prefix(&q, scale, mask)
+                    .expect("text attention cache must produce attention output after merge")
+            }
+            None => {
+                let cache = kv_cache.get_or_insert_with(|| KvCacheEntry::from_tokens(k, v, kv_cache_mode));
+                cache
+                    .attend_with_quantized_prefix(&q, scale, mask)
+                    .expect("text attention cache must produce attention output after merge")
+            }
         };
-        let new_cache = (k.shallow_clone(), v.shallow_clone());
-        (q, k, v, new_cache)
-    }
-
-    fn attend(&self, q: &Tensor, k: &Tensor, v: &Tensor, mask: Option<&Tensor>) -> Tensor {
-        let (bsz, seq_len, _) = (
-            q.size()[0],
-            q.size()[2],
-            q.size()[1] * q.size()[3],
-        );
-        let hd = self.head_dim as i64;
-        let nqh = self.num_q_heads as i64;
-        let scale = 1.0 / (hd as f64).sqrt();
-        let out = Tensor::scaled_dot_product_attention(q, k, v, scale, mask);
-        let out = out.transpose(1, 2).reshape(&[bsz, seq_len, nqh * hd]);
-        self.o_proj.forward(&out)
+        let (bsz, seq_len, _) = (q.size()[0], q.size()[2], q.size()[1] * q.size()[3]);
+        self.o_proj.forward(&output.transpose(1, 2).reshape(&[
+            bsz,
+            seq_len,
+            self.num_q_heads as i64 * self.head_dim as i64,
+        ]))
     }
 }
 
@@ -389,7 +441,9 @@ impl TextDecoderLayer {
     ) -> Result<Self> {
         Ok(Self {
             input_layernorm: RmsNorm::load(
-                weights, &format!("{}.input_layernorm", prefix), rms_norm_eps,
+                weights,
+                &format!("{}.input_layernorm", prefix),
+                rms_norm_eps,
             )?,
             self_attn: TextAttention::load(
                 weights,
@@ -400,7 +454,9 @@ impl TextDecoderLayer {
                 rms_norm_eps,
             )?,
             post_attention_layernorm: RmsNorm::load(
-                weights, &format!("{}.post_attention_layernorm", prefix), rms_norm_eps,
+                weights,
+                &format!("{}.post_attention_layernorm", prefix),
+                rms_norm_eps,
             )?,
             mlp: TextMlp::load(weights, &format!("{}.mlp", prefix))?,
         })
@@ -411,22 +467,23 @@ impl TextDecoderLayer {
         x: &Tensor,
         cos: &Tensor,
         sin: &Tensor,
-        kv_cache: Option<&(Tensor, Tensor)>,
+        kv_cache: &mut Option<KvCacheEntry>,
+        kv_cache_mode: KvCacheMode,
         mask: Option<&Tensor>,
-    ) -> (Tensor, (Tensor, Tensor)) {
+    ) -> Tensor {
         // Pre-norm + self-attention + residual
         let residual = x;
         let h = self.input_layernorm.forward(x);
-        let (h, new_cache) = self.self_attn.forward(&h, cos, sin, kv_cache, mask);
+        let h = self
+            .self_attn
+            .forward(&h, cos, sin, kv_cache, kv_cache_mode, mask);
         let x = &h + residual;
 
         // Pre-norm + MLP + residual
         let residual = x.shallow_clone();
         let h = self.post_attention_layernorm.forward(&x);
         let h = self.mlp.forward(&h);
-        let out = h + residual;
-
-        (out, new_cache)
+        h + residual
     }
 }
 

@@ -33,6 +33,8 @@ axum = { version = "0.7", features = ["multipart"] }
 tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 tempfile = "3"
+llmem-quant = "0.1.0"
+rayon = "1.11"
 
 [build-dependencies]
 cmake = "0.1"

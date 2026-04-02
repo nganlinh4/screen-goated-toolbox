@@ -133,7 +133,11 @@ impl AudioEncoder {
         let conv_out = self.conv_out.forward(&reshaped);
 
         // Add positional embedding
-        let pos_emb = self.positional_embedding.narrow(0, 0, t).unsqueeze(0);
+        let pos_emb = self
+            .positional_embedding
+            .narrow(0, 0, t)
+            .unsqueeze(0)
+            .to_dtype(conv_out.kind());
         let conv_out = conv_out + pos_emb;
 
         // Extract valid tokens per chunk, concatenate into flat sequence

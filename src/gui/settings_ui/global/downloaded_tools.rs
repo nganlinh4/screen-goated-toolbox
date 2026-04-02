@@ -6,11 +6,7 @@ use crate::api::realtime_audio::qwen3::assets::{
     current_qwen3_model_notice, download_qwen3_model, get_qwen3_model_dir,
     is_qwen3_model_downloaded, remove_qwen3_model,
 };
-use crate::api::realtime_audio::qwen3::server::{
-    current_qwen3_server_notice, download_qwen3_server, get_active_qwen3_server_root,
-    get_qwen3_server_dir, is_qwen3_server_downloaded, is_qwen3_server_managed,
-    remove_qwen3_server,
-};
+use crate::api::realtime_audio::qwen3::runtime::current_qwen3_runtime_notice;
 use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::download_manager::{DownloadManager, InstallStatus, UpdateStatus};
 use crate::overlay::realtime_webview::state::REALTIME_STATE;
@@ -115,6 +111,7 @@ pub fn render_downloaded_tools_modal(
 
                 ui.group(|ui| {
                     let qwen_notice = current_qwen3_model_notice();
+                    let qwen_runtime_notice = current_qwen3_runtime_notice();
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(text.tool_qwen3).strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -175,73 +172,7 @@ pub fn render_downloaded_tools_modal(
                         ui.add_space(4.0);
                         ui.label(egui::RichText::new(message).color(egui::Color32::RED));
                     }
-                });
-
-                ui.add_space(8.0);
-
-                ui.group(|ui| {
-                    let qwen_server_notice = current_qwen3_server_notice();
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(text.tool_qwen3_server).strong());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let is_downloading = {
-                                if let Ok(state) = REALTIME_STATE.lock() {
-                                    state.is_downloading
-                                        && state.download_title
-                                            == text.qwen3_server_downloading_title
-                                } else {
-                                    false
-                                }
-                            };
-
-                            if is_downloading {
-                                let progress = {
-                                    if let Ok(state) = REALTIME_STATE.lock() {
-                                        state.download_progress
-                                    } else {
-                                        0.0
-                                    }
-                                };
-                                ui.label(format!("{:.0}%", progress));
-                                ui.spinner();
-                            } else if is_qwen3_server_downloaded() {
-                                if is_qwen3_server_managed()
-                                    && ui
-                                        .button(
-                                            egui::RichText::new(text.tool_action_delete)
-                                                .color(egui::Color32::RED),
-                                        )
-                                        .clicked()
-                                {
-                                    let _ = remove_qwen3_server();
-                                }
-                                let size = get_active_qwen3_server_root()
-                                    .map(|path| get_dir_size(&path))
-                                    .unwrap_or_else(|| get_dir_size(&get_qwen3_server_dir()));
-                                ui.label(
-                                    egui::RichText::new(
-                                        text.tool_status_installed
-                                            .replace("{}", &format_size(size)),
-                                    )
-                                    .color(egui::Color32::from_rgb(34, 139, 34)),
-                                );
-                            } else {
-                                if ui.button(text.tool_action_download).clicked() {
-                                    let stop_signal = Arc::new(AtomicBool::new(false));
-                                    thread::spawn(move || {
-                                        let _ = download_qwen3_server(stop_signal, false);
-                                    });
-                                }
-                                ui.label(
-                                    egui::RichText::new(text.tool_status_missing)
-                                        .color(egui::Color32::GRAY),
-                                );
-                            }
-                        });
-                    });
-                    ui.label(text.tool_desc_qwen3_server);
-
-                    if let Some(message) = qwen_server_notice {
+                    if let Some(message) = qwen_runtime_notice {
                         ui.add_space(4.0);
                         ui.label(egui::RichText::new(message).color(egui::Color32::RED));
                     }

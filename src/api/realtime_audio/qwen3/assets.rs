@@ -87,7 +87,9 @@ fn list_qwen3_repo_files() -> Result<Vec<String>> {
         .collect();
     files.sort();
     if files.is_empty() {
-        return Err(anyhow!("Qwen3-ASR manifest did not contain any downloadable model files"));
+        return Err(anyhow!(
+            "Qwen3-ASR manifest did not contain any downloadable model files"
+        ));
     }
     Ok(files)
 }

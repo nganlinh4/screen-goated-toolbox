@@ -44,6 +44,10 @@ pub struct StreamingTranscriptResponse {
     #[serde(default)]
     pub draft_text: String,
     pub text: String,
+    #[serde(default)]
+    pub kv_cache_bytes: usize,
+    #[serde(default)]
+    pub kv_cache_dense_bytes: usize,
 }
 
 #[derive(Serialize)]
