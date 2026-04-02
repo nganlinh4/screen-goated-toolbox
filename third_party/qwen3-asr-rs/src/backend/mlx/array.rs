@@ -84,6 +84,18 @@ impl MlxArray {
         Self::from_raw(ptr)
     }
 
+    pub fn from_i8(data: &[i8], shape: &[i32]) -> Self {
+        let ptr = unsafe {
+            ffi::mlx_array_new_data(
+                data.as_ptr() as *const _,
+                shape.as_ptr(),
+                shape.len() as i32,
+                ffi::mlx_dtype::MLX_INT8,
+            )
+        };
+        Self::from_raw(ptr)
+    }
+
     pub fn scalar_f32(val: f32) -> Self {
         let ptr = unsafe { ffi::mlx_array_new_float(val) };
         Self::from_raw(ptr)

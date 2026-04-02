@@ -1,14 +1,12 @@
 pub mod assets;
-pub mod reference;
 pub mod runtime;
-pub mod server;
 
 use super::capture::{start_device_loopback_capture, start_mic_capture, start_per_app_capture};
 use super::state::{SharedRealtimeState, TranscriptionMethod};
 use super::utils::update_overlay_text;
 use super::{REALTIME_RMS, WM_VOLUME_UPDATE};
 use crate::config::Preset;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -24,8 +22,7 @@ const TRANSCRIBE_INTERVAL_MS: u64 = 500;
 const SILENCE_COMMIT_MS: u64 = 1_200;
 const MIN_TRANSCRIBE_SAMPLES: usize = 8_000;
 const VOICE_ACTIVITY_RMS: f32 = 0.015;
-const MAX_SESSION_REPLAY_SAMPLES: usize = 16_000 * 30;
-
+const MAX_SEGMENT_SAMPLES: usize = 20 * 16_000; // 20 seconds max before forced commit
 pub fn run_qwen3_transcription(
     _preset: Preset,
     stop_signal: Arc<AtomicBool>,
@@ -44,13 +41,9 @@ pub fn run_qwen3_transcription(
         return Ok(());
     }
 
-    if !reference::has_discoverable_server() {
-        server::download_qwen3_server(stop_signal.clone(), false)?;
-    }
-
     let model_dir = assets::get_qwen3_model_dir();
-    let mut reference_server = reference::QwenReferenceServer::start(&model_dir)?;
-    let mut session_id = reference_server.create_streaming_session(
+    let runtime = runtime::Qwen3Runtime::load(&model_dir)?;
+    let mut session = runtime.create_session(
         STREAMING_CHUNK_MS,
         STREAMING_UNFIXED_CHUNKS,
         STREAMING_UNFIXED_TOKENS,
@@ -60,7 +53,6 @@ pub fn run_qwen3_transcription(
     let _stream = start_audio_capture(audio_buffer.clone(), stop_signal.clone(), pause_signal)?;
 
     let mut committed_history = String::new();
-    let mut session_audio_buffer = Vec::new();
     let mut session_sample_count = 0usize;
     let mut last_request_sample_count = 0usize;
     let mut last_request_at = Instant::now() - Duration::from_millis(TRANSCRIBE_INTERVAL_MS);
@@ -92,57 +84,32 @@ pub fn run_qwen3_transcription(
             }
             if !overlay_hwnd.is_invalid() {
                 unsafe {
-                    let _ = PostMessageW(Some(overlay_hwnd), WM_VOLUME_UPDATE, WPARAM(0), LPARAM(0));
+                    let _ =
+                        PostMessageW(Some(overlay_hwnd), WM_VOLUME_UPDATE, WPARAM(0), LPARAM(0));
                 }
             }
-            session_audio_buffer.extend_from_slice(&new_samples);
-            if session_audio_buffer.len() > MAX_SESSION_REPLAY_SAMPLES {
-                let overflow = session_audio_buffer.len() - MAX_SESSION_REPLAY_SAMPLES;
-                session_audio_buffer.drain(..overflow);
-            }
-
-            if let Err(first_error) = reference_server.append_streaming_audio(session_id, &new_samples)
-            {
-                reference_server = reference::QwenReferenceServer::start(&model_dir).map_err(
-                    |restart_error| {
-                        anyhow!(
-                            "Qwen3 streaming audio append failed, and restarting the local ASR server also failed.\n\nFirst error:\n{first_error}\n\nRestart error:\n{restart_error}"
-                        )
-                    },
-                )?;
-                session_id = create_streaming_session(&mut reference_server).map_err(
-                    |session_error| {
-                        anyhow!(
-                            "Qwen3 streaming audio append failed, the local ASR server restarted, but creating a new streaming session failed.\n\nFirst error:\n{first_error}\n\nSession error:\n{session_error}"
-                        )
-                    },
-                )?;
-                reference_server
-                    .append_streaming_audio(session_id, &session_audio_buffer)
-                    .map_err(|retry_error| {
-                        anyhow!(
-                            "Qwen3 streaming audio append failed, the local ASR server was restarted once, but replaying the buffered audio still failed.\n\nFirst error:\n{first_error}\n\nRetry error:\n{retry_error}"
-                        )
-                    })?;
-            }
+            session.append_pcm16(&new_samples, false)?;
             session_sample_count += new_samples.len();
         }
 
-        if should_commit_on_silence(
-            !session_audio_buffer.is_empty(),
+        let force_commit = session_sample_count >= MAX_SEGMENT_SAMPLES;
+        if force_commit || should_commit_on_silence(
+            session_sample_count > 0,
             last_voice_activity,
             session_sample_count,
         ) {
-            let finalized = reference_server
-                .transcribe_streaming_session(session_id, None, true)
-                .map_err(|finalize_error| {
-                    anyhow!("Qwen3 streaming finalize failed before silence reset: {finalize_error}")
-                })?;
-            append_history_segment(&mut committed_history, &finalized.text);
-            session_audio_buffer.clear();
+            session.append_pcm16(&[], true)?;
+            let finalized = session.step()?;
+            let _runtime_metadata = (
+                finalized.latency_ms,
+                finalized.audio_samples,
+                finalized.is_final,
+            );
+            let finalized_text = runtime_final_text(&finalized);
+            append_history_segment(&mut committed_history, &finalized_text);
             session_sample_count = 0;
             last_request_sample_count = 0;
-            reference_server.reset_streaming_session(session_id)?;
+            session.reset()?;
             publish_transcript(&state, overlay_hwnd, &committed_history, "");
         }
 
@@ -151,48 +118,33 @@ pub fn run_qwen3_transcription(
             && last_request_at.elapsed() >= Duration::from_millis(TRANSCRIBE_INTERVAL_MS);
 
         if should_request {
-            let transcript = match reference_server.transcribe_streaming_session(session_id, None, false)
-            {
-                Ok(transcript) => transcript,
-                Err(first_error) => {
-                    reference_server = reference::QwenReferenceServer::start(&model_dir).map_err(
-                        |restart_error| {
-                            anyhow!(
-                                "Qwen3 streaming transcription failed, and restarting the local ASR server also failed.\n\nFirst error:\n{first_error}\n\nRestart error:\n{restart_error}"
-                            )
-                        },
-                    )?;
-                    session_id = create_streaming_session(&mut reference_server)?;
-                    if !session_audio_buffer.is_empty() {
-                        reference_server
-                            .append_streaming_audio(session_id, &session_audio_buffer)
-                            .map_err(|replay_error| {
-                                anyhow!(
-                                    "Qwen3 streaming transcription failed, the local ASR server restarted, but replaying the current streaming audio buffer failed.\n\nFirst error:\n{first_error}\n\nReplay error:\n{replay_error}"
-                                )
-                            })?;
-                    }
-                    reference_server
-                        .transcribe_streaming_session(session_id, None, false)
-                        .map_err(|retry_error| {
-                            anyhow!(
-                                "Qwen3 streaming transcription failed, the local ASR server was restarted once, but the retry still failed.\n\nFirst error:\n{first_error}\n\nRetry error:\n{retry_error}"
-                            )
-                        })?
-                }
-            };
+            let transcript = session.step()?;
+            if transcript.kv_cache_dense_bytes > 0 {
+                let reduction = if transcript.kv_cache_dense_bytes > transcript.kv_cache_bytes {
+                    100.0 * (transcript.kv_cache_dense_bytes - transcript.kv_cache_bytes) as f64
+                        / transcript.kv_cache_dense_bytes as f64
+                } else {
+                    0.0
+                };
+                crate::log_info!(
+                    "[Qwen3Runtime] KV: {:.1}MB → {:.1}MB ({:.1}% reduction) latency={}ms",
+                    transcript.kv_cache_dense_bytes as f64 / 1_048_576.0,
+                    transcript.kv_cache_bytes as f64 / 1_048_576.0,
+                    reduction,
+                    transcript.latency_ms,
+                );
+            }
             last_request_sample_count = session_sample_count;
             last_request_at = Instant::now();
 
             let _detected_language = &transcript.language;
-            let live_committed = join_transcript_segments(&committed_history, &transcript.fixed_text);
-            publish_transcript(&state, overlay_hwnd, &live_committed, &transcript.draft_text);
+            let (fixed_text, draft_text) = runtime_live_segments(&transcript);
+            let live_committed = join_transcript_segments(&committed_history, &fixed_text);
+            publish_transcript(&state, overlay_hwnd, &live_committed, &draft_text);
         }
 
         std::thread::sleep(Duration::from_millis(100));
     }
-
-    reference_server.shutdown();
 
     Ok(())
 }
@@ -308,14 +260,20 @@ fn join_transcript_segments(left: &str, right: &str) -> String {
     }
 }
 
-fn create_streaming_session(
-    reference_server: &mut reference::QwenReferenceServer,
-) -> Result<u64> {
-    reference_server.create_streaming_session(
-        STREAMING_CHUNK_MS,
-        STREAMING_UNFIXED_CHUNKS,
-        STREAMING_UNFIXED_TOKENS,
-    )
+fn runtime_live_segments(result: &runtime::RuntimeTranscriptionResult) -> (String, String) {
+    if result.fixed_text.is_empty() && result.draft_text.is_empty() {
+        (String::new(), result.text.clone())
+    } else {
+        (result.fixed_text.clone(), result.draft_text.clone())
+    }
+}
+
+fn runtime_final_text(result: &runtime::RuntimeTranscriptionResult) -> String {
+    if !result.text.is_empty() {
+        result.text.clone()
+    } else {
+        join_transcript_segments(&result.fixed_text, &result.draft_text)
+    }
 }
 
 fn publish_transcript(

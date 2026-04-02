@@ -1,7 +1,6 @@
 //! Raw FFI declarations for the mlx-c library.
 
 #![allow(non_camel_case_types)]
-#![allow(dead_code)]
 
 use std::os::raw::{c_char, c_float, c_int, c_void};
 

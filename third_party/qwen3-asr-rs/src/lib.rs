@@ -12,6 +12,7 @@ pub mod backend;
 pub mod audio;
 pub mod audio_encoder;
 pub mod config;
+pub mod cuda_runtime;
 pub mod error;
 pub mod inference;
 pub mod layers;
@@ -19,4 +20,8 @@ pub mod mel;
 pub mod streaming;
 pub mod text_decoder;
 pub mod tokenizer;
+pub mod turboquant_kv;
 pub mod weights;
+
+#[cfg(test)]
+mod text_decoder_roundtrip_tests;

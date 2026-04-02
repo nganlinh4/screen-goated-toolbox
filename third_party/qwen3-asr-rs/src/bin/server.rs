@@ -8,6 +8,9 @@ use axum::{
     Router,
 };
 use clap::Parser;
+use qwen3_asr_rs::cuda_runtime::{
+    force_cuda_requested, maybe_reexec_with_cuda_preload, preload_cuda_runtime,
+};
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -19,7 +22,27 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
-use qwen3_asr_rs::inference::AsrInference;
+use qwen3_asr_rs::inference::{AsrInference, KvCacheMode, kv_cache_mode_from_name, kv_cache_mode_name};
+
+fn resolve_kv_cache_mode() -> (KvCacheMode, Option<String>) {
+    let requested = std::env::var("SGT_QWEN3_RUNTIME_KV_MODE")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let mode = requested
+        .as_deref()
+        .and_then(kv_cache_mode_from_name)
+        .unwrap_or_else(|| {
+            if let Some(requested) = requested.as_deref() {
+                tracing::warn!(
+                    "Unrecognized SGT_QWEN3_RUNTIME_KV_MODE='{}'; defaulting to dense_append",
+                    requested
+                );
+            }
+            KvCacheMode::DenseAppend
+        });
+    (mode, requested)
+}
 use qwen3_asr_rs::streaming::{StreamingConfig, StreamingState, StreamingTranscript};
 use qwen3_asr_rs::tensor::Device;
 
@@ -62,31 +85,6 @@ struct AppState {
     sessions: Arc<Mutex<HashMap<u64, Arc<Mutex<StreamingState>>>>>,
     next_session_id: Arc<AtomicU64>,
 }
-
-fn force_cuda_requested() -> bool {
-    std::env::var("SGT_QWEN3_FORCE_CUDA")
-        .ok()
-        .or_else(|| std::env::var("QWEN3_FORCE_CUDA").ok())
-        .is_some_and(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
-}
-
-#[cfg(target_os = "windows")]
-fn preload_cuda_runtime() {
-    unsafe extern "system" {
-        fn LoadLibraryA(lp_lib_file_name: *const u8) -> *mut core::ffi::c_void;
-    }
-
-    for dll in [
-        b"c10_cuda.dll\0".as_slice(),
-        b"torch_cuda.dll\0".as_slice(),
-        b"cudart64_12.dll\0".as_slice(),
-    ] {
-        let _ = unsafe { LoadLibraryA(dll.as_ptr()) };
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn preload_cuda_runtime() {}
 
 // ---------------------------------------------------------------------------
 // Response types
@@ -147,6 +145,8 @@ struct StreamingTranscriptResponse {
     fixed_text: String,
     draft_text: String,
     text: String,
+    kv_cache_bytes: usize,
+    kv_cache_dense_bytes: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -372,18 +372,27 @@ async fn transcribe_streaming_session_handler(
         .ok_or_else(|| AppError(anyhow::anyhow!("Unknown streaming session: {}", session_id)))?;
 
     let model = state.model.clone();
-    let result: StreamingTranscript = tokio::task::spawn_blocking(move || {
+    let (result, kv_cache_bytes, kv_cache_dense_bytes): (
+        StreamingTranscript,
+        usize,
+        usize,
+    ) = tokio::task::spawn_blocking(move || {
         let model = model
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
         let mut session = session
             .lock()
             .map_err(|e| anyhow::anyhow!("Session lock poisoned: {}", e))?;
-        if request.finalize {
+        let transcript = if request.finalize {
             model.finish_streaming_transcribe(&mut session, language.as_deref())
         } else {
             session.transcribe(&model, language.as_deref())
-        }
+        }?;
+        Ok::<_, anyhow::Error>((
+            transcript,
+            session.kv_cache_bytes(),
+            session.kv_cache_dense_bytes(),
+        ))
     })
     .await
     .map_err(|e| AppError(anyhow::anyhow!("Blocking task failed: {}", e)))??;
@@ -393,6 +402,8 @@ async fn transcribe_streaming_session_handler(
         fixed_text: result.fixed_text,
         draft_text: result.draft_text,
         text: result.text,
+        kv_cache_bytes,
+        kv_cache_dense_bytes,
     }))
 }
 
@@ -440,6 +451,9 @@ async fn delete_streaming_session_handler(
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    if let Err(err) = maybe_reexec_with_cuda_preload() {
+        tracing::warn!("Failed to re-exec with Linux CUDA preload: {err}");
+    }
 
     preload_cuda_runtime();
 
@@ -484,7 +498,23 @@ async fn main() -> Result<()> {
 
     // Load model
     tracing::info!("Loading model from {:?}", model_dir);
-    let model = AsrInference::load(model_dir, device).context("Failed to load model")?;
+    let (kv_cache_mode, requested_kv_cache_mode) = resolve_kv_cache_mode();
+    if let Some(requested_kv_cache_mode) = requested_kv_cache_mode.as_deref() {
+        let canonical_kv_cache_mode = kv_cache_mode_name(kv_cache_mode);
+        if requested_kv_cache_mode == canonical_kv_cache_mode {
+            tracing::info!("Using KV cache mode: {}", canonical_kv_cache_mode);
+        } else {
+            tracing::info!(
+                "Using KV cache mode: {} (requested: {})",
+                canonical_kv_cache_mode,
+                requested_kv_cache_mode
+            );
+        }
+    } else {
+        tracing::info!("Using KV cache mode: {}", kv_cache_mode_name(kv_cache_mode));
+    }
+    let model = AsrInference::load_with_kv_mode(model_dir, device, kv_cache_mode)
+        .context("Failed to load model")?;
     tracing::info!("Model loaded successfully");
 
     let state = AppState {

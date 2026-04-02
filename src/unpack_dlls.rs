@@ -11,7 +11,7 @@ pub use self::ai_runtime::{
     start_ai_runtime_install,
 };
 
-pub(super) fn private_bin_dir() -> PathBuf {
+pub(crate) fn private_bin_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("screen-goated-toolbox")
