@@ -353,25 +353,56 @@ pub fn download_qwen3_runtime(
                 );
             }
 
-            // Use curl for the large libtorch download — ureq truncates on slow connections
+            // Use curl as a background process for the large libtorch download
             let libtorch_zip_path = bin_dir.join("libtorch-download.zip");
-            let _ = std::fs::remove_file(&libtorch_zip_path); // Remove any partial download
-            let curl_status = std::process::Command::new("curl.exe")
+            let _ = std::fs::remove_file(&libtorch_zip_path);
+            let mut curl_child = std::process::Command::new("curl.exe")
                 .args([
                     "--fail", "--location", "--continue-at", "-",
                     "--output", &libtorch_zip_path.to_string_lossy(),
                     LIBTORCH_CU126_URL,
                 ])
-                .status();
-            match curl_status {
-                Ok(status) if status.success() => {}
-                Ok(status) => return Err(anyhow!("libtorch download failed (curl exit code {})", status)),
-                Err(err) => return Err(anyhow!("Failed to run curl for libtorch download: {err}")),
-            }
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map_err(|err| anyhow!("Failed to start curl for libtorch download: {err}"))?;
 
-            if stop_signal.load(std::sync::atomic::Ordering::Relaxed) {
-                let _ = std::fs::remove_file(&libtorch_zip_path);
-                return Err(anyhow!("Download cancelled"));
+            // Poll curl and update progress based on file size
+            let expected_size: u64 = 2_660_000_000; // ~2.5 GB
+            loop {
+                match curl_child.try_wait() {
+                    Ok(Some(status)) => {
+                        if !status.success() {
+                            return Err(anyhow!("libtorch download failed (curl exit code {})", status));
+                        }
+                        break;
+                    }
+                    Ok(None) => {
+                        // Still running — update progress from file size
+                        if stop_signal.load(std::sync::atomic::Ordering::Relaxed) {
+                            let _ = curl_child.kill();
+                            let _ = std::fs::remove_file(&libtorch_zip_path);
+                            return Err(anyhow!("Download cancelled"));
+                        }
+                        let current_size = std::fs::metadata(&libtorch_zip_path)
+                            .map(|m| m.len()).unwrap_or(0);
+                        let pct = (current_size as f64 / expected_size as f64 * 100.0).min(99.0);
+                        let mb = current_size as f64 / 1_048_576.0;
+                        let msg = format!("Downloading libtorch... {:.0} MB / ~2500 MB", mb);
+                        if let Ok(mut state) = REALTIME_STATE.lock() {
+                            state.download_message = msg.clone();
+                            state.download_progress = pct as f32;
+                        }
+                        post_download_state();
+                        if use_badge {
+                            crate::overlay::auto_copy_badge::show_progress_notification(
+                                "Downloading Qwen3-ASR CUDA Runtime", &msg, pct as f32,
+                            );
+                        }
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+                    }
+                    Err(err) => return Err(anyhow!("Failed to check curl status: {err}")),
+                }
             }
 
             if let Ok(mut state) = REALTIME_STATE.lock() {
