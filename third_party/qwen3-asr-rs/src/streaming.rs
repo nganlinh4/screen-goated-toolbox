@@ -39,8 +39,13 @@ pub struct StreamingState {
     chunk_samples: usize,
     buffer: Vec<i16>,
     audio_accum: Vec<i16>,
+    audio_accum_f32: Vec<f32>,
     chunk_id: usize,
     raw_decoded: String,
+    raw_decoded_token_ids: Vec<i64>,
+    raw_decoded_prefix_token_count: usize,
+    raw_decoded_prefix_text: String,
+    raw_decoded_prefix_fixed_text: String,
     language: String,
     text: String,
     fixed_text: String,
@@ -62,8 +67,13 @@ impl StreamingState {
             chunk_samples,
             buffer: Vec::new(),
             audio_accum: Vec::new(),
+            audio_accum_f32: Vec::new(),
             chunk_id: 0,
             raw_decoded: String::new(),
+            raw_decoded_token_ids: Vec::new(),
+            raw_decoded_prefix_token_count: 0,
+            raw_decoded_prefix_text: String::new(),
+            raw_decoded_prefix_fixed_text: String::new(),
             language: String::new(),
             text: String::new(),
             fixed_text: String::new(),
@@ -119,8 +129,13 @@ impl StreamingState {
     pub fn reset(&mut self) {
         self.buffer.clear();
         self.audio_accum.clear();
+        self.audio_accum_f32.clear();
         self.chunk_id = 0;
         self.raw_decoded.clear();
+        self.raw_decoded_token_ids.clear();
+        self.raw_decoded_prefix_token_count = 0;
+        self.raw_decoded_prefix_text.clear();
+        self.raw_decoded_prefix_fixed_text.clear();
         self.language.clear();
         self.text.clear();
         self.fixed_text.clear();
@@ -132,6 +147,14 @@ impl StreamingState {
         self.audio_prefix_cache = None;
         self.ab_compared = false;
         self.recent_backend_logs.clear();
+    }
+
+    pub fn kv_cache_bytes(&self) -> usize {
+        self.kv_cache_bytes
+    }
+
+    pub fn kv_cache_dense_bytes(&self) -> usize {
+        self.kv_cache_dense_bytes
     }
 
     fn run_decode_step(
@@ -174,8 +197,7 @@ impl StreamingState {
         let (fixed_text, draft_text) = if prefix.is_empty() {
             (String::new(), parsed_text.clone())
         } else {
-            let (_, parsed_fixed) = model.parse_streaming_raw_output(&prefix, language);
-            split_fixed_and_draft(&parsed_text, &parsed_fixed)
+            split_fixed_and_draft(&parsed_text, &prefix_fixed)
         };
 
         let backend_log = format!(
@@ -237,6 +259,16 @@ impl StreamingState {
         }
 
         self.raw_decoded = raw_decoded;
+        self.raw_decoded_prefix_token_count = prefix_token_count;
+        self.raw_decoded_prefix_text = prefix.clone();
+        self.raw_decoded_prefix_fixed_text = prefix_fixed;
+        self.raw_decoded_token_ids = if prefix_token_ids.is_empty() {
+            result.raw_output_token_ids.clone()
+        } else {
+            let mut token_ids = prefix_token_ids.to_vec();
+            token_ids.extend_from_slice(&result.raw_output_token_ids);
+            token_ids
+        };
         self.language = parsed_language;
         self.text = parsed_text;
         self.fixed_text = fixed_text;
@@ -289,19 +321,106 @@ impl StreamingState {
             return Ok(String::new());
         }
 
-        let token_ids = model.encode_text_tokens(&self.raw_decoded)?;
-        let mut rollback = self.config.unfixed_token_num;
-        loop {
-            let end_idx = token_ids.len().saturating_sub(rollback);
-            if end_idx == 0 {
-                return Ok(String::new());
-            }
-            let prefix = model.decode_text_tokens(&token_ids[..end_idx])?;
-            if !prefix.contains(REPLACEMENT_CHARACTER) {
-                return Ok(prefix);
-            }
-            rollback += 1;
+        if self.audio_prefix_cache.is_none() {
+            let base_prefix_cache = self.base_prefix_cache(model, language)?;
+            self.audio_prefix_cache = Some(
+                model.extend_prefix_cache_with_audio(base_prefix_cache, audio_embeds, language)?,
+            );
+        } else {
+            let cache = self
+                .audio_prefix_cache
+                .take()
+                .expect("audio prefix cache must exist");
+            self.audio_prefix_cache = Some(model.extend_owned_prefix_cache_with_audio(
+                cache,
+                audio_embeds,
+                language,
+            )?);
         }
+
+        Ok(self
+            .audio_prefix_cache
+            .as_ref()
+            .expect("audio prefix cache must exist after refresh"))
+    }
+
+    fn base_prefix_cache<'a>(
+        &'a mut self,
+        model: &AsrInference,
+        language: Option<&str>,
+    ) -> Result<&'a PromptPrefixCache> {
+        let normalized_language = normalize_language(language);
+        let cache_needs_refresh = self.base_prefix_cache.is_none()
+            || self.base_prefix_language.as_deref() != normalized_language.as_deref();
+        if cache_needs_refresh {
+            let cache = model.create_base_prefix_cache(normalized_language.as_deref())?;
+            self.base_prefix_language = normalized_language;
+            self.base_prefix_cache = Some(cache);
+        }
+        Ok(self
+            .base_prefix_cache
+            .as_ref()
+            .expect("base prefix cache must exist after refresh"))
+    }
+
+    fn suffix_token_ids<'a>(
+        &'a mut self,
+        model: &AsrInference,
+        language: Option<&str>,
+    ) -> Result<&'a [i64]> {
+        let normalized_language = normalize_language(language);
+        let cache_needs_refresh = self.suffix_language.as_deref() != normalized_language.as_deref();
+        if cache_needs_refresh {
+            self.suffix_token_ids = model.suffix_prompt_token_ids(normalized_language.as_deref())?;
+            self.suffix_language = normalized_language;
+        }
+        Ok(&self.suffix_token_ids)
+    }
+
+    fn build_prefix_text_with_tokens(&self, model: &AsrInference, language: Option<&str>) -> Result<(String, String, usize)> {
+        if self.chunk_id < self.config.unfixed_chunk_num || self.raw_decoded_token_ids.is_empty() {
+            return Ok((String::new(), String::new(), 0));
+        }
+
+        let token_ids = self.raw_decoded_token_ids.as_slice();
+        let max_end = token_ids.len().saturating_sub(self.config.unfixed_token_num);
+        if max_end == 0 {
+            return Ok((String::new(), String::new(), 0));
+        }
+
+        let mut low = 0usize;
+        let mut best_prefix = String::new();
+        let mut best_fixed = String::new();
+        if self.raw_decoded_prefix_token_count > 0 && self.raw_decoded_prefix_token_count <= max_end {
+            // The cached prefix comes from the same immutable leading token slice and stays
+            // valid until those leading tokens change, which this streaming path does not do.
+            low = self.raw_decoded_prefix_token_count;
+            best_prefix = self.raw_decoded_prefix_text.clone();
+            best_fixed = self.raw_decoded_prefix_fixed_text.clone();
+        }
+
+        if low == max_end {
+            return Ok((best_prefix, best_fixed, low));
+        }
+
+        let mut high = max_end;
+        while low < high {
+            let probe = low + (high - low + 1) / 2;
+            let prefix = model.decode_text_tokens(&token_ids[..probe])?;
+            if prefix.contains(REPLACEMENT_CHARACTER) {
+                high = probe.saturating_sub(1);
+            } else {
+                low = probe;
+                best_prefix = prefix;
+                best_fixed = model.parse_streaming_raw_output(&best_prefix, language).1;
+            }
+        }
+
+        if low == 0 {
+            return Ok((String::new(), String::new(), 0));
+        }
+
+        Ok((best_prefix, best_fixed, low))
     }
 
     fn snapshot(&self, finalize: bool) -> StreamingTranscript {
@@ -367,6 +486,17 @@ fn looks_suspicious(text: &str) -> bool {
         || lowered.contains("i can be bad at this, i can be bad at this")
         || has_repeated_word_ngram(&lowered, 4)
         || has_repeated_word_ngram(&lowered, 5)
+}
+
+fn normalize_language(language: Option<&str>) -> Option<String> {
+    language.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
+fn chunk_audio_f32(chunk: &[i16]) -> Vec<f32> {
+    chunk.iter().map(|sample| *sample as f32 / 32768.0).collect()
 }
 
 fn has_repeated_word_ngram(text: &str, n: usize) -> bool {

@@ -128,6 +128,10 @@ fn clear_runtime_notice() {
     *LAST_QWEN3_RUNTIME_NOTICE.lock().unwrap() = None;
 }
 
+pub fn current_qwen3_runtime_notice() -> Option<String> {
+    LAST_QWEN3_RUNTIME_NOTICE.lock().ok()?.clone()
+}
+
 fn runtime_dll_path() -> Result<PathBuf> {
     for path in runtime_dll_candidates()? {
         if path.exists() {
@@ -592,8 +596,4 @@ impl Qwen3Session {
             "Failed to reset Qwen3 session",
         )
     }
-}
-
-pub fn current_qwen3_runtime_notice() -> Option<String> {
-    LAST_QWEN3_RUNTIME_NOTICE.lock().unwrap().clone()
 }
