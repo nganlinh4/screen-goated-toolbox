@@ -12,6 +12,8 @@ lazy_static::lazy_static! {
 
 const QWEN3_RUNTIME_DLL: &str = "sgt_qwen3_runtime.dll";
 const QWEN3_RUNTIME_ABI_VERSION: u32 = 1;
+const LIBTORCH_CU126_URL: &str =
+    "https://download.pytorch.org/libtorch/cu126/libtorch-win-shared-with-deps-2.7.1%2Bcu126.zip";
 const NATIVE_IMPLEMENTATION: &str = "reference_rust";
 const SGT_QWEN3_STATUS_OK: i32 = 0;
 const KV_CACHE_MODE_DENSE_APPEND: &str = "dense_append";
@@ -130,6 +132,261 @@ fn clear_runtime_notice() {
 
 pub fn current_qwen3_runtime_notice() -> Option<String> {
     LAST_QWEN3_RUNTIME_NOTICE.lock().ok()?.clone()
+}
+
+pub fn is_qwen3_runtime_downloaded() -> bool {
+    runtime_dll_candidates()
+        .ok()
+        .is_some_and(|paths| paths.iter().any(|p| p.exists()))
+}
+
+/// Check if the runtime is installed in the managed (downloadable) private bin dir.
+/// Used by settings UI — doesn't count dev build paths.
+pub fn is_qwen3_runtime_managed_installed() -> bool {
+    crate::unpack_dlls::private_bin_dir()
+        .join(QWEN3_RUNTIME_DLL)
+        .exists()
+}
+
+pub fn qwen3_runtime_installed_size() -> u64 {
+    let bin_dir = crate::unpack_dlls::private_bin_dir();
+    if !bin_dir.join(QWEN3_RUNTIME_DLL).exists() {
+        return 0;
+    }
+    // Count only libtorch + runtime DLLs, not other SGT tools in the same dir
+    std::fs::read_dir(&bin_dir)
+        .ok()
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    let name = e.file_name();
+                    let name = name.to_string_lossy();
+                    name == QWEN3_RUNTIME_DLL
+                        || name.starts_with("torch")
+                        || name.starts_with("c10")
+                        || name.starts_with("cuda")
+                        || name.starts_with("cublas")
+                        || name.starts_with("cudnn")
+                        || name.starts_with("nvrtc")
+                        || name.starts_with("nvJitLink")
+                        || name.starts_with("caffe2")
+                        || name.starts_with("fbgemm")
+                        || name.starts_with("asmjit")
+                        || name.starts_with("gomp")
+                        || name.starts_with("uv")
+                })
+                .filter_map(|e| e.metadata().ok().map(|m| m.len()))
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
+pub fn remove_qwen3_runtime() -> anyhow::Result<()> {
+    let bin_dir = crate::unpack_dlls::private_bin_dir();
+    // Remove only the runtime DLL and libtorch DLLs, not other SGT support DLLs
+    let runtime_dll_names: &[&str] = &[
+        "sgt_qwen3_runtime.dll",
+        "torch_cpu.dll",
+        "torch_cuda.dll",
+        "torch.dll",
+        "c10.dll",
+        "c10_cuda.dll",
+    ];
+    for name in runtime_dll_names {
+        let _ = std::fs::remove_file(bin_dir.join(name));
+    }
+    // Remove all libtorch-related DLLs (cuda*, cudnn*, nvrtc*, caffe2*, etc.)
+    if let Ok(entries) = std::fs::read_dir(&bin_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("cuda")
+                || name.starts_with("cublas")
+                || name.starts_with("cudnn")
+                || name.starts_with("nvrtc")
+                || name.starts_with("nvJitLink")
+                || name.starts_with("caffe2")
+                || name.starts_with("gomp")
+                || name.starts_with("fbgemm")
+                || name.starts_with("asmjit")
+                || name.starts_with("uv")
+            {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    clear_runtime_notice();
+    Ok(())
+}
+
+pub fn download_qwen3_runtime(
+    stop_signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    use_badge: bool,
+) -> anyhow::Result<()> {
+    if is_qwen3_runtime_downloaded() {
+        return Ok(());
+    }
+
+    let locale = {
+        let app = crate::APP.lock().unwrap();
+        crate::gui::locale::LocaleText::get(&app.config.ui_language)
+    };
+
+    use crate::overlay::realtime_webview::state::REALTIME_STATE;
+    if let Ok(mut state) = REALTIME_STATE.lock() {
+        state.is_downloading = true;
+        state.download_title = "Downloading Qwen3-ASR CUDA Runtime".to_string();
+        state.download_message = "Please wait... this is a large download (~800 MB).".to_string();
+        state.download_progress = 0.0;
+    }
+    clear_runtime_notice();
+
+    if use_badge {
+        crate::overlay::auto_copy_badge::show_progress_notification(
+            "Downloading Qwen3-ASR CUDA Runtime",
+            "Please wait... downloading libtorch + runtime DLL.",
+            0.0,
+        );
+    }
+
+    fn post_download_state() {
+        use crate::overlay::realtime_webview::state::REALTIME_HWND;
+        unsafe {
+            if !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {
+                let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
+                    Some(REALTIME_HWND),
+                    super::super::WM_DOWNLOAD_PROGRESS,
+                    windows::Win32::Foundation::WPARAM(0),
+                    windows::Win32::Foundation::LPARAM(0),
+                );
+            }
+        }
+    }
+
+    post_download_state();
+
+    let result: anyhow::Result<()> = (|| {
+        let bin_dir = crate::unpack_dlls::private_bin_dir();
+        std::fs::create_dir_all(&bin_dir)?;
+
+        // Step 1: Copy our DLL from the committed repo path
+        if !bin_dir.join(QWEN3_RUNTIME_DLL).exists() {
+            let source = find_committed_runtime_dll()
+                .ok_or_else(|| anyhow!(
+                    "Cannot find {} in the repository. Build it with scripts/build_qwen3_runtime.ps1",
+                    QWEN3_RUNTIME_DLL
+                ))?;
+            std::fs::copy(&source, bin_dir.join(QWEN3_RUNTIME_DLL))?;
+        }
+
+        if stop_signal.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(anyhow!("Download cancelled"));
+        }
+
+        // Step 2: Download libtorch from pytorch.org if needed
+        let libtorch_marker = bin_dir.join("torch_cpu.dll");
+        if !libtorch_marker.exists() {
+            if let Ok(mut state) = REALTIME_STATE.lock() {
+                state.download_message = "Downloading libtorch CUDA runtime (~2.5 GB)...".to_string();
+            }
+            post_download_state();
+
+            let libtorch_zip_path = bin_dir.join("libtorch-download.zip");
+            crate::api::realtime_audio::model_loader::download_file(
+                LIBTORCH_CU126_URL,
+                &libtorch_zip_path,
+                &stop_signal,
+                use_badge,
+            )?;
+
+            if let Ok(mut state) = REALTIME_STATE.lock() {
+                state.download_message = "Extracting libtorch...".to_string();
+            }
+            post_download_state();
+
+            // Extract libtorch DLLs from zip (they're under libtorch/lib/*.dll)
+            let file = std::fs::File::open(&libtorch_zip_path)?;
+            let mut zip = zip::ZipArchive::new(file)
+                .map_err(|err| anyhow!("Failed to open libtorch archive: {err}"))?;
+            for idx in 0..zip.len() {
+                let mut entry = zip.by_index(idx)
+                    .map_err(|err| anyhow!("Failed to read libtorch archive entry: {err}"))?;
+                let name = match entry.enclosed_name() {
+                    Some(path) => path.to_path_buf(),
+                    None => continue,
+                };
+                if entry.is_dir() {
+                    continue;
+                }
+                // Only extract DLLs from the lib/ directory, flatten into bin_dir
+                let name_str = name.to_string_lossy();
+                if name_str.contains("/lib/") || name_str.contains("\\lib\\") {
+                    if let Some(file_name) = name.file_name() {
+                        let file_name_str = file_name.to_string_lossy();
+                        if file_name_str.ends_with(".dll") {
+                            let output_path = bin_dir.join(file_name);
+                            let mut output = std::fs::File::create(&output_path)?;
+                            std::io::copy(&mut entry, &mut output)?;
+                        }
+                    }
+                }
+            }
+            let _ = std::fs::remove_file(libtorch_zip_path);
+        }
+
+        if !bin_dir.join(QWEN3_RUNTIME_DLL).exists() {
+            return Err(anyhow!("Runtime DLL not found after download"));
+        }
+        if !bin_dir.join("torch_cpu.dll").exists() {
+            return Err(anyhow!("libtorch DLLs not found after extraction"));
+        }
+
+        Ok(())
+    })();
+
+    if let Ok(mut state) = REALTIME_STATE.lock() {
+        state.is_downloading = false;
+    }
+    if use_badge {
+        crate::overlay::auto_copy_badge::hide_progress_notification();
+    }
+    post_download_state();
+
+    if let Err(err) = &result {
+        if !err.to_string().contains("cancelled") {
+            set_runtime_notice(err.to_string());
+        }
+    } else {
+        clear_runtime_notice();
+    }
+
+    result
+}
+
+fn find_committed_runtime_dll() -> Option<std::path::PathBuf> {
+    // Check repo path: native/qwen3_runtime/dist/sgt_qwen3_runtime.dll
+    if let Ok(root) = repo_root() {
+        let committed = root.join("native").join("qwen3_runtime").join("dist").join(QWEN3_RUNTIME_DLL);
+        if committed.exists() {
+            return Some(committed);
+        }
+        // Also check build output
+        let built = root.join("native").join("qwen3_runtime").join("target").join("release").join(QWEN3_RUNTIME_DLL);
+        if built.exists() {
+            return Some(built);
+        }
+    }
+    // Check alongside the exe (release distribution)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let beside_exe = parent.join(QWEN3_RUNTIME_DLL);
+            if beside_exe.exists() {
+                return Some(beside_exe);
+            }
+        }
+    }
+    None
 }
 
 fn runtime_dll_path() -> Result<PathBuf> {

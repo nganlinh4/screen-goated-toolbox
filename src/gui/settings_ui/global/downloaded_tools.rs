@@ -53,6 +53,7 @@ pub fn render_downloaded_tools_modal(
                             let is_downloading = {
                                 if let Ok(state) = REALTIME_STATE.lock() {
                                     state.is_downloading
+                                        && state.download_title == text.parakeet_downloading_title
                                 } else {
                                     false
                                 }
@@ -173,6 +174,76 @@ pub fn render_downloaded_tools_modal(
                         ui.label(egui::RichText::new(message).color(egui::Color32::RED));
                     }
                     if let Some(message) = qwen_runtime_notice {
+                        ui.add_space(4.0);
+                        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+                    }
+                });
+
+                ui.add_space(8.0);
+
+                ui.group(|ui| {
+                    use crate::api::realtime_audio::qwen3::runtime::{
+                        is_qwen3_runtime_managed_installed, qwen3_runtime_installed_size,
+                        remove_qwen3_runtime, download_qwen3_runtime,
+                        current_qwen3_runtime_notice,
+                    };
+                    let runtime_notice = current_qwen3_runtime_notice();
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(text.tool_qwen3_runtime).strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let is_downloading_runtime = {
+                                if let Ok(state) = REALTIME_STATE.lock() {
+                                    state.is_downloading
+                                        && state.download_title.contains("CUDA Runtime")
+                                } else {
+                                    false
+                                }
+                            };
+
+                            if is_downloading_runtime {
+                                let progress = {
+                                    if let Ok(state) = REALTIME_STATE.lock() {
+                                        state.download_progress
+                                    } else {
+                                        0.0
+                                    }
+                                };
+                                ui.label(format!("{:.0}%", progress));
+                                ui.spinner();
+                            } else if is_qwen3_runtime_managed_installed() {
+                                if ui
+                                    .button(
+                                        egui::RichText::new(text.tool_action_delete)
+                                            .color(egui::Color32::RED),
+                                    )
+                                    .clicked()
+                                {
+                                    let _ = remove_qwen3_runtime();
+                                }
+                                let size = qwen3_runtime_installed_size();
+                                ui.label(
+                                    egui::RichText::new(
+                                        text.tool_status_installed
+                                            .replace("{}", &format_size(size)),
+                                    )
+                                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                                );
+                            } else {
+                                if ui.button(text.tool_action_download).clicked() {
+                                    let stop_signal = Arc::new(AtomicBool::new(false));
+                                    thread::spawn(move || {
+                                        let _ = download_qwen3_runtime(stop_signal, false);
+                                    });
+                                }
+                                ui.label(
+                                    egui::RichText::new(text.tool_status_missing)
+                                        .color(egui::Color32::GRAY),
+                                );
+                            }
+                        });
+                    });
+                    ui.label(text.tool_desc_qwen3_runtime);
+                    if let Some(message) = runtime_notice {
                         ui.add_space(4.0);
                         ui.label(egui::RichText::new(message).color(egui::Color32::RED));
                     }
