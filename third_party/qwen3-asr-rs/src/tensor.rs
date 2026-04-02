@@ -318,6 +318,49 @@ impl Tensor {
         Tensor::from_tch(self.inner.matmul(&other.inner))
     }
 
+    /// Fused scaled dot-product attention (FlashAttention2 on CUDA).
+    /// Q/K/V: [batch, heads, seq, head_dim]. Mask is additive float.
+    pub fn scaled_dot_product_attention(
+        query: &Tensor,
+        key: &Tensor,
+        value: &Tensor,
+        scale: f64,
+        mask: Option<&Tensor>,
+    ) -> Tensor {
+        let q_heads = query.size()[1];
+        let kv_heads = key.size()[1];
+        let enable_gqa = q_heads != kv_heads;
+        // When an explicit causal mask is passed for prefill, use is_causal=true
+        // instead — this lets SDPA use FlashAttention's built-in causal masking
+        // and avoids dtype mismatch (mask is f32 but query may be bf16).
+        let seq_len = query.size()[2];
+        let kv_len = key.size()[2];
+        let is_prefill_causal = mask.is_some() && seq_len > 1 && seq_len == kv_len;
+        let (use_mask, is_causal) = if is_prefill_causal {
+            (None, true) // Let SDPA handle causal masking internally
+        } else {
+            (mask, false)
+        };
+        // Cast mask to query dtype if needed (SDPA requires matching dtypes)
+        let mask_cast = use_mask.map(|m| {
+            if m.kind() == query.kind() { m.shallow_clone() } else { m.to_dtype(query.kind()) }
+        });
+        // Ensure Q/K/V have matching dtypes (SDPA requirement)
+        let q_dtype = query.kind();
+        let key = if key.kind() == q_dtype { key.shallow_clone() } else { key.to_dtype(q_dtype) };
+        let value = if value.kind() == q_dtype { value.shallow_clone() } else { value.to_dtype(q_dtype) };
+        Tensor::from_tch(tch::Tensor::scaled_dot_product_attention(
+            &query.inner,
+            &key.inner,
+            &value.inner,
+            mask_cast.as_ref().map(|m| &m.inner),
+            0.0,
+            is_causal,
+            Some(scale),
+            enable_gqa,
+        ))
+    }
+
     pub fn pow_scalar(&self, exp: f64) -> Self {
         Tensor::from_tch(self.inner.pow_tensor_scalar(exp))
     }
@@ -450,48 +493,6 @@ impl Tensor {
         let x2 = self.narrow(-1, half, half);
         let x_rotated = Tensor::cat(&[(-&x2), x1], -1);
         self * &cos + x_rotated * &sin
-    }
-
-    /// Scaled dot-product attention: softmax(Q*K^T/scale + mask) * V
-    /// Q: (B, nqh, S, D), K: (B, nkvh, T, D), V: (B, nkvh, T, D)
-    /// Handles GQA by expanding KV heads to match Q heads.
-    pub fn scaled_dot_product_attention(
-        q: &Tensor,
-        k: &Tensor,
-        v: &Tensor,
-        scale: f64,
-        mask: Option<&Tensor>,
-    ) -> Tensor {
-        // Expand KV heads to match Q heads for GQA
-        let nqh = q.size()[1];
-        let nkvh = k.size()[1];
-        let (k, v) = if nqh != nkvh {
-            let n_rep = nqh / nkvh;
-            let (bsz, _, seq_len, head_dim) = (k.size()[0], k.size()[1], k.size()[2], k.size()[3]);
-            let k = k
-                .unsqueeze(2)
-                .expand(&[bsz, nkvh, n_rep, seq_len, head_dim], false)
-                .reshape(&[bsz, nqh, seq_len, head_dim]);
-            let v = v
-                .unsqueeze(2)
-                .expand(&[bsz, nkvh, n_rep, seq_len, head_dim], false)
-                .reshape(&[bsz, nqh, seq_len, head_dim]);
-            (k, v)
-        } else {
-            (k.shallow_clone(), v.shallow_clone())
-        };
-        let k_t = k.transpose(-2, -1);
-        let mut attn = q.matmul(&k_t) * scale;
-        if let Some(m) = mask {
-            attn = attn + m;
-        }
-        let attn = attn.softmax(-1);
-        let v = if attn.kind() == v.kind() {
-            v
-        } else {
-            v.to_dtype(attn.kind())
-        };
-        attn.matmul(&v)
     }
 
     // -- Convolution --

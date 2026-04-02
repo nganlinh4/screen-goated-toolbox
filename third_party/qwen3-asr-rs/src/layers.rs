@@ -276,9 +276,10 @@ impl AudioEncoderLayer {
 // ============================================================================
 
 pub struct TextAttention {
-    pub q_proj: Linear,
-    pub k_proj: Linear,
-    pub v_proj: Linear,
+    /// Fused QKV weight: [hidden, (q_dim + kv_dim + kv_dim)] transposed
+    qkv_weight_t: Tensor,
+    q_dim: i64,
+    kv_dim: i64,
     pub o_proj: Linear,
     pub q_norm: RmsNorm,
     pub k_norm: RmsNorm,
@@ -302,10 +303,16 @@ impl TextAttention {
         head_dim: usize,
         rms_norm_eps: f64,
     ) -> Result<Self> {
+        let q_proj = Linear::load(weights, &format!("{}.q_proj", prefix))?;
+        let k_proj = Linear::load(weights, &format!("{}.k_proj", prefix))?;
+        let v_proj = Linear::load(weights, &format!("{}.v_proj", prefix))?;
+        let q_dim = q_proj.weight_t.size()[1];
+        let kv_dim = k_proj.weight_t.size()[1];
+        let qkv_weight_t = Tensor::cat(&[q_proj.weight_t, k_proj.weight_t, v_proj.weight_t], 1);
         Ok(Self {
-            q_proj: Linear::load(weights, &format!("{}.q_proj", prefix))?,
-            k_proj: Linear::load(weights, &format!("{}.k_proj", prefix))?,
-            v_proj: Linear::load(weights, &format!("{}.v_proj", prefix))?,
+            qkv_weight_t,
+            q_dim,
+            kv_dim,
             o_proj: Linear::load(weights, &format!("{}.o_proj", prefix))?,
             q_norm: RmsNorm::load(weights, &format!("{}.q_norm", prefix), rms_norm_eps)?,
             k_norm: RmsNorm::load(weights, &format!("{}.k_norm", prefix), rms_norm_eps)?,
@@ -340,21 +347,21 @@ impl TextAttention {
         let nkvh = self.num_kv_heads as i64;
         let hd = self.head_dim as i64;
 
-        let q = self
-            .q_proj
-            .forward(x)
+        // Single fused QKV matmul instead of 3 separate projections
+        let compute_dtype = self.qkv_weight_t.kind();
+        let x_cast = cast_for_compute(x, compute_dtype);
+        let qkv = x_cast.matmul(&self.qkv_weight_t);
+
+        let q = qkv.narrow(-1, 0, self.q_dim)
             .reshape(&[bsz, seq_len, nqh, hd])
             .transpose(1, 2);
-        let k = self
-            .k_proj
-            .forward(x)
+        let k = qkv.narrow(-1, self.q_dim, self.kv_dim)
             .reshape(&[bsz, seq_len, nkvh, hd])
             .transpose(1, 2);
-        let v = self
-            .v_proj
-            .forward(x)
+        let v = qkv.narrow(-1, self.q_dim + self.kv_dim, self.kv_dim)
             .reshape(&[bsz, seq_len, nkvh, hd])
             .transpose(1, 2);
+
         let q = self.apply_head_norm(&q, &self.q_norm).apply_rope(cos, sin);
         let k = self.apply_head_norm(&k, &self.k_norm).apply_rope(cos, sin);
 
@@ -398,23 +405,45 @@ impl TextAttention {
 // ============================================================================
 
 pub struct TextMlp {
-    pub gate_proj: Linear,
-    pub up_proj: Linear,
+    /// Fused gate+up weight: [hidden, intermediate*2] (transposed for matmul)
+    gate_up_weight_t: Tensor,
+    gate_up_bias: Option<(Tensor, Tensor)>,
+    intermediate_size: i64,
     pub down_proj: Linear,
 }
 
 impl TextMlp {
     pub fn load(weights: &HashMap<String, Tensor>, prefix: &str) -> Result<Self> {
+        let gate_proj = Linear::load(weights, &format!("{}.gate_proj", prefix))?;
+        let up_proj = Linear::load(weights, &format!("{}.up_proj", prefix))?;
+        let intermediate_size = gate_proj.weight_t.size()[1];
+        // Fuse gate_proj and up_proj weights: concat along output dim
+        // gate_proj.weight_t: [hidden, intermediate], up_proj.weight_t: [hidden, intermediate]
+        // fused: [hidden, intermediate*2]
+        let gate_up_weight_t = Tensor::cat(&[gate_proj.weight_t, up_proj.weight_t], 1);
+        let gate_up_bias = match (gate_proj.bias, up_proj.bias) {
+            (Some(gb), Some(ub)) => Some((gb, ub)),
+            _ => None,
+        };
         Ok(Self {
-            gate_proj: Linear::load(weights, &format!("{}.gate_proj", prefix))?,
-            up_proj: Linear::load(weights, &format!("{}.up_proj", prefix))?,
+            gate_up_weight_t,
+            gate_up_bias,
+            intermediate_size,
             down_proj: Linear::load(weights, &format!("{}.down_proj", prefix))?,
         })
     }
 
     pub fn forward(&self, x: &Tensor) -> Tensor {
-        let gate = self.gate_proj.forward(x).silu();
-        let up = self.up_proj.forward(x);
+        let compute_dtype = self.gate_up_weight_t.kind();
+        let x = cast_for_compute(x, compute_dtype);
+        let fused = x.matmul(&self.gate_up_weight_t);
+        if let Some((ref gb, ref ub)) = self.gate_up_bias {
+            let gate_part = fused.narrow(-1, 0, self.intermediate_size) + cast_for_compute(gb, compute_dtype);
+            let up_part = fused.narrow(-1, self.intermediate_size, self.intermediate_size) + cast_for_compute(ub, compute_dtype);
+            return self.down_proj.forward(&(gate_part.silu() * up_part));
+        }
+        let gate = fused.narrow(-1, 0, self.intermediate_size).silu();
+        let up = fused.narrow(-1, self.intermediate_size, self.intermediate_size);
         self.down_proj.forward(&(gate * up))
     }
 }

@@ -21,7 +21,7 @@ const REFERENCE_STREAMING_MODE: &str = "qwen_reference";
 
 lazy_static::lazy_static! {
     static ref LAST_GLOBAL_ERROR_JSON: Mutex<String> =
-        Mutex::new(error_payload("No Qwen3 TurboQuant runtime error recorded."));
+        Mutex::new(error_payload("No Qwen3 runtime error recorded."));
     static ref LAST_PROBE_JSON: Mutex<String> = Mutex::new(String::new());
 }
 
@@ -143,13 +143,13 @@ fn select_device() -> anyhow::Result<(Device, &'static str)> {
         if tch::Cuda::is_available() {
             return Ok((Device::Gpu(0), "cuda"));
         }
-        anyhow::bail!("Qwen3 TurboQuant runtime was forced to CUDA, but CUDA is not available");
+        anyhow::bail!("Qwen3 runtime was forced to CUDA, but CUDA is not available");
     }
     if tch::Cuda::is_available() {
         Ok((Device::Gpu(0), "cuda"))
     } else {
         anyhow::bail!(
-            "Qwen3 TurboQuant runtime requires an NVIDIA CUDA-capable GPU. CPU fallback is not supported."
+            "Qwen3 runtime requires an NVIDIA CUDA-capable GPU. CPU fallback is not supported."
         )
     }
 }
@@ -160,7 +160,7 @@ fn runtime_handle_from_ptr<'a>(ptr: *mut c_void) -> anyhow::Result<&'a mut Runti
     }
     let handle = unsafe { &mut *(ptr as *mut RuntimeHandle) };
     if handle.kind != HANDLE_KIND_RUNTIME {
-        anyhow::bail!("Handle is not a Qwen3 TurboQuant runtime");
+        anyhow::bail!("Handle is not a Qwen3 runtime");
     }
     Ok(handle)
 }
@@ -171,7 +171,7 @@ fn session_handle_from_ptr<'a>(ptr: *mut c_void) -> anyhow::Result<&'a mut Sessi
     }
     let handle = unsafe { &mut *(ptr as *mut SessionHandle) };
     if handle.kind != HANDLE_KIND_SESSION {
-        anyhow::bail!("Handle is not a Qwen3 TurboQuant session");
+        anyhow::bail!("Handle is not a Qwen3 session");
     }
     Ok(handle)
 }
@@ -221,27 +221,19 @@ pub extern "C" fn sgt_qwen3_runtime_version() -> u32 {
 
 #[no_mangle]
 pub extern "C" fn sgt_qwen3_probe_cuda(out_json: *mut *const c_char, out_len: *mut usize) -> i32 {
-    // Check if torch_cuda.dll is loaded in this process
-    let torch_cuda_loaded = unsafe {
-        let handle = windows_sys::Win32::System::LibraryLoader::GetModuleHandleA(
-            b"torch_cuda.dll\0".as_ptr(),
-        );
-        !handle.is_null()
-    };
     let cuda_available = tch::Cuda::is_available();
     let cuda_device_count = tch::Cuda::device_count() as i64;
     let cudnn_available = tch::Cuda::cudnn_is_available();
     let payload = json!({
-        "torch_cuda_dll_loaded": torch_cuda_loaded,
         "supported": cuda_available,
         "implementation": "reference_rust",
         "quant_mode": REFERENCE_EXECUTION_MODE,
         "kv_cache_mode": KV_CACHE_MODE_DENSE_APPEND,
         "supported_kv_cache_modes": supported_kv_cache_mode_names(),
-        "turboquant_kv": true,
+        "kv_compression_available": true,
         "cuda_devices": cuda_device_count,
         "cudnn_available": cudnn_available,
-        "message": "Native Qwen3 runtime defaults to the in-process Rust reference engine with an uncompressed dense KV cache. TurboQuant KV cache compression is parity-validated and available via kv_cache_mode."
+        "message": "Native Qwen3 runtime with FlashAttention and fused ops. KV cache compression available via kv_cache_mode."
     })
     .to_string();
     *LAST_PROBE_JSON.lock().unwrap() = payload;
@@ -307,7 +299,7 @@ pub extern "C" fn sgt_qwen3_create_runtime(
     let handle = Box::new(RuntimeHandle {
         kind: HANDLE_KIND_RUNTIME,
         model,
-        last_error_json: error_payload("No Qwen3 TurboQuant runtime error recorded."),
+        last_error_json: error_payload("No Qwen3 runtime error recorded."),
         quant_mode: if config.quant_mode.is_empty() {
             REFERENCE_EXECUTION_MODE.to_string()
         } else {
@@ -423,7 +415,7 @@ pub extern "C" fn sgt_qwen3_create_session(
             unfixed_chunk_num: session_config.unfixed_chunk_num,
             unfixed_token_num: session_config.unfixed_token_num,
         }),
-        last_error_json: error_payload("No Qwen3 TurboQuant session error recorded."),
+        last_error_json: error_payload("No Qwen3 session error recorded."),
         last_payload_json: String::new(),
         language,
         final_pending: false,
@@ -540,7 +532,7 @@ pub extern "C" fn sgt_qwen3_reset_session(session: *mut c_void) -> i32 {
     session.final_pending = false;
     session.audio_samples_total = 0;
     session.last_payload_json.clear();
-    session.last_error_json = error_payload("No Qwen3 TurboQuant session error recorded.");
+    session.last_error_json = error_payload("No Qwen3 session error recorded.");
     STATUS_OK
 }
 
@@ -569,7 +561,7 @@ pub extern "C" fn sgt_qwen3_last_error(
             STATUS_OK
         }
         _ => {
-            let payload = error_payload("Unknown Qwen3 TurboQuant handle kind.");
+            let payload = error_payload("Unknown Qwen3 handle kind.");
             write_out_string(&payload, out_json, out_len);
             STATUS_OK
         }

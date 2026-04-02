@@ -28,7 +28,7 @@ pub enum TranscriptionMethod {
     #[default]
     GeminiLive,
     Parakeet,
-    Qwen3TurboQuant,
+    Qwen3Local,
 }
 
 pub struct RealtimeState {
@@ -125,7 +125,7 @@ impl RealtimeState {
     }
 
     fn sync_transcript_commit_pos_with_translation(&mut self) {
-        if self.transcription_method != TranscriptionMethod::Qwen3TurboQuant {
+        if self.transcription_method != TranscriptionMethod::Qwen3Local {
             self.transcript_committed_pos = self.last_committed_pos.min(self.full_transcript.len());
         }
     }

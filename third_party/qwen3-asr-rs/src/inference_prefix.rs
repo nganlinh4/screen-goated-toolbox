@@ -232,7 +232,11 @@ impl AsrInference {
             "starting generation session"
         );
         let generated_ids = session.generate(effective_max_new_tokens)?;
-        session.finalize_kv_offload();
+        // Only run KV offload for offline transcription where the cache persists.
+        // Streaming recreates the cache each chunk so offload is wasted CPU work.
+        if max_new_tokens > super::DEFAULT_STREAMING_MAX_NEW_TOKENS {
+            session.finalize_kv_offload();
+        }
         let kv_cache_bytes = session.total_cache_bytes();
         let kv_cache_dense_bytes = session.dense_equivalent_cache_bytes();
         tracing::info!("Generated {} tokens", generated_ids.len());

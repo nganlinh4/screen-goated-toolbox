@@ -2,7 +2,7 @@ param(
     [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
     [ValidateSet("auto", "cu126", "cu128")]
     [string]$Runtime = "auto",
-    [string]$AssetName = "qwen3-turboquant-runtime-windows-x64",
+    [string]$AssetName = "qwen3-runtime-windows-x64",
     [switch]$CopyToPrivateBin,
     [switch]$Clean
 )
@@ -10,12 +10,12 @@ param(
 $ErrorActionPreference = "Stop"
 
 if ($env:OS -ne "Windows_NT") {
-    throw "build_qwen3_turboquant_runtime.ps1 must run on Windows PowerShell."
+    throw "build_qwen3_runtime.ps1 must run on Windows PowerShell."
 }
 
-$nativeDir = Join-Path $RepoRoot "native\qwen3_turboquant"
+$nativeDir = Join-Path $RepoRoot "native\qwen3_runtime"
 if (!(Test-Path $nativeDir)) {
-    throw "Native TurboQuant runtime source not found at $nativeDir"
+    throw "Native Qwen3 runtime source not found at $nativeDir"
 }
 
 $distRoot = Join-Path $RepoRoot "dist"
@@ -57,7 +57,7 @@ function Resolve-QwenRuntimeVariant {
         return "cu126"
     }
 
-    throw "No NVIDIA GPU detected. Qwen3 TurboQuant runtime packaging does not support CPU fallback."
+    throw "No NVIDIA GPU detected. Qwen3 Qwen3 runtime packaging does not support CPU fallback."
 }
 
 function Get-LibtorchUrl {
@@ -175,7 +175,7 @@ $env:LIBTORCH = $libtorchRoot
 Remove-Item Env:LIBTORCH_USE_PYTORCH -ErrorAction SilentlyContinue
 $env:LIBTORCH_BYPASS_VERSION_CHECK = "1"
 
-Write-Host "Building native TurboQuant runtime"
+Write-Host "Building native Qwen3 runtime"
 Push-Location $nativeDir
 try {
     cargo build --release
@@ -184,14 +184,14 @@ finally {
     Pop-Location
 }
 
-$runtimeDll = Join-Path $nativeDir "target\release\sgt_qwen3_turboquant.dll"
+$runtimeDll = Join-Path $nativeDir "target\release\sgt_qwen3_runtime.dll"
 if (!(Test-Path $runtimeDll)) {
     throw "Expected built runtime DLL at $runtimeDll"
 }
 
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $bundleDir
 New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
-Copy-Item $runtimeDll (Join-Path $bundleDir "sgt_qwen3_turboquant.dll") -Force
+Copy-Item $runtimeDll (Join-Path $bundleDir "sgt_qwen3_runtime.dll") -Force
 
 foreach ($dllPath in Get-ChildItem -Path (Join-Path $libtorchRoot "lib\*.dll") -File) {
     Copy-Item $dllPath.FullName (Join-Path $bundleDir $dllPath.Name) -Force
@@ -208,7 +208,7 @@ if ($CopyToPrivateBin) {
     $privateBin = Join-Path $env:LOCALAPPDATA "screen-goated-toolbox\bin"
     New-Item -ItemType Directory -Force -Path $privateBin | Out-Null
     Copy-Item (Join-Path $bundleDir "*") $privateBin -Recurse -Force
-    Write-Host "Copied TurboQuant runtime bundle into $privateBin"
+    Write-Host "Copied Qwen3 runtime bundle into $privateBin"
 }
 
 if (Test-Path $zipPath) {
@@ -227,8 +227,8 @@ Compress-Archive -Path (Join-Path $bundleDir "*") -DestinationPath $tempZipPath 
 
 try {
     Move-Item -Force $tempZipPath $zipPath
-    Write-Host "Qwen3 TurboQuant runtime ready at $zipPath"
+    Write-Host "Qwen3 Qwen3 runtime ready at $zipPath"
 } catch {
-    Write-Warning "TurboQuant runtime bundle is updated at '$bundleDir', but the archive could not be refreshed: $($_.Exception.Message)"
+    Write-Warning "Qwen3 runtime bundle is updated at '$bundleDir', but the archive could not be refreshed: $($_.Exception.Message)"
     Remove-Item -Force -ErrorAction SilentlyContinue $tempZipPath
 }

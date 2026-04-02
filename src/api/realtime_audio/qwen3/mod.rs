@@ -30,7 +30,7 @@ pub fn run_qwen3_transcription(
     state: SharedRealtimeState,
 ) -> Result<()> {
     if let Ok(mut s) = state.lock() {
-        s.set_transcription_method(TranscriptionMethod::Qwen3TurboQuant);
+        s.set_transcription_method(TranscriptionMethod::Qwen3Local);
     }
 
     if !assets::is_qwen3_model_downloaded() {
@@ -119,21 +119,6 @@ pub fn run_qwen3_transcription(
 
         if should_request {
             let transcript = session.step()?;
-            if transcript.kv_cache_dense_bytes > 0 {
-                let reduction = if transcript.kv_cache_dense_bytes > transcript.kv_cache_bytes {
-                    100.0 * (transcript.kv_cache_dense_bytes - transcript.kv_cache_bytes) as f64
-                        / transcript.kv_cache_dense_bytes as f64
-                } else {
-                    0.0
-                };
-                crate::log_info!(
-                    "[Qwen3Runtime] KV: {:.1}MB → {:.1}MB ({:.1}% reduction) latency={}ms",
-                    transcript.kv_cache_dense_bytes as f64 / 1_048_576.0,
-                    transcript.kv_cache_bytes as f64 / 1_048_576.0,
-                    reduction,
-                    transcript.latency_ms,
-                );
-            }
             last_request_sample_count = session_sample_count;
             last_request_at = Instant::now();
 
@@ -283,7 +268,7 @@ fn publish_transcript(
     draft: &str,
 ) {
     if let Ok(mut s) = state.lock() {
-        s.set_transcription_method(TranscriptionMethod::Qwen3TurboQuant);
+        s.set_transcription_method(TranscriptionMethod::Qwen3Local);
         s.set_transcript_segments(committed, draft);
         let display = s.display_transcript.clone();
         update_overlay_text(overlay_hwnd, &display);
