@@ -1,7 +1,7 @@
+use crate::tensor::{Device, Tensor};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
-use crate::tensor::{Device, Tensor};
 
 /// Load all tensors from a model directory.
 ///
@@ -29,15 +29,16 @@ pub fn load_model_weights(model_dir: &Path, device: Device) -> Result<HashMap<St
 fn load_sharded_safetensors(index_path: &Path, device: Device) -> Result<HashMap<String, Tensor>> {
     let index_data = std::fs::read_to_string(index_path)
         .with_context(|| format!("Failed to read index: {:?}", index_path))?;
-    let index: serde_json::Value = serde_json::from_str(&index_data)
-        .with_context(|| "Failed to parse safetensors index")?;
+    let index: serde_json::Value =
+        serde_json::from_str(&index_data).with_context(|| "Failed to parse safetensors index")?;
 
     let weight_map = index["weight_map"]
         .as_object()
         .context("Missing weight_map in index")?;
 
     // Collect unique shard filenames
-    let mut shard_files: Vec<String> = weight_map.values()
+    let mut shard_files: Vec<String> = weight_map
+        .values()
         .filter_map(|v| v.as_str().map(|s| s.to_string()))
         .collect();
     shard_files.sort();
@@ -61,131 +62,28 @@ fn load_sharded_safetensors(index_path: &Path, device: Device) -> Result<HashMap
 #[cfg(feature = "tch-backend")]
 pub fn load_safetensors(path: &Path, device: Device) -> Result<HashMap<String, Tensor>> {
     let tch_device = tch::Device::from(device);
-    let data =
-        std::fs::read(path).with_context(|| format!("Failed to read safetensors: {:?}", path))?;
-    let tensors = safetensors::SafeTensors::deserialize(&data)
-        .with_context(|| format!("Failed to deserialize safetensors: {:?}", path))?;
+    let tensors = tch::Tensor::read_safetensors(path)
+        .with_context(|| format!("Failed to read safetensors: {:?}", path))?;
 
-    let mut result = HashMap::new();
-
-    for (name, view) in tensors.iter() {
-        let shape: Vec<i64> = view.shape().iter().map(|&s| s as i64).collect();
-        let tensor = match view.dtype() {
-            safetensors::Dtype::BF16 => {
-                let f32_data = bf16_bytes_to_f32(view.data());
-                Tensor::from_tch(
-                    tch::Tensor::from_slice(&f32_data)
-                        .reshape(&shape)
-                        .to_device(tch_device),
-                )
-            }
-            safetensors::Dtype::F16 => {
-                let f32_data = f16_bytes_to_f32(view.data());
-                Tensor::from_tch(
-                    tch::Tensor::from_slice(&f32_data)
-                        .reshape(&shape)
-                        .to_device(tch_device),
-                )
-            }
-            safetensors::Dtype::F32 => {
-                let f32_data: Vec<f32> = view
-                    .data()
-                    .chunks(4)
-                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                    .collect();
-                Tensor::from_tch(
-                    tch::Tensor::from_slice(&f32_data)
-                        .reshape(&shape)
-                        .to_device(tch_device),
-                )
-            }
-            safetensors::Dtype::I64 => {
-                let i64_data: Vec<i64> = view
-                    .data()
-                    .chunks(8)
-                    .map(|c| i64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
-                    .collect();
-                Tensor::from_tch(
-                    tch::Tensor::from_slice(&i64_data)
-                        .reshape(&shape)
-                        .to_device(tch_device),
-                )
-            }
-            dt => anyhow::bail!("Unsupported dtype in safetensors: {:?}", dt),
-        };
-        result.insert(name.to_string(), tensor);
-    }
-
-    Ok(result)
+    Ok(tensors
+        .into_iter()
+        .map(|(name, tensor)| (name, Tensor::from_tch(tensor.to_device(tch_device))))
+        .collect())
 }
 
 /// Load all tensors from a single safetensors file (MLX backend).
 #[cfg(feature = "mlx")]
 pub fn load_safetensors(path: &Path, _device: Device) -> Result<HashMap<String, Tensor>> {
-    let map = crate::backend::mlx::io::load_safetensors(path)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let map =
+        crate::backend::mlx::io::load_safetensors(path).map_err(|e| anyhow::anyhow!("{}", e))?;
     Ok(map
         .into_iter()
         .map(|(name, arr)| (name, Tensor::from_mlx(arr)))
         .collect())
 }
 
-#[cfg(feature = "tch-backend")]
-fn bf16_bytes_to_f32(bytes: &[u8]) -> Vec<f32> {
-    bytes
-        .chunks(2)
-        .map(|chunk| {
-            let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
-            f32::from_bits((bits as u32) << 16)
-        })
-        .collect()
-}
-
-#[cfg(feature = "tch-backend")]
-fn f16_bytes_to_f32(bytes: &[u8]) -> Vec<f32> {
-    bytes
-        .chunks(2)
-        .map(|chunk| {
-            let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
-            half_to_float(bits)
-        })
-        .collect()
-}
-
-#[cfg(feature = "tch-backend")]
-fn half_to_float(half: u16) -> f32 {
-    let sign = ((half >> 15) & 1) as u32;
-    let exponent = ((half >> 10) & 0x1F) as u32;
-    let mantissa = (half & 0x3FF) as u32;
-
-    if exponent == 0 {
-        if mantissa == 0 {
-            f32::from_bits(sign << 31)
-        } else {
-            let mut e = exponent;
-            let mut m = mantissa;
-            while (m & 0x400) == 0 {
-                m <<= 1;
-                e = e.wrapping_sub(1);
-            }
-            m &= 0x3FF;
-            let e = (127u32 - 15 + 1).wrapping_add(e);
-            f32::from_bits((sign << 31) | (e << 23) | (m << 13))
-        }
-    } else if exponent == 31 {
-        f32::from_bits((sign << 31) | (0xFF << 23) | (mantissa << 13))
-    } else {
-        let e = exponent + (127 - 15);
-        f32::from_bits((sign << 31) | (e << 23) | (mantissa << 13))
-    }
-}
-
 /// Get a tensor from the weights map with a given prefix and suffix.
-pub fn get_weight(
-    weights: &HashMap<String, Tensor>,
-    prefix: &str,
-    name: &str,
-) -> Result<Tensor> {
+pub fn get_weight(weights: &HashMap<String, Tensor>, prefix: &str, name: &str) -> Result<Tensor> {
     let key = if prefix.is_empty() {
         name.to_string()
     } else {

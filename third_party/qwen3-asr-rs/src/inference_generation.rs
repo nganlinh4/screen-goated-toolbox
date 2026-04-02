@@ -2,11 +2,35 @@ use super::{AsrInference, ENDOFTEXT_TOKEN_ID, IM_END_TOKEN_ID};
 use crate::tensor::Tensor;
 use crate::text_decoder::DecoderState;
 use anyhow::Result;
+use std::time::Instant;
 
 #[derive(Clone)]
 pub(crate) struct PromptPrefixCache {
     pub(crate) state: DecoderState,
     pub(crate) rope: RopeCache,
+}
+
+impl PromptPrefixCache {
+    pub(crate) fn deep_copy_with_reserve(&self, additional_tokens: usize) -> Self {
+        Self {
+            state: self.state.deep_copy_with_reserve(additional_tokens),
+            rope: self.rope.clone(),
+        }
+    }
+
+    pub(crate) fn into_with_reserve(self, additional_tokens: usize) -> Self {
+        Self {
+            state: self.state.into_with_reserve(additional_tokens),
+            rope: self.rope,
+        }
+    }
+
+    pub(crate) fn into_generation_ready(self, additional_tokens: usize) -> Self {
+        Self {
+            state: self.state.into_generation_ready(additional_tokens),
+            rope: self.rope,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -44,12 +68,12 @@ pub(crate) struct ParsedGeneration {
 }
 
 impl<'a> GenerationSession<'a> {
-    pub(crate) fn from_prefilled_cache(
+    pub(crate) fn from_owned_prefilled_cache(
         inference: &'a AsrInference,
-        prefix_cache: &PromptPrefixCache,
+        prefix_cache: PromptPrefixCache,
     ) -> Self {
-        let state = prefix_cache.state.clone();
-        let rope = prefix_cache.rope.clone();
+        let state = prefix_cache.state;
+        let rope = prefix_cache.rope;
         let next_logits = state
             .last_logits
             .as_ref()
@@ -65,10 +89,42 @@ impl<'a> GenerationSession<'a> {
 
     pub(crate) fn generate(&mut self, max_new_tokens: usize) -> Result<Vec<i64>> {
         let mut generated_ids = Vec::new();
-        for _ in 0..max_new_tokens {
+        let generation_start = Instant::now();
+        let kv_mode = super::kv_cache_mode_name(self.inference.kv_cache_mode);
+        tracing::info!(
+            kv_mode,
+            next_position = self.state.next_position(),
+            kv_cache_bytes = self.state.total_cache_bytes(),
+            kv_cache_dense_bytes = self.state.dense_equivalent_cache_bytes(),
+            max_new_tokens,
+            "generation loop entered"
+        );
+        for step in 0..max_new_tokens {
             let next_token = self.next_logits.argmax(-1, false).int64_value(&[0]);
             if [ENDOFTEXT_TOKEN_ID, IM_END_TOKEN_ID].contains(&next_token) {
+                tracing::info!(
+                    kv_mode,
+                    step,
+                    next_token,
+                    elapsed_ms = generation_start.elapsed().as_millis() as u64,
+                    "generation reached terminal token"
+                );
                 break;
+            }
+
+            let token_start = Instant::now();
+            let step_index = generated_ids.len() + 1;
+            if should_log_generation_step(step_index) {
+                tracing::info!(
+                    kv_mode,
+                    step = step_index,
+                    next_token,
+                    next_position = self.state.next_position(),
+                    kv_cache_bytes = self.state.total_cache_bytes(),
+                    kv_cache_dense_bytes = self.state.dense_equivalent_cache_bytes(),
+                    elapsed_ms = generation_start.elapsed().as_millis() as u64,
+                    "generation token selected"
+                );
             }
 
             generated_ids.push(next_token);
@@ -80,9 +136,38 @@ impl<'a> GenerationSession<'a> {
                 .text_decoder
                 .decode_embedded(&next_hidden, &cos, &sin, &mut self.state)
                 .squeeze_dim(1);
+
+            if should_log_generation_step(step_index) {
+                tracing::info!(
+                    kv_mode,
+                    step = step_index,
+                    next_position = self.state.next_position(),
+                    kv_cache_bytes = self.state.total_cache_bytes(),
+                    kv_cache_dense_bytes = self.state.dense_equivalent_cache_bytes(),
+                    token_decode_ms = token_start.elapsed().as_millis() as u64,
+                    elapsed_ms = generation_start.elapsed().as_millis() as u64,
+                    "generation token completed"
+                );
+            }
         }
         Ok(generated_ids)
     }
+
+    pub(crate) fn finalize_kv_offload(&mut self) {
+        self.state.kv_cache.finalize_prefill_offload();
+    }
+
+    pub(crate) fn total_cache_bytes(&self) -> usize {
+        self.state.total_cache_bytes()
+    }
+
+    pub(crate) fn dense_equivalent_cache_bytes(&self) -> usize {
+        self.state.dense_equivalent_cache_bytes()
+    }
+}
+
+fn should_log_generation_step(step: usize) -> bool {
+    step <= 8 || step.is_power_of_two() || step % 32 == 0
 }
 
 pub(crate) fn parse_language_prefix(raw: &str) -> String {

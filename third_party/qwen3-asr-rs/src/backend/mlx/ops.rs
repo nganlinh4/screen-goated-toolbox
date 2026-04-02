@@ -1,6 +1,4 @@
 //! Safe wrappers for MLX array operations.
-#![allow(dead_code)]
-
 use super::array::MlxArray;
 use super::ffi;
 use super::stream::default_stream;
