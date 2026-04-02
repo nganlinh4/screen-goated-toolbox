@@ -421,7 +421,9 @@ pub fn download_qwen3_runtime(
             let file = std::fs::File::open(&libtorch_zip_path)?;
             let mut zip = zip::ZipArchive::new(file)
                 .map_err(|err| anyhow!("Failed to open libtorch archive: {err}"))?;
-            for idx in 0..zip.len() {
+            let total_entries = zip.len();
+            let mut extracted = 0usize;
+            for idx in 0..total_entries {
                 let mut entry = zip.by_index(idx)
                     .map_err(|err| anyhow!("Failed to read libtorch archive entry: {err}"))?;
                 let name = match entry.enclosed_name() {
@@ -435,6 +437,20 @@ pub fn download_qwen3_runtime(
                 if name_str.contains("/lib/") || name_str.contains("\\lib\\") {
                     if let Some(file_name) = name.file_name() {
                         if file_name.to_string_lossy().ends_with(".dll") {
+                            extracted += 1;
+                            let msg = format!("Extracting DLL {}/~50: {}",
+                                extracted, file_name.to_string_lossy());
+                            if let Ok(mut state) = REALTIME_STATE.lock() {
+                                state.download_message = msg.clone();
+                                state.download_progress = 80.0 + (extracted as f32 / 50.0) * 20.0;
+                            }
+                            post_download_state();
+                            if use_badge {
+                                crate::overlay::auto_copy_badge::show_progress_notification(
+                                    "Installing Qwen3-ASR CUDA Runtime", &msg,
+                                    80.0 + (extracted as f32 / 50.0) * 20.0,
+                                );
+                            }
                             let output_path = bin_dir.join(file_name);
                             let mut output = std::fs::File::create(&output_path)?;
                             std::io::copy(&mut entry, &mut output)?;
