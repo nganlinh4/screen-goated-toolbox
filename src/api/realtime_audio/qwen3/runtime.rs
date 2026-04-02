@@ -299,20 +299,48 @@ pub fn download_qwen3_runtime(
             }
             post_download_state();
 
+            if use_badge {
+                crate::overlay::auto_copy_badge::show_progress_notification(
+                    "Downloading Qwen3-ASR CUDA Runtime",
+                    "Downloading libtorch from pytorch.org (~2.5 GB)...",
+                    10.0,
+                );
+            }
+
+            // Use curl for the large libtorch download — ureq truncates on slow connections
             let libtorch_zip_path = bin_dir.join("libtorch-download.zip");
-            crate::api::realtime_audio::model_loader::download_file(
-                LIBTORCH_CU126_URL,
-                &libtorch_zip_path,
-                &stop_signal,
-                use_badge,
-            )?;
+            let _ = std::fs::remove_file(&libtorch_zip_path); // Remove any partial download
+            let curl_status = std::process::Command::new("curl.exe")
+                .args([
+                    "--fail", "--location", "--continue-at", "-",
+                    "--output", &libtorch_zip_path.to_string_lossy(),
+                    LIBTORCH_CU126_URL,
+                ])
+                .status();
+            match curl_status {
+                Ok(status) if status.success() => {}
+                Ok(status) => return Err(anyhow!("libtorch download failed (curl exit code {})", status)),
+                Err(err) => return Err(anyhow!("Failed to run curl for libtorch download: {err}")),
+            }
+
+            if stop_signal.load(std::sync::atomic::Ordering::Relaxed) {
+                let _ = std::fs::remove_file(&libtorch_zip_path);
+                return Err(anyhow!("Download cancelled"));
+            }
 
             if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = "Extracting libtorch...".to_string();
+                state.download_message = "Extracting libtorch DLLs...".to_string();
             }
             post_download_state();
+            if use_badge {
+                crate::overlay::auto_copy_badge::show_progress_notification(
+                    "Downloading Qwen3-ASR CUDA Runtime",
+                    "Extracting libtorch DLLs...",
+                    80.0,
+                );
+            }
 
-            // Extract libtorch DLLs from zip (they're under libtorch/lib/*.dll)
+            // Extract only DLLs from libtorch/lib/ into bin_dir
             let file = std::fs::File::open(&libtorch_zip_path)?;
             let mut zip = zip::ZipArchive::new(file)
                 .map_err(|err| anyhow!("Failed to open libtorch archive: {err}"))?;
@@ -326,12 +354,10 @@ pub fn download_qwen3_runtime(
                 if entry.is_dir() {
                     continue;
                 }
-                // Only extract DLLs from the lib/ directory, flatten into bin_dir
                 let name_str = name.to_string_lossy();
                 if name_str.contains("/lib/") || name_str.contains("\\lib\\") {
                     if let Some(file_name) = name.file_name() {
-                        let file_name_str = file_name.to_string_lossy();
-                        if file_name_str.ends_with(".dll") {
+                        if file_name.to_string_lossy().ends_with(".dll") {
                             let output_path = bin_dir.join(file_name);
                             let mut output = std::fs::File::create(&output_path)?;
                             std::io::copy(&mut entry, &mut output)?;
