@@ -34,6 +34,7 @@ pub fn run_qwen3_transcription(
     }
 
     if !assets::is_qwen3_model_downloaded() {
+        publish_transcript(&state, overlay_hwnd, "Downloading Qwen3-ASR model...", "");
         assets::download_qwen3_model(stop_signal.clone(), true)?;
     }
 
@@ -42,6 +43,7 @@ pub fn run_qwen3_transcription(
     }
 
     if !runtime::is_qwen3_runtime_managed_installed() {
+        publish_transcript(&state, overlay_hwnd, "Installing Qwen3-ASR CUDA runtime...", "");
         runtime::download_qwen3_runtime(stop_signal.clone(), true)?;
     }
 
@@ -49,6 +51,7 @@ pub fn run_qwen3_transcription(
         return Ok(());
     }
 
+    publish_transcript(&state, overlay_hwnd, "Loading Qwen3-ASR model...", "");
     let model_dir = assets::get_qwen3_model_dir();
     let runtime = runtime::Qwen3Runtime::load(&model_dir)?;
     let mut session = runtime.create_session(
