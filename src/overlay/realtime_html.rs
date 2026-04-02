@@ -81,7 +81,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             ""
         };
         let qwen3_active =
-            if transcription_model == crate::model_config::QWEN3_ASR_TURBOQUANT_MODEL_ID {
+            if transcription_model == crate::model_config::QWEN3_ASR_LOCAL_MODEL_ID {
                 "active"
             } else {
                 ""
@@ -96,7 +96,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             <div class="btn-group">
                 <span class="material-symbols-rounded trans-model-icon {gemini_2_5_active}" data-value="{gemini_2_5_id}" title="Gemini Live 2.5 (Cloud)">{auto_awesome_svg}</span>
                 <span class="material-symbols-rounded trans-model-icon {parakeet_active}" data-value="parakeet" title="Parakeet (Local)">{bolt_en_svg}</span>
-                <span class="material-symbols-rounded trans-model-icon {qwen3_active}" data-value="{qwen3_id}" title="Qwen3-ASR TurboQuant (Local CUDA)">{apps_svg}</span>
+                <span class="material-symbols-rounded trans-model-icon {qwen3_active}" data-value="{qwen3_id}" title="Qwen3-ASR (Local GPU)">{apps_svg}</span>
             </div>
         "#,
             mic_active = if !is_device { "active" } else { "" },
@@ -105,7 +105,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             parakeet_active = parakeet_active,
             qwen3_active = qwen3_active,
             gemini_2_5_id = crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5,
-            qwen3_id = crate::model_config::QWEN3_ASR_TURBOQUANT_MODEL_ID,
+            qwen3_id = crate::model_config::QWEN3_ASR_LOCAL_MODEL_ID,
             mic_svg = crate::overlay::html_components::icons::get_icon_svg("mic"),
             device_svg = crate::overlay::html_components::icons::get_icon_svg("speaker_group"),
             auto_awesome_svg = crate::overlay::html_components::icons::get_icon_svg("auto_awesome"),

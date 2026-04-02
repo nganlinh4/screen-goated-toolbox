@@ -10,7 +10,7 @@ lazy_static::lazy_static! {
     static ref LAST_QWEN3_RUNTIME_NOTICE: Mutex<Option<String>> = Mutex::new(None);
 }
 
-const QWEN3_RUNTIME_DLL: &str = "sgt_qwen3_turboquant.dll";
+const QWEN3_RUNTIME_DLL: &str = "sgt_qwen3_runtime.dll";
 const QWEN3_RUNTIME_ABI_VERSION: u32 = 1;
 const NATIVE_IMPLEMENTATION: &str = "reference_rust";
 const SGT_QWEN3_STATUS_OK: i32 = 0;
@@ -94,7 +94,8 @@ struct ProbeResponse {
     #[serde(default)]
     supported_kv_cache_modes: Vec<String>,
     #[serde(default)]
-    turboquant_kv: bool,
+    #[serde(alias = "turboquant_kv")]
+    kv_compression_available: bool,
     #[serde(default)]
     cuda_devices: usize,
 }
@@ -158,7 +159,7 @@ fn runtime_dll_candidates() -> Result<Vec<PathBuf>> {
         candidates.push(
             repo_root
                 .join("native")
-                .join("qwen3_turboquant")
+                .join("qwen3_runtime")
                 .join("target")
                 .join("release")
                 .join(QWEN3_RUNTIME_DLL),
@@ -166,7 +167,7 @@ fn runtime_dll_candidates() -> Result<Vec<PathBuf>> {
         candidates.push(
             repo_root
                 .join("dist")
-                .join("qwen3-turboquant-runtime-windows-x64")
+                .join("qwen3-runtime-windows-x64")
                 .join(QWEN3_RUNTIME_DLL),
         );
     }
@@ -214,7 +215,7 @@ fn ensure_cuda_driver_loaded() -> Result<()> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        Err(anyhow!("Qwen3 TurboQuant is only supported on Windows"))
+        Err(anyhow!("Qwen3 is only supported on Windows"))
     }
 }
 
@@ -230,7 +231,7 @@ fn load_symbol<T: Copy>(library: &Library, name: &[u8]) -> Result<T> {
 
 fn decode_json_ptr(ptr: *const c_char, len: usize) -> Result<String> {
     if ptr.is_null() {
-        bail!("Qwen3 TurboQuant runtime returned a null JSON pointer");
+        bail!("Qwen3 runtime returned a null JSON pointer");
     }
     let bytes = unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), len) };
     Ok(String::from_utf8(bytes.to_vec())?)
@@ -241,10 +242,10 @@ fn read_last_error_json(exports: &RuntimeExports, handle: *mut c_void) -> String
     let mut len = 0usize;
     let status = unsafe { (exports.last_error)(handle, &mut ptr, &mut len) };
     if status != SGT_QWEN3_STATUS_OK || ptr.is_null() {
-        return "Qwen3 TurboQuant runtime did not return an error payload.".to_string();
+        return "Qwen3 runtime did not return an error payload.".to_string();
     }
     decode_json_ptr(ptr, len).unwrap_or_else(|_| {
-        "Qwen3 TurboQuant runtime returned an invalid error payload.".to_string()
+        "Qwen3 runtime returned an invalid error payload.".to_string()
     })
 }
 
@@ -270,10 +271,10 @@ fn requested_kv_cache_mode() -> Result<String> {
         .filter(|value| !value.is_empty());
 
     match requested.as_deref() {
-        None | Some(KV_CACHE_MODE_EXPERIMENTAL_TURBOQUANT) | Some(KV_CACHE_MODE_LEGACY_PAGED_INT8) => {
+        None | Some(KV_CACHE_MODE_DENSE_APPEND) => Ok(KV_CACHE_MODE_DENSE_APPEND.to_string()),
+        Some(KV_CACHE_MODE_EXPERIMENTAL_TURBOQUANT) | Some(KV_CACHE_MODE_LEGACY_PAGED_INT8) => {
             Ok(KV_CACHE_MODE_EXPERIMENTAL_TURBOQUANT.to_string())
         }
-        Some(KV_CACHE_MODE_DENSE_APPEND) => Ok(KV_CACHE_MODE_DENSE_APPEND.to_string()),
         Some(other) => Err(anyhow!(
             "Invalid SGT_QWEN3_RUNTIME_KV_MODE='{}'. Expected '{}', '{}' or '{}'.",
             other,
@@ -322,11 +323,11 @@ fn validate_probe_capabilities(probe: &ProbeResponse, requested_kv_cache_mode: &
 
     if probe.implementation != NATIVE_IMPLEMENTATION {
         let message = if probe.implementation.is_empty() {
-            "Qwen3 TurboQuant runtime did not report a native implementation identity."
+            "Qwen3 runtime did not report a native implementation identity."
                 .to_string()
         } else {
             format!(
-                "Qwen3 TurboQuant runtime reported unsupported implementation '{}'.",
+                "Qwen3 runtime reported unsupported implementation '{}'.",
                 probe.implementation
             )
         };
@@ -335,30 +336,30 @@ fn validate_probe_capabilities(probe: &ProbeResponse, requested_kv_cache_mode: &
     }
     if probe.quant_mode != "reference_uncompressed" {
         let message = if probe.quant_mode.is_empty() {
-            "Qwen3 TurboQuant runtime did not report a quant_mode.".to_string()
+            "Qwen3 runtime did not report a quant_mode.".to_string()
         } else {
             format!(
-                "Qwen3 TurboQuant runtime reported unsupported quant_mode '{}'.",
+                "Qwen3 runtime reported unsupported quant_mode '{}'.",
                 probe.quant_mode
             )
         };
         set_runtime_notice(&message);
         return Err(anyhow!(message));
     }
-    if !probe.turboquant_kv {
+    if !probe.kv_compression_available {
         let message =
-            "Qwen3 TurboQuant runtime did not advertise TurboQuant KV support.".to_string();
+            "Qwen3 runtime did not advertise KV compression support.".to_string();
         set_runtime_notice(&message);
         return Err(anyhow!(message));
     }
     if probe.cuda_devices == 0 {
-        let message = "Qwen3 TurboQuant runtime reported no CUDA devices.".to_string();
+        let message = "Qwen3 runtime reported no CUDA devices.".to_string();
         set_runtime_notice(&message);
         return Err(anyhow!(message));
     }
     if probe.supported_kv_cache_modes.is_empty() {
         let message =
-            "Qwen3 TurboQuant runtime did not report any supported kv_cache_mode values."
+            "Qwen3 runtime did not report any supported kv_cache_mode values."
                 .to_string();
         set_runtime_notice(&message);
         return Err(anyhow!(message));
@@ -368,7 +369,7 @@ fn validate_probe_capabilities(probe: &ProbeResponse, requested_kv_cache_mode: &
         .any(|mode| *mode == requested_kv_cache_mode)
     {
         let message = format!(
-            "Qwen3 TurboQuant runtime does not support kv_cache_mode '{}'. Runtime supports [{}].",
+            "Qwen3 runtime does not support kv_cache_mode '{}'. Runtime supports [{}].",
             requested_kv_cache_mode,
             probe.supported_kv_cache_modes.join(", ")
         );
@@ -377,7 +378,7 @@ fn validate_probe_capabilities(probe: &ProbeResponse, requested_kv_cache_mode: &
     }
     if probe_kv_cache_mode.is_empty() {
         let message =
-            "Qwen3 TurboQuant runtime did not report an active kv_cache_mode.".to_string();
+            "Qwen3 runtime did not report an active kv_cache_mode.".to_string();
         set_runtime_notice(&message);
         return Err(anyhow!(message));
     }
@@ -388,7 +389,7 @@ impl Qwen3Runtime {
     pub fn load(model_dir: &std::path::Path) -> Result<Self> {
         if let Err(err) = ensure_cuda_driver_loaded() {
             set_runtime_notice(
-                "NVIDIA CUDA driver not available. Qwen3 TurboQuant requires an NVIDIA GPU on Windows.",
+                "NVIDIA CUDA driver not available. Qwen3 requires an NVIDIA GPU on Windows.",
             );
             return Err(err);
         }
@@ -405,7 +406,7 @@ impl Qwen3Runtime {
         let dll_path = runtime_dll_path()?;
         if !dll_path.exists() {
             let message = format!(
-                "Missing Qwen3 TurboQuant runtime DLL: {}",
+                "Missing Qwen3 runtime DLL: {}",
                 dll_path.display()
             );
             set_runtime_notice(&message);
@@ -437,7 +438,7 @@ impl Qwen3Runtime {
         let library = unsafe {
             Library::new(&dll_path).map_err(|err| {
                 let message = format!(
-                    "Failed to load Qwen3 TurboQuant runtime '{}': {}",
+                    "Failed to load Qwen3 runtime '{}': {}",
                     dll_path.display(),
                     err
                 );
@@ -462,7 +463,7 @@ impl Qwen3Runtime {
         let version = unsafe { (exports.runtime_version)() };
         if version != QWEN3_RUNTIME_ABI_VERSION {
             let message = format!(
-                "Qwen3 TurboQuant runtime ABI version mismatch: expected {}, got {}.",
+                "Qwen3 runtime ABI version mismatch: expected {}, got {}.",
                 QWEN3_RUNTIME_ABI_VERSION, version
             );
             set_runtime_notice(&message);
@@ -476,24 +477,16 @@ impl Qwen3Runtime {
             let message =
                 decode_json_ptr(probe_ptr, probe_len).unwrap_or_else(|err| err.to_string());
             set_runtime_notice(&message);
-            return Err(anyhow!("Qwen3 TurboQuant runtime probe failed: {message}"));
+            return Err(anyhow!("Qwen3 runtime probe failed: {message}"));
         }
 
         crate::log_info!("[Qwen3Runtime] DLL loaded from: {}", dll_path.display());
-        crate::log_info!("[Qwen3Runtime] Probe status={}, ptr={:?}, len={}", probe_status, probe_ptr, probe_len);
-        // Diagnostic: dump first 200 bytes as lossy UTF-8
-        if !probe_ptr.is_null() && probe_len > 0 {
-            let raw_bytes = unsafe { std::slice::from_raw_parts(probe_ptr.cast::<u8>(), probe_len.min(200)) };
-            crate::log_info!("[Qwen3Runtime] Probe raw (lossy): {}", String::from_utf8_lossy(raw_bytes));
-        }
         let probe_json = decode_json_ptr(probe_ptr, probe_len)
-            .context("Qwen3 TurboQuant runtime returned an invalid probe payload")?;
-        crate::log_info!("[Qwen3Runtime] Probe response: {}", probe_json);
+            .context("Qwen3 runtime returned an invalid probe payload")?;
         let probe: ProbeResponse = serde_json::from_str(&probe_json)
-            .with_context(|| format!("Failed to parse Qwen3 TurboQuant probe payload: {probe_json}"))?;
+            .with_context(|| format!("Failed to parse Qwen3 probe payload: {probe_json}"))?;
         validate_probe_capabilities(&probe, &requested_kv_cache_mode)?;
-
-        crate::log_info!("[Qwen3Runtime] Creating runtime with kv_cache_mode={}", requested_kv_cache_mode);
+        crate::log_info!("[Qwen3Runtime] CUDA ready, kv_cache_mode={}", requested_kv_cache_mode);
         let config_json = runtime_config_json(model_dir, &requested_kv_cache_mode);
         let mut runtime_handle = std::ptr::null_mut();
         let create_status = unsafe {
@@ -503,7 +496,7 @@ impl Qwen3Runtime {
             create_status,
             &exports,
             runtime_handle,
-            "Failed to create Qwen3 TurboQuant runtime",
+            "Failed to create Qwen3 runtime",
         )?;
 
         clear_runtime_notice();
@@ -537,7 +530,7 @@ impl Qwen3Runtime {
             status,
             &self.inner.exports,
             session_handle,
-            "Failed to create Qwen3 TurboQuant session",
+            "Failed to create Qwen3 session",
         )?;
 
         Ok(Qwen3Session {
@@ -561,7 +554,7 @@ impl Qwen3Session {
             status,
             &self.inner.exports,
             self.handle,
-            "Failed to append PCM16 to Qwen3 TurboQuant session",
+            "Failed to append PCM16 to Qwen3 session",
         )
     }
 
@@ -576,14 +569,14 @@ impl Qwen3Session {
                 .filter(|result| !result.error.is_empty())
                 .map(|result| result.error)
                 .unwrap_or(payload);
-            let message = format!("Qwen3 TurboQuant step failed: {context}");
+            let message = format!("Qwen3 step failed: {context}");
             set_runtime_notice(&message);
             return Err(anyhow!(message));
         }
         let result: RuntimeTranscriptionResult =
             serde_json::from_str(&payload).context("Failed to parse Qwen3 runtime JSON result")?;
         if !result.error.is_empty() {
-            let message = format!("Qwen3 TurboQuant step failed: {}", result.error);
+            let message = format!("Qwen3 step failed: {}", result.error);
             set_runtime_notice(&message);
             bail!(message);
         }
@@ -596,7 +589,7 @@ impl Qwen3Session {
             status,
             &self.inner.exports,
             self.handle,
-            "Failed to reset Qwen3 TurboQuant session",
+            "Failed to reset Qwen3 session",
         )
     }
 }

@@ -39,6 +39,6 @@ mobile/**/build/
 # Vendored Qwen reference backend build/cache artifacts
 third_party/qwen3-asr-rs/target_stream_check/
 
-# Native Qwen TurboQuant runtime crate artifacts
-native/qwen3_turboquant/target/
-native/qwen3_turboquant/Cargo.lock
+# Native Qwen3 runtime crate artifacts
+native/qwen3_runtime/target/
+native/qwen3_runtime/Cargo.lock

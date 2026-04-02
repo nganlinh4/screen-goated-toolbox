@@ -111,21 +111,10 @@ impl KvCacheEntry {
         } else {
             prefix_value
         };
-
-        let mut logits = dense_tail_scores(q, &key, scale);
-        if let Some(mask) = mask {
-            logits = logits + mask;
-        }
-        let weights = logits.softmax(-1);
-        dense_tail_weighted_value_sum(&weights, &value)
+        Tensor::scaled_dot_product_attention(q, &key, &value, scale, mask)
     }
     fn dense_attention_output(&self, q: &Tensor, scale: f64, mask: Option<&Tensor>) -> Tensor {
-        let mut logits = dense_tail_scores(q, &self.dense_key_view(), scale);
-        if let Some(mask) = mask {
-            logits = logits + mask;
-        }
-        let weights = logits.softmax(-1);
-        dense_tail_weighted_value_sum(&weights, &self.dense_value_view())
+        Tensor::scaled_dot_product_attention(q, &self.dense_key_view(), &self.dense_value_view(), scale, mask)
     }
 
     pub fn compressed_prefix_bytes(&self) -> usize {

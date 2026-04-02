@@ -110,26 +110,20 @@ To rebuild and run during development (builds Screen Record frontend, then runs 
 cd screen-record; npm install; npm run build; cd ..; New-Item -ItemType Directory -Path src\overlay\screen_record\dist -Force | Out-Null; Copy-Item screen-record\dist\* -Destination src\overlay\screen_record\dist -Recurse -Force; cargo run
 ```
 
-### Qwen3 TurboQuant ASR Runtime (Local Speech Recognition)
+### Qwen3-ASR Native Runtime (Local Speech Recognition)
 
 The offline Qwen3 ASR engine runs as a native DLL that the app loads at runtime. It requires an **NVIDIA GPU** with CUDA support.
 
 ```powershell
 # Build the native runtime DLL + bundle all libtorch dependencies
 # Downloads libtorch (~3 GB) on first run, cached in tools/qwen3-reference-cache/
-powershell -ExecutionPolicy Bypass -File scripts/build_qwen3_turboquant_runtime.ps1
+powershell -ExecutionPolicy Bypass -File scripts/build_qwen3_runtime.ps1
 
 # Or build and copy directly to the app's private bin dir for immediate use:
-powershell -ExecutionPolicy Bypass -File scripts/build_qwen3_turboquant_runtime.ps1 -CopyToPrivateBin
+powershell -ExecutionPolicy Bypass -File scripts/build_qwen3_runtime.ps1 -CopyToPrivateBin
 ```
 
 The Qwen3 ASR model weights (~1.8 GB) are downloaded automatically on first use from HuggingFace.
-
-To enable TurboQuant KV cache compression (31% memory reduction, no accuracy loss):
-```powershell
-$env:SGT_QWEN3_RUNTIME_KV_MODE = "experimental_turboquant"
-cargo run
-```
 
 ### Repomix (for "Ask anything about SGT")
 

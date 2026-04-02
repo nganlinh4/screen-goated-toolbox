@@ -96,8 +96,8 @@ fn transcription_thread_entry(
         if let Ok(mut s) = state.lock() {
             if trans_model == "parakeet" {
                 s.set_transcription_method(super::state::TranscriptionMethod::Parakeet);
-            } else if trans_model == crate::model_config::QWEN3_ASR_TURBOQUANT_MODEL_ID {
-                s.set_transcription_method(super::state::TranscriptionMethod::Qwen3TurboQuant);
+            } else if trans_model == crate::model_config::QWEN3_ASR_LOCAL_MODEL_ID {
+                s.set_transcription_method(super::state::TranscriptionMethod::Qwen3Local);
             } else {
                 s.set_transcription_method(super::state::TranscriptionMethod::GeminiLive);
             }
@@ -114,7 +114,7 @@ fn transcription_thread_entry(
                 Some(hwnd_overlay),
                 state.clone(),
             )
-        } else if trans_model == crate::model_config::QWEN3_ASR_TURBOQUANT_MODEL_ID {
+        } else if trans_model == crate::model_config::QWEN3_ASR_LOCAL_MODEL_ID {
             super::qwen3::run_qwen3_transcription(
                 current_preset.clone(),
                 stop_signal.clone(),
