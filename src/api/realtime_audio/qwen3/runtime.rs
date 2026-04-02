@@ -224,7 +224,7 @@ pub fn download_qwen3_runtime(
     stop_signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
     use_badge: bool,
 ) -> anyhow::Result<()> {
-    if is_qwen3_runtime_downloaded() {
+    if is_qwen3_runtime_managed_installed() {
         return Ok(());
     }
 

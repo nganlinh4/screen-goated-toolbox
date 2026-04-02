@@ -41,7 +41,7 @@ pub fn run_qwen3_transcription(
         return Ok(());
     }
 
-    if !runtime::is_qwen3_runtime_downloaded() {
+    if !runtime::is_qwen3_runtime_managed_installed() {
         runtime::download_qwen3_runtime(stop_signal.clone(), true)?;
     }
 
