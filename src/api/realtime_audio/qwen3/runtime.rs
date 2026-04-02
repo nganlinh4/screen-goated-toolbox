@@ -12,6 +12,8 @@ lazy_static::lazy_static! {
 
 const QWEN3_RUNTIME_DLL: &str = "sgt_qwen3_runtime.dll";
 const QWEN3_RUNTIME_ABI_VERSION: u32 = 1;
+const RUNTIME_DLL_URL: &str =
+    "https://github.com/nganlinh4/screen-goated-toolbox/raw/main/native/qwen3_runtime/dist/sgt_qwen3_runtime.dll";
 const LIBTORCH_CU126_URL: &str =
     "https://download.pytorch.org/libtorch/cu126/libtorch-win-shared-with-deps-2.7.1%2Bcu126.zip";
 const NATIVE_IMPLEMENTATION: &str = "reference_rust";
@@ -270,14 +272,19 @@ pub fn download_qwen3_runtime(
         let bin_dir = crate::unpack_dlls::private_bin_dir();
         std::fs::create_dir_all(&bin_dir)?;
 
-        // Step 1: Copy our DLL from the committed repo path
+        // Step 1: Download our DLL from the repo
         if !bin_dir.join(QWEN3_RUNTIME_DLL).exists() {
-            let source = find_committed_runtime_dll()
-                .ok_or_else(|| anyhow!(
-                    "Cannot find {} in the repository. Build it with scripts/build_qwen3_runtime.ps1",
-                    QWEN3_RUNTIME_DLL
-                ))?;
-            std::fs::copy(&source, bin_dir.join(QWEN3_RUNTIME_DLL))?;
+            if let Ok(mut state) = REALTIME_STATE.lock() {
+                state.download_message = format!("Downloading {}...", QWEN3_RUNTIME_DLL);
+            }
+            post_download_state();
+
+            crate::api::realtime_audio::model_loader::download_file(
+                RUNTIME_DLL_URL,
+                &bin_dir.join(QWEN3_RUNTIME_DLL),
+                &stop_signal,
+                use_badge,
+            )?;
         }
 
         if stop_signal.load(std::sync::atomic::Ordering::Relaxed) {
@@ -362,31 +369,6 @@ pub fn download_qwen3_runtime(
     }
 
     result
-}
-
-fn find_committed_runtime_dll() -> Option<std::path::PathBuf> {
-    // Check repo path: native/qwen3_runtime/dist/sgt_qwen3_runtime.dll
-    if let Ok(root) = repo_root() {
-        let committed = root.join("native").join("qwen3_runtime").join("dist").join(QWEN3_RUNTIME_DLL);
-        if committed.exists() {
-            return Some(committed);
-        }
-        // Also check build output
-        let built = root.join("native").join("qwen3_runtime").join("target").join("release").join(QWEN3_RUNTIME_DLL);
-        if built.exists() {
-            return Some(built);
-        }
-    }
-    // Check alongside the exe (release distribution)
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let beside_exe = parent.join(QWEN3_RUNTIME_DLL);
-            if beside_exe.exists() {
-                return Some(beside_exe);
-            }
-        }
-    }
-    None
 }
 
 fn runtime_dll_path() -> Result<PathBuf> {
