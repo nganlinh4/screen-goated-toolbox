@@ -222,12 +222,39 @@ pub fn remove_qwen3_runtime() -> anyhow::Result<()> {
     Ok(())
 }
 
+static RUNTIME_DOWNLOAD_IN_PROGRESS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub fn is_qwen3_runtime_downloading() -> bool {
+    RUNTIME_DOWNLOAD_IN_PROGRESS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub fn download_qwen3_runtime(
     stop_signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
     use_badge: bool,
 ) -> anyhow::Result<()> {
     if is_qwen3_runtime_managed_installed() {
         return Ok(());
+    }
+
+    // Prevent concurrent downloads — if already in progress, wait for it
+    if RUNTIME_DOWNLOAD_IN_PROGRESS.compare_exchange(
+        false, true,
+        std::sync::atomic::Ordering::SeqCst,
+        std::sync::atomic::Ordering::SeqCst,
+    ).is_err() {
+        // Another thread is downloading — wait for it to finish
+        while RUNTIME_DOWNLOAD_IN_PROGRESS.load(std::sync::atomic::Ordering::Relaxed) {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if stop_signal.load(std::sync::atomic::Ordering::Relaxed) {
+                return Err(anyhow!("Download cancelled while waiting"));
+            }
+        }
+        // Check if the other download succeeded
+        if is_qwen3_runtime_managed_installed() {
+            return Ok(());
+        }
+        return Err(anyhow!("Runtime download by another thread did not succeed"));
     }
 
     let locale = {
@@ -377,6 +404,8 @@ pub fn download_qwen3_runtime(
 
         Ok(())
     })();
+
+    RUNTIME_DOWNLOAD_IN_PROGRESS.store(false, std::sync::atomic::Ordering::SeqCst);
 
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = false;

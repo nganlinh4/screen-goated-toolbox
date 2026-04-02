@@ -183,7 +183,8 @@ pub fn render_downloaded_tools_modal(
 
                 ui.group(|ui| {
                     use crate::api::realtime_audio::qwen3::runtime::{
-                        is_qwen3_runtime_managed_installed, qwen3_runtime_installed_size,
+                        is_qwen3_runtime_managed_installed, is_qwen3_runtime_downloading,
+                        qwen3_runtime_installed_size,
                         remove_qwen3_runtime, download_qwen3_runtime,
                         current_qwen3_runtime_notice,
                     };
@@ -191,7 +192,7 @@ pub fn render_downloaded_tools_modal(
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(text.tool_qwen3_runtime).strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let is_downloading_runtime = {
+                            let is_downloading_runtime = is_qwen3_runtime_downloading() || {
                                 if let Ok(state) = REALTIME_STATE.lock() {
                                     state.is_downloading
                                         && state.download_title.contains("CUDA Runtime")
