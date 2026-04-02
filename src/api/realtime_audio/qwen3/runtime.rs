@@ -237,24 +237,43 @@ pub fn download_qwen3_runtime(
         return Ok(());
     }
 
-    // Prevent concurrent downloads — if already in progress, wait for it
+    // If another thread is already downloading, show its progress and wait
     if RUNTIME_DOWNLOAD_IN_PROGRESS.compare_exchange(
         false, true,
         std::sync::atomic::Ordering::SeqCst,
         std::sync::atomic::Ordering::SeqCst,
     ).is_err() {
-        // Another thread is downloading — wait for it to finish
+        if use_badge {
+            crate::overlay::auto_copy_badge::show_progress_notification(
+                "Qwen3-ASR CUDA Runtime",
+                "Download already in progress...",
+                0.0,
+            );
+        }
         while RUNTIME_DOWNLOAD_IN_PROGRESS.load(std::sync::atomic::Ordering::Relaxed) {
-            std::thread::sleep(std::time::Duration::from_millis(500));
+            std::thread::sleep(std::time::Duration::from_millis(300));
             if stop_signal.load(std::sync::atomic::Ordering::Relaxed) {
                 return Err(anyhow!("Download cancelled while waiting"));
             }
+            // Mirror the progress from the active download thread
+            if use_badge {
+                use crate::overlay::realtime_webview::state::REALTIME_STATE;
+                if let Ok(state) = REALTIME_STATE.lock() {
+                    crate::overlay::auto_copy_badge::show_progress_notification(
+                        "Qwen3-ASR CUDA Runtime",
+                        &state.download_message,
+                        state.download_progress,
+                    );
+                }
+            }
         }
-        // Check if the other download succeeded
+        if use_badge {
+            crate::overlay::auto_copy_badge::hide_progress_notification();
+        }
         if is_qwen3_runtime_managed_installed() {
             return Ok(());
         }
-        return Err(anyhow!("Runtime download by another thread did not succeed"));
+        return Err(anyhow!("Runtime download did not complete successfully"));
     }
 
     let locale = {
