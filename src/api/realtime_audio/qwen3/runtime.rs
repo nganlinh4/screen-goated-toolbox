@@ -14,8 +14,8 @@ const QWEN3_RUNTIME_DLL: &str = "sgt_qwen3_runtime.dll";
 const QWEN3_RUNTIME_ABI_VERSION: u32 = 1;
 const RUNTIME_DLL_URL: &str =
     "https://github.com/nganlinh4/screen-goated-toolbox/raw/main/native/qwen3_runtime/dist/sgt_qwen3_runtime.dll";
-const LIBTORCH_CU126_URL: &str =
-    "https://download.pytorch.org/libtorch/cu126/libtorch-win-shared-with-deps-2.7.1%2Bcu126.zip";
+const LIBTORCH_URL: &str =
+    "https://download.pytorch.org/libtorch/cu128/libtorch-win-shared-with-deps-2.7.1%2Bcu128.zip";
 const NATIVE_IMPLEMENTATION: &str = "reference_rust";
 const SGT_QWEN3_STATUS_OK: i32 = 0;
 const KV_CACHE_MODE_DENSE_APPEND: &str = "dense_append";
@@ -360,7 +360,7 @@ pub fn download_qwen3_runtime(
                 .args([
                     "--fail", "--location", "--continue-at", "-",
                     "--output", &libtorch_zip_path.to_string_lossy(),
-                    LIBTORCH_CU126_URL,
+                    LIBTORCH_URL,
                 ])
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
