@@ -16,8 +16,8 @@ use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageW};
 
 const STREAMING_CHUNK_MS: u32 = 2_000;
-const STREAMING_UNFIXED_CHUNKS: usize = 2;
-const STREAMING_UNFIXED_TOKENS: usize = 5;
+const STREAMING_UNFIXED_CHUNKS: usize = 3;
+const STREAMING_UNFIXED_TOKENS: usize = 20;
 const TRANSCRIBE_INTERVAL_MS: u64 = 500;
 const SILENCE_COMMIT_MS: u64 = 1_200;
 const MIN_TRANSCRIBE_SAMPLES: usize = 8_000;
