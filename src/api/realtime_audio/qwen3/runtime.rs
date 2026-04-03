@@ -13,7 +13,7 @@ lazy_static::lazy_static! {
 const QWEN3_RUNTIME_DLL: &str = "sgt_qwen3_runtime.dll";
 const QWEN3_RUNTIME_ABI_VERSION: u32 = 1;
 const RUNTIME_DLL_URL: &str =
-    "https://github.com/nganlinh4/screen-goated-toolbox/raw/main/native/qwen3_runtime/dist/sgt_qwen3_runtime.dll";
+    "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/qwen3_runtime/dist/sgt_qwen3_runtime.dll";
 const LIBTORCH_URL: &str =
     "https://download.pytorch.org/libtorch/cu128/libtorch-win-shared-with-deps-2.7.1%2Bcu128.zip";
 const NATIVE_IMPLEMENTATION: &str = "reference_rust";
