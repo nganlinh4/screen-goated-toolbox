@@ -174,6 +174,28 @@ impl RealtimeState {
         self.translation_history.clear();
     }
 
+    fn rollback_translation_to(&mut self, byte_pos: usize) {
+        if byte_pos == 0 {
+            self.reset_translation_state();
+            return;
+        }
+        if byte_pos >= self.last_committed_pos {
+            // Divergence is after where translation stopped — no rollback needed
+            self.clear_uncommitted_translation();
+            return;
+        }
+        // Keep committed_translation up to approximately the divergence point.
+        // We can't perfectly map source bytes to translation bytes, so keep
+        // the translation as-is and just move the source pointer back.
+        // The next translation request will re-translate from the divergence.
+        self.last_committed_pos = byte_pos;
+        self.last_processed_len = byte_pos;
+        self.uncommitted_translation.clear();
+        self.uncommitted_source_start = byte_pos;
+        self.uncommitted_source_end = byte_pos;
+        self.update_display_translation();
+    }
+
     fn update_display_translation(&mut self) {
         let full = if self.committed_translation.is_empty() {
             self.uncommitted_translation.clone()
@@ -251,7 +273,14 @@ impl RealtimeState {
 
         let shared_prefix = Self::shared_prefix_len(&previous_transcript, &self.full_transcript);
         if shared_prefix < translation_boundary {
-            self.reset_translation_state();
+            // Partial rollback: keep translations up to the divergence point
+            // instead of nuking everything. Qwen3 makes minor formatting
+            // corrections (", " vs " , ") that shouldn't discard all translation.
+            if shared_prefix > 0 {
+                self.rollback_translation_to(shared_prefix);
+            } else {
+                self.reset_translation_state();
+            }
         } else {
             self.last_processed_len = self.last_committed_pos.min(self.full_transcript.len());
             self.clear_uncommitted_translation();

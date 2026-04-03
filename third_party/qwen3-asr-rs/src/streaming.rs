@@ -148,18 +148,28 @@ impl StreamingState {
         )?;
 
         let raw_decoded = if prefix.is_empty() {
-            result.raw_output.clone()
+            normalize_punctuation_spacing(&result.raw_output)
         } else {
-            format!("{prefix}{}", result.raw_output)
+            normalize_punctuation_spacing(&format!("{prefix}{}", result.raw_output))
         };
         let (parsed_language, parsed_text) =
             model.parse_streaming_raw_output(&raw_decoded, language);
-        let (fixed_text, draft_text) = if prefix.is_empty() {
+        let (fixed_text, mut draft_text) = if prefix.is_empty() {
             (String::new(), parsed_text.clone())
         } else {
             let (_, parsed_fixed) = model.parse_streaming_raw_output(&prefix, language);
             split_fixed_and_draft(&parsed_text, &parsed_fixed)
         };
+        // Always strip trailing sentence marks from draft text.
+        // The model adds periods to "close" output at chunk boundaries.
+        // Real periods survive into fixed_text when the next chunk confirms them.
+        // This prevents the translation system from prematurely committing.
+        let trimmed_draft = draft_text.trim_end();
+        if trimmed_draft.ends_with('.') || trimmed_draft.ends_with('?') || trimmed_draft.ends_with('!') {
+            draft_text = trimmed_draft
+                .trim_end_matches(|c| c == '.' || c == '?' || c == '!')
+                .to_string();
+        }
 
         let backend_log = format!(
             "[QwenBackend] chunk_id={} audio_samples={} prefix_chars={} raw_output_tokens={} prefix_tail={:?} raw_output_tail={:?} raw_decoded_tail={:?} parsed_text_tail={:?} fixed_tail={:?} draft_tail={:?}",
@@ -241,7 +251,7 @@ impl StreamingState {
             }
             let prefix = model.decode_text_tokens(&token_ids[..end_idx])?;
             if !prefix.contains(REPLACEMENT_CHARACTER) {
-                return Ok(prefix);
+                return Ok(normalize_punctuation_spacing(&prefix));
             }
             rollback += 1;
         }
@@ -264,6 +274,27 @@ impl StreamingState {
             text: self.text.clone(),
         }
     }
+}
+
+/// Remove spaces before punctuation that the tokenizer round-trip introduces.
+/// e.g., "hello , world" → "hello, world", "they 're" → "they're"
+fn normalize_punctuation_spacing(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == ' ' && i + 1 < chars.len() {
+            let next = chars[i + 1];
+            // Skip space before punctuation or contractions
+            if matches!(next, ',' | '.' | '!' | '?' | ':' | ';' | '\'' | '"' | ')' | ']') {
+                i += 1;
+                continue;
+            }
+        }
+        result.push(chars[i]);
+        i += 1;
+    }
+    result
 }
 
 fn split_fixed_and_draft(full_text: &str, fixed_candidate: &str) -> (String, String) {
