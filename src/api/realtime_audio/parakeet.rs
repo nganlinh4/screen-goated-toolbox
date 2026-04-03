@@ -338,6 +338,10 @@ where
         }
     }
 
+    // Explicitly drop model to release GPU/DirectML memory before
+    // switching to another transcription method.
+    drop(parakeet);
+
     Ok(())
 }
 

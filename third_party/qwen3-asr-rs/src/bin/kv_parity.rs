@@ -49,10 +49,10 @@ struct ParityReport {
     chunk_samples: usize,
     summary: ParitySummary,
     offline_dense: TranscriptResult,
-    offline_turboquant: TranscriptResult,
+    offline_compressed: TranscriptResult,
     streaming_steps: Vec<StepPair>,
     final_dense: StepTranscript,
-    final_turboquant: StepTranscript,
+    final_compressed: StepTranscript,
     offline_divergence: Option<Divergence>,
     first_divergence: Option<Divergence>,
 }
@@ -74,10 +74,10 @@ struct ParitySummary {
     worst_streaming_divergence_audio_samples: Option<usize>,
     worst_streaming_divergence_field_count: usize,
     dense_final_kv_bytes: usize,
-    turboquant_final_kv_bytes: usize,
+    compressed_final_kv_bytes: usize,
     final_kv_reduction_ratio: f64,
     dense_peak_kv_bytes: usize,
-    turboquant_peak_kv_bytes: usize,
+    compressed_peak_kv_bytes: usize,
     peak_kv_reduction_ratio: f64,
     min_streaming_kv_reduction_ratio: f64,
 }
@@ -94,7 +94,7 @@ struct StepPair {
     chunk_id: usize,
     audio_samples: usize,
     dense: StepTranscript,
-    turboquant: StepTranscript,
+    compressed: StepTranscript,
 }
 #[derive(Serialize, Clone)]
 struct StepTranscript {
@@ -111,7 +111,7 @@ struct Divergence {
     audio_samples: usize,
     field: &'static str,
     dense: String,
-    turboquant: String,
+    compressed: String,
 }
 fn select_device() -> Device {
     #[cfg(feature = "tch-backend")]
@@ -169,37 +169,37 @@ fn maybe_normalize(value: &str, ignore_whitespace: bool) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn kv_reduction_ratio(dense_bytes: usize, turboquant_bytes: usize) -> f64 {
+fn kv_reduction_ratio(dense_bytes: usize, compressed_bytes: usize) -> f64 {
     if dense_bytes == 0 {
         return 0.0;
     }
-    (dense_bytes.saturating_sub(turboquant_bytes)) as f64 / dense_bytes as f64
+    (dense_bytes.saturating_sub(compressed_bytes)) as f64 / dense_bytes as f64
 }
 
 fn first_divergence(
     chunk_id: usize,
     audio_samples: usize,
     dense: &StepTranscript,
-    turboquant: &StepTranscript,
+    compressed: &StepTranscript,
     ignore_whitespace: bool,
 ) -> Option<Divergence> {
     for (field, left, right) in [
         (
             "language",
             dense.language.as_str(),
-            turboquant.language.as_str(),
+            compressed.language.as_str(),
         ),
         (
             "fixed_text",
             dense.fixed_text.as_str(),
-            turboquant.fixed_text.as_str(),
+            compressed.fixed_text.as_str(),
         ),
         (
             "draft_text",
             dense.draft_text.as_str(),
-            turboquant.draft_text.as_str(),
+            compressed.draft_text.as_str(),
         ),
-        ("text", dense.text.as_str(), turboquant.text.as_str()),
+        ("text", dense.text.as_str(), compressed.text.as_str()),
     ] {
         let left = maybe_normalize(left, ignore_whitespace);
         let right = maybe_normalize(right, ignore_whitespace);
@@ -209,7 +209,7 @@ fn first_divergence(
                 audio_samples,
                 field,
                 dense: left,
-                turboquant: right,
+                compressed: right,
             });
         }
     }
@@ -224,16 +224,16 @@ fn worst_streaming_divergence(
     for step in streaming_steps {
         let mut field_count = 0usize;
         for (left, right) in [
-            (step.dense.language.as_str(), step.turboquant.language.as_str()),
+            (step.dense.language.as_str(), step.compressed.language.as_str()),
             (
                 step.dense.fixed_text.as_str(),
-                step.turboquant.fixed_text.as_str(),
+                step.compressed.fixed_text.as_str(),
             ),
             (
                 step.dense.draft_text.as_str(),
-                step.turboquant.draft_text.as_str(),
+                step.compressed.draft_text.as_str(),
             ),
-            (step.dense.text.as_str(), step.turboquant.text.as_str()),
+            (step.dense.text.as_str(), step.compressed.text.as_str()),
         ] {
             if maybe_normalize(left, ignore_whitespace) != maybe_normalize(right, ignore_whitespace)
             {
@@ -256,7 +256,7 @@ fn worst_streaming_divergence(
 
 fn offline_divergence(
     dense: &TranscriptResult,
-    turboquant: &TranscriptResult,
+    compressed: &TranscriptResult,
     audio_samples: usize,
     ignore_whitespace: bool,
 ) -> Option<Divergence> {
@@ -264,13 +264,13 @@ fn offline_divergence(
         (
             "language",
             dense.language.as_str(),
-            turboquant.language.as_str(),
+            compressed.language.as_str(),
         ),
-        ("text", dense.text.as_str(), turboquant.text.as_str()),
+        ("text", dense.text.as_str(), compressed.text.as_str()),
         (
             "raw_output",
             dense.raw_output.as_str(),
-            turboquant.raw_output.as_str(),
+            compressed.raw_output.as_str(),
         ),
     ] {
         let left = maybe_normalize(left, ignore_whitespace);
@@ -281,7 +281,7 @@ fn offline_divergence(
                 audio_samples,
                 field,
                 dense: left,
-                turboquant: right,
+                compressed: right,
             });
         }
     }
@@ -317,9 +317,9 @@ fn main() -> Result<()> {
 
     let dense_model = AsrInference::load_with_kv_mode(model_dir, device, KvCacheMode::DenseAppend)
         .context("Failed to load dense_append model")?;
-    let turbo_model =
+    let compressed_model =
         AsrInference::load_with_kv_mode(model_dir, device, KvCacheMode::ExperimentalTurboQuant)
-            .context("Failed to load experimental_turboquant model")?;
+            .context("Failed to load compressed kv model")?;
 
     let language = args.language.as_deref();
     eprintln!("[parity] dense offline start");
@@ -327,23 +327,23 @@ fn main() -> Result<()> {
         dense_model.transcribe_pcm16(&pcm16, language).context("Dense offline transcription failed")?,
     );
     eprintln!("[parity] turbo offline start");
-    let offline_turboquant = transcript_result(
-        turbo_model.transcribe_pcm16(&pcm16, language).context("TurboQuant offline transcription failed")?,
+    let offline_compressed = transcript_result(
+        compressed_model.transcribe_pcm16(&pcm16, language).context("TurboQuant offline transcription failed")?,
     );
     let offline_divergence =
-        offline_divergence(&offline_dense, &offline_turboquant, pcm16.len(), args.ignore_whitespace);
+        offline_divergence(&offline_dense, &offline_compressed, pcm16.len(), args.ignore_whitespace);
 
     eprintln!("[parity] streaming start");
     let config = StreamingConfig { chunk_size_ms: args.chunk_size_ms, unfixed_chunk_num: args.unfixed_chunk_num, unfixed_token_num: args.unfixed_token_num };
     let chunk_samples = ((config.chunk_size_ms as usize) * SAMPLE_RATE / 1000).max(1);
     let mut dense_state = StreamingState::new(config.clone());
-    let mut turbo_state = StreamingState::new(config);
+    let mut compressed_state = StreamingState::new(config);
     let mut streaming_steps = Vec::new();
     let mut divergence = None;
     let mut last_divergence = None;
     let mut streaming_divergence_count = 0usize;
     let mut dense_peak_kv_bytes = 0usize;
-    let mut turbo_peak_kv_bytes = 0usize;
+    let mut compressed_peak_kv_bytes = 0usize;
     let mut language_divergence_count = 0usize;
     let mut fixed_text_divergence_count = 0usize;
     let mut draft_text_divergence_count = 0usize;
@@ -351,29 +351,29 @@ fn main() -> Result<()> {
 
     for (chunk_id, chunk) in pcm16.chunks(chunk_samples).enumerate() {
         dense_state.append_pcm16(chunk);
-        turbo_state.append_pcm16(chunk);
+        compressed_state.append_pcm16(chunk);
 
         let dense_snapshot = if chunk.len() == chunk_samples {
             dense_state.transcribe(&dense_model, language)?
         } else {
             dense_state.finish(&dense_model, language)?
         };
-        let turbo_snapshot = if chunk.len() == chunk_samples {
-            turbo_state.transcribe(&turbo_model, language)?
+        let compressed_snapshot = if chunk.len() == chunk_samples {
+            compressed_state.transcribe(&compressed_model, language)?
         } else {
-            turbo_state.finish(&turbo_model, language)?
+            compressed_state.finish(&compressed_model, language)?
         };
 
         let audio_samples = ((chunk_id + 1) * chunk_samples).min(pcm16.len());
         let dense_step = step_transcript(&dense_state, dense_snapshot);
-        let turbo_step = step_transcript(&turbo_state, turbo_snapshot);
+        let compressed_step = step_transcript(&compressed_state, compressed_snapshot);
         dense_peak_kv_bytes = dense_peak_kv_bytes.max(dense_step.kv_cache_bytes);
-        turbo_peak_kv_bytes = turbo_peak_kv_bytes.max(turbo_step.kv_cache_bytes);
+        compressed_peak_kv_bytes = compressed_peak_kv_bytes.max(compressed_step.kv_cache_bytes);
         let step_divergence = first_divergence(
             chunk_id,
             audio_samples,
             &dense_step,
-            &turbo_step,
+            &compressed_step,
             args.ignore_whitespace,
         );
         if divergence.is_none() {
@@ -382,7 +382,7 @@ fn main() -> Result<()> {
                 audio_samples: value.audio_samples,
                 field: value.field,
                 dense: value.dense.clone(),
-                turboquant: value.turboquant.clone(),
+                compressed: value.compressed.clone(),
             });
         }
         if step_divergence.is_some() {
@@ -392,19 +392,19 @@ fn main() -> Result<()> {
             (
                 &mut language_divergence_count,
                 dense_step.language.as_str(),
-                turbo_step.language.as_str(),
+                compressed_step.language.as_str(),
             ),
             (
                 &mut fixed_text_divergence_count,
                 dense_step.fixed_text.as_str(),
-                turbo_step.fixed_text.as_str(),
+                compressed_step.fixed_text.as_str(),
             ),
             (
                 &mut draft_text_divergence_count,
                 dense_step.draft_text.as_str(),
-                turbo_step.draft_text.as_str(),
+                compressed_step.draft_text.as_str(),
             ),
-            (&mut text_divergence_count, dense_step.text.as_str(), turbo_step.text.as_str()),
+            (&mut text_divergence_count, dense_step.text.as_str(), compressed_step.text.as_str()),
         ] {
             if maybe_normalize(left, args.ignore_whitespace)
                 != maybe_normalize(right, args.ignore_whitespace)
@@ -417,33 +417,33 @@ fn main() -> Result<()> {
             audio_samples: value.audio_samples,
             field: value.field,
             dense: value.dense.clone(),
-            turboquant: value.turboquant.clone(),
+            compressed: value.compressed.clone(),
         });
         streaming_steps.push(StepPair {
             chunk_id,
             audio_samples,
             dense: dense_step,
-            turboquant: turbo_step,
+            compressed: compressed_step,
         });
     }
 
     eprintln!("[parity] finalization start");
     let final_dense_result = dense_state.finish(&dense_model, language)?;
     let final_dense = step_transcript(&dense_state, final_dense_result);
-    let final_turboquant_result = turbo_state.finish(&turbo_model, language)?;
-    let final_turboquant = step_transcript(&turbo_state, final_turboquant_result);
+    let final_compressed_result = compressed_state.finish(&compressed_model, language)?;
+    let final_compressed = step_transcript(&compressed_state, final_compressed_result);
     let streaming_step_count = streaming_steps.len();
     let final_divergence = first_divergence(
         streaming_step_count,
         pcm16.len(),
         &final_dense,
-        &final_turboquant,
+        &final_compressed,
         args.ignore_whitespace,
     );
     let final_kv_reduction_ratio =
-        kv_reduction_ratio(final_dense.kv_cache_bytes, final_turboquant.kv_cache_bytes);
-    let peak_kv_reduction_ratio = kv_reduction_ratio(dense_peak_kv_bytes, turbo_peak_kv_bytes);
-    let min_streaming_kv_reduction_ratio = streaming_steps.iter().map(|step| kv_reduction_ratio(step.dense.kv_cache_bytes, step.turboquant.kv_cache_bytes)).fold(1.0, f64::min);
+        kv_reduction_ratio(final_dense.kv_cache_bytes, final_compressed.kv_cache_bytes);
+    let peak_kv_reduction_ratio = kv_reduction_ratio(dense_peak_kv_bytes, compressed_peak_kv_bytes);
+    let min_streaming_kv_reduction_ratio = streaming_steps.iter().map(|step| kv_reduction_ratio(step.dense.kv_cache_bytes, step.compressed.kv_cache_bytes)).fold(1.0, f64::min);
     let first_divergence_chunk_id = divergence
         .as_ref()
         .map(|value| value.chunk_id)
@@ -486,10 +486,10 @@ fn main() -> Result<()> {
         worst_streaming_divergence_audio_samples,
         worst_streaming_divergence_field_count,
         dense_final_kv_bytes: final_dense.kv_cache_bytes,
-        turboquant_final_kv_bytes: final_turboquant.kv_cache_bytes,
+        compressed_final_kv_bytes: final_compressed.kv_cache_bytes,
         final_kv_reduction_ratio,
         dense_peak_kv_bytes,
-        turboquant_peak_kv_bytes: turbo_peak_kv_bytes,
+        compressed_peak_kv_bytes: compressed_peak_kv_bytes,
         peak_kv_reduction_ratio,
         min_streaming_kv_reduction_ratio,
     };
@@ -499,10 +499,10 @@ fn main() -> Result<()> {
         chunk_samples,
         summary,
         offline_dense,
-        offline_turboquant,
+        offline_compressed,
         streaming_steps,
         final_dense,
-        final_turboquant,
+        final_compressed,
         offline_divergence,
         first_divergence: divergence.or(final_divergence),
     };
@@ -514,7 +514,7 @@ fn main() -> Result<()> {
         && report.summary.fixed_text_divergence_count <= args.max_fixed_text_divergences
         && report.summary.draft_text_divergence_count <= args.max_draft_text_divergences
         && report.summary.text_divergence_count <= args.max_text_divergences
-        && report.streaming_steps.iter().all(|step| step.turboquant.kv_cache_bytes < step.dense.kv_cache_bytes)
+        && report.streaming_steps.iter().all(|step| step.compressed.kv_cache_bytes < step.dense.kv_cache_bytes)
         && report.summary.final_kv_reduction_ratio >= args.min_final_kv_reduction_ratio
         && report.summary.peak_kv_reduction_ratio >= args.min_peak_kv_reduction_ratio
     {
@@ -523,7 +523,7 @@ fn main() -> Result<()> {
         "FAIL"
     };
     eprintln!(
-        "turboquant_parity status={} offline={} final={} streaming={} match={}/{}({:.2}%) first={:?}@{:?} worst={:?}@{:?} last={:?}@{:?} fields={} kv_final={}/{} kv_peak={}/{} reduction_final={:.2}% reduction_peak={:.2}% reduction_step_min={:.2}% divergences[lang={},fixed={},draft={},text={}]",
+        "kv_parity status={} offline={} final={} streaming={} match={}/{}({:.2}%) first={:?}@{:?} worst={:?}@{:?} last={:?}@{:?} fields={} kv_final={}/{} kv_peak={}/{} reduction_final={:.2}% reduction_peak={:.2}% reduction_step_min={:.2}% divergences[lang={},fixed={},draft={},text={}]",
         status,
         report.summary.offline_match,
         report.summary.final_match,
@@ -539,9 +539,9 @@ fn main() -> Result<()> {
         last_divergence.as_ref().map(|value| value.audio_samples),
         report.summary.worst_streaming_divergence_field_count,
         report.summary.dense_final_kv_bytes,
-        report.summary.turboquant_final_kv_bytes,
+        report.summary.compressed_final_kv_bytes,
         report.summary.dense_peak_kv_bytes,
-        report.summary.turboquant_peak_kv_bytes,
+        report.summary.compressed_peak_kv_bytes,
         report.summary.final_kv_reduction_ratio * 100.0,
         report.summary.peak_kv_reduction_ratio * 100.0,
         report.summary.min_streaming_kv_reduction_ratio * 100.0,
@@ -560,7 +560,7 @@ fn main() -> Result<()> {
             || report.summary.fixed_text_divergence_count > args.max_fixed_text_divergences
             || report.summary.draft_text_divergence_count > args.max_draft_text_divergences
             || report.summary.text_divergence_count > args.max_text_divergences
-            || report.streaming_steps.iter().any(|step| step.turboquant.kv_cache_bytes >= step.dense.kv_cache_bytes);
+            || report.streaming_steps.iter().any(|step| step.compressed.kv_cache_bytes >= step.dense.kv_cache_bytes);
         let reduction_failed = report.summary.final_kv_reduction_ratio
             < args.min_final_kv_reduction_ratio
             || report.summary.peak_kv_reduction_ratio < args.min_peak_kv_reduction_ratio;
