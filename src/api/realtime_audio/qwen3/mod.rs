@@ -22,7 +22,6 @@ const TRANSCRIBE_INTERVAL_MS: u64 = 500;
 const SILENCE_COMMIT_MS: u64 = 1_200;
 const MIN_TRANSCRIBE_SAMPLES: usize = 8_000;
 const VOICE_ACTIVITY_RMS: f32 = 0.015;
-const MAX_SEGMENT_SAMPLES: usize = 20 * 16_000; // 20 seconds max before forced commit
 pub fn run_qwen3_transcription(
     _preset: Preset,
     stop_signal: Arc<AtomicBool>,
@@ -69,6 +68,9 @@ pub fn run_qwen3_transcription(
     let mut last_request_sample_count = 0usize;
     let mut last_request_at = Instant::now() - Duration::from_millis(TRANSCRIBE_INTERVAL_MS);
     let mut last_voice_activity = Instant::now();
+    let mut last_draft_change = Instant::now();
+    let mut last_draft_text = String::new();
+    const DRAFT_STALE_MS: u64 = 3_000; // Conclude with period after 3s of no new text
 
     while !stop_signal.load(Ordering::Relaxed) {
         if !overlay_hwnd.is_invalid() && !unsafe { IsWindow(Some(overlay_hwnd)).as_bool() } {
@@ -104,8 +106,7 @@ pub fn run_qwen3_transcription(
             session_sample_count += new_samples.len();
         }
 
-        let force_commit = session_sample_count >= MAX_SEGMENT_SAMPLES;
-        if force_commit || should_commit_on_silence(
+        if should_commit_on_silence(
             session_sample_count > 0,
             last_voice_activity,
             session_sample_count,
@@ -136,8 +137,21 @@ pub fn run_qwen3_transcription(
 
             let _detected_language = &transcript.language;
             let (fixed_text, draft_text) = runtime_live_segments(&transcript);
+            if draft_text != last_draft_text {
+                last_draft_change = Instant::now();
+                last_draft_text = draft_text.clone();
+            }
+            // If draft hasn't changed for DRAFT_STALE_MS, append a period to
+            // signal a sentence boundary to the translation system.
+            let draft_to_publish = if !draft_text.is_empty()
+                && last_draft_change.elapsed() >= Duration::from_millis(DRAFT_STALE_MS)
+            {
+                format!("{}.", draft_text.trim_end())
+            } else {
+                draft_text
+            };
             let live_committed = join_transcript_segments(&committed_history, &fixed_text);
-            publish_transcript(&state, overlay_hwnd, &live_committed, &draft_text);
+            publish_transcript(&state, overlay_hwnd, &live_committed, &draft_to_publish);
         }
 
         std::thread::sleep(Duration::from_millis(100));
