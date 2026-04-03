@@ -1,4 +1,4 @@
-use crate::inference::{AsrInference, DEFAULT_STREAMING_MAX_NEW_TOKENS};
+use crate::inference::{AsrInference, PromptPrefixCache, DEFAULT_STREAMING_MAX_NEW_TOKENS};
 use anyhow::Result;
 use std::collections::VecDeque;
 
@@ -45,6 +45,9 @@ pub struct StreamingState {
     text: String,
     fixed_text: String,
     draft_text: String,
+    cached_base_prefix: Option<PromptPrefixCache>,
+    cached_base_language: Option<String>,
+    audio_prefix_cache: Option<PromptPrefixCache>,
     ab_compared: bool,
     recent_backend_logs: VecDeque<String>,
 }
@@ -63,6 +66,9 @@ impl StreamingState {
             text: String::new(),
             fixed_text: String::new(),
             draft_text: String::new(),
+            cached_base_prefix: None,
+            cached_base_language: None,
+            audio_prefix_cache: None,
             ab_compared: false,
             recent_backend_logs: VecDeque::with_capacity(BACKEND_LOG_HISTORY),
         }
@@ -83,6 +89,7 @@ impl StreamingState {
         while self.buffer.len() >= self.chunk_samples {
             let chunk: Vec<i16> = self.buffer.drain(..self.chunk_samples).collect();
             self.audio_accum.extend_from_slice(&chunk);
+            self.extend_audio_prefix(model, language, &chunk)?;
             self.run_decode_step(model, language, DEFAULT_STREAMING_MAX_NEW_TOKENS)?;
             self.chunk_id += 1;
         }
@@ -97,6 +104,7 @@ impl StreamingState {
         if !self.buffer.is_empty() {
             let tail = std::mem::take(&mut self.buffer);
             self.audio_accum.extend_from_slice(&tail);
+            self.extend_audio_prefix(model, language, &tail)?;
             self.run_decode_step(model, language, DEFAULT_FINAL_MAX_NEW_TOKENS)?;
             self.chunk_id += 1;
         }
@@ -115,8 +123,49 @@ impl StreamingState {
         self.text.clear();
         self.fixed_text.clear();
         self.draft_text.clear();
+        self.cached_base_prefix = None;
+        self.cached_base_language = None;
+        self.audio_prefix_cache = None;
         self.ab_compared = false;
         self.recent_backend_logs.clear();
+    }
+
+    fn get_or_create_base_prefix(
+        &mut self,
+        model: &AsrInference,
+        language: Option<&str>,
+    ) -> Result<&PromptPrefixCache> {
+        let lang_key = language.map(|s| s.to_string());
+        if self.cached_base_prefix.is_none()
+            || self.cached_base_language != lang_key
+        {
+            self.cached_base_prefix = Some(model.create_base_prefix_cache(language)?);
+            self.cached_base_language = lang_key;
+            self.audio_prefix_cache = None;
+        }
+        Ok(self.cached_base_prefix.as_ref().unwrap())
+    }
+
+    fn extend_audio_prefix(
+        &mut self,
+        model: &AsrInference,
+        language: Option<&str>,
+        chunk_audio: &[i16],
+    ) -> Result<&PromptPrefixCache> {
+        let chunk_f32: Vec<f32> = chunk_audio.iter().map(|s| *s as f32 / 32768.0).collect();
+        let audio_embeds = model.encode_audio_samples(&chunk_f32)?;
+        if self.audio_prefix_cache.is_none() {
+            let base = self.get_or_create_base_prefix(model, language)?;
+            self.audio_prefix_cache = Some(
+                model.extend_prefix_cache_with_audio(base, &audio_embeds, language)?,
+            );
+        } else {
+            let cache = self.audio_prefix_cache.take().unwrap();
+            self.audio_prefix_cache = Some(
+                model.extend_owned_prefix_cache_with_audio(cache, &audio_embeds, language)?,
+            );
+        }
+        Ok(self.audio_prefix_cache.as_ref().unwrap())
     }
 
     fn run_decode_step(
@@ -126,12 +175,12 @@ impl StreamingState {
         max_new_tokens: usize,
     ) -> Result<()> {
         let prefix = self.build_prefix_text(model)?;
-        let audio_embeds = model.encode_pcm16_samples(&self.audio_accum)?;
-        let audio_prefix_cache = model
-            .create_base_prefix_cache(language)
-            .and_then(|cache| model.extend_prefix_cache_with_audio(&cache, &audio_embeds, language))?;
+        // Incremental: encode only the latest chunk and extend the cached prefix.
+        // The audio_prefix_cache was already extended in transcribe() before this call.
+        let audio_prefix_cache = self.audio_prefix_cache.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("audio prefix cache not initialized"))?;
         let mut generation_prefix_cache =
-            model.create_generation_prefix_cache(&audio_prefix_cache, language)?;
+            model.create_generation_prefix_cache(audio_prefix_cache, language)?;
         if !prefix.is_empty() {
             let prefix_token_ids = model.encode_text_tokens(&prefix)?;
             generation_prefix_cache = model.extend_generation_prefix_with_token_ids(

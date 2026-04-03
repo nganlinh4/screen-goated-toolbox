@@ -157,6 +157,12 @@ pub fn run_qwen3_transcription(
         std::thread::sleep(Duration::from_millis(100));
     }
 
+    // Explicitly drop session and runtime to release GPU memory before
+    // switching to another transcription method.
+    drop(session);
+    drop(runtime);
+    crate::log_info!("[Qwen3Runtime] Runtime and session dropped, GPU memory released");
+
     Ok(())
 }
 

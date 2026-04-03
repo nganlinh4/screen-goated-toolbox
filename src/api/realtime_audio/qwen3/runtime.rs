@@ -98,7 +98,6 @@ struct ProbeResponse {
     #[serde(default)]
     supported_kv_cache_modes: Vec<String>,
     #[serde(default)]
-    #[serde(alias = "turboquant_kv")]
     kv_compression_available: bool,
     #[serde(default)]
     cuda_devices: usize,

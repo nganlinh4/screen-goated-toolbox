@@ -59,7 +59,7 @@ fn expand_kv_heads_for_test(tensor: &Tensor, num_query_heads: i64) -> Tensor {
         .reshape(&[batch, num_query_heads, seq_len, head_dim])
 }
 #[test]
-fn experimental_turboquant_round_trips_recent_tail_and_prefix_reasonably() {
+fn compressed_kv_round_trips_recent_tail_and_prefix_reasonably() {
     let key = make_kv_tensor(128, 1.0);
     let value = make_kv_tensor(128, -2.0);
     let append_key = make_kv_tensor(256, 1.0).narrow(2, 128, 128);
@@ -124,7 +124,7 @@ fn dense_only_attention_now_flows_through_cache_attention_path_for_both_modes() 
     }
 }
 #[test]
-fn experimental_turboquant_decode_attention_stays_reasonably_close_to_dense() {
+fn compressed_kv_decode_attention_stays_reasonably_close_to_dense() {
     let key = make_kv_tensor(128, 0.75);
     let value = make_kv_tensor(128, -1.25);
     let append_key = make_kv_tensor(256, 0.75).narrow(2, 128, 128);
@@ -154,7 +154,7 @@ fn experimental_turboquant_decode_attention_stays_reasonably_close_to_dense() {
     );
 }
 #[test]
-fn experimental_turboquant_multi_head_decode_attention_stays_reasonably_close_to_dense() {
+fn compressed_kv_multi_head_decode_attention_stays_reasonably_close_to_dense() {
     let key = make_kv_tensor_with_heads(1, 2, 128, 0.6);
     let value = make_kv_tensor_with_heads(1, 2, 128, -1.4);
     let append_key = make_kv_tensor_with_heads(1, 2, 192, 0.6).narrow(2, 128, 64);
@@ -188,7 +188,7 @@ fn experimental_turboquant_multi_head_decode_attention_stays_reasonably_close_to
     );
 }
 #[test]
-fn experimental_turboquant_state_copy_keeps_compressed_stats() {
+fn compressed_kv_state_copy_keeps_compressed_stats() {
     let key = make_kv_tensor(128, 0.25);
     let value = make_kv_tensor(128, -0.75);
     let append_key = make_kv_tensor(256, 0.25).narrow(2, 128, 128);
@@ -213,7 +213,7 @@ fn experimental_turboquant_state_copy_keeps_compressed_stats() {
     assert_eq!(copy.dense_prefix_equivalent_bytes(), original_dense_prefix_bytes);
 }
 #[test]
-fn experimental_turboquant_copy_does_not_reserve_dense_space_for_compressed_prefix() {
+fn compressed_kv_copy_does_not_reserve_dense_space_for_compressed_prefix() {
     let key = make_kv_tensor(128, 0.4);
     let value = make_kv_tensor(128, -0.6);
     let append_key = make_kv_tensor(256, 0.4).narrow(2, 128, 128);
@@ -235,7 +235,7 @@ fn experimental_turboquant_copy_does_not_reserve_dense_space_for_compressed_pref
     assert_eq!(copied_entry.dense_capacity(), 16);
 }
 #[test]
-fn experimental_turboquant_can_precompress_without_append() {
+fn compressed_kv_can_precompress_without_append() {
     let key = make_kv_tensor(256, 0.9);
     let value = make_kv_tensor(256, -0.9);
     let mut cache = KvCache::new(1, KvCacheMode::ExperimentalTurboQuant);
@@ -265,7 +265,7 @@ fn experimental_turboquant_can_precompress_without_append() {
     assert!(max_abs_diff(&copied_attention, &original_attention) < 0.0001);
 }
 #[test]
-fn experimental_turboquant_force_compresses_remaining_dense_tail_page_on_generation_ready_copy() {
+fn compressed_kv_force_compresses_remaining_dense_tail_page_on_generation_ready_copy() {
     let key = make_kv_tensor(128, 0.7);
     let value = make_kv_tensor(128, -0.3);
     let append_key = make_kv_tensor(192, 0.7).narrow(2, 128, 64);
@@ -300,7 +300,7 @@ fn experimental_turboquant_force_compresses_remaining_dense_tail_page_on_generat
     assert!(max_abs_diff(&copied_entry.value_view(), &expected_value) < 0.2);
 }
 #[test]
-fn experimental_turboquant_mutable_offload_preserves_multi_head_stride() {
+fn compressed_kv_mutable_offload_preserves_multi_head_stride() {
     let key = make_kv_tensor_with_heads(1, 2, 128, 0.15);
     let value = make_kv_tensor_with_heads(1, 2, 128, -0.35);
     let append_key = make_kv_tensor_with_heads(1, 2, 192, 0.15).narrow(2, 128, 64);
@@ -333,7 +333,7 @@ fn experimental_turboquant_mutable_offload_preserves_multi_head_stride() {
     assert!(entry.dense_prefix_equivalent_bytes() > 0);
 }
 #[test]
-fn experimental_turboquant_masked_attention_stays_reasonably_close_to_dense() {
+fn compressed_kv_masked_attention_stays_reasonably_close_to_dense() {
     let key = make_kv_tensor(128, 1.5);
     let value = make_kv_tensor(128, -0.25);
     let append_key = make_kv_tensor(192, 1.5).narrow(2, 128, 64);
@@ -368,7 +368,7 @@ fn experimental_turboquant_masked_attention_stays_reasonably_close_to_dense() {
     );
 }
 #[test]
-fn experimental_turboquant_multi_head_attention_stays_reasonably_close_to_dense() {
+fn compressed_kv_multi_head_attention_stays_reasonably_close_to_dense() {
     let key = make_kv_tensor_with_heads(1, 2, 96, 0.2);
     let value = make_kv_tensor_with_heads(1, 2, 96, -0.4);
     let append_key = make_kv_tensor_with_heads(1, 2, 160, 0.2).narrow(2, 96, 64);
@@ -395,7 +395,7 @@ fn experimental_turboquant_multi_head_attention_stays_reasonably_close_to_dense(
     );
 }
 #[test]
-fn experimental_turboquant_generation_ready_copy_preserves_multi_head_mixed_state() {
+fn compressed_kv_generation_ready_copy_preserves_multi_head_mixed_state() {
     let key = make_kv_tensor_with_heads(1, 2, 128, 0.45);
     let value = make_kv_tensor_with_heads(1, 2, 128, -0.15);
     let append_key = make_kv_tensor_with_heads(1, 2, 224, 0.45).narrow(2, 128, 96);
@@ -422,7 +422,7 @@ fn experimental_turboquant_generation_ready_copy_preserves_multi_head_mixed_stat
 
 
 #[test]
-fn experimental_turboquant_mutable_offload_handles_multi_head_repeated_appends() {
+fn compressed_kv_mutable_offload_handles_multi_head_repeated_appends() {
     let key = make_kv_tensor_with_heads(2, 3, 128, 0.15);
     let value = make_kv_tensor_with_heads(2, 3, 128, -0.35);
     let append_key_1 = make_kv_tensor_with_heads(2, 3, 192, 0.15).narrow(2, 128, 64);
@@ -477,7 +477,7 @@ fn experimental_turboquant_mutable_offload_handles_multi_head_repeated_appends()
     assert_eq!(entry.dense_capacity(), 0);
 }
 #[test]
-fn experimental_turboquant_generation_ready_copy_handles_multi_head_repeated_offload_state() {
+fn compressed_kv_generation_ready_copy_handles_multi_head_repeated_offload_state() {
     let key = make_kv_tensor_with_heads(2, 3, 128, 0.55);
     let value = make_kv_tensor_with_heads(2, 3, 128, -0.25);
     let append_key_1 = make_kv_tensor_with_heads(2, 3, 192, 0.55).narrow(2, 128, 64);
@@ -531,7 +531,7 @@ fn experimental_turboquant_generation_ready_copy_handles_multi_head_repeated_off
     assert_eq!(copied_entry.dense_capacity(), 48);
 }
 #[test]
-fn experimental_turboquant_owned_generation_ready_preserves_multi_head_repeated_offload_state() {
+fn compressed_kv_owned_generation_ready_preserves_multi_head_repeated_offload_state() {
     let key = make_kv_tensor_with_heads(2, 3, 128, 0.85);
     let value = make_kv_tensor_with_heads(2, 3, 128, -0.15);
     let append_key_1 = make_kv_tensor_with_heads(2, 3, 192, 0.85).narrow(2, 128, 64);
@@ -560,7 +560,7 @@ fn experimental_turboquant_owned_generation_ready_preserves_multi_head_repeated_
     assert!(max_abs_diff(&moved_entry.value_view(), &expected_value) < 0.2);
 }
 #[test]
-fn experimental_turboquant_owned_generation_ready_handles_extreme_offload_transition() {
+fn compressed_kv_owned_generation_ready_handles_extreme_offload_transition() {
     let key = make_kv_tensor_with_heads(1, 2, 1024, 0.9);
     let value = make_kv_tensor_with_heads(1, 2, 1024, -0.9);
     let append_key = make_kv_tensor_with_heads(1, 2, 1056, 0.9).narrow(2, 1024, 32);
