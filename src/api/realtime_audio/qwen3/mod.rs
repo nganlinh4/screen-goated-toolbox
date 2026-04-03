@@ -64,7 +64,7 @@ pub fn run_qwen3_transcription(
     let pause_signal = Arc::new(AtomicBool::new(false));
     let _stream = start_audio_capture(audio_buffer.clone(), stop_signal.clone(), pause_signal)?;
 
-    let mut last_appended_text = String::new();
+    let mut committed_history = String::new();
     let mut session_sample_count = 0usize;
     let mut last_request_sample_count = 0usize;
     let mut last_request_at = Instant::now() - Duration::from_millis(TRANSCRIBE_INTERVAL_MS);
@@ -113,26 +113,11 @@ pub fn run_qwen3_transcription(
             session.append_pcm16(&[], true)?;
             let finalized = session.step()?;
             let finalized_text = runtime_final_text(&finalized);
-            // Append only the NEW portion that wasn't appended yet
-            if finalized_text.len() > last_appended_text.len()
-                && finalized_text.starts_with(&last_appended_text)
-            {
-                let new_part = &finalized_text[last_appended_text.len()..];
-                if let Ok(mut s) = state.lock() {
-                    s.append_transcript(new_part);
-                }
-            } else if !finalized_text.is_empty() && finalized_text != last_appended_text {
-                // Text diverged — append the finalized text as new segment
-                let separator = if last_appended_text.is_empty() { "" } else { " " };
-                if let Ok(mut s) = state.lock() {
-                    s.append_transcript(&format!("{separator}{finalized_text}"));
-                }
-            }
-            last_appended_text.clear();
+            append_history_segment(&mut committed_history, &finalized_text);
             session_sample_count = 0;
             last_request_sample_count = 0;
             session.reset()?;
-            notify_overlay_update(overlay_hwnd);
+            publish_transcript(&state, overlay_hwnd, &committed_history, "");
         }
 
         let should_request = session_sample_count >= MIN_TRANSCRIBE_SAMPLES
@@ -141,47 +126,18 @@ pub fn run_qwen3_transcription(
 
         if should_request {
             let transcript = session.step()?;
+            let _runtime_metadata = (
+                transcript.latency_ms,
+                transcript.audio_samples,
+                transcript.is_final,
+            );
             last_request_sample_count = session_sample_count;
             last_request_at = Instant::now();
 
-            // Use the full text as the "current draft" — append_transcript handles
-            // committed/uncommitted split via the shared state
-            let current_text = if !transcript.text.is_empty() {
-                transcript.text.clone()
-            } else {
-                join_transcript_segments(&transcript.fixed_text, &transcript.draft_text)
-            };
-
-            // Find what's new since last append
-            if current_text.len() > last_appended_text.len()
-                && current_text.starts_with(&last_appended_text)
-            {
-                let new_part = &current_text[last_appended_text.len()..];
-                if !new_part.is_empty() {
-                    if let Ok(mut s) = state.lock() {
-                        s.append_transcript(new_part);
-                    }
-                }
-            } else if current_text != last_appended_text && !current_text.is_empty() {
-                // Text diverged from previous — this is normal for Qwen re-encoding.
-                // Only append the truly new suffix to avoid breaking committed text.
-                let shared = shared_prefix_len(&last_appended_text, &current_text);
-                let new_part = &current_text[shared..];
-                if !new_part.is_empty() {
-                    if let Ok(mut s) = state.lock() {
-                        // Trim back to the shared prefix, then append new
-                        let full = s.full_transcript.clone();
-                        if full.len() > shared && shared > 0 {
-                            s.full_transcript.truncate(
-                                full.len() - (last_appended_text.len() - shared)
-                            );
-                        }
-                        s.append_transcript(new_part);
-                    }
-                }
-            }
-            last_appended_text = current_text;
-            notify_overlay_update(overlay_hwnd);
+            let _detected_language = &transcript.language;
+            let (fixed_text, draft_text) = runtime_live_segments(&transcript);
+            let live_committed = join_transcript_segments(&committed_history, &fixed_text);
+            publish_transcript(&state, overlay_hwnd, &live_committed, &draft_text);
         }
 
         std::thread::sleep(Duration::from_millis(100));
@@ -299,28 +255,6 @@ fn join_transcript_segments(left: &str, right: &str) -> String {
             }
         }
     }
-}
-
-fn notify_overlay_update(overlay_hwnd: HWND) {
-    if !overlay_hwnd.is_invalid() {
-        unsafe {
-            let _ = PostMessageW(
-                Some(overlay_hwnd),
-                super::WM_REALTIME_UPDATE,
-                WPARAM(0),
-                LPARAM(0),
-            );
-        }
-    }
-}
-
-fn shared_prefix_len(a: &str, b: &str) -> usize {
-    a.char_indices()
-        .zip(b.chars())
-        .take_while(|((_, ac), bc)| ac == bc)
-        .last()
-        .map(|((i, c), _)| i + c.len_utf8())
-        .unwrap_or(0)
 }
 
 fn runtime_live_segments(result: &runtime::RuntimeTranscriptionResult) -> (String, String) {
