@@ -256,6 +256,26 @@ pub fn update_settings() {
     }
 }
 
+/// Best-effort cleanup used before process exit or when the recorder UI is
+/// closed while capture is still active.
+pub fn cleanup_on_app_exit() {
+    capture_border::hide_capture_border();
+
+    engine::SHOULD_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
+    engine::SHOULD_STOP_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);
+    engine::IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
+    engine::ENCODER_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
+
+    input_capture::stop_capture_and_drain();
+
+    if let Some(control) = engine::ACTIVE_CAPTURE_CONTROL.lock().take() {
+        let _ = control.stop();
+    }
+    if let Some(control) = engine::EXTERNAL_CAPTURE_CONTROL.lock().take() {
+        let _ = control.stop();
+    }
+}
+
 fn push_settings_to_webview() {
     let (lang, theme_mode) = {
         let app = crate::APP.lock().unwrap();

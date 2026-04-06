@@ -296,7 +296,7 @@ fn handle_ipc_message(body: &str) {
             hide_tray_popup();
             std::thread::spawn(|| {
                 std::thread::sleep(std::time::Duration::from_millis(50));
-                std::process::exit(0);
+                crate::gui::app::exit_app();
             });
         }
         "close" => {

@@ -126,13 +126,19 @@ pub fn restart_app() {
                 .args(["/C", &bat_path.to_string_lossy()])
                 .creation_flags(0x08000000) // CREATE_NO_WINDOW
                 .spawn();
-            std::process::exit(0);
+            exit_app();
         } else {
             // Fallback: Just try to spawn directly if batch fails
             let _ = std::process::Command::new(exe_path)
                 .arg("--restarted")
                 .spawn();
-            std::process::exit(0);
+            exit_app();
         }
     }
+}
+
+/// Cleanly exit the process after best-effort recorder cleanup.
+pub fn exit_app() -> ! {
+    crate::overlay::screen_record::cleanup_on_app_exit();
+    std::process::exit(0)
 }
