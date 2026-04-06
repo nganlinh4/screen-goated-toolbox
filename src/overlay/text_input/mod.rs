@@ -2,6 +2,7 @@
 // Text input overlay for user prompts with WebView-based editor.
 
 mod messages;
+mod passive;
 mod state;
 mod styles;
 mod window;
@@ -14,6 +15,25 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 // Re-export state items needed externally
 pub use state::{CFG_CANCEL, CFG_LANG, CFG_TITLE};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActivationMode {
+    Focused,
+    Passive,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ShowOptions {
+    pub activation_mode: ActivationMode,
+}
+
+impl Default for ShowOptions {
+    fn default() -> Self {
+        Self {
+            activation_mode: ActivationMode::Focused,
+        }
+    }
+}
 
 // --- PUBLIC API ---
 
@@ -82,6 +102,10 @@ pub fn update_ui_text(header_text: String) {
 /// Bring the text input window to foreground and focus the editor
 /// Call this after closing modal windows like the preset wheel
 pub fn refocus_editor() {
+    if PASSIVE_CAPTURE_ENABLED.load(Ordering::SeqCst) {
+        return;
+    }
+
     let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
     if hwnd_val != 0 {
         let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
@@ -151,6 +175,24 @@ pub fn show(
     continuous_mode: bool,
     on_submit: impl Fn(String, HWND) + Send + 'static,
 ) {
+    show_with_options(
+        prompt_guide,
+        ui_language,
+        cancel_hotkey_name,
+        continuous_mode,
+        ShowOptions::default(),
+        on_submit,
+    );
+}
+
+pub fn show_with_options(
+    prompt_guide: String,
+    ui_language: String,
+    cancel_hotkey_name: String,
+    continuous_mode: bool,
+    options: ShowOptions,
+    on_submit: impl Fn(String, HWND) + Send + 'static,
+) {
     // Re-entrancy guard: if we are already in the process of showing/waiting, ignore subsequent calls
     // This prevents key-mashing from spawning multiple wait loops or confused states
     if IS_SHOWING
@@ -178,6 +220,11 @@ pub fn show(
     *CFG_CANCEL.lock().unwrap() = cancel_hotkey_name;
     *CFG_CONTINUOUS.lock().unwrap() = continuous_mode;
     *CFG_CALLBACK.lock().unwrap() = Some(Box::new(on_submit));
+    PASSIVE_CAPTURE_ENABLED.store(
+        matches!(options.activation_mode, ActivationMode::Passive),
+        Ordering::SeqCst,
+    );
+    passive::reset_state();
 
     *SUBMITTED_TEXT.lock().unwrap() = None;
     *SHOULD_CLOSE.lock().unwrap() = false;
