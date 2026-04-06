@@ -12,6 +12,7 @@ enum class ModelProvider(val displayName: String, val icon: String) {
     GROQ("Groq", "\uD83D\uDD25"),
     GOOGLE_GTX("Google Translate", "\uD83C\uDF0D"),
     PARAKEET("Parakeet", "\uD83D\uDC26"),
+    MOONSHINE("Moonshine-ASR", "\uD83C\uDF10"),
     QR_SCANNER("QR Scanner", "\uD83D\uDD33"),
     OPENROUTER("OpenRouter", "\uD83C\uDF10"),
     OLLAMA("Ollama", "\uD83C\uDFE0"),
@@ -80,5 +81,6 @@ private fun PresetModelProvider.toUiProvider(): ModelProvider = when (this) {
     PresetModelProvider.OLLAMA -> ModelProvider.OLLAMA
     PresetModelProvider.QRSERVER -> ModelProvider.QR_SCANNER
     PresetModelProvider.PARAKEET -> ModelProvider.PARAKEET
+    PresetModelProvider.MOONSHINE -> ModelProvider.MOONSHINE
     PresetModelProvider.TAALAS -> ModelProvider.TAALAS
 }

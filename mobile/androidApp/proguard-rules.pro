@@ -1,6 +1,6 @@
 # ONNX Runtime — JNI and native loader
--keep class com.microsoft.onnxruntime.** { *; }
--keepclassmembers class com.microsoft.onnxruntime.** { *; }
+-keep class ai.onnxruntime.** { *; }
+-keepclassmembers class ai.onnxruntime.** { *; }
 
 # youtubedl-android — reflection-heavy native bridge
 -keep class com.yausername.youtubedl_android.** { *; }

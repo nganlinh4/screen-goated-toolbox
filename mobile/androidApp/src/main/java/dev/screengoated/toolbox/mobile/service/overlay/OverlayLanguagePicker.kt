@@ -46,14 +46,18 @@ internal class OverlayLanguagePicker(
         val margin = dp(16)
         val cardWidth = (screen.width() * 0.72f).toInt().coerceAtMost(dp(320))
         val cardHeight = (screen.height() * 0.58f).toInt().coerceAtMost(dp(440))
-        val cardLeft = (anchorBounds.x + anchorBounds.width - cardWidth).coerceIn(
+        val cardLeft = ((anchorBounds.x + anchorBounds.width / 2) - cardWidth / 2).coerceIn(
             margin,
             (screen.width() - cardWidth - margin).coerceAtLeast(margin),
         )
-        val cardTop = (anchorBounds.y + dp(40)).coerceIn(
-            margin,
-            (screen.height() - cardHeight - margin).coerceAtLeast(margin),
-        )
+        // Position below anchor if space, above if not, centered as fallback
+        val belowY = anchorBounds.y + anchorBounds.height + dp(4)
+        val aboveY = anchorBounds.y - cardHeight - dp(4)
+        val cardTop = when {
+            belowY + cardHeight + margin <= screen.height() -> belowY
+            aboveY >= margin -> aboveY
+            else -> ((screen.height() - cardHeight) / 2).coerceAtLeast(margin)
+        }
 
         val textColor = if (isDark) Color.parseColor("#F4F2F8") else Color.parseColor("#17151B")
         val subtextColor = if (isDark) Color.parseColor("#A19CA9") else Color.parseColor("#6E6874")

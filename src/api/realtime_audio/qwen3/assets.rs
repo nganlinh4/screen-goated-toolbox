@@ -14,6 +14,10 @@ const QWEN3_REPO_TREE_URL: &str =
     "https://huggingface.co/api/models/Qwen/Qwen3-ASR-0.6B/tree/main?recursive=1";
 const QWEN3_REPO_RESOLVE_BASE: &str = "https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/main";
 
+const QWEN3_1_7B_REPO_TREE_URL: &str =
+    "https://huggingface.co/api/models/Qwen/Qwen3-ASR-1.7B/tree/main?recursive=1";
+const QWEN3_1_7B_REPO_RESOLVE_BASE: &str = "https://huggingface.co/Qwen/Qwen3-ASR-1.7B/resolve/main";
+
 lazy_static::lazy_static! {
     static ref LAST_QWEN3_MODEL_ACTION_ERROR: Mutex<Option<String>> = Mutex::new(None);
 }
@@ -71,8 +75,8 @@ fn wanted_huggingface_file(path: &str) -> bool {
         )
 }
 
-fn list_qwen3_repo_files() -> Result<Vec<String>> {
-    let response = ureq::get(QWEN3_REPO_TREE_URL)
+fn list_repo_files(tree_url: &str) -> Result<Vec<String>> {
+    let response = ureq::get(tree_url)
         .header("User-Agent", "ScreenGoatedToolbox")
         .call()
         .map_err(|err| anyhow!("Failed to fetch Qwen3-ASR manifest: {err}"))?;
@@ -104,6 +108,74 @@ pub fn get_qwen3_model_dir() -> PathBuf {
         .join("screen-goated-toolbox")
         .join("models")
         .join("qwen3_asr_0_6b")
+}
+
+pub fn get_qwen3_1_7b_model_dir() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("screen-goated-toolbox")
+        .join("models")
+        .join("qwen3_asr_1_7b")
+}
+
+pub fn is_qwen3_1_7b_model_downloaded() -> bool {
+    let dir = get_qwen3_1_7b_model_dir();
+    dir.join("config.json").exists()
+        && dir.join("vocab.json").exists()
+        && dir.join("merges.txt").exists()
+        && dir.join("tokenizer_config.json").exists()
+}
+
+pub fn download_qwen3_1_7b_model(
+    stop_signal: Arc<AtomicBool>,
+    use_badge: bool,
+) -> Result<()> {
+    let dir = get_qwen3_1_7b_model_dir();
+    let locale = qwen3_locale();
+
+    use crate::overlay::realtime_webview::state::REALTIME_STATE;
+    if let Ok(mut state) = REALTIME_STATE.lock() {
+        state.is_downloading = true;
+        state.download_title = "Downloading Qwen3-ASR 1.7B".to_string();
+        state.download_message = locale.qwen3_downloading_message.to_string();
+        state.download_progress = 0.0;
+    }
+    clear_qwen3_model_action_error();
+
+    if use_badge {
+        crate::overlay::auto_copy_badge::show_progress_notification(
+            "Downloading Qwen3-ASR 1.7B",
+            locale.qwen3_downloading_message,
+            0.0,
+        );
+    }
+
+    post_download_state();
+
+    let result: Result<()> = (|| {
+        let files = list_repo_files(QWEN3_1_7B_REPO_TREE_URL)?;
+        for path in files {
+            if stop_signal.load(Ordering::Relaxed) {
+                return Err(anyhow!("Download cancelled"));
+            }
+
+            if let Ok(mut state) = REALTIME_STATE.lock() {
+                state.download_message = format!("Downloading {path}...");
+            }
+            post_download_state();
+
+            let url = format!("{QWEN3_1_7B_REPO_RESOLVE_BASE}/{path}");
+            download_file(&url, &dir.join(&path), &stop_signal, use_badge)?;
+        }
+        Ok(())
+    })();
+
+    if let Ok(mut state) = REALTIME_STATE.lock() {
+        state.is_downloading = false;
+    }
+    post_download_state();
+
+    result
 }
 
 pub fn is_qwen3_model_downloaded() -> bool {
@@ -156,7 +228,7 @@ pub fn download_qwen3_model(stop_signal: Arc<AtomicBool>, use_badge: bool) -> Re
     post_download_state();
 
     let result: Result<()> = (|| {
-        let files = list_qwen3_repo_files()?;
+        let files = list_repo_files(QWEN3_REPO_TREE_URL)?;
         for path in files {
             if stop_signal.load(Ordering::Relaxed) {
                 return Err(anyhow!("Download cancelled"));

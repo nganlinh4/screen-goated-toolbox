@@ -28,6 +28,7 @@ class LiveSessionStore(
                     sourceMode = patch.sourceMode ?: current.config.sourceMode,
                     displayMode = patch.displayMode ?: current.config.displayMode,
                     targetLanguage = patch.targetLanguage ?: current.config.targetLanguage,
+                    transcriptionLanguage = patch.transcriptionLanguage ?: current.config.transcriptionLanguage,
                     transcriptionProvider = patch.transcriptionProvider ?: current.config.transcriptionProvider,
                     translationProvider = patch.translationProvider ?: current.config.translationProvider,
                     authMode = patch.authMode ?: current.config.authMode,
@@ -111,6 +112,24 @@ class LiveSessionStore(
                 liveText = LiveTranslateParity.appendTranscript(
                     state = current.liveText,
                     newText = transcript,
+                    nowMs = nowMs,
+                ),
+                lastError = null,
+            )
+        }
+    }
+
+    fun setTranscriptSegments(
+        committed: String,
+        draft: String,
+        nowMs: Long,
+    ) {
+        mutableState.update { current ->
+            current.copy(
+                liveText = LiveTranslateParity.setTranscriptSegments(
+                    state = current.liveText,
+                    committed = committed,
+                    draft = draft,
                     nowMs = nowMs,
                 ),
                 lastError = null,

@@ -130,7 +130,13 @@ impl<'a> GenerationSession<'a> {
             generated_ids.push(next_token);
             let next_input = Tensor::from_slice_i64(&[next_token]).to_device(self.inference.device);
             let next_hidden = self.inference.text_decoder.embed(&next_input).unsqueeze(0);
-            let (cos, sin) = self.rope.slice(self.state.next_position(), 1);
+            // Extend rope cache if we're about to exceed it
+            let pos = self.state.next_position();
+            if pos + 1 > self.rope.len() {
+                let new_cap = (pos + 256).max(self.rope.len() * 2);
+                self.rope = self.inference.rope_cache(new_cap);
+            }
+            let (cos, sin) = self.rope.slice(pos, 1);
             self.next_logits = self
                 .inference
                 .text_decoder

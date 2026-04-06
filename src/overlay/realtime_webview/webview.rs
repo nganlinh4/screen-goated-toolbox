@@ -346,6 +346,13 @@ pub fn create_realtime_webview(
                             crate::config::save_config(&app.config);
                         }
                         TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
+                    } else if let Some(lang_code) = body.strip_prefix("transcriptionLanguage:") {
+                        {
+                            let mut app = APP.lock().unwrap();
+                            app.config.realtime_transcription_language = lang_code.to_string();
+                            crate::config::save_config(&app.config);
+                        }
+                        TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
                     } else if let Some(coords) = body.strip_prefix("resize:") {
                         // Resize window by delta
                         if let Some((dx_str, dy_str)) = coords.split_once(',')

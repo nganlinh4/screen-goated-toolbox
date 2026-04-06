@@ -42,6 +42,8 @@ internal data class OverlayPaneRuntimeSettings(
     val targetLanguageCode: String,
     val translationModel: String,
     val transcriptionModel: String,
+    val transcriptionLanguage: String,
+    val transcriptionLanguageName: String,
     val fontSize: Int,
     val isDark: Boolean,
     val localeJson: String,
@@ -67,7 +69,9 @@ internal fun buildOverlayWebView(
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
         settings.setSupportZoom(false)
-        setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        // Use software rendering to avoid Chrome GPU process crashes (SIGSEGV
+        // in Chrome_InProcGp) that occur during rapid session restarts.
+        setLayerType(View.LAYER_TYPE_SOFTWARE, null)
         webChromeClient = object : WebChromeClient() {
             override fun onJsAlert(
                 view: WebView?,
@@ -229,6 +233,13 @@ internal class OverlayPaneHolder(
                 append(JSONObject.quote(settings.transcriptionModel))
                 append(");")
             }
+            if (previousSettings?.transcriptionLanguage != settings.transcriptionLanguage) {
+                append("if(window.setTranscriptionLanguage) window.setTranscriptionLanguage(")
+                append(JSONObject.quote(settings.transcriptionLanguage))
+                append(", ")
+                append(JSONObject.quote(settings.transcriptionLanguageName))
+                append(");")
+            }
             if (previousSettings?.fontSize != settings.fontSize) {
                 append("if(window.setFontSize) window.setFontSize(")
                 append(settings.fontSize)
@@ -273,6 +284,9 @@ internal fun overlayPaneRuntimeSettings(
         targetLanguageCode = LanguageCatalog.codeForName(state.config.targetLanguage),
         translationModel = state.config.translationProvider.id,
         transcriptionModel = state.config.transcriptionProvider.id,
+        transcriptionLanguage = state.config.transcriptionLanguage.uppercase(),
+        transcriptionLanguageName = dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage
+            .fromCode(state.config.transcriptionLanguage)?.displayName ?: state.config.transcriptionLanguage.uppercase(),
         fontSize = fontSize,
         isDark = isDark,
         localeJson = overlayLocaleJson(uiLanguage),

@@ -25,6 +25,57 @@ object LiveTranslateParity {
         method: TranscriptionMethod,
     ): LiveTextState = state.copy(transcriptionMethod = method)
 
+    /**
+     * Replace the full transcript with committed + draft segments.
+     * Matches the Windows set_transcript_segments pattern:
+     * - committed text is stable (won't change)
+     * - draft text may be revised on the next call
+     * - translation rolls back if text diverged from previous
+     */
+    fun setTranscriptSegments(
+        state: LiveTextState,
+        committed: String,
+        draft: String,
+        nowMs: Long,
+    ): LiveTextState {
+        val fullTranscript = if (committed.isEmpty()) {
+            draft.trimStart()
+        } else if (draft.isEmpty()) {
+            committed
+        } else {
+            val leftHasSpace = committed.lastOrNull()?.isWhitespace() == true
+            val rightHasSpace = draft.firstOrNull()?.isWhitespace() == true
+            if (leftHasSpace || rightHasSpace) "$committed$draft" else "$committed $draft"
+        }
+
+        val committedPos = if (committed.isEmpty()) 0 else committed.length
+
+        // Detect divergence from previous transcript and roll back translation
+        val previousTranscript = state.fullTranscript
+        val sharedPrefix = previousTranscript.commonPrefixWith(fullTranscript).length
+        val translationBoundary = state.lastCommittedPos.coerceAtMost(previousTranscript.length)
+
+        val newState = state.copy(
+            fullTranscript = fullTranscript,
+            displayTranscript = fullTranscript,
+            lastTranscriptAppendAtMs = nowMs,
+        )
+
+        return if (sharedPrefix < translationBoundary) {
+            // Text diverged before the translation boundary — reset uncommitted translation
+            newState.copy(
+                uncommittedTranslation = "",
+                uncommittedSourceStart = sharedPrefix.coerceAtMost(fullTranscript.length),
+                uncommittedSourceEnd = sharedPrefix.coerceAtMost(fullTranscript.length),
+                lastProcessedLen = sharedPrefix.coerceAtMost(fullTranscript.length),
+            )
+        } else {
+            newState.copy(
+                lastProcessedLen = state.lastCommittedPos.coerceAtMost(fullTranscript.length),
+            )
+        }
+    }
+
     fun appendTranscript(
         state: LiveTextState,
         newText: String,

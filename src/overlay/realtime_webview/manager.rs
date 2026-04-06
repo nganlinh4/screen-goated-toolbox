@@ -275,6 +275,7 @@ unsafe fn handle_start_overlay(preset_idx: usize) {
             config_language,
             config_translation_model,
             config_transcription_model,
+            config_transcription_language,
             trans_size,
             transcription_size,
         ) = {
@@ -287,6 +288,7 @@ unsafe fn handle_start_overlay(preset_idx: usize) {
                 crate::model_config::normalize_realtime_transcription_model_id(
                     &app.config.realtime_transcription_model,
                 ),
+                app.config.realtime_transcription_language.clone(),
                 app.config.realtime_translation_size,
                 app.config.realtime_transcription_size,
             )
@@ -377,6 +379,7 @@ unsafe fn handle_start_overlay(preset_idx: usize) {
             &target_language,
             &config_translation_model,
             &config_transcription_model,
+            &config_transcription_language,
             font_size,
         );
 
@@ -393,6 +396,7 @@ unsafe fn handle_start_overlay(preset_idx: usize) {
                 &target_language,
                 &config_translation_model,
                 &config_transcription_model,
+                &config_transcription_language,
                 font_size,
             );
             resize_webview(TRANSLATION_HWND, trans_w, trans_h);
@@ -424,12 +428,13 @@ fn notify_webview_settings(
     lang: &str,
     model: &str,
     trans_model: &str,
+    trans_lang: &str,
     font_size: u32,
 ) {
     let hwnd_key = hwnd.0 as isize;
     let script = format!(
-        "if(window.updateSettings) window.updateSettings({{ audioSource: '{}', targetLanguage: '{}', translationModel: '{}', transcriptionModel: '{}', fontSize: {} }});",
-        source, lang, model, trans_model, font_size
+        "if(window.updateSettings) window.updateSettings({{ audioSource: '{}', targetLanguage: '{}', translationModel: '{}', transcriptionModel: '{}', transcriptionLanguage: '{}', fontSize: {} }});",
+        source, lang, model, trans_model, trans_lang.to_uppercase(), font_size
     );
     REALTIME_WEBVIEWS.with(|wvs| {
         if let Some(webview) = wvs.borrow().get(&hwnd_key) {

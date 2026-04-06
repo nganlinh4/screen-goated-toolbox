@@ -52,7 +52,7 @@ internal class RealtimeOverlayHtmlBuilder(
                 "DOWNLOAD_SVG" to RealtimeOverlayIcons.DOWNLOAD,
                 "DOWNLOAD_TITLE" to locale.overlay.downloadingModelTitle,
                 "PLEASE_WAIT_TEXT" to locale.overlay.pleaseWaitText,
-                "SUPPORTS_ENGLISH" to locale.overlay.parakeetNote,
+                "SUPPORTS_ENGLISH" to "",
                 "CLOSE_SVG" to RealtimeOverlayIcons.CLOSE,
                 "CANCEL_TEXT" to locale.overlay.cancelText,
                 "CANCEL_DOWNLOAD_TITLE" to locale.overlay.cancelText,
@@ -105,11 +105,9 @@ internal class RealtimeOverlayHtmlBuilder(
         return if (isTranslation) {
             """
             <span class="ctrl-btn speak-btn" id="speak-btn" title="${locale.overlay.ttsSettingsTitle}"><span class="material-symbols-rounded">${RealtimeOverlayIcons.VOLUME_UP}</span></span>
-            <div class="btn-group">
-                <span class="material-symbols-rounded model-icon" data-value="google-gemma" title="${locale.overlay.gemmaTitle}">${RealtimeOverlayIcons.AUTO_AWESOME}</span>
-                <span class="material-symbols-rounded model-icon" data-value="cerebras-oss" title="${locale.overlay.cerebrasTitle}">${RealtimeOverlayIcons.SPEED}</span>
-                <span class="material-symbols-rounded model-icon" data-value="google-gtx" title="${locale.overlay.gtxTitle}">${RealtimeOverlayIcons.LANGUAGE}</span>
-            </div>
+            <button class="model-dropdown" id="translation-model-btn" type="button" title="Translation Model" data-value="">
+                <span id="translation-model-label">--</span>
+            </button>
             <button class="language-btn" id="language-select" type="button" title="${locale.overlay.targetLanguageTitle}" data-base-title="${locale.overlay.targetLanguageTitle}" data-language="" data-code="">
                 <span id="language-select-code">--</span>
             </button>
@@ -121,10 +119,10 @@ internal class RealtimeOverlayHtmlBuilder(
                 <span class="material-symbols-rounded audio-icon" id="mic-btn" data-value="mic" title="${locale.overlay.micInputTitle}">${RealtimeOverlayIcons.MIC}</span>
                 <span class="material-symbols-rounded audio-icon" id="device-btn" data-value="device" title="${locale.overlay.deviceAudioTitle}">${RealtimeOverlayIcons.SPEAKER_GROUP}</span>
             </div>
-            <div class="btn-group">
-                <span class="material-symbols-rounded trans-model-icon" data-value="gemini-live-audio" title="Gemini Live 2.5 (Cloud)">${RealtimeOverlayIcons.AUTO_AWESOME}</span>
-                <span class="material-symbols-rounded trans-model-icon" data-value="parakeet" title="${locale.overlay.parakeetTitle}">${RealtimeOverlayIcons.BOLT_EN}</span>
-            </div>
+            <button class="model-dropdown" id="transcription-model-btn" type="button" title="Transcription Model" data-value="">
+                <span id="transcription-model-label">--</span>
+            </button>
+            <button class="trans-lang-badge greyed" id="trans-lang-badge" type="button" title="Transcription Language" data-code="EN">EN</button>
             """.trimIndent()
         }
     }

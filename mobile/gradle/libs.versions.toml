@@ -18,6 +18,7 @@ espresso = "3.7.0"
 graphics-shapes = "1.1.0-rc01"
 onnxruntime = "1.24.2"
 media3 = "1.5.1"
+moonshine-voice = "0.0.51"
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -58,5 +59,6 @@ androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "a
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
 androidx-graphics-shapes = { group = "androidx.graphics", name = "graphics-shapes", version.ref = "graphics-shapes" }
 onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
+moonshine-voice = { group = "ai.moonshine", name = "moonshine-voice", version.ref = "moonshine-voice" }
 androidx-media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
 androidx-media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "media3" }

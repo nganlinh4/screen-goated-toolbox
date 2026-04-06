@@ -43,6 +43,7 @@ enum class SessionPhase {
 enum class TranscriptionMethod {
     GEMINI_LIVE,
     PARAKEET,
+    MOONSHINE,
 }
 
 @Serializable
@@ -56,6 +57,7 @@ data class LiveSessionConfig(
     val sourceMode: SourceMode = SourceMode.DEVICE,
     val displayMode: DisplayMode = DisplayMode.OVERLAY,
     val targetLanguage: String = "Vietnamese",
+    val transcriptionLanguage: String = "en",
     val transcriptionProvider: ProviderDescriptor = GeneratedLiveModelCatalog.defaultTranscriptionProvider(),
     val translationProvider: ProviderDescriptor = GeneratedLiveModelCatalog.translationProviderDescriptor(),
     val authMode: AuthMode = AuthMode.BYOK,
@@ -69,6 +71,7 @@ data class LiveSessionPatch(
     val sourceMode: SourceMode? = null,
     val displayMode: DisplayMode? = null,
     val targetLanguage: String? = null,
+    val transcriptionLanguage: String? = null,
     val transcriptionProvider: ProviderDescriptor? = null,
     val translationProvider: ProviderDescriptor? = null,
     val authMode: AuthMode? = null,

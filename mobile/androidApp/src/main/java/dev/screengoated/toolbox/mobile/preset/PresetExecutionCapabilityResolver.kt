@@ -237,6 +237,7 @@ internal class PresetExecutionCapabilityResolver {
             PresetModelProvider.GROQ,
             PresetModelProvider.GEMINI_LIVE,
             PresetModelProvider.PARAKEET,
+            PresetModelProvider.MOONSHINE,
         )
     }
 

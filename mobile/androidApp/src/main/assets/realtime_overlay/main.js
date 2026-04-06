@@ -115,14 +115,39 @@
             deviceBtn.classList.toggle('active', source === 'device');
         }
 
+        // Model name mappings for display
+        const TRANSLATION_MODEL_LABELS = {
+            'google-gemma': 'Gemma',
+            'cerebras-oss': 'Cerebras',
+            'google-gtx': 'GTX',
+        };
+        const TRANSCRIPTION_MODEL_LABELS = {
+            'gemini-live-audio': 'Gemini Live',
+            'parakeet': 'Parakeet',
+            'moonshine-tiny-streaming': 'Moonshine Tiny',
+            'moonshine-small-streaming': 'Moonshine Small',
+            'moonshine-medium-streaming': 'Moonshine Medium',
+            'zipformer': 'Zipformer',
+        };
+
         function setTranslationModel(modelName) {
-            if (!modelIcons.length) return;
-            setSelectedByDataValue(modelIcons, modelName);
+            const btn = document.getElementById('translation-model-btn');
+            const label = document.getElementById('translation-model-label');
+            if (btn) btn.dataset.value = modelName;
+            if (label) label.textContent = TRANSLATION_MODEL_LABELS[modelName] || modelName;
+            // Legacy
+            const icons = document.querySelectorAll('.model-icon');
+            if (icons.length) setSelectedByDataValue(icons, modelName);
         }
 
         function setTranscriptionModel(modelName) {
-            if (!transModelIcons.length) return;
-            setSelectedByDataValue(transModelIcons, modelName);
+            const btn = document.getElementById('transcription-model-btn');
+            const label = document.getElementById('transcription-model-label');
+            if (btn) btn.dataset.value = modelName;
+            if (label) label.textContent = TRANSCRIPTION_MODEL_LABELS[modelName] || modelName;
+            // Legacy
+            const icons = document.querySelectorAll('.trans-model-icon');
+            if (icons.length) setSelectedByDataValue(icons, modelName);
         }
 
         function setFontSize(fontSize) {
@@ -131,6 +156,49 @@
             content.style.fontSize = currentFontSize + 'px';
             minContentHeight = 0;
             content.style.minHeight = '';
+        }
+
+        // Transcription language badge
+        const transLangBadge = document.getElementById('trans-lang-badge');
+        let currentTransLangCode = 'EN';
+
+        function updateTransLangBadgeState(modelName) {
+            if (!transLangBadge) return;
+            if (modelName && modelName.includes('gemini')) {
+                transLangBadge.textContent = 'ALL';
+                transLangBadge.dataset.code = 'ALL';
+                transLangBadge.classList.add('greyed');
+            } else if (modelName === 'parakeet' || (modelName && modelName.includes('moonshine'))) {
+                transLangBadge.textContent = 'EN';
+                transLangBadge.dataset.code = 'EN';
+                transLangBadge.classList.add('greyed');
+            } else if (modelName === 'zipformer') {
+                // Zipformer — show current language, pressable
+                transLangBadge.textContent = currentTransLangCode.toUpperCase();
+                transLangBadge.classList.remove('greyed');
+            }
+        }
+
+        // Override setTranscriptionModel to also update badge
+        const _origSetTranscriptionModel = setTranscriptionModel;
+        setTranscriptionModel = function(modelName) {
+            _origSetTranscriptionModel(modelName);
+            updateTransLangBadgeState(modelName);
+        };
+
+        window.setTranscriptionLanguage = function(langCode, langName) {
+            if (!transLangBadge) return;
+            currentTransLangCode = langCode || 'EN';
+            transLangBadge.textContent = currentTransLangCode.toUpperCase();
+            transLangBadge.dataset.code = currentTransLangCode;
+            if (langName) transLangBadge.title = langName;
+        };
+
+        if (transLangBadge) {
+            transLangBadge.addEventListener('click', function() {
+                if (this.classList.contains('greyed')) return;
+                if (window.ipc) window.ipc.postMessage('showTranscriptionLanguagePicker');
+            });
         }
 
         window.setAudioSource = setAudioSource;
@@ -513,7 +581,29 @@
             }
         }
 
-        // Model Toggle Switch Logic - for translation
+        // Translation model button → native picker via IPC
+        const translationModelBtn = document.getElementById('translation-model-btn');
+        if (translationModelBtn) {
+            installControlTapGuard(translationModelBtn);
+            translationModelBtn.addEventListener('pointerup', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (window.ipc) window.ipc.postMessage('showTranslationModelPicker');
+            });
+        }
+
+        // Transcription model button → native picker via IPC
+        const transcriptionModelBtn = document.getElementById('transcription-model-btn');
+        if (transcriptionModelBtn) {
+            installControlTapGuard(transcriptionModelBtn);
+            transcriptionModelBtn.addEventListener('pointerup', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (window.ipc) window.ipc.postMessage('showTranscriptionModelPicker');
+            });
+        }
+
+        // Legacy: keep icon handlers for backward compat with old HTML
         const modelIcons = document.querySelectorAll('.model-icon');
         if (modelIcons.length) {
             modelIcons.forEach(icon => {
@@ -522,14 +612,11 @@
                     e.stopPropagation();
                     preserveControlsScroll(() => {
                         setTranslationModel(icon.getAttribute('data-value'));
-                        const val = icon.getAttribute('data-value');
-                        window.ipc.postMessage('translationModel:' + val);
+                        window.ipc.postMessage('translationModel:' + icon.getAttribute('data-value'));
                     });
                 });
             });
         }
-
-        // Transcription Model Logic
         const transModelIcons = document.querySelectorAll('.trans-model-icon');
         if (transModelIcons.length) {
             transModelIcons.forEach(icon => {
@@ -538,8 +625,7 @@
                     e.stopPropagation();
                     preserveControlsScroll(() => {
                         setTranscriptionModel(icon.getAttribute('data-value'));
-                        const val = icon.getAttribute('data-value');
-                        window.ipc.postMessage('transcriptionModel:' + val);
+                        window.ipc.postMessage('transcriptionModel:' + icon.getAttribute('data-value'));
                     });
                 });
             });
@@ -603,6 +689,10 @@
             if (settings.translationModel) setTranslationModel(settings.translationModel);
 
             if (settings.transcriptionModel) setTranscriptionModel(settings.transcriptionModel);
+
+            if (settings.transcriptionLanguage && window.setTranscriptionLanguage) {
+                window.setTranscriptionLanguage(settings.transcriptionLanguage, settings.transcriptionLanguageName);
+            }
 
             if (settings.fontSize) setFontSize(settings.fontSize);
             restoreControlsScroll(pinnedControlsScroll);
