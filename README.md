@@ -46,6 +46,7 @@ Create complex presets using a visual editor. Connect blocks to define logic:
 ### Android Companion App
 
 * **Live Translation:** Real-time transcription and translation via floating overlay or in-app display.
+* **On-Device ASR:** Moonshine Voice (English streaming) + sherpa-onnx Zipformer (7 languages + 8-lang multilingual). No cloud required.
 * **Preset Engine:** Same node-graph presets as Windows, with multi-provider AI support (Gemini, Groq, OpenRouter, Cerebras, Ollama).
 * **Floating Bubble:** Quick-access overlay bubble for triggering presets from any app.
 * **TTS Playback:** Edge TTS and Gemini TTS with speed control.
@@ -110,20 +111,45 @@ To rebuild and run during development (builds Screen Record frontend, then runs 
 cd screen-record; npm install; npm run build; cd ..; New-Item -ItemType Directory -Path src\overlay\screen_record\dist -Force | Out-Null; Copy-Item screen-record\dist\* -Destination src\overlay\screen_record\dist -Recurse -Force; cargo run
 ```
 
-### Qwen3-ASR Native Runtime (Local Speech Recognition)
+### On-Device Speech Recognition
 
-The offline Qwen3 ASR engine runs as a native DLL that the app loads at runtime. It requires an **NVIDIA GPU** with CUDA support.
+SGT supports multiple on-device ASR engines. Models are downloaded automatically on first use.
+
+#### Windows — Qwen3-ASR (NVIDIA GPU)
+
+The Qwen3 ASR engine runs as a native CUDA DLL. Requires an **NVIDIA GPU**.
 
 ```powershell
 # Build the native runtime DLL + bundle all libtorch dependencies
-# Downloads libtorch (~3 GB) on first run, cached in tools/qwen3-reference-cache/
 powershell -ExecutionPolicy Bypass -File scripts/build_qwen3_runtime.ps1
 
-# Or build and copy directly to the app's private bin dir for immediate use:
+# Or build and copy directly to the app's private bin dir:
 powershell -ExecutionPolicy Bypass -File scripts/build_qwen3_runtime.ps1 -CopyToPrivateBin
 ```
 
-The Qwen3 ASR model weights (~1.8 GB) are downloaded automatically on first use from HuggingFace.
+Available models (selected from overlay dropdown):
+- **Qwen3-ASR 0.6B** — 52 languages, ~1.8 GB weights
+- **Qwen3-ASR 1.7B** — 52 languages, ~3.5 GB weights, higher accuracy
+
+#### Android — Moonshine Voice + Zipformer
+
+The Android app uses two streaming ASR engines:
+
+- **Moonshine Voice** (English) — Tiny/Small/Medium streaming variants via [Moonshine AI](https://github.com/moonshine-ai/moonshine) SDK. ~40-300 MB per model.
+- **Zipformer** (multilingual) — Streaming transducer models via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). 8 language options:
+
+| Language | Model | Source |
+|----------|-------|--------|
+| English | Kroko Zipformer | HuggingFace |
+| Korean | Zipformer v1 | ModelScope |
+| Chinese | Zipformer v1 | HuggingFace |
+| French | Kroko Zipformer | HuggingFace |
+| German | Kroko Zipformer | HuggingFace |
+| Spanish | Kroko Zipformer | HuggingFace |
+| Russian | Vosk Zipformer | HuggingFace |
+| AR/EN/ID/JA/RU/TH/VI/ZH | 8-lang multilingual | HuggingFace |
+
+Select models and languages from the transcription window header dropdown.
 
 ### Repomix (for "Ask anything about SGT")
 
@@ -216,4 +242,5 @@ Developed by **nganlinh4**.
 * **Audio:** [cpal](https://github.com/RustAudio/cpal) & [symphonia](https://github.com/pdeljanov/Symphonia).
 * **GPU Rendering:** [wgpu](https://github.com/gfx-rs/wgpu) & Media Foundation.
 * **Mobile:** Jetpack Compose & Kotlin Multiplatform.
+* **On-Device ASR:** [Moonshine Voice](https://github.com/moonshine-ai/moonshine), [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR).
 * **AI Providers:** Groq, Google DeepMind, OpenRouter, Cerebras.
