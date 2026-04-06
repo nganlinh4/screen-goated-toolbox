@@ -79,8 +79,8 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             let trans_options = [
                 (gemini_id, "Gemini Live"),
                 ("parakeet", "Parakeet"),
-                (qwen3_0_6b_id, "Qwen3 0.6B (GPU)"),
-                (qwen3_1_7b_id, "Qwen3 1.7B (GPU)"),
+                (qwen3_0_6b_id, "Qwen3 0.6B"),
+                (qwen3_1_7b_id, "Qwen3 1.7B"),
                 ("moonshine-tiny-streaming", "Moonshine Tiny"),
                 ("moonshine-small-streaming", "Moonshine Small"),
                 ("moonshine-medium-streaming", "Moonshine Medium"),

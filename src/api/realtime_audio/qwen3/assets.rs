@@ -204,6 +204,16 @@ pub fn remove_qwen3_model() -> Result<()> {
     Ok(())
 }
 
+pub fn remove_qwen3_1_7b_model() -> Result<()> {
+    let dir = get_qwen3_1_7b_model_dir();
+    if dir.exists() {
+        fs::remove_dir_all(&dir)
+            .map_err(|err| anyhow!("Failed to remove '{}': {}", dir.display(), err))?;
+    }
+    clear_qwen3_model_action_error();
+    Ok(())
+}
+
 pub fn download_qwen3_model(stop_signal: Arc<AtomicBool>, use_badge: bool) -> Result<()> {
     let dir = get_qwen3_model_dir();
     let locale = qwen3_locale();

@@ -5,6 +5,8 @@ use crate::api::realtime_audio::model_loader::{
 use crate::api::realtime_audio::qwen3::assets::{
     current_qwen3_model_notice, download_qwen3_model, get_qwen3_model_dir,
     is_qwen3_model_downloaded, remove_qwen3_model,
+    is_qwen3_1_7b_model_downloaded, download_qwen3_1_7b_model, get_qwen3_1_7b_model_dir,
+    remove_qwen3_1_7b_model,
 };
 use crate::api::realtime_audio::qwen3::runtime::current_qwen3_runtime_notice;
 use crate::gui::locale::LocaleText;
@@ -110,73 +112,57 @@ pub fn render_downloaded_tools_modal(
 
                 ui.add_space(8.0);
 
+                // Qwen3-ASR 0.6B
                 ui.group(|ui| {
                     let qwen_notice = current_qwen3_model_notice();
-                    let qwen_runtime_notice = current_qwen3_runtime_notice();
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(text.tool_qwen3).strong());
+                        ui.label(egui::RichText::new("Qwen3-ASR 0.6B").strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let is_downloading = {
-                                if let Ok(state) = REALTIME_STATE.lock() {
-                                    state.is_downloading
-                                        && state.download_title == text.qwen3_downloading_title
-                                } else {
-                                    false
-                                }
-                            };
-
-                            if is_downloading {
-                                let progress = {
-                                    if let Ok(state) = REALTIME_STATE.lock() {
-                                        state.download_progress
-                                    } else {
-                                        0.0
-                                    }
-                                };
-                                ui.label(format!("{:.0}%", progress));
-                                ui.spinner();
-                            } else if is_qwen3_model_downloaded() {
-                                if ui
-                                    .button(
-                                        egui::RichText::new(text.tool_action_delete)
-                                            .color(egui::Color32::RED),
-                                    )
-                                    .clicked()
-                                {
+                            if is_qwen3_model_downloaded() {
+                                if ui.button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED)).clicked() {
                                     let _ = remove_qwen3_model();
                                 }
                                 let size = get_dir_size(&get_qwen3_model_dir());
-                                ui.label(
-                                    egui::RichText::new(
-                                        text.tool_status_installed
-                                            .replace("{}", &format_size(size)),
-                                    )
-                                    .color(egui::Color32::from_rgb(34, 139, 34)),
-                                );
+                                ui.label(egui::RichText::new(text.tool_status_installed.replace("{}", &format_size(size))).color(egui::Color32::from_rgb(34, 139, 34)));
                             } else {
                                 if ui.button(text.tool_action_download).clicked() {
                                     let stop_signal = Arc::new(AtomicBool::new(false));
-                                    thread::spawn(move || {
-                                        let _ = download_qwen3_model(stop_signal, false);
-                                    });
+                                    thread::spawn(move || { let _ = download_qwen3_model(stop_signal, false); });
                                 }
-                                ui.label(
-                                    egui::RichText::new(text.tool_status_missing)
-                                        .color(egui::Color32::GRAY),
-                                );
+                                ui.label(egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY));
                             }
                         });
                     });
                     ui.label(text.tool_desc_qwen3);
-
                     if let Some(message) = qwen_notice {
                         ui.add_space(4.0);
                         ui.label(egui::RichText::new(message).color(egui::Color32::RED));
                     }
-                    if let Some(message) = qwen_runtime_notice {
-                        ui.add_space(4.0);
-                        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
-                    }
+                });
+
+                ui.add_space(4.0);
+
+                // Qwen3-ASR 1.7B
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Qwen3-ASR 1.7B").strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if is_qwen3_1_7b_model_downloaded() {
+                                if ui.button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED)).clicked() {
+                                    let _ = remove_qwen3_1_7b_model();
+                                }
+                                let size = get_dir_size(&get_qwen3_1_7b_model_dir());
+                                ui.label(egui::RichText::new(text.tool_status_installed.replace("{}", &format_size(size))).color(egui::Color32::from_rgb(34, 139, 34)));
+                            } else {
+                                if ui.button(text.tool_action_download).clicked() {
+                                    let stop_signal = Arc::new(AtomicBool::new(false));
+                                    thread::spawn(move || { let _ = download_qwen3_1_7b_model(stop_signal, false); });
+                                }
+                                ui.label(egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY));
+                            }
+                        });
+                    });
+                    ui.label(text.tool_desc_qwen3_1_7b);
                 });
 
                 ui.add_space(8.0);
