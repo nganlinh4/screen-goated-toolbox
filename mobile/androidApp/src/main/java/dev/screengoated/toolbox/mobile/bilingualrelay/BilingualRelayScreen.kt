@@ -297,6 +297,15 @@ fun BilingualRelayScreen(
             )
         }
     }
+
+    if (!state.guideSeen) {
+        BilingualRelayGuideDialog(
+            title = locale.bilingualRelayTitle,
+            message = locale.bilingualRelayGuide,
+            confirmLabel = locale.bilingualRelayGuideOk,
+            onDismiss = repository::dismissGuide,
+        )
+    }
 }
 
 // ── Language Card ──
