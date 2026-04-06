@@ -3,6 +3,7 @@
 
 use super::state::*;
 use super::styles::get_editor_css;
+use super::passive;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
@@ -42,9 +43,10 @@ pub fn apply_pending_text() {
                             const text = `{}`;
                             editor.value = text;
                             editor.selectionStart = editor.selectionEnd = text.length;
-                            editor.focus();
+                            if (!{}) editor.focus();
                         }})();"#,
-                        escaped
+                        escaped,
+                        PASSIVE_CAPTURE_ENABLED.load(std::sync::atomic::Ordering::SeqCst)
                     )
                 } else {
                     // Insert at cursor position (for paste/transcription)
@@ -56,9 +58,10 @@ pub fn apply_pending_text() {
                             const text = `{}`;
                             editor.value = editor.value.substring(0, start) + text + editor.value.substring(end);
                             editor.selectionStart = editor.selectionEnd = start + text.length;
-                            editor.focus();
+                            if (!{}) editor.focus();
                         }})();"#,
-                        escaped
+                        escaped,
+                        PASSIVE_CAPTURE_ENABLED.load(std::sync::atomic::Ordering::SeqCst)
                     )
                 };
                 let _ = wv.evaluate_script(&script);
@@ -76,6 +79,20 @@ pub fn clear_editor_text() {
             let _ = wv.evaluate_script(script);
         }
     });
+}
+
+unsafe fn set_noactivate_mode(hwnd: HWND, enabled: bool) {
+    let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 };
+    let noactivate = WS_EX_NOACTIVATE.0;
+    let target = if enabled {
+        ex_style | noactivate
+    } else {
+        ex_style & !noactivate
+    };
+
+    if target != ex_style {
+        let _ = unsafe { SetWindowLongPtrW(hwnd, GWL_EXSTYLE, target as isize) };
+    }
 }
 
 pub unsafe extern "system" fn input_wnd_proc(
@@ -118,26 +135,32 @@ pub unsafe extern "system" fn input_wnd_proc(
                     let x = mi.rcWork.left + (monitor_w - w) / 2;
                     let y = mi.rcWork.top + (monitor_h - h) / 2;
 
-                    let _ = SetWindowPos(
-                        hwnd,
-                        Some(HWND_TOP),
-                        x,
-                        y,
-                        0,
-                        0,
-                        SWP_NOSIZE | SWP_SHOWWINDOW,
-                    );
+                    let passive_capture =
+                        PASSIVE_CAPTURE_ENABLED.load(std::sync::atomic::Ordering::SeqCst);
+                    set_noactivate_mode(hwnd, passive_capture);
+                    let flags = if passive_capture {
+                        SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE
+                    } else {
+                        SWP_NOSIZE | SWP_SHOWWINDOW
+                    };
+                    let _ = SetWindowPos(hwnd, Some(HWND_TOP), x, y, 0, 0, flags);
                 }
 
-                // 2. Focus - Force window to foreground
-                let _ = SetForegroundWindow(hwnd);
-                let _ = SetFocus(Some(hwnd));
-                // Force Webview focus immediately
-                TEXT_INPUT_WEBVIEW.with(|webview| {
-                    if let Some(wv) = webview.borrow().as_ref() {
-                        let _ = wv.focus();
-                    }
-                });
+                let passive_capture =
+                    PASSIVE_CAPTURE_ENABLED.load(std::sync::atomic::Ordering::SeqCst);
+
+                // 2. Focus / Activation
+                if passive_capture {
+                    passive::reset_state();
+                } else {
+                    let _ = SetForegroundWindow(hwnd);
+                    let _ = SetFocus(Some(hwnd));
+                    TEXT_INPUT_WEBVIEW.with(|webview| {
+                        if let Some(wv) = webview.borrow().as_ref() {
+                            let _ = wv.focus();
+                        }
+                    });
+                }
 
                 // 3. Dynamic Update (Theme + Locales)
                 let is_dark = if let Ok(app) = crate::APP.lock() {
@@ -206,13 +229,15 @@ pub unsafe extern "system" fn input_wnd_proc(
                    document.getElementById('editor').placeholder = '{}';
                 }}
                 document.documentElement.setAttribute('data-theme', '{}');
-                // Force focus on editor
+                const passiveCapture = {};
                 setTimeout(() => {{
                     const el = document.getElementById('editor');
-                    if (el) {{
+                    if (!el) return;
+                    el.value = '';
+                    el.selectionStart = el.selectionEnd = el.value.length;
+                    if (!passiveCapture) {{
                         el.focus();
                         el.select();
-                        el.selectionStart = el.selectionEnd = el.value.length;
                     }}
                 }}, 10);
                 "#,
@@ -220,7 +245,8 @@ pub unsafe extern "system" fn input_wnd_proc(
                     title,
                     footer_html,
                     placeholder_escaped,
-                    if is_dark { "dark" } else { "light" }
+                    if is_dark { "dark" } else { "light" },
+                    passive_capture
                 );
 
                 TEXT_INPUT_WEBVIEW.with(|webview| {
@@ -230,6 +256,10 @@ pub unsafe extern "system" fn input_wnd_proc(
                         let _ = wv.evaluate_script("playEntry();");
                     }
                 });
+
+                if passive_capture {
+                    passive::sync_editor();
+                }
 
                 // Reset state
                 FADE_ALPHA = 0;
@@ -246,7 +276,15 @@ pub unsafe extern "system" fn input_wnd_proc(
                 LRESULT(0)
             }
 
+            WM_APP_SYNC_PASSIVE_EDITOR => {
+                if PASSIVE_CAPTURE_ENABLED.load(std::sync::atomic::Ordering::SeqCst) {
+                    passive::sync_editor();
+                }
+                LRESULT(0)
+            }
+
             WM_APP_HIDE => {
+                PASSIVE_CAPTURE_ENABLED.store(false, std::sync::atomic::Ordering::SeqCst);
                 // Trigger Fade Out Script & Delay Hide
                 TEXT_INPUT_WEBVIEW.with(|webview| {
                     if let Some(wv) = webview.borrow().as_ref() {
@@ -259,6 +297,7 @@ pub unsafe extern "system" fn input_wnd_proc(
             }
 
             WM_CLOSE => {
+                PASSIVE_CAPTURE_ENABLED.store(false, std::sync::atomic::Ordering::SeqCst);
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 let _ = KillTimer(Some(hwnd), 1);
                 let _ = KillTimer(Some(hwnd), 2);
@@ -274,11 +313,13 @@ pub unsafe extern "system" fn input_wnd_proc(
             WM_ERASEBKGND => LRESULT(1),
 
             WM_SETFOCUS => {
-                TEXT_INPUT_WEBVIEW.with(|webview| {
-                    if let Some(wv) = webview.borrow().as_ref() {
-                        let _ = wv.focus();
-                    }
-                });
+                if !PASSIVE_CAPTURE_ENABLED.load(std::sync::atomic::Ordering::SeqCst) {
+                    TEXT_INPUT_WEBVIEW.with(|webview| {
+                        if let Some(wv) = webview.borrow().as_ref() {
+                            let _ = wv.focus();
+                        }
+                    });
+                }
                 LRESULT(0)
             }
 
@@ -318,13 +359,15 @@ pub unsafe extern "system" fn input_wnd_proc(
                 // Timer 3: focus logic (used by refocus_editor after preset wheel)
                 if wparam.0 == 3 {
                     let _ = KillTimer(Some(hwnd), 3);
-                    TEXT_INPUT_WEBVIEW.with(|webview| {
-                        if let Some(wv) = webview.borrow().as_ref() {
-                            let _ = wv.focus();
-                            let _ =
-                                wv.evaluate_script("document.getElementById('editor').focus();");
-                        }
-                    });
+                    if !PASSIVE_CAPTURE_ENABLED.load(std::sync::atomic::Ordering::SeqCst) {
+                        TEXT_INPUT_WEBVIEW.with(|webview| {
+                            if let Some(wv) = webview.borrow().as_ref() {
+                                let _ = wv.focus();
+                                let _ = wv
+                                    .evaluate_script("document.getElementById('editor').focus();");
+                            }
+                        });
+                    }
                 }
                 // Timer 4: Hide window after fade-out
                 if wparam.0 == 4 {
