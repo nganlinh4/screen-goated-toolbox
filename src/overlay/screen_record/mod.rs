@@ -269,7 +269,7 @@ pub fn cleanup_on_app_exit() {
     input_capture::stop_capture_and_drain();
 
     if let Some(control) = engine::ACTIVE_CAPTURE_CONTROL.lock().take() {
-        let _ = control.stop();
+        control.stop();
     }
     if let Some(control) = engine::EXTERNAL_CAPTURE_CONTROL.lock().take() {
         let _ = control.stop();
