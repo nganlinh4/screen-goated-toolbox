@@ -376,6 +376,7 @@ pub struct LocaleText {
     pub tool_desc_ai_runtime: &'static str,
     pub tool_desc_parakeet: &'static str,
     pub tool_desc_qwen3: &'static str,
+    pub tool_desc_qwen3_1_7b: &'static str,
     pub tool_qwen3_runtime: &'static str,
     pub tool_desc_qwen3_runtime: &'static str,
     pub tool_desc_qwen3_server: &'static str,

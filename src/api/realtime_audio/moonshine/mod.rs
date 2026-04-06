@@ -125,6 +125,16 @@ pub fn run_moonshine_transcription(
         s.set_transcription_method(super::state::TranscriptionMethod::MoonshineLocal);
     }
 
+    // Check if Moonshine runtime DLL is available
+    if let Err(e) = ffi::load() {
+        let msg = format!("{} requires the Moonshine runtime DLL which is not yet installed. Please use Qwen3 or Gemini Live instead.", variant.label());
+        crate::log_info!("[Moonshine] {}", msg);
+        update_overlay_text(overlay_hwnd, &msg);
+        std::thread::sleep(Duration::from_secs(5));
+        update_overlay_text(overlay_hwnd, "");
+        return Ok(());
+    }
+
     if !is_model_downloaded(variant) {
         update_overlay_text(overlay_hwnd, &format!("Downloading {}...", variant.label()));
         download_model(variant, stop_signal.clone())?;

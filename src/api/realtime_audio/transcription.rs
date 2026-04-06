@@ -148,6 +148,13 @@ fn transcription_thread_entry(
                 current_preset.clone(), stop_signal.clone(), hwnd_overlay, state.clone(),
                 super::moonshine::MoonshineModelVariant::MediumStreaming,
             )
+        } else if trans_model == "zipformer" {
+            // Zipformer on Windows not yet implemented — show message
+            super::utils::update_overlay_text(hwnd_overlay,
+                "Zipformer is not yet available on Windows. Please use Qwen3 or Gemini Live.");
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            super::utils::update_overlay_text(hwnd_overlay, "");
+            Ok(())
         } else {
             run_realtime_transcription(
                 current_preset.clone(),

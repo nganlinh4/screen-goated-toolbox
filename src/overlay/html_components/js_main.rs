@@ -420,7 +420,29 @@ pub fn get(font_size: u32) -> String {
         if (transLangBadge) {{
             transLangBadge.addEventListener('click', function() {{
                 if (this.classList.contains('greyed')) return;
-                window.ipc.postMessage('showTranscriptionLanguagePicker');
+                // On Windows, show inline language selector
+                const langs = ['EN|English','KO|Korean','ZH|Chinese','FR|French','DE|German','ES|Spanish','RU|Russian','all-8|AR,EN,ID,JA,RU,TH,VI,ZH'];
+                const current = transLangBadge.dataset.code || 'EN';
+                const sel = document.createElement('select');
+                sel.className = 'model-dropdown';
+                sel.style.position = 'absolute';
+                sel.style.zIndex = '999';
+                langs.forEach(l => {{
+                    const [code, name] = l.split('|');
+                    const opt = document.createElement('option');
+                    opt.value = code;
+                    opt.textContent = name;
+                    if (code.toUpperCase() === current.toUpperCase()) opt.selected = true;
+                    sel.appendChild(opt);
+                }});
+                sel.addEventListener('change', () => {{
+                    window.ipc.postMessage('transcriptionLanguage:' + sel.value);
+                    if (window.setTranscriptionLanguage) window.setTranscriptionLanguage(sel.value.toUpperCase(), '');
+                    sel.remove();
+                }});
+                sel.addEventListener('blur', () => sel.remove());
+                transLangBadge.parentNode.insertBefore(sel, transLangBadge.nextSibling);
+                sel.focus();
             }});
         }}
 

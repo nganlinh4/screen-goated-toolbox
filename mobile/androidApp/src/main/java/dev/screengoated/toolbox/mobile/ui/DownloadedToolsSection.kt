@@ -131,6 +131,42 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
                 },
             )
 
+            // Moonshine + Zipformer on-device ASR models
+            run {
+                val moonshineManager = remember {
+                    dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager(
+                        (context.applicationContext as dev.screengoated.toolbox.mobile.SgtMobileApplication).applicationContext
+                    )
+                }
+                val totalMb = remember { moonshineManager.installedSizeBytes() / (1024.0 * 1024.0) }
+                DownloadedToolRow(
+                    name = "On-Device ASR",
+                    icon = R.drawable.ms_translate,
+                    statusText = if (totalMb > 1.0) {
+                        "%.0f MB downloaded (Moonshine + Zipformer)".format(totalMb)
+                    } else {
+                        "Models download on demand when selected"
+                    },
+                    statusColor = if (totalMb > 1.0) {
+                        MaterialTheme.colorScheme.tertiary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    accent = MaterialTheme.colorScheme.secondary,
+                    onHelpClick = { helpDialog = "On-Device ASR" to "Moonshine Voice (English streaming) + sherpa-onnx Zipformer (7 languages + 8-lang multilingual). Models are downloaded automatically when you select them from the transcription dropdown." },
+                    progressFraction = null,
+                    action = if (totalMb > 1.0) {
+                        ToolAction(
+                            text = locale.toolDelete,
+                            role = ToolActionRole.DESTRUCTIVE,
+                            onClick = {
+                                java.io.File(context.filesDir, "models/moonshine").deleteRecursively()
+                            },
+                        )
+                    } else null,
+                )
+            }
+
             DownloadedToolRow(
                 name = "yt-dlp",
                 icon = R.drawable.ms_emoji_symbols,
