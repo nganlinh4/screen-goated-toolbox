@@ -42,3 +42,4 @@ third_party/qwen3-asr-rs/target_stream_check/
 # Native Qwen3 runtime crate artifacts
 native/qwen3_runtime/target/
 native/qwen3_runtime/Cargo.lock
+third_party/moonshine-voice/
