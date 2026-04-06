@@ -343,39 +343,84 @@ pub fn get(font_size: u32) -> String {
             }});
         }}
 
-        // Model Toggle Switch Logic - for translation
+        // Translation model dropdown
+        const translationModelSelect = document.getElementById('translation-model-select');
+        if (translationModelSelect) {{
+            translationModelSelect.addEventListener('change', (e) => {{
+                e.stopPropagation();
+                window.ipc.postMessage('translationModel:' + translationModelSelect.value);
+            }});
+        }}
+
+        // Transcription model dropdown
+        const transcriptionModelSelect = document.getElementById('transcription-model-select');
+        if (transcriptionModelSelect) {{
+            transcriptionModelSelect.addEventListener('change', (e) => {{
+                e.stopPropagation();
+                window.ipc.postMessage('transcriptionModel:' + transcriptionModelSelect.value);
+            }});
+        }}
+
+        // Legacy icon handlers (backward compat)
         const modelIcons = document.querySelectorAll('.model-icon');
         if (modelIcons.length) {{
             modelIcons.forEach(icon => {{
                 icon.addEventListener('click', (e) => {{
                     e.stopPropagation();
-                    e.preventDefault();
-
-                    // Update UI - toggle active class
                     modelIcons.forEach(i => i.classList.remove('active'));
                     icon.classList.add('active');
-
-                    // Send IPC
-                    const val = icon.getAttribute('data-value');
-                    window.ipc.postMessage('translationModel:' + val);
+                    window.ipc.postMessage('translationModel:' + icon.getAttribute('data-value'));
                 }});
             }});
         }}
-
-        // Transcription Model Logic
         const transModelIcons = document.querySelectorAll('.trans-model-icon');
         if (transModelIcons.length) {{
             transModelIcons.forEach(icon => {{
                 icon.addEventListener('click', (e) => {{
                     e.stopPropagation();
-                    e.preventDefault();
-
                     transModelIcons.forEach(i => i.classList.remove('active'));
                     icon.classList.add('active');
-
-                    const val = icon.getAttribute('data-value');
-                    window.ipc.postMessage('transcriptionModel:' + val);
+                    window.ipc.postMessage('transcriptionModel:' + icon.getAttribute('data-value'));
                 }});
+            }});
+        }}
+
+        // Transcription Language Badge Logic
+        const transLangBadge = document.getElementById('trans-lang-badge');
+        let currentTransLangCode = transLangBadge ? transLangBadge.dataset.code || 'EN' : 'EN';
+
+        function updateTransLangBadgeState(modelName) {{
+            if (!transLangBadge) return;
+            if (modelName && (modelName.includes('gemini') || modelName === 'qwen3-asr-0.6b' || modelName === 'qwen3-asr-1.7b')) {{
+                // Gemini Live and Qwen3 (local GPU) support all languages
+                transLangBadge.textContent = 'ALL';
+                transLangBadge.dataset.code = 'ALL';
+                transLangBadge.classList.add('greyed');
+            }} else if (modelName === 'parakeet' || (modelName && modelName.includes('moonshine'))) {{
+                transLangBadge.textContent = 'EN';
+                transLangBadge.dataset.code = 'EN';
+                transLangBadge.classList.add('greyed');
+            }} else if (modelName === 'zipformer') {{
+                transLangBadge.textContent = currentTransLangCode;
+                transLangBadge.classList.remove('greyed');
+            }} else {{
+                transLangBadge.textContent = currentTransLangCode;
+                transLangBadge.classList.remove('greyed');
+            }}
+        }}
+
+        window.setTranscriptionLanguage = function(langCode, langName) {{
+            if (!transLangBadge) return;
+            currentTransLangCode = langCode || 'EN';
+            transLangBadge.textContent = currentTransLangCode;
+            transLangBadge.dataset.code = currentTransLangCode;
+            if (langName) transLangBadge.title = langName;
+        }};
+
+        if (transLangBadge) {{
+            transLangBadge.addEventListener('click', function() {{
+                if (this.classList.contains('greyed')) return;
+                window.ipc.postMessage('showTranscriptionLanguagePicker');
             }});
         }}
 
@@ -433,20 +478,33 @@ pub fn get(font_size: u32) -> String {
                 langSelect.value = settings.targetLanguage;
             }}
 
-            // Update translation model
-            if (settings.translationModel && modelIcons.length) {{
-                modelIcons.forEach(icon => {{
-                    const val = icon.getAttribute('data-value');
-                    icon.classList.toggle('active', val === settings.translationModel);
-                }});
+            // Update translation model dropdown
+            if (settings.translationModel) {{
+                const tlSel = document.getElementById('translation-model-select');
+                if (tlSel) tlSel.value = settings.translationModel;
+                // Legacy icons
+                if (modelIcons.length) {{
+                    modelIcons.forEach(icon => {{
+                        icon.classList.toggle('active', icon.getAttribute('data-value') === settings.translationModel);
+                    }});
+                }}
             }}
 
-            // Update transcription model
-            if (settings.transcriptionModel && transModelIcons && transModelIcons.length) {{
-                transModelIcons.forEach(icon => {{
-                    const val = icon.getAttribute('data-value');
-                    icon.classList.toggle('active', val === settings.transcriptionModel);
-                }});
+            // Update transcription model dropdown + language badge
+            if (settings.transcriptionModel) {{
+                const tcSel = document.getElementById('transcription-model-select');
+                if (tcSel) tcSel.value = settings.transcriptionModel;
+                updateTransLangBadgeState(settings.transcriptionModel);
+                // Legacy icons
+                if (transModelIcons && transModelIcons.length) {{
+                    transModelIcons.forEach(icon => {{
+                        icon.classList.toggle('active', icon.getAttribute('data-value') === settings.transcriptionModel);
+                    }});
+                }}
+            }}
+
+            if (settings.transcriptionLanguage && window.setTranscriptionLanguage) {{
+                window.setTranscriptionLanguage(settings.transcriptionLanguage, settings.transcriptionLanguageName);
             }}
 
             // Update font size

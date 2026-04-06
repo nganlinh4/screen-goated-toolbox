@@ -265,6 +265,7 @@ android {
         ndk {
             abiFilters += "arm64-v8a"
         }
+
     }
 
     flavorDimensions += "distribution"
@@ -329,8 +330,9 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
-            excludes += "**/libonnxruntime.so"
-            excludes += "**/libonnxruntime4j_jni.so"
+            // Moonshine and onnxruntime-android both bundle libonnxruntime.so.
+            // Use Moonshine's version (pick first).
+            pickFirsts += "**/libonnxruntime.so"
             excludes += "**/libpython.zip.so"
             excludes += "**/libffmpeg.zip.so"
         }
@@ -392,6 +394,8 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     implementation(libs.onnxruntime.android)
+    implementation(libs.moonshine.voice)
+    implementation(files("libs/sherpa-onnx-static-1.12.35.aar"))
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.common)
     implementation("org.commonmark:commonmark:0.24.0")

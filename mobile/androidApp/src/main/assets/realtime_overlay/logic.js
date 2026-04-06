@@ -32,8 +32,12 @@
         }
 
         function rebuildStaticText(fullText, committedLength) {
-            content.innerHTML = '';
-            appendClassifiedText(content, fullText, 0, committedLength);
+            // Build new DOM nodes in a fragment first, then swap in one
+            // operation. Avoids the visible blink from clearing innerHTML
+            // before the new content is ready.
+            const frag = document.createDocumentFragment();
+            appendClassifiedText(frag, fullText, 0, committedLength);
+            content.replaceChildren(frag);
         }
 
         function appendAnimatedDelta(delta, deltaStart, committedLength) {
@@ -152,7 +156,7 @@
         }
 
         function renderCommitAdvance(fullText, previousCommittedLength, committedLength) {
-            content.innerHTML = '';
+            const frag = document.createDocumentFragment();
 
             const prefixText = fullText.substring(0, previousCommittedLength);
             const promotingText = fullText.substring(previousCommittedLength, committedLength);
@@ -163,39 +167,31 @@
             let highlightIndex = 0;
             let localIndex = 0;
 
-            appendClassifiedText(content, prefixText, 0, committedLength);
+            appendClassifiedText(frag, prefixText, 0, committedLength);
 
             for (const match of wordMatches) {
                 const wordStart = match.index ?? 0;
                 const wordText = match[0];
                 const gapText = promotingText.substring(localIndex, wordStart);
                 if (gapText) {
-                    appendClassifiedText(
-                        content,
-                        gapText,
-                        previousCommittedLength + localIndex,
-                        committedLength
-                    );
+                    appendClassifiedText(frag, gapText, previousCommittedLength + localIndex, committedLength);
                 }
 
                 const chunk = createChunk(wordText, 'new', 'commit-promoting');
                 chunk.style.transitionDelay = `${Math.round(highlightIndex * highlightStep)}ms`;
-                content.appendChild(chunk);
+                frag.appendChild(chunk);
                 highlightIndex += 1;
                 localIndex = wordStart + wordText.length;
             }
 
             const trailingGap = promotingText.substring(localIndex);
             if (trailingGap) {
-                appendClassifiedText(
-                    content,
-                    trailingGap,
-                    previousCommittedLength + localIndex,
-                    committedLength
-                );
+                appendClassifiedText(frag, trailingGap, previousCommittedLength + localIndex, committedLength);
             }
 
-            appendClassifiedText(content, suffixText, committedLength, committedLength);
+            appendClassifiedText(frag, suffixText, committedLength, committedLength);
+
+            content.replaceChildren(frag);
 
             requestAnimationFrame(() => {
                 for (const chunk of content.querySelectorAll('.commit-promoting')) {
@@ -205,7 +201,7 @@
         }
 
         function renderWordDiff(previousText, nextText, committedLength) {
-            content.innerHTML = '';
+            const frag = document.createDocumentFragment();
 
             const previousTokens = tokenizeForDiff(previousText);
             const nextTokens = tokenizeForDiff(nextText);
@@ -229,12 +225,14 @@
             nextTokens.forEach((token, index) => {
                 const isChanged = index >= prefixCount && index < nextTokens.length - suffixCount;
                 if (isChanged) {
-                    appendSequentialDiffText(content, token, tokenStart, committedLength);
+                    appendSequentialDiffText(frag, token, tokenStart, committedLength);
                 } else {
-                    appendClassifiedText(content, token, tokenStart, committedLength);
+                    appendClassifiedText(frag, token, tokenStart, committedLength);
                 }
                 tokenStart += token.length;
             });
+
+            content.replaceChildren(frag);
 
             requestAnimationFrame(() => {
                 for (const chunk of content.querySelectorAll('.diff-updating')) {
@@ -250,7 +248,7 @@
             const committedAdvanced = oldText.length > previousCommittedLength;
 
             if (isFirstText && hasContent) {
-                content.innerHTML = '';
+                content.replaceChildren();
                 isFirstText = false;
                 minContentHeight = 0;
                 currentOldTextLength = 0;
@@ -271,7 +269,10 @@
             }
 
             if (oldText.length < currentOldTextLength && !previousFullText.startsWith(fullText)) {
-                content.innerHTML = '';
+                // Don't clear innerHTML — just reset tracking state.
+                // The next render path (rebuildStaticText or appendAnimatedDelta)
+                // will rebuild the DOM. Clearing here causes a visible blink
+                // because the WebView briefly shows empty content.
                 currentOldTextLength = 0;
                 previousFullText = '';
             }

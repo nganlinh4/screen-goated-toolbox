@@ -19,6 +19,7 @@ object RealtimeModelIds {
     const val TRANSCRIPTION_GEMINI_2_5 = GeneratedLiveModelCatalog.TRANSCRIPTION_GEMINI_2_5
     const val TRANSCRIPTION_GEMINI_3_1 = GeneratedLiveModelCatalog.TRANSCRIPTION_GEMINI_3_1
     const val TRANSCRIPTION_PARAKEET = GeneratedLiveModelCatalog.TRANSCRIPTION_PARAKEET
+    const val TRANSCRIPTION_MOONSHINE = GeneratedLiveModelCatalog.TRANSCRIPTION_MOONSHINE
     const val GEMINI_LIVE_API_MODEL_2_5 = GeneratedLiveModelCatalog.GEMINI_LIVE_API_MODEL_2_5
     const val GEMINI_LIVE_API_MODEL_3_1 = GeneratedLiveModelCatalog.GEMINI_LIVE_API_MODEL_3_1
 

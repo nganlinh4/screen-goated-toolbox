@@ -196,6 +196,18 @@ class AndroidLiveSessionRepository(
         store.appendTranscript(text, nowMs)
     }
 
+    fun updateTranscriptionLanguage(code: String) {
+        store.updateConfig(LiveSessionPatch(transcriptionLanguage = code))
+    }
+
+    fun setTranscriptSegments(
+        committed: String,
+        draft: String,
+        nowMs: Long,
+    ) {
+        store.setTranscriptSegments(committed, draft, nowMs)
+    }
+
     fun claimTranslationRequest(): TranslationRequest? {
         return store.claimTranslationRequest()
     }

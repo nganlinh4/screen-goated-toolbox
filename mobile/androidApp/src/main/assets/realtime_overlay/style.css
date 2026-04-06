@@ -10,6 +10,9 @@
             border: 1px solid {{BORDER_COLOR}};
             box-shadow: {{BOX_SHADOW}};
             backdrop-filter: blur(16px);
+            /* Force GPU compositing layer to prevent full-surface repaints */
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
             -webkit-backdrop-filter: blur(16px);
         }
         /* Loading overlay - TEMPORARILY DISABLED FOR TESTING */
@@ -212,6 +215,62 @@
             border-color: {{SUCCESS}};
             box-shadow: 0 2px 8px {{SUCCESS}}40;
         }
+        /* Model dropdown (replaces icon btn-group for model selection) */
+        .model-dropdown {
+            font-family: 'Google Sans Flex', sans-serif;
+            font-size: 11px;
+            font-weight: 500;
+            color: {{TEXT_COLOR}};
+            background: {{CTRL_BG}};
+            border: 1px solid {{CTRL_BORDER}};
+            border-radius: 9999px;
+            padding: 4px 10px;
+            cursor: pointer;
+            user-select: none;
+            -webkit-appearance: none;
+            appearance: none;
+            outline: none;
+            min-width: 70px;
+            text-align: center;
+            transition: all 0.25s cubic-bezier(0.2, 0.0, 0, 1.0);
+        }
+        .model-dropdown:hover, .model-dropdown:focus {
+            border-color: {{PRIMARY}}80;
+            box-shadow: 0 2px 8px {{PRIMARY}}30;
+        }
+        .model-dropdown option {
+            background: {{BG_COLOR}};
+            color: {{TEXT_COLOR}};
+        }
+
+        /* Transcription language badge (pill button in transcription header) */
+        .trans-lang-badge {
+            font-family: 'Google Sans Flex', sans-serif;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            color: {{TEXT_COLOR}};
+            background: {{CTRL_BG}};
+            border: 1px solid {{CTRL_BORDER}};
+            border-radius: 9999px;
+            padding: 3px 8px;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.25s cubic-bezier(0.2, 0.0, 0, 1.0);
+            min-width: 28px;
+            text-align: center;
+        }
+        .trans-lang-badge:hover:not(.greyed) {
+            border-color: {{PRIMARY}}80;
+            box-shadow: 0 2px 8px {{PRIMARY}}30;
+            color: {{PRIMARY}};
+        }
+        .trans-lang-badge.greyed {
+            opacity: 0.45;
+            cursor: default;
+            pointer-events: none;
+        }
+
         .pill-group {
             display: flex;
             align-items: center;
@@ -318,11 +377,17 @@
             flex: 1;
             overflow: hidden;
             position: relative;
+            /* Prevent WebView full-surface repaints when content changes */
+            contain: strict;
+            will-change: scroll-position;
         }
         #content {
             font-size: {{FONT_SIZE}}px;
             line-height: 1.5;
             padding-bottom: 5px;
+            /* Isolate content repaints from the rest of the overlay */
+            contain: layout style;
+            will-change: contents;
         }
         @keyframes wipe-in {
             from {
@@ -346,13 +411,15 @@
             font-family: 'Google Sans Flex', sans-serif !important;
             font-optical-sizing: auto;
             display: inline;
+            /* Removed font-variation-settings transition — too expensive on
+               mobile WebView, causes layout thrashing during streaming.
+               Keep only lightweight opacity/mask/filter transitions. */
             transition:
-                color 0.5s cubic-bezier(0.2, 0.0, 0, 1.0),
-                font-variation-settings 0.5s cubic-bezier(0.2, 0.0, 0, 1.0),
-                -webkit-mask-position 0.4s cubic-bezier(0.2, 0.0, 0, 1.0),
-                mask-position 0.4s cubic-bezier(0.2, 0.0, 0, 1.0),
-                opacity 0.35s cubic-bezier(0.2, 0.0, 0, 1.0),
-                filter 0.35s cubic-bezier(0.2, 0.0, 0, 1.0);
+                color 0.3s cubic-bezier(0.2, 0.0, 0, 1.0),
+                -webkit-mask-position 0.3s cubic-bezier(0.2, 0.0, 0, 1.0),
+                mask-position 0.3s cubic-bezier(0.2, 0.0, 0, 1.0),
+                opacity 0.25s cubic-bezier(0.2, 0.0, 0, 1.0),
+                filter 0.25s cubic-bezier(0.2, 0.0, 0, 1.0);
         }
 
         /* Old/committed text styling */
@@ -402,9 +469,7 @@
             background: linear-gradient(180deg, transparent 0%, transparent 100%);
         }
         .text-chunk.commit-promoting {
-            transition:
-                color 0.42s cubic-bezier(0.2, 0.0, 0, 1.0),
-                font-variation-settings 0.42s cubic-bezier(0.2, 0.0, 0, 1.0);
+            transition: color 0.3s cubic-bezier(0.2, 0.0, 0, 1.0);
         }
         .text-chunk.new.commit-promoting.settled {
             color: {{PLACEHOLDER_COLOR}};

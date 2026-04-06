@@ -22,19 +22,44 @@ const TRANSCRIBE_INTERVAL_MS: u64 = 500;
 const SILENCE_COMMIT_MS: u64 = 1_200;
 const MIN_TRANSCRIBE_SAMPLES: usize = 8_000;
 const VOICE_ACTIVITY_RMS: f32 = 0.015;
+/// Qwen3-ASR model variant (0.6B or 1.7B)
+#[derive(Clone, Copy, Debug)]
+pub enum Qwen3ModelVariant {
+    Small,  // 0.6B
+    Large,  // 1.7B
+}
+
 pub fn run_qwen3_transcription(
     _preset: Preset,
     stop_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
     state: SharedRealtimeState,
 ) -> Result<()> {
+    run_qwen3_transcription_variant(_preset, stop_signal, overlay_hwnd, state, Qwen3ModelVariant::Small)
+}
+
+pub fn run_qwen3_transcription_variant(
+    _preset: Preset,
+    stop_signal: Arc<AtomicBool>,
+    overlay_hwnd: HWND,
+    state: SharedRealtimeState,
+    variant: Qwen3ModelVariant,
+) -> Result<()> {
     if let Ok(mut s) = state.lock() {
         s.set_transcription_method(TranscriptionMethod::Qwen3Local);
     }
 
-    if !assets::is_qwen3_model_downloaded() {
-        update_overlay_text(overlay_hwnd, "Downloading Qwen3-ASR model...");
-        assets::download_qwen3_model(stop_signal.clone(), true)?;
+    let (is_downloaded, download_label) = match variant {
+        Qwen3ModelVariant::Small => (assets::is_qwen3_model_downloaded(), "Downloading Qwen3-ASR 0.6B model..."),
+        Qwen3ModelVariant::Large => (assets::is_qwen3_1_7b_model_downloaded(), "Downloading Qwen3-ASR 1.7B model..."),
+    };
+
+    if !is_downloaded {
+        update_overlay_text(overlay_hwnd, download_label);
+        match variant {
+            Qwen3ModelVariant::Small => assets::download_qwen3_model(stop_signal.clone(), true)?,
+            Qwen3ModelVariant::Large => assets::download_qwen3_1_7b_model(stop_signal.clone(), true)?,
+        }
     }
 
     if stop_signal.load(Ordering::Relaxed) {
@@ -50,8 +75,15 @@ pub fn run_qwen3_transcription(
         return Ok(());
     }
 
-    update_overlay_text(overlay_hwnd, "Loading Qwen3-ASR model...");
-    let model_dir = assets::get_qwen3_model_dir();
+    let load_label = match variant {
+        Qwen3ModelVariant::Small => "Loading Qwen3-ASR 0.6B model...",
+        Qwen3ModelVariant::Large => "Loading Qwen3-ASR 1.7B model...",
+    };
+    update_overlay_text(overlay_hwnd, load_label);
+    let model_dir = match variant {
+        Qwen3ModelVariant::Small => assets::get_qwen3_model_dir(),
+        Qwen3ModelVariant::Large => assets::get_qwen3_1_7b_model_dir(),
+    };
     let runtime = runtime::Qwen3Runtime::load(&model_dir)?;
     update_overlay_text(overlay_hwnd, "");
     let mut session = runtime.create_session(

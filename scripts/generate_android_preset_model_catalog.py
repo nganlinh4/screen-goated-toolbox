@@ -17,6 +17,7 @@ PROVIDER_MAP = {
     "ollama": "OLLAMA",
     "qrserver": "QRSERVER",
     "parakeet": "PARAKEET",
+    "moonshine": "MOONSHINE",
     "taalas": "TAALAS",
 }
 
@@ -58,7 +59,7 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
         provider = model["provider"]
         model_type = model["model_type"]
         if provider not in PROVIDER_MAP:
-            raise SystemExit(f"Unknown provider mapping for {provider!r}")
+            continue  # Skip models with providers not supported on Android (e.g. qwen3)
         if model_type not in MODEL_TYPE_MAP:
             raise SystemExit(f"Unknown model type mapping for {model_type!r}")
         if not model["enabled"]:
@@ -133,6 +134,7 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
         f"    const val TRANSCRIPTION_GEMINI_2_5 = {kotlin_string(constants['gemini_live_audio_model_id_2_5'])}",
         f"    const val TRANSCRIPTION_GEMINI_3_1 = {kotlin_string(constants['gemini_live_audio_model_id_3_1'])}",
         '    const val TRANSCRIPTION_PARAKEET = "parakeet"',
+        '    const val TRANSCRIPTION_MOONSHINE = "moonshine-local"',
         f"    const val GEMINI_LIVE_API_MODEL_2_5 = {kotlin_string(constants['gemini_live_api_model_2_5'])}",
         f"    const val GEMINI_LIVE_API_MODEL_3_1 = {kotlin_string(constants['gemini_live_api_model_3_1'])}",
         f"    const val DEFAULT_TTS_GEMINI_MODEL = {kotlin_string(defaults['tts_gemini_live_model'])}",
@@ -181,6 +183,16 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
             "            TRANSCRIPTION_PARAKEET -> ProviderDescriptor(",
             "                id = TRANSCRIPTION_PARAKEET,",
             '                model = "realtime_eou_120m-v1-onnx",',
+            "            )",
+            "",
+            "            TRANSCRIPTION_MOONSHINE,",
+            '            "moonshine-tiny-streaming",',
+            '            "moonshine-small-streaming",',
+            '            "moonshine-medium-streaming",',
+            '            "zipformer",',
+            "            -> ProviderDescriptor(",
+            "                id = modelId,",
+            '                model = modelId,',
             "            )",
             "",
             "            else -> ProviderDescriptor(",

@@ -69,6 +69,10 @@ fn default_realtime_window_size() -> (i32, i32) {
     (500, 180)
 }
 
+fn default_realtime_transcription_language() -> String {
+    "en".to_string()
+}
+
 fn default_realtime_transcription_model() -> String {
     crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string()
 }
@@ -216,6 +220,10 @@ pub struct Config {
     /// Model for realtime transcription.
     #[serde(default = "default_realtime_transcription_model")]
     pub realtime_transcription_model: String,
+
+    /// Language for realtime transcription (ISO code, e.g. "en", "es", "ja")
+    #[serde(default = "default_realtime_transcription_language")]
+    pub realtime_transcription_language: String,
 
     /// Font size for realtime overlay
     #[serde(default = "default_realtime_font_size")]
@@ -414,6 +422,7 @@ impl Default for Config {
                 .to_string(),
             realtime_transcription_model: crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5
                 .to_string(),
+            realtime_transcription_language: "en".to_string(),
             realtime_font_size: 16,
             realtime_transcription_size: (500, 180),
             realtime_translation_size: (500, 180),

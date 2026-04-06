@@ -67,7 +67,6 @@ internal fun DownloadedToolsSection(locale: MobileLocaleText) {
     val downloaderRepository = app.appContainer.downloaderRepository
     val downloaderState = downloaderRepository.state.collectAsState().value
     val parakeetState = modelState
-
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,

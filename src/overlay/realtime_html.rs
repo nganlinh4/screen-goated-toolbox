@@ -69,94 +69,102 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
     // Audio source selector (only for transcription window) - simple mic/device toggle
     let audio_selector = if !is_translation {
         let is_device = audio_source == "device";
-        let gemini_2_5_active =
-            if transcription_model == crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5 {
-                "active"
-            } else {
-                ""
-            };
-        let parakeet_active = if transcription_model == "parakeet" {
-            "active"
-        } else {
-            ""
-        };
-        let qwen3_active =
-            if transcription_model == crate::model_config::QWEN3_ASR_LOCAL_MODEL_ID {
-                "active"
-            } else {
-                ""
-            };
 
-        format!(
-            r#"
-            <div class="btn-group">
-                <span class="material-symbols-rounded audio-icon {mic_active}" id="mic-btn" data-value="mic" title="Microphone Input">{mic_svg}</span>
-                <span class="material-symbols-rounded audio-icon {device_active}" id="device-btn" data-value="device" title="Device Audio">{device_svg}</span>
-            </div>
-            <div class="btn-group">
-                <span class="material-symbols-rounded trans-model-icon {gemini_2_5_active}" data-value="{gemini_2_5_id}" title="Gemini Live 2.5 (Cloud)">{auto_awesome_svg}</span>
-                <span class="material-symbols-rounded trans-model-icon {parakeet_active}" data-value="parakeet" title="Parakeet (Local)">{bolt_en_svg}</span>
-                <span class="material-symbols-rounded trans-model-icon {qwen3_active}" data-value="{qwen3_id}" title="Qwen3-ASR (Local GPU)">{apps_svg}</span>
-            </div>
-        "#,
-            mic_active = if !is_device { "active" } else { "" },
-            device_active = if is_device { "active" } else { "" },
-            gemini_2_5_active = gemini_2_5_active,
-            parakeet_active = parakeet_active,
-            qwen3_active = qwen3_active,
-            gemini_2_5_id = crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5,
-            qwen3_id = crate::model_config::QWEN3_ASR_LOCAL_MODEL_ID,
-            mic_svg = crate::overlay::html_components::icons::get_icon_svg("mic"),
-            device_svg = crate::overlay::html_components::icons::get_icon_svg("speaker_group"),
-            auto_awesome_svg = crate::overlay::html_components::icons::get_icon_svg("auto_awesome"),
-            bolt_en_svg = crate::overlay::html_components::icons::get_icon_svg("bolt_en"),
-            apps_svg = crate::overlay::html_components::icons::get_icon_svg("apps")
-        )
-    } else {
-        // Language selector and model toggle for translation window
-        let gemma_active =
-            if translation_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GEMMA {
-                "active"
-            } else {
-                ""
-            };
-        let cerebras_active =
-            if translation_model == crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS {
-                "active"
-            } else {
-                ""
-            };
-        let gtx_active = if translation_model == crate::model_config::REALTIME_TRANSLATION_MODEL_GTX
         {
-            "active"
-        } else {
-            ""
-        };
+            let gemini_id = crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5;
+            let qwen3_0_6b_id = crate::model_config::QWEN3_ASR_0_6B_MODEL_ID;
 
-        format!(
-            r#"
-            <span class="ctrl-btn speak-btn" id="speak-btn" title="Text-to-Speech Settings"><span class="material-symbols-rounded">{volume_up_svg}</span></span>
-            <div class="btn-group">
-                <span class="material-symbols-rounded model-icon {gemma_active}" data-value="{gemma_model_id}" title="AI Translation (Gemma)">{auto_awesome_svg}</span>
-                <span class="material-symbols-rounded model-icon {cerebras_active}" data-value="{cerebras_model_id}" title="Instant AI (Cerebras)">{speed_svg}</span>
-                <span class="material-symbols-rounded model-icon {gtx_active}" data-value="{gtx_model_id}" title="Unlimited Translation (Google)">{language_svg}</span>
-            </div>
-            <select id="language-select" title="Target Language">
-                {lang_options}
-            </select>
-        "#,
-            lang_options = lang_options,
-            gemma_active = gemma_active,
-            cerebras_active = cerebras_active,
-            gtx_active = gtx_active,
-            volume_up_svg = crate::overlay::html_components::icons::get_icon_svg("volume_up"),
-            auto_awesome_svg = crate::overlay::html_components::icons::get_icon_svg("auto_awesome"),
-            speed_svg = crate::overlay::html_components::icons::get_icon_svg("speed"),
-            language_svg = crate::overlay::html_components::icons::get_icon_svg("language"),
-            gemma_model_id = crate::model_config::REALTIME_TRANSLATION_MODEL_GEMMA,
-            cerebras_model_id = crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS,
-            gtx_model_id = crate::model_config::REALTIME_TRANSLATION_MODEL_GTX
-        )
+            // Build transcription model dropdown options
+            let qwen3_1_7b_id = crate::model_config::QWEN3_ASR_1_7B_MODEL_ID;
+            let trans_options = [
+                (gemini_id, "Gemini Live"),
+                ("parakeet", "Parakeet"),
+                (qwen3_0_6b_id, "Qwen3 0.6B (GPU)"),
+                (qwen3_1_7b_id, "Qwen3 1.7B (GPU)"),
+                ("moonshine-tiny-streaming", "Moonshine Tiny"),
+                ("moonshine-small-streaming", "Moonshine Small"),
+                ("moonshine-medium-streaming", "Moonshine Medium"),
+                ("zipformer", "Zipformer"),
+            ];
+            let options_html: String = trans_options
+                .iter()
+                .map(|(val, label)| {
+                    let selected = if *val == transcription_model { " selected" } else { "" };
+                    format!(r#"<option value="{val}"{selected}>{label}</option>"#)
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let trans_lang_code = if transcription_model.contains("gemini")
+                || transcription_model == qwen3_0_6b_id
+                || transcription_model == qwen3_1_7b_id {
+                // Gemini Live and Qwen3 (local GPU) support all languages
+                "ALL"
+            } else if transcription_model == "parakeet" || transcription_model.contains("moonshine") {
+                "EN"
+            } else if transcription_model == "zipformer" {
+                "EN" // will be updated by JS based on selected language
+            } else {
+                "EN"
+            };
+            let trans_lang_greyed = if transcription_model == "zipformer" { "" } else { "greyed" };
+
+            format!(
+                r#"
+                <div class="btn-group">
+                    <span class="material-symbols-rounded audio-icon {mic_active}" id="mic-btn" data-value="mic" title="Microphone Input">{mic_svg}</span>
+                    <span class="material-symbols-rounded audio-icon {device_active}" id="device-btn" data-value="device" title="Device Audio">{device_svg}</span>
+                </div>
+                <select class="model-dropdown" id="transcription-model-select" title="Transcription Model">
+                    {options_html}
+                </select>
+                <span class="trans-lang-badge {trans_lang_greyed}" id="trans-lang-badge" data-code="{trans_lang_code}">{trans_lang_code}</span>
+            "#,
+                mic_active = if !is_device { "active" } else { "" },
+                device_active = if is_device { "active" } else { "" },
+                mic_svg = crate::overlay::html_components::icons::get_icon_svg("mic"),
+                device_svg = crate::overlay::html_components::icons::get_icon_svg("speaker_group"),
+                options_html = options_html,
+                trans_lang_code = trans_lang_code,
+                trans_lang_greyed = trans_lang_greyed,
+            )
+        }
+    } else {
+        // Language selector and model dropdown for translation window
+        {
+            let gemma_id = crate::model_config::REALTIME_TRANSLATION_MODEL_GEMMA;
+            let cerebras_id = crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS;
+            let gtx_id = crate::model_config::REALTIME_TRANSLATION_MODEL_GTX;
+
+            let trans_model_options = [
+                (gemma_id, "Gemma"),
+                (cerebras_id, "Cerebras"),
+                (gtx_id, "GTX"),
+            ];
+            let model_options_html: String = trans_model_options
+                .iter()
+                .map(|(val, label)| {
+                    let selected = if *val == translation_model { " selected" } else { "" };
+                    format!(r#"<option value="{val}"{selected}>{label}</option>"#)
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            format!(
+                r#"
+                <span class="ctrl-btn speak-btn" id="speak-btn" title="Text-to-Speech Settings"><span class="material-symbols-rounded">{volume_up_svg}</span></span>
+                <select class="model-dropdown" id="translation-model-select" title="Translation Model">
+                    {model_options_html}
+                </select>
+                <select id="language-select" title="Target Language">
+                    {lang_options}
+                </select>
+            "#,
+                lang_options = lang_options,
+                model_options_html = model_options_html,
+                volume_up_svg = crate::overlay::html_components::icons::get_icon_svg("volume_up"),
+            )
+        }
     };
 
     let loading_icon = if is_translation {

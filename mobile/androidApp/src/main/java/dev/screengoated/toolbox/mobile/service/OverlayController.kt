@@ -51,6 +51,12 @@ class OverlayController(
         screenBoundsProvider = ::screenBounds,
         onSelected = ::updateTargetLanguage,
     )
+    private val transcriptionLanguagePicker = OverlayLanguagePicker(
+        context = context,
+        windowManager = windowManager,
+        screenBoundsProvider = ::screenBounds,
+        onSelected = ::onTranscriptionLanguageSelected,
+    )
 
     private var transcriptionWindow: OverlayPaneWindow? = null
     private var translationWindow: OverlayPaneWindow? = null
@@ -109,6 +115,9 @@ class OverlayController(
         ttsRuntimeJob?.cancel()
         ttsRuntimeJob = null
         languagePicker.hide()
+        transcriptionLanguagePicker.hide()
+        transcriptionModelPicker.hide()
+        translationModelPicker.hide()
         hideDismissZone()
         lastSyncedVisibility = null
         lastTtsState = null
@@ -126,9 +135,12 @@ class OverlayController(
 
     fun isTranslationVisible(): Boolean = translationVisible
 
-    fun showDownloadModal() {
+    private var downloadModalTitle = "Downloading model"
+
+    fun showDownloadModal(title: String = "Model") {
+        downloadModalTitle = "Downloading $title"
         transcriptionWindow?.evaluate(
-            "if(window.showDownloadModal) window.showDownloadModal('Downloading Parakeet', 'Preparing...', 0);",
+            "if(window.showDownloadModal) window.showDownloadModal('${downloadModalTitle}', 'Preparing...', 0);",
         )
     }
 
@@ -140,7 +152,7 @@ class OverlayController(
         val msg = "Downloading $filename"
         val pct = progress.coerceIn(0f, 100f)
         transcriptionWindow?.evaluate(
-            "if(window.showDownloadModal) window.showDownloadModal('Downloading Parakeet', '$msg', $pct);",
+            "if(window.showDownloadModal) window.showDownloadModal('$downloadModalTitle', '$msg', $pct);",
         )
     }
 
@@ -203,7 +215,8 @@ class OverlayController(
                 uiLanguage = snapshot.uiPreferences.uiLanguage,
             ),
             oldText = state.liveText.committedTranslation,
-            newText = state.liveText.uncommittedTranslation,
+            newText = if (state.liveText.committedTranslation.isNotBlank() && state.liveText.uncommittedTranslation.isNotBlank())
+                " ${state.liveText.uncommittedTranslation}" else state.liveText.uncommittedTranslation,
         ) == true
         syncVisibility(force = transcriptionReloaded || translationReloaded)
         syncTranslationControls(snapshot, force = translationReloaded)
@@ -268,6 +281,16 @@ class OverlayController(
                 message.removePrefix("transcriptionModel:"),
             )
 
+            message == "showTranscriptionLanguagePicker" -> showTranscriptionLanguagePicker()
+            message == "showTranscriptionModelPicker" -> showTranscriptionModelPicker()
+            message == "showTranslationModelPicker" -> showTranslationModelPicker()
+
+            message.startsWith("transcriptionLanguage:") -> {
+                val code = message.removePrefix("transcriptionLanguage:")
+                repository.updateTranscriptionLanguage(code)
+                restartRequested()
+            }
+
             message.startsWith("ttsEnabled:") -> updateTtsEnabled(message.removePrefix("ttsEnabled:") == "1")
             message.startsWith("ttsSpeed:") -> updateTtsSpeed(message.removePrefix("ttsSpeed:"))
             message.startsWith("ttsAutoSpeed:") -> updateTtsAutoSpeed(message.removePrefix("ttsAutoSpeed:") == "1")
@@ -294,6 +317,9 @@ class OverlayController(
         if (!translationVisible) {
             stopTextToSpeech()
             languagePicker.hide()
+        transcriptionLanguagePicker.hide()
+        transcriptionModelPicker.hide()
+        translationModelPicker.hide()
         }
         if (!listeningVisible && !translationVisible) {
             stopRequested()
@@ -381,6 +407,9 @@ class OverlayController(
         }
         repository.updateConfig(LiveSessionPatch(targetLanguage = language))
         languagePicker.hide()
+        transcriptionLanguagePicker.hide()
+        transcriptionModelPicker.hide()
+        translationModelPicker.hide()
     }
 
     private fun showLanguagePicker() {
@@ -395,6 +424,101 @@ class OverlayController(
             isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
             title = locale.overlay.targetLanguageTitle,
         )
+    }
+
+    private val transcriptionModelPicker = dev.screengoated.toolbox.mobile.service.overlay.OverlayLanguagePicker(
+        context = context,
+        windowManager = windowManager,
+        screenBoundsProvider = ::screenBounds,
+        onSelected = ::onTranscriptionModelSelected,
+    )
+    private val translationModelPicker = dev.screengoated.toolbox.mobile.service.overlay.OverlayLanguagePicker(
+        context = context,
+        windowManager = windowManager,
+        screenBoundsProvider = ::screenBounds,
+        onSelected = ::onTranslationModelSelected,
+    )
+
+    private fun showTranscriptionModelPicker() {
+        val anchor = transcriptionWindow?.currentBounds() ?: return
+        val models = listOf("Gemini Live", "Parakeet", "Moonshine Tiny", "Moonshine Small", "Moonshine Medium", "Zipformer")
+        val currentId = repository.transcriptionModelId()
+        val currentLabel = TRANSCRIPTION_MODEL_LABELS[currentId] ?: "Gemini Live"
+        transcriptionModelPicker.show(
+            anchorBounds = anchor,
+            selectedLanguage = currentLabel,
+            languages = models,
+            isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
+            title = "Transcription Model",
+        )
+    }
+
+    private fun onTranscriptionModelSelected(label: String) {
+        val modelId = TRANSCRIPTION_MODEL_IDS[label] ?: return
+        if (repository.transcriptionModelId() != modelId) {
+            repository.updateTranscriptionModel(modelId)
+            // Reset language to English when switching models to avoid stale
+            // language codes that don't exist in the new model's language list
+            repository.updateTranscriptionLanguage("en")
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                restartRequested()
+            }, 300)
+        }
+    }
+
+    private fun showTranslationModelPicker() {
+        val anchor = translationWindow?.currentBounds() ?: return
+        val models = listOf("Gemma", "Cerebras", "GTX")
+        val currentId = repository.currentConfig().translationProvider.id
+        val currentLabel = TRANSLATION_MODEL_LABELS[currentId] ?: "Gemma"
+        translationModelPicker.show(
+            anchorBounds = anchor,
+            selectedLanguage = currentLabel,
+            languages = models,
+            isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
+            title = "Translation Model",
+        )
+    }
+
+    private fun onTranslationModelSelected(label: String) {
+        val modelId = TRANSLATION_MODEL_IDS[label] ?: return
+        repository.updateTranslationModel(modelId)
+    }
+
+    private fun showTranscriptionLanguagePicker() {
+        val anchor = transcriptionWindow?.currentBounds() ?: return
+        val modelId = repository.transcriptionModelId()
+        val currentCode = repository.currentConfig().transcriptionLanguage
+
+        // Zipformer has its own language list (8 options)
+        if (modelId == "zipformer") {
+            val zipLangs = dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage.entries
+                .map { it.displayName }
+            val currentName = dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage
+                .fromCode(currentCode)?.displayName ?: "English"
+            transcriptionLanguagePicker.show(
+                anchorBounds = anchor,
+                selectedLanguage = currentName,
+                languages = zipLangs,
+                isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
+                title = "Zipformer Language",
+            )
+        }
+    }
+
+    private fun onTranscriptionLanguageSelected(selectedName: String) {
+        val modelId = repository.transcriptionModelId()
+        if (modelId == "zipformer") {
+            val lang = dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage.entries
+                .find { it.displayName == selectedName }
+            if (lang != null) {
+                repository.updateTranscriptionLanguage(lang.code)
+                // Delay restart to let config propagate before new session reads it
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    restartRequested()
+                }, 300)
+            }
+        }
     }
 
     private fun updateTranscriptionModel(modelId: String) {
@@ -610,6 +734,24 @@ class OverlayController(
         private const val DRAG_WINDOW_GAIN = 1f
         private const val DISMISS_ZONE_PX = 120
         private const val PERF_TAG = "SGTOverlayPerf"
+
+        // Label ↔ model ID mappings for native pickers
+        private val TRANSCRIPTION_MODEL_IDS = mapOf(
+            "Gemini Live" to "gemini-live-audio",
+            "Parakeet" to "parakeet",
+            "Moonshine Tiny" to "moonshine-tiny-streaming",
+            "Moonshine Small" to "moonshine-small-streaming",
+            "Moonshine Medium" to "moonshine-medium-streaming",
+            "Zipformer" to "zipformer",
+        )
+        private val TRANSCRIPTION_MODEL_LABELS = TRANSCRIPTION_MODEL_IDS.entries.associate { (k, v) -> v to k }
+
+        private val TRANSLATION_MODEL_IDS = mapOf(
+            "Gemma" to "google-gemma",
+            "Cerebras" to "cerebras-oss",
+            "GTX" to "google-gtx",
+        )
+        private val TRANSLATION_MODEL_LABELS = TRANSLATION_MODEL_IDS.entries.associate { (k, v) -> v to k }
     }
 }
 

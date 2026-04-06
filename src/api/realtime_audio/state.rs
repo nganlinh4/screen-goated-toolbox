@@ -29,6 +29,7 @@ pub enum TranscriptionMethod {
     GeminiLive,
     Parakeet,
     Qwen3Local,
+    MoonshineLocal,
 }
 
 pub struct RealtimeState {
