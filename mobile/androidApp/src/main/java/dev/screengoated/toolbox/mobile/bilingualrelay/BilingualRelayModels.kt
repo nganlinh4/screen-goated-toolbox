@@ -21,6 +21,7 @@ data class BilingualRelayLanguageProfile(
 data class BilingualRelayConfig(
     val first: BilingualRelayLanguageProfile = BilingualRelayLanguageProfile(language = "English"),
     val second: BilingualRelayLanguageProfile = BilingualRelayLanguageProfile(language = "Korean", accent = "Busan", tone = "polite"),
+    val guideSeen: Boolean = false,
 ) {
     fun normalized(): BilingualRelayConfig {
         return copy(first = first.normalized(), second = second.normalized())
@@ -77,6 +78,7 @@ data class BilingualRelayTranscriptItem(
 data class BilingualRelayState(
     val appliedConfig: BilingualRelayConfig = BilingualRelayConfig(),
     val draftConfig: BilingualRelayConfig = BilingualRelayConfig(),
+    val guideSeen: Boolean = false,
     val dirty: Boolean = false,
     val connectionState: BilingualRelayConnectionState = BilingualRelayConnectionState.NOT_CONFIGURED,
     val isRunning: Boolean = false,
