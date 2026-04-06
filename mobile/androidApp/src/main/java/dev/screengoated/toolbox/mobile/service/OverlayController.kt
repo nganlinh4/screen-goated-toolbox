@@ -73,6 +73,7 @@ class OverlayController(
     private val dismissTargets = MorphDismissZone.singleDismiss()
     private var dismissZone: MorphDismissZone? = null
     private val lastDismissDistanceSq = FloatArray(dismissTargets.size) { Float.POSITIVE_INFINITY }
+    private val boundsPersistenceSuspended = mutableSetOf<OverlayPaneId>()
 
     fun show(scope: CoroutineScope): Boolean {
         if (!overlaySupported || !Settings.canDrawOverlays(context) || transcriptionWindow != null || translationWindow != null) {
@@ -122,6 +123,7 @@ class OverlayController(
         lastSyncedVisibility = null
         lastTtsState = null
         lastRuntimeTtsState = TtsRuntimeState()
+        boundsPersistenceSuspended.clear()
         transcriptionWindow?.destroy()
         translationWindow?.destroy()
         transcriptionWindow = null
@@ -165,7 +167,11 @@ class OverlayController(
             minWidthPx = OVERLAY_MIN_WIDTH_PX,
             minHeightPx = OVERLAY_MIN_HEIGHT_PX,
             screenBoundsProvider = ::screenBounds,
-            onBoundsChanged = ::saveBounds,
+            onBoundsChanged = { id, bounds ->
+                if (id !in boundsPersistenceSuspended) {
+                    saveBounds(id, bounds)
+                }
+            },
             onMessage = ::handleBridgeMessage,
         )
     }
@@ -228,6 +234,7 @@ class OverlayController(
     ) {
         when {
             message.startsWith("dragWindow:") -> {
+                boundsPersistenceSuspended.add(paneId)
                 parseDelta(message.removePrefix("dragWindow:")) { dx, dy ->
                     windowFor(paneId)?.moveBy(
                         (dx * DRAG_WINDOW_GAIN).roundToInt(),
@@ -238,17 +245,21 @@ class OverlayController(
             }
 
             message.startsWith("dragAt:") -> {
-                updateDismissZone(message.removePrefix("dragAt:"))
+                val rawXY = message.removePrefix("dragAt:")
+                updateDismissZone(rawXY)
             }
 
             message.startsWith("dragEnd:") -> {
                 val proximity = dismissZoneProximity(message.removePrefix("dragEnd:"))
                 resetDismissTracking()
-                if (proximity >= 0.8f) {
+                val currentBounds = windowFor(paneId)?.currentBounds()
+                if (proximity >= DISMISS_THRESHOLD) {
                     dismissOverlay(paneId)
                 } else {
+                    currentBounds?.let { saveBounds(paneId, it) }
                     hideDismissZone()
                 }
+                boundsPersistenceSuspended.remove(paneId)
             }
 
             message.startsWith("resizeCorner:") -> {
@@ -590,7 +601,8 @@ class OverlayController(
         val height = prefs.getInt(keyFor(paneId, "height"), defaults.height).coerceIn(OVERLAY_MIN_HEIGHT_PX, screen.height())
         val x = prefs.getInt(keyFor(paneId, "x"), defaults.x).coerceIn(0, (screen.width() - width).coerceAtLeast(0))
         val y = prefs.getInt(keyFor(paneId, "y"), defaults.y).coerceIn(0, (screen.height() - height).coerceAtLeast(0))
-        return OverlayBounds(x = x, y = y, width = width, height = height)
+        val loaded = OverlayBounds(x = x, y = y, width = width, height = height)
+        return if (isNearDismissArea(loaded)) defaults else loaded
     }
 
     private fun saveBounds(
@@ -712,6 +724,12 @@ class OverlayController(
         return hit.proximities.firstOrNull() ?: 0f
     }
 
+    private fun isNearDismissArea(bounds: OverlayBounds): Boolean {
+        val screen = screenBounds()
+        val dismissTop = (screen.height() - dp(DISMISS_ZONE_PX)).coerceAtLeast(0)
+        return bounds.y + bounds.height >= dismissTop
+    }
+
     private fun resetDismissTracking() {
         lastDismissDistanceSq.fill(Float.POSITIVE_INFINITY)
     }
@@ -732,6 +750,7 @@ class OverlayController(
         private const val OVERLAY_MIN_WIDTH_PX = 420
         private const val OVERLAY_MIN_HEIGHT_PX = 180
         private const val DRAG_WINDOW_GAIN = 1f
+        private const val DISMISS_THRESHOLD = 0.8f
         private const val DISMISS_ZONE_PX = 120
         private const val PERF_TAG = "SGTOverlayPerf"
 

@@ -56,6 +56,7 @@
   - when realtime Read auto-speed is enabled, the visible speed value reflects the current effective playback speed while realtime TTS is actively speaking, not only the saved base slider setting
   - on Android mobile, the transcription and translation panes are separate top-level overlay windows with independent drag and resize behavior
   - Android mobile keeps the portrait default of transcription on top and translation below, but the panes stay detached after launch
+  - dragging either pane into the dismiss bubble must not persist the near-dismiss geometry; reopening should use the last non-dismiss bounds captured during that drag instead of the drag-to-dismiss position
   - on Android mobile, header controls must remain horizontally swipeable when they overflow instead of being truncated
   - runtime header actions (`+/-`, mic/device, language, translation model, transcription model, TTS toggle/modal) must preserve the current horizontal header scroll position instead of snapping back to the start
   - runtime header actions must update the already-loaded WebView through discrete JS bridge calls; they must not trigger a full HTML reload just to reflect changed source/model/language/font settings
