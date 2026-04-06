@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "preset_result_missing_key",
+      "raw_error": "NO_API_KEY:gemini",
+      "surface": "preset_result_overlay",
+      "expected_notice": true
+    },
+    {
+      "name": "preset_input_voice_missing_key",
+      "raw_error": "NO_API_KEY:google",
+      "surface": "preset_input_voice",
+      "expected_notice": true
+    },
+    {
+      "name": "read_aloud_missing_key",
+      "raw_error": "NO_API_KEY:gemini",
+      "surface": "read_aloud_tts",
+      "expected_notice": true
+    },
+    {
+      "name": "bilingual_relay_missing_key",
+      "raw_error": "Add your Gemini API key before starting Translation Gummy.",
+      "surface": "bilingual_relay_start",
+      "expected_notice": true
+    }
+  ]
+}

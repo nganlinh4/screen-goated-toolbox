@@ -4,6 +4,7 @@ import dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import dev.screengoated.toolbox.mobile.shared.preset.PresetType
+import dev.screengoated.toolbox.mobile.AppToastBus
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +24,7 @@ class PresetRepository(
     private val runtimeSettings: () -> PresetRuntimeSettings,
     private val uiLanguage: () -> String,
     private val overrideStore: PresetOverrideStore,
+    private val toastBus: AppToastBus,
     private val historyRecorder: dev.screengoated.toolbox.mobile.history.PresetHistoryRecorder =
         dev.screengoated.toolbox.mobile.history.NoOpPresetHistoryRecorder,
     mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
@@ -52,6 +54,7 @@ class PresetRepository(
             runtimeSettings = runtimeSettings,
             uiLanguage = uiLanguage,
             executionState = _executionState,
+            toastBus = toastBus,
             postProcessActions = postProcessActions,
             historyRecorder = historyRecorder,
         )
