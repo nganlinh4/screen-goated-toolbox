@@ -24,6 +24,7 @@ internal data class PresetOverlayWindowSpec(
     val y: Int,
     val focusable: Boolean,
     val showImeOnFocus: Boolean = false,
+    val watchOutsideTouch: Boolean = false,
     val assetPage: String? = null,
     val htmlContent: String? = null,
     val baseUrl: String = "file:///android_asset/preset_overlay/",
@@ -48,9 +49,13 @@ internal class PresetOverlayWindow(
     spec: PresetOverlayWindowSpec,
     private val onMessage: (String) -> Unit,
     private val onBoundsChanged: (OverlayBounds) -> Unit = {},
+    private val onOutsideTouch: () -> Unit = {},
 ) {
     private val logTag: String = "PresetOverlay"
-    private val focusable = spec.focusable
+    private val supportsFocus = spec.focusable
+    private var currentFocusable = spec.focusable
+    private val showImeOnFocus = spec.showImeOnFocus
+    private val watchOutsideTouch = spec.watchOutsideTouch
     private val cornerRadiusPx = context.resources.displayMetrics.density * 18f
     private val managedLoadTracker = OverlayManagedLoadTracker()
     private val layoutParams = WindowManager.LayoutParams().apply {
@@ -59,14 +64,14 @@ internal class PresetOverlayWindow(
                 spec.width,
                 spec.height,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                buildOverlayWindowFlags(spec.focusable),
+                buildOverlayWindowFlags(currentFocusable, watchOutsideTouch),
                 android.graphics.PixelFormat.TRANSLUCENT,
             ),
         )
         gravity = Gravity.TOP or Gravity.START
         x = spec.x
         y = spec.y
-        if (focusable && spec.showImeOnFocus) {
+        if (currentFocusable && showImeOnFocus) {
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN or
                 WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
         }
@@ -76,6 +81,10 @@ internal class PresetOverlayWindow(
     private var touchAccepted = false
     private val rootView = object : FrameLayout(context) {
         override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+            if (ev.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+                onOutsideTouch()
+                return false
+            }
             if (spec.touchRegionsOnly) {
                 when (ev.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
@@ -117,7 +126,7 @@ internal class PresetOverlayWindow(
     private var recoveryAttemptInFlight = false
 
     private val webView = WebView(context).apply {
-        configureOverlayWebView(this, this@PresetOverlayWindow.focusable)
+        configureOverlayWebView(this, supportsFocus)
         webChromeClient = object : WebChromeClient() {}
         webViewClient = createOverlayWebViewClient(
             appContext = context.applicationContext,
@@ -152,8 +161,8 @@ internal class PresetOverlayWindow(
     private val inputFocusCoordinator = OverlayInputFocusCoordinator(
         context = context,
         webView = webView,
-        focusable = focusable,
-        showImeOnFocus = spec.showImeOnFocus,
+        focusable = supportsFocus,
+        showImeOnFocus = showImeOnFocus,
     )
 
     init {
@@ -172,14 +181,14 @@ internal class PresetOverlayWindow(
 
     fun show() {
         if (attached) {
-            if (focusable) {
+            if (currentFocusable) {
                 inputFocusCoordinator.requestInitialFocus()
             }
             return
         }
         windowManager.addView(rootView, layoutParams)
         attached = true
-        if (focusable) {
+        if (currentFocusable) {
             inputFocusCoordinator.requestInitialFocus()
         }
     }
@@ -192,7 +201,7 @@ internal class PresetOverlayWindow(
         attached = false
         windowManager.addView(rootView, layoutParams)
         attached = true
-        if (focusable) {
+        if (currentFocusable) {
             inputFocusCoordinator.refocus(refocusIme)
         }
     }
@@ -315,7 +324,14 @@ internal class PresetOverlayWindow(
     }
 
     fun setFocusable(focusable: Boolean) {
-        layoutParams.flags = buildOverlayWindowFlags(focusable)
+        if (focusable && !supportsFocus) {
+            return
+        }
+        if (focusable == currentFocusable) {
+            return
+        }
+        currentFocusable = focusable
+        layoutParams.flags = buildOverlayWindowFlags(focusable, watchOutsideTouch = watchOutsideTouch)
         if (focusable) {
             layoutParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN or
                 WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
@@ -343,6 +359,10 @@ internal class PresetOverlayWindow(
                 imm?.showSoftInput(webView, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
             }, 200L)
         } else {
+            webView.clearFocus()
+            rootView.clearFocus()
+            webView.isFocusable = false
+            webView.isFocusableInTouchMode = false
             val imm = webView.context.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
             imm?.hideSoftInputFromWindow(webView.windowToken, 0)
         }

@@ -76,7 +76,9 @@
   - result-window removal should be scoped to the current execution session, not all active overlays globally
   - result-window geometry persistence must continue to resolve against the owning preset ID even after newer sessions become active
 - Android preset text-input overlays must follow the Windows refocus model closely enough that the IME can still appear while other preset overlays exist:
-  - the input window must be focusable
+  - the input window must be able to acquire focus for editing
+  - while the overlay remains visible, Android may temporarily relinquish that focus/IME ownership when the user taps another editable target outside the overlay, so other apps can open the system keyboard without forcing the preset window closed
+  - tapping back into the overlay editor must restore overlay focus and IME promptly
   - the Android host may use repeated delayed refocus/IME nudges after show, mirroring the Windows aggressive refocus behavior after modal/overlay transitions
 - Android preset capability must not claim support for a text preset if one of its text blocks points at a model/provider runtime Android does not actually implement yet.
 - Android result overlays should reuse the Windows markdown CSS, fit script, and button-canvas web contract from the shared HTML/WebView layer instead of re-implementing the layout in Compose.
