@@ -375,9 +375,8 @@ impl SettingsApp {
                     if i.modifiers.shift {
                         modifiers_bitmap |= MOD_SHIFT;
                     }
-                    if i.modifiers.command {
-                        modifiers_bitmap |= MOD_WIN;
-                    }
+                    // egui's `command` is a cross-platform shortcut alias:
+                    // on Windows it is the same as Ctrl, not the physical Win key.
 
                     // Check Keyboard Events
                     for event in &i.events {
@@ -485,9 +484,8 @@ impl SettingsApp {
                     if i.modifiers.shift {
                         modifiers_bitmap |= MOD_SHIFT;
                     }
-                    if i.modifiers.command {
-                        modifiers_bitmap |= MOD_WIN;
-                    }
+                    // egui's `command` is a cross-platform shortcut alias:
+                    // on Windows it is the same as Ctrl, not the physical Win key.
 
                     // Check Keyboard Events
                     for event in &i.events {
