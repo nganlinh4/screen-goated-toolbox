@@ -894,7 +894,7 @@ private fun NodeGraphSection(
                                 showAddMenu = false
                                 val newBlock =
                                     dev.screengoated.toolbox.mobile.shared.preset.textBlock(
-                                        "cerebras_gpt_oss",
+                                        "gemma-4-26b-a4b",
                                         "Translate to {language1}. Output ONLY the translation.",
                                         "language1" to "Vietnamese",
                                     )
@@ -927,7 +927,7 @@ private fun NodeGraphSection(
                             val defaultModel = when (editorTypeGroup) {
                                 EditorTypeGroup.IMAGE -> DEFAULT_IMAGE_MODEL_ID
                                 EditorTypeGroup.AUDIO -> "whisper-accurate"
-                                else -> "cerebras_gpt_oss"
+                                else -> "gemma-4-26b-a4b"
                             }
                             val specialLabel = when (editorTypeGroup) {
                                 EditorTypeGroup.IMAGE -> localized(lang, "Add Image -> Text Node", "Thêm node Ảnh -> Text", "이미지 -> 텍스트 노드 추가")
