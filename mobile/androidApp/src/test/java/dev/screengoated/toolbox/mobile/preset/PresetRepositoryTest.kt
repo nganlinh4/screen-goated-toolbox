@@ -157,6 +157,10 @@ class PresetRepositoryTest {
 
         assertTrue(resolved.executionCapability.supported)
         assertFalse(resolved.placeholderReasons.contains(PresetPlaceholderReason.AUDIO_CAPTURE_NOT_READY))
+        assertEquals(
+            "Transcribe the audio into text. Output ONLY the transcript.",
+            resolved.preset.blocks.first().prompt,
+        )
     }
 
     @Test
@@ -184,11 +188,17 @@ class PresetRepositoryTest {
     }
 
     @Test
-    fun presetModelCatalogIncludesRealtimeGemmaAlias() {
-        val descriptor = requireNotNull(PresetModelCatalog.getById("google-gemma"))
+    fun presetModelCatalogIncludesGemma4FamilyAcrossModalities() {
+        val textModel = requireNotNull(PresetModelCatalog.getById("gemma-4-26b-a4b"))
+        val visionModel = requireNotNull(PresetModelCatalog.getById("gemma-4-26b-a4b-vision"))
 
-        assertEquals(PresetModelProvider.GOOGLE, descriptor.provider)
-        assertEquals(PresetModelType.TEXT, descriptor.modelType)
+        assertEquals(PresetModelProvider.GOOGLE, textModel.provider)
+        assertEquals(PresetModelType.TEXT, textModel.modelType)
+        assertEquals(PresetModelType.VISION, visionModel.modelType)
+        assertTrue(PresetModelCatalog.forType(PresetModelType.TEXT).any { it.id == "gemma-4-31b" })
+        assertTrue(PresetModelCatalog.forType(PresetModelType.VISION).any { it.id == "gemma-4-31b-vision" })
+        assertTrue(PresetModelCatalog.getById("gemma-4-26b-a4b-audio") == null)
+        assertTrue(PresetModelCatalog.getById("gemma-4-31b-audio") == null)
     }
 
     @Test

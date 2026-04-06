@@ -13,38 +13,38 @@ pub fn create_image_presets() -> Vec<Preset> {
         // =====================================================================
 
         // Translate - Basic image-to-text translation
-        PresetBuilder::new("preset_translate", "Translate")
+        {
+            let mut p = PresetBuilder::new("preset_translate", "Translate")
             .image()
             .blocks(vec![
-                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
+                BlockBuilder::image("gemma-4-26b-a4b-vision")
                     .prompt("Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.")
                     .language("Vietnamese")
-                    .markdown_stream() // Upgraded: Stream -> Đẹp+Str
+                    .markdown() // Pretty only
                     .build(),
             ])
-            .build(),
-
-        // Translate (High accuracy) - OCR then translate
-        {
-            let mut p = PresetBuilder::new("preset_extract_retranslate", "Translate (High accuracy)")
-                .image()
-                .blocks(vec![
-                    BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
-                        .prompt("Extract all text from this image exactly as it appears. Output ONLY the text.")
-                        .language("English")
-                        .show_overlay(false)
-                        .build(),
-                    BlockBuilder::text("cerebras_gpt_oss")
-                        .prompt("Translate to {language1}. Output ONLY the translation.")
-                        .language("Vietnamese")
-                        .markdown() // Upgraded: Thường -> Đẹp (Special: keeping non-streaming as requested by original logic for this specific preset)
-                        .streaming(false)
-                        .build(),
-                ])
-                .build();
+            .build();
             p.hotkeys.push(Hotkey::new(192, "` / ~", 0));
             p
         },
+
+        // Translate (High accuracy) - OCR then translate
+        PresetBuilder::new("preset_extract_retranslate", "Translate (High accuracy)")
+            .image()
+            .blocks(vec![
+                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
+                    .prompt("Extract all text from this image exactly as it appears. Output ONLY the text.")
+                    .language("English")
+                    .show_overlay(false)
+                    .build(),
+                BlockBuilder::text("gemma-4-26b-a4b")
+                    .prompt("Translate to {language1}. Output ONLY the translation.")
+                    .language("Vietnamese")
+                    .markdown() // Upgraded: Thường -> Đẹp (Special: keeping non-streaming as requested by original logic for this specific preset)
+                    .streaming(false)
+                    .build(),
+            ])
+            .build(),
 
         // Translate (Auto paste) - Hidden overlay, auto-paste
         PresetBuilder::new("preset_translate_auto_paste", "Translate (Auto paste)")
@@ -71,7 +71,7 @@ pub fn create_image_presets() -> Vec<Preset> {
                     .markdown() // Đẹp
                     .auto_copy()
                     .build(),
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text("gemma-4-26b-a4b")
                     .prompt("Translate to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown_stream() // Đẹp+Str
@@ -88,13 +88,13 @@ pub fn create_image_presets() -> Vec<Preset> {
                     .language("English")
                     .show_overlay(false)
                     .build(),
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text("gemma-4-26b-a4b")
                     .prompt("Translate to {language1}. Output ONLY the translation.")
                     .language("Korean")
                     .markdown_stream() // Đẹp+Str
                     .auto_copy()
                     .build(),
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text("gemma-4-26b-a4b")
                     .prompt("Translate to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown_stream() // Đẹp+Str
@@ -168,7 +168,7 @@ pub fn create_image_presets() -> Vec<Preset> {
                     .auto_copy()
                     .build(),
                 // Node 1: Format the QR content nicely
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text("gemma-4-26b-a4b")
                     .prompt("Format this QR code content for display. Rules:\n\
                         - If URL: Make it a clickable markdown link [URL](URL) and describe what this link points to\n\
                         - If vCard/contact: Format as a readable contact card with name, phone, email, address\n\
@@ -256,7 +256,7 @@ pub fn create_image_presets() -> Vec<Preset> {
                     .markdown()
                     .build(),
                 // Node 1: Make a learning HTML (from 0)
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text("gemma-4-26b-a4b")
                     .prompt("Create a standalone INTERACTIVE HTML learning card/game for the following text. Use internal CSS for a beautiful, modern, colored design, game-like and comprehensive interface. Only OUTPUT the raw HTML code, DO NOT include HTML file indicator (```html) or triple backticks.")
                     .language("Vietnamese")
                     .markdown()
@@ -268,13 +268,13 @@ pub fn create_image_presets() -> Vec<Preset> {
                     .markdown_stream() // Đẹp+Str
                     .build(),
                 // Node 3: Translate (from 0)
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text("gemma-4-26b-a4b")
                     .prompt("Translate the following text to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown_stream() // Đẹp+Str
                     .build(),
                 // Node 4: Summarize keywords (from 3)
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text("gemma-4-26b-a4b")
                     .prompt("Summarize the essence of this text into 3-5 keywords or a short phrase in {language1}.")
                     .markdown_stream() // Đẹp+Str
                     .language("Vietnamese")

@@ -129,7 +129,7 @@ pub fn render_usage_modal(
                             }
 
                             let realtime_model =
-                                crate::model_config::DEFAULT_CEREBRAS_TEXT_API_MODEL;
+                                crate::model_config::DEFAULT_TEXT_API_MODEL;
                             if !shown_models.contains(realtime_model) {
                                 shown_models.insert(realtime_model.to_string());
                                 ui.label(realtime_model);

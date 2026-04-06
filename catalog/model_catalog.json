@@ -1,8 +1,8 @@
 {
   "constants": {
     "default_image_model_id": "scout",
-    "default_cerebras_text_model_id": "cerebras_gpt_oss",
-    "default_cerebras_text_api_model": "qwen-3-235b-a22b-instruct-2507",
+    "default_text_model_id": "gemma-4-26b-a4b",
+    "default_text_api_model": "gemma-4-26b-a4b-it",
     "gemini_live_api_model_2_5": "gemini-2.5-flash-native-audio-preview-12-2025",
     "gemini_live_api_model_3_1": "gemini-3.1-flash-live-preview",
     "gemini_live_vision_model_id_2_5": "gemini-live-vision",
@@ -39,7 +39,6 @@
       "gemini-3.1-flash-lite-preview"
     ],
     "text_to_text": [
-      "cerebras_gpt_oss",
       "gemma-4-26b-a4b",
       "text_accurate_kimi",
       "text_gemini_3_1_flash_lite"

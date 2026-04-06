@@ -26,6 +26,7 @@
 - Android recording UI uses the generated Windows recording WebView template from `src/overlay/recording/ui.rs`; Android-only code is limited to the bridge prelude, touch-drag shim, and runtime token substitution.
 - Audio-only input-adapter presets such as `preset_quick_record` and `preset_record_device` open the Windows-style audio-player result document rather than a text placeholder.
 - Audio result/media documents stay under the normal result-window runtime and preserve the Windows media markers and raw-html bridge contract.
+- The canonical `preset_transcribe` audio block should keep a generic transcription prompt in the default graph so alternate supported audio models inherit an instruction even though Whisper remains the default model.
 - `gemini-live-audio` and `parakeet-local` stream partial transcript updates during capture and hand the final transcript into the first Android `AUDIO` block without forcing a second full transcription pass.
 - When a streamed audio preset has `autoPaste = true`, Android incrementally injects transcript deltas into the currently focused editable target during capture and suppresses the final preset-level auto-paste to avoid double insertion.
 - Realtime audio presets use the existing Android live-translate service through a transient preset-backed session config. The user’s saved launcher config must be restored after the session ends.
@@ -38,6 +39,7 @@
 - Realtime preset stop must clear the transient preset override and the tracked active realtime preset id.
 - Capture failures must retain the concrete error detail for logging instead of collapsing everything into a generic preset toast.
 - Preset auto-speak uses the dedicated auto-speak TTS consumer and retries one first-use playback failure before surfacing a user-visible error.
+- Gemma 4 is not currently an audio-input model family in this app; do not expose it in audio transcription pickers or routing paths.
 
 ## Fixtures
 - Shared fixture: [parity-fixtures/preset-system/audio-runtime.json](../../parity-fixtures/preset-system/audio-runtime.json)
