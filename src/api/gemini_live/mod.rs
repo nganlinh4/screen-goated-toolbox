@@ -160,6 +160,11 @@ where
                 event_count += 1;
                 println!("[GeminiLive] Event {}: Error - {}", event_count, e);
                 if e.contains("NO_API_KEY") {
+                    crate::overlay::utils::show_api_key_error_notification(&e, ui_language);
+                    return Err(anyhow::anyhow!("{}", e));
+                }
+                if e.contains("INVALID_API_KEY") {
+                    crate::overlay::utils::show_api_key_error_notification(&e, ui_language);
                     return Err(anyhow::anyhow!("{}", e));
                 }
                 return Err(anyhow::anyhow!("Gemini Live error: {}", e));

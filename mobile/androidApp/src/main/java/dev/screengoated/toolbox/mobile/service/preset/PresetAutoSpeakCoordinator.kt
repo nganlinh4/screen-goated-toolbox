@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.Toast
+import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.service.tts.TtsCompletionStatus
 import dev.screengoated.toolbox.mobile.service.tts.TtsConsumer
@@ -90,6 +91,15 @@ internal class PresetAutoSpeakCoordinator(
         if (snapshot.method == MobileTtsMethod.EDGE_TTS) {
             ttsRuntimeService.ensureEdgeVoiceCatalog()
         }
+        if (isMissingGeminiKey()) {
+            val message = localized(
+                "Add your Gemini API key before using Gemini TTS.",
+                "Hãy thêm Gemini API key của bạn trước khi dùng Gemini TTS.",
+                "Gemini API 키를 추가한 뒤 Gemini TTS를 사용하세요.",
+            )
+            (context.applicationContext as SgtMobileApplication).appContainer.toastBus.show(message)
+            return
+        }
         pendingRequests[ownerToken] = PendingAutoSpeak(text = text, retryCount = retryCount)
         ttsRuntimeService.enqueue(
             TtsRequest(
@@ -111,6 +121,15 @@ internal class PresetAutoSpeakCoordinator(
         "vi" -> vi
         "ko" -> ko
         else -> en
+    }
+
+    private fun isMissingGeminiKey(): Boolean {
+        val settings = snapshotProvider()
+        if (settings.method != MobileTtsMethod.GEMINI_LIVE) {
+            return false
+        }
+        val appContainer = (context.applicationContext as SgtMobileApplication).appContainer
+        return appContainer.repository.currentApiKey().isBlank()
     }
 
     private data class PendingAutoSpeak(

@@ -61,6 +61,12 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
         };
 
         if api_key.trim().is_empty() {
+            let lang = crate::APP
+                .lock()
+                .ok()
+                .map(|app| app.config.ui_language.clone())
+                .unwrap_or_else(|| "en".to_string());
+            crate::overlay::utils::show_api_key_error_notification("NO_API_KEY:gemini", &lang);
             let _ = request
                 .response_tx
                 .send(LiveEvent::Error("NO_API_KEY:gemini".to_string()));

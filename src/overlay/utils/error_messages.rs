@@ -1,21 +1,55 @@
+fn api_key_provider_name(error: &str) -> &'static str {
+    if error.contains("groq") {
+        "Groq"
+    } else if error.contains("openrouter") {
+        "OpenRouter"
+    } else if error.contains("cerebras") {
+        "Cerebras"
+    } else if error.contains("openai") {
+        "OpenAI"
+    } else if error.contains("google") || error.contains("gemini") {
+        "Google Gemini"
+    } else {
+        "API"
+    }
+}
+
+fn api_key_notification_message(error: &str, lang: &str) -> Option<String> {
+    let provider = api_key_provider_name(error);
+
+    if error.contains("NO_API_KEY") {
+        return Some(match lang {
+            "vi" => format!("Bạn chưa nhập {} API key!", provider),
+            "ko" => format!("{} API 키를 입력하지 않았습니다!", provider),
+            "ja" => format!("{} APIキーが入力されていません!", provider),
+            "zh" => format!("您还没有输入 {} API key!", provider),
+            _ => format!("You haven't entered a {} API key!", provider),
+        });
+    }
+
+    if error.contains("INVALID_API_KEY") {
+        return Some(match lang {
+            "vi" => format!("{} API key không hợp lệ!", provider),
+            "ko" => format!("{} API 키가 유효하지 않습니다!", provider),
+            "ja" => format!("{} APIキーが無効です!", provider),
+            "zh" => format!("{} API key 无效!", provider),
+            _ => format!("Invalid {} API key!", provider),
+        });
+    }
+
+    None
+}
+
+pub fn show_api_key_error_notification(error: &str, lang: &str) {
+    if let Some(message) = api_key_notification_message(error, lang) {
+        crate::overlay::auto_copy_badge::show_error_notification(&message);
+    }
+}
+
 pub fn get_error_message(error: &str, lang: &str, model_name: Option<&str>) -> String {
     // Parse NO_API_KEY:provider format
-    if error.starts_with("NO_API_KEY") {
-        let provider = if error.contains(':') {
-            let parts: Vec<&str> = error.split(':').collect();
-            if parts.len() > 1 {
-                match parts[1] {
-                    "groq" => "Groq",
-                    "google" => "Google Gemini",
-                    "openai" => "OpenAI",
-                    other => other,
-                }
-            } else {
-                "API"
-            }
-        } else {
-            "API"
-        };
+    if error.contains("NO_API_KEY") {
+        let provider = api_key_provider_name(error);
 
         return match lang {
             "vi" => format!("Bạn chưa nhập {} API key!", provider),
@@ -27,22 +61,8 @@ pub fn get_error_message(error: &str, lang: &str, model_name: Option<&str>) -> S
     }
 
     // Parse INVALID_API_KEY:provider format
-    if error.starts_with("INVALID_API_KEY") {
-        let provider = if error.contains(':') {
-            let parts: Vec<&str> = error.split(':').collect();
-            if parts.len() > 1 {
-                match parts[1] {
-                    "groq" => "Groq",
-                    "google" => "Google Gemini",
-                    "openai" => "OpenAI",
-                    other => other,
-                }
-            } else {
-                "API"
-            }
-        } else {
-            "API"
-        };
+    if error.contains("INVALID_API_KEY") {
+        let provider = api_key_provider_name(error);
 
         return match lang {
             "vi" => format!("{} API key không hợp lệ!", provider),

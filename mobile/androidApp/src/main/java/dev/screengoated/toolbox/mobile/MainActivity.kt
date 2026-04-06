@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.collect
 import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.preset.AudioPresetLaunchKind
 import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
@@ -90,6 +91,7 @@ class MainActivity : ComponentActivity() {
             val historySearchQuery by viewModel.historySearchQuery.collectAsStateWithLifecycle()
             val appUpdateState by viewModel.appUpdateState.collectAsStateWithLifecycle()
             val context = LocalContext.current
+            val toastBus = (application as SgtMobileApplication).appContainer.toastBus
             val locale = MobileLocaleText.forLanguage(uiPreferences.uiLanguage)
             val onSessionToggle by rememberUpdatedState {
                 if (state.phase == dev.screengoated.toolbox.mobile.shared.live.SessionPhase.LISTENING ||
@@ -106,6 +108,12 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(state.errorSerial) {
                 state.lastError?.takeIf { it.isNotBlank() }?.let { message ->
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            LaunchedEffect(toastBus) {
+                toastBus.messages.collect { message ->
                     Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                 }
             }
