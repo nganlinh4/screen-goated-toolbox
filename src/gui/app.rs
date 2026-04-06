@@ -7,7 +7,7 @@ mod utils;
 
 pub use init::SettingsAppInit;
 pub use types::SettingsApp;
-pub use utils::{restart_app, signal_restore_window};
+pub use utils::{exit_app, restart_app, signal_restore_window};
 
 use eframe::egui;
 
@@ -123,6 +123,7 @@ impl eframe::App for SettingsApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        crate::overlay::screen_record::cleanup_on_app_exit();
         self.tray_icon = None;
     }
 }

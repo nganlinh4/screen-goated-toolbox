@@ -180,7 +180,7 @@ pub(super) unsafe fn show_native_context_menu() {
             }
             5 => {
                 // Quit
-                std::process::exit(0);
+                crate::gui::app::exit_app();
             }
             _ => {}
         }

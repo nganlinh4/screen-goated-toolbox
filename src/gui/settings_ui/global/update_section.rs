@@ -127,7 +127,7 @@ pub fn render_update_section_content(
                     let status = cmd.spawn();
 
                     match status {
-                        Ok(_) => std::process::exit(0),
+                        Ok(_) => crate::gui::app::exit_app(),
                         Err(e) => {
                             eprintln!("Failed to spawn batch file: {}", e);
                         }

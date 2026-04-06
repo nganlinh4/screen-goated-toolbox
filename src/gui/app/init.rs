@@ -201,7 +201,7 @@ impl SettingsApp {
         std::thread::spawn(move || {
             while let Ok(event) = MenuEvent::receiver().recv() {
                 match event.id.0.as_str() {
-                    "1001" => std::process::exit(0),
+                    "1001" => crate::gui::app::exit_app(),
                     "1002" => {
                         unsafe {
                             let class_name = w!("eframe");

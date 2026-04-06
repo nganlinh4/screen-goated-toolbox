@@ -624,7 +624,7 @@ pub fn render_global_settings(
                     )
                     .clicked()
                 {
-                    std::process::exit(0);
+                    crate::gui::app::exit_app();
                 }
 
                 ui.add_space(10.0);
