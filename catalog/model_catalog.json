@@ -16,7 +16,7 @@
     "realtime_translation_model_cerebras": "cerebras-oss",
     "realtime_translation_model_gemma": "google-gemma",
     "realtime_translation_model_gtx": "google-gtx",
-    "realtime_translation_gemma_api_model": "gemma-3-27b-it",
+    "realtime_translation_gemma_api_model": "gemma-4-26b-a4b-it",
     "realtime_translation_gtx_api_model": "google-translate-gtx"
   },
   "defaults": {
@@ -35,10 +35,12 @@
   "priority_chains": {
     "image_to_text": [
       "scout",
+      "gemma-4-26b-a4b-vision",
       "gemini-3.1-flash-lite-preview"
     ],
     "text_to_text": [
       "cerebras_gpt_oss",
+      "gemma-4-26b-a4b",
       "text_accurate_kimi",
       "text_gemini_3_1_flash_lite"
     ]
@@ -98,7 +100,7 @@
     },
     {
       "id": "google-gemma",
-      "api_model": "gemma-3-27b-it"
+      "api_model": "gemma-4-26b-a4b-it"
     },
     {
       "id": "google-gtx",
@@ -146,6 +148,19 @@
       "quota_en": "1000 requests/day"
     },
     {
+      "id": "gemma-4-26b-a4b-vision",
+      "provider": "google",
+      "name_vi": "Gemma tốt",
+      "name_ko": "좋은 Gemma",
+      "name_en": "Good Gemma",
+      "full_name": "gemma-4-26b-a4b-it",
+      "model_type": "Vision",
+      "enabled": true,
+      "quota_vi": "Không giới hạn",
+      "quota_ko": "무제한",
+      "quota_en": "Unlimited"
+    },
+    {
       "id": "gemini-live-vision",
       "provider": "gemini-live",
       "name_vi": "Live 2.5",
@@ -174,15 +189,28 @@
     {
       "id": "gemma-3-27b-vision",
       "provider": "google",
-      "name_vi": "Cân bằng, chậm",
-      "name_ko": "균형잡힌, 느림",
-      "name_en": "Balanced, Slow",
+      "name_vi": "Gemma chậm",
+      "name_ko": "Gemma 느림",
+      "name_en": "Gemma Slow",
       "full_name": "gemma-3-27b-it",
       "model_type": "Vision",
       "enabled": true,
       "quota_vi": "14400 lượt/ngày",
       "quota_ko": "14400 요청/일",
       "quota_en": "14400 requests/day"
+    },
+    {
+      "id": "gemma-4-31b-vision",
+      "provider": "google",
+      "name_vi": "Gemma chính xác",
+      "name_ko": "정확한 Gemma",
+      "name_en": "Accurate Gemma",
+      "full_name": "gemma-4-31b-it",
+      "model_type": "Vision",
+      "enabled": true,
+      "quota_vi": "Không giới hạn",
+      "quota_ko": "무제한",
+      "quota_en": "Unlimited"
     },
     {
       "id": "gemini-flash-lite",
@@ -289,6 +317,19 @@
       "quota_en": "1000 requests/day"
     },
     {
+      "id": "gemma-4-26b-a4b",
+      "provider": "google",
+      "name_vi": "Gemma tốt",
+      "name_ko": "좋은 Gemma",
+      "name_en": "Good Gemma",
+      "full_name": "gemma-4-26b-a4b-it",
+      "model_type": "Text",
+      "enabled": true,
+      "quota_vi": "Không giới hạn",
+      "quota_ko": "무제한",
+      "quota_en": "Unlimited"
+    },
+    {
       "id": "text_accurate_kimi",
       "provider": "groq",
       "name_vi": "Chính xác",
@@ -382,15 +423,41 @@
     {
       "id": "gemma-3-27b",
       "provider": "google",
-      "name_vi": "Cân bằng, chậm",
-      "name_ko": "균형잡힌, 느림",
-      "name_en": "Balanced, Slow",
+      "name_vi": "Gemma chậm",
+      "name_ko": "Gemma 느림",
+      "name_en": "Gemma Slow",
       "full_name": "gemma-3-27b-it",
       "model_type": "Text",
       "enabled": true,
       "quota_vi": "14400 lượt/ngày",
       "quota_ko": "14400 요청/일",
       "quota_en": "14400 requests/day"
+    },
+    {
+      "id": "gemma-4-31b",
+      "provider": "google",
+      "name_vi": "Gemma chính xác",
+      "name_ko": "정확한 Gemma",
+      "name_en": "Accurate Gemma",
+      "full_name": "gemma-4-31b-it",
+      "model_type": "Text",
+      "enabled": true,
+      "quota_vi": "Không giới hạn",
+      "quota_ko": "무제한",
+      "quota_en": "Unlimited"
+    },
+    {
+      "id": "google-gemma",
+      "provider": "google",
+      "name_vi": "Gemma",
+      "name_ko": "Gemma",
+      "name_en": "Gemma",
+      "full_name": "gemma-4-26b-a4b-it",
+      "model_type": "Text",
+      "enabled": true,
+      "quota_vi": "Không giới hạn",
+      "quota_ko": "무제한",
+      "quota_en": "Unlimited"
     },
     {
       "id": "text_gemini_flash_lite",
@@ -621,19 +688,6 @@
       "name_en": "Super Accurate",
       "full_name": "gemini-3-flash-preview",
       "model_type": "Audio",
-      "enabled": true,
-      "quota_vi": "20 lượt/ngày",
-      "quota_ko": "20 요청/일",
-      "quota_en": "20 requests/day"
-    },
-    {
-      "id": "google-gemma",
-      "provider": "google",
-      "name_vi": "Gemma",
-      "name_ko": "Gemma",
-      "name_en": "Gemma",
-      "full_name": "gemma-3-27b-it",
-      "model_type": "Text",
       "enabled": true,
       "quota_vi": "20 lượt/ngày",
       "quota_ko": "20 요청/일",

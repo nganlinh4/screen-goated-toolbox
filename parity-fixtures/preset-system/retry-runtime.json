@@ -9,10 +9,12 @@
   "model_priority_chains": {
     "image_to_text": [
       "scout",
+      "gemma-4-26b-a4b-vision",
       "gemini-3.1-flash-lite-preview"
     ],
     "text_to_text": [
       "cerebras_gpt_oss",
+      "gemma-4-26b-a4b",
       "text_accurate_kimi",
       "text_gemini_3_1_flash_lite"
     ]

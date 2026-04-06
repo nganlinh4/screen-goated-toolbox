@@ -97,7 +97,7 @@ class PresetRepository(
                 "Extract text from this image.",
             )
             PresetType.TEXT_SELECT, PresetType.TEXT_INPUT -> dev.screengoated.toolbox.mobile.shared.preset.textBlock(
-                "text_accurate_kimi",
+                "gemma-4-26b-a4b",
                 "Translate to {language1}. Output ONLY the translation.",
                 "language1" to "Vietnamese",
             )
