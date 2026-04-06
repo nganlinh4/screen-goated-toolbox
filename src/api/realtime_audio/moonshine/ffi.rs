@@ -6,7 +6,7 @@
 #![allow(non_camel_case_types, dead_code)]
 
 use anyhow::{Result, anyhow};
-use libloading::{Library, Symbol};
+use libloading::Library;
 use std::os::raw::{c_char, c_float};
 use std::sync::OnceLock;
 
@@ -87,62 +87,60 @@ unsafe impl Sync for MoonshineLib {}
 
 static MOONSHINE_LIB: OnceLock<Result<MoonshineLib, String>> = OnceLock::new();
 
-fn moonshine_sdk_dir() -> std::path::PathBuf {
+fn moonshine_dll_path() -> std::path::PathBuf {
+    let private_bin = crate::unpack_dlls::private_bin_dir();
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| std::path::PathBuf::from("."));
 
-    // Check next to executable first, then third_party in repo
     let candidates = [
-        exe_dir.join("moonshine"),
-        exe_dir.join("moonshine-voice-windows-x86_64"),
-        std::path::PathBuf::from("third_party/moonshine-voice/moonshine-voice-windows-x86_64"),
+        private_bin.join("moonshine_wrapper.dll"),
+        exe_dir.join("moonshine_wrapper.dll"),
+        std::path::PathBuf::from("native/moonshine_wrapper/moonshine_wrapper.dll"),
+        std::path::PathBuf::from("dist/moonshine-runtime-windows-x64/moonshine_wrapper.dll"),
     ];
 
     for c in &candidates {
-        if c.join("lib").exists() {
+        if c.exists() {
             return c.clone();
         }
     }
-    candidates[2].clone()
+    candidates[0].clone()
 }
 
 pub fn load() -> Result<&'static MoonshineLib> {
     MOONSHINE_LIB
         .get_or_init(|| {
-            let sdk_dir = moonshine_sdk_dir();
-            let lib_dir = sdk_dir.join("lib");
+            let dll_path = moonshine_dll_path();
+            let dll_dir = dll_path.parent().unwrap_or_else(|| std::path::Path::new("."));
 
-            crate::log_info!("[Moonshine] Loading from {:?}", lib_dir);
+            crate::log_info!("[Moonshine] Loading from {:?}", dll_path);
 
             // Load ORT first (moonshine depends on it)
-            let ort_path = lib_dir.join("onnxruntime.dll");
+            let ort_path = dll_dir.join("onnxruntime.dll");
             let ort_lib = if ort_path.exists() {
+                // Set DLL directory so moonshine_wrapper.dll can find onnxruntime.dll
+                unsafe {
+                    use windows::Win32::System::LibraryLoader::SetDllDirectoryW;
+                    let dir_wide: Vec<u16> = dll_dir.to_string_lossy().encode_utf16().chain(std::iter::once(0)).collect();
+                    let _ = SetDllDirectoryW(windows::core::PCWSTR(dir_wide.as_ptr()));
+                }
                 unsafe { Library::new(&ort_path).ok() }
             } else {
                 None
             };
 
-            // Load moonshine as a DLL. The static .lib files have CRT mismatch,
-            // but we can build a thin DLL wrapper or use the static libs via
-            // a separate compilation unit. For now, we need moonshine as a DLL.
-            //
-            // Since the SDK only ships static .lib files (not a .dll), we need
-            // to build a wrapper DLL. This is a known limitation.
-            //
-            // Alternative: use the Python wheel which ships moonshine as a .pyd/.dll.
-            let moonshine_dll = lib_dir.join("moonshine.dll");
-            if !moonshine_dll.exists() {
+            if !dll_path.exists() {
                 return Err(format!(
-                    "Moonshine DLL not found at {:?}. The SDK ships static .lib files which have CRT mismatch with this project. \
-                    A moonshine.dll wrapper is needed.", moonshine_dll
+                    "Moonshine runtime not found at {:?}. It will be downloaded automatically on first use.",
+                    dll_path
                 ));
             }
 
             let lib = unsafe {
-                Library::new(&moonshine_dll)
-                    .map_err(|e| format!("Failed to load moonshine.dll: {e}"))?
+                Library::new(&dll_path)
+                    .map_err(|e| format!("Failed to load {}: {e}", dll_path.display()))?
             };
 
             unsafe {
