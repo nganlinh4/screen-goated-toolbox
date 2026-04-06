@@ -128,7 +128,7 @@ fn migrate_config(config: &mut Config) {
         for block in &mut preset.blocks {
             match block.model.as_str() {
                 "cerebras_zai_glm_4_7" => {
-                    block.model = crate::model_config::DEFAULT_CEREBRAS_TEXT_MODEL_ID.to_string();
+                    block.model = crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string();
                 }
                 "maverick" => {
                     block.model = crate::model_config::DEFAULT_IMAGE_MODEL_ID.to_string();
@@ -213,7 +213,7 @@ mod tests {
         );
         assert_eq!(
             config.presets[1].blocks[0].model,
-            crate::model_config::DEFAULT_CEREBRAS_TEXT_MODEL_ID
+            crate::model_config::DEFAULT_TEXT_MODEL_ID
         );
     }
 
@@ -266,7 +266,7 @@ mod tests {
             "scout".to_string(),
         ];
         config.model_priority_chains.text_to_text = vec![
-            "cerebras_gpt_oss".to_string(),
+            "gemma-4-26b-a4b".to_string(),
             "qr-scanner".to_string(),
             "scout".to_string(),
             "text_accurate_kimi".to_string(),
@@ -284,11 +284,12 @@ mod tests {
         assert_eq!(
             config.model_priority_chains.text_to_text,
             vec![
-                "cerebras_gpt_oss".to_string(),
+                "gemma-4-26b-a4b".to_string(),
                 "text_accurate_kimi".to_string()
             ]
         );
     }
+
 }
 
 // ============================================================================

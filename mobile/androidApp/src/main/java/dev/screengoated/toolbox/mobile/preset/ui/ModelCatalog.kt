@@ -33,9 +33,11 @@ data class ModelEntry(
 
 object ModelCatalog {
 
-    val models: List<ModelEntry> = PresetModelCatalog.models.map(PresetModelDescriptor::toUiEntry)
+    private val allModels: List<ModelEntry> = PresetModelCatalog.models.map(PresetModelDescriptor::toUiEntry)
 
-    private val byId = models.associateBy { it.id }
+    val models: List<ModelEntry> = PresetModelCatalog.dialogModels().map(PresetModelDescriptor::toUiEntry)
+
+    private val byId = allModels.associateBy { it.id }
 
     fun getById(id: String): ModelEntry? = byId[id]
 

@@ -16,6 +16,38 @@
       "thinking_include_thoughts": true
     },
     {
+      "name": "gemma_4_26b_uses_minimal_thinking",
+      "model_id": "gemma-4-26b-a4b",
+      "provider": "GOOGLE",
+      "api_model": "gemma-4-26b-a4b-it",
+      "supports_search": false,
+      "thinking_level": "MINIMAL"
+    },
+    {
+      "name": "gemma_4_31b_uses_minimal_thinking",
+      "model_id": "gemma-4-31b",
+      "provider": "GOOGLE",
+      "api_model": "gemma-4-31b-it",
+      "supports_search": false,
+      "thinking_level": "MINIMAL"
+    },
+    {
+      "name": "gemma_4_vision_26b_uses_minimal_thinking",
+      "model_id": "gemma-4-26b-a4b-vision",
+      "provider": "GOOGLE",
+      "api_model": "gemma-4-26b-a4b-it",
+      "supports_search": false,
+      "thinking_level": "MINIMAL"
+    },
+    {
+      "name": "gemma_4_vision_31b_uses_minimal_thinking",
+      "model_id": "gemma-4-31b-vision",
+      "provider": "GOOGLE",
+      "api_model": "gemma-4-31b-it",
+      "supports_search": false,
+      "thinking_level": "MINIMAL"
+    },
+    {
       "name": "compound_mini_uses_groq_compound_contract",
       "model_id": "compound_mini",
       "provider": "GROQ",

@@ -17,6 +17,7 @@ pub fn create_audio_presets() -> Vec<Preset> {
             .auto_stop()
             .blocks(vec![
                 BlockBuilder::audio("whisper-accurate")
+                    .prompt("Transcribe the audio into text. Output ONLY the transcript.")
                     .language("Vietnamese")
                     .show_overlay(false)
                     .markdown() // Upgraded: Thường -> Đẹp
@@ -62,7 +63,7 @@ pub fn create_audio_presets() -> Vec<Preset> {
                     .language("Korean")
                     .show_overlay(false)
                     .build(),
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text("gemma-4-26b-a4b")
                     .prompt("Translate to {language1}. Output ONLY the translation.")
                     .language("Korean")
                     .show_overlay(false)
@@ -96,7 +97,7 @@ pub fn create_audio_presets() -> Vec<Preset> {
                     .language("Vietnamese")
                     .show_overlay(false)
                     .build(),
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text("gemma-4-26b-a4b")
                     .prompt("Answer the following question concisely and helpfully. Format as markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.")
                     .markdown_stream() // Đẹp+Str
                     .build(),
@@ -142,7 +143,7 @@ pub fn create_audio_presets() -> Vec<Preset> {
                 BlockBuilder::audio("whisper-accurate")
                     .language("Vietnamese")
                     .build(),
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text("gemma-4-26b-a4b")
                     .prompt("Translate to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown_stream() // Đẹp+Str
