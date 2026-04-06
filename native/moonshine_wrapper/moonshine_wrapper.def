@@ -1,0 +1,15 @@
+LIBRARY moonshine_wrapper
+EXPORTS
+    moonshine_get_version
+    moonshine_error_to_string
+    moonshine_load_transcriber_from_files
+    moonshine_load_transcriber_from_memory
+    moonshine_free_transcriber
+    moonshine_transcribe_without_streaming
+    moonshine_create_stream
+    moonshine_free_stream
+    moonshine_start_stream
+    moonshine_stop_stream
+    moonshine_transcribe_add_audio_to_stream
+    moonshine_transcribe_stream
+    moonshine_transcript_to_string
