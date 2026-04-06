@@ -392,6 +392,13 @@ internal fun presetTextInputJavascript(): String {
             setTimeout(() => editor.focus(), 50);
         };
 
+        const requestEditorFocus = () => {
+            window.ipc.postMessage('request_focus');
+        };
+
+        editor.addEventListener('touchstart', requestEditorFocus, { passive: true });
+        editor.addEventListener('mousedown', requestEditorFocus);
+
         editor.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();

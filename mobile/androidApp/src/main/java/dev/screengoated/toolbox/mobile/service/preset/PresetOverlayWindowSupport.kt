@@ -254,9 +254,15 @@ internal fun handleOverlayHostMessage(
     return true
 }
 
-internal fun buildOverlayWindowFlags(focusable: Boolean): Int {
+internal fun buildOverlayWindowFlags(
+    focusable: Boolean,
+    watchOutsideTouch: Boolean = false,
+): Int {
     var flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+    if (watchOutsideTouch) {
+        flags = flags or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+    }
     if (!focusable) {
         flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
     }
