@@ -99,6 +99,8 @@ enum class ZipformerLanguage(
     fun sherpaEncoder(): String = modelFiles.first { it.contains("encoder") }
     fun sherpaDecoder(): String = modelFiles.first { it.contains("decoder") }
     fun sherpaJoiner(): String = modelFiles.first { it.contains("joiner") }
+    /** Returns "bpe.model" filename if this model needs BPE vocab, null otherwise. */
+    val bpeVocabFile: String? get() = modelFiles.find { it == "bpe.model" }
 
     companion object {
         fun fromCode(code: String): ZipformerLanguage? =

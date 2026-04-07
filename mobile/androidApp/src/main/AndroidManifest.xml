@@ -135,6 +135,7 @@
             android:name=".service.helpassistant.HelpAssistantOverlayService"
             android:enabled="true"
             android:exported="false" />
+
     </application>
 
 </manifest>
