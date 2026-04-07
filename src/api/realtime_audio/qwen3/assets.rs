@@ -16,7 +16,8 @@ const QWEN3_REPO_RESOLVE_BASE: &str = "https://huggingface.co/Qwen/Qwen3-ASR-0.6
 
 const QWEN3_1_7B_REPO_TREE_URL: &str =
     "https://huggingface.co/api/models/Qwen/Qwen3-ASR-1.7B/tree/main?recursive=1";
-const QWEN3_1_7B_REPO_RESOLVE_BASE: &str = "https://huggingface.co/Qwen/Qwen3-ASR-1.7B/resolve/main";
+const QWEN3_1_7B_REPO_RESOLVE_BASE: &str =
+    "https://huggingface.co/Qwen/Qwen3-ASR-1.7B/resolve/main";
 
 lazy_static::lazy_static! {
     static ref LAST_QWEN3_MODEL_ACTION_ERROR: Mutex<Option<String>> = Mutex::new(None);
@@ -126,10 +127,7 @@ pub fn is_qwen3_1_7b_model_downloaded() -> bool {
         && dir.join("tokenizer_config.json").exists()
 }
 
-pub fn download_qwen3_1_7b_model(
-    stop_signal: Arc<AtomicBool>,
-    use_badge: bool,
-) -> Result<()> {
+pub fn download_qwen3_1_7b_model(stop_signal: Arc<AtomicBool>, use_badge: bool) -> Result<()> {
     let dir = get_qwen3_1_7b_model_dir();
     let locale = qwen3_locale();
 

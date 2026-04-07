@@ -108,8 +108,10 @@ pub unsafe extern "system" fn realtime_wnd_proc(
                         // Everything before transcript_committed_pos is "old"
                         // Everything after is "new" (current sentence)
                         let full = &state.full_transcript;
-                        let pos =
-                            clamp_to_char_boundary(full, state.transcript_committed_pos.min(full.len()));
+                        let pos = clamp_to_char_boundary(
+                            full,
+                            state.transcript_committed_pos.min(full.len()),
+                        );
                         let old_raw = &full[..pos];
                         let new_raw = &full[pos..];
 

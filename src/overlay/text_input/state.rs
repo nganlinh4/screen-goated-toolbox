@@ -1,10 +1,10 @@
 // --- TEXT INPUT STATE ---
 // Shared state, atomics, and constants for text input overlay.
 
+use crate::win_types::SendHhook;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicIsize};
 use std::sync::{Mutex, Once};
-use crate::win_types::SendHhook;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::WM_USER;
 use wry::WebContext;
