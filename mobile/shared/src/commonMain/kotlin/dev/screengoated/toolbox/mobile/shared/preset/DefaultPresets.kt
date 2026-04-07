@@ -10,8 +10,8 @@ package dev.screengoated.toolbox.mobile.shared.preset
  * Localized names come from `src/gui/settings_ui/sidebar.rs`
  * (`get_localized_preset_name`).
  */
-/** Default image-to-text model ID — mirrors `DEFAULT_IMAGE_MODEL_ID` in Rust `model_config.rs`. */
-const val DEFAULT_IMAGE_MODEL_ID = "scout"
+// Generated model IDs from catalog/model_catalog.json.
+
 
 object DefaultPresets {
 
@@ -30,7 +30,7 @@ object DefaultPresets {
             presetType = PresetType.IMAGE,
             blocks = listOf(
                 imageBlock(
-                    "gemma-4-26b-a4b-vision",
+                    PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID,
                     "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.",
                     "language1" to "Vietnamese",
                 ).copy(renderMode = "markdown"),
@@ -50,7 +50,7 @@ object DefaultPresets {
                     "language1" to "English",
                 ).copy(showOverlay = false),
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Translate to {language1}. Output ONLY the translation.",
                     "language1" to "Vietnamese",
                 ).copy(streamingEnabled = false, renderMode = "markdown"),
@@ -86,7 +86,7 @@ object DefaultPresets {
                     "language1" to "Korean",
                 ).copy(renderMode = "markdown", autoCopy = true),
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Translate to {language1}. Output ONLY the translation.",
                     "language1" to "Vietnamese",
                 ),
@@ -106,12 +106,12 @@ object DefaultPresets {
                     "language1" to "English",
                 ).copy(showOverlay = false),
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Translate to {language1}. Output ONLY the translation.",
                     "language1" to "Korean",
                 ).copy(autoCopy = true),
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Translate to {language1}. Output ONLY the translation.",
                     "language1" to "Vietnamese",
                 ),
@@ -188,7 +188,7 @@ object DefaultPresets {
                     "",
                 ).copy(showOverlay = false, autoCopy = true),
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Format this QR code content for display. Rules:\n" +
                         "- If URL: Make it a clickable markdown link [URL](URL) and describe what this link points to\n" +
                         "- If vCard/contact: Format as a readable contact card with name, phone, email, address\n" +
@@ -243,7 +243,7 @@ object DefaultPresets {
             promptMode = "dynamic",
             blocks = listOf(
                 imageBlock(
-                    "gemini-3-flash-preview",
+                    PRESET_IMAGE_ASK_MODEL_ID,
                     "",
                     "language1" to "Vietnamese",
                 ),
@@ -265,7 +265,7 @@ object DefaultPresets {
                     "language1" to "Vietnamese",
                 ).copy(showOverlay = false),
                 textBlock(
-                    "compound_mini",
+                    PRESET_SEARCH_MODEL_ID,
                     "Fact-check the following claims/information. Search the internet to verify accuracy. Provide a clear verdict (TRUE/FALSE/PARTIALLY TRUE/UNVERIFIABLE) for each claim with evidence and sources. Respond in {language1}. Format as markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.",
                     "language1" to "Vietnamese",
                 ),
@@ -287,25 +287,25 @@ object DefaultPresets {
                 ).copy(renderMode = "markdown"),
                 // Node 1: Make a learning HTML (from 0)
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Create a standalone INTERACTIVE HTML learning card/game for the following text. Use internal CSS for a beautiful, modern, colored design, game-like and comprehensive interface. Only OUTPUT the raw HTML code, DO NOT include HTML file indicator (```html) or triple backticks.",
                     "language1" to "Vietnamese",
                 ).copy(renderMode = "markdown"),
                 // Node 2: Summarize with sources (from 3)
                 textBlock(
-                    "compound_mini",
+                    PRESET_SEARCH_MODEL_ID,
                     "Search the internet to ensure of the accuracy of the following text as well as getting as much source information as possible. Summarize the following text into a detailed markdown summary with clickable links to the sources. Structure it clearly. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.",
                     "language1" to "Vietnamese",
                 ),
                 // Node 3: Translate (from 0)
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Translate the following text to {language1}. Output ONLY the translation.",
                     "language1" to "Vietnamese",
                 ),
                 // Node 4: Summarize keywords (from 3)
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Summarize the essence of this text into 3-5 keywords or a short phrase in {language1}.",
                     "language1" to "Vietnamese",
                 ),
@@ -349,7 +349,7 @@ object DefaultPresets {
             presetType = PresetType.TEXT_SELECT,
             blocks = listOf(
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Translate the following text to {language1}. Output ONLY the translation.",
                     "language1" to "Vietnamese",
                 ).copy(autoCopy = true),
@@ -367,19 +367,19 @@ object DefaultPresets {
                 inputAdapter(),
                 // Node 1: Google Translate (GTX)
                 textBlock(
-                    "google-gtx",
+                    PRESET_TRANSLATE_ARENA_GTX_MODEL_ID,
                     "Translate to {language1}. Output ONLY the translation.",
                     "language1" to "Vietnamese",
                 ),
                 // Node 2: Cerebras
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Translate the following text to {language1}. Output ONLY the translation.",
                     "language1" to "Vietnamese",
                 ),
                 // Node 3: Gemini Flash Lite
                 textBlock(
-                    "text_gemini_flash_lite",
+                    PRESET_TEXT_ARENA_FAST_MODEL_ID,
                     "Translate the following text to {language1}. Output ONLY the translation.",
                     "language1" to "Vietnamese",
                 ),
@@ -395,12 +395,12 @@ object DefaultPresets {
             presetType = PresetType.TEXT_SELECT,
             blocks = listOf(
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Translate the following text to {language1}. Output ONLY the translation.",
                     "language1" to "Korean",
                 ).copy(autoCopy = true),
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Translate to {language1}. Output ONLY the translation.",
                     "language1" to "Vietnamese",
                 ),
@@ -416,7 +416,7 @@ object DefaultPresets {
             autoPaste = true,
             blocks = listOf(
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Translate the following text to {language1}. Output ONLY the translation.",
                     "language1" to "Vietnamese",
                 ).copy(
@@ -437,7 +437,7 @@ object DefaultPresets {
             autoPaste = true,
             blocks = listOf(
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Correct grammar, spelling, and punctuation errors in the following text. Do not change the meaning or tone. Output ONLY the corrected text.",
                     "language1" to "Vietnamese",
                 ).copy(
@@ -458,7 +458,7 @@ object DefaultPresets {
             autoPaste = true,
             blocks = listOf(
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Paraphrase the following text using varied vocabulary while maintaining the exact original meaning and language. Output ONLY the paraphrased text.",
                     "language1" to "Vietnamese",
                 ).copy(
@@ -479,7 +479,7 @@ object DefaultPresets {
             autoPaste = true,
             blocks = listOf(
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Rewrite the following text to be professional and formal, suitable for business communication. CRITICAL: Your output MUST be in the EXACT SAME LANGUAGE as the input text (if input is Korean, output Korean; if Vietnamese, output Vietnamese; if Japanese, output Japanese, etc.). Do NOT translate to English. Maintain the original meaning. Output ONLY the rewritten text.",
                     "language1" to "Vietnamese",
                 ).copy(
@@ -499,7 +499,7 @@ object DefaultPresets {
             presetType = PresetType.TEXT_SELECT,
             blocks = listOf(
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Explain what this is in {language1}. Be concise but thorough. Mention the purpose, key logic, and any important patterns or techniques used. Format the output as a markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) triple backticks.",
                     "language1" to "Vietnamese",
                 ),
@@ -515,7 +515,7 @@ object DefaultPresets {
             promptMode = "dynamic",
             blocks = listOf(
                 textBlock(
-                    "compound_mini",
+                    PRESET_SEARCH_MODEL_ID,
                     "",
                     "language1" to "Vietnamese",
                 ),
@@ -532,7 +532,7 @@ object DefaultPresets {
             autoPaste = true,
             blocks = listOf(
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Edit the following text according to the user's instructions below. Follow the user's request precisely \u2014 if they ask to change the language, change it. Output ONLY the edited result without any introductory text, explanations, or quotes.",
                     "language1" to "Vietnamese",
                 ).copy(
@@ -554,25 +554,25 @@ object DefaultPresets {
                 inputAdapter(),
                 // Node 1: Make a learning HTML (from 0)
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Create a standalone INTERACTIVE HTML learning card/game for the following text. Use internal CSS for a beautiful, modern, colored design, game-like and comprehensive interface. Only OUTPUT the raw HTML code, DO NOT include HTML file indicator (```html) or triple backticks.",
                     "language1" to "Vietnamese",
                 ).copy(renderMode = "markdown"),
                 // Node 2: Summarize with sources (from 3)
                 textBlock(
-                    "compound_mini",
+                    PRESET_SEARCH_MODEL_ID,
                     "Search the internet to ensure of the accuracy of the following text as well as getting as much source information as possible. Summarize the following text into a detailed markdown summary with clickable links to the sources. Structure it clearly. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.",
                     "language1" to "Vietnamese",
                 ),
                 // Node 3: Translate (from 0)
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Translate the following text to {language1}. Output ONLY the translation.",
                     "language1" to "Vietnamese",
                 ),
                 // Node 4: Summarize keywords (from 3)
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Summarize the essence of this text into 3-5 keywords or a short phrase in {language1}.",
                     "language1" to "Vietnamese",
                 ),
@@ -606,12 +606,12 @@ object DefaultPresets {
             continuousInput = true,
             blocks = listOf(
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Translate the following text to {language1}. Output ONLY the translation. Text to translate:",
                     "language1" to "Korean",
                 ).copy(autoCopy = true),
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Translate to {language1}. Output ONLY the translation.",
                     "language1" to "Vietnamese",
                 ),
@@ -626,7 +626,7 @@ object DefaultPresets {
             presetType = PresetType.TEXT_INPUT,
             blocks = listOf(
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Answer the following question or request helpfully and comprehensively. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks. QUESTION/REQUEST:",
                 ),
             ),
@@ -640,7 +640,7 @@ object DefaultPresets {
             presetType = PresetType.TEXT_INPUT,
             blocks = listOf(
                 textBlock(
-                    "compound_mini",
+                    PRESET_SEARCH_MODEL_ID,
                     "Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks. SEARCH FOR:",
                 ),
             ),
@@ -654,7 +654,7 @@ object DefaultPresets {
             presetType = PresetType.TEXT_INPUT,
             blocks = listOf(
                 textBlock(
-                    "text_gemini_3_0_flash",
+                    PRESET_TEXT_GAME_MODEL_ID,
                     "Create a complete, standalone HTML game. The game MUST be playable using ONLY MOUSE CONTROLS (like swipe , drag or clicks, no keyboard required). Avoid the looping Game Over UI at startup. Use modern and trending CSS on the internet for a polished look, prefer using images or icons or svg assets from the internet for a convincing game aesthetics. Provide HTML code only. Only OUTPUT the raw HTML code, DO NOT include HTML file indicator (```html) or triple backticks. Create the game based on the following request:",
                 ).copy(renderMode = "markdown"),
             ),
@@ -687,7 +687,7 @@ object DefaultPresets {
             autoStopRecording = true,
             blocks = listOf(
                 audioBlock(
-                    "whisper-accurate",
+                    PRESET_AUDIO_TRANSCRIBE_MODEL_ID,
                     "Transcribe the audio into text. Output ONLY the transcript.",
                     "language1" to "Vietnamese",
                 ).copy(
@@ -707,7 +707,7 @@ object DefaultPresets {
             autoPaste = true,
             blocks = listOf(
                 audioBlock(
-                    "gemini-live-audio",
+                    PRESET_AUDIO_CONTINUOUS_MODEL_ID,
                     "",
                     "language1" to "Vietnamese",
                 ).copy(
@@ -726,7 +726,7 @@ object DefaultPresets {
             autoStopRecording = true,
             blocks = listOf(
                 audioBlock(
-                    "whisper-accurate",
+                    PRESET_AUDIO_TRANSCRIBE_MODEL_ID,
                     "",
                     "language1" to "Vietnamese",
                 ).copy(
@@ -746,12 +746,12 @@ object DefaultPresets {
             autoPaste = true,
             blocks = listOf(
                 audioBlock(
-                    "whisper-accurate",
+                    PRESET_AUDIO_TRANSCRIBE_MODEL_ID,
                     "",
                     "language1" to "Korean",
                 ).copy(showOverlay = false),
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Translate to {language1}. Output ONLY the translation.",
                     "language1" to "Korean",
                 ).copy(showOverlay = false, autoCopy = true),
@@ -767,7 +767,7 @@ object DefaultPresets {
             autoPaste = true,
             blocks = listOf(
                 audioBlock(
-                    "gemini-audio",
+                    PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID,
                     "Translate the audio to {language1}. Only output the translated text.",
                     "language1" to "Korean",
                 ).copy(showOverlay = false, autoCopy = true),
@@ -783,12 +783,12 @@ object DefaultPresets {
             autoStopRecording = true,
             blocks = listOf(
                 audioBlock(
-                    "whisper-accurate",
+                    PRESET_AUDIO_TRANSCRIBE_MODEL_ID,
                     "",
                     "language1" to "Vietnamese",
                 ).copy(showOverlay = false),
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Answer the following question concisely and helpfully. Format as markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.",
                 ),
             ),
@@ -803,12 +803,12 @@ object DefaultPresets {
             autoStopRecording = true,
             blocks = listOf(
                 audioBlock(
-                    "whisper-accurate",
+                    PRESET_AUDIO_TRANSCRIBE_MODEL_ID,
                     "",
                     "language1" to "Vietnamese",
                 ).copy(showOverlay = false),
                 textBlock(
-                    "compound_mini",
+                    PRESET_SEARCH_MODEL_ID,
                     "Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.",
                 ),
             ),
@@ -841,12 +841,12 @@ object DefaultPresets {
             audioSource = "device",
             blocks = listOf(
                 audioBlock(
-                    "whisper-accurate",
+                    PRESET_AUDIO_TRANSCRIBE_MODEL_ID,
                     "",
                     "language1" to "Vietnamese",
                 ),
                 textBlock(
-                    "gemma-4-26b-a4b",
+                    DEFAULT_TEXT_MODEL_ID,
                     "Translate to {language1}. Output ONLY the translation.",
                     "language1" to "Vietnamese",
                 ),
@@ -862,7 +862,7 @@ object DefaultPresets {
             audioSource = "device",
             audioProcessingMode = "realtime",
             blocks = listOf(
-                audioBlock("whisper-accurate"),
+                audioBlock(PRESET_AUDIO_TRANSCRIBE_MODEL_ID),
                 textBlock(
                     "google-gemma",
                     "",
@@ -894,7 +894,7 @@ object DefaultPresets {
             autoPaste = true,
             blocks = listOf(
                 audioBlock(
-                    "parakeet-local",
+                    PRESET_AUDIO_OFFLINE_TRANSCRIBE_MODEL_ID,
                     "",
                     "language1" to "English",
                 ).copy(

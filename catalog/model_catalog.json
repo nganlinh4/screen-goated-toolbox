@@ -25,6 +25,18 @@
     "live_session_transcription_provider_id": "gemini-live-audio",
     "live_session_translation_provider_id": "cerebras-oss"
   },
+  "preset_defaults": {
+    "PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID": "gemma-4-26b-a4b-vision",
+    "PRESET_IMAGE_ASK_MODEL_ID": "gemini-3-flash-preview",
+    "PRESET_TRANSLATE_ARENA_GTX_MODEL_ID": "google-gtx",
+    "PRESET_TEXT_ARENA_FAST_MODEL_ID": "text_gemini_flash_lite",
+    "PRESET_TEXT_GAME_MODEL_ID": "text_gemini_3_0_flash",
+    "PRESET_SEARCH_MODEL_ID": "compound_mini",
+    "PRESET_AUDIO_TRANSCRIBE_MODEL_ID": "whisper-accurate",
+    "PRESET_AUDIO_CONTINUOUS_MODEL_ID": "gemini-live-audio",
+    "PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID": "gemini-audio",
+    "PRESET_AUDIO_OFFLINE_TRANSCRIBE_MODEL_ID": "parakeet-local"
+  },
   "provider_defaults": {
     "use_groq": true,
     "use_gemini": true,

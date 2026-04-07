@@ -112,6 +112,26 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
     output_path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def generate_preset_defaults_kotlin(manifest: dict, output_path: Path) -> None:
+    constants = manifest["constants"]
+    preset_defaults = manifest["preset_defaults"]
+
+    lines: list[str] = [
+        "package dev.screengoated.toolbox.mobile.shared.preset",
+        "",
+        "// Generated from catalog/model_catalog.json. Do not edit by hand.",
+        f"const val DEFAULT_IMAGE_MODEL_ID = {kotlin_string(constants['default_image_model_id'])}",
+        f"const val DEFAULT_TEXT_MODEL_ID = {kotlin_string(constants['default_text_model_id'])}",
+    ]
+
+    for const_name, model_id in preset_defaults.items():
+        lines.append(f"const val {const_name} = {kotlin_string(model_id)}")
+
+    lines.append("")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
     constants = manifest["constants"]
     defaults = manifest["defaults"]
@@ -243,16 +263,19 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest-source", required=True)
     parser.add_argument("--preset-output")
+    parser.add_argument("--preset-defaults-output")
     parser.add_argument("--live-output")
     args = parser.parse_args()
 
-    if not args.preset_output and not args.live_output:
+    if not args.preset_output and not args.preset_defaults_output and not args.live_output:
         raise SystemExit("At least one output must be provided.")
 
     manifest = load_manifest(Path(args.manifest_source))
 
     if args.preset_output:
         generate_preset_kotlin(manifest, Path(args.preset_output))
+    if args.preset_defaults_output:
+        generate_preset_defaults_kotlin(manifest, Path(args.preset_defaults_output))
     if args.live_output:
         generate_live_kotlin(manifest, Path(args.live_output))
 
