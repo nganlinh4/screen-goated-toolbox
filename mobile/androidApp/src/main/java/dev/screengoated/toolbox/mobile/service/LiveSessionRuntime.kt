@@ -561,18 +561,21 @@ class LiveSessionRuntime(
                             val result = recognizer.getResult(stream)
                             val text = result.text.trim()
 
-                            // Check for endpoint (utterance boundary)
+                            // Check for endpoint (utterance boundary from sherpa VAD)
                             val isEndpoint = recognizer.isEndpoint(stream)
                             if (isEndpoint) {
                                 if (text.isNotBlank()) {
-                                    // Zipformer has no punctuation — add period at
-                                    // endpoint to mark sentence boundary for translation
+                                    // Native-punct models (EN/KO/ZH/FR/DE/ES) already
+                                    // include periods — only add one if missing.
+                                    val toCommit = if (!lang.hasNativePunctuation ||
+                                        !text.trimEnd().last().isSentencePunct()
+                                    ) "$text." else text
                                     committedHistory = if (committedHistory.isEmpty()) {
-                                        "$text."
+                                        toCommit
                                     } else {
-                                        "$committedHistory $text."
+                                        "$committedHistory $toCommit"
                                     }
-                                    Log.i("Sherpa", "COMMIT: '$text'")
+                                    Log.i("Sherpa", "COMMIT: '$toCommit'")
                                 }
                                 recognizer.reset(stream)
                                 lastDraftText = ""
@@ -583,25 +586,71 @@ class LiveSessionRuntime(
                                     nowMs = SystemClock.elapsedRealtime(),
                                 )
                             } else {
-                                // Track draft changes for stale detection
                                 if (text != lastDraftText) {
                                     lastDraftText = text
                                     lastDraftChangeMs = SystemClock.elapsedRealtime()
                                 }
-                                // If draft hasn't changed for 3s, add period to
-                                // force translation commit (matching Windows pattern)
-                                val draftToPublish = if (text.isNotBlank()
-                                    && SystemClock.elapsedRealtime() - lastDraftChangeMs >= DRAFT_STALE_MS
+                                val silenceMs = SystemClock.elapsedRealtime() - lastDraftChangeMs
+
+                                // Case 1 (native-punct only): sentence boundary mid-draft
+                                // e.g. "Hello world. How are" → commit "Hello world.", keep "How are"
+                                val boundary = if (lang.hasNativePunctuation)
+                                    splitAtSentenceBoundary(text) else null
+
+                                if (boundary != null) {
+                                    val (before, after) = boundary
+                                    committedHistory = if (committedHistory.isEmpty()) before
+                                    else "$committedHistory $before"
+                                    lastDraftText = after
+                                    lastDraftChangeMs = SystemClock.elapsedRealtime()
+                                    Log.i("Sherpa", "CASE1: '$before' | draft='$after'")
+                                    repository.setTranscriptSegments(
+                                        committed = committedHistory,
+                                        draft = after,
+                                        nowMs = SystemClock.elapsedRealtime(),
+                                    )
+                                // Case 2 (native-punct only): draft ends with punct, stable 600ms
+                                } else if (lang.hasNativePunctuation
+                                    && text.trimEnd().lastOrNull()?.isSentencePunct() == true
+                                    && silenceMs >= 600L
                                 ) {
-                                    "${text.trimEnd()}."
+                                    committedHistory = if (committedHistory.isEmpty()) text
+                                    else "$committedHistory $text"
+                                    recognizer.reset(stream)
+                                    lastDraftText = ""
+                                    lastDraftChangeMs = SystemClock.elapsedRealtime()
+                                    Log.i("Sherpa", "CASE2: '$text'")
+                                    repository.setTranscriptSegments(
+                                        committed = committedHistory,
+                                        draft = "",
+                                        nowMs = SystemClock.elapsedRealtime(),
+                                    )
+                                // Case 3 (non-native-punct: RU, All8Lang): silence threshold commit
+                                } else if (!lang.hasNativePunctuation && text.isNotBlank()) {
+                                    val thresholdMs = draftCommitThresholdMs(text)
+                                    val draftToPublish = if (silenceMs >= thresholdMs) {
+                                        "${text.trimEnd()}."
+                                    } else if (silenceMs >= DRAFT_STALE_MS) {
+                                        "${text.trimEnd()}."
+                                    } else {
+                                        text
+                                    }
+                                    repository.setTranscriptSegments(
+                                        committed = committedHistory,
+                                        draft = draftToPublish,
+                                        nowMs = SystemClock.elapsedRealtime(),
+                                    )
                                 } else {
-                                    text
+                                    // Native-punct, no boundary yet — show as gray draft
+                                    val draftToPublish = if (text.isNotBlank()
+                                        && silenceMs >= DRAFT_STALE_MS
+                                    ) "${text.trimEnd()}." else text
+                                    repository.setTranscriptSegments(
+                                        committed = committedHistory,
+                                        draft = draftToPublish,
+                                        nowMs = SystemClock.elapsedRealtime(),
+                                    )
                                 }
-                                repository.setTranscriptSegments(
-                                    committed = committedHistory,
-                                    draft = draftToPublish,
-                                    nowMs = SystemClock.elapsedRealtime(),
-                                )
                             }
 
                             val audioTimeMs = totalSamplesFed * 1000 / 16000
@@ -743,6 +792,39 @@ private const val PARAKEET_CHUNK_SIZE = 2560
  * Matches Windows `process_sentencepiece_text()` in parakeet.rs:
  * Preserves leading space (word boundary indicator ▁) while cleaning up the token.
  */
+/** Mirrors Windows `utils::split_at_sentence_boundary`. */
+private fun splitAtSentenceBoundary(text: String): Pair<String, String>? {
+    var lastBoundary = -1
+    var i = 0
+    while (i < text.length) {
+        val ch = text[i]
+        if (ch == '.' || ch == '?' || ch == '!') {
+            val rest = text.substring(i + 1).trimStart()
+            if (rest.isNotEmpty() && (rest[0].isLetter() || rest[0].isDigit())) {
+                lastBoundary = i + 1
+            }
+        }
+        i++
+    }
+    if (lastBoundary < 0) return null
+    return Pair(text.substring(0, lastBoundary).trimEnd(), text.substring(lastBoundary).trimStart())
+}
+
+/**
+ * Smooth commit threshold for non-native-punct models (RU, All8Lang).
+ * Mirrors Windows `state::draft_commit_threshold_ms`.
+ * Formula: 1200 / (1 + words * 0.5), CJK chars each count as one word.
+ */
+private fun draftCommitThresholdMs(draft: String): Long {
+    val cjkCount = draft.count { it.code > 0x2E80 }
+    val wordCount = draft.trim().split(Regex("\\s+")).count { it.isNotEmpty() } + cjkCount
+    if (wordCount == 0) return Long.MAX_VALUE
+    return (1200.0 / (1.0 + wordCount * 0.5)).toLong()
+}
+
+/** Returns true for sentence-ending punctuation. */
+private fun Char.isSentencePunct(): Boolean = this == '.' || this == '?' || this == '!'
+
 private fun processSentencePieceText(text: String): String {
     val startsWithWord = text.startsWith('\u2581') || text.startsWith('▁')
     val processed = text.replace("\u2581", " ").replace("▁", " ").trim()
