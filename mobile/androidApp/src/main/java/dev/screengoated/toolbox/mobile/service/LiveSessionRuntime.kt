@@ -60,6 +60,11 @@ class LiveSessionRuntime(
         hostScope = scope
         scope.launch {
             stopSession(keepOverlay = false)
+            // Delay before creating hardware-accelerated overlay WebViews. When the
+            // service is started by ProjectionConsentProxyActivity, the activity's
+            // surface is still tearing down. Chrome GPU crashes with a null-deref if
+            // we create LAYER_TYPE_HARDWARE WebViews during that compositor transition.
+            delay(600)
             launchSession(scope)
         }
     }
@@ -201,6 +206,7 @@ class LiveSessionRuntime(
             val engine = ParakeetEngine(modelDir, parakeetModelManager.ortLibDir())
             try {
                 repository.markListening()
+
                 val audioFlow = audioCaptureController.open(
                     config = repository.currentConfig(),
                     onRms = { rms -> overlayController.updateVolume(rms) },
@@ -404,6 +410,7 @@ class LiveSessionRuntime(
 
             try {
                 repository.markListening()
+
                 transcriber.start()
 
                 val audioFlow = audioCaptureController.open(
@@ -476,6 +483,8 @@ class LiveSessionRuntime(
     ) {
         withContext(Dispatchers.IO) {
             val modelDir = modelManager.zipformerDir(lang).absolutePath
+            val bpeVocabPath = lang.bpeVocabFile?.let { "$modelDir/$it" } ?: ""
+            Log.i("Sherpa", "Loading ${lang.displayName}: encoder=${lang.sherpaEncoder()} bpe=${bpeVocabPath.ifEmpty { "none" }}")
 
             val config = com.k2fsa.sherpa.onnx.OnlineRecognizerConfig(
                 modelConfig = com.k2fsa.sherpa.onnx.OnlineModelConfig(
@@ -486,21 +495,19 @@ class LiveSessionRuntime(
                     ),
                     tokens = "$modelDir/tokens.txt",
                     modelType = lang.sherpaModelType,
-                    numThreads = 2,
+                    numThreads = 1,
+                    bpeVocab = bpeVocabPath,
                 ),
                 enableEndpoint = true,
                 decodingMethod = "greedy_search",
             )
 
             val recognizer = com.k2fsa.sherpa.onnx.OnlineRecognizer(config = config)
-            // Check if native recognizer was created (ptr == 0 means failure)
             try {
                 val ptrField = recognizer.javaClass.getDeclaredField("ptr")
                 ptrField.isAccessible = true
                 if (ptrField.getLong(recognizer) == 0L) {
-                    Log.e("Sherpa", "Failed to create recognizer — model files missing or invalid config")
-                    Log.e("Sherpa", "Model dir: $modelDir")
-                    Log.e("Sherpa", "Encoder: ${lang.sherpaEncoder()}")
+                    Log.e("Sherpa", "Recognizer creation failed (ptr=0)")
                     return@withContext
                 }
             } catch (_: Exception) {}
@@ -511,6 +518,7 @@ class LiveSessionRuntime(
             var lastDraftText = ""
             var lastDraftChangeMs = SystemClock.elapsedRealtime()
             val DRAFT_STALE_MS = 3_000L
+            var streamCommittedPrefix = ""
 
             try {
                 repository.markListening()
@@ -540,8 +548,7 @@ class LiveSessionRuntime(
                             if (audioBatch.size >= BATCH_SAMPLES) {
                                 val maxBuffer = 16000 * 10
                                 if (audioBatch.size > maxBuffer) {
-                                    val drop = audioBatch.size - maxBuffer
-                                    audioBatch.subList(0, drop).clear()
+                                    audioBatch.subList(0, audioBatch.size - maxBuffer).clear()
                                 }
                                 batch = FloatArray(audioBatch.size) { audioBatch[it] }
                                 audioBatch.clear()
@@ -553,111 +560,63 @@ class LiveSessionRuntime(
                         if (batch != null) {
                             stream.acceptWaveform(batch, 16000)
                             totalSamplesFed += batch.size
-
-                            while (recognizer.isReady(stream)) {
-                                recognizer.decode(stream)
-                            }
+                            while (recognizer.isReady(stream)) { recognizer.decode(stream) }
 
                             val result = recognizer.getResult(stream)
-                            val text = result.text.trim()
+                            val rawText = result.text.trim()
+                            val text = if (streamCommittedPrefix.isNotEmpty()) {
+                                if (rawText.startsWith(streamCommittedPrefix))
+                                    rawText.substring(streamCommittedPrefix.length).trimStart()
+                                else { streamCommittedPrefix = ""; rawText }
+                            } else rawText
 
-                            // Check for endpoint (utterance boundary from sherpa VAD)
                             val isEndpoint = recognizer.isEndpoint(stream)
                             if (isEndpoint) {
                                 if (text.isNotBlank()) {
-                                    // Native-punct models (EN/KO/ZH/FR/DE/ES) already
-                                    // include periods — only add one if missing.
                                     val toCommit = if (!lang.hasNativePunctuation ||
                                         !text.trimEnd().last().isSentencePunct()
                                     ) "$text." else text
-                                    committedHistory = if (committedHistory.isEmpty()) {
-                                        toCommit
-                                    } else {
-                                        "$committedHistory $toCommit"
-                                    }
+                                    committedHistory = if (committedHistory.isEmpty()) toCommit
+                                    else "$committedHistory $toCommit"
                                     Log.i("Sherpa", "COMMIT: '$toCommit'")
                                 }
                                 recognizer.reset(stream)
+                                streamCommittedPrefix = ""
                                 lastDraftText = ""
                                 lastDraftChangeMs = SystemClock.elapsedRealtime()
-                                repository.setTranscriptSegments(
-                                    committed = committedHistory,
-                                    draft = "",
-                                    nowMs = SystemClock.elapsedRealtime(),
-                                )
+                                repository.setTranscriptSegments(committedHistory, "", SystemClock.elapsedRealtime())
                             } else {
-                                if (text != lastDraftText) {
-                                    lastDraftText = text
-                                    lastDraftChangeMs = SystemClock.elapsedRealtime()
-                                }
+                                if (text != lastDraftText) { lastDraftText = text; lastDraftChangeMs = SystemClock.elapsedRealtime() }
                                 val silenceMs = SystemClock.elapsedRealtime() - lastDraftChangeMs
-
-                                // Case 1 (native-punct only): sentence boundary mid-draft
-                                // e.g. "Hello world. How are" → commit "Hello world.", keep "How are"
-                                val boundary = if (lang.hasNativePunctuation)
-                                    splitAtSentenceBoundary(text) else null
+                                val boundary = if (lang.hasNativePunctuation) splitAtSentenceBoundary(text) else null
 
                                 if (boundary != null) {
                                     val (before, after) = boundary
-                                    committedHistory = if (committedHistory.isEmpty()) before
-                                    else "$committedHistory $before"
-                                    lastDraftText = after
-                                    lastDraftChangeMs = SystemClock.elapsedRealtime()
+                                    committedHistory = if (committedHistory.isEmpty()) before else "$committedHistory $before"
+                                    val afterTrimmed = after.trimStart()
+                                    streamCommittedPrefix = if (rawText.length >= afterTrimmed.length)
+                                        rawText.substring(0, rawText.length - afterTrimmed.length).trimEnd() else rawText
+                                    lastDraftText = after; lastDraftChangeMs = SystemClock.elapsedRealtime()
                                     Log.i("Sherpa", "CASE1: '$before' | draft='$after'")
-                                    repository.setTranscriptSegments(
-                                        committed = committedHistory,
-                                        draft = after,
-                                        nowMs = SystemClock.elapsedRealtime(),
-                                    )
-                                // Case 2 (native-punct only): draft ends with punct, stable 600ms
-                                } else if (lang.hasNativePunctuation
-                                    && text.trimEnd().lastOrNull()?.isSentencePunct() == true
-                                    && silenceMs >= 600L
-                                ) {
-                                    committedHistory = if (committedHistory.isEmpty()) text
-                                    else "$committedHistory $text"
-                                    recognizer.reset(stream)
-                                    lastDraftText = ""
-                                    lastDraftChangeMs = SystemClock.elapsedRealtime()
+                                    repository.setTranscriptSegments(committedHistory, after, SystemClock.elapsedRealtime())
+                                } else if (lang.hasNativePunctuation && text.trimEnd().lastOrNull()?.isSentencePunct() == true && silenceMs >= 600L) {
+                                    committedHistory = if (committedHistory.isEmpty()) text else "$committedHistory $text"
+                                    recognizer.reset(stream); streamCommittedPrefix = ""; lastDraftText = ""; lastDraftChangeMs = SystemClock.elapsedRealtime()
                                     Log.i("Sherpa", "CASE2: '$text'")
-                                    repository.setTranscriptSegments(
-                                        committed = committedHistory,
-                                        draft = "",
-                                        nowMs = SystemClock.elapsedRealtime(),
-                                    )
-                                // Case 3 (non-native-punct: RU, All8Lang): silence threshold commit
+                                    repository.setTranscriptSegments(committedHistory, "", SystemClock.elapsedRealtime())
                                 } else if (!lang.hasNativePunctuation && text.isNotBlank()) {
                                     val thresholdMs = draftCommitThresholdMs(text)
-                                    val draftToPublish = if (silenceMs >= thresholdMs) {
-                                        "${text.trimEnd()}."
-                                    } else if (silenceMs >= DRAFT_STALE_MS) {
-                                        "${text.trimEnd()}."
-                                    } else {
-                                        text
-                                    }
-                                    repository.setTranscriptSegments(
-                                        committed = committedHistory,
-                                        draft = draftToPublish,
-                                        nowMs = SystemClock.elapsedRealtime(),
-                                    )
+                                    val draft = if (silenceMs >= thresholdMs || silenceMs >= DRAFT_STALE_MS) "${text.trimEnd()}." else text
+                                    repository.setTranscriptSegments(committedHistory, draft, SystemClock.elapsedRealtime())
                                 } else {
-                                    // Native-punct, no boundary yet — show as gray draft
-                                    val draftToPublish = if (text.isNotBlank()
-                                        && silenceMs >= DRAFT_STALE_MS
-                                    ) "${text.trimEnd()}." else text
-                                    repository.setTranscriptSegments(
-                                        committed = committedHistory,
-                                        draft = draftToPublish,
-                                        nowMs = SystemClock.elapsedRealtime(),
-                                    )
+                                    val draft = if (text.isNotBlank() && silenceMs >= DRAFT_STALE_MS) "${text.trimEnd()}." else text
+                                    repository.setTranscriptSegments(committedHistory, draft, SystemClock.elapsedRealtime())
                                 }
                             }
 
-                            val audioTimeMs = totalSamplesFed * 1000 / 16000
-                            val wallTimeMs = SystemClock.elapsedRealtime() - startTimeMs
-                            val lagMs = wallTimeMs - audioTimeMs
                             if (totalSamplesFed % (16000 * 2) < batch.size.toLong()) {
-                                Log.i("Sherpa", "fed=${audioTimeMs/1000}s wall=${wallTimeMs/1000}s lag=${lagMs}ms")
+                                val audioMs = totalSamplesFed * 1000 / 16000; val wallMs = SystemClock.elapsedRealtime() - startTimeMs
+                                Log.i("Sherpa", "fed=${audioMs/1000}s wall=${wallMs/1000}s lag=${wallMs - audioMs}ms")
                             }
                         } else {
                             delay(50)
