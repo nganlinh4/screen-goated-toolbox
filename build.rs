@@ -141,6 +141,17 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
     ));
     lines.push(String::new());
 
+    let preset_defaults = manifest_object(&manifest, "preset_defaults");
+    for (const_name, value) in preset_defaults {
+        lines.push(format!(
+            "pub const {const_name}: &str = {};",
+            rust_string(value.as_str().unwrap())
+        ));
+    }
+    if !preset_defaults.is_empty() {
+        lines.push(String::new());
+    }
+
     lines.push("pub const GENERATED_NON_LLM_IDS: &[&str] = &[".to_string());
     for value in manifest_array(&manifest, "non_llm_ids") {
         lines.push(format!("    {},", rust_string(value.as_str().unwrap())));

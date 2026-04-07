@@ -3,7 +3,7 @@ pub mod runtime;
 
 use super::capture::{start_device_loopback_capture, start_mic_capture, start_per_app_capture};
 use super::state::{SharedRealtimeState, TranscriptionMethod};
-use super::utils::update_overlay_text;
+use super::utils::{append_history_segment, join_transcript_segments, update_overlay_text};
 use super::{REALTIME_RMS, WM_VOLUME_UPDATE};
 use crate::config::Preset;
 use anyhow::Result;
@@ -25,8 +25,8 @@ const VOICE_ACTIVITY_RMS: f32 = 0.015;
 /// Qwen3-ASR model variant (0.6B or 1.7B)
 #[derive(Clone, Copy, Debug)]
 pub enum Qwen3ModelVariant {
-    Small,  // 0.6B
-    Large,  // 1.7B
+    Small, // 0.6B
+    Large, // 1.7B
 }
 
 pub fn run_qwen3_transcription(
@@ -35,7 +35,13 @@ pub fn run_qwen3_transcription(
     overlay_hwnd: HWND,
     state: SharedRealtimeState,
 ) -> Result<()> {
-    run_qwen3_transcription_variant(_preset, stop_signal, overlay_hwnd, state, Qwen3ModelVariant::Small)
+    run_qwen3_transcription_variant(
+        _preset,
+        stop_signal,
+        overlay_hwnd,
+        state,
+        Qwen3ModelVariant::Small,
+    )
 }
 
 pub fn run_qwen3_transcription_variant(
@@ -50,15 +56,23 @@ pub fn run_qwen3_transcription_variant(
     }
 
     let (is_downloaded, download_label) = match variant {
-        Qwen3ModelVariant::Small => (assets::is_qwen3_model_downloaded(), "Downloading Qwen3-ASR 0.6B model..."),
-        Qwen3ModelVariant::Large => (assets::is_qwen3_1_7b_model_downloaded(), "Downloading Qwen3-ASR 1.7B model..."),
+        Qwen3ModelVariant::Small => (
+            assets::is_qwen3_model_downloaded(),
+            "Downloading Qwen3-ASR 0.6B model...",
+        ),
+        Qwen3ModelVariant::Large => (
+            assets::is_qwen3_1_7b_model_downloaded(),
+            "Downloading Qwen3-ASR 1.7B model...",
+        ),
     };
 
     if !is_downloaded {
         update_overlay_text(overlay_hwnd, download_label);
         match variant {
             Qwen3ModelVariant::Small => assets::download_qwen3_model(stop_signal.clone(), true)?,
-            Qwen3ModelVariant::Large => assets::download_qwen3_1_7b_model(stop_signal.clone(), true)?,
+            Qwen3ModelVariant::Large => {
+                assets::download_qwen3_1_7b_model(stop_signal.clone(), true)?
+            }
         }
     }
 
@@ -102,7 +116,6 @@ pub fn run_qwen3_transcription_variant(
     let mut last_voice_activity = Instant::now();
     let mut last_draft_change = Instant::now();
     let mut last_draft_text = String::new();
-    const DRAFT_STALE_MS: u64 = 3_000; // Conclude with period after 3s of no new text
 
     while !stop_signal.load(Ordering::Relaxed) {
         if !overlay_hwnd.is_invalid() && !unsafe { IsWindow(Some(overlay_hwnd)).as_bool() } {
@@ -173,17 +186,21 @@ pub fn run_qwen3_transcription_variant(
                 last_draft_change = Instant::now();
                 last_draft_text = draft_text.clone();
             }
-            // If draft hasn't changed for DRAFT_STALE_MS, append a period to
-            // signal a sentence boundary to the translation system.
-            let draft_to_publish = if !draft_text.is_empty()
-                && last_draft_change.elapsed() >= Duration::from_millis(DRAFT_STALE_MS)
+            let silence_ms = last_draft_change.elapsed().as_millis() as u64;
+            if let Some(committed_draft) = super::state::check_draft_commit(&draft_text, silence_ms)
             {
-                format!("{}.", draft_text.trim_end())
+                // Actually commit fixed + stale draft into history
+                if !fixed_text.is_empty() {
+                    append_history_segment(&mut committed_history, &fixed_text);
+                }
+                append_history_segment(&mut committed_history, &committed_draft);
+                last_draft_text.clear();
+                last_draft_change = Instant::now();
+                publish_transcript(&state, overlay_hwnd, &committed_history, "");
             } else {
-                draft_text
-            };
-            let live_committed = join_transcript_segments(&committed_history, &fixed_text);
-            publish_transcript(&state, overlay_hwnd, &live_committed, &draft_to_publish);
+                let live_committed = join_transcript_segments(&committed_history, &fixed_text);
+                publish_transcript(&state, overlay_hwnd, &live_committed, &draft_text);
+            }
         }
 
         std::thread::sleep(Duration::from_millis(100));
@@ -272,42 +289,6 @@ fn should_commit_on_silence(
         && last_voice_activity.elapsed() >= Duration::from_millis(SILENCE_COMMIT_MS)
 }
 
-fn append_history_segment(history: &mut String, segment: &str) {
-    let segment = sanitize_transcript_segment(segment);
-    if segment.is_empty() {
-        return;
-    }
-    if history.is_empty() {
-        history.push_str(segment.trim_start());
-    } else {
-        let combined = join_transcript_segments(history, &segment);
-        history.clear();
-        history.push_str(&combined);
-    }
-}
-
-fn sanitize_transcript_segment(segment: &str) -> String {
-    segment.replace('\n', " ").replace('\t', " ")
-}
-
-fn join_transcript_segments(left: &str, right: &str) -> String {
-    let left = sanitize_transcript_segment(left);
-    let right = sanitize_transcript_segment(right);
-    match (left.is_empty(), right.is_empty()) {
-        (true, true) => String::new(),
-        (true, false) => right.trim_start().to_string(),
-        (false, true) => left,
-        (false, false) => {
-            let left_has_space = left.chars().last().is_some_and(char::is_whitespace);
-            let right_has_space = right.chars().next().is_some_and(char::is_whitespace);
-            if left_has_space || right_has_space {
-                format!("{left}{right}")
-            } else {
-                format!("{left} {right}")
-            }
-        }
-    }
-}
 
 fn runtime_live_segments(result: &runtime::RuntimeTranscriptionResult) -> (String, String) {
     if result.fixed_text.is_empty() && result.draft_text.is_empty() {

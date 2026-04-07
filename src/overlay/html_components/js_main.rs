@@ -358,6 +358,7 @@ pub fn get(font_size: u32) -> String {
             transcriptionModelSelect.addEventListener('change', (e) => {{
                 e.stopPropagation();
                 window.ipc.postMessage('transcriptionModel:' + transcriptionModelSelect.value);
+                updateTransLangSelectState(transcriptionModelSelect.value);
             }});
         }}
 
@@ -385,64 +386,22 @@ pub fn get(font_size: u32) -> String {
             }});
         }}
 
-        // Transcription Language Badge Logic
-        const transLangBadge = document.getElementById('trans-lang-badge');
-        let currentTransLangCode = transLangBadge ? transLangBadge.dataset.code || 'EN' : 'EN';
+        // Transcription Language Dropdown
+        const transLangSelect = document.getElementById('transcription-lang-select');
 
-        function updateTransLangBadgeState(modelName) {{
-            if (!transLangBadge) return;
-            if (modelName && (modelName.includes('gemini') || modelName === 'qwen3-asr-0.6b' || modelName === 'qwen3-asr-1.7b')) {{
-                // Gemini Live and Qwen3 (local GPU) support all languages
-                transLangBadge.textContent = 'ALL';
-                transLangBadge.dataset.code = 'ALL';
-                transLangBadge.classList.add('greyed');
-            }} else if (modelName === 'parakeet' || (modelName && modelName.includes('moonshine'))) {{
-                transLangBadge.textContent = 'EN';
-                transLangBadge.dataset.code = 'EN';
-                transLangBadge.classList.add('greyed');
-            }} else if (modelName === 'zipformer') {{
-                transLangBadge.textContent = currentTransLangCode;
-                transLangBadge.classList.remove('greyed');
+        function updateTransLangSelectState(modelName) {{
+            if (!transLangSelect) return;
+            if (modelName === 'zipformer') {{
+                transLangSelect.disabled = false;
             }} else {{
-                transLangBadge.textContent = currentTransLangCode;
-                transLangBadge.classList.remove('greyed');
+                transLangSelect.disabled = true;
             }}
         }}
 
-        window.setTranscriptionLanguage = function(langCode, langName) {{
-            if (!transLangBadge) return;
-            currentTransLangCode = langCode || 'EN';
-            transLangBadge.textContent = currentTransLangCode;
-            transLangBadge.dataset.code = currentTransLangCode;
-            if (langName) transLangBadge.title = langName;
-        }};
-
-        if (transLangBadge) {{
-            transLangBadge.addEventListener('click', function() {{
-                if (this.classList.contains('greyed')) return;
-                // On Windows, show inline language selector
-                const langs = ['EN|English','KO|Korean','ZH|Chinese','FR|French','DE|German','ES|Spanish','RU|Russian','all-8|AR,EN,ID,JA,RU,TH,VI,ZH'];
-                const current = transLangBadge.dataset.code || 'EN';
-                const sel = document.createElement('select');
-                sel.className = 'model-dropdown';
-                sel.style.position = 'absolute';
-                sel.style.zIndex = '999';
-                langs.forEach(l => {{
-                    const [code, name] = l.split('|');
-                    const opt = document.createElement('option');
-                    opt.value = code;
-                    opt.textContent = name;
-                    if (code.toUpperCase() === current.toUpperCase()) opt.selected = true;
-                    sel.appendChild(opt);
-                }});
-                sel.addEventListener('change', () => {{
-                    window.ipc.postMessage('transcriptionLanguage:' + sel.value);
-                    if (window.setTranscriptionLanguage) window.setTranscriptionLanguage(sel.value.toUpperCase(), '');
-                    sel.remove();
-                }});
-                sel.addEventListener('blur', () => sel.remove());
-                transLangBadge.parentNode.insertBefore(sel, transLangBadge.nextSibling);
-                sel.focus();
+        if (transLangSelect) {{
+            transLangSelect.addEventListener('change', (e) => {{
+                e.stopPropagation();
+                window.ipc.postMessage('transcriptionLanguage:' + transLangSelect.value);
             }});
         }}
 
@@ -516,7 +475,7 @@ pub fn get(font_size: u32) -> String {
             if (settings.transcriptionModel) {{
                 const tcSel = document.getElementById('transcription-model-select');
                 if (tcSel) tcSel.value = settings.transcriptionModel;
-                updateTransLangBadgeState(settings.transcriptionModel);
+                updateTransLangSelectState(settings.transcriptionModel);
                 // Legacy icons
                 if (transModelIcons && transModelIcons.length) {{
                     transModelIcons.forEach(icon => {{
@@ -525,8 +484,8 @@ pub fn get(font_size: u32) -> String {
                 }}
             }}
 
-            if (settings.transcriptionLanguage && window.setTranscriptionLanguage) {{
-                window.setTranscriptionLanguage(settings.transcriptionLanguage, settings.transcriptionLanguageName);
+            if (settings.transcriptionLanguage && transLangSelect) {{
+                transLangSelect.value = settings.transcriptionLanguage.toLowerCase();
             }}
 
             // Update font size

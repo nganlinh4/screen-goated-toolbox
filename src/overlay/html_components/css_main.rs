@@ -282,32 +282,6 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
             color: {text_color};
         }}
 
-        .trans-lang-badge {{
-            font-family: 'Google Sans Flex', sans-serif;
-            font-size: 11px;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-            color: {text_color};
-            background: {ctrl_bg};
-            border: 1px solid {ctrl_border};
-            border-radius: 9999px;
-            padding: 3px 8px;
-            cursor: pointer;
-            user-select: none;
-            transition: all 0.25s cubic-bezier(0.2, 0.0, 0, 1.0);
-            min-width: 28px;
-            text-align: center;
-        }}
-        .trans-lang-badge:hover:not(.greyed) {{
-            border-color: {primary}80;
-            box-shadow: 0 2px 8px {primary}30;
-            color: {primary};
-        }}
-        .trans-lang-badge.greyed {{
-            opacity: 0.45;
-            cursor: default;
-            pointer-events: none;
-        }}
 
         .ctrl-btn {{
             font-size: 20px;
