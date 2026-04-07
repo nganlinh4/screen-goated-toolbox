@@ -78,11 +78,21 @@ fn transcription_thread_entry(
     };
 
     let mut current_preset = preset;
+    let mut freeze_on_next_restart = false;
 
     loop {
         AUDIO_SOURCE_CHANGE.store(false, Ordering::SeqCst);
         TRANSCRIPTION_MODEL_CHANGE.store(false, Ordering::SeqCst);
         super::DEVICE_RECONNECT_REQUESTED.store(false, Ordering::SeqCst);
+
+        // On model/source switch: freeze old transcript so it stays visible,
+        // then let the new session start fresh.
+        if freeze_on_next_restart {
+            if let Ok(mut s) = state.lock() {
+                s.freeze_current_transcript();
+            }
+            freeze_on_next_restart = false;
+        }
 
         // Reset volume indicator to ensure fresh state when switching methods
         REALTIME_RMS.store(0, Ordering::SeqCst);
@@ -208,6 +218,7 @@ fn transcription_thread_entry(
 
         // If a restart is triggered, reset stop signal to allow the new transcription to run
         if restart_source || restart_model {
+            freeze_on_next_restart = true;
             stop_signal.store(false, Ordering::SeqCst);
         }
 

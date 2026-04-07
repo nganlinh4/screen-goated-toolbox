@@ -395,6 +395,7 @@ pub fn get(font_size: u32) -> String {
                 transLangSelect.disabled = false;
             }} else {{
                 transLangSelect.disabled = true;
+                transLangSelect.value = 'en';
             }}
         }}
 
