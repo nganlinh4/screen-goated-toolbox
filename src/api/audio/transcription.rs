@@ -27,6 +27,9 @@ where
     if gemini_api_key.trim().is_empty() {
         return Err(anyhow::anyhow!("NO_API_KEY:google"));
     }
+    if model.contains("gemma-4-") {
+        return Err(anyhow::anyhow!("Unsupported audio model: {}", model));
+    }
 
     let b64_audio = general_purpose::STANDARD.encode(&wav_data);
     let url = format!(
@@ -49,8 +52,14 @@ where
         }]
     });
 
-    // Add grounding tools for all models except gemma-3-27b-it
-    if !model.contains("gemma-3-27b-it") {
+    if let Some(thinking_config) = crate::api::gemini_thinking_config(&model) {
+        payload["generationConfig"] = serde_json::json!({
+            "thinkingConfig": thinking_config
+        });
+    }
+
+    // Gemma-family models do not use the grounding tools path here.
+    if !model.contains("gemma") {
         payload["tools"] = serde_json::json!([
             { "url_context": {} },
             { "google_search": {} }
