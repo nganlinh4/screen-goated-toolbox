@@ -81,33 +81,53 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 ("parakeet", "Parakeet"),
                 (qwen3_0_6b_id, "Qwen3 0.6B"),
                 (qwen3_1_7b_id, "Qwen3 1.7B"),
-                ("moonshine-tiny-streaming", "Moonshine Tiny"),
-                ("moonshine-small-streaming", "Moonshine Small"),
-                ("moonshine-medium-streaming", "Moonshine Medium"),
                 ("zipformer", "Zipformer"),
             ];
             let options_html: String = trans_options
                 .iter()
                 .map(|(val, label)| {
-                    let selected = if *val == transcription_model { " selected" } else { "" };
+                    let selected = if *val == transcription_model {
+                        " selected"
+                    } else {
+                        ""
+                    };
                     format!(r#"<option value="{val}"{selected}>{label}</option>"#)
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
 
-            let trans_lang_code = if transcription_model.contains("gemini")
-                || transcription_model == qwen3_0_6b_id
-                || transcription_model == qwen3_1_7b_id {
-                // Gemini Live and Qwen3 (local GPU) support all languages
-                "ALL"
-            } else if transcription_model == "parakeet" || transcription_model.contains("moonshine") {
-                "EN"
-            } else if transcription_model == "zipformer" {
-                "EN" // will be updated by JS based on selected language
-            } else {
-                "EN"
+            // Build transcription language dropdown (only active for zipformer)
+            let trans_lang_code = {
+                let app = crate::APP.lock().unwrap();
+                app.config.realtime_transcription_language.clone()
             };
-            let trans_lang_greyed = if transcription_model == "zipformer" { "" } else { "greyed" };
+            let trans_lang_options = [
+                ("en", "English"),
+                ("ko", "Korean"),
+                ("zh", "Chinese"),
+                ("fr", "French"),
+                ("de", "German"),
+                ("es", "Spanish"),
+                ("ru", "Russian"),
+                ("all-8", "AR,EN,ID,JA,RU,TH,VI,ZH"),
+            ];
+            let trans_lang_html: String = trans_lang_options
+                .iter()
+                .map(|(code, name)| {
+                    let selected = if *code == trans_lang_code {
+                        " selected"
+                    } else {
+                        ""
+                    };
+                    format!(r#"<option value="{code}"{selected}>{name}</option>"#)
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let trans_lang_disabled = if transcription_model == "zipformer" {
+                ""
+            } else {
+                "disabled"
+            };
 
             format!(
                 r#"
@@ -118,15 +138,17 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 <select class="model-dropdown" id="transcription-model-select" title="Transcription Model">
                     {options_html}
                 </select>
-                <span class="trans-lang-badge {trans_lang_greyed}" id="trans-lang-badge" data-code="{trans_lang_code}">{trans_lang_code}</span>
+                <select class="model-dropdown" id="transcription-lang-select" title="Transcription Language" {trans_lang_disabled}>
+                    {trans_lang_html}
+                </select>
             "#,
                 mic_active = if !is_device { "active" } else { "" },
                 device_active = if is_device { "active" } else { "" },
                 mic_svg = crate::overlay::html_components::icons::get_icon_svg("mic"),
                 device_svg = crate::overlay::html_components::icons::get_icon_svg("speaker_group"),
                 options_html = options_html,
-                trans_lang_code = trans_lang_code,
-                trans_lang_greyed = trans_lang_greyed,
+                trans_lang_html = trans_lang_html,
+                trans_lang_disabled = trans_lang_disabled,
             )
         }
     } else {
@@ -144,7 +166,11 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             let model_options_html: String = trans_model_options
                 .iter()
                 .map(|(val, label)| {
-                    let selected = if *val == translation_model { " selected" } else { "" };
+                    let selected = if *val == translation_model {
+                        " selected"
+                    } else {
+                        ""
+                    };
                     format!(r#"<option value="{val}"{selected}>{label}</option>"#)
                 })
                 .collect::<Vec<_>>()

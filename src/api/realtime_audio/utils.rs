@@ -29,6 +29,45 @@ pub fn update_translation_text(hwnd: HWND, text: &str) {
     }
 }
 
+/// Join two transcript segments with a smart space (respects existing whitespace).
+pub fn join_transcript_segments(left: &str, right: &str) -> String {
+    let left = sanitize_transcript_segment(left);
+    let right = sanitize_transcript_segment(right);
+    match (left.is_empty(), right.is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => right.trim_start().to_string(),
+        (false, true) => left,
+        (false, false) => {
+            let left_has_space = left.chars().last().is_some_and(char::is_whitespace);
+            let right_has_space = right.chars().next().is_some_and(char::is_whitespace);
+            if left_has_space || right_has_space {
+                format!("{left}{right}")
+            } else {
+                format!("{left} {right}")
+            }
+        }
+    }
+}
+
+/// Append a segment to history, joining with smart spacing.
+pub fn append_history_segment(history: &mut String, segment: &str) {
+    let segment = sanitize_transcript_segment(segment);
+    if segment.is_empty() {
+        return;
+    }
+    if history.is_empty() {
+        history.push_str(segment.trim_start());
+    } else {
+        let combined = join_transcript_segments(history, &segment);
+        history.clear();
+        history.push_str(&combined);
+    }
+}
+
+fn sanitize_transcript_segment(segment: &str) -> String {
+    segment.replace('\n', " ").replace('\t', " ")
+}
+
 pub fn refresh_transcription_window() {
     unsafe {
         let realtime_hwnd = crate::overlay::realtime_webview::REALTIME_HWND;

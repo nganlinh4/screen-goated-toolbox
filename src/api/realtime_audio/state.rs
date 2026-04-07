@@ -22,6 +22,51 @@ pub const PARAKEET_MIN_WORDS: usize = 2;
 pub const PARAKEET_MIN_TIMEOUT_MS: u64 = 350;
 pub const PARAKEET_TIMEOUT_DECAY_RATE: f64 = 2.5;
 
+// ============================================
+// CENTRALIZED DRAFT COMMIT (smooth formula)
+// ============================================
+
+/// Smooth commit threshold: longer drafts need shorter silence to commit.
+/// Returns the silence duration (ms) needed before appending a period.
+///
+/// Formula: threshold = BASE / (1 + words * DECAY), clamped to [MIN, BASE].
+///   - 0 words:  never commit (returns u64::MAX)
+///   - 1 word:   ~800ms
+///   - 3 words:  ~650ms
+///   - 5 words:  ~550ms
+///   - 8 words:  ~470ms
+/// Threshold decays toward 0 as word count grows — no floor.
+/// CJK characters each count as one word (no spaces in Chinese/Japanese).
+/// Long drafts commit on any brief pause.
+const DRAFT_COMMIT_BASE_MS: f64 = 1200.0;
+const DRAFT_COMMIT_DECAY: f64 = 0.5;
+
+pub fn draft_commit_threshold_ms(draft: &str) -> u64 {
+    // Count CJK characters individually as words (each char is a semantic unit)
+    let cjk_count = draft.chars().filter(|&c| c as u32 > 0x2E80).count();
+    let word_count = draft.split_whitespace().count() + cjk_count;
+    if word_count == 0 {
+        return u64::MAX;
+    }
+    let threshold = DRAFT_COMMIT_BASE_MS / (1.0 + word_count as f64 * DRAFT_COMMIT_DECAY);
+    threshold as u64
+}
+
+/// Check if draft should be committed (stale silence exceeded smooth threshold).
+/// Returns `Some(text)` if should commit, `None` otherwise.
+pub fn check_draft_commit(draft: &str, silence_ms: u64) -> Option<String> {
+    if draft.is_empty() {
+        return None;
+    }
+    let threshold = draft_commit_threshold_ms(draft);
+    if silence_ms >= threshold {
+        let trimmed = draft.trim_end();
+        Some(trimmed.to_string())
+    } else {
+        None
+    }
+}
+
 /// Transcription method being used
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum TranscriptionMethod {
@@ -29,7 +74,7 @@ pub enum TranscriptionMethod {
     GeminiLive,
     Parakeet,
     Qwen3Local,
-    MoonshineLocal,
+    SherpaZipformer,
 }
 
 pub struct RealtimeState {
@@ -126,7 +171,9 @@ impl RealtimeState {
     }
 
     fn sync_transcript_commit_pos_with_translation(&mut self) {
-        if self.transcription_method != TranscriptionMethod::Qwen3Local {
+        if self.transcription_method != TranscriptionMethod::Qwen3Local
+            && self.transcription_method != TranscriptionMethod::SherpaZipformer
+        {
             self.transcript_committed_pos = self.last_committed_pos.min(self.full_transcript.len());
         }
     }
