@@ -85,6 +85,17 @@ enum class ZipformerLanguage(
         else -> emptyList()
     }
 
+    /**
+     * True for models that produce native punctuation in their streaming output
+     * (EN, KO, ZH, FR, DE, ES). These use sentence-boundary detection for commits.
+     * False for RU and All8Lang — those use silence-based threshold commits.
+     * Mirrors Windows `ZipformerLanguage::has_native_punctuation()`.
+     */
+    val hasNativePunctuation: Boolean get() = when (this) {
+        ENGLISH, KOREAN, CHINESE, FRENCH, GERMAN, SPANISH -> true
+        RUSSIAN, ALL_8LANG -> false
+    }
+
     fun sherpaEncoder(): String = modelFiles.first { it.contains("encoder") }
     fun sherpaDecoder(): String = modelFiles.first { it.contains("decoder") }
     fun sherpaJoiner(): String = modelFiles.first { it.contains("joiner") }
