@@ -147,14 +147,6 @@ pub fn download_qwen3_server(stop_signal: Arc<AtomicBool>, use_badge: bool) -> R
     }
     clear_qwen3_server_notice();
 
-    if use_badge {
-        crate::overlay::auto_copy_badge::show_progress_notification(
-            locale.qwen3_server_downloading_title,
-            locale.qwen3_server_downloading_message,
-            0.0,
-        );
-    }
-
     post_download_state();
 
     let result: Result<()> = (|| {
@@ -198,9 +190,6 @@ pub fn download_qwen3_server(stop_signal: Arc<AtomicBool>, use_badge: bool) -> R
 
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = false;
-    }
-    if use_badge {
-        crate::overlay::auto_copy_badge::hide_progress_notification();
     }
     post_download_state();
 

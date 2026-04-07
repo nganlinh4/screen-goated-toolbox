@@ -78,6 +78,9 @@ pub enum TranscriptionMethod {
 }
 
 pub struct RealtimeState {
+    /// Text from previous sessions — shown visually and copyable, but never re-processed.
+    pub frozen_prefix: String,
+
     pub full_transcript: String,
     pub display_transcript: String,
     pub transcript_committed_pos: usize,
@@ -144,6 +147,7 @@ impl TranslationRequest {
 impl RealtimeState {
     pub fn new() -> Self {
         Self {
+            frozen_prefix: String::new(),
             full_transcript: String::new(),
             display_transcript: String::new(),
             transcript_committed_pos: 0,
@@ -167,7 +171,13 @@ impl RealtimeState {
     }
 
     fn update_display_transcript(&mut self) {
-        self.display_transcript = self.full_transcript.clone();
+        self.display_transcript = if self.frozen_prefix.is_empty() {
+            self.full_transcript.clone()
+        } else if self.full_transcript.is_empty() {
+            self.frozen_prefix.clone()
+        } else {
+            format!("{} {}", self.frozen_prefix, self.full_transcript)
+        };
     }
 
     fn sync_transcript_commit_pos_with_translation(&mut self) {
@@ -209,6 +219,30 @@ impl RealtimeState {
         } else {
             last_boundary
         }
+    }
+
+    /// Freeze the current transcript so it remains visible and copyable across
+    /// session restarts (model/source switches). The new session starts fresh.
+    pub fn freeze_current_transcript(&mut self) {
+        if !self.full_transcript.is_empty() {
+            if self.frozen_prefix.is_empty() {
+                self.frozen_prefix = self.full_transcript.clone();
+            } else {
+                self.frozen_prefix.push(' ');
+                self.frozen_prefix.push_str(&self.full_transcript);
+            }
+        }
+        self.full_transcript.clear();
+        self.transcript_committed_pos = 0;
+        self.last_committed_pos = 0;
+        self.last_processed_len = 0;
+        self.committed_translation.clear();
+        self.uncommitted_translation.clear();
+        self.uncommitted_source_start = 0;
+        self.uncommitted_source_end = 0;
+        self.display_translation.clear();
+        self.translation_history.clear();
+        self.update_display_transcript();
     }
 
     fn reset_translation_state(&mut self) {

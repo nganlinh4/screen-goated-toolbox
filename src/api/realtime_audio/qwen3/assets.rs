@@ -140,14 +140,6 @@ pub fn download_qwen3_1_7b_model(stop_signal: Arc<AtomicBool>, use_badge: bool) 
     }
     clear_qwen3_model_action_error();
 
-    if use_badge {
-        crate::overlay::auto_copy_badge::show_progress_notification(
-            "Downloading Qwen3-ASR 1.7B",
-            locale.qwen3_downloading_message,
-            0.0,
-        );
-    }
-
     post_download_state();
 
     let result: Result<()> = (|| {
@@ -225,14 +217,6 @@ pub fn download_qwen3_model(stop_signal: Arc<AtomicBool>, use_badge: bool) -> Re
     }
     clear_qwen3_model_action_error();
 
-    if use_badge {
-        crate::overlay::auto_copy_badge::show_progress_notification(
-            locale.qwen3_downloading_title,
-            locale.qwen3_downloading_message,
-            0.0,
-        );
-    }
-
     post_download_state();
 
     let result: Result<()> = (|| {
@@ -256,9 +240,6 @@ pub fn download_qwen3_model(stop_signal: Arc<AtomicBool>, use_badge: bool) -> Re
 
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = false;
-    }
-    if use_badge {
-        crate::overlay::auto_copy_badge::hide_progress_notification();
     }
     post_download_state();
 

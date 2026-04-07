@@ -69,7 +69,7 @@ pub fn render_downloaded_tools_modal(
                                 ui.add_space(8.0);
                                 render_ffmpeg_section(ui, download_manager, text);
                                 ui.add_space(8.0);
-                                render_zipformer_section(ui);
+                                render_zipformer_section(ui, text);
                             });
                         });
                     });

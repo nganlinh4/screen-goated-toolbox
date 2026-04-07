@@ -1,5 +1,8 @@
 use crate::api::realtime_audio::sherpa_onnx::{self, ZipformerLanguage};
+use crate::gui::locale::LocaleText;
 use eframe::egui;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use super::utils::{format_size, get_dir_size};
 
@@ -26,9 +29,9 @@ fn model_dir(lang: ZipformerLanguage) -> std::path::PathBuf {
         .join(lang.model_dir_name())
 }
 
-pub(super) fn render_zipformer_section(ui: &mut egui::Ui) {
+pub(super) fn render_zipformer_section(ui: &mut egui::Ui, text: &LocaleText) {
     ui.group(|ui| {
-        ui.label(egui::RichText::new("Zipformer Models (sherpa-onnx)").strong());
+        ui.label(egui::RichText::new("Zipformer ASR (sherpa-onnx)").strong());
         ui.add_space(4.0);
 
         // Runtime DLLs row
@@ -38,19 +41,25 @@ pub(super) fn render_zipformer_section(ui: &mut egui::Ui) {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if dlls_installed {
                     if ui
-                        .button(egui::RichText::new("Delete").color(egui::Color32::RED))
+                        .button(
+                            egui::RichText::new(text.tool_action_delete)
+                                .color(egui::Color32::RED),
+                        )
                         .clicked()
                     {
                         let _ = std::fs::remove_dir_all(sherpa_dlls_dir());
                     }
                     let size = get_dir_size(&sherpa_dlls_dir());
                     ui.label(
-                        egui::RichText::new(format!("Installed ({})", format_size(size)))
-                            .color(egui::Color32::from_rgb(34, 139, 34)),
+                        egui::RichText::new(
+                            text.tool_status_installed
+                                .replace("{}", &format_size(size)),
+                        )
+                        .color(egui::Color32::from_rgb(34, 139, 34)),
                     );
                 } else {
                     ui.label(
-                        egui::RichText::new("Not installed — downloads automatically on first use")
+                        egui::RichText::new(text.tool_status_missing)
                             .color(egui::Color32::GRAY),
                     );
                 }
@@ -58,46 +67,75 @@ pub(super) fn render_zipformer_section(ui: &mut egui::Ui) {
         });
         ui.add_space(4.0);
 
-        let mut any_installed = false;
         for &lang in ALL_LANGUAGES {
             let downloaded = sherpa_onnx::is_model_downloaded(lang);
-            if downloaded {
-                any_installed = true;
-            }
+            let label = format!("  {} ({})", lang.display_name(), lang.code());
 
             ui.horizontal(|ui| {
-                let label = format!("  {} ({})", lang.display_name(), lang.code());
-                ui.label(label);
+                ui.label(&label);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if downloaded {
                         if ui
-                            .button(egui::RichText::new("Delete").color(egui::Color32::RED))
+                            .button(
+                                egui::RichText::new(text.tool_action_delete)
+                                    .color(egui::Color32::RED),
+                            )
                             .clicked()
                         {
-                            let dir = model_dir(lang);
-                            let _ = std::fs::remove_dir_all(&dir);
+                            let _ = std::fs::remove_dir_all(model_dir(lang));
                         }
                         let size = get_dir_size(&model_dir(lang));
                         ui.label(
-                            egui::RichText::new(format!("Installed ({})", format_size(size)))
-                                .color(egui::Color32::from_rgb(34, 139, 34)),
+                            egui::RichText::new(
+                                text.tool_status_installed
+                                    .replace("{}", &format_size(size)),
+                            )
+                            .color(egui::Color32::from_rgb(34, 139, 34)),
                         );
                     } else {
-                        ui.label(egui::RichText::new("Not downloaded").color(egui::Color32::GRAY));
+                        let stop = Arc::new(AtomicBool::new(false));
+                        let is_downloading = {
+                            use crate::overlay::realtime_webview::state::REALTIME_STATE;
+                            if let Ok(state) = REALTIME_STATE.lock() {
+                                state.is_downloading
+                                    && state
+                                        .download_title
+                                        .contains(lang.display_name())
+                            } else {
+                                false
+                            }
+                        };
+
+                        if is_downloading {
+                            let progress = {
+                                use crate::overlay::realtime_webview::state::REALTIME_STATE;
+                                if let Ok(state) = REALTIME_STATE.lock() {
+                                    state.download_progress
+                                } else {
+                                    0.0
+                                }
+                            };
+                            ui.label(format!("{:.0}%", progress));
+                            ui.spinner();
+                        } else {
+                            if ui.button(text.tool_action_download).clicked() {
+                                let stop_signal = stop.clone();
+                                std::thread::spawn(move || {
+                                    let _ = sherpa_onnx::download_model(
+                                        lang,
+                                        &stop_signal,
+                                        windows::Win32::Foundation::HWND::default(),
+                                    );
+                                });
+                            }
+                            ui.label(
+                                egui::RichText::new(text.tool_status_missing)
+                                    .color(egui::Color32::GRAY),
+                            );
+                        }
                     }
                 });
             });
-        }
-
-        if !any_installed {
-            ui.add_space(2.0);
-            ui.label(
-                egui::RichText::new(
-                    "Models download automatically when selected in the transcription overlay.",
-                )
-                .color(egui::Color32::GRAY)
-                .italics(),
-            );
         }
     });
 }

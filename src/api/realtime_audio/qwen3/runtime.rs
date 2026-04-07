@@ -245,43 +245,17 @@ pub fn download_qwen3_runtime(
         )
         .is_err()
     {
-        if use_badge {
-            crate::overlay::auto_copy_badge::show_progress_notification(
-                "Qwen3-ASR CUDA Runtime",
-                "Download already in progress...",
-                0.0,
-            );
-        }
         while RUNTIME_DOWNLOAD_IN_PROGRESS.load(std::sync::atomic::Ordering::Relaxed) {
             std::thread::sleep(std::time::Duration::from_millis(300));
             if stop_signal.load(std::sync::atomic::Ordering::Relaxed) {
                 return Err(anyhow!("Download cancelled while waiting"));
             }
-            // Mirror the progress from the active download thread
-            if use_badge {
-                use crate::overlay::realtime_webview::state::REALTIME_STATE;
-                if let Ok(state) = REALTIME_STATE.lock() {
-                    crate::overlay::auto_copy_badge::show_progress_notification(
-                        "Qwen3-ASR CUDA Runtime",
-                        &state.download_message,
-                        state.download_progress,
-                    );
-                }
-            }
-        }
-        if use_badge {
-            crate::overlay::auto_copy_badge::hide_progress_notification();
         }
         if is_qwen3_runtime_managed_installed() {
             return Ok(());
         }
         return Err(anyhow!("Runtime download did not complete successfully"));
     }
-
-    let locale = {
-        let app = crate::APP.lock().unwrap();
-        crate::gui::locale::LocaleText::get(&app.config.ui_language)
-    };
 
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
@@ -291,14 +265,6 @@ pub fn download_qwen3_runtime(
         state.download_progress = 0.0;
     }
     clear_runtime_notice();
-
-    if use_badge {
-        crate::overlay::auto_copy_badge::show_progress_notification(
-            "Downloading Qwen3-ASR CUDA Runtime",
-            "Please wait... downloading libtorch + runtime DLL.",
-            0.0,
-        );
-    }
 
     fn post_download_state() {
         use crate::overlay::realtime_webview::state::REALTIME_HWND;
@@ -347,14 +313,6 @@ pub fn download_qwen3_runtime(
                     "Downloading libtorch CUDA runtime (~2.5 GB)...".to_string();
             }
             post_download_state();
-
-            if use_badge {
-                crate::overlay::auto_copy_badge::show_progress_notification(
-                    "Downloading Qwen3-ASR CUDA Runtime",
-                    "Downloading libtorch from pytorch.org (~2.5 GB)...",
-                    10.0,
-                );
-            }
 
             // Use curl as a background process for the large libtorch download
             let libtorch_zip_path = bin_dir.join("libtorch-download.zip");
@@ -405,13 +363,6 @@ pub fn download_qwen3_runtime(
                             state.download_progress = pct as f32;
                         }
                         post_download_state();
-                        if use_badge {
-                            crate::overlay::auto_copy_badge::show_progress_notification(
-                                "Downloading Qwen3-ASR CUDA Runtime",
-                                &msg,
-                                pct as f32,
-                            );
-                        }
                         std::thread::sleep(std::time::Duration::from_secs(1));
                     }
                     Err(err) => return Err(anyhow!("Failed to check curl status: {err}")),
@@ -422,13 +373,6 @@ pub fn download_qwen3_runtime(
                 state.download_message = "Extracting libtorch DLLs...".to_string();
             }
             post_download_state();
-            if use_badge {
-                crate::overlay::auto_copy_badge::show_progress_notification(
-                    "Downloading Qwen3-ASR CUDA Runtime",
-                    "Extracting libtorch DLLs...",
-                    80.0,
-                );
-            }
 
             // Extract only DLLs from libtorch/lib/ into bin_dir
             let file = std::fs::File::open(&libtorch_zip_path)?;
@@ -462,13 +406,6 @@ pub fn download_qwen3_runtime(
                                 state.download_progress = 80.0 + (extracted as f32 / 50.0) * 20.0;
                             }
                             post_download_state();
-                            if use_badge {
-                                crate::overlay::auto_copy_badge::show_progress_notification(
-                                    "Installing Qwen3-ASR CUDA Runtime",
-                                    &msg,
-                                    80.0 + (extracted as f32 / 50.0) * 20.0,
-                                );
-                            }
                             let output_path = bin_dir.join(file_name);
                             let mut output = std::fs::File::create(&output_path)?;
                             std::io::copy(&mut entry, &mut output)?;
@@ -493,9 +430,6 @@ pub fn download_qwen3_runtime(
 
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = false;
-    }
-    if use_badge {
-        crate::overlay::auto_copy_badge::hide_progress_notification();
     }
     post_download_state();
 

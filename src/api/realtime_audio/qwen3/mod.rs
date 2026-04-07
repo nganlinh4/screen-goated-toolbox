@@ -116,6 +116,9 @@ pub fn run_qwen3_transcription_variant(
     let mut last_voice_activity = Instant::now();
     let mut last_draft_change = Instant::now();
     let mut last_draft_text = String::new();
+    // After 3s of no new draft text, append a visual period to signal sentence boundary
+    // to the translation system. Not a real commit — model may still rewrite.
+    const DRAFT_STALE_MS: u64 = 3_000;
 
     while !stop_signal.load(Ordering::Relaxed) {
         if !overlay_hwnd.is_invalid() && !unsafe { IsWindow(Some(overlay_hwnd)).as_bool() } {
@@ -186,21 +189,18 @@ pub fn run_qwen3_transcription_variant(
                 last_draft_change = Instant::now();
                 last_draft_text = draft_text.clone();
             }
-            let silence_ms = last_draft_change.elapsed().as_millis() as u64;
-            if let Some(committed_draft) = super::state::check_draft_commit(&draft_text, silence_ms)
+            // If draft hasn't changed for DRAFT_STALE_MS, append a visual period to
+            // signal a sentence boundary to the translation system.
+            // Not a real commit — model may still rewrite the draft.
+            let draft_to_publish = if !draft_text.is_empty()
+                && last_draft_change.elapsed() >= Duration::from_millis(DRAFT_STALE_MS)
             {
-                // Actually commit fixed + stale draft into history
-                if !fixed_text.is_empty() {
-                    append_history_segment(&mut committed_history, &fixed_text);
-                }
-                append_history_segment(&mut committed_history, &committed_draft);
-                last_draft_text.clear();
-                last_draft_change = Instant::now();
-                publish_transcript(&state, overlay_hwnd, &committed_history, "");
+                format!("{}.", draft_text.trim_end())
             } else {
-                let live_committed = join_transcript_segments(&committed_history, &fixed_text);
-                publish_transcript(&state, overlay_hwnd, &live_committed, &draft_text);
-            }
+                draft_text
+            };
+            let live_committed = join_transcript_segments(&committed_history, &fixed_text);
+            publish_transcript(&state, overlay_hwnd, &live_committed, &draft_to_publish);
         }
 
         std::thread::sleep(Duration::from_millis(100));

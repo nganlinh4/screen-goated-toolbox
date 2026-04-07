@@ -531,7 +531,7 @@ fn run_streaming_loop(
                 // Case 1 & 2: only for models that emit native punctuation
                 // Case 1: period followed by next word → split immediately
                 if has_native_punctuation
-                    && let Some((before, after)) = split_at_sentence_boundary(&draft)
+                    && let Some((before, after)) = super::utils::split_at_sentence_boundary(&draft)
                 {
                     super::utils::append_history_segment(&mut committed_history, &before);
                     stream_committed_prefix = text[..text.len() - after.len()].trim_end().to_string();
@@ -575,37 +575,6 @@ fn run_streaming_loop(
     Ok(())
 }
 
-/// Split draft at the last sentence boundary (.?!) that has text after it.
-/// Returns (committed_part, remaining_draft) or None if no clean boundary.
-fn split_at_sentence_boundary(text: &str) -> Option<(String, String)> {
-    // Find the last .?! that is followed by at least one non-punctuation character
-    let chars: Vec<char> = text.chars().collect();
-    let mut last_boundary: Option<usize> = None; // byte index just after the punctuation
-    let mut byte_pos = 0usize;
-    for (i, &ch) in chars.iter().enumerate() {
-        let ch_len = ch.len_utf8();
-        if ch == '.' || ch == '?' || ch == '!' {
-            // Check that something meaningful follows (not just whitespace/punctuation)
-            let rest = &text[byte_pos + ch_len..];
-            let rest_trimmed = rest.trim_start();
-            if !rest_trimmed.is_empty()
-                && rest_trimmed
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_alphabetic() || c.is_numeric())
-            {
-                last_boundary = Some(byte_pos + ch_len);
-            }
-        }
-        byte_pos += ch_len;
-        let _ = i;
-    }
-    last_boundary.map(|pos| {
-        let before = text[..pos].trim_end().to_string();
-        let after = text[pos..].trim_start().to_string();
-        (before, after)
-    })
-}
 
 /// Parse text from sherpa-onnx result JSON: {"text": "hello world", ...}
 fn parse_result_text(json_str: &str) -> String {
