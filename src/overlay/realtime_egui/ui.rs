@@ -459,12 +459,7 @@ fn render_content_area(
         }
     }
 
-    let (
-        full_transcript,
-        transcript_committed_pos,
-        committed_translation,
-        uncommitted_translation,
-    ) = (
+    let (full_transcript, transcript_committed_pos, committed_translation, uncommitted_translation) = (
         state_data.full_transcript.clone(),
         state_data.transcript_committed_pos,
         state_data.committed_translation.clone(),

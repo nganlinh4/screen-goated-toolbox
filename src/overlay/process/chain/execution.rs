@@ -465,7 +465,10 @@ fn handle_execution_result(
             txt
         }
         Err(e) => {
-            crate::overlay::utils::show_api_key_error_notification(&e.to_string(), &config.ui_language);
+            crate::overlay::utils::show_api_key_error_notification(
+                &e.to_string(),
+                &config.ui_language,
+            );
             let err = crate::overlay::utils::get_error_message(
                 &e.to_string(),
                 &config.ui_language,

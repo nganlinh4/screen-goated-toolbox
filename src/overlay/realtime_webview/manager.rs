@@ -434,7 +434,12 @@ fn notify_webview_settings(
     let hwnd_key = hwnd.0 as isize;
     let script = format!(
         "if(window.updateSettings) window.updateSettings({{ audioSource: '{}', targetLanguage: '{}', translationModel: '{}', transcriptionModel: '{}', transcriptionLanguage: '{}', fontSize: {} }});",
-        source, lang, model, trans_model, trans_lang.to_uppercase(), font_size
+        source,
+        lang,
+        model,
+        trans_model,
+        trans_lang.to_uppercase(),
+        font_size
     );
     REALTIME_WEBVIEWS.with(|wvs| {
         if let Some(webview) = wvs.borrow().get(&hwnd_key) {

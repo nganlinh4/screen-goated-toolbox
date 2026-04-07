@@ -43,3 +43,4 @@ third_party/qwen3-asr-rs/target_stream_check/
 native/qwen3_runtime/target/
 native/qwen3_runtime/Cargo.lock
 third_party/moonshine-voice/
+third_party/sherpa-onnx-win/

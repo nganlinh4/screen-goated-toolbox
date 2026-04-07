@@ -327,7 +327,6 @@ impl HasWindowHandle for HwndWrapper {
     }
 }
 
-
 pub fn show_prompt_dj() {
     unsafe {
         // Initialize on-demand if not warmed up

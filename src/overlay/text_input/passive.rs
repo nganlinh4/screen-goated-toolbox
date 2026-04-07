@@ -190,7 +190,10 @@ fn handle_key_up(vk_code: u32) {
 
 fn update_modifier_state(state: &mut PassiveEditorState, vk_code: u32, is_down: bool) -> bool {
     match vk_code {
-        vk if vk == VK_CONTROL.0 as u32 || vk == VK_LCONTROL.0 as u32 || vk == VK_RCONTROL.0 as u32 => {
+        vk if vk == VK_CONTROL.0 as u32
+            || vk == VK_LCONTROL.0 as u32
+            || vk == VK_RCONTROL.0 as u32 =>
+        {
             state.ctrl = is_down;
             true
         }
@@ -248,24 +251,38 @@ fn translate_vk(vk_code: u32) -> Option<String> {
     if shift {
         keyboard_state[VK_SHIFT.0 as usize] = 0x80;
     }
-    if (unsafe {
-        GetKeyState(windows::Win32::UI::Input::KeyboardAndMouse::VK_CAPITAL.0 as i32)
-    } & 0x0001)
+    if (unsafe { GetKeyState(windows::Win32::UI::Input::KeyboardAndMouse::VK_CAPITAL.0 as i32) }
+        & 0x0001)
         != 0
     {
-        keyboard_state
-            [windows::Win32::UI::Input::KeyboardAndMouse::VK_CAPITAL.0 as usize] = 0x01;
+        keyboard_state[windows::Win32::UI::Input::KeyboardAndMouse::VK_CAPITAL.0 as usize] = 0x01;
     }
 
     let layout = unsafe { GetKeyboardLayout(0) };
     let scan_code = unsafe { MapVirtualKeyW(vk_code, MAPVK_VK_TO_VSC) as u32 };
     let mut utf16 = [0u16; 8];
-    let translated =
-        unsafe { ToUnicodeEx(vk_code, scan_code, &keyboard_state, &mut utf16, 0, Some(layout)) };
+    let translated = unsafe {
+        ToUnicodeEx(
+            vk_code,
+            scan_code,
+            &keyboard_state,
+            &mut utf16,
+            0,
+            Some(layout),
+        )
+    };
 
     if translated < 0 {
-        let _ =
-            unsafe { ToUnicodeEx(vk_code, scan_code, &keyboard_state, &mut utf16, 0, Some(layout)) };
+        let _ = unsafe {
+            ToUnicodeEx(
+                vk_code,
+                scan_code,
+                &keyboard_state,
+                &mut utf16,
+                0,
+                Some(layout),
+            )
+        };
         return None;
     }
 

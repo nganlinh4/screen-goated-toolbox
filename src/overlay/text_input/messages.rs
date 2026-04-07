@@ -1,9 +1,9 @@
 // --- TEXT INPUT MESSAGES ---
 // Window procedure and message handling.
 
+use super::passive;
 use super::state::*;
 use super::styles::get_editor_css;
-use super::passive;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
