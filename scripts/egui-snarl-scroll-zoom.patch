@@ -1,0 +1,74 @@
+diff --git a/src/ui.rs b/src/ui.rs
+index 961546d..e4f2073 100644
+--- a/src/ui.rs
++++ b/src/ui.rs
+@@ -4,7 +4,7 @@ use std::{collections::HashMap, hash::Hash};
+ 
+ use egui::{
+     Align, Color32, CornerRadius, Frame, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
+-    Pos2, Rect, Scene, Sense, Shape, Stroke, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
++    Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
+     Vec2,
+     collapsing_header::paint_default_icon,
+     emath::{GuiRounding, TSTransform},
+@@ -989,9 +989,57 @@ where
+     clamp_scale(&mut to_global, min_scale, max_scale, ui_rect);
+ 
+     let mut snarl_resp = ui.response();
+-    Scene::new()
+-        .zoom_range(min_scale..=max_scale)
+-        .register_pan_and_zoom(&ui, &mut snarl_resp, &mut to_global);
++
++    // CUSTOM SCROLL-TO-ZOOM: wheel zooms the canvas without requiring Ctrl.
++    {
++        let scroll_delta = ui.ctx().input(|i| i.raw_scroll_delta);
++        let zoom_delta = ui.ctx().input(|i| i.zoom_delta());
++        let pointer_in_canvas = ui.ctx().input(|i| {
++            i.pointer
++                .hover_pos()
++                .map(|pos| ui_rect.contains(pos))
++                .unwrap_or(false)
++        });
++
++        if scroll_delta.y.abs() > 0.1 && pointer_in_canvas {
++            let zoom_factor = if scroll_delta.y > 0.0 { 1.1 } else { 0.9 };
++            let pointer_pos = ui
++                .ctx()
++                .input(|i| i.pointer.hover_pos())
++                .unwrap_or(ui_rect.center());
++            let new_scale = (to_global.scaling * zoom_factor).clamp(min_scale, max_scale);
++            if new_scale != to_global.scaling {
++                let scale_ratio = new_scale / to_global.scaling;
++                to_global.translation =
++                    pointer_pos.to_vec2() + (to_global.translation - pointer_pos.to_vec2()) * scale_ratio;
++                to_global.scaling = new_scale;
++                snarl_resp.mark_changed();
++            }
++        }
++
++        if zoom_delta != 1.0 && pointer_in_canvas {
++            let pointer_pos = ui
++                .ctx()
++                .input(|i| i.pointer.hover_pos())
++                .unwrap_or(ui_rect.center());
++            let new_scale = (to_global.scaling * zoom_delta).clamp(min_scale, max_scale);
++            if new_scale != to_global.scaling {
++                let scale_ratio = new_scale / to_global.scaling;
++                to_global.translation =
++                    pointer_pos.to_vec2() + (to_global.translation - pointer_pos.to_vec2()) * scale_ratio;
++                to_global.scaling = new_scale;
++                snarl_resp.mark_changed();
++            }
++        }
++
++        if snarl_resp.dragged_by(PointerButton::Primary)
++            || snarl_resp.dragged_by(PointerButton::Middle)
++            || snarl_resp.dragged_by(PointerButton::Secondary)
++        {
++            to_global.translation += snarl_resp.drag_delta();
++            snarl_resp.mark_changed();
++        }
++    }
+ 
+     if snarl_resp.changed() {
+         ui.ctx().request_repaint();
