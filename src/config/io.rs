@@ -114,6 +114,7 @@ fn migrate_config(config: &mut Config) {
         &mut config.model_priority_chains.text_to_text,
         ModelType::Text,
     );
+    normalize_bilingual_relay_settings(config);
 
     if config.realtime_translation_model == "taalas-rt" {
         config.realtime_translation_model =
@@ -192,6 +193,16 @@ fn default_model_id_for_type(expected_type: ModelType) -> &'static str {
         ModelType::Vision => crate::model_config::DEFAULT_IMAGE_MODEL_ID,
         ModelType::Text => crate::model_config::DEFAULT_TEXT_MODEL_ID,
         ModelType::Audio => crate::model_config::PRESET_AUDIO_TRANSCRIBE_MODEL_ID,
+    }
+}
+
+fn normalize_bilingual_relay_settings(config: &mut Config) {
+    let defaults = crate::config::BilingualRelaySettings::default();
+    if config.bilingual_relay.first.language.trim().is_empty() {
+        config.bilingual_relay.first = defaults.first;
+    }
+    if config.bilingual_relay.second.language.trim().is_empty() {
+        config.bilingual_relay.second = defaults.second;
     }
 }
 
@@ -379,6 +390,24 @@ mod tests {
             config.model_priority_chains.text_to_text,
             vec![crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string()]
         );
+    }
+
+    #[test]
+    fn migrate_config_fills_missing_bilingual_relay_defaults() {
+        let mut config = Config::default();
+        config.bilingual_relay.first.language.clear();
+        config.bilingual_relay.second.language.clear();
+        config.bilingual_relay.second.accent.clear();
+        config.bilingual_relay.second.tone.clear();
+
+        migrate_config(&mut config);
+
+        assert_eq!(config.bilingual_relay.first.language, "English");
+        assert_eq!(config.bilingual_relay.first.accent, "");
+        assert_eq!(config.bilingual_relay.first.tone, "");
+        assert_eq!(config.bilingual_relay.second.language, "Korean");
+        assert_eq!(config.bilingual_relay.second.accent, "Busan");
+        assert_eq!(config.bilingual_relay.second.tone, "polite");
     }
 
 }
