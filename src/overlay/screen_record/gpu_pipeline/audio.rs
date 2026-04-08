@@ -1,5 +1,4 @@
 use super::super::native_export::config::DeviceAudioPoint;
-use super::super::audio_time_stretch;
 
 pub(super) fn get_device_audio_volume(time: f64, points: &[DeviceAudioPoint]) -> f64 {
     if points.is_empty() {
@@ -77,14 +76,4 @@ pub(super) fn apply_audio_volume_envelope(
                 .copy_from_slice(&(sample * volume).clamp(-1.0, 1.0).to_le_bytes());
         }
     }
-}
-
-/// Pitch-preserving time stretch for native audio speed changes.
-pub(super) fn time_stretch_pcm_bytes(
-    input: &[u8],
-    speed: f64,
-    sample_rate: u32,
-    channels: usize,
-) -> Vec<u8> {
-    audio_time_stretch::time_stretch_pcm_bytes(input, speed, sample_rate, channels)
 }
