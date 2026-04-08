@@ -489,7 +489,7 @@ pub fn get(font_size: u32) -> String {
                 }}
             }}
 
-            if (settings.transcriptionLanguage && transLangSelect) {{
+            if (settings.transcriptionLanguage && transLangSelect && settings.transcriptionModel === 'zipformer') {{
                 transLangSelect.value = settings.transcriptionLanguage.toLowerCase();
             }}
 

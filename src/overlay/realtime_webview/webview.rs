@@ -138,6 +138,7 @@ pub fn create_realtime_webview(
                             if !MIC_VISIBLE.load(Ordering::SeqCst)
                                 && !TRANS_VISIBLE.load(Ordering::SeqCst)
                             {
+                                REALTIME_SESSION_STOPPING.store(true, Ordering::SeqCst);
                                 REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
                                 crate::api::tts::TTS_MANAGER.stop();
                                 IS_ACTIVE = false;
@@ -178,6 +179,7 @@ pub fn create_realtime_webview(
                             if !MIC_VISIBLE.load(Ordering::SeqCst)
                                 && !TRANS_VISIBLE.load(Ordering::SeqCst)
                             {
+                                REALTIME_SESSION_STOPPING.store(true, Ordering::SeqCst);
                                 REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
                                 crate::api::tts::TTS_MANAGER.stop();
                                 IS_ACTIVE = false;

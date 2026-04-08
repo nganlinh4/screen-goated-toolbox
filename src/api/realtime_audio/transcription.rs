@@ -239,6 +239,9 @@ fn transcription_thread_entry(
             break;
         }
     }
+
+    crate::overlay::realtime_webview::state::REALTIME_SESSION_STOPPING
+        .store(false, Ordering::SeqCst);
 }
 
 fn run_realtime_transcription(

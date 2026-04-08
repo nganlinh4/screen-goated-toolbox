@@ -16,6 +16,9 @@ pub const GAP: i32 = 20;
 
 lazy_static::lazy_static! {
     pub static ref REALTIME_STOP_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    /// True while a realtime session is winding down and must not be restarted yet.
+    pub static ref REALTIME_SESSION_STOPPING: Arc<AtomicBool> =
+        Arc::new(AtomicBool::new(false));
     pub static ref REALTIME_STATE: SharedRealtimeState = Arc::new(Mutex::new(RealtimeState::new()));
     /// Signal to change audio source (true = restart with new source)
     pub static ref AUDIO_SOURCE_CHANGE: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
