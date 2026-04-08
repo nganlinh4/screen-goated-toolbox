@@ -22,7 +22,7 @@ impl BilingualRelayProfile {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BilingualRelaySettings {
     #[serde(default = "default_first_profile")]
     pub first: BilingualRelayProfile,
@@ -104,6 +104,18 @@ impl BilingualRelaySettings {
     }
 }
 
+impl Default for BilingualRelaySettings {
+    fn default() -> Self {
+        Self {
+            first: default_first_profile(),
+            second: default_second_profile(),
+            hotkey: None,
+            hotkeys: Vec::new(),
+            guide_seen: false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{BilingualRelayProfile, BilingualRelaySettings};
@@ -130,5 +142,17 @@ mod tests {
         assert!(prompt.contains("Korean Busan accent (polite tone)"));
         assert!(prompt.contains("English (easy to hear tone)"));
         assert!(!prompt.contains("()"));
+    }
+
+    #[test]
+    fn default_settings_use_the_expected_language_pair() {
+        let settings = BilingualRelaySettings::default();
+        assert_eq!(settings.first.language, "English");
+        assert_eq!(settings.first.accent, "");
+        assert_eq!(settings.first.tone, "");
+        assert_eq!(settings.second.language, "Korean");
+        assert_eq!(settings.second.accent, "Busan");
+        assert_eq!(settings.second.tone, "polite");
+        assert!(settings.is_valid());
     }
 }
