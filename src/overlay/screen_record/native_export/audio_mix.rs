@@ -1,6 +1,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use super::super::audio_time_stretch;
 use super::super::mf_audio::MfAudioDecoder;
@@ -120,6 +121,124 @@ fn curve_has_audible_points(points: &[DeviceAudioPoint]) -> bool {
     points.iter().any(|point| point.volume > 0.0001)
 }
 
+fn volume_curve_is_flat_unity(points: &[DeviceAudioPoint]) -> bool {
+    points
+        .iter()
+        .all(|point| (point.volume.clamp(0.0, 1.0) - 1.0).abs() < 0.0001)
+}
+
+fn constant_speed(speed_points: &[SpeedPoint]) -> Option<f64> {
+    if speed_points.is_empty() {
+        return Some(1.0);
+    }
+    let speed = speed_points[0].speed;
+    if speed_points
+        .iter()
+        .all(|point| (point.speed - speed).abs() < 0.0001)
+    {
+        Some(speed.clamp(0.1, 16.0))
+    } else {
+        None
+    }
+}
+
+fn ffmpeg_exe() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or(PathBuf::from("."))
+        .join("screen-goated-toolbox")
+        .join("bin")
+        .join("ffmpeg.exe")
+}
+
+fn ffmpeg_atempo_chain(speed: f64) -> Vec<String> {
+    let mut filters = Vec::new();
+    let mut remaining = speed.clamp(0.1, 100.0);
+    while remaining > 2.0 + 0.0001 {
+        filters.push("atempo=2.0".to_string());
+        remaining /= 2.0;
+    }
+    while remaining < 0.5 - 0.0001 {
+        filters.push("atempo=0.5".to_string());
+        remaining /= 0.5;
+    }
+    filters.push(format!("atempo={remaining:.6}"));
+    filters
+}
+
+fn try_build_single_source_ffmpeg_wav(
+    source: &ExportAudioSource,
+    speed_points: &[SpeedPoint],
+    trim_segments: &[TrimSegment],
+    wav_path: &Path,
+) -> Result<Option<PathBuf>, String> {
+    if source.start_offset_sec.abs() > 0.0001
+        || !volume_curve_is_flat_unity(&source.volume_points)
+        || trim_segments.len() != 1
+    {
+        return Ok(None);
+    }
+    let Some(speed) = constant_speed(speed_points) else {
+        return Ok(None);
+    };
+
+    let ffmpeg = ffmpeg_exe();
+    if !ffmpeg.exists() {
+        return Ok(None);
+    }
+
+    let segment = &trim_segments[0];
+    let start = segment.start_time.max(0.0);
+    let duration = (segment.end_time - segment.start_time).max(0.0);
+    if duration <= 0.0 {
+        return Ok(None);
+    }
+
+    let mut filter_chain = ffmpeg_atempo_chain(speed);
+    filter_chain.push(format!("aresample={MIX_OUTPUT_SAMPLE_RATE}"));
+    filter_chain.push("aformat=sample_fmts=s16:channel_layouts=stereo".to_string());
+    let audio_filter = filter_chain.join(",");
+
+    let output = Command::new(&ffmpeg)
+        .args([
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            &format!("{start:.6}"),
+            "-t",
+            &format!("{duration:.6}"),
+            "-i",
+            &source.path,
+            "-vn",
+            "-map",
+            "0:a:0",
+            "-af",
+            &audio_filter,
+            "-ar",
+            &MIX_OUTPUT_SAMPLE_RATE.to_string(),
+            "-ac",
+            &MIX_OUTPUT_CHANNELS.to_string(),
+            "-c:a",
+            "pcm_s16le",
+            wav_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to launch FFmpeg for export audio prep: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("FFmpeg export audio prep failed:\n{stderr}"));
+    }
+    if !wav_path.exists() {
+        return Ok(None);
+    }
+    eprintln!(
+        "[Export][AudioPrep] FFmpeg fast path: constant_speed={speed:.3} trim={start:.3}s+{duration:.3}s"
+    );
+    Ok(Some(wav_path.to_path_buf()))
+}
+
 struct OutputTimeMapper {
     trim_segments: Vec<TrimSegment>,
     speed_points: Vec<SpeedPoint>,
@@ -194,6 +313,44 @@ fn convert_f32le_to_i16_bytes(pcm: &[u8]) -> Vec<u8> {
     bytes
 }
 
+fn create_wav_writer(wav_path: &Path) -> Result<hound::WavWriter<std::io::BufWriter<File>>, String> {
+    let spec = hound::WavSpec {
+        channels: MIX_OUTPUT_CHANNELS as u16,
+        sample_rate: MIX_OUTPUT_SAMPLE_RATE,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    hound::WavWriter::create(wav_path, spec).map_err(|e| format!("Create mixed WAV: {e}"))
+}
+
+fn append_silence_frames(
+    writer: &mut hound::WavWriter<std::io::BufWriter<File>>,
+    frames: u64,
+    channels: usize,
+) -> Result<(), String> {
+    for _ in 0..frames {
+        for _ in 0..channels {
+            writer
+                .write_sample(0i16)
+                .map_err(|e| format!("Write silent WAV sample: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
+fn append_f32le_chunk_to_wav(
+    writer: &mut hound::WavWriter<std::io::BufWriter<File>>,
+    pcm: &[u8],
+) -> Result<(), String> {
+    for sample_bytes in convert_f32le_to_i16_bytes(pcm).chunks_exact(2) {
+        let sample = i16::from_le_bytes(sample_bytes.try_into().unwrap());
+        writer
+            .write_sample(sample)
+            .map_err(|e| format!("Write mixed WAV sample: {e}"))?;
+    }
+    Ok(())
+}
+
 fn mix_pcm_chunk_into_raw_file(
     raw_file: &mut File,
     output_start_time: f64,
@@ -266,6 +423,12 @@ fn mix_source_into_raw_file(
         let _ = decoder.seek((trim_segments[0].start_time * 10_000_000.0) as i64);
     }
 
+    let channels = decoder.channels() as usize;
+    let mut stretcher = audio_time_stretch::ExportAudioStretcher::new(MIX_OUTPUT_SAMPLE_RATE, channels);
+    let mut last_output_end_time = 0.0f64;
+    let mut last_chunk_time = 0.0f64;
+    let mut last_source_duration_sec = 0.0f64;
+
     loop {
         let Some((pcm, ts_100ns)) = decoder.read_samples()? else {
             break;
@@ -288,7 +451,6 @@ fn mix_source_into_raw_file(
             continue;
         }
 
-        let channels = decoder.channels() as usize;
         let input_frames = if channels == 0 {
             0
         } else {
@@ -300,12 +462,7 @@ fn mix_source_into_raw_file(
 
         let speed = get_speed(chunk_time, speed_points).clamp(0.1, 16.0);
         let source_duration_sec = input_frames as f64 / MIX_OUTPUT_SAMPLE_RATE as f64;
-        let mut processed = audio_time_stretch::time_stretch_pcm_bytes(
-            &pcm,
-            speed,
-            MIX_OUTPUT_SAMPLE_RATE,
-            channels,
-        );
+        let mut processed = stretcher.stretch(&pcm, speed);
         apply_audio_volume_envelope(
             &mut processed,
             chunk_time,
@@ -317,20 +474,33 @@ fn mix_source_into_raw_file(
             continue;
         };
         mix_pcm_chunk_into_raw_file(raw_file, output_start_time, &processed, channels)?;
+        if !processed.is_empty() {
+            last_output_end_time = output_start_time
+                + processed.len() as f64 / (channels as f64 * 4.0) / MIX_OUTPUT_SAMPLE_RATE as f64;
+            last_chunk_time = chunk_time;
+            last_source_duration_sec = source_duration_sec;
+        }
+    }
+
+    let tail = stretcher.finish();
+    if !tail.is_empty() {
+        let tail_duration_sec = tail.len() as f64 / (channels as f64 * 4.0) / MIX_OUTPUT_SAMPLE_RATE as f64;
+        let mut tail = tail;
+        apply_audio_volume_envelope(
+            &mut tail,
+            last_chunk_time + last_source_duration_sec,
+            tail_duration_sec,
+            channels,
+            &source.volume_points,
+        );
+        mix_pcm_chunk_into_raw_file(raw_file, last_output_end_time, &tail, channels)?;
     }
 
     Ok(())
 }
 
 fn write_wav_from_raw_pcm(raw_path: &Path, wav_path: &Path) -> Result<(), String> {
-    let spec = hound::WavSpec {
-        channels: MIX_OUTPUT_CHANNELS as u16,
-        sample_rate: MIX_OUTPUT_SAMPLE_RATE,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-    let mut writer =
-        hound::WavWriter::create(wav_path, spec).map_err(|e| format!("Create mixed WAV: {e}"))?;
+    let mut writer = create_wav_writer(wav_path)?;
     let mut raw_file = File::open(raw_path).map_err(|e| format!("Open mixed PCM: {e}"))?;
     let mut buffer = vec![0u8; 32 * 1024];
 
@@ -355,6 +525,126 @@ fn write_wav_from_raw_pcm(raw_path: &Path, wav_path: &Path) -> Result<(), String
     Ok(())
 }
 
+fn build_single_source_preprocessed_wav(
+    source: &ExportAudioSource,
+    speed_points: &[SpeedPoint],
+    trim_segments: &[TrimSegment],
+    wav_path: &Path,
+) -> Result<Option<PathBuf>, String> {
+    if let Some(path) = try_build_single_source_ffmpeg_wav(
+        source,
+        speed_points,
+        trim_segments,
+        wav_path,
+    )? {
+        return Ok(Some(path));
+    }
+    eprintln!("[Export][AudioPrep] Rust fallback path");
+
+    let decoder = MfAudioDecoder::new_with_output_format(
+        &source.path,
+        Some(MIX_OUTPUT_SAMPLE_RATE),
+        Some(MIX_OUTPUT_CHANNELS),
+    )?;
+    if trim_segments.is_empty() {
+        return Ok(None);
+    }
+
+    let mut writer = create_wav_writer(wav_path)?;
+    let mut mapper = OutputTimeMapper::new(trim_segments.to_vec(), speed_points.to_vec());
+    let mut segment_idx = 0usize;
+    if trim_segments[0].start_time > 0.0 {
+        let _ = decoder.seek((trim_segments[0].start_time * 10_000_000.0) as i64);
+    }
+
+    let channels = decoder.channels() as usize;
+    let mut stretcher =
+        audio_time_stretch::ExportAudioStretcher::new(MIX_OUTPUT_SAMPLE_RATE, channels);
+    let mut written_frames = 0u64;
+    let mut last_chunk_time = 0.0f64;
+    let mut last_source_duration_sec = 0.0f64;
+
+    loop {
+        let Some((pcm, ts_100ns)) = decoder.read_samples()? else {
+            break;
+        };
+        let decoded_time = ts_100ns as f64 / 10_000_000.0;
+        let chunk_time = decoded_time + source.start_offset_sec;
+        let Some(segment) = trim_segments.get(segment_idx) else {
+            break;
+        };
+
+        if chunk_time > segment.end_time {
+            segment_idx += 1;
+            if let Some(next_segment) = trim_segments.get(segment_idx) {
+                let _ = decoder.seek((next_segment.start_time * 10_000_000.0) as i64);
+                continue;
+            }
+            break;
+        }
+        if chunk_time < segment.start_time {
+            continue;
+        }
+
+        let input_frames = if channels == 0 {
+            0
+        } else {
+            pcm.len() / (channels * 4)
+        };
+        if input_frames == 0 {
+            continue;
+        }
+
+        let speed = get_speed(chunk_time, speed_points).clamp(0.1, 16.0);
+        let source_duration_sec = input_frames as f64 / MIX_OUTPUT_SAMPLE_RATE as f64;
+        let mut processed = stretcher.stretch(&pcm, speed);
+        apply_audio_volume_envelope(
+            &mut processed,
+            chunk_time,
+            source_duration_sec,
+            channels,
+            &source.volume_points,
+        );
+        let Some(output_start_time) = mapper.map_source_time(chunk_time) else {
+            continue;
+        };
+        let target_start_frame = (output_start_time * MIX_OUTPUT_SAMPLE_RATE as f64)
+            .round()
+            .max(0.0) as u64;
+        if target_start_frame > written_frames {
+            append_silence_frames(&mut writer, target_start_frame - written_frames, channels)?;
+            written_frames = target_start_frame;
+        }
+        append_f32le_chunk_to_wav(&mut writer, &processed)?;
+        written_frames += processed.len() as u64 / (channels as u64 * 4);
+        last_chunk_time = chunk_time;
+        last_source_duration_sec = source_duration_sec;
+    }
+
+    let mut tail = stretcher.finish();
+    if !tail.is_empty() {
+        let tail_duration_sec = tail.len() as f64 / (channels as f64 * 4.0) / MIX_OUTPUT_SAMPLE_RATE as f64;
+        apply_audio_volume_envelope(
+            &mut tail,
+            last_chunk_time + last_source_duration_sec,
+            tail_duration_sec,
+            channels,
+            &source.volume_points,
+        );
+        append_f32le_chunk_to_wav(&mut writer, &tail)?;
+        written_frames += tail.len() as u64 / (channels as u64 * 4);
+    }
+
+    writer
+        .finalize()
+        .map_err(|e| format!("Finalize mixed WAV: {e}"))?;
+    if written_frames == 0 {
+        let _ = fs::remove_file(wav_path);
+        return Ok(None);
+    }
+    Ok(Some(wav_path.to_path_buf()))
+}
+
 pub fn build_preprocessed_audio_mix(
     sources: &[ExportAudioSource],
     speed_points: &[SpeedPoint],
@@ -376,9 +666,18 @@ pub fn build_preprocessed_audio_mix(
     }
 
     fs::create_dir_all(temp_dir).map_err(|e| format!("Create audio mix temp dir: {e}"))?;
-    let raw_path = temp_dir.join(format!("{file_stem}_audio_mix.pcm"));
     let wav_path = temp_dir.join(format!("{file_stem}_audio_mix.wav"));
     let trim_segments = normalized_trim_segments(trim_start, duration, trim_segments);
+    if active_sources.len() == 1 {
+        return build_single_source_preprocessed_wav(
+            &active_sources[0],
+            speed_points,
+            &trim_segments,
+            &wav_path,
+        );
+    }
+
+    let raw_path = temp_dir.join(format!("{file_stem}_audio_mix.pcm"));
     let mut raw_file = OpenOptions::new()
         .create(true)
         .truncate(true)
