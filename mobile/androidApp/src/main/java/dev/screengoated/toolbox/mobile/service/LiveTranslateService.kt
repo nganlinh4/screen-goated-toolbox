@@ -14,9 +14,11 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 class LiveTranslateService : androidx.lifecycle.LifecycleService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val stopping = AtomicBoolean(false)
 
     private lateinit var runtime: LiveSessionRuntime
     private lateinit var notifications: ServiceNotificationFactory
@@ -74,6 +76,9 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
     }
 
     private fun startSession() {
+        if (stopping.get()) {
+            return
+        }
         repository.ensureSafePlayDefaults()
         repository.refreshPermissions()
         if (!repository.canStartSession()) {
@@ -104,6 +109,9 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
     }
 
     private fun stopSession() {
+        if (!stopping.compareAndSet(false, true)) {
+            return
+        }
         runtime.stop()
         repository.commitPendingLiveHistory()
         repository.stop()

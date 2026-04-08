@@ -48,12 +48,16 @@ impl Default for RealtimeUiState {
 }
 
 pub fn show_realtime_egui_overlay(preset_idx: usize) {
-    if MINIMAL_ACTIVE.load(Ordering::SeqCst) || unsafe { IS_ACTIVE } {
+    if MINIMAL_ACTIVE.load(Ordering::SeqCst)
+        || unsafe { IS_ACTIVE }
+        || REALTIME_SESSION_STOPPING.load(Ordering::SeqCst)
+    {
         return;
     }
 
     unsafe {
         IS_ACTIVE = true;
+        REALTIME_SESSION_STOPPING.store(false, Ordering::SeqCst);
         REALTIME_STOP_SIGNAL.store(false, Ordering::SeqCst);
         MIC_VISIBLE.store(true, Ordering::SeqCst);
         TRANS_VISIBLE.store(true, Ordering::SeqCst);
@@ -145,16 +149,17 @@ pub fn render_minimal_overlay(ctx: &egui::Context) {
         return;
     }
 
-    if USER_REQUESTED_CLOSE.load(Ordering::SeqCst) {
-        MINIMAL_ACTIVE.store(false, Ordering::SeqCst);
-        unsafe {
-            IS_ACTIVE = false;
+        if USER_REQUESTED_CLOSE.load(Ordering::SeqCst) {
+            MINIMAL_ACTIVE.store(false, Ordering::SeqCst);
+            unsafe {
+                IS_ACTIVE = false;
+            }
+            REALTIME_SESSION_STOPPING.store(true, Ordering::SeqCst);
+            REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
+            crate::api::tts::TTS_MANAGER.stop();
+            USER_REQUESTED_CLOSE.store(false, Ordering::SeqCst);
+            return;
         }
-        REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
-        crate::api::tts::TTS_MANAGER.stop();
-        USER_REQUESTED_CLOSE.store(false, Ordering::SeqCst);
-        return;
-    }
 
     let mut ui_state = UI_STATE.lock().unwrap();
     let ui_language = APP

@@ -28,6 +28,7 @@ pub fn stop_realtime_overlay() {
 
     // Stop Minimal Mode if active
     crate::overlay::realtime_egui::MINIMAL_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
+    REALTIME_SESSION_STOPPING.store(true, Ordering::SeqCst);
     REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
 
     unsafe {
@@ -46,6 +47,10 @@ pub fn stop_realtime_overlay() {
 
 pub fn show_realtime_overlay(preset_idx: usize) {
     unsafe {
+        if REALTIME_SESSION_STOPPING.load(Ordering::SeqCst) {
+            return;
+        }
+
         // Initialize on-demand if not warmed up
         if !IS_WARMED_UP {
             if !IS_INITIALIZING {
@@ -60,6 +65,9 @@ pub fn show_realtime_overlay(preset_idx: usize) {
                 // Poll for 10 seconds (100 * 100ms)
                 for _ in 0..100 {
                     std::thread::sleep(std::time::Duration::from_millis(100));
+                    if REALTIME_SESSION_STOPPING.load(Ordering::SeqCst) {
+                        return;
+                    }
                     if IS_WARMED_UP && !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {
                         let _ = PostMessageW(
                             Some(REALTIME_HWND),
@@ -242,7 +250,7 @@ unsafe extern "system" fn translation_wnd_proc_internal(
 
 unsafe fn handle_start_overlay(preset_idx: usize) {
     unsafe {
-        if IS_ACTIVE {
+        if IS_ACTIVE || REALTIME_SESSION_STOPPING.load(Ordering::SeqCst) {
             return;
         }
 
@@ -256,6 +264,7 @@ unsafe fn handle_start_overlay(preset_idx: usize) {
 
         // Reset state
         IS_ACTIVE = true;
+        REALTIME_SESSION_STOPPING.store(false, Ordering::SeqCst);
         REALTIME_STOP_SIGNAL.store(false, Ordering::SeqCst);
         MIC_VISIBLE.store(true, Ordering::SeqCst);
         TRANS_VISIBLE.store(true, Ordering::SeqCst);
