@@ -38,6 +38,7 @@ internal fun GlobalSection(
     onOllamaUrlChanged: (String) -> Unit,
     onPresetRuntimeSettingsClick: () -> Unit,
     onUsageStatsClick: () -> Unit,
+    onDownloadedToolsClick: () -> Unit,
     onResetDefaults: () -> Unit,
     onVoiceSettingsClick: () -> Unit,
     onOverlayOpacityChanged: (Int) -> Unit,
@@ -176,11 +177,38 @@ internal fun GlobalSection(
                 onOpacityChanged = onOverlayOpacityChanged,
             )
         }
-        AppUpdateSection(
-            state = appUpdateState,
-            locale = locale,
-            onCheckForUpdates = onCheckForAppUpdates,
-        )
-        DownloadedToolsSection(locale = locale)
+        if (wideLayout || compactLandscape) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ShellSpacing.cardGap),
+            ) {
+                AppUpdateSection(
+                    state = appUpdateState,
+                    locale = locale,
+                    onCheckForUpdates = onCheckForAppUpdates,
+                    modifier = Modifier.weight(1f),
+                )
+                SettingsActionButton(
+                    text = locale.shellDownloadedToolsLabel,
+                    icon = R.drawable.ms_download,
+                    onClick = onDownloadedToolsClick,
+                    morphStyle = SettingsActionMorphStyle.DOWNLOADS,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        } else {
+            AppUpdateSection(
+                state = appUpdateState,
+                locale = locale,
+                onCheckForUpdates = onCheckForAppUpdates,
+            )
+            SettingsActionButton(
+                text = locale.shellDownloadedToolsLabel,
+                icon = R.drawable.ms_download,
+                onClick = onDownloadedToolsClick,
+                morphStyle = SettingsActionMorphStyle.DOWNLOADS,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }

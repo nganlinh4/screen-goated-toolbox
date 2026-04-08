@@ -1,4 +1,5 @@
 use super::super::native_export::config::DeviceAudioPoint;
+use super::super::audio_time_stretch;
 
 pub(super) fn get_device_audio_volume(time: f64, points: &[DeviceAudioPoint]) -> f64 {
     if points.is_empty() {
@@ -78,56 +79,12 @@ pub(super) fn apply_audio_volume_envelope(
     }
 }
 
-/// Fast linear interpolation for native audio speed alteration (pitch-shifts).
-pub(super) fn resample_pcm_bytes(input: &[u8], speed: f64, channels: usize) -> Vec<u8> {
-    if (speed - 1.0).abs() < 0.001 || input.is_empty() || channels == 0 {
-        return input.to_vec();
-    }
-    if !input.len().is_multiple_of(4) {
-        return input.to_vec();
-    }
-
-    let samples = input.len() / 4;
-    if samples < channels * 2 {
-        return input.to_vec();
-    }
-
-    let mut input_f32 = vec![0.0f32; samples];
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            input.as_ptr(),
-            input_f32.as_mut_ptr() as *mut u8,
-            input.len(),
-        );
-    }
-
-    let in_frames = input_f32.len() / channels;
-    if in_frames < 2 {
-        return input.to_vec();
-    }
-    let out_frames = ((in_frames as f64) / speed).max(1.0) as usize;
-    let mut output_f32 = Vec::with_capacity(out_frames * channels);
-
-    for i in 0..out_frames {
-        let src_idx = i as f64 * speed;
-        let idx0 = src_idx.floor() as usize;
-        let idx1 = (idx0 + 1).min(in_frames - 1);
-        let frac = (src_idx - idx0 as f64) as f32;
-        for c in 0..channels {
-            let v0 = input_f32[idx0 * channels + c];
-            let v1 = input_f32[idx1 * channels + c];
-            output_f32.push(v0 + (v1 - v0) * frac);
-        }
-    }
-
-    let out_bytes = output_f32.len() * 4;
-    let mut output_u8 = vec![0u8; out_bytes];
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            output_f32.as_ptr() as *const u8,
-            output_u8.as_mut_ptr(),
-            out_bytes,
-        );
-    }
-    output_u8
+/// Pitch-preserving time stretch for native audio speed changes.
+pub(super) fn time_stretch_pcm_bytes(
+    input: &[u8],
+    speed: f64,
+    sample_rate: u32,
+    channels: usize,
+) -> Vec<u8> {
+    audio_time_stretch::time_stretch_pcm_bytes(input, speed, sample_rate, channels)
 }
