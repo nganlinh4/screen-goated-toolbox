@@ -327,7 +327,15 @@ export function processCursorPositions(
  *  Text beam, crosshair, resize handles etc. are symmetric and stay upright. */
 export function shouldCursorTilt(cursorType: string): boolean {
   const t = cursorType.toLowerCase();
-  return t.startsWith('default') || t.startsWith('pointer');
+  // Older saved projects can carry legacy raw cursor names like `arrow` and `hand`
+  // instead of the newer normalized `default` / `pointer` forms.
+  return (
+    t.startsWith('default') ||
+    t.startsWith('pointer') ||
+    t === 'arrow' ||
+    t === 'other' ||
+    t === 'hand'
+  );
 }
 
 /** Adds a static angular offset (resting tilt) to cursor rotation. */
