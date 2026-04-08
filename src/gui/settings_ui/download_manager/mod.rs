@@ -10,6 +10,8 @@ pub mod utils;
 pub use self::types::{
     CookieBrowser, DownloadSession, DownloadState, DownloadType, InstallStatus, UpdateStatus,
 };
+use crate::api::realtime_audio::sherpa_onnx::{self, ZipformerLanguage};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -30,6 +32,10 @@ pub struct DownloadManager {
     // Logs and cancel for tool installation (ffmpeg/ytdlp/deno), not per-session
     pub install_logs: Arc<Mutex<Vec<String>>>,
     pub install_cancel_flag: Arc<AtomicBool>,
+
+    // Zipformer ASR per-language download state
+    pub zipformer_dlls_status: Arc<Mutex<InstallStatus>>,
+    pub zipformer_lang_statuses: HashMap<ZipformerLanguage, Arc<Mutex<InstallStatus>>>,
 
     // Shared download config
     pub custom_download_path: Option<PathBuf>,
@@ -89,6 +95,23 @@ impl DownloadManager {
             bin_dir,
             install_logs: Arc::new(Mutex::new(Vec::new())),
             install_cancel_flag: Arc::new(AtomicBool::new(false)),
+            zipformer_dlls_status: Arc::new(Mutex::new(InstallStatus::Checking)),
+            zipformer_lang_statuses: {
+                let mut m = HashMap::new();
+                for lang in [
+                    ZipformerLanguage::English,
+                    ZipformerLanguage::Korean,
+                    ZipformerLanguage::Chinese,
+                    ZipformerLanguage::French,
+                    ZipformerLanguage::German,
+                    ZipformerLanguage::Spanish,
+                    ZipformerLanguage::Russian,
+                    ZipformerLanguage::All8Lang,
+                ] {
+                    m.insert(lang, Arc::new(Mutex::new(InstallStatus::Checking)));
+                }
+                m
+            },
             custom_download_path: config.custom_download_path,
             use_metadata: config.use_metadata,
             use_sponsorblock: config.use_sponsorblock,
@@ -161,5 +184,40 @@ impl DownloadManager {
                 .and_then(|s| s.selected_subtitle.clone()),
         };
         persistence::save_config(&config);
+    }
+
+    pub fn start_download_sherpa_dlls(&self) {
+        let status = self.zipformer_dlls_status.clone();
+        *status.lock().unwrap() = InstallStatus::Downloading(0.0);
+        let stop = Arc::new(AtomicBool::new(false));
+        std::thread::spawn(move || {
+            let status_cb = status.clone();
+            let result = sherpa_onnx::dlls::download_sherpa_dlls_with_progress(stop, move |p| {
+                *status_cb.lock().unwrap() = InstallStatus::Downloading(p);
+            });
+            let s = status_after_result(result);
+            *status.lock().unwrap() = s;
+        });
+    }
+
+    pub fn start_download_zipformer_lang(&self, lang: ZipformerLanguage) {
+        let status = self.zipformer_lang_statuses[&lang].clone();
+        *status.lock().unwrap() = InstallStatus::Downloading(0.0);
+        let stop = Arc::new(AtomicBool::new(false));
+        std::thread::spawn(move || {
+            let status_cb = status.clone();
+            let result = sherpa_onnx::download_model_with_progress(lang, &stop, move |p| {
+                *status_cb.lock().unwrap() = InstallStatus::Downloading(p);
+            });
+            let s = status_after_result(result);
+            *status.lock().unwrap() = s;
+        });
+    }
+}
+
+fn status_after_result(result: anyhow::Result<()>) -> InstallStatus {
+    match result {
+        Ok(()) => InstallStatus::Installed,
+        Err(e) => InstallStatus::Error(e.to_string()),
     }
 }

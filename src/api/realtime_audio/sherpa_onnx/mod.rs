@@ -20,7 +20,7 @@ const BATCH_SAMPLES: usize = 16000 / 2; // 500ms worth at 16kHz
 
 /// Zipformer language variant for Windows.
 /// Mirrors `ZipformerLanguage` from Android.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ZipformerLanguage {
     English,
     Korean,
@@ -200,18 +200,60 @@ pub fn is_model_downloaded(lang: ZipformerLanguage) -> bool {
     lang.model_files().iter().all(|f| dir.join(f).exists())
 }
 
-pub fn download_model(
+/// Downloads all files for `lang`.
+/// `on_progress(p)` is called continuously with p in 0.0..=1.0 (byte-level within each file).
+/// Returns Ok(()) on success (already-downloaded files are skipped).
+pub fn download_model_with_progress(
     lang: ZipformerLanguage,
     stop_signal: &AtomicBool,
-    overlay_hwnd: HWND,
+    on_progress: impl Fn(f32),
 ) -> Result<()> {
     let dir = model_dir(lang);
     std::fs::create_dir_all(&dir)?;
 
     let base_url = lang.download_base_url();
     let files = lang.model_files();
-    let total = files.len();
+    let total = files.len() as f32;
 
+    on_progress(0.0);
+
+    for (i, filename) in files.iter().enumerate() {
+        if stop_signal.load(Ordering::Relaxed) {
+            return Err(anyhow::anyhow!("Download cancelled"));
+        }
+        let target = dir.join(filename);
+        if target.exists() {
+            on_progress((i + 1) as f32 / total);
+            continue;
+        }
+        let file_start = i as f32 / total;
+        let file_end = (i + 1) as f32 / total;
+        let url = format!("{base_url}/{filename}");
+        crate::log_info!("[Sherpa] Downloading {filename} from {url}");
+        crate::api::realtime_audio::model_loader::download_file_with_progress(
+            &url,
+            &target,
+            stop_signal,
+            |downloaded, total_bytes| {
+                let file_frac = if total_bytes > 0 {
+                    (downloaded as f32 / total_bytes as f32).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                on_progress(file_start + file_frac * (file_end - file_start));
+            },
+        )?;
+        on_progress(file_end);
+    }
+    on_progress(1.0);
+    Ok(())
+}
+
+pub fn download_model(
+    lang: ZipformerLanguage,
+    stop_signal: &AtomicBool,
+    overlay_hwnd: HWND,
+) -> Result<()> {
     fn post_download_state() {
         use crate::overlay::realtime_webview::state::REALTIME_HWND;
         unsafe {
@@ -235,35 +277,13 @@ pub fn download_model(
     }
     post_download_state();
 
-    let result: Result<()> = (|| {
-        for (i, filename) in files.iter().enumerate() {
-            if stop_signal.load(Ordering::Relaxed) {
-                return Err(anyhow!("Download cancelled"));
-            }
-            let target = dir.join(filename);
-            if target.exists() {
-                continue;
-            }
-
-            let pct = (i as f32 / total as f32) * 100.0;
-            if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = format!("Downloading {filename} ({i}/{total})");
-                state.download_progress = pct;
-            }
-            post_download_state();
-            update_overlay_text(overlay_hwnd, &format!("Downloading Zipformer {} — {i}/{total}", lang.display_name()));
-
-            let url = format!("{base_url}/{filename}");
-            crate::log_info!("[Sherpa] Downloading {filename} from {url}");
-            crate::api::realtime_audio::model_loader::download_file(
-                &url,
-                &target,
-                stop_signal,
-                false,
-            )?;
+    let result = download_model_with_progress(lang, stop_signal, |pct| {
+        if let Ok(mut state) = REALTIME_STATE.lock() {
+            state.download_progress = pct * 100.0;
         }
-        Ok(())
-    })();
+        post_download_state();
+        update_overlay_text(overlay_hwnd, &format!("Downloading Zipformer {}...", lang.display_name()));
+    });
 
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = false;
