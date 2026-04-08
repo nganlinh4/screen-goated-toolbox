@@ -22,7 +22,7 @@
   "defaults": {
     "tts_gemini_live_model": "gemini-3.1-flash-live-preview",
     "realtime_transcription_model": "gemini-live-audio",
-    "live_session_transcription_provider_id": "gemini-live-audio",
+    "live_session_transcription_provider_id": "zipformer",
     "live_session_translation_provider_id": "cerebras-oss"
   },
   "preset_defaults": {

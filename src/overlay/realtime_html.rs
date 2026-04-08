@@ -101,7 +101,20 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 let app = crate::APP.lock().unwrap();
                 app.config.realtime_transcription_language.clone()
             };
+            let is_all_lang = transcription_model == gemini_id
+                || transcription_model == qwen3_0_6b_id
+                || transcription_model == qwen3_1_7b_id;
+            let is_en_only = transcription_model == "parakeet"
+                || transcription_model.starts_with("moonshine");
+            let effective_lang = if is_all_lang {
+                "all"
+            } else if is_en_only {
+                "en"
+            } else {
+                &trans_lang_code
+            };
             let trans_lang_options = [
+                ("all", "All"),
                 ("en", "English"),
                 ("ko", "Korean"),
                 ("zh", "Chinese"),
@@ -114,11 +127,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             let trans_lang_html: String = trans_lang_options
                 .iter()
                 .map(|(code, name)| {
-                    let selected = if *code == trans_lang_code {
-                        " selected"
-                    } else {
-                        ""
-                    };
+                    let selected = if *code == effective_lang { " selected" } else { "" };
                     format!(r#"<option value="{code}"{selected}>{name}</option>"#)
                 })
                 .collect::<Vec<_>>()

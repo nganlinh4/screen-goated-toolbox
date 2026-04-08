@@ -74,7 +74,7 @@ fn default_realtime_transcription_language() -> String {
 }
 
 fn default_realtime_transcription_model() -> String {
-    crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string()
+    crate::model_config::QWEN3_ASR_0_6B_MODEL_ID.to_string()
 }
 
 fn default_realtime_target_language() -> String {
@@ -420,7 +420,7 @@ impl Default for Config {
             // Realtime Audio
             realtime_translation_model: crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS
                 .to_string(),
-            realtime_transcription_model: crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5
+            realtime_transcription_model: crate::model_config::QWEN3_ASR_0_6B_MODEL_ID
                 .to_string(),
             realtime_transcription_language: "en".to_string(),
             realtime_font_size: 16,

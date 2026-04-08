@@ -57,7 +57,7 @@ data class LiveSessionConfig(
     val sourceMode: SourceMode = SourceMode.DEVICE,
     val displayMode: DisplayMode = DisplayMode.OVERLAY,
     val targetLanguage: String = "Vietnamese",
-    val transcriptionLanguage: String = "en",
+    val transcriptionLanguage: String = "all-8",
     val transcriptionProvider: ProviderDescriptor = GeneratedLiveModelCatalog.defaultTranscriptionProvider(),
     val translationProvider: ProviderDescriptor = GeneratedLiveModelCatalog.translationProviderDescriptor(),
     val authMode: AuthMode = AuthMode.BYOK,
