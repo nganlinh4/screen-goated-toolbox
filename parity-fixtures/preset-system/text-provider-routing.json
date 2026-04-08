@@ -1,8 +1,8 @@
 {
   "cases": [
     {
-      "name": "cerebras_preset_model_resolves_to_windows_api_name",
-      "model_id": "cerebras_gpt_oss",
+      "name": "qwen_preset_model_resolves_to_windows_api_name",
+      "model_id": "qwen_3_235b_a22b_instruct_2507",
       "provider": "CEREBRAS",
       "api_model": "qwen-3-235b-a22b-instruct-2507",
       "supports_search": false

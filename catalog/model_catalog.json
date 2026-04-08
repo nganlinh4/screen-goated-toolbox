@@ -1,7 +1,7 @@
 {
   "constants": {
     "default_image_model_id": "scout",
-    "default_text_model_id": "cerebras_gpt_oss",
+    "default_text_model_id": "qwen_3_235b_a22b_instruct_2507",
     "default_text_api_model": "qwen-3-235b-a22b-instruct-2507",
     "gemini_live_api_model_2_5": "gemini-2.5-flash-native-audio-preview-12-2025",
     "gemini_live_api_model_3_1": "gemini-3.1-flash-live-preview",
@@ -51,7 +51,7 @@
       "gemini-3.1-flash-lite-preview"
     ],
     "text_to_text": [
-      "cerebras_gpt_oss",
+      "qwen_3_235b_a22b_instruct_2507",
       "gemma-4-26b-a4b",
       "text_accurate_kimi",
       "text_gemini_3_1_flash_lite"
@@ -381,20 +381,7 @@
       "quota_en": "250 requests/day"
     },
     {
-      "id": "cerebras_zai_glm_4_7",
-      "provider": "cerebras",
-      "name_vi": "C-Thường",
-      "name_ko": "C-보통",
-      "name_en": "C-Normal",
-      "full_name": "llama3.1-8b",
-      "model_type": "Text",
-      "enabled": true,
-      "quota_vi": "14400 lượt/ngày",
-      "quota_ko": "14400 요청/일",
-      "quota_en": "14400 requests/day"
-    },
-    {
-      "id": "cerebras_gpt_oss",
+      "id": "qwen_3_235b_a22b_instruct_2507",
       "provider": "cerebras",
       "name_vi": "C-Chính xác",
       "name_ko": "C-정확함",
