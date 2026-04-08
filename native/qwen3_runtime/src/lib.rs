@@ -117,7 +117,9 @@ fn kv_cache_mode_from_config(mode: &str) -> anyhow::Result<KvCacheMode> {
         let supported = supported_kv_cache_mode_names();
         anyhow::anyhow!(
             "Unsupported kv_cache_mode '{}'. Supported modes are '{}' and '{}'.",
-            mode, supported[0], supported[1]
+            mode,
+            supported[0],
+            supported[1]
         )
     })
 }

@@ -47,7 +47,7 @@ struct RuntimeExports {
 }
 
 struct RuntimeInner {
-    _library: Library,
+    library: Option<Library>,
     _preloaded_cuda: (Option<Library>, Option<Library>),
     exports: RuntimeExports,
     handle: *mut c_void,
@@ -109,6 +109,15 @@ impl Drop for RuntimeInner {
                 let _ = (self.exports.destroy_runtime)(self.handle);
             }
         }
+        let (c10_cuda, torch_cuda) = (
+            self._preloaded_cuda.0.take(),
+            self._preloaded_cuda.1.take(),
+        );
+        let library = self.library.take();
+        drop(c10_cuda);
+        drop(torch_cuda);
+        drop(library);
+        reset_cuda_device();
     }
 }
 
@@ -125,6 +134,44 @@ impl Drop for Qwen3Session {
 fn set_runtime_notice(message: impl Into<String>) {
     *LAST_QWEN3_RUNTIME_NOTICE.lock().unwrap() = Some(message.into());
 }
+
+#[cfg(target_os = "windows")]
+fn reset_cuda_device() {
+    type CudaDeviceFn = unsafe extern "C" fn() -> i32;
+
+    unsafe {
+        unsafe extern "system" {
+            fn GetModuleHandleA(lp_module_name: *const u8) -> *mut c_void;
+            fn LoadLibraryA(lp_lib_file_name: *const u8) -> *mut c_void;
+            fn FreeLibrary(h_module: *mut c_void) -> i32;
+            fn GetProcAddress(h_module: *mut c_void, lp_proc_name: *const u8) -> *mut c_void;
+        }
+
+        let mut module = GetModuleHandleA(c"cudart64_12.dll".as_ptr() as *const u8);
+        let loaded_here = module.is_null();
+        if loaded_here {
+            module = LoadLibraryA(c"cudart64_12.dll".as_ptr() as *const u8);
+        }
+        if !module.is_null() {
+            let sync_proc = GetProcAddress(module, c"cudaDeviceSynchronize".as_ptr() as *const u8);
+            if !sync_proc.is_null() {
+                let sync: CudaDeviceFn = std::mem::transmute(sync_proc);
+                let _ = sync();
+            }
+            let proc = GetProcAddress(module, c"cudaDeviceReset".as_ptr() as *const u8);
+            if !proc.is_null() {
+                let reset: CudaDeviceFn = std::mem::transmute(proc);
+                let _ = reset();
+            }
+            if loaded_here {
+                let _ = FreeLibrary(module);
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn reset_cuda_device() {}
 
 fn clear_runtime_notice() {
     *LAST_QWEN3_RUNTIME_NOTICE.lock().unwrap() = None;
@@ -526,7 +573,7 @@ fn ensure_cuda_driver_loaded() -> Result<()> {
         use windows::Win32::System::LibraryLoader::LoadLibraryA;
         use windows::core::PCSTR;
 
-        let _module: HMODULE = unsafe { LoadLibraryA(PCSTR(b"nvcuda.dll\0".as_ptr()))? };
+        let _module: HMODULE = unsafe { LoadLibraryA(PCSTR(c"nvcuda.dll".as_ptr() as *const u8))? };
         Ok(())
     }
     #[cfg(not(target_os = "windows"))]
@@ -813,7 +860,7 @@ impl Qwen3Runtime {
         clear_runtime_notice();
         Ok(Self {
             inner: Arc::new(RuntimeInner {
-                _library: library,
+                library: Some(library),
                 _preloaded_cuda,
                 exports,
                 handle: runtime_handle,
