@@ -27,6 +27,17 @@ pub fn download_file(
     stop_signal: &std::sync::atomic::AtomicBool,
     _use_badge: bool,
 ) -> Result<()> {
+    download_file_with_progress(url, path, stop_signal, |_, _| {})
+}
+
+/// Like `download_file` but calls `on_progress(downloaded_bytes, total_bytes)` every ~100ms.
+/// `total_bytes` is 0 if Content-Length is not available.
+pub fn download_file_with_progress(
+    url: &str,
+    path: &Path,
+    stop_signal: &std::sync::atomic::AtomicBool,
+    on_progress: impl Fn(u64, u64),
+) -> Result<()> {
     if path.exists() {
         return Ok(());
     }
@@ -72,12 +83,15 @@ pub fn download_file(
         file.write_all(&buffer[..bytes_read])?;
         downloaded += bytes_read as u64;
 
-        if total_size > 0 && last_update.elapsed() >= update_interval {
-            let progress = (downloaded as f32 / total_size as f32) * 100.0;
+        if last_update.elapsed() >= update_interval {
+            on_progress(downloaded, total_size);
 
-            use crate::overlay::realtime_webview::state::REALTIME_STATE;
-            if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_progress = progress;
+            if total_size > 0 {
+                let progress = (downloaded as f32 / total_size as f32) * 100.0;
+                use crate::overlay::realtime_webview::state::REALTIME_STATE;
+                if let Ok(mut state) = REALTIME_STATE.lock() {
+                    state.download_progress = progress;
+                }
             }
             last_update = std::time::Instant::now();
 

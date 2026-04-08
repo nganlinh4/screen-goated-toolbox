@@ -36,6 +36,82 @@ pub fn is_sherpa_dlls_installed() -> bool {
         .all(|name| dir.join(name).exists())
 }
 
+/// Downloads and installs sherpa-onnx DLLs.
+/// `on_progress(p)` with p in 0.0..=1.0.
+/// Returns Ok(()) if already installed or after successful install.
+pub fn download_sherpa_dlls_with_progress(
+    stop_signal: Arc<AtomicBool>,
+    on_progress: impl Fn(f32),
+) -> Result<()> {
+    if is_sherpa_dlls_installed() {
+        return Ok(());
+    }
+
+    let bin_dir = sherpa_bin_dir();
+    std::fs::create_dir_all(&bin_dir)?;
+
+    on_progress(0.05);
+
+    let archive_path = bin_dir.join("sherpa-onnx-v1.12.35-win-x64-shared-MD-Release.tar.bz2");
+
+    crate::api::realtime_audio::model_loader::download_file_with_progress(
+        SHERPA_DLLS_URL,
+        &archive_path,
+        &stop_signal,
+        |downloaded, total_bytes| {
+            let file_frac = if total_bytes > 0 {
+                (downloaded as f32 / total_bytes as f32).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            // Map 0.0..=1.0 → 0.05..=0.75 (extraction is 0.75..=1.0)
+            on_progress(0.05 + file_frac * 0.70);
+        },
+    )?;
+
+    if stop_signal.load(Ordering::Relaxed) {
+        let _ = std::fs::remove_file(&archive_path);
+        return Err(anyhow!("Download cancelled"));
+    }
+
+    on_progress(0.75);
+
+    let temp_dir = bin_dir.join("_extract_tmp");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir)?;
+
+    let status = std::process::Command::new("tar.exe")
+        .args([
+            "-xjf",
+            &archive_path.to_string_lossy(),
+            "-C",
+            &temp_dir.to_string_lossy(),
+        ])
+        .status()
+        .map_err(|e| anyhow!("Failed to run tar.exe: {e}"))?;
+
+    if !status.success() {
+        return Err(anyhow!(
+            "tar.exe extraction failed (exit code {:?})",
+            status.code()
+        ));
+    }
+
+    copy_dlls_from_tree(&temp_dir, &bin_dir)?;
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    let _ = std::fs::remove_file(&archive_path);
+
+    if !is_sherpa_dlls_installed() {
+        return Err(anyhow!(
+            "sherpa-onnx DLLs not found after extraction — archive layout may have changed"
+        ));
+    }
+
+    on_progress(1.0);
+    Ok(())
+}
+
 pub fn download_sherpa_dlls(
     stop_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,

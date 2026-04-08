@@ -418,6 +418,16 @@ pub struct LocaleText {
     pub tool_update_retry: &'static str,
     pub tool_update_check_btn: &'static str,
     pub tool_update_available: &'static str,
+    pub tool_parakeet_card: &'static str,
+    pub tool_qwen3_card: &'static str,
+    pub tool_video_downloader_card: &'static str,
+    pub tool_zipformer_card: &'static str,
+    pub tool_zipformer_runtime_dlls: &'static str,
+    pub tool_zipformer_desc_runtime_dlls: &'static str,
+    pub tool_zipformer_desc_punct: &'static str,
+    pub tool_zipformer_desc_nopunct: &'static str,
+    pub tool_zipformer_desc_compact: &'static str,
+    pub tool_zipformer_desc_multilingual: &'static str,
     // --- CONTINUOUS MODE ---
     pub continuous_mode_activated: &'static str, // "✨ Cấu hình \"{preset}\" sẽ hoạt động liên tục, bấm ESC hay {hotkey} để thoát"
     // --- WINDOW SELECTOR OVERLAY ---
