@@ -16,8 +16,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         // =====================================================================
 
         // Translate - Basic image-to-text translation
-        {
-            let mut p = PresetBuilder::new("preset_translate", "Translate")
+        PresetBuilder::new("preset_translate", "Translate")
             .image()
             .blocks(vec![
                 BlockBuilder::image(PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID)
@@ -26,13 +25,11 @@ pub fn create_image_presets() -> Vec<Preset> {
                     .markdown() // Pretty only
                     .build(),
             ])
-            .build();
-            p.hotkeys.push(Hotkey::new(192, "` / ~", 0));
-            p
-        },
+            .build(),
 
         // Translate (High accuracy) - OCR then translate
-        PresetBuilder::new("preset_extract_retranslate", "Translate (High accuracy)")
+        {
+            let mut p = PresetBuilder::new("preset_extract_retranslate", "Translate (High accuracy)")
             .image()
             .blocks(vec![
                 BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
@@ -47,7 +44,10 @@ pub fn create_image_presets() -> Vec<Preset> {
                     .streaming(false)
                     .build(),
             ])
-            .build(),
+            .build();
+            p.hotkeys.push(Hotkey::new(192, "` / ~", 0));
+            p
+        },
 
         // Translate (Auto paste) - Hidden overlay, auto-paste
         PresetBuilder::new("preset_translate_auto_paste", "Translate (Auto paste)")
