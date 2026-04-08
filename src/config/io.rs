@@ -105,11 +105,12 @@ fn migrate_config(config: &mut Config) {
         }
     }
 
-    sanitize_model_priority_chain(
+    normalize_model_priority_chain(
         &mut config.model_priority_chains.image_to_text,
         ModelType::Vision,
     );
-    sanitize_model_priority_chain(
+    normalize_saved_block_model_ids(config);
+    normalize_model_priority_chain(
         &mut config.model_priority_chains.text_to_text,
         ModelType::Text,
     );
@@ -120,38 +121,7 @@ fn migrate_config(config: &mut Config) {
     }
 
     // -------------------------------------------------------------------------
-    // 3. MIGRATE RETIRED MODEL IDS IN SAVED PRESETS
-    // -------------------------------------------------------------------------
-    // Migrate any saved blocks (including user-custom presets) away from retired
-    // model IDs without overwriting prompts or other block settings.
-    for preset in &mut config.presets {
-        for block in &mut preset.blocks {
-            match block.model.as_str() {
-                "cerebras_zai_glm_4_7" => {
-                    block.model = crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string();
-                }
-                "maverick" => {
-                    block.model = crate::model_config::DEFAULT_IMAGE_MODEL_ID.to_string();
-                }
-                _ => {}
-            }
-        }
-    }
-
-    for preset in &mut config.presets {
-        if !preset.is_builtin() {
-            continue;
-        }
-
-        for block in &mut preset.blocks {
-            if block.block_type == "image" && block.model == "gemini-3.1-flash-lite-preview" {
-                block.model = crate::model_config::DEFAULT_IMAGE_MODEL_ID.to_string();
-            }
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // 4. ENSURE EVERY PRESET HAS AT LEAST ONE BLOCK
+    // 3. ENSURE EVERY PRESET HAS AT LEAST ONE BLOCK
     // -------------------------------------------------------------------------
     for preset in &mut config.presets {
         if preset.blocks.is_empty() && !preset.is_master {
@@ -163,14 +133,66 @@ fn migrate_config(config: &mut Config) {
     }
 }
 
-fn sanitize_model_priority_chain(chain: &mut Vec<String>, expected_type: ModelType) {
-    chain.retain(|model_id| {
-        let Some(model) = get_model_by_id(model_id) else {
-            return false;
+fn normalize_saved_block_model_ids(config: &mut Config) {
+    for preset in &mut config.presets {
+        for block in &mut preset.blocks {
+            block.model = normalize_model_id_for_block(&block.block_type, &block.model);
+        }
+    }
+}
+
+fn normalize_model_id_for_block(block_type: &str, model_id: &str) -> String {
+    let expected_type = match block_type {
+        "image" => Some(ModelType::Vision),
+        "text" => Some(ModelType::Text),
+        "audio" => Some(ModelType::Audio),
+        _ => None,
+    };
+
+    let Some(expected_type) = expected_type else {
+        return model_id.to_string();
+    };
+
+    if let Some(model) = get_model_by_id(model_id) {
+        if model.model_type == expected_type {
+            return model_id.to_string();
+        }
+    }
+
+    default_model_id_for_type(expected_type).to_string()
+}
+
+fn normalize_model_priority_chain(chain: &mut Vec<String>, expected_type: ModelType) {
+    let fallback = default_model_id_for_type(expected_type).to_string();
+    let mut normalized = Vec::with_capacity(chain.len());
+    let mut seen = std::collections::HashSet::new();
+
+    for model_id in chain.drain(..) {
+        let candidate = match get_model_by_id(&model_id) {
+            Some(model) if model.model_type == expected_type && !model_is_non_llm(&model_id) => {
+                model_id
+            }
+            _ => fallback.clone(),
         };
 
-        model.model_type == expected_type && !model_is_non_llm(model_id)
-    });
+        if seen.insert(candidate.clone()) {
+            normalized.push(candidate);
+        }
+    }
+
+    if normalized.is_empty() {
+        normalized.push(fallback);
+    }
+
+    *chain = normalized;
+}
+
+fn default_model_id_for_type(expected_type: ModelType) -> &'static str {
+    match expected_type {
+        ModelType::Vision => crate::model_config::DEFAULT_IMAGE_MODEL_ID,
+        ModelType::Text => crate::model_config::DEFAULT_TEXT_MODEL_ID,
+        ModelType::Audio => crate::model_config::PRESET_AUDIO_TRANSCRIBE_MODEL_ID,
+    }
 }
 
 #[cfg(test)]
@@ -179,7 +201,7 @@ mod tests {
     use crate::config::{Config, Preset, ProcessingBlock};
 
     #[test]
-    fn migrate_config_rewrites_retired_model_ids() {
+    fn migrate_config_falls_back_for_missing_block_models() {
         let builtin = Preset {
             id: "preset_translate".to_string(),
             blocks: vec![ProcessingBlock {
@@ -194,7 +216,7 @@ mod tests {
             id: "custom_image_preset".to_string(),
             blocks: vec![ProcessingBlock {
                 block_type: "text".to_string(),
-                model: "cerebras_zai_glm_4_7".to_string(),
+                model: "retired_text_model".to_string(),
                 ..Default::default()
             }],
             ..Default::default()
@@ -215,6 +237,28 @@ mod tests {
             config.presets[1].blocks[0].model,
             crate::model_config::DEFAULT_TEXT_MODEL_ID
         );
+    }
+
+    #[test]
+    fn migrate_config_preserves_valid_non_llm_image_blocks() {
+        let custom = Preset {
+            id: "custom_image_preset".to_string(),
+            blocks: vec![ProcessingBlock {
+                block_type: "image".to_string(),
+                model: "qr-scanner".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let mut config = Config {
+            presets: vec![custom],
+            ..Default::default()
+        };
+
+        migrate_config(&mut config);
+
+        assert_eq!(config.presets[0].blocks[0].model, "qr-scanner");
     }
 
     #[test]
@@ -266,6 +310,7 @@ mod tests {
             "scout".to_string(),
         ];
         config.model_priority_chains.text_to_text = vec![
+            "retired_text_model".to_string(),
             "gemma-4-26b-a4b".to_string(),
             "qr-scanner".to_string(),
             "scout".to_string(),
@@ -284,9 +329,55 @@ mod tests {
         assert_eq!(
             config.model_priority_chains.text_to_text,
             vec![
+                crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string(),
                 "gemma-4-26b-a4b".to_string(),
                 "text_accurate_kimi".to_string()
             ]
+        );
+    }
+
+    #[test]
+    fn migrate_config_falls_back_to_default_text_model_id() {
+        let builtin = Preset {
+            id: "preset_translate".to_string(),
+            blocks: vec![ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "retired_text_model".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let custom = Preset {
+            id: "custom_text_preset".to_string(),
+            blocks: vec![ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "retired_text_model".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let mut config = Config {
+            presets: vec![builtin, custom],
+            ..Default::default()
+        };
+
+        config.model_priority_chains.text_to_text = vec!["retired_text_model".to_string()];
+
+        migrate_config(&mut config);
+
+        assert_eq!(
+            config.presets[0].blocks[0].model,
+            crate::model_config::DEFAULT_TEXT_MODEL_ID
+        );
+        assert_eq!(
+            config.presets[1].blocks[0].model,
+            crate::model_config::DEFAULT_TEXT_MODEL_ID
+        );
+        assert_eq!(
+            config.model_priority_chains.text_to_text,
+            vec![crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string()]
         );
     }
 

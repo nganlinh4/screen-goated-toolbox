@@ -1,6 +1,6 @@
 /// Centralized model API backed by generated catalog data.
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ModelType {
     Vision,
     Text,

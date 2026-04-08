@@ -44,17 +44,17 @@ class TextApiClientTest {
     }
 
     @Test
-    fun cerebrasRequestBodyUsesResolvedWindowsApiModel() {
+    fun qwenRequestBodyUsesResolvedWindowsApiModel() {
         val payload = json.parseToJsonElement(
             client.debugBuildRequestBody(
-                modelId = "cerebras_gpt_oss",
+                modelId = "qwen_3_235b_a22b_instruct_2507",
                 prompt = "Translate to Vietnamese.",
                 inputText = "Hello",
             ),
         ).jsonObject
 
         assertEquals(
-            PresetModelCatalog.getById("cerebras_gpt_oss")!!.fullName,
+            PresetModelCatalog.getById("qwen_3_235b_a22b_instruct_2507")!!.fullName,
             payload.getValue("model").jsonPrimitive.content,
         )
         assertTrue(payload.getValue("stream").jsonPrimitive.boolean)
