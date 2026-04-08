@@ -2,6 +2,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use super::super::audio_time_stretch;
 use super::super::mf_audio::MfAudioDecoder;
 use super::config::{DeviceAudioPoint, SpeedPoint, TrimSegment};
 
@@ -69,59 +70,6 @@ fn get_audio_volume(time: f64, points: &[DeviceAudioPoint]) -> f64 {
     let t = (time - left.time) / (right.time - left.time).max(1e-9);
     let cos_t = (1.0 - (t * std::f64::consts::PI).cos()) / 2.0;
     (left.volume + (right.volume - left.volume) * cos_t).clamp(0.0, 1.0)
-}
-
-fn resample_pcm_bytes(input: &[u8], speed: f64, channels: usize) -> Vec<u8> {
-    if (speed - 1.0).abs() < 0.001 || input.is_empty() || channels == 0 {
-        return input.to_vec();
-    }
-    if !input.len().is_multiple_of(4) {
-        return input.to_vec();
-    }
-
-    let samples = input.len() / 4;
-    if samples < channels * 2 {
-        return input.to_vec();
-    }
-
-    let mut input_f32 = vec![0.0f32; samples];
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            input.as_ptr(),
-            input_f32.as_mut_ptr() as *mut u8,
-            input.len(),
-        );
-    }
-
-    let in_frames = input_f32.len() / channels;
-    if in_frames < 2 {
-        return input.to_vec();
-    }
-    let out_frames = ((in_frames as f64) / speed).max(1.0) as usize;
-    let mut output_f32 = Vec::with_capacity(out_frames * channels);
-
-    for frame_idx in 0..out_frames {
-        let src_idx = frame_idx as f64 * speed;
-        let idx0 = src_idx.floor() as usize;
-        let idx1 = (idx0 + 1).min(in_frames - 1);
-        let frac = (src_idx - idx0 as f64) as f32;
-        for channel_idx in 0..channels {
-            let v0 = input_f32[idx0 * channels + channel_idx];
-            let v1 = input_f32[idx1 * channels + channel_idx];
-            output_f32.push(v0 + (v1 - v0) * frac);
-        }
-    }
-
-    let out_bytes = output_f32.len() * 4;
-    let mut output_u8 = vec![0u8; out_bytes];
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            output_f32.as_ptr() as *const u8,
-            output_u8.as_mut_ptr(),
-            out_bytes,
-        );
-    }
-    output_u8
 }
 
 fn apply_audio_volume_envelope(
@@ -350,9 +298,14 @@ fn mix_source_into_raw_file(
             continue;
         }
 
-        let source_duration_sec = input_frames as f64 / MIX_OUTPUT_SAMPLE_RATE as f64;
         let speed = get_speed(chunk_time, speed_points).clamp(0.1, 16.0);
-        let mut processed = resample_pcm_bytes(&pcm, speed, channels);
+        let source_duration_sec = input_frames as f64 / MIX_OUTPUT_SAMPLE_RATE as f64;
+        let mut processed = audio_time_stretch::time_stretch_pcm_bytes(
+            &pcm,
+            speed,
+            MIX_OUTPUT_SAMPLE_RATE,
+            channels,
+        );
         apply_audio_volume_envelope(
             &mut processed,
             chunk_time,

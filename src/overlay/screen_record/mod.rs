@@ -23,6 +23,7 @@ use wry::WebContext;
 use crate::win_types::SendHwnd;
 
 pub mod audio_engine;
+mod audio_time_stretch;
 pub mod audio_source_selection;
 pub mod capture_border;
 mod d3d_interop;

@@ -8,7 +8,7 @@ use windows::core::Interface;
 use super::super::d3d_interop::D3D11GpuFence;
 use super::super::mf_audio::{AudioConfig, MfAudioDecoder};
 use super::super::mf_encode::{EncoderConfig, MfEncoder};
-use super::audio::{apply_audio_volume_envelope, resample_pcm_bytes};
+use super::audio::{apply_audio_volume_envelope, time_stretch_pcm_bytes};
 use super::frame_timing::get_speed;
 use super::types::{EncodeThreadContext, RenderOutput, ZeroCopyExportResult};
 
@@ -247,7 +247,12 @@ pub(super) fn run_encode_thread(
                             } else {
                                 input_frames as f64 / dec.sample_rate() as f64
                             };
-                            let mut resampled = resample_pcm_bytes(&pcm, speed, channels);
+                            let mut resampled = time_stretch_pcm_bytes(
+                                &pcm,
+                                speed,
+                                dec.sample_rate(),
+                                channels,
+                            );
                             apply_audio_volume_envelope(
                                 &mut resampled,
                                 chunk_time,

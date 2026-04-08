@@ -2,13 +2,15 @@ package dev.screengoated.toolbox.mobile.service.parakeet
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -24,6 +26,9 @@ class ParakeetModelManager(context: Context) {
 
     private val _state = MutableStateFlow<ParakeetModelState>(ParakeetModelState.Missing)
     val state: StateFlow<ParakeetModelState> = _state.asStateFlow()
+
+    // Outlives any individual UI scope — download continues after the dialog is dismissed
+    private val managerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -62,6 +67,12 @@ class ParakeetModelManager(context: Context) {
         if (modelDir.exists()) total += modelDir.listFiles()?.sumOf { it.length() } ?: 0L
         if (ortDir.exists()) total += ortDir.listFiles()?.sumOf { it.length() } ?: 0L
         return total
+    }
+
+    /** Fire-and-forget download — survives dialog dismissal. No-ops if already downloading. */
+    fun startDownload() {
+        if (_state.value is ParakeetModelState.Downloading) return
+        managerScope.launch { download() }
     }
 
     suspend fun download() {
