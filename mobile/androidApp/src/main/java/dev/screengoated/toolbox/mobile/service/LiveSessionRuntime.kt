@@ -290,6 +290,13 @@ class LiveSessionRuntime(
                     overlayController.hideDownloadModal()
                     throw e
                 }
+                // Guard: download may have failed internally (DownloadState.Error) without throwing
+                if (!moonshineManager.isZipformerInstalled(zipLang)) {
+                    val state = moonshineManager.downloadState.value
+                    val msg = if (state is dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager.DownloadState.Error)
+                        state.message else "Download failed for ${zipLang.displayName}"
+                    error(msg)
+                }
             }
             runSherpaSession(zipLang, moonshineManager)
             return
@@ -482,6 +489,17 @@ class LiveSessionRuntime(
         modelManager: dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager,
     ) {
         withContext(Dispatchers.IO) {
+            // Free JVM heap before native model allocation
+            System.gc()
+            val actMgr = context.getSystemService(android.app.ActivityManager::class.java)
+            val memInfo = android.app.ActivityManager.MemoryInfo()
+            actMgr.getMemoryInfo(memInfo)
+            val availMb = memInfo.availMem / 1_048_576L
+            Log.i("Sherpa", "Available RAM before load: ${availMb}MB (lowMemory=${memInfo.lowMemory})")
+            if (memInfo.lowMemory || availMb < 150L) {
+                error("Not enough RAM to load ${lang.displayName} model (${availMb}MB available, need ~150MB free)")
+            }
+
             val modelDir = modelManager.zipformerDir(lang).absolutePath
             val bpeVocabPath = lang.bpeVocabFile?.let { "$modelDir/$it" } ?: ""
             Log.i("Sherpa", "Loading ${lang.displayName}: encoder=${lang.sherpaEncoder()} bpe=${bpeVocabPath.ifEmpty { "none" }}")
@@ -507,9 +525,10 @@ class LiveSessionRuntime(
                 val ptrField = recognizer.javaClass.getDeclaredField("ptr")
                 ptrField.isAccessible = true
                 if (ptrField.getLong(recognizer) == 0L) {
-                    Log.e("Sherpa", "Recognizer creation failed (ptr=0)")
-                    return@withContext
+                    error("${lang.displayName} model failed to load — check model files are complete")
                 }
+            } catch (e: IllegalStateException) {
+                throw e  // re-throw our own error()
             } catch (_: Exception) {}
             val stream = recognizer.createStream()
             Log.i("Sherpa", "Loaded ${lang.modelName} for ${lang.displayName}")
@@ -605,9 +624,25 @@ class LiveSessionRuntime(
                                     Log.i("Sherpa", "CASE2: '$text'")
                                     repository.setTranscriptSegments(committedHistory, "", SystemClock.elapsedRealtime())
                                 } else if (!lang.hasNativePunctuation && text.isNotBlank()) {
+                                    // Case 3: silence-based commit for models without native punctuation
+                                    // (ZH, RU, All8Lang). draftCommitThresholdMs() only computes the
+                                    // threshold — the caller MUST perform the actual commit here.
+                                    // ⚠️ EASY TO FORGET: showing the draft with a period is NOT a commit.
+                                    // Mirrors Windows run_streaming_loop Case 3 exactly:
+                                    //   committed_history += text + "."
+                                    //   stream_committed_prefix = raw_text  (strips committed part)
+                                    //   publish empty draft
                                     val thresholdMs = draftCommitThresholdMs(text)
-                                    val draft = if (silenceMs >= thresholdMs || silenceMs >= DRAFT_STALE_MS) "${text.trimEnd()}." else text
-                                    repository.setTranscriptSegments(committedHistory, draft, SystemClock.elapsedRealtime())
+                                    if (silenceMs >= thresholdMs || silenceMs >= DRAFT_STALE_MS) {
+                                        val toCommit = "${text.trimEnd()}."
+                                        committedHistory = if (committedHistory.isEmpty()) toCommit else "$committedHistory $toCommit"
+                                        streamCommittedPrefix = rawText.trimEnd()
+                                        lastDraftText = ""; lastDraftChangeMs = SystemClock.elapsedRealtime()
+                                        Log.i("Sherpa", "CASE3: '$toCommit'")
+                                        repository.setTranscriptSegments(committedHistory, "", SystemClock.elapsedRealtime())
+                                    } else {
+                                        repository.setTranscriptSegments(committedHistory, text, SystemClock.elapsedRealtime())
+                                    }
                                 } else {
                                     val draft = if (text.isNotBlank() && silenceMs >= DRAFT_STALE_MS) "${text.trimEnd()}." else text
                                     repository.setTranscriptSegments(committedHistory, draft, SystemClock.elapsedRealtime())
@@ -770,9 +805,18 @@ private fun splitAtSentenceBoundary(text: String): Pair<String, String>? {
 }
 
 /**
- * Smooth commit threshold for non-native-punct models (RU, All8Lang).
+ * Smooth commit threshold for non-native-punct models (ZH, RU, All8Lang).
  * Mirrors Windows `state::draft_commit_threshold_ms`.
  * Formula: 1200 / (1 + words * 0.5), CJK chars each count as one word.
+ *
+ * ⚠️ WARNING — THIS FUNCTION ONLY RETURNS A THRESHOLD NUMBER.
+ * The caller is responsible for the FULL commit sequence when silence >= threshold:
+ *   1. Append "${text}." to committedHistory
+ *   2. Set streamCommittedPrefix = rawText.trimEnd()
+ *   3. Reset lastDraftText and lastDraftChangeMs
+ *   4. Publish with empty draft
+ * Simply appending a period to the displayed draft is NOT a commit.
+ * Forgetting steps 1-4 means text is never moved out of draft → never translated.
  */
 private fun draftCommitThresholdMs(draft: String): Long {
     val cjkCount = draft.count { it.code > 0x2E80 }

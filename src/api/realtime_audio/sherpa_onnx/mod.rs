@@ -81,7 +81,7 @@ impl ZipformerLanguage {
                 "https://modelscope.cn/models/k2-fsa/sherpa-onnx-streaming-zipformer-korean-2024-06-16/resolve/master"
             }
             Self::Chinese => {
-                "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-multi-zh-hans-2023-12-13/resolve/main"
+                "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30/resolve/main"
             }
             Self::French => {
                 "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-fr-kroko-2025-08-06/resolve/main"
@@ -101,19 +101,24 @@ impl ZipformerLanguage {
         }
     }
 
-    /// Whether this model outputs native punctuation (periods, question marks, etc.)
-    /// Only set true when confirmed by actual testing.
-    /// Models without punctuation get silence-based commit + appended period (Case 3).
+    /// True = model emits native punctuation in streaming output → Cases 1 & 2 apply.
+    /// False = no native punctuation → Case 3 silence-based commit with appended period.
+    ///
+    /// Confirmed by live testing on all 8 languages (2026-04):
+    ///   EN ✓  KO ✓  FR ✓  DE ✓  ES ✓  — native punctuation
+    ///   ZH ✗  RU ✗  All8 ✗            — no native punctuation
     pub fn has_native_punctuation(&self) -> bool {
-        matches!(self, Self::English | Self::Korean | Self::Chinese | Self::French | Self::German | Self::Spanish)
+        matches!(self, Self::English | Self::Korean | Self::French | Self::German | Self::Spanish)
     }
 
-    /// sherpa-onnx model type: "zipformer" (v1) or "zipformer2" (Kroko/newer)
+    /// sherpa-onnx model type hint. Empty = auto-detect from ONNX metadata (safest).
+    /// Only set explicitly for models whose embedded metadata is confirmed.
     pub fn sherpa_model_type(&self) -> &'static str {
         match self {
+            // Kroko models are confirmed zipformer2
             Self::English | Self::French | Self::German | Self::Spanish => "zipformer2",
-            Self::Korean | Self::Chinese | Self::All8Lang => "zipformer",
-            Self::Russian => "zipformer2",
+            // All others: auto-detect from ONNX file metadata
+            _ => "",
         }
     }
 
@@ -130,11 +135,10 @@ impl ZipformerLanguage {
                 "bpe.model",
             ],
             Self::Chinese => &[
-                "encoder-epoch-20-avg-1-chunk-16-left-128.onnx",
-                "decoder-epoch-20-avg-1-chunk-16-left-128.onnx",
-                "joiner-epoch-20-avg-1-chunk-16-left-128.onnx",
+                "encoder.int8.onnx",
+                "decoder.onnx",
+                "joiner.int8.onnx",
                 "tokens.txt",
-                "bpe.model",
             ],
             Self::Russian => &["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt", "bpe.model"],
             Self::All8Lang => &[
@@ -310,10 +314,8 @@ fn build_recognizer_config(
     config.model_config.transducer.decoder = strings.decoder.as_ptr();
     config.model_config.transducer.joiner = strings.joiner.as_ptr();
     config.model_config.tokens = strings.tokens.as_ptr();
-    // Only set model_type for zipformer2 (Kroko) models.
-    // For zipformer v1 models, leave null to let sherpa auto-detect
-    // (avoids crash when model lacks 'attention_dims' metadata).
-    if lang.sherpa_model_type() == "zipformer2" {
+    // Only set model_type when explicitly known; empty = auto-detect from ONNX metadata.
+    if !lang.sherpa_model_type().is_empty() {
         config.model_config.model_type = strings.model_type.as_ptr();
     }
     if !strings.bpe_vocab.to_bytes().is_empty() {

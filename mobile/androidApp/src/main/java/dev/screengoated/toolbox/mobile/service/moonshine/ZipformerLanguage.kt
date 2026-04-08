@@ -5,15 +5,18 @@ package dev.screengoated.toolbox.mobile.service.moonshine
  * 7 dedicated per-language models + 1 multilingual (8-lang).
  *
  * Most models download individual files from HuggingFace.
- * Korean uses a GitHub release tarball (HF repo is gated).
+ * Korean uses a ModelScope mirror (HF repo is gated).
+ *
+ * sherpaModelType defaults to "" (auto-detect from ONNX metadata).
+ * Only override when the model's embedded metadata is known to be missing.
  */
 enum class ZipformerLanguage(
     val code: String,
     val displayName: String,
     val modelName: String,
     val downloadBaseUrl: String,
-    /** sherpa-onnx model type: "zipformer" (v1) or "zipformer2" (Kroko/newer) */
-    val sherpaModelType: String = "zipformer2",
+    /** sherpa-onnx model type hint. Empty = auto-detect from ONNX metadata (safest). */
+    val sherpaModelType: String = "",
 ) {
     ENGLISH("en", "English",
         "streaming-zipformer-en-kroko",
@@ -21,13 +24,11 @@ enum class ZipformerLanguage(
 
     KOREAN("ko", "Korean",
         "streaming-zipformer-korean",
-        "https://modelscope.cn/models/k2-fsa/sherpa-onnx-streaming-zipformer-korean-2024-06-16/resolve/master",
-        sherpaModelType = "zipformer"),
+        "https://modelscope.cn/models/k2-fsa/sherpa-onnx-streaming-zipformer-korean-2024-06-16/resolve/master"),
 
     CHINESE("zh", "Chinese",
         "streaming-zipformer-zh",
-        "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-multi-zh-hans-2023-12-13/resolve/main",
-        sherpaModelType = "zipformer"),
+        "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30/resolve/main"),
 
     FRENCH("fr", "French",
         "streaming-zipformer-fr-kroko",
@@ -43,13 +44,11 @@ enum class ZipformerLanguage(
 
     RUSSIAN("ru", "Russian",
         "streaming-zipformer-small-ru-vosk",
-        "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-small-ru-vosk-2025-08-16/resolve/main",
-        sherpaModelType = "zipformer"),
+        "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-small-ru-vosk-2025-08-16/resolve/main"),
 
     ALL_8LANG("all-8", "AR, EN, ID, JA, RU, TH, VI, ZH",
         "streaming-zipformer-multilingual-8lang",
-        "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10/resolve/main",
-        sherpaModelType = "zipformer");
+        "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10/resolve/main");
 
     val modelFiles: List<String> get() = when (modelName) {
         "streaming-zipformer-en-kroko",
@@ -65,16 +64,10 @@ enum class ZipformerLanguage(
             "tokens.txt", "bpe.model",
         )
         "streaming-zipformer-zh" -> listOf(
-            "encoder-epoch-20-avg-1-chunk-16-left-128.int8.onnx",
-            "decoder-epoch-20-avg-1-chunk-16-left-128.onnx",
-            "joiner-epoch-20-avg-1-chunk-16-left-128.int8.onnx",
-            "tokens.txt",
+            "encoder.int8.onnx", "decoder.onnx", "joiner.int8.onnx", "tokens.txt",
         )
         "streaming-zipformer-small-ru-vosk" -> listOf(
-            "encoder-epoch-99-avg-1-chunk-16-left-128.int8.onnx",
-            "decoder-epoch-99-avg-1-chunk-16-left-128.onnx",
-            "joiner-epoch-99-avg-1-chunk-16-left-128.int8.onnx",
-            "tokens.txt",
+            "encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt", "bpe.model",
         )
         "streaming-zipformer-multilingual-8lang" -> listOf(
             "encoder-epoch-75-avg-11-chunk-16-left-128.int8.onnx",
@@ -86,14 +79,21 @@ enum class ZipformerLanguage(
     }
 
     /**
-     * True for models that produce native punctuation in their streaming output
-     * (EN, KO, ZH, FR, DE, ES). These use sentence-boundary detection for commits.
-     * False for RU and All8Lang — those use silence-based threshold commits.
+     * True = model emits native punctuation (periods, ?, !) in streaming output.
+     *        Uses sentence-boundary detection for commits (Cases 1 & 2).
+     * False = model does not emit punctuation.
+     *        Uses silence-based threshold commits with appended period (Case 3).
+     *        See draftCommitThresholdMs() — caller must perform the full commit sequence.
+     *
+     * Confirmed by live testing on all 8 languages (2026-04):
+     *   EN ✓  KO ✓  FR ✓  DE ✓  ES ✓  — native punctuation
+     *   ZH ✗  RU ✗  All8 ✗            — no native punctuation
+     *
      * Mirrors Windows `ZipformerLanguage::has_native_punctuation()`.
      */
     val hasNativePunctuation: Boolean get() = when (this) {
-        ENGLISH, KOREAN, CHINESE, FRENCH, GERMAN, SPANISH -> true
-        RUSSIAN, ALL_8LANG -> false
+        ENGLISH, KOREAN, FRENCH, GERMAN, SPANISH -> true
+        CHINESE, RUSSIAN, ALL_8LANG -> false
     }
 
     fun sherpaEncoder(): String = modelFiles.first { it.contains("encoder") }
