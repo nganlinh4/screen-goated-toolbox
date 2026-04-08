@@ -132,7 +132,7 @@ impl<'a> GenerationSession<'a> {
             let next_hidden = self.inference.text_decoder.embed(&next_input).unsqueeze(0);
             // Extend rope cache if we're about to exceed it
             let pos = self.state.next_position();
-            if pos + 1 > self.rope.len() {
+            if pos + 1 >= self.rope.len() {
                 let new_cap = (pos + 256).max(self.rope.len() * 2);
                 self.rope = self.inference.rope_cache(new_cap);
             }
