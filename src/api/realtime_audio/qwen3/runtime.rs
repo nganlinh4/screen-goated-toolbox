@@ -79,10 +79,6 @@ pub struct RuntimeTranscriptionResult {
     #[serde(default)]
     pub is_final: bool,
     #[serde(default)]
-    pub kv_cache_bytes: usize,
-    #[serde(default)]
-    pub kv_cache_dense_bytes: usize,
-    #[serde(default)]
     pub error: String,
 }
 
@@ -109,10 +105,7 @@ impl Drop for RuntimeInner {
                 let _ = (self.exports.destroy_runtime)(self.handle);
             }
         }
-        let (c10_cuda, torch_cuda) = (
-            self._preloaded_cuda.0.take(),
-            self._preloaded_cuda.1.take(),
-        );
+        let (c10_cuda, torch_cuda) = (self._preloaded_cuda.0.take(), self._preloaded_cuda.1.take());
         let library = self.library.take();
         drop(c10_cuda);
         drop(torch_cuda);
@@ -179,12 +172,6 @@ fn clear_runtime_notice() {
 
 pub fn current_qwen3_runtime_notice() -> Option<String> {
     LAST_QWEN3_RUNTIME_NOTICE.lock().ok()?.clone()
-}
-
-pub fn is_qwen3_runtime_downloaded() -> bool {
-    runtime_dll_candidates()
-        .ok()
-        .is_some_and(|paths| paths.iter().any(|p| p.exists()))
 }
 
 /// Check if the runtime is installed in the managed (downloadable) private bin dir.

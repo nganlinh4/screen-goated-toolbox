@@ -19,8 +19,9 @@ use crate::APP;
 use super::html::generate_popup_update_script;
 use super::render::generate_popup_html;
 use super::{
-    BASE_POPUP_HEIGHT, BASE_POPUP_WIDTH, HwndWrapper, IGNORE_FOCUS_LOSS_UNTIL, IS_WARMED_UP,
-    IS_WARMING_UP, POPUP_HWND, POPUP_SURFACE_INSET, POPUP_WEB_CONTEXT, POPUP_WEBVIEW,
+    BASE_POPUP_HEIGHT, BASE_POPUP_WIDTH, HAS_PENDING_SHOW_ANCHOR, HwndWrapper,
+    IGNORE_FOCUS_LOSS_UNTIL, IS_WARMED_UP, IS_WARMING_UP, PENDING_SHOW_ANCHOR_X,
+    PENDING_SHOW_ANCHOR_Y, POPUP_HWND, POPUP_SURFACE_INSET, POPUP_WEB_CONTEXT, POPUP_WEBVIEW,
     REGISTER_POPUP_CLASS, WARMUP_START_TIME, WEBVIEW_INIT_FAILED, WM_APP_SHOW,
     get_scaled_dimension, hide_tray_popup, popup_window_dimensions, set_popup_bounds,
 };
@@ -321,8 +322,16 @@ pub(super) unsafe extern "system" fn popup_wnd_proc(
                 let main_width = get_scaled_dimension(BASE_POPUP_WIDTH);
                 let main_height = get_scaled_dimension(BASE_POPUP_HEIGHT);
 
-                let mut pt = POINT::default();
-                let _ = GetCursorPos(&mut pt);
+                let pt = if HAS_PENDING_SHOW_ANCHOR.swap(false, Ordering::SeqCst) {
+                    POINT {
+                        x: PENDING_SHOW_ANCHOR_X.load(Ordering::SeqCst) as i32,
+                        y: PENDING_SHOW_ANCHOR_Y.load(Ordering::SeqCst) as i32,
+                    }
+                } else {
+                    let mut pt = POINT::default();
+                    let _ = GetCursorPos(&mut pt);
+                    pt
+                };
                 let screen_w = GetSystemMetrics(SM_CXSCREEN);
                 let screen_h = GetSystemMetrics(SM_CYSCREEN);
 
