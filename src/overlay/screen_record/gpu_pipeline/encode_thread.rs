@@ -66,7 +66,10 @@ pub(super) fn run_encode_thread(
     let mut audio_segment_idx = 0usize;
     let mut audio_eof = false;
     let mut total_audio_samples_written: u64 = 0;
-    let audio_sample_rate = audio_decoder.as_ref().map(|dec| dec.sample_rate()).unwrap_or(48_000);
+    let audio_sample_rate = audio_decoder
+        .as_ref()
+        .map(|dec| dec.sample_rate())
+        .unwrap_or(48_000);
 
     if let Some(dec) = &audio_decoder
         && !config.audio_is_preprocessed
@@ -240,7 +243,8 @@ pub(super) fn run_encode_thread(
                             } else {
                                 pcm.len() / (channels * 4)
                             };
-                            let source_duration_sec = input_frames as f64 / audio_sample_rate as f64;
+                            let source_duration_sec =
+                                input_frames as f64 / audio_sample_rate as f64;
                             let mut resampled = pcm.clone();
                             apply_audio_volume_envelope(
                                 &mut resampled,

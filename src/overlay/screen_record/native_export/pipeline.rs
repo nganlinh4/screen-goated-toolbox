@@ -493,15 +493,15 @@ fn prepare_audio_and_video(config: &ExportConfig) -> Result<AudioVideoPrep, Stri
         if sources.is_empty() {
             None
         } else {
-        build_preprocessed_audio_mix(
-            &sources,
-            &speed_points,
-            config.trim_start,
-            config.duration,
-            &config.segment.trim_segments,
-            &output_base_dir,
-            &format!("SGT_Export_{}", timestamp_ms),
-        )?
+            build_preprocessed_audio_mix(
+                &sources,
+                &speed_points,
+                config.trim_start,
+                config.duration,
+                &config.segment.trim_segments,
+                &output_base_dir,
+                &format!("SGT_Export_{}", timestamp_ms),
+            )?
         }
     } else {
         None

@@ -149,17 +149,17 @@ pub fn render_minimal_overlay(ctx: &egui::Context) {
         return;
     }
 
-        if USER_REQUESTED_CLOSE.load(Ordering::SeqCst) {
-            MINIMAL_ACTIVE.store(false, Ordering::SeqCst);
-            unsafe {
-                IS_ACTIVE = false;
-            }
-            REALTIME_SESSION_STOPPING.store(true, Ordering::SeqCst);
-            REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
-            crate::api::tts::TTS_MANAGER.stop();
-            USER_REQUESTED_CLOSE.store(false, Ordering::SeqCst);
-            return;
+    if USER_REQUESTED_CLOSE.load(Ordering::SeqCst) {
+        MINIMAL_ACTIVE.store(false, Ordering::SeqCst);
+        unsafe {
+            IS_ACTIVE = false;
         }
+        REALTIME_SESSION_STOPPING.store(true, Ordering::SeqCst);
+        REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
+        crate::api::tts::TTS_MANAGER.stop();
+        USER_REQUESTED_CLOSE.store(false, Ordering::SeqCst);
+        return;
+    }
 
     let mut ui_state = UI_STATE.lock().unwrap();
     let ui_language = APP
