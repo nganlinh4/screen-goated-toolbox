@@ -34,7 +34,7 @@ pub fn render_downloaded_tools_modal(
             .collapsible(false)
             .resizable(true)
             .default_width(1100.0)
-            .default_height(510.0)
+            .default_height(540.0)
             .min_width(900.0)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
