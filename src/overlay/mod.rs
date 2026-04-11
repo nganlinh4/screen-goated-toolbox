@@ -156,6 +156,84 @@ fn delete_directory_contents_recursive(path: &std::path::Path) -> bool {
 
     any_deleted
 }
+
+/// Factory-reset cleanup: deletes app-managed dirs that have no per-tool UI.
+///
+/// Skipped on purpose because they already have dedicated delete buttons in
+/// `settings_ui/global/downloaded_tools/`:
+///   - `bin/` (ai_runtime, video_downloader, lingua)
+///   - `pointer-gallery/` (pointer_packs)
+///   - `backgrounds/` (backgrounds)
+///   - `Roaming/screen-goated-toolbox/models/` (model_sections, zipformer)
+///
+/// WebView data under `SGT/webview_data` is skipped here because it is still
+/// locked by the running process; it is cleaned on next startup via
+/// `clear_webview_on_startup` instead.
+pub fn clear_all_app_data() {
+    let local = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    let roaming = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+
+    let sgt_local = local.join("screen-goated-toolbox");
+    let sgt_roaming = roaming.join("screen-goated-toolbox");
+    let legacy_sgt_roaming = roaming.join("SGT");
+
+    // Local\screen-goated-toolbox\* — caches and user content with no UI.
+    let local_children = [
+        "recordings",
+        "composition-snapshots",
+        "cursor-anim-cache",
+        "webview-selector",
+        "export-debug",
+        "composition-export",
+    ];
+    for name in local_children {
+        let path = sgt_local.join(name);
+        if path.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&path) {
+                eprintln!("[reset] failed to remove {:?}: {}", path, e);
+                delete_directory_contents_recursive(&path);
+            }
+        }
+    }
+
+    // Roaming\screen-goated-toolbox\history_media — transcript audio clips.
+    // Roaming\screen-goated-toolbox\fonts — app-bundled font cache.
+    // Config/history JSONs are reset by the caller via Config::default().
+    for name in ["history_media", "fonts"] {
+        let path = sgt_roaming.join(name);
+        if path.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&path) {
+                eprintln!("[reset] failed to remove {:?}: {}", path, e);
+                delete_directory_contents_recursive(&path);
+            }
+        }
+    }
+
+    // Legacy Roaming\SGT (orphaned from an old code version — pure garbage).
+    if legacy_sgt_roaming.exists() {
+        if let Err(e) = std::fs::remove_dir_all(&legacy_sgt_roaming) {
+            eprintln!("[reset] failed to remove legacy {:?}: {}", legacy_sgt_roaming, e);
+            delete_directory_contents_recursive(&legacy_sgt_roaming);
+        }
+    }
+
+    // Local\SGT\logs — debug session logs (debug_log.rs).
+    // Local\SGT\bin — orphaned unpacked runtime DLLs from an old code version
+    //                 (current code unpacks to screen-goated-toolbox\bin\).
+    // Local\SGT\webview_data is intentionally skipped here — still locked by
+    // the running process, cleaned on next startup.
+    let sgt_local_root = local.join("SGT");
+    for name in ["logs", "bin"] {
+        let path = sgt_local_root.join(name);
+        if path.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&path) {
+                eprintln!("[reset] failed to remove {:?}: {}", path, e);
+                delete_directory_contents_recursive(&path);
+            }
+        }
+    }
+}
+
 /// Check if we should use dark mode based on config.
 /// Uses direct registry check for System theme to avoid crate overhead/crashes.
 pub fn is_dark_mode() -> bool {

@@ -425,10 +425,7 @@ class ProjectManager {
 
   private async deleteProjectData(
     id: string,
-    project:
-      | Pick<Project, "composition" | "rawVideoPath" | "rawWebcamVideoPath">
-      | null
-      | undefined,
+    project: Project | StoredProjectRecord | null | undefined,
   ): Promise<void> {
     await this.deleteVideoBlob(id);
     await this.deleteAudioBlob(id);
@@ -441,6 +438,22 @@ class ProjectManager {
       project?.rawVideoPath,
       project?.rawWebcamVideoPath,
     );
+    // Delete the root raw media files too (lived in `recordings/`).
+    // Previously only ProjectsView.tsx did this, and it only covered
+    // rawVideoPath — rawWebcamVideoPath and rawMicAudioPath were leaking.
+    const rootRawPaths = [
+      project?.rawVideoPath,
+      project?.rawWebcamVideoPath,
+      (project as Project | null | undefined)?.rawMicAudioPath,
+    ];
+    for (const path of rootRawPaths) {
+      if (!path) continue;
+      try {
+        await invoke("delete_file", { path });
+      } catch {
+        // ignore cleanup failures
+      }
+    }
   }
 
   private async deleteLegacyInlineProjectData(id: string): Promise<void> {
