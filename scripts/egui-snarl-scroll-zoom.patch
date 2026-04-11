@@ -1,5 +1,5 @@
 diff --git a/src/ui.rs b/src/ui.rs
-index 961546d..e4f2073 100644
+index 961546d..5f9793c 100644
 --- a/src/ui.rs
 +++ b/src/ui.rs
 @@ -4,7 +4,7 @@ use std::{collections::HashMap, hash::Hash};
@@ -31,7 +31,7 @@ index 961546d..e4f2073 100644
 +        });
 +
 +        if scroll_delta.y.abs() > 0.1 && pointer_in_canvas {
-+            let zoom_factor = if scroll_delta.y > 0.0 { 1.1 } else { 0.9 };
++            let zoom_factor = (1.0 + scroll_delta.y * 0.003).clamp(0.9, 1.1);
 +            let pointer_pos = ui
 +                .ctx()
 +                .input(|i| i.pointer.hover_pos())
@@ -65,7 +65,7 @@ index 961546d..e4f2073 100644
 +            || snarl_resp.dragged_by(PointerButton::Middle)
 +            || snarl_resp.dragged_by(PointerButton::Secondary)
 +        {
-+            to_global.translation += snarl_resp.drag_delta();
++            to_global.translation += to_global.scaling * snarl_resp.drag_delta();
 +            snarl_resp.mark_changed();
 +        }
 +    }
