@@ -675,8 +675,12 @@ pub fn render_global_settings(
                     // config.realtime_translation_model = saved_realtime_model;
                     request_node_graph_view_reset(ui.ctx());
 
-                    // Also clear WebView data (MIDI permissions, etc.)
-                    // Instead of throwing an error if locked, we schedule for next startup and restart immediately.
+                    // Full factory reset: wipe every app-managed directory
+                    // (recordings, downloaded runtime DLLs, models, caches,
+                    // pointer packs, backgrounds, webview-selector, legacy
+                    // orphans). SGT/webview_data is still locked by the
+                    // running process, so that one is scheduled for startup.
+                    crate::overlay::clear_all_app_data();
                     config.clear_webview_on_startup = true;
 
                     // Save immediately and restart

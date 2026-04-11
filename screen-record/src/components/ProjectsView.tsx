@@ -3,7 +3,6 @@ import { Video, Trash2, Play, X, Upload } from "lucide-react";
 import { Project } from "@/types/video";
 import { projectManager } from "@/lib/projectManager";
 import { useSettings } from "@/hooks/useSettings";
-import { invoke } from "@/lib/ipc";
 import { ConfirmDialog } from "./dialogs";
 import { formatDuration } from "./projectsViewUtils";
 import { useProjectsAnimations } from "./projectsViewAnimations";
@@ -82,11 +81,6 @@ export function ProjectsView({
     setShowClearConfirm(false);
     for (const p of projects) {
       await projectManager.deleteProject(p.id);
-      if (p.rawVideoPath) {
-        try {
-          await invoke("delete_file", { path: p.rawVideoPath });
-        } catch {}
-      }
     }
     onProjectsChange();
   };
@@ -290,13 +284,6 @@ export function ProjectsView({
                           onClick={async (e) => {
                             e.stopPropagation();
                             await projectManager.deleteProject(project.id);
-                            if (project.rawVideoPath) {
-                              try {
-                                await invoke("delete_file", {
-                                  path: project.rawVideoPath,
-                                });
-                              } catch {}
-                            }
                             onProjectsChange();
                           }}
                           className="project-delete-btn ui-icon-button text-[var(--outline)] hover:text-red-400 opacity-0 group-hover:opacity-100 p-0.5 flex-shrink-0"
