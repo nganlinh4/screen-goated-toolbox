@@ -49,12 +49,17 @@ pub(super) fn render_zipformer_section(
                 }
             }
         }
-        let dlls_status = download_manager.zipformer_dlls_status.lock().unwrap().clone();
+        let dlls_status = download_manager
+            .zipformer_dlls_status
+            .lock()
+            .unwrap()
+            .clone();
 
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(text.tool_zipformer_runtime_dlls).strong());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                match dlls_status {
+            ui.with_layout(
+                egui::Layout::right_to_left(egui::Align::Center),
+                |ui| match dlls_status {
                     InstallStatus::Installed => {
                         if ui
                             .button(
@@ -70,8 +75,7 @@ pub(super) fn render_zipformer_section(
                         let size = get_dir_size(&sherpa_onnx::dlls::sherpa_bin_dir());
                         ui.label(
                             egui::RichText::new(
-                                text.tool_status_installed
-                                    .replace("{}", &format_size(size)),
+                                text.tool_status_installed.replace("{}", &format_size(size)),
                             )
                             .color(egui::Color32::from_rgb(34, 139, 34)),
                         );
@@ -96,8 +100,8 @@ pub(super) fn render_zipformer_section(
                                 .color(egui::Color32::GRAY),
                         );
                     }
-                }
-            });
+                },
+            );
         });
         ui.label(
             egui::RichText::new(text.tool_zipformer_desc_runtime_dlls)
@@ -133,8 +137,9 @@ pub(super) fn render_zipformer_section(
 
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(&label).strong());
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    match status {
+                ui.with_layout(
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| match status {
                         InstallStatus::Installed => {
                             if ui
                                 .button(
@@ -151,8 +156,7 @@ pub(super) fn render_zipformer_section(
                             let size = get_dir_size(&model_dir(lang));
                             ui.label(
                                 egui::RichText::new(
-                                    text.tool_status_installed
-                                        .replace("{}", &format_size(size)),
+                                    text.tool_status_installed.replace("{}", &format_size(size)),
                                 )
                                 .color(egui::Color32::from_rgb(34, 139, 34)),
                             );
@@ -173,8 +177,8 @@ pub(super) fn render_zipformer_section(
                                     .color(egui::Color32::GRAY),
                             );
                         }
-                    }
-                });
+                    },
+                );
             });
         }
     });

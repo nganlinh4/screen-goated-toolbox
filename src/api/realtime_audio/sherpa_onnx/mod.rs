@@ -108,7 +108,10 @@ impl ZipformerLanguage {
     ///   EN ✓  KO ✓  FR ✓  DE ✓  ES ✓  — native punctuation
     ///   ZH ✗  RU ✗  All8 ✗            — no native punctuation
     pub fn has_native_punctuation(&self) -> bool {
-        matches!(self, Self::English | Self::Korean | Self::French | Self::German | Self::Spanish)
+        matches!(
+            self,
+            Self::English | Self::Korean | Self::French | Self::German | Self::Spanish
+        )
     }
 
     /// sherpa-onnx model type hint. Empty = auto-detect from ONNX metadata (safest).
@@ -140,7 +143,13 @@ impl ZipformerLanguage {
                 "joiner.int8.onnx",
                 "tokens.txt",
             ],
-            Self::Russian => &["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt", "bpe.model"],
+            Self::Russian => &[
+                "encoder.onnx",
+                "decoder.onnx",
+                "joiner.onnx",
+                "tokens.txt",
+                "bpe.model",
+            ],
             Self::All8Lang => &[
                 "encoder-epoch-75-avg-11-chunk-16-left-128.int8.onnx",
                 "decoder-epoch-75-avg-11-chunk-16-left-128.onnx",
@@ -282,7 +291,10 @@ pub fn download_model(
             state.download_progress = pct * 100.0;
         }
         post_download_state();
-        update_overlay_text(overlay_hwnd, &format!("Downloading Zipformer {}...", lang.display_name()));
+        update_overlay_text(
+            overlay_hwnd,
+            &format!("Downloading Zipformer {}...", lang.display_name()),
+        );
     });
 
     if let Ok(mut state) = REALTIME_STATE.lock() {
@@ -539,7 +551,9 @@ fn run_streaming_loop(
 
                 // Draft = everything the stream has output after our committed prefix
                 let draft = if text.starts_with(&stream_committed_prefix) {
-                    text[stream_committed_prefix.len()..].trim_start().to_string()
+                    text[stream_committed_prefix.len()..]
+                        .trim_start()
+                        .to_string()
                 } else {
                     text.clone()
                 };
@@ -556,7 +570,8 @@ fn run_streaming_loop(
                     && let Some((before, after)) = super::utils::split_at_sentence_boundary(&draft)
                 {
                     super::utils::append_history_segment(&mut committed_history, &before);
-                    stream_committed_prefix = text[..text.len() - after.len()].trim_end().to_string();
+                    stream_committed_prefix =
+                        text[..text.len() - after.len()].trim_end().to_string();
                     last_draft_text.clear();
                     last_draft_change = Instant::now();
                     publish_transcript(state, overlay_hwnd, &committed_history, after.trim_start());
@@ -596,7 +611,6 @@ fn run_streaming_loop(
 
     Ok(())
 }
-
 
 /// Parse text from sherpa-onnx result JSON: {"text": "hello world", ...}
 fn parse_result_text(json_str: &str) -> String {

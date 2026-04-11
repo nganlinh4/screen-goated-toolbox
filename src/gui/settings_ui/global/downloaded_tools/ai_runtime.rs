@@ -17,8 +17,7 @@ pub(super) fn render_ai_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                 AiRuntimeStatus::Installed { bytes } => {
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete)
-                                .color(egui::Color32::RED),
+                            egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED),
                         )
                         .clicked()
                     {
@@ -53,8 +52,7 @@ pub(super) fn render_ai_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                         let _ = unpack_dlls::start_ai_runtime_install();
                     }
                     ui.label(
-                        egui::RichText::new(text.tool_status_missing)
-                            .color(egui::Color32::GRAY),
+                        egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY),
                     );
                 }
             },

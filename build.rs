@@ -92,14 +92,8 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
 
     let constant_mappings = [
         ("DEFAULT_IMAGE_MODEL_ID", "default_image_model_id"),
-        (
-            "DEFAULT_TEXT_MODEL_ID",
-            "default_text_model_id",
-        ),
-        (
-            "DEFAULT_TEXT_API_MODEL",
-            "default_text_api_model",
-        ),
+        ("DEFAULT_TEXT_MODEL_ID", "default_text_model_id"),
+        ("DEFAULT_TEXT_API_MODEL", "default_text_api_model"),
         ("GEMINI_LIVE_API_MODEL_2_5", "gemini_live_api_model_2_5"),
         ("GEMINI_LIVE_API_MODEL_3_1", "gemini_live_api_model_3_1"),
         (

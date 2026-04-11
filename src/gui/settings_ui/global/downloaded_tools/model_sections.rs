@@ -46,8 +46,7 @@ fn render_parakeet_content(ui: &mut egui::Ui, text: &LocaleText) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let is_downloading = {
                 if let Ok(state) = REALTIME_STATE.lock() {
-                    state.is_downloading
-                        && state.download_title == text.parakeet_downloading_title
+                    state.is_downloading && state.download_title == text.parakeet_downloading_title
                 } else {
                     false
                 }
@@ -65,9 +64,7 @@ fn render_parakeet_content(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.spinner();
             } else if is_model_downloaded() {
                 if ui
-                    .button(
-                        egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED),
-                    )
+                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
                     .clicked()
                 {
                     let _ = remove_parakeet_model();
@@ -86,9 +83,7 @@ fn render_parakeet_content(ui: &mut egui::Ui, text: &LocaleText) {
                         let _ = download_parakeet_model(stop_signal, false);
                     });
                 }
-                ui.label(
-                    egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY),
-                );
+                ui.label(egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY));
             }
         });
     });
@@ -106,9 +101,7 @@ fn render_qwen3_content(ui: &mut egui::Ui, text: &LocaleText) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if is_qwen3_model_downloaded() {
                 if ui
-                    .button(
-                        egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED),
-                    )
+                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
                     .clicked()
                 {
                     let _ = remove_qwen3_model();
@@ -127,9 +120,7 @@ fn render_qwen3_content(ui: &mut egui::Ui, text: &LocaleText) {
                         let _ = download_qwen3_model(stop_signal, false);
                     });
                 }
-                ui.label(
-                    egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY),
-                );
+                ui.label(egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY));
             }
         });
     });
@@ -146,9 +137,7 @@ fn render_qwen3_1_7b_content(ui: &mut egui::Ui, text: &LocaleText) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if is_qwen3_1_7b_model_downloaded() {
                 if ui
-                    .button(
-                        egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED),
-                    )
+                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
                     .clicked()
                 {
                     let _ = remove_qwen3_1_7b_model();
@@ -167,9 +156,7 @@ fn render_qwen3_1_7b_content(ui: &mut egui::Ui, text: &LocaleText) {
                         let _ = download_qwen3_1_7b_model(stop_signal, false);
                     });
                 }
-                ui.label(
-                    egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY),
-                );
+                ui.label(egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY));
             }
         });
     });
@@ -206,9 +193,7 @@ fn render_qwen3_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.spinner();
             } else if is_qwen3_runtime_managed_installed() {
                 if ui
-                    .button(
-                        egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED),
-                    )
+                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
                     .clicked()
                 {
                     let _ = remove_qwen3_runtime();
@@ -227,9 +212,7 @@ fn render_qwen3_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                         let _ = download_qwen3_runtime(stop_signal, false);
                     });
                 }
-                ui.label(
-                    egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY),
-                );
+                ui.label(egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY));
             }
         });
     });
