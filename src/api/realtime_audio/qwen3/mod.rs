@@ -29,21 +29,6 @@ pub enum Qwen3ModelVariant {
     Large, // 1.7B
 }
 
-pub fn run_qwen3_transcription(
-    _preset: Preset,
-    stop_signal: Arc<AtomicBool>,
-    overlay_hwnd: HWND,
-    state: SharedRealtimeState,
-) -> Result<()> {
-    run_qwen3_transcription_variant(
-        _preset,
-        stop_signal,
-        overlay_hwnd,
-        state,
-        Qwen3ModelVariant::Small,
-    )
-}
-
 pub fn run_qwen3_transcription_variant(
     _preset: Preset,
     stop_signal: Arc<AtomicBool>,
@@ -288,7 +273,6 @@ fn should_commit_on_silence(
         && current_audio_len > 0
         && last_voice_activity.elapsed() >= Duration::from_millis(SILENCE_COMMIT_MS)
 }
-
 
 fn runtime_live_segments(result: &runtime::RuntimeTranscriptionResult) -> (String, String) {
     if result.fixed_text.is_empty() && result.draft_text.is_empty() {

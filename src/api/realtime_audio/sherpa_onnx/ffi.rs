@@ -126,10 +126,6 @@ type FnGetResultJson = unsafe extern "C" fn(
     *const SherpaOnnxOnlineStream,
 ) -> *const c_char;
 type FnDestroyResultJson = unsafe extern "C" fn(*const c_char);
-type FnIsEndpoint =
-    unsafe extern "C" fn(*const SherpaOnnxOnlineRecognizer, *const SherpaOnnxOnlineStream) -> i32;
-type FnReset =
-    unsafe extern "C" fn(*const SherpaOnnxOnlineRecognizer, *const SherpaOnnxOnlineStream);
 
 pub struct SherpaLib {
     _lib: Library,
@@ -143,8 +139,6 @@ pub struct SherpaLib {
     pub decode: FnDecode,
     pub get_result_json: FnGetResultJson,
     pub destroy_result_json: FnDestroyResultJson,
-    pub is_endpoint: FnIsEndpoint,
-    pub reset: FnReset,
 }
 
 unsafe impl Send for SherpaLib {}
@@ -253,13 +247,6 @@ pub fn load() -> Result<&'static SherpaLib> {
                 let destroy_result_json = *lib
                     .get::<FnDestroyResultJson>(b"SherpaOnnxDestroyOnlineStreamResultJson")
                     .map_err(|e| e.to_string())?;
-                let is_endpoint = *lib
-                    .get::<FnIsEndpoint>(b"SherpaOnnxOnlineStreamIsEndpoint")
-                    .map_err(|e| e.to_string())?;
-                let reset = *lib
-                    .get::<FnReset>(b"SherpaOnnxOnlineStreamReset")
-                    .map_err(|e| e.to_string())?;
-
                 Ok(SherpaLib {
                     _lib: lib,
                     _dep_libs: dep_libs,
@@ -272,8 +259,6 @@ pub fn load() -> Result<&'static SherpaLib> {
                     decode: std::mem::transmute(decode),
                     get_result_json: std::mem::transmute(get_result_json),
                     destroy_result_json: std::mem::transmute(destroy_result_json),
-                    is_endpoint: std::mem::transmute(is_endpoint),
-                    reset: std::mem::transmute(reset),
                 })
             }
         })
