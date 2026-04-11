@@ -37,8 +37,7 @@ fn render_ytdlp_content(
                     let path = download_manager.bin_dir.join("yt-dlp.exe");
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete)
-                                .color(egui::Color32::RED),
+                            egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED),
                         )
                         .clicked()
                     {
@@ -89,11 +88,17 @@ fn render_ytdlp_content(
                         UpdateStatus::Idle
                     }
                 };
-                render_update_status(ui, u_status, text, || {
-                    download_manager.start_download_ytdlp();
-                }, || {
-                    download_manager.check_updates();
-                });
+                render_update_status(
+                    ui,
+                    u_status,
+                    text,
+                    || {
+                        download_manager.start_download_ytdlp();
+                    },
+                    || {
+                        download_manager.check_updates();
+                    },
+                );
                 if let Ok(guard) = download_manager.ytdlp_version.lock()
                     && let Some(ver) = &*guard
                 {
@@ -115,7 +120,10 @@ fn render_ffmpeg_content(
 
     {
         let mut s = download_manager.ffmpeg_status.lock().unwrap();
-        let in_dl = matches!(*s, InstallStatus::Downloading(_) | InstallStatus::Extracting);
+        let in_dl = matches!(
+            *s,
+            InstallStatus::Downloading(_) | InstallStatus::Extracting
+        );
         if !in_dl {
             match (&*s, installed_on_disk) {
                 (InstallStatus::Installed, false) => *s = InstallStatus::Missing,
@@ -137,8 +145,7 @@ fn render_ffmpeg_content(
                 InstallStatus::Installed => {
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete)
-                                .color(egui::Color32::RED),
+                            egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED),
                         )
                         .clicked()
                     {
@@ -198,11 +205,17 @@ fn render_ffmpeg_content(
                         UpdateStatus::Idle
                     }
                 };
-                render_update_status(ui, u_status, text, || {
-                    download_manager.start_download_ffmpeg();
-                }, || {
-                    download_manager.check_updates();
-                });
+                render_update_status(
+                    ui,
+                    u_status,
+                    text,
+                    || {
+                        download_manager.start_download_ffmpeg();
+                    },
+                    || {
+                        download_manager.check_updates();
+                    },
+                );
                 if let Ok(guard) = download_manager.ffmpeg_version.lock()
                     && let Some(ver) = &*guard
                 {
@@ -221,7 +234,10 @@ fn render_deno_content(
     let deno_exists = download_manager.bin_dir.join("deno.exe").exists();
     {
         let mut s = download_manager.deno_status.lock().unwrap();
-        let in_dl = matches!(*s, InstallStatus::Downloading(_) | InstallStatus::Extracting);
+        let in_dl = matches!(
+            *s,
+            InstallStatus::Downloading(_) | InstallStatus::Extracting
+        );
         if !in_dl {
             match (&*s, deno_exists) {
                 (InstallStatus::Installed, false) => *s = InstallStatus::Missing,
@@ -244,8 +260,7 @@ fn render_deno_content(
                     let path = download_manager.bin_dir.join("deno.exe");
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete)
-                                .color(egui::Color32::RED),
+                            egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED),
                         )
                         .clicked()
                     {
@@ -296,11 +311,17 @@ fn render_deno_content(
                         UpdateStatus::Idle
                     }
                 };
-                render_update_status(ui, u_status, text, || {
-                    download_manager.start_download_deno();
-                }, || {
-                    download_manager.check_updates();
-                });
+                render_update_status(
+                    ui,
+                    u_status,
+                    text,
+                    || {
+                        download_manager.start_download_deno();
+                    },
+                    || {
+                        download_manager.check_updates();
+                    },
+                );
                 if let Ok(guard) = download_manager.deno_version.lock()
                     && let Some(ver) = &*guard
                 {

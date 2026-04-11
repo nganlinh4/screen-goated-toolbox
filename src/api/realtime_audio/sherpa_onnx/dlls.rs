@@ -6,8 +6,8 @@
 //!   onnxruntime.dll, onnxruntime_providers_shared.dll
 
 use anyhow::{Result, anyhow};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::Foundation::HWND;
 
 const SHERPA_ONNX_VERSION: &str = "1.12.35";
@@ -31,9 +31,7 @@ pub fn sherpa_bin_dir() -> std::path::PathBuf {
 
 pub fn is_sherpa_dlls_installed() -> bool {
     let dir = sherpa_bin_dir();
-    REQUIRED_DLLS
-        .iter()
-        .all(|name| dir.join(name).exists())
+    REQUIRED_DLLS.iter().all(|name| dir.join(name).exists())
 }
 
 /// Downloads and installs sherpa-onnx DLLs.
@@ -112,10 +110,7 @@ pub fn download_sherpa_dlls_with_progress(
     Ok(())
 }
 
-pub fn download_sherpa_dlls(
-    stop_signal: Arc<AtomicBool>,
-    overlay_hwnd: HWND,
-) -> Result<()> {
+pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) -> Result<()> {
     if is_sherpa_dlls_installed() {
         return Ok(());
     }
@@ -239,12 +234,9 @@ pub fn download_sherpa_dlls(
 }
 
 /// Recursively walk the extracted tree and copy any DLL whose name matches REQUIRED_DLLS.
-fn copy_dlls_from_tree(
-    src_root: &std::path::Path,
-    dest: &std::path::Path,
-) -> Result<()> {
-    let entries = std::fs::read_dir(src_root)
-        .map_err(|e| anyhow!("Failed to read extract dir: {e}"))?;
+fn copy_dlls_from_tree(src_root: &std::path::Path, dest: &std::path::Path) -> Result<()> {
+    let entries =
+        std::fs::read_dir(src_root).map_err(|e| anyhow!("Failed to read extract dir: {e}"))?;
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {

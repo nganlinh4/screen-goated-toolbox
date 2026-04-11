@@ -420,8 +420,7 @@ impl Default for Config {
             // Realtime Audio
             realtime_translation_model: crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS
                 .to_string(),
-            realtime_transcription_model: crate::model_config::QWEN3_ASR_0_6B_MODEL_ID
-                .to_string(),
+            realtime_transcription_model: crate::model_config::QWEN3_ASR_0_6B_MODEL_ID.to_string(),
             realtime_transcription_language: "en".to_string(),
             realtime_font_size: 16,
             realtime_transcription_size: (500, 180),

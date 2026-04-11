@@ -409,7 +409,6 @@ mod tests {
         assert_eq!(config.bilingual_relay.second.accent, "Busan");
         assert_eq!(config.bilingual_relay.second.tone, "polite");
     }
-
 }
 
 // ============================================================================
