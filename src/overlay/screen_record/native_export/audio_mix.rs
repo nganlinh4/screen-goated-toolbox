@@ -313,7 +313,9 @@ fn convert_f32le_to_i16_bytes(pcm: &[u8]) -> Vec<u8> {
     bytes
 }
 
-fn create_wav_writer(wav_path: &Path) -> Result<hound::WavWriter<std::io::BufWriter<File>>, String> {
+fn create_wav_writer(
+    wav_path: &Path,
+) -> Result<hound::WavWriter<std::io::BufWriter<File>>, String> {
     let spec = hound::WavSpec {
         channels: MIX_OUTPUT_CHANNELS as u16,
         sample_rate: MIX_OUTPUT_SAMPLE_RATE,
@@ -424,7 +426,8 @@ fn mix_source_into_raw_file(
     }
 
     let channels = decoder.channels() as usize;
-    let mut stretcher = audio_time_stretch::ExportAudioStretcher::new(MIX_OUTPUT_SAMPLE_RATE, channels);
+    let mut stretcher =
+        audio_time_stretch::ExportAudioStretcher::new(MIX_OUTPUT_SAMPLE_RATE, channels);
     let mut last_output_end_time = 0.0f64;
     let mut last_chunk_time = 0.0f64;
     let mut last_source_duration_sec = 0.0f64;
@@ -484,7 +487,8 @@ fn mix_source_into_raw_file(
 
     let tail = stretcher.finish();
     if !tail.is_empty() {
-        let tail_duration_sec = tail.len() as f64 / (channels as f64 * 4.0) / MIX_OUTPUT_SAMPLE_RATE as f64;
+        let tail_duration_sec =
+            tail.len() as f64 / (channels as f64 * 4.0) / MIX_OUTPUT_SAMPLE_RATE as f64;
         let mut tail = tail;
         apply_audio_volume_envelope(
             &mut tail,
@@ -531,12 +535,9 @@ fn build_single_source_preprocessed_wav(
     trim_segments: &[TrimSegment],
     wav_path: &Path,
 ) -> Result<Option<PathBuf>, String> {
-    if let Some(path) = try_build_single_source_ffmpeg_wav(
-        source,
-        speed_points,
-        trim_segments,
-        wav_path,
-    )? {
+    if let Some(path) =
+        try_build_single_source_ffmpeg_wav(source, speed_points, trim_segments, wav_path)?
+    {
         return Ok(Some(path));
     }
     eprintln!("[Export][AudioPrep] Rust fallback path");
@@ -623,7 +624,8 @@ fn build_single_source_preprocessed_wav(
 
     let mut tail = stretcher.finish();
     if !tail.is_empty() {
-        let tail_duration_sec = tail.len() as f64 / (channels as f64 * 4.0) / MIX_OUTPUT_SAMPLE_RATE as f64;
+        let tail_duration_sec =
+            tail.len() as f64 / (channels as f64 * 4.0) / MIX_OUTPUT_SAMPLE_RATE as f64;
         apply_audio_volume_envelope(
             &mut tail,
             last_chunk_time + last_source_duration_sec,

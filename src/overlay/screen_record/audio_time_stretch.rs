@@ -14,11 +14,7 @@ fn pcm_le_bytes_to_f32(input: &[u8]) -> Option<Vec<f32>> {
 
     let mut output = vec![0.0f32; input.len() / 4];
     unsafe {
-        std::ptr::copy_nonoverlapping(
-            input.as_ptr(),
-            output.as_mut_ptr() as *mut u8,
-            input.len(),
-        );
+        std::ptr::copy_nonoverlapping(input.as_ptr(), output.as_mut_ptr() as *mut u8, input.len());
     }
     Some(output)
 }
@@ -80,7 +76,11 @@ impl ExportAudioStretcher {
         }
 
         let mut output_f32 = Vec::with_capacity(pcm_f32.len() * 2);
-        if self.processor.process_into(&pcm_f32, &mut output_f32).is_err() {
+        if self
+            .processor
+            .process_into(&pcm_f32, &mut output_f32)
+            .is_err()
+        {
             return input.to_vec();
         }
         f32_to_pcm_le_bytes(&output_f32)
