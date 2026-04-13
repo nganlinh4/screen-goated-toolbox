@@ -1,7 +1,9 @@
 //! Language detection via taalas LLM (llama-3.1-8B).
 //!
-//! Replaces the old lingua DLL approach. The LLM is more accurate on short
-//! text and avoids a separate local detector dependency.
+//! Replaces the old local language-detector DLL approach. The LLM is more
+//! accurate on short text and avoids a separate local detector dependency.
+//! Replaces the old DLL-based language detection approach. The LLM is more
+//! accurate on short text and avoids a separate local detector dependency.
 
 use std::sync::Mutex;
 

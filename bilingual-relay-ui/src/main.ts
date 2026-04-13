@@ -524,6 +524,13 @@ function connectionClass(cs: string) {
   return "";
 }
 
+function updateGuideContent(payload: RelayState) {
+  const guideTitle = document.querySelector<HTMLElement>("#guideTitle")!;
+  const guideMsg = document.querySelector<HTMLElement>("#guideMsg")!;
+  guideTitle.textContent = payload.strings.title;
+  guideMsg.textContent = payload.strings.guide;
+  guideBtn.textContent = payload.strings.guideOk;
+}
 // Helper: only touch DOM if value changed
 function setText(el: HTMLElement, v: string) { if (el.textContent !== v) el.textContent = v; }
 function setAttr(el: HTMLElement, k: string, v: string) { if (el.getAttribute(k) !== v) el.setAttribute(k, v); }
@@ -741,6 +748,7 @@ volumeSlider.addEventListener("input", () => {
 const guideOverlay = document.querySelector<HTMLElement>("#guideOverlay")!;
 const guideBtn = document.querySelector<HTMLButtonElement>("#guideBtn")!;
 function dismissGuide() {
+  state.guideOpen = false;
   guideOverlay.style.display = "none";
   void invoke("dismiss_guide");
 }

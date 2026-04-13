@@ -185,7 +185,7 @@ impl Updater {
                 }
             };
 
-            // Parse the JSON to get the first release
+            // Parse the JSON to get the first release.
             let release_data: Result<Vec<serde_json::Value>, _> =
                 serde_json::from_str(&release_json);
             let release = match release_data {
