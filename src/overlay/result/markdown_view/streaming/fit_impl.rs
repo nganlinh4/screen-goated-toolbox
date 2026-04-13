@@ -505,6 +505,10 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
     fit_font_to_window_ex(parent_hwnd, false);
 }
 
+pub fn fit_font_to_window_streaming(parent_hwnd: HWND) {
+    fit_font_to_window_ex(parent_hwnd, true);
+}
+
 fn fit_font_to_window_ex(parent_hwnd: HWND, streaming_mode: bool) {
     let hwnd_key = parent_hwnd.0 as isize;
     let phase = if streaming_mode {

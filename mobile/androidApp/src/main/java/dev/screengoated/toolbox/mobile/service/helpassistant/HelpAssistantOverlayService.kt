@@ -12,15 +12,10 @@ import android.provider.Settings
 import android.view.WindowManager
 import android.widget.Toast
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
-import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantBucket
-import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantMode
 import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantRequest
-import dev.screengoated.toolbox.mobile.helpassistant.errorMarkdown
-import dev.screengoated.toolbox.mobile.helpassistant.helpAssistantBucketFromWireId
-import dev.screengoated.toolbox.mobile.helpassistant.helpAssistantModeFromWireId
-import dev.screengoated.toolbox.mobile.helpassistant.label
-import dev.screengoated.toolbox.mobile.helpassistant.loadingMessage
-import dev.screengoated.toolbox.mobile.helpassistant.resultMarkdown
+import dev.screengoated.toolbox.mobile.helpassistant.helpErrorMarkdown
+import dev.screengoated.toolbox.mobile.helpassistant.helpLoadingMessage
+import dev.screengoated.toolbox.mobile.helpassistant.helpResultMarkdown
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 import dev.screengoated.toolbox.mobile.preset.PresetResultWindowId
 import dev.screengoated.toolbox.mobile.preset.PresetResultWindowState
@@ -95,17 +90,11 @@ class HelpAssistantOverlayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val startIntent = intent ?: return START_NOT_STICKY
-        val bucket = helpAssistantBucketFromWireId(startIntent.getStringExtra(EXTRA_BUCKET))
-            ?: return START_NOT_STICKY
-        val mode = helpAssistantModeFromWireId(startIntent.getStringExtra(EXTRA_MODE))
-            ?: HelpAssistantMode.QUICK
         val question = startIntent.getStringExtra(EXTRA_QUESTION)?.trim().orEmpty()
-        if (question.isBlank()) {
-            return START_NOT_STICKY
-        }
+        if (question.isBlank()) return START_NOT_STICKY
         val uiLanguage = startIntent.getStringExtra(EXTRA_UI_LANGUAGE).orEmpty().ifBlank { uiLanguage() }
-        renderLoading(bucket, uiLanguage)
-        launchRequest(bucket, mode, question, uiLanguage)
+        renderLoading(uiLanguage)
+        launchRequest(question, uiLanguage)
         return START_NOT_STICKY
     }
 
@@ -117,34 +106,26 @@ class HelpAssistantOverlayService : Service() {
         serviceScope.cancel()
     }
 
-    private fun launchRequest(
-        bucket: HelpAssistantBucket,
-        mode: HelpAssistantMode,
-        question: String,
-        uiLanguage: String,
-    ) {
+    private fun launchRequest(question: String, uiLanguage: String) {
         val appContainer = (application as SgtMobileApplication).appContainer
         requestJob?.cancel()
         requestJob = serviceScope.launch {
             val result = appContainer.helpAssistantClient.ask(
                 HelpAssistantRequest(
-                    bucket = bucket,
-                    mode = mode,
                     question = question,
                     uiLanguage = uiLanguage,
                     geminiApiKey = appContainer.repository.currentApiKey(),
                 ),
             )
-            val locale = MobileLocaleText.forLanguage(uiLanguage)
             val markdown = result.fold(
-                onSuccess = { answer -> bucket.resultMarkdown(locale, question, answer) },
-                onFailure = { error -> bucket.errorMarkdown(error.message ?: "Unknown error") },
+                onSuccess = { answer -> helpResultMarkdown(question, answer) },
+                onFailure = { error -> helpErrorMarkdown(error.message ?: "Unknown error") },
             )
             val isError = result.isFailure
             val windowState = PresetResultWindowState(
                 id = WINDOW_ID,
                 blockIdx = 0,
-                title = bucket.label(locale),
+                title = "Ask SGT",
                 markdownText = markdown,
                 isLoading = false,
                 isStreaming = false,
@@ -156,19 +137,17 @@ class HelpAssistantOverlayService : Service() {
         }
     }
 
-    private fun renderLoading(
-        bucket: HelpAssistantBucket,
-        uiLanguage: String,
-    ) {
+    private fun renderLoading(uiLanguage: String) {
         val locale = MobileLocaleText.forLanguage(uiLanguage)
+        val msg = helpLoadingMessage(locale)
         resultModule.showStandaloneMarkdownWindow(
             PresetResultWindowState(
                 id = WINDOW_ID,
                 blockIdx = 0,
-                title = bucket.label(locale),
-                markdownText = bucket.loadingMessage(locale),
+                title = "Ask SGT",
+                markdownText = msg,
                 isLoading = true,
-                loadingStatusText = bucket.loadingMessage(locale),
+                loadingStatusText = msg,
                 isStreaming = false,
                 isError = false,
                 renderMode = "markdown",
@@ -211,24 +190,14 @@ class HelpAssistantOverlayService : Service() {
         (value * resources.displayMetrics.density).toInt()
 
     companion object {
-        private const val EXTRA_BUCKET = "bucket"
-        private const val EXTRA_MODE = "mode"
         private const val EXTRA_QUESTION = "question"
         private const val EXTRA_UI_LANGUAGE = "ui_language"
         private const val SESSION_ID = "help-assistant"
         private val WINDOW_ID = PresetResultWindowId(sessionId = SESSION_ID, blockIdx = 0)
 
-        fun start(
-            context: Context,
-            bucket: HelpAssistantBucket,
-            mode: HelpAssistantMode,
-            question: String,
-            uiLanguage: String,
-        ) {
+        fun start(context: Context, question: String, uiLanguage: String) {
             context.startService(
                 Intent(context, HelpAssistantOverlayService::class.java)
-                    .putExtra(EXTRA_BUCKET, bucket.wireId)
-                    .putExtra(EXTRA_MODE, mode.wireId)
                     .putExtra(EXTRA_QUESTION, question)
                     .putExtra(EXTRA_UI_LANGUAGE, uiLanguage),
             )

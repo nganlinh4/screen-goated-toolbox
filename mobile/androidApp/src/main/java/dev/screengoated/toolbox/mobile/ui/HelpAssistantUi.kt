@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.ui.res.painterResource
 import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -20,15 +19,11 @@ import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.ToggleButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -36,10 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
-import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantBucket
-import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantMode
-import dev.screengoated.toolbox.mobile.helpassistant.label
-import dev.screengoated.toolbox.mobile.helpassistant.placeholder
+import dev.screengoated.toolbox.mobile.helpassistant.helpPlaceholder
 import dev.screengoated.toolbox.mobile.service.helpassistant.HelpAssistantOverlayService
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
@@ -136,10 +128,7 @@ private fun HelpAssistantDialog(
         .uiLanguage
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val compactLandscape = isLandscape && configuration.screenHeightDp <= 430
-    val selectedBucket = HelpAssistantBucket.ANDROID
-    var selectedMode by rememberSaveable { mutableStateOf(HelpAssistantMode.QUICK.wireId) }
     var question by rememberSaveable { mutableStateOf("") }
-    val mode = HelpAssistantMode.entries.first { it.wireId == selectedMode }
     val trimmedQuestion = question.trim()
 
     ExpressiveDialogSurface(
@@ -161,37 +150,11 @@ private fun HelpAssistantDialog(
             ExpressiveDialogSectionCard(
                 accent = MaterialTheme.colorScheme.primary,
             ) {
-                if (isLandscape) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(if (compactLandscape) 12.dp else 16.dp),
-                    ) {
-                        Text(
-                            text = locale.helpAssistantQuestionLabel,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f),
-                        )
-                        HelpAssistantModeToggleRow(
-                            mode = mode,
-                            locale = locale,
-                            onModeSelected = { selectedMode = it.wireId },
-                        )
-                    }
-                } else {
-                    Text(
-                        text = locale.helpAssistantQuestionLabel,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    HelpAssistantModeToggleRow(
-                        mode = mode,
-                        locale = locale,
-                        modifier = Modifier.fillMaxWidth(),
-                        onModeSelected = { selectedMode = it.wireId },
-                    )
-                }
+                Text(
+                    text = locale.helpAssistantQuestionLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 OutlinedTextField(
                     value = question,
                     onValueChange = { question = it },
@@ -202,7 +165,7 @@ private fun HelpAssistantDialog(
                             max = if (compactLandscape) 104.dp else if (isLandscape) 140.dp else 180.dp,
                         ),
                     label = if (compactLandscape) null else ({ Text(locale.helpAssistantQuestionLabel) }),
-                    placeholder = { Text(selectedBucket.placeholder(locale)) },
+                    placeholder = { Text(helpPlaceholder(locale)) },
                     minLines = if (compactLandscape) 2 else 3,
                 )
                 Row(
@@ -217,8 +180,6 @@ private fun HelpAssistantDialog(
                             }
                             HelpAssistantOverlayService.start(
                                 context = context,
-                                bucket = selectedBucket,
-                                mode = mode,
                                 question = trimmedQuestion,
                                 uiLanguage = uiLanguage,
                             )
@@ -227,33 +188,6 @@ private fun HelpAssistantDialog(
                         accent = MaterialTheme.colorScheme.primary,
                     )
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HelpAssistantModeToggleRow(
-    mode: HelpAssistantMode,
-    locale: MobileLocaleText,
-    modifier: Modifier = Modifier,
-    onModeSelected: (HelpAssistantMode) -> Unit,
-) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-    ) {
-        HelpAssistantMode.entries.forEachIndexed { index, option ->
-            ToggleButton(
-                checked = mode == option,
-                onCheckedChange = { onModeSelected(option) },
-                shapes = when (index) {
-                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                    else -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                },
-                modifier = Modifier.semantics { role = Role.RadioButton },
-            ) {
-                Text(option.label(locale))
             }
         }
     }

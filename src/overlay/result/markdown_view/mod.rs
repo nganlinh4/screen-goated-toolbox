@@ -35,7 +35,8 @@ thread_local! {
 pub use file_ops::save_html_file;
 pub use navigation::{go_back, go_forward, update_markdown_content, update_markdown_content_ex};
 pub use streaming::{
-    finalize_stream_markdown_content, fit_font_to_window, init_gridjs, reset_stream_counter,
+    finalize_stream_markdown_content, fit_font_to_window, fit_font_to_window_streaming,
+    init_gridjs, reset_stream_counter,
     set_body_opacity, stream_markdown_content,
 };
 pub use webview::{

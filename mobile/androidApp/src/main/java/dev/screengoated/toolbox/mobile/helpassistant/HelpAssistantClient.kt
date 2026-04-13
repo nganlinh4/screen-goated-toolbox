@@ -13,6 +13,10 @@ import java.io.IOException
 class HelpAssistantClient(
     private val httpClient: OkHttpClient,
 ) {
+    private var cachedIndex: List<ChunkEntry>? = null
+
+    private data class ChunkEntry(val path: String, val text: String)
+
     suspend fun ask(request: HelpAssistantRequest): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val apiKey = request.geminiApiKey.trim()
@@ -20,76 +24,95 @@ class HelpAssistantClient(
                 throw IOException("Gemini API key not configured. Please set it in Global Settings.")
             }
 
-            val contextXml = fetchContextXml(request.bucket)
-            askGemini(
-                apiKey = apiKey,
-                mode = request.mode,
-                question = request.question.trim(),
-                contextXml = contextXml,
-            )
+            val index = fetchHelpIndex()
+            val topChunks = searchChunks(index, request.question.trim())
+            val context = topChunks.joinToString("\n\n") { "=== ${it.path} ===\n${it.text}" }
+
+            // Try primary model, fall back on error
+            try {
+                askGemini(apiKey, PRIMARY_MODEL, request.question.trim(), context)
+            } catch (_: Exception) {
+                askGemini(apiKey, FALLBACK_MODEL, request.question.trim(), context)
+            }
         }
     }
 
-    internal fun fetchContextXml(bucket: HelpAssistantBucket): String {
-        val request = Request.Builder()
-            .url(bucket.rawUrl())
-            .build()
+    private fun fetchHelpIndex(): List<ChunkEntry> {
+        cachedIndex?.let { return it }
 
+        val request = Request.Builder().url(HELP_INDEX_URL).build()
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw IOException("Failed to fetch XML: HTTP ${response.code}")
+                throw IOException("Failed to fetch help index: HTTP ${response.code}")
             }
             val body = response.body?.string()
-                ?: throw IOException("Failed to fetch XML: empty response body")
-            return body
+                ?: throw IOException("Failed to fetch help index: empty body")
+            val arr = JSONArray(body)
+            val entries = mutableListOf<ChunkEntry>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                entries.add(ChunkEntry(
+                    path = obj.optString("path", ""),
+                    text = obj.optString("text", ""),
+                ))
+            }
+            cachedIndex = entries
+            return entries
         }
     }
 
-    internal fun buildGeminiPayload(
-        mode: HelpAssistantMode,
+    private fun searchChunks(index: List<ChunkEntry>, question: String): List<ChunkEntry> {
+        val terms = question.lowercase()
+            .split(Regex("[^a-zA-Z0-9_]+"))
+            .filter { it.length >= 2 }
+
+        if (terms.isEmpty()) return index.take(TOP_K)
+
+        return index.map { chunk ->
+            val haystack = "${chunk.path}\n${chunk.text}".lowercase()
+            val pathLower = chunk.path.lowercase()
+            var score = 0.0
+            for (term in terms) {
+                val count = haystack.windowed(term.length).count { it == term }
+                if (count > 0) score += 1.0 + kotlin.math.ln(count.toDouble())
+                if (pathLower.contains(term)) score += 3.0
+            }
+            chunk to score
+        }
+            .filter { it.second > 0.0 }
+            .sortedByDescending { it.second }
+            .take(TOP_K)
+            .map { it.first }
+    }
+
+    private fun askGemini(
+        apiKey: String,
+        modelId: String,
         question: String,
-        contextXml: String,
-    ): JSONObject {
-        val userMessage = buildUserMessage(
-            mode = mode,
-            question = question,
-            contextXml = contextXml,
-        )
-        return JSONObject()
+        context: String,
+    ): String {
+        val userMessage = "$SYSTEM_PROMPT\n\n---\nSource Code Context:\n$context\n---\n\nUser Question: $question"
+        val payload = JSONObject()
             .put(
                 "contents",
                 JSONArray().put(
                     JSONObject().put(
                         "parts",
-                        JSONArray().put(
-                            JSONObject().put("text", userMessage),
-                        ),
+                        JSONArray().put(JSONObject().put("text", userMessage)),
                     ),
                 ),
             )
             .put(
                 "generationConfig",
                 JSONObject()
-                    .put("maxOutputTokens", mode.maxOutputTokens)
-                    .put("temperature", 0.7),
+                    .put("maxOutputTokens", MAX_OUTPUT_TOKENS)
+                    .put("temperature", 0.7)
+                    .put("thinkingConfig", JSONObject().put("thinkingLevel", "MINIMAL")),
             )
-    }
 
-    internal fun buildUserMessage(
-        mode: HelpAssistantMode,
-        question: String,
-        contextXml: String,
-    ): String = "$SYSTEM_PROMPT ${mode.promptInstruction}\n\n---\nSource Code Context:\n$contextXml\n---\n\nUser Question: $question"
-
-    internal fun askGemini(
-        apiKey: String,
-        mode: HelpAssistantMode,
-        question: String,
-        contextXml: String,
-    ): String {
-        val payload = buildGeminiPayload(mode, question, contextXml)
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelId:generateContent"
         val request = Request.Builder()
-            .url(geminiEndpoint(mode))
+            .url(url)
             .header("x-goog-api-key", apiKey)
             .header("Content-Type", "application/json")
             .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -99,7 +122,6 @@ class HelpAssistantClient(
             if (!response.isSuccessful) {
                 throw IOException("API request failed: HTTP ${response.code}")
             }
-
             val body = response.body?.string()
                 ?: throw IOException("Failed to parse response: empty body")
             val json = JSONObject(body)
@@ -110,25 +132,26 @@ class HelpAssistantClient(
                 ?: throw IOException("Failed to extract response text")
 
             val result = StringBuilder()
-            for (index in 0 until parts.length()) {
-                val part = parts.optJSONObject(index) ?: continue
-                result.append(part.optString("text"))
+            for (i in 0 until parts.length()) {
+                val part = parts.optJSONObject(i) ?: continue
+                // Skip thought parts (thinking model output)
+                if (part.optBoolean("thought", false)) continue
+                result.append(part.optString("text", ""))
             }
             val text = result.toString().trim()
-            if (text.isEmpty()) {
-                throw IOException("Failed to extract response text")
-            }
+            if (text.isEmpty()) throw IOException("Failed to extract response text")
             return text
         }
     }
 
     companion object {
+        private const val TOP_K = 20
+
         internal const val SYSTEM_PROMPT: String =
-            "Answer the user in a helpful, concise and easy to understand way in the question's language, no made up infomation, only the true infomation. Go straight to the point, dont mention thing like \"Based on the source code\", if answer needs to mention the UI, be sure to use correct i18n locale terms matching the question's language. Format your response in Markdown."
+            "You are the SGT (Screen Goated Toolbox) Android app help assistant. The user is asking from the Android version of the app — assume questions are about the Android app unless they explicitly mention Windows. " +
+            "Answer in a helpful, concise and easy to understand way in the question's language, no made up information, only true information. Go straight to the point. " +
+            "Do not mention \"Based on the source code\". If the answer needs to mention UI elements, use correct i18n locale terms matching the question's language. Format your response in Markdown."
 
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
-
-        internal fun geminiEndpoint(mode: HelpAssistantMode): String =
-            "https://generativelanguage.googleapis.com/v1beta/models/${mode.modelId}:generateContent"
     }
 }
