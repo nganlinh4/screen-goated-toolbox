@@ -151,21 +151,44 @@ The Android app uses two streaming ASR engines:
 
 Select models and languages from the transcription window header dropdown.
 
-### Repomix (for "Ask anything about SGT")
+### Help Index (for "Ask anything about SGT")
 
-The help assistant now uses three prebuilt repomix files so each prompt stays under the model limit:
-- `repomix-screen-recorder.xml` for "Ask about SGT Record (Screen Recording)"
-- `repomix-android.xml` for "Ask about SGT Android"
-- `repomix-rest.xml` for "Ask about everything else"
+The help assistant uses `help-index.json`, a pre-chunked index of the full codebase (Rust + TypeScript + Kotlin). At query time, keyword search retrieves the most relevant code chunks and sends them to Gemini.
 
-Regenerate them with these commands:
+To regenerate the index, run your own KaLM-compatible embedding server and point the build/query scripts at it.
 
-```powershell
-repomix . --compress --remove-comments --remove-empty-lines --no-file-summary --no-directory-structure --truncate-base64 --top-files-len 20 --include 'src/overlay/screen_record/**,screen-record/**,src/main.rs,src/hotkey/**,src/config/config.rs,src/overlay/mod.rs,src/gui/app/rendering/title_bar.rs,src/gui/locale/**' --ignore 'repomix-output.xml,repomix-screen-recorder.xml,repomix-android.xml,repomix-rest.xml,docs/images/**,screen-record/public/**,screen-record/src/assets/**,screen-record/dist/**,src/overlay/screen_record/dist/**,assets/**,**/*.svg' -o repomix-screen-recorder.xml
+#### 1. Start a KaLM embedding server
 
-repomix . --compress --remove-comments --remove-empty-lines --no-file-summary --no-directory-structure --truncate-base64 --top-files-len 20 --include 'mobile/README.md,mobile/androidApp/build.gradle.kts,mobile/shared/build.gradle.kts,mobile/androidApp/src/main/AndroidManifest.xml,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ui/**,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/model/**,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/MainActivity.kt,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ProjectionConsentProxyActivity.kt,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/AppContainer.kt,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/PresetRepository.kt,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/PresetExecutionCapabilityResolver.kt,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/PresetGraphExecutor.kt,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/PresetMediaHtml.kt,mobile/shared/src/commonMain/**' --ignore 'repomix-output.xml,repomix-screen-recorder.xml,repomix-android.xml,repomix-rest.xml,mobile/.gradle/**,mobile/.kotlin/**,mobile/build/**,mobile/androidApp/build/**,mobile/shared/build/**,mobile/local.properties,mobile/.sgtp.json,mobile/androidApp/src/test/**,mobile/androidApp/src/androidTest/**,mobile/shared/src/commonTest/**,mobile/shared/src/androidUnitTest/**,mobile/androidApp/src/main/assets/**,mobile/androidApp/src/main/res/**,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ui/carousel/**,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/ui/NodeGraphCanvas.kt,mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/ui/NodePropertySheet.kt' -o repomix-android.xml
+Set up a local or remote Python environment with your embedding server implementation, then start an HTTP endpoint that accepts:
 
-repomix . --compress --remove-comments --remove-empty-lines --no-file-summary --no-directory-structure --truncate-base64 --top-files-len 20 --ignore 'repomix-output.xml,repomix-screen-recorder.xml,repomix-android.xml,repomix-rest.xml,docs/images/**,src/overlay/screen_record/**,screen-record/**,screen-record/public/**,screen-record/src/assets/**,screen-record/dist/**,src/overlay/screen_record/dist/**,mobile/**,assets/**,**/*.svg,.claude/**,parity-fixtures/**,third_party/**,scripts/**,promptdj-midi/**' -o repomix-rest.xml
+- `POST /api/embed`
+- JSON body: `{"input": "..."}`
+- JSON response: `{"embeddings": [[...]]}`
+
+Example:
+
+```bash
+python serve.py --host 0.0.0.0 --port 8400
+```
+
+#### 2. Point SGT at the server
+
+Set `KALM_EMBED_SERVER_URL` before building or querying the index:
+
+```bash
+export KALM_EMBED_SERVER_URL=http://127.0.0.1:8400/api/embed
+```
+
+#### 3. Build the index
+
+```bash
+python scripts/help_index_build.py
+```
+
+#### 4. Query the index locally
+
+```bash
+python scripts/help_index_query.py "how does TTS work?"
 ```
 
 ## Getting Started
