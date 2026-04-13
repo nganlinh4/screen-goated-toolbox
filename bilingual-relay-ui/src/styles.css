@@ -21,6 +21,8 @@
   --chip-active-bg: rgba(169, 42, 68, 0.2);
   --chip-active-border: rgba(169, 42, 68, 0.3);
   --chip-active-text: #ff7387;
+  --curtain-top: rgba(42, 42, 60, 0.98);
+  --curtain-bottom: rgba(42, 42, 60, 0.98);
   --shadow-card: 0 8px 32px rgba(169, 42, 68, 0.06);
   --shadow-btn: 0 6px 20px rgba(169, 42, 68, 0.25);
 }
@@ -48,6 +50,8 @@ html[data-theme="light"] {
   --chip-active-bg: rgba(255, 107, 129, 0.1);
   --chip-active-border: rgba(255, 107, 129, 0.2);
   --chip-active-text: #d44060;
+  --curtain-top: rgba(255, 255, 255, 0.96);
+  --curtain-bottom: rgba(255, 255, 255, 0.96);
   --shadow-card: 0 4px 20px rgba(169, 42, 68, 0.08);
   --shadow-btn: 0 4px 14px rgba(224, 80, 112, 0.18);
 }
@@ -475,10 +479,9 @@ html, body {
 
 .transcript-card {
   grid-area: main;
-  display: flex;
-  flex-direction: column;
+  display: block;
   margin: 6px 6px 6px 0;
-  padding: 10px;
+  padding: 0;
   border-radius: 14px;
   background: var(--surface);
   box-shadow: var(--shadow-card);
@@ -488,6 +491,47 @@ html, body {
 .transcript-card,
 .transcript-card * {
   user-select: text;
+}
+
+.transcript-curtain {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: transparent;
+}
+
+.transcript-curtain::before,
+.transcript-curtain::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 18px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.transcript-curtain::before {
+  top: 0;
+  background: linear-gradient(to bottom, var(--curtain-top) 0%, rgba(0, 0, 0, 0) 100%);
+}
+
+.transcript-curtain::after {
+  bottom: 0;
+  background: linear-gradient(to top, var(--curtain-bottom) 0%, rgba(0, 0, 0, 0) 100%);
+}
+
+.transcript-stage {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding-left: 10px;
+  padding-right: 10px;
 }
 
 

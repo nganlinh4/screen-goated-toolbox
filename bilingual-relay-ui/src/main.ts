@@ -174,8 +174,12 @@ app.innerHTML = `
       </aside>
 
       <section class="transcript-card">
-        <div class="message" id="transcriptMessage"></div>
-        <div class="transcript-body" id="transcriptBody"></div>
+        <div class="transcript-curtain">
+          <div class="transcript-stage">
+            <div class="message" id="transcriptMessage"></div>
+            <div class="transcript-body" id="transcriptBody"></div>
+          </div>
+        </div>
       </section>
     </section>
     <div class="guide-overlay" id="guideOverlay" style="display:none">

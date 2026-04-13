@@ -64,16 +64,16 @@ class BilingualRelayRuntime(
             return
         }
 
-        val apiKey = repository.currentApiKey()
-        val modelName = repository.currentGeminiModel().ifBlank { MODEL_NAME }
-        val voiceName = repository.currentGeminiVoice().ifBlank { DEFAULT_VOICE_NAME }
-        if (apiKey.isBlank()) {
-            repository.fail(repository.localeText().bilingualRelayApiKeyRequired)
-            return
-        }
-
         var attempt = 0
         while (currentCoroutineContext().isActive) {
+            val apiKey = repository.currentApiKey()
+            val modelName = repository.currentGeminiModel().ifBlank { MODEL_NAME }
+            val voiceName = repository.currentGeminiVoice().ifBlank { DEFAULT_VOICE_NAME }
+            if (apiKey.isBlank()) {
+                repository.fail(repository.localeText().bilingualRelayApiKeyRequired)
+                return
+            }
+
             repository.markConnecting(reconnecting = attempt > 0)
             try {
                 runSession(apiKey, applied, modelName, voiceName)

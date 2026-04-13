@@ -7,20 +7,17 @@ package dev.screengoated.toolbox.mobile.bilingualrelay
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.compose.animation.animateColorAsState
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -38,12 +35,15 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material3.MaterialShapes
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
@@ -415,8 +415,20 @@ private fun relayTextFieldColors(accent: Color): TextFieldColors {
 // ── Transcript ──
 
 private sealed class TranscriptEntry {
-    data class Pair(val id: Long, val input: String, val output: String, val lang: String, val isLeft: Boolean) : TranscriptEntry()
+    data class Pair(
+        val id: Long,
+        val input: String,
+        val output: String,
+        val lang: String,
+        val placement: TranscriptBubblePlacement,
+    ) : TranscriptEntry()
     data class Sep(val id: Long, val time: String) : TranscriptEntry()
+}
+
+private enum class TranscriptBubblePlacement {
+    CENTER,
+    LEFT,
+    RIGHT,
 }
 
 private fun groupEntries(items: List<BilingualRelayTranscriptItem>): List<TranscriptEntry> {
@@ -432,14 +444,14 @@ private fun groupEntries(items: List<BilingualRelayTranscriptItem>): List<Transc
         if (item.role == BilingualRelayTranscriptRole.INPUT) {
             val next = items.getOrNull(i + 1)
             if (next != null && next.role == BilingualRelayTranscriptRole.OUTPUT) {
-                entries += TranscriptEntry.Pair(item.id, item.text, next.text, next.lang, isLeft = true)
+                entries += TranscriptEntry.Pair(item.id, item.text, next.text, next.lang, TranscriptBubblePlacement.CENTER)
                 i += 2
             } else {
-                entries += TranscriptEntry.Pair(item.id, item.text, "", item.lang, isLeft = true)
+                entries += TranscriptEntry.Pair(item.id, item.text, "", item.lang, TranscriptBubblePlacement.CENTER)
                 i++
             }
         } else {
-            entries += TranscriptEntry.Pair(item.id, "", item.text, item.lang, isLeft = true)
+            entries += TranscriptEntry.Pair(item.id, "", item.text, item.lang, TranscriptBubblePlacement.CENTER)
             i++
         }
     }
@@ -449,7 +461,12 @@ private fun groupEntries(items: List<BilingualRelayTranscriptItem>): List<Transc
         for (idx in entries.indices) {
             val e = entries[idx]
             if (e is TranscriptEntry.Pair) {
-                entries[idx] = e.copy(isLeft = e.lang.isBlank() || e.lang == firstLang)
+                val placement = when {
+                    e.lang.isBlank() -> TranscriptBubblePlacement.CENTER
+                    e.lang == firstLang -> TranscriptBubblePlacement.LEFT
+                    else -> TranscriptBubblePlacement.RIGHT
+                }
+                entries[idx] = e.copy(placement = placement)
             }
         }
     }
@@ -513,23 +530,89 @@ private fun TranscriptCard(
 @Composable
 private fun ChatBubble(pair: TranscriptEntry.Pair, accent: Color) {
     val surfaceLow = MaterialTheme.colorScheme.surfaceContainerLow
-    Row(
+    val backgroundColor by animateColorAsState(
+        targetValue = when (pair.placement) {
+            TranscriptBubblePlacement.CENTER -> lerp(surfaceLow, accent, 0.03f)
+            TranscriptBubblePlacement.LEFT -> lerp(surfaceLow, accent, 0.06f)
+            TranscriptBubblePlacement.RIGHT -> lerp(surfaceLow, accent, 0.14f)
+        },
+        label = "bubbleBackgroundColor",
+    )
+    val outputColor by animateColorAsState(
+        targetValue = when (pair.placement) {
+            TranscriptBubblePlacement.CENTER -> MaterialTheme.colorScheme.onSurfaceVariant
+            TranscriptBubblePlacement.LEFT -> MaterialTheme.colorScheme.onSurface
+            TranscriptBubblePlacement.RIGHT -> accent
+        },
+        label = "bubbleOutputColor",
+    )
+    val bottomStartRadius by animateDpAsState(
+        targetValue = when (pair.placement) {
+            TranscriptBubblePlacement.LEFT -> 6.dp
+            else -> 18.dp
+        },
+        label = "bubbleBottomStartRadius",
+    )
+    val bottomEndRadius by animateDpAsState(
+        targetValue = when (pair.placement) {
+            TranscriptBubblePlacement.RIGHT -> 6.dp
+            else -> 18.dp
+        },
+        label = "bubbleBottomEndRadius",
+    )
+
+    val translationAnim = remember(pair.id) { Animatable(0f) }
+    val alpha = remember(pair.id) { Animatable(0f) }
+    val scale = remember(pair.id) { Animatable(0.96f) }
+    var shown by remember(pair.id) { mutableStateOf(false) }
+
+    BoxWithConstraints(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (pair.isLeft) Arrangement.Start else Arrangement.End,
+        contentAlignment = Alignment.Center,
     ) {
-        Card(
-            modifier = Modifier.widthIn(max = 280.dp),
-            shape = if (pair.isLeft) {
-                RoundedCornerShape(18.dp, 18.dp, 18.dp, 6.dp)
+        val containerWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
+        var bubbleWidthPx by remember(pair.id) { mutableFloatStateOf(0f) }
+        val travelPx = (containerWidthPx - bubbleWidthPx).coerceAtLeast(0f)
+        val targetTranslationPx = when {
+            containerWidthPx <= 0f || bubbleWidthPx <= 0f -> 0f
+            pair.placement == TranscriptBubblePlacement.CENTER -> 0f
+            pair.placement == TranscriptBubblePlacement.LEFT -> -travelPx / 2f
+            else -> travelPx / 2f
+        }
+
+        LaunchedEffect(pair.id) {
+            translationAnim.snapTo(0f)
+            alpha.snapTo(0f)
+            scale.snapTo(0.96f)
+            alpha.animateTo(1f, tween(140))
+            scale.animateTo(1f, tween(140))
+            shown = true
+        }
+
+        LaunchedEffect(pair.id, pair.placement, targetTranslationPx) {
+            if (!shown && targetTranslationPx != 0f) {
+                kotlinx.coroutines.delay(70)
+            }
+            if (targetTranslationPx == 0f) {
+                translationAnim.animateTo(0f, tween(180))
             } else {
-                RoundedCornerShape(18.dp, 18.dp, 6.dp, 18.dp)
-            },
-            colors = CardDefaults.cardColors(
-                containerColor = if (pair.isLeft) {
-                    lerp(surfaceLow, accent, 0.06f)
-                } else {
-                    lerp(surfaceLow, accent, 0.14f)
+                translationAnim.animateTo(targetTranslationPx, tween(320))
+            }
+        }
+
+        Card(
+            modifier = Modifier
+                .widthIn(max = 280.dp)
+                .onGloballyPositioned { bubbleWidthPx = it.size.width.toFloat() }
+                .graphicsLayer {
+                    this.translationX = translationAnim.value
+                    this.alpha = alpha.value
+                    this.scaleX = scale.value
+                    this.scaleY = scale.value
                 },
+            shape = RoundedCornerShape(18.dp, 18.dp, bottomEndRadius, bottomStartRadius),
+            colors = CardDefaults.cardColors(
+                containerColor = backgroundColor,
             ),
         ) {
             Column(modifier = Modifier.padding(10.dp, 8.dp)) {
@@ -545,7 +628,7 @@ private fun ChatBubble(pair: TranscriptEntry.Pair, accent: Color) {
                         pair.output,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (pair.isLeft) MaterialTheme.colorScheme.onSurface else accent,
+                        color = outputColor,
                     )
                 }
             }
