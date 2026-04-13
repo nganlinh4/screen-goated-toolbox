@@ -16,6 +16,9 @@ screen-goated-toolbox-*.exe
 # Patched dependencies (cloned by scripts/setup-egui-snarl.ps1)
 libs/egui-snarl/
 
+# lang-detect cdylib build artifacts
+libs/lang-detect/target/
+
 # PromptDJ artifacts
 src/overlay/prompt_dj/dist/
 
@@ -43,3 +46,6 @@ third_party/qwen3-asr-rs/target_stream_check/
 native/qwen3_runtime/target/
 native/qwen3_runtime/Cargo.lock
 third_party/moonshine-voice/
+third_party/sherpa-onnx-win/
+docs/index.bleve/
+__pycache__/
