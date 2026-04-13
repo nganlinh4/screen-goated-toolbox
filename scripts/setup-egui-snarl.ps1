@@ -4,11 +4,23 @@
 $snarlDir = Join-Path $PSScriptRoot "..\libs\egui-snarl"
 $patchFile = Join-Path $PSScriptRoot "egui-snarl-scroll-zoom.patch"
 $uiRsPath = Join-Path $snarlDir "src\ui.rs"
+$snarlRevision = "bbed414980a14f949fe1bc137ced8bc5706a93c2"
 
 # Clone egui-snarl if needed
 if (-not (Test-Path $snarlDir)) {
     Write-Host "Cloning egui-snarl..."
-    git clone --depth 1 https://github.com/zakarumych/egui-snarl.git $snarlDir
+    git clone --depth 20 https://github.com/zakarumych/egui-snarl.git $snarlDir
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to clone egui-snarl."
+        exit 1
+    }
+}
+
+Write-Host "Checking out egui-snarl revision $snarlRevision..."
+git -C $snarlDir checkout --force $snarlRevision
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to checkout egui-snarl revision $snarlRevision."
+    exit 1
 }
 
 if (-not (Test-Path $uiRsPath)) {

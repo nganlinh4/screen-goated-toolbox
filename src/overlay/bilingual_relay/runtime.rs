@@ -27,6 +27,7 @@ pub enum RelayConnectionState {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RelayTranscriptItem {
     pub id: u64,
     pub role: &'static str,

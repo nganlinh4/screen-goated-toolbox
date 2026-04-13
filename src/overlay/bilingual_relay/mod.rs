@@ -28,7 +28,6 @@ pub(super) const WM_APP_SYNC: u32 = WM_USER + 322;
 
 pub static REQUEST_OPEN_TTS_SETTINGS: AtomicBool = AtomicBool::new(false);
 pub static REQUEST_DISMISS_SPLASH: AtomicBool = AtomicBool::new(false);
-
 pub(super) static REGISTER_CLASS: Once = Once::new();
 pub(super) static mut WINDOW_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
 pub(super) static mut IS_READY: bool = false;

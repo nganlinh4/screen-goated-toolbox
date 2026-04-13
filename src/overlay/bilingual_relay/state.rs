@@ -213,7 +213,9 @@ pub(super) fn upsert_transcript(role: &'static str, text: String, is_final: bool
         {
             existing.text = merge_transcript_text(&existing.text, text);
             existing.is_final = is_final;
-            if existing.lang.is_empty() || is_final {
+            // Only detect language on complete text — partial streaming fragments
+            // are too short for reliable lingua detection
+            if is_final {
                 let detected = detect_lang(&existing.text);
                 if !detected.is_empty() {
                     existing.lang = detected;
@@ -230,14 +232,13 @@ pub(super) fn upsert_transcript(role: &'static str, text: String, is_final: bool
             .filter(|_| dominated_by_same)
         {
             last_same.text = merge_transcript_text(&last_same.text, text);
-            if last_same.lang.is_empty() {
-                let detected = detect_lang(&last_same.text);
-                if !detected.is_empty() {
-                    last_same.lang = detected;
-                }
+            let detected = detect_lang(&last_same.text);
+            if !detected.is_empty() {
+                last_same.lang = detected;
             }
         } else {
-            let lang = detect_lang(text);
+            // New item — only detect if already final (single-shot transcript)
+            let lang = if is_final { detect_lang(text) } else { String::new() };
             state.transcripts.push(RelayTranscriptItem {
                 id: super::runtime::next_transcript_id(),
                 role,
@@ -256,7 +257,16 @@ pub(super) fn upsert_transcript(role: &'static str, text: String, is_final: bool
 pub(super) fn finalize_transcripts() {
     with_state(|state| {
         for item in &mut state.transcripts {
-            item.is_final = true;
+            if !item.is_final {
+                item.is_final = true;
+                // Detect language on the now-complete text
+                if item.lang.is_empty() {
+                    let detected = detect_lang(&item.text);
+                    if !detected.is_empty() {
+                        item.lang = detected;
+                    }
+                }
+            }
         }
     });
     persist_transcripts();
@@ -293,12 +303,9 @@ pub(super) fn payload_json() -> Option<String> {
         draft: state.draft.clone(),
         hotkeys: state.draft.hotkeys.clone(),
         hotkey_error: state.hotkey_error.clone(),
-        last_error: state.last_error.clone().map(|err| {
-            if err == "missing_api_key" {
-                text.bilingual_relay_api_key_required.to_string()
-            } else {
-                err
-            }
+        last_error: state.last_error.clone().map(|err| match err.as_str() {
+            "missing_api_key" => text.bilingual_relay_api_key_required.to_string(),
+            _ => err,
         }),
         transcripts: state.transcripts.clone(),
         guide_seen: crate::APP

@@ -1,6 +1,6 @@
 [package]
 name = "screen-goated-toolbox"
-version = "5.0.0"
+version = "5.0.1"
 edition = "2024"
 
 [build-dependencies]
@@ -43,7 +43,6 @@ urlencoding = "2.1"
 
 # Language Data
 isolang = { version = "2.4", features = ["serde", "english_names"] }
-lingua = "1.8"
 
 # GUI & Media
 eframe = { version = "0.33", default-features = false, features = ["glow"] }

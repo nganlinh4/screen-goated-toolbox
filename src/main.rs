@@ -355,6 +355,7 @@ fn main() -> eframe::Result<()> {
 
     // Spawn warmup thread
     initialization::spawn_warmup_thread();
+    runtime_support::show_startup_compatibility_notice_if_needed();
 
     // Load config for tray setup
     let initial_config = APP.lock().unwrap().config.clone();

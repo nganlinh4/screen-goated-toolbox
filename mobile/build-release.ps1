@@ -1,9 +1,15 @@
 # SGT Mobile Release Build Script
-# Usage: powershell -ExecutionPolicy Bypass -File mobile\build-release.ps1
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File mobile\build-release.ps1
+#   powershell -ExecutionPolicy Bypass -File mobile\build-release.ps1 -IncludeAab
 #
-# Builds both:
+param(
+    [switch]$IncludeAab
+)
+
+# Builds:
 #   - Full flavor APK  (direct distribution, with overlay support)
-#   - Play flavor AAB  (Google Play Store upload)
+#   - Optional Play flavor AAB  (Google Play Store upload)
 
 $ErrorActionPreference = "Stop"
 
@@ -30,9 +36,11 @@ if (-not (Test-Path $targetDir)) {
     New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
 }
 
-$outputApkName = "ScreenGoatedToolbox_v$version.apk"
+$artifactBaseName = "ScreenGoatedToolbox_v$version"
+
+$outputApkName = "$artifactBaseName.apk"
 $outputApkPath = "$targetDir\$outputApkName"
-$outputAabName = "ScreenGoatedToolbox_v$version.aab"
+$outputAabName = "$artifactBaseName.aab"
 $outputAabPath = "$targetDir\$outputAabName"
 
 Write-Host ""
@@ -47,16 +55,33 @@ if (-not (Test-Path $keystore)) {
     exit 1
 }
 
-# --- Build both APK (full) and AAB (play) ---
-Write-Host "Building full release APK + play release AAB..." -ForegroundColor Gray
+# --- Build release artifacts ---
+if ($IncludeAab) {
+    Write-Host "Building full release APK + play release AAB..." -ForegroundColor Gray
+}
+else {
+    Write-Host "Building full release APK..." -ForegroundColor Gray
+}
+
 Push-Location $mobileDir
 try {
-    .\gradlew.bat `
-        :androidApp:assembleFullRelease `
-        :androidApp:bundlePlayRelease `
-        -x lintVitalAnalyzeFullRelease -x lintVitalReportFullRelease -x lintVitalFullRelease `
-        -x lintVitalAnalyzePlayRelease -x lintVitalReportPlayRelease -x lintVitalPlayRelease `
-        --console=plain
+    $gradleTasks = @(
+        ":androidApp:assembleFullRelease"
+        "-x", "lintVitalAnalyzeFullRelease"
+        "-x", "lintVitalReportFullRelease"
+        "-x", "lintVitalFullRelease"
+    )
+
+    if ($IncludeAab) {
+        $gradleTasks += @(
+            ":androidApp:bundlePlayRelease"
+            "-x", "lintVitalAnalyzePlayRelease"
+            "-x", "lintVitalReportPlayRelease"
+            "-x", "lintVitalPlayRelease"
+        )
+    }
+
+    & .\gradlew.bat @gradleTasks --console=plain
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  -> FAILED: Gradle build failed" -ForegroundColor Red
         exit 1
@@ -77,15 +102,17 @@ if (Test-Path $builtApk) {
     $apkSize = $null
 }
 
-# --- Copy AAB ---
-$builtAab = "$mobileDir\androidApp\build\outputs\bundle\playRelease\androidApp-play-release.aab"
-if (Test-Path $builtAab) {
-    if (Test-Path $outputAabPath) { Remove-Item $outputAabPath }
-    Copy-Item $builtAab $outputAabPath
-    $aabSize = [Math]::Round((Get-Item $outputAabPath).Length / 1MB, 2)
-} else {
-    Write-Host "  -> WARNING: play release AAB not found" -ForegroundColor Yellow
-    $aabSize = $null
+$aabSize = $null
+if ($IncludeAab) {
+    # --- Copy AAB ---
+    $builtAab = "$mobileDir\androidApp\build\outputs\bundle\playRelease\androidApp-play-release.aab"
+    if (Test-Path $builtAab) {
+        if (Test-Path $outputAabPath) { Remove-Item $outputAabPath }
+        Copy-Item $builtAab $outputAabPath
+        $aabSize = [Math]::Round((Get-Item $outputAabPath).Length / 1MB, 2)
+    } else {
+        Write-Host "  -> WARNING: play release AAB not found" -ForegroundColor Yellow
+    }
 }
 
 # --- Summary ---
