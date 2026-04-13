@@ -3,7 +3,6 @@
 //! Uses a pre-built chunk index (help-index.json) with keyword search to
 //! retrieve only the relevant source files, then sends them to Gemini.
 
-use crate::overlay::preset_wheel::WheelOption;
 use lazy_static::lazy_static;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,45 +32,9 @@ struct ChunkEntry {
     text: String,
 }
 
-#[derive(Clone, Copy)]
-enum HelpMode {
-    Quick,
-    Detailed,
-}
-
-impl HelpMode {
-    fn label(self, locale: &crate::gui::locale::LocaleText) -> &'static str {
-        match self {
-            Self::Quick => locale.help_assistant_quick_option,
-            Self::Detailed => locale.help_assistant_detailed_option,
-        }
-    }
-
-    fn model_id(self) -> &'static str {
-        match self {
-            Self::Quick => "gemini-3.1-flash-lite-preview",
-            Self::Detailed => "gemini-3-flash-preview",
-        }
-    }
-
-    fn max_output_tokens(self) -> u32 {
-        match self {
-            Self::Quick => 2048,
-            Self::Detailed => 4096,
-        }
-    }
-
-    fn prompt_instruction(self) -> &'static str {
-        match self {
-            Self::Quick => {
-                "Keep the answer short, direct, and practical unless the user clearly asks for more detail."
-            }
-            Self::Detailed => {
-                "Give a more detailed answer with clear steps, practical context, and useful caveats when needed."
-            }
-        }
-    }
-}
+const PRIMARY_MODEL: &str = "gemini-3.1-flash-lite-preview";
+const FALLBACK_MODEL: &str = "gemma-4-26b-a4b-it";
+const MAX_OUTPUT_TOKENS: u32 = 4096;
 
 pub fn is_modal_open() -> bool {
     HELP_INPUT_ACTIVE.load(Ordering::SeqCst)
@@ -163,7 +126,7 @@ fn ask_gemini(
     gemini_api_key: &str,
     question: &str,
     context: &str,
-    mode: HelpMode,
+    model_id: &str,
 ) -> Result<String, String> {
     if gemini_api_key.trim().is_empty() {
         return Err("Gemini API key not configured. Please set it in Global Settings.".to_string());
@@ -171,32 +134,30 @@ fn ask_gemini(
 
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-        mode.model_id(),
-        gemini_api_key
+        model_id, gemini_api_key
     );
 
-    let system_prompt = r#"
-Answer the user in a helpful, concise and easy to understand way in the question's language, no made up infomation, only the true infomation. Go straight to the point, dont mention thing like "Based on the source code", if answer needs to mention the UI, be sure to use correct i18n locale terms matching the question's language. Format your response in Markdown."#;
+    let system_prompt = r#"You are the SGT (Screen Goated Toolbox) Windows app help assistant. The user is asking from the Windows version — assume questions are about the Windows app unless they explicitly mention Android. Answer in a helpful, concise and easy to understand way in the question's language, no made up information, only true information. Go straight to the point. Do not mention "Based on the source code". If the answer needs to mention UI elements, use correct i18n locale terms matching the question's language. Format your response in Markdown."#;
 
     let user_message = format!(
-        "{} {}\n\n---\nSource Code Context:\n{}\n---\n\nUser Question: {}",
-        system_prompt,
-        mode.prompt_instruction(),
-        context,
-        question
+        "{}\n\n---\nSource Code Context:\n{}\n---\n\nUser Question: {}",
+        system_prompt, context, question
     );
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "contents": [{
             "parts": [{
                 "text": user_message
             }]
         }],
         "generationConfig": {
-            "maxOutputTokens": mode.max_output_tokens(),
+            "maxOutputTokens": MAX_OUTPUT_TOKENS,
             "temperature": 0.7
         }
     });
+    if let Some(thinking) = crate::api::gemini_thinking_config(model_id) {
+        body["generationConfig"]["thinkingConfig"] = thinking;
+    }
 
     let response = HELP_ASSISTANT_AGENT
         .post(&url)
@@ -209,10 +170,20 @@ Answer the user in a helpful, concise and easy to understand way in the question
         .read_json()
         .map_err(|e| format!("Failed to parse response: {}", e))?;
 
-    json["candidates"][0]["content"]["parts"][0]["text"]
-        .as_str()
-        .map(|s| s.to_string())
-        .ok_or_else(|| "Failed to extract response text".to_string())
+    let parts = json["candidates"][0]["content"]["parts"]
+        .as_array()
+        .ok_or_else(|| "Failed to extract response text".to_string())?;
+    // Filter out thought parts (thinking model output) — only keep content
+    let text: String = parts
+        .iter()
+        .filter(|p| !p.get("thought").and_then(|t| t.as_bool()).unwrap_or(false))
+        .filter_map(|p| p["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("");
+    if text.trim().is_empty() {
+        return Err("Failed to extract response text".to_string());
+    }
+    Ok(text.trim().to_string())
 }
 
 pub fn show_help_input() {
@@ -226,34 +197,10 @@ pub fn show_help_input() {
         )
     };
 
-    let Some(mode) = choose_help_mode(&ui_language) else {
-        HELP_INPUT_ACTIVE.store(false, Ordering::SeqCst);
-        return;
-    };
-
-    show_help_question_input(gemini_api_key, ui_language, mode);
+    show_help_question_input(gemini_api_key, ui_language);
 }
 
-fn choose_help_mode(ui_language: &str) -> Option<HelpMode> {
-    let locale = crate::gui::locale::LocaleText::get(ui_language);
-    let options = [
-        WheelOption::new(0, HelpMode::Quick.label(&locale)),
-        WheelOption::new(1, HelpMode::Detailed.label(&locale)),
-    ];
-
-    let mut center_pos = windows::Win32::Foundation::POINT { x: 0, y: 0 };
-    unsafe {
-        let _ = windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut center_pos);
-    }
-
-    match crate::overlay::preset_wheel::show_option_wheel(&options, center_pos) {
-        Some(0) => Some(HelpMode::Quick),
-        Some(1) => Some(HelpMode::Detailed),
-        _ => None,
-    }
-}
-
-fn show_help_question_input(gemini_api_key: String, ui_language: String, mode: HelpMode) {
+fn show_help_question_input(gemini_api_key: String, ui_language: String) {
     let submitted = Arc::new(AtomicBool::new(false));
     let submit_state = submitted.clone();
 
@@ -280,7 +227,7 @@ fn show_help_question_input(gemini_api_key: String, ui_language: String, mode: H
             let gemini_key = gemini_api_key.clone();
             let lang = ui_language.clone();
             std::thread::spawn(move || {
-                run_help_request(gemini_key, lang, mode, question);
+                run_help_request(gemini_key, lang, question);
             });
         },
     );
@@ -296,7 +243,7 @@ fn show_help_question_input(gemini_api_key: String, ui_language: String, mode: H
     });
 }
 
-fn run_help_request(gemini_key: String, ui_language: String, mode: HelpMode, question: String) {
+fn run_help_request(gemini_key: String, ui_language: String, question: String) {
     let loading_msg = match ui_language.as_str() {
         "vi" => "⏳ Đang tìm câu trả lời...",
         "ko" => "⏳ 답변을 찾는 중...",
@@ -328,7 +275,7 @@ fn run_help_request(gemini_key: String, ui_language: String, mode: HelpMode, que
             target_rect: center_rect,
             win_type: crate::overlay::result::WindowType::Primary,
             context: crate::overlay::result::RefineContext::None,
-            model_id: mode.model_id().to_string(),
+            model_id: PRIMARY_MODEL.to_string(),
             provider: "google".to_string(),
             streaming_enabled: false,
             start_editing: false,
@@ -369,8 +316,9 @@ fn run_help_request(gemini_key: String, ui_language: String, mode: HelpMode, que
             .collect::<Vec<_>>()
             .join("\n\n");
 
-        // 3. Ask Gemini with only the relevant context
-        let result = ask_gemini(&gemini_key, &question, &context, mode);
+        // 3. Ask Gemini — try primary model, fall back on error
+        let result = ask_gemini(&gemini_key, &question, &context, PRIMARY_MODEL)
+            .or_else(|_| ask_gemini(&gemini_key, &question, &context, FALLBACK_MODEL));
 
         let response = match result {
             Ok(answer) => format!("### {}\n\n{}", question, answer),
@@ -393,13 +341,11 @@ fn run_help_request(gemini_key: String, ui_language: String, mode: HelpMode, que
 
 #[cfg(test)]
 mod tests {
-    use super::HelpMode;
+    use super::*;
 
     #[test]
-    fn help_modes_map_to_expected_models() {
-        assert_eq!(HelpMode::Quick.model_id(), "gemini-3.1-flash-lite-preview");
-        assert_eq!(HelpMode::Detailed.model_id(), "gemini-3-flash-preview");
-        assert_eq!(HelpMode::Quick.max_output_tokens(), 2048);
-        assert_eq!(HelpMode::Detailed.max_output_tokens(), 4096);
+    fn model_constants_are_set() {
+        assert_eq!(PRIMARY_MODEL, "gemini-3.1-flash-lite-preview");
+        assert_eq!(FALLBACK_MODEL, "gemma-4-26b-a4b-it");
     }
 }

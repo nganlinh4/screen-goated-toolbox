@@ -8,7 +8,7 @@ use super::WEBVIEWS;
 use super::conversion::markdown_to_html;
 use super::webview::create_markdown_webview_ex;
 
-pub use fit_impl::{fit_font_to_window, init_gridjs};
+pub use fit_impl::{fit_font_to_window, fit_font_to_window_streaming, init_gridjs};
 
 #[derive(Clone, Copy)]
 struct StreamingUpdateOptions {

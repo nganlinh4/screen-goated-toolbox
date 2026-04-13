@@ -254,6 +254,8 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                             markdown_view::set_body_opacity(hwnd, false);
                         }
                         markdown_view::stream_markdown_content(hwnd, &md_text);
+                        // Real-time streaming fit (basic phases only)
+                        markdown_view::fit_font_to_window_streaming(hwnd);
                         // Register with button canvas (may already be registered, that's fine)
                         crate::overlay::result::button_canvas::register_markdown_window(hwnd);
                     }
