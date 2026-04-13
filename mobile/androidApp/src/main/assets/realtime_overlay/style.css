@@ -563,9 +563,6 @@
         .trans-model-icon.active[data-value="gemini-live-audio"] {
             color: {{SECONDARY}};
         }
-        .trans-model-icon.active[data-value="parakeet"] {
-            color: {{PRIMARY}};
-        }
 
         /* Waveform animation for listening state */
         .wave-line {

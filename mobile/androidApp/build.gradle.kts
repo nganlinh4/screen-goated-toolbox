@@ -330,11 +330,15 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
-            // Moonshine and onnxruntime-android both bundle libonnxruntime.so.
-            // Use Moonshine's version (pick first).
-            pickFirsts += "**/libonnxruntime.so"
             excludes += "**/libpython.zip.so"
             excludes += "**/libffmpeg.zip.so"
+            // All native ASR libs downloaded on demand via NativeLibManager.
+            excludes += "**/libonnxruntime.so"
+            excludes += "**/libonnxruntime4j_jni.so"
+            excludes += "**/libc++_shared.so"
+            excludes += "**/libmoonshine.so"
+            excludes += "**/libmoonshine-jni.so"
+            excludes += "**/libsherpa-onnx-jni.so"
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

@@ -6,8 +6,6 @@ import android.util.Log
 import dev.screengoated.toolbox.mobile.capture.AudioCaptureController
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
-import dev.screengoated.toolbox.mobile.service.parakeet.ParakeetEngine
-import dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelManager
 import dev.screengoated.toolbox.mobile.service.tts.RealtimeTtsCoordinator
 import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
 import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
@@ -36,7 +34,6 @@ class LiveSessionRuntime(
     overlaySupported: Boolean,
     stopRequested: () -> Unit,
     sourceModeChanged: (SourceMode) -> Unit,
-    val parakeetModelManager: ParakeetModelManager,
 ) {
     private var lastTranslationAttemptAtMs: Long = 0L
     private var translationIntervalMs: Long = TRANSLATION_INTERVAL_MS
@@ -47,6 +44,7 @@ class LiveSessionRuntime(
         repository = repository,
         overlaySupported = overlaySupported,
         stopRequested = stopRequested,
+        cancelDownloadRequested = { cancelActiveDownload() },
         restartRequested = { requestRestart() },
         sourceModeChanged = sourceModeChanged,
         stopTextToSpeech = { realtimeTtsCoordinator.stop() },
@@ -55,11 +53,18 @@ class LiveSessionRuntime(
 
     private var sessionJob: Job? = null
     private var hostScope: CoroutineScope? = null
+    private var downloadCancelAction: (() -> Unit)? = null
+    private var cancelInFlight = false
 
     fun start(scope: CoroutineScope) {
         hostScope = scope
         scope.launch {
             stopSession(keepOverlay = false)
+            // Delay before creating hardware-accelerated overlay WebViews. When the
+            // service is started by ProjectionConsentProxyActivity, the activity's
+            // surface is still tearing down. Chrome GPU crashes with a null-deref if
+            // we create LAYER_TYPE_HARDWARE WebViews during that compositor transition.
+            delay(600)
             launchSession(scope)
         }
     }
@@ -97,17 +102,86 @@ class LiveSessionRuntime(
         }
 
         realtimeTtsCoordinator.stopAndReset()
-        val useParakeet = config.transcriptionProvider.id == RealtimeModelIds.TRANSCRIPTION_PARAKEET
-        val modelId = config.transcriptionProvider.id
+        if (config.transcriptionProvider.id == RealtimeModelIds.TRANSCRIPTION_PARAKEET) {
+            repository.updateTranscriptionModel(RealtimeModelIds.TRANSCRIPTION_MOONSHINE)
+            repository.updateTranscriptionLanguage("en")
+        }
+        val modelId = repository.currentConfig().transcriptionProvider.id
         val useMoonshine = modelId.startsWith("moonshine-") || modelId == "zipformer"
             || modelId == RealtimeModelIds.TRANSCRIPTION_MOONSHINE
 
         sessionJob = scope.launch {
             repository.markStarting()
 
-            if (useParakeet) {
-                repository.setTranscriptionMethod(TranscriptionMethod.PARAKEET)
-            } else if (useMoonshine) {
+            // Auto-download native runtimes on demand (all engines).
+            if (useMoonshine) {
+                val nativeLibMgr = dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager(context)
+                downloadCancelAction = { nativeLibMgr.cancelAllDownloads() }
+                val isMoonshineModel = useMoonshine && (modelId.startsWith("moonshine-") || modelId == "moonshine")
+                val isZipformer = useMoonshine && (modelId == "zipformer" || modelId.startsWith("zipformer-"))
+
+                // Determine which engines are needed
+                val engines = mutableListOf<dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Engine>()
+                if (isMoonshineModel) {
+                    engines.add(dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Engine.ORT)
+                }
+                if (isMoonshineModel) {
+                    engines.add(dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Engine.MOONSHINE)
+                }
+                if (isZipformer) {
+                    engines.add(dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Engine.SHERPA)
+                }
+
+                // Download any missing engines
+                val missing = engines.filter { !nativeLibMgr.isInstalled(it) }
+                if (missing.isNotEmpty()) {
+                    overlayController.showDownloadModal("ASR Runtime")
+                    try {
+                        for (engine in missing) {
+                            val flow = nativeLibMgr.status(engine)
+                            nativeLibMgr.startDownload(engine)
+                            val progressJob = launch(Dispatchers.Main) {
+                                flow.collect { status ->
+                                    if (status is dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Status.Downloading) {
+                                        overlayController.updateDownloadProgress(
+                                            status.progress * 100,
+                                            engine.name,
+                                        )
+                                    }
+                                }
+                            }
+                            withContext(Dispatchers.IO) {
+                                while (
+                                    flow.value !is dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Status.Installed &&
+                                    flow.value !is dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Status.Error
+                                ) {
+                                    kotlinx.coroutines.delay(200)
+                                }
+                            }
+                            progressJob.cancel()
+                            if (flow.value is dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Status.Error) {
+                                overlayController.hideDownloadModal()
+                                repository.fail("Failed to download ${engine.name} runtime.")
+                                return@launch
+                            }
+                        }
+                        overlayController.hideDownloadModal()
+                        downloadCancelAction = null
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        overlayController.hideDownloadModal()
+                        downloadCancelAction = null
+                        throw e
+                    }
+                }
+
+                // Always load before session
+                if (!nativeLibMgr.loadEngines(*engines.toTypedArray())) {
+                    repository.fail("Failed to load ASR runtime libraries.")
+                    return@launch
+                }
+            }
+
+            if (useMoonshine) {
                 repository.setTranscriptionMethod(TranscriptionMethod.MOONSHINE)
             } else {
                 repository.setTranscriptionMethod(TranscriptionMethod.GEMINI_LIVE)
@@ -118,9 +192,7 @@ class LiveSessionRuntime(
             }
 
             try {
-                if (useParakeet) {
-                    runParakeetSession()
-                } else if (useMoonshine) {
+                if (useMoonshine) {
                     runMoonshineSession()
                 } else {
                     runGeminiSession(
@@ -162,96 +234,6 @@ class LiveSessionRuntime(
         }
     }
 
-    private suspend fun runParakeetSession() {
-        if (!parakeetModelManager.isInstalled()) {
-            overlayController.showDownloadModal("Parakeet")
-            try {
-                withContext(Dispatchers.IO) {
-                    // Launch state observer for progress updates
-                    val progressJob = launch(Dispatchers.Main) {
-                        parakeetModelManager.state.collect { state ->
-                            when (state) {
-                                is dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelState.Downloading -> {
-                                    overlayController.updateDownloadProgress(state.progress * 100, state.currentFile)
-                                }
-                                else -> {}
-                            }
-                        }
-                    }
-                    try {
-                        parakeetModelManager.download()
-                    } finally {
-                        progressJob.cancel()
-                    }
-                }
-                overlayController.hideDownloadModal()
-            } catch (e: CancellationException) {
-                overlayController.hideDownloadModal()
-                throw e
-            }
-
-            if (!parakeetModelManager.isInstalled()) {
-                repository.updateTranscriptionModel(RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5)
-                return
-            }
-        }
-
-        withContext(Dispatchers.IO) {
-            val modelDir = java.io.File(context.filesDir, "models/parakeet")
-            val engine = ParakeetEngine(modelDir, parakeetModelManager.ortLibDir())
-            try {
-                repository.markListening()
-                val audioFlow = audioCaptureController.open(
-                    config = repository.currentConfig(),
-                    onRms = { rms -> overlayController.updateVolume(rms) },
-                )
-
-                val sampleAccumulator = mutableListOf<Float>()
-
-                audioFlow.collect { chunk ->
-                    for (s in chunk) {
-                        sampleAccumulator.add(s / 32768f)
-                    }
-
-                    while (sampleAccumulator.size >= PARAKEET_CHUNK_SIZE) {
-                        val chunkFloats = FloatArray(PARAKEET_CHUNK_SIZE)
-                        for (i in 0 until PARAKEET_CHUNK_SIZE) {
-                            chunkFloats[i] = sampleAccumulator.removeFirst()
-                        }
-
-                        val rawText = engine.transcribe(chunkFloats)
-                        if (rawText.isNotEmpty()) {
-                            val processed = processSentencePieceText(rawText)
-                            if (processed.isNotEmpty()) {
-                                repository.appendTranscript(
-                                    text = processed,
-                                    nowMs = SystemClock.elapsedRealtime(),
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Flush: send 3 silence chunks to extract any remaining text
-                val silence = FloatArray(PARAKEET_CHUNK_SIZE)
-                repeat(3) {
-                    val rawText = engine.transcribe(silence)
-                    if (rawText.isNotEmpty()) {
-                        val processed = processSentencePieceText(rawText)
-                        if (processed.isNotEmpty()) {
-                            repository.appendTranscript(
-                                text = processed,
-                                nowMs = SystemClock.elapsedRealtime(),
-                            )
-                        }
-                    }
-                }
-            } finally {
-                engine.close()
-            }
-        }
-    }
-
     private suspend fun runMoonshineSession() {
         val modelId = repository.currentConfig().transcriptionProvider.id
         val langCode = repository.currentConfig().transcriptionLanguage
@@ -264,6 +246,7 @@ class LiveSessionRuntime(
             Log.i("Sherpa", "Resolved to: ${zipLang.name} (${zipLang.modelName})")
             val moonshineManager = dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager(context)
             if (!moonshineManager.isZipformerInstalled(zipLang)) {
+                downloadCancelAction = { sessionJob?.cancel() }
                 overlayController.showDownloadModal("Zipformer ${zipLang.displayName}")
                 try {
                     withContext(Dispatchers.IO) {
@@ -280,9 +263,18 @@ class LiveSessionRuntime(
                         try { moonshineManager.downloadZipformer(zipLang) } finally { progressJob.cancel() }
                     }
                     overlayController.hideDownloadModal()
+                    downloadCancelAction = null
                 } catch (e: CancellationException) {
                     overlayController.hideDownloadModal()
+                    downloadCancelAction = null
                     throw e
+                }
+                // Guard: download may have failed internally (DownloadState.Error) without throwing
+                if (!moonshineManager.isZipformerInstalled(zipLang)) {
+                    val state = moonshineManager.downloadState.value
+                    val msg = if (state is dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager.DownloadState.Error)
+                        state.message else "Download failed for ${zipLang.displayName}"
+                    error(msg)
                 }
             }
             runSherpaSession(zipLang, moonshineManager)
@@ -295,6 +287,7 @@ class LiveSessionRuntime(
 
         // Download model if needed
         if (!moonshineManager.isInstalled(lang)) {
+            downloadCancelAction = { sessionJob?.cancel() }
             overlayController.showDownloadModal("Moonshine ${lang.displayName}")
             try {
                 withContext(Dispatchers.IO) {
@@ -315,8 +308,10 @@ class LiveSessionRuntime(
                     }
                 }
                 overlayController.hideDownloadModal()
+                downloadCancelAction = null
             } catch (e: CancellationException) {
                 overlayController.hideDownloadModal()
+                downloadCancelAction = null
                 throw e
             }
             if (!moonshineManager.isInstalled(lang)) {
@@ -404,6 +399,7 @@ class LiveSessionRuntime(
 
             try {
                 repository.markListening()
+
                 transcriber.start()
 
                 val audioFlow = audioCaptureController.open(
@@ -475,7 +471,20 @@ class LiveSessionRuntime(
         modelManager: dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager,
     ) {
         withContext(Dispatchers.IO) {
+            // Free JVM heap before native model allocation
+            System.gc()
+            val actMgr = context.getSystemService(android.app.ActivityManager::class.java)
+            val memInfo = android.app.ActivityManager.MemoryInfo()
+            actMgr.getMemoryInfo(memInfo)
+            val availMb = memInfo.availMem / 1_048_576L
+            Log.i("Sherpa", "Available RAM before load: ${availMb}MB (lowMemory=${memInfo.lowMemory})")
+            if (memInfo.lowMemory || availMb < 150L) {
+                error("Not enough RAM to load ${lang.displayName} model (${availMb}MB available, need ~150MB free)")
+            }
+
             val modelDir = modelManager.zipformerDir(lang).absolutePath
+            val bpeVocabPath = lang.bpeVocabFile?.let { "$modelDir/$it" } ?: ""
+            Log.i("Sherpa", "Loading ${lang.displayName}: encoder=${lang.sherpaEncoder()} bpe=${bpeVocabPath.ifEmpty { "none" }}")
 
             val config = com.k2fsa.sherpa.onnx.OnlineRecognizerConfig(
                 modelConfig = com.k2fsa.sherpa.onnx.OnlineModelConfig(
@@ -486,23 +495,22 @@ class LiveSessionRuntime(
                     ),
                     tokens = "$modelDir/tokens.txt",
                     modelType = lang.sherpaModelType,
-                    numThreads = 2,
+                    numThreads = 1,
+                    bpeVocab = bpeVocabPath,
                 ),
                 enableEndpoint = true,
                 decodingMethod = "greedy_search",
             )
 
             val recognizer = com.k2fsa.sherpa.onnx.OnlineRecognizer(config = config)
-            // Check if native recognizer was created (ptr == 0 means failure)
             try {
                 val ptrField = recognizer.javaClass.getDeclaredField("ptr")
                 ptrField.isAccessible = true
                 if (ptrField.getLong(recognizer) == 0L) {
-                    Log.e("Sherpa", "Failed to create recognizer — model files missing or invalid config")
-                    Log.e("Sherpa", "Model dir: $modelDir")
-                    Log.e("Sherpa", "Encoder: ${lang.sherpaEncoder()}")
-                    return@withContext
+                    error("${lang.displayName} model failed to load — check model files are complete")
                 }
+            } catch (e: IllegalStateException) {
+                throw e  // re-throw our own error()
             } catch (_: Exception) {}
             val stream = recognizer.createStream()
             Log.i("Sherpa", "Loaded ${lang.modelName} for ${lang.displayName}")
@@ -511,6 +519,7 @@ class LiveSessionRuntime(
             var lastDraftText = ""
             var lastDraftChangeMs = SystemClock.elapsedRealtime()
             val DRAFT_STALE_MS = 3_000L
+            var streamCommittedPrefix = ""
 
             try {
                 repository.markListening()
@@ -540,8 +549,7 @@ class LiveSessionRuntime(
                             if (audioBatch.size >= BATCH_SAMPLES) {
                                 val maxBuffer = 16000 * 10
                                 if (audioBatch.size > maxBuffer) {
-                                    val drop = audioBatch.size - maxBuffer
-                                    audioBatch.subList(0, drop).clear()
+                                    audioBatch.subList(0, audioBatch.size - maxBuffer).clear()
                                 }
                                 batch = FloatArray(audioBatch.size) { audioBatch[it] }
                                 audioBatch.clear()
@@ -553,62 +561,79 @@ class LiveSessionRuntime(
                         if (batch != null) {
                             stream.acceptWaveform(batch, 16000)
                             totalSamplesFed += batch.size
-
-                            while (recognizer.isReady(stream)) {
-                                recognizer.decode(stream)
-                            }
+                            while (recognizer.isReady(stream)) { recognizer.decode(stream) }
 
                             val result = recognizer.getResult(stream)
-                            val text = result.text.trim()
+                            val rawText = result.text.trim()
+                            val text = if (streamCommittedPrefix.isNotEmpty()) {
+                                if (rawText.startsWith(streamCommittedPrefix))
+                                    rawText.substring(streamCommittedPrefix.length).trimStart()
+                                else { streamCommittedPrefix = ""; rawText }
+                            } else rawText
 
-                            // Check for endpoint (utterance boundary)
                             val isEndpoint = recognizer.isEndpoint(stream)
                             if (isEndpoint) {
                                 if (text.isNotBlank()) {
-                                    // Zipformer has no punctuation — add period at
-                                    // endpoint to mark sentence boundary for translation
-                                    committedHistory = if (committedHistory.isEmpty()) {
-                                        "$text."
-                                    } else {
-                                        "$committedHistory $text."
-                                    }
-                                    Log.i("Sherpa", "COMMIT: '$text'")
+                                    val toCommit = if (!lang.hasNativePunctuation ||
+                                        !text.trimEnd().last().isSentencePunct()
+                                    ) "$text." else text
+                                    committedHistory = if (committedHistory.isEmpty()) toCommit
+                                    else "$committedHistory $toCommit"
+                                    Log.i("Sherpa", "COMMIT: '$toCommit'")
                                 }
                                 recognizer.reset(stream)
+                                streamCommittedPrefix = ""
                                 lastDraftText = ""
                                 lastDraftChangeMs = SystemClock.elapsedRealtime()
-                                repository.setTranscriptSegments(
-                                    committed = committedHistory,
-                                    draft = "",
-                                    nowMs = SystemClock.elapsedRealtime(),
-                                )
+                                repository.setTranscriptSegments(committedHistory, "", SystemClock.elapsedRealtime())
                             } else {
-                                // Track draft changes for stale detection
-                                if (text != lastDraftText) {
-                                    lastDraftText = text
-                                    lastDraftChangeMs = SystemClock.elapsedRealtime()
-                                }
-                                // If draft hasn't changed for 3s, add period to
-                                // force translation commit (matching Windows pattern)
-                                val draftToPublish = if (text.isNotBlank()
-                                    && SystemClock.elapsedRealtime() - lastDraftChangeMs >= DRAFT_STALE_MS
-                                ) {
-                                    "${text.trimEnd()}."
+                                if (text != lastDraftText) { lastDraftText = text; lastDraftChangeMs = SystemClock.elapsedRealtime() }
+                                val silenceMs = SystemClock.elapsedRealtime() - lastDraftChangeMs
+                                val boundary = if (lang.hasNativePunctuation) splitAtSentenceBoundary(text) else null
+
+                                if (boundary != null) {
+                                    val (before, after) = boundary
+                                    committedHistory = if (committedHistory.isEmpty()) before else "$committedHistory $before"
+                                    val afterTrimmed = after.trimStart()
+                                    streamCommittedPrefix = if (rawText.length >= afterTrimmed.length)
+                                        rawText.substring(0, rawText.length - afterTrimmed.length).trimEnd() else rawText
+                                    lastDraftText = after; lastDraftChangeMs = SystemClock.elapsedRealtime()
+                                    Log.i("Sherpa", "CASE1: '$before' | draft='$after'")
+                                    repository.setTranscriptSegments(committedHistory, after, SystemClock.elapsedRealtime())
+                                } else if (lang.hasNativePunctuation && text.trimEnd().lastOrNull()?.isSentencePunct() == true && silenceMs >= 600L) {
+                                    committedHistory = if (committedHistory.isEmpty()) text else "$committedHistory $text"
+                                    recognizer.reset(stream); streamCommittedPrefix = ""; lastDraftText = ""; lastDraftChangeMs = SystemClock.elapsedRealtime()
+                                    Log.i("Sherpa", "CASE2: '$text'")
+                                    repository.setTranscriptSegments(committedHistory, "", SystemClock.elapsedRealtime())
+                                } else if (!lang.hasNativePunctuation && text.isNotBlank()) {
+                                    // Case 3: silence-based commit for models without native punctuation
+                                    // (ZH, RU, All8Lang). draftCommitThresholdMs() only computes the
+                                    // threshold — the caller MUST perform the actual commit here.
+                                    // ⚠️ EASY TO FORGET: showing the draft with a period is NOT a commit.
+                                    // Mirrors Windows run_streaming_loop Case 3 exactly:
+                                    //   committed_history += text + "."
+                                    //   stream_committed_prefix = raw_text  (strips committed part)
+                                    //   publish empty draft
+                                    val thresholdMs = draftCommitThresholdMs(text)
+                                    if (silenceMs >= thresholdMs || silenceMs >= DRAFT_STALE_MS) {
+                                        val toCommit = "${text.trimEnd()}."
+                                        committedHistory = if (committedHistory.isEmpty()) toCommit else "$committedHistory $toCommit"
+                                        streamCommittedPrefix = rawText.trimEnd()
+                                        lastDraftText = ""; lastDraftChangeMs = SystemClock.elapsedRealtime()
+                                        Log.i("Sherpa", "CASE3: '$toCommit'")
+                                        repository.setTranscriptSegments(committedHistory, "", SystemClock.elapsedRealtime())
+                                    } else {
+                                        repository.setTranscriptSegments(committedHistory, text, SystemClock.elapsedRealtime())
+                                    }
                                 } else {
-                                    text
+                                    val draft = if (text.isNotBlank() && silenceMs >= DRAFT_STALE_MS) "${text.trimEnd()}." else text
+                                    repository.setTranscriptSegments(committedHistory, draft, SystemClock.elapsedRealtime())
                                 }
-                                repository.setTranscriptSegments(
-                                    committed = committedHistory,
-                                    draft = draftToPublish,
-                                    nowMs = SystemClock.elapsedRealtime(),
-                                )
                             }
 
-                            val audioTimeMs = totalSamplesFed * 1000 / 16000
-                            val wallTimeMs = SystemClock.elapsedRealtime() - startTimeMs
-                            val lagMs = wallTimeMs - audioTimeMs
                             if (totalSamplesFed % (16000 * 2) < batch.size.toLong()) {
-                                Log.i("Sherpa", "fed=${audioTimeMs/1000}s wall=${wallTimeMs/1000}s lag=${lagMs}ms")
+                                val audioMs = totalSamplesFed * 1000 / 16000; val wallMs = SystemClock.elapsedRealtime() - startTimeMs
+                                Log.i("Sherpa", "fed=${audioMs/1000}s wall=${wallMs/1000}s lag=${wallMs - audioMs}ms")
                             }
                         } else {
                             delay(50)
@@ -723,11 +748,32 @@ class LiveSessionRuntime(
     private suspend fun stopSession(keepOverlay: Boolean) {
         sessionJob?.cancelAndJoin()
         sessionJob = null
+        downloadCancelAction = null
+        cancelInFlight = false
         lastTranslationAttemptAtMs = 0L
         translationIntervalMs = TRANSLATION_INTERVAL_MS
         realtimeTtsCoordinator.stopAndReset()
         if (!keepOverlay) {
             overlayController.hide()
+        }
+    }
+
+    private fun cancelActiveDownload() {
+        if (cancelInFlight) {
+            return
+        }
+        val cancelAction = downloadCancelAction ?: return
+        val scope = hostScope ?: return
+        cancelInFlight = true
+        scope.launch {
+            try {
+                cancelAction()
+                stopSession(keepOverlay = false)
+                repository.stop()
+            } finally {
+                downloadCancelAction = null
+                cancelInFlight = false
+            }
         }
     }
 }
@@ -736,19 +782,48 @@ private const val TRANSLATION_INTERVAL_MS = 1_500L
 private const val TRANSLATION_INTERVAL_MAX_MS = 4_000L
 private const val TRANSLATION_TAG = "LiveTranslate"
 
-/** 160ms chunk at 16kHz = 2560 samples (matches Windows parakeet-rs) */
-private const val PARAKEET_CHUNK_SIZE = 2560
+/** Mirrors Windows `utils::split_at_sentence_boundary`. */
+private fun splitAtSentenceBoundary(text: String): Pair<String, String>? {
+    var lastBoundary = -1
+    var i = 0
+    while (i < text.length) {
+        val ch = text[i]
+        if (ch == '.' || ch == '?' || ch == '!') {
+            val rest = text.substring(i + 1).trimStart()
+            if (rest.isNotEmpty() && (rest[0].isLetter() || rest[0].isDigit())) {
+                lastBoundary = i + 1
+            }
+        }
+        i++
+    }
+    if (lastBoundary < 0) return null
+    return Pair(text.substring(0, lastBoundary).trimEnd(), text.substring(lastBoundary).trimStart())
+}
 
 /**
- * Matches Windows `process_sentencepiece_text()` in parakeet.rs:
- * Preserves leading space (word boundary indicator ▁) while cleaning up the token.
+ * Smooth commit threshold for non-native-punct models (ZH, RU, All8Lang).
+ * Mirrors Windows `state::draft_commit_threshold_ms`.
+ * Formula: 1200 / (1 + words * 0.5), CJK chars each count as one word.
+ *
+ * ⚠️ WARNING — THIS FUNCTION ONLY RETURNS A THRESHOLD NUMBER.
+ * The caller is responsible for the FULL commit sequence when silence >= threshold:
+ *   1. Append "${text}." to committedHistory
+ *   2. Set streamCommittedPrefix = rawText.trimEnd()
+ *   3. Reset lastDraftText and lastDraftChangeMs
+ *   4. Publish with empty draft
+ * Simply appending a period to the displayed draft is NOT a commit.
+ * Forgetting steps 1-4 means text is never moved out of draft → never translated.
  */
-private fun processSentencePieceText(text: String): String {
-    val startsWithWord = text.startsWith('\u2581') || text.startsWith('▁')
-    val processed = text.replace("\u2581", " ").replace("▁", " ").trim()
-    if (processed.isEmpty()) return ""
-    return if (startsWithWord) " $processed" else processed
+private fun draftCommitThresholdMs(draft: String): Long {
+    val cjkCount = draft.count { it.code > 0x2E80 }
+    val wordCount = draft.trim().split(Regex("\\s+")).count { it.isNotEmpty() } + cjkCount
+    if (wordCount == 0) return Long.MAX_VALUE
+    return (1200.0 / (1.0 + wordCount * 0.5)).toLong()
 }
+
+/** Returns true for sentence-ending punctuation. */
+private fun Char.isSentencePunct(): Boolean = this == '.' || this == '?' || this == '!'
+
 
 private fun computeAdaptiveTranslationIntervalMs(latencyMs: Long): Long {
     return (latencyMs + 250L)

@@ -306,7 +306,6 @@ private fun overlayLocaleJson(uiLanguage: String): String {
         put("micInputTitle", overlay.micInputTitle)
         put("deviceAudioTitle", overlay.deviceAudioTitle)
         put("geminiLiveTitle", overlay.geminiLiveTitle)
-        put("parakeetTitle", overlay.parakeetTitle)
         put("gemmaTitle", overlay.gemmaTitle)
         put("cerebrasTitle", overlay.cerebrasTitle)
         put("gtxTitle", overlay.gtxTitle)
@@ -319,7 +318,6 @@ private fun overlayLocaleJson(uiLanguage: String): String {
         put("downloadingModelTitle", overlay.downloadingModelTitle)
         put("pleaseWaitText", overlay.pleaseWaitText)
         put("cancelText", overlay.cancelText)
-        put("parakeetNote", overlay.parakeetNote)
     }.toString()
 }
 

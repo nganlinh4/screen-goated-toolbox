@@ -49,9 +49,10 @@ data class PresetModelDescriptor(
 }
 
 object PresetModelCatalog {
-    val models: List<PresetModelDescriptor> = GeneratedPresetModelCatalogData.models
+    private val allModels: List<PresetModelDescriptor> = GeneratedPresetModelCatalogData.models
+    val models: List<PresetModelDescriptor> = allModels.filter { it.provider != PresetModelProvider.PARAKEET }
 
-    private val byId = models.associateBy { it.id }
+    private val byId = allModels.associateBy { it.id }
 
     fun getById(id: String): PresetModelDescriptor? = byId[id]
 

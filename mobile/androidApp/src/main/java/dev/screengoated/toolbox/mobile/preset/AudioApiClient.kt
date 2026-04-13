@@ -1,7 +1,6 @@
 package dev.screengoated.toolbox.mobile.preset
 
 import android.content.Context
-import dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -23,7 +22,6 @@ internal interface AudioStreamingSession {
 class AudioApiClient(
     internal val appContext: Context,
     internal val httpClient: OkHttpClient,
-    internal val parakeetModelManager: ParakeetModelManager,
 ) {
     internal suspend fun openStreamingSession(
         modelId: String,
@@ -37,12 +35,6 @@ class AudioApiClient(
             PresetModelProvider.GEMINI_LIVE -> openGeminiLiveInputSession(
                 model = model,
                 apiKey = apiKeys.geminiKey,
-                onChunk = onChunk,
-            )
-
-            PresetModelProvider.PARAKEET -> openParakeetStreamingSession(
-                _model = model,
-                _uiLanguage = uiLanguage,
                 onChunk = onChunk,
             )
 
@@ -81,13 +73,6 @@ class AudioApiClient(
                     model = model,
                     wavBytes = wavBytes,
                     apiKey = apiKeys.geminiKey,
-                    onChunk = onChunk,
-                )
-
-                PresetModelProvider.PARAKEET -> transcribeWithParakeet(
-                    model = model,
-                    wavBytes = wavBytes,
-                    uiLanguage = uiLanguage,
                     onChunk = onChunk,
                 )
 

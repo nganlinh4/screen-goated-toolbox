@@ -29,6 +29,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import kotlin.math.roundToInt
 
 class OverlayController(
@@ -36,6 +37,7 @@ class OverlayController(
     private val repository: AndroidLiveSessionRepository,
     private val overlaySupported: Boolean,
     private val stopRequested: () -> Unit,
+    private val cancelDownloadRequested: () -> Unit,
     private val restartRequested: () -> Unit,
     private val sourceModeChanged: (SourceMode) -> Unit,
     private val stopTextToSpeech: () -> Unit,
@@ -135,12 +137,20 @@ class OverlayController(
 
     fun isTranslationVisible(): Boolean = translationVisible
 
-    private var downloadModalTitle = "Downloading model"
+    private var downloadModalSubject = ""
 
     fun showDownloadModal(title: String = "Model") {
-        downloadModalTitle = "Downloading $title"
+        downloadModalSubject = title
+        val overlay = currentOverlayLocale()
+        val message = title.ifBlank { overlay.pleaseWaitText }
         transcriptionWindow?.evaluate(
-            "if(window.showDownloadModal) window.showDownloadModal('${downloadModalTitle}', 'Preparing...', 0);",
+            buildString {
+                append("if(window.showDownloadModal) window.showDownloadModal(")
+                append(JSONObject.quote(overlay.downloadingModelTitle))
+                append(", ")
+                append(JSONObject.quote(message))
+                append(", 0);")
+            },
         )
     }
 
@@ -149,10 +159,21 @@ class OverlayController(
     }
 
     fun updateDownloadProgress(progress: Float, filename: String) {
-        val msg = "Downloading $filename"
+        val overlay = currentOverlayLocale()
+        val message = filename.ifBlank {
+            downloadModalSubject.ifBlank { overlay.pleaseWaitText }
+        }
         val pct = progress.coerceIn(0f, 100f)
         transcriptionWindow?.evaluate(
-            "if(window.showDownloadModal) window.showDownloadModal('$downloadModalTitle', '$msg', $pct);",
+            buildString {
+                append("if(window.showDownloadModal) window.showDownloadModal(")
+                append(JSONObject.quote(overlay.downloadingModelTitle))
+                append(", ")
+                append(JSONObject.quote(message))
+                append(", ")
+                append(pct)
+                append(");")
+            },
         )
     }
 
@@ -190,6 +211,7 @@ class OverlayController(
                 RealtimeOverlayPaneSettings(
                     isTranslation = false,
                     isDark = isDarkTheme(snapshot.uiPreferences.themeMode),
+                    uiLanguage = snapshot.uiPreferences.uiLanguage,
                 ),
             ),
             settings = overlayPaneRuntimeSettings(
@@ -206,6 +228,7 @@ class OverlayController(
                 RealtimeOverlayPaneSettings(
                     isTranslation = true,
                     isDark = isDarkTheme(snapshot.uiPreferences.themeMode),
+                    uiLanguage = snapshot.uiPreferences.uiLanguage,
                 ),
             ),
             settings = overlayPaneRuntimeSettings(
@@ -295,9 +318,10 @@ class OverlayController(
             message.startsWith("ttsSpeed:") -> updateTtsSpeed(message.removePrefix("ttsSpeed:"))
             message.startsWith("ttsAutoSpeed:") -> updateTtsAutoSpeed(message.removePrefix("ttsAutoSpeed:") == "1")
             message.startsWith("ttsVolume:") -> updateTtsVolume(message.removePrefix("ttsVolume:"))
-            message == "cancelDownload" -> translationWindow?.evaluate(
-                "if(window.hideDownloadModal) window.hideDownloadModal();",
-            )
+            message == "cancelDownload" -> {
+                hideDownloadModal()
+                cancelDownloadRequested()
+            }
         }
     }
 
@@ -426,6 +450,11 @@ class OverlayController(
         )
     }
 
+    private fun currentOverlayLocale() =
+        dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText.forLanguage(
+            repository.currentUiPreferences().uiLanguage,
+        ).overlay
+
     private val transcriptionModelPicker = dev.screengoated.toolbox.mobile.service.overlay.OverlayLanguagePicker(
         context = context,
         windowManager = windowManager,
@@ -441,9 +470,15 @@ class OverlayController(
 
     private fun showTranscriptionModelPicker() {
         val anchor = transcriptionWindow?.currentBounds() ?: return
-        val models = listOf("Gemini Live", "Parakeet", "Moonshine Tiny", "Moonshine Small", "Moonshine Medium", "Zipformer")
+        val models = listOf(
+            "Gemini Live | 100+ languages",
+            "Moonshine Tiny | 1 language",
+            "Moonshine Small | 1 language",
+            "Moonshine Medium | 1 language",
+            "Zipformer | 8 languages",
+        )
         val currentId = repository.transcriptionModelId()
-        val currentLabel = TRANSCRIPTION_MODEL_LABELS[currentId] ?: "Gemini Live"
+        val currentLabel = TRANSCRIPTION_MODEL_LABELS[currentId] ?: "Gemini Live | 100+ languages"
         transcriptionModelPicker.show(
             anchorBounds = anchor,
             selectedLanguage = currentLabel,
@@ -737,12 +772,11 @@ class OverlayController(
 
         // Label ↔ model ID mappings for native pickers
         private val TRANSCRIPTION_MODEL_IDS = mapOf(
-            "Gemini Live" to "gemini-live-audio",
-            "Parakeet" to "parakeet",
-            "Moonshine Tiny" to "moonshine-tiny-streaming",
-            "Moonshine Small" to "moonshine-small-streaming",
-            "Moonshine Medium" to "moonshine-medium-streaming",
-            "Zipformer" to "zipformer",
+            "Gemini Live | 100+ languages" to "gemini-live-audio",
+            "Moonshine Tiny | 1 language" to "moonshine-tiny-streaming",
+            "Moonshine Small | 1 language" to "moonshine-small-streaming",
+            "Moonshine Medium | 1 language" to "moonshine-medium-streaming",
+            "Zipformer | 8 languages" to "zipformer",
         )
         private val TRANSCRIPTION_MODEL_LABELS = TRANSCRIPTION_MODEL_IDS.entries.associate { (k, v) -> v to k }
 
