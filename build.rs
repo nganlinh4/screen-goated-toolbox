@@ -40,36 +40,21 @@ fn main() {
         create_multi_size_ico(&app_icon_small_path, &generated_ico_path);
     }
 
-    // Embed icon in Windows executable using manual windres compilation
+    // Embed icon and version resources in Windows executables.
     #[cfg(target_os = "windows")]
     {
         let rc_path = manifest_dir.join("app.rc");
 
         if generated_ico_path.exists() && rc_path.exists() {
-            // Define output path for the object file in the OUT_DIR
             let generated_rc_path = out_dir.join("app.rc");
-            let res_path = out_dir.join("resources.o");
             write_generated_rc(&rc_path, &generated_rc_path, &generated_ico_path);
 
-            // Run windres manually
-            // windres app.rc -o resources.o
-            let status = std::process::Command::new("windres")
-                .arg(&generated_rc_path)
-                .arg("-o")
-                .arg(&res_path)
-                .status();
+            let mut res = winres::WindowsResource::new();
+            res.set_output_directory(&out_dir.display().to_string());
+            res.set_resource_file(&generated_rc_path.display().to_string());
 
-            match status {
-                Ok(s) if s.success() => {
-                    // Tell Cargo to pass the object file to the linker
-                    println!("cargo:rustc-link-arg={}", res_path.display());
-                }
-                Ok(s) => {
-                    panic!("windres failed with exit code: {}", s);
-                }
-                Err(e) => {
-                    panic!("Failed to execute windres: {}", e);
-                }
+            if let Err(err) = res.compile() {
+                panic!("Failed to compile Windows resources: {err}");
             }
         }
     }

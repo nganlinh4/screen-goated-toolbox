@@ -79,6 +79,7 @@ const WEBVIEW2_BOOTSTRAPPER_NAME: &str = "MicrosoftEdgeWebview2Setup.exe";
 
 lazy_static::lazy_static! {
     static ref WEBVIEW2_STATUS: Mutex<WebView2InstallStatus> = Mutex::new(WebView2InstallStatus::Missing);
+    static ref STARTUP_NOTICE_SHOWN: Mutex<bool> = Mutex::new(false);
 }
 
 pub fn current_process_arch() -> RuntimeArch {
@@ -172,6 +173,44 @@ pub fn notify_capability_issue(capability: &FeatureCapability) {
         &capability.title,
         &capability.details,
         notification_type,
+    );
+}
+
+pub fn unsupported_feature_names() -> Vec<&'static str> {
+    let mut unsupported = Vec::new();
+
+    if !supports_qwen3_local_runtime().is_supported() {
+        unsupported.push("Qwen3 local AI");
+    }
+
+    unsupported
+}
+
+pub fn show_startup_compatibility_notice_if_needed() {
+    {
+        let mut shown = STARTUP_NOTICE_SHOWN.lock().unwrap();
+        if *shown {
+            return;
+        }
+        *shown = true;
+    }
+
+    let unsupported = unsupported_feature_names();
+    if unsupported.is_empty() {
+        return;
+    }
+
+    let arch = environment_info().native_arch;
+    let title = format!(
+        "{} not supported on this {} device",
+        unsupported.join(", "),
+        arch
+    );
+    crate::overlay::auto_copy_badge::show_timed_detailed_notification(
+        &title,
+        "Some local or hardware-specific features are unavailable here.",
+        crate::overlay::auto_copy_badge::NotificationType::Info,
+        2500,
     );
 }
 

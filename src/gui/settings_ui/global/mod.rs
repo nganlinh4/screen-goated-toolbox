@@ -9,7 +9,6 @@ use std::collections::HashMap;
 
 mod downloaded_tools;
 mod model_priority;
-mod support_report;
 mod tts_settings;
 mod update_section;
 mod usage_stats;
@@ -17,7 +16,6 @@ mod usage_stats;
 use crate::gui::settings_ui::download_manager::DownloadManager;
 use downloaded_tools::render_downloaded_tools_modal;
 use model_priority::render_model_priority_modal;
-use support_report::render_support_report_card;
 use tts_settings::render_tts_settings_modal;
 use update_section::render_update_section_content;
 use usage_stats::render_usage_modal;
@@ -265,17 +263,6 @@ pub fn render_global_settings(
                     }
                 });
             }
-        });
-
-    ui.add_space(10.0);
-
-    egui::Frame::new()
-        .fill(card_bg)
-        .stroke(card_stroke)
-        .inner_margin(12.0)
-        .corner_radius(10.0)
-        .show(ui, |ui| {
-            render_support_report_card(ui);
         });
 
     ui.add_space(10.0);

@@ -31,7 +31,6 @@ lazy_static::lazy_static! {
 }
 
 const WARM_SOCKET_MAX_AGE: Duration = Duration::from_secs(86400);
-
 fn acquire_warm_socket(api_key: &str) -> Option<WebSocket<TlsStream<TcpStream>>> {
     let mut guard = WARM_SOCKET.lock().ok()?;
     let mut warm = guard.take()?;

@@ -189,6 +189,20 @@ pub fn show_detailed_notification(title: &str, snippet: &str, n_type: Notificati
     enqueue_notification(title.to_string(), snippet.to_string(), n_type);
 }
 
+pub fn show_timed_detailed_notification(
+    title: &str,
+    snippet: &str,
+    n_type: NotificationType,
+    duration_ms: u32,
+) {
+    enqueue_notification_with_duration(
+        title.to_string(),
+        snippet.to_string(),
+        n_type,
+        Some(duration_ms),
+    );
+}
+
 pub fn show_progress_notification(title: &str, snippet: &str, progress: f32) {
     {
         let mut active = ACTIVE_PROGRESS.lock().unwrap();
