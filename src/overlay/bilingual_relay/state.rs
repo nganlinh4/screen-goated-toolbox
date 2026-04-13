@@ -214,7 +214,7 @@ pub(super) fn upsert_transcript(role: &'static str, text: String, is_final: bool
             existing.text = merge_transcript_text(&existing.text, text);
             existing.is_final = is_final;
             // Only detect language on complete text — partial streaming fragments
-            // are too short for reliable lingua detection
+            // are too short for reliable language detection
             if is_final {
                 let detected = detect_lang(&existing.text);
                 if !detected.is_empty() {

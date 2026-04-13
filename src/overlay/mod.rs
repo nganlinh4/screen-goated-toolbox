@@ -161,7 +161,7 @@ fn delete_directory_contents_recursive(path: &std::path::Path) -> bool {
 ///
 /// Skipped on purpose because they already have dedicated delete buttons in
 /// `settings_ui/global/downloaded_tools/`:
-///   - `bin/` (ai_runtime, video_downloader, lingua)
+///   - `bin/` (ai_runtime, video_downloader, language detection assets)
 ///   - `pointer-gallery/` (pointer_packs)
 ///   - `backgrounds/` (backgrounds)
 ///   - `Roaming/screen-goated-toolbox/models/` (model_sections, zipformer)
