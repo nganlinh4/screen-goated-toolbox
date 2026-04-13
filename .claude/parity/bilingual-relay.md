@@ -35,6 +35,8 @@
   - input transcription rows represent what the app heard
   - output transcription rows represent what the model spoke
   - partial rows are updated in place until the turn completes
+  - new transcript rows appear centered first, then slide to the left or right bubble position once the language side is resolved
+  - the transcript surface follows the newest row as new pills appear
 - The bottom visualizer is driven by connection readiness state, not by a decorative timer.
 
 ## Platform Entry Points
