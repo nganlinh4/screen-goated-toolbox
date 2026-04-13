@@ -485,6 +485,11 @@ html, body {
   min-height: 0;
 }
 
+.transcript-card,
+.transcript-card * {
+  user-select: text;
+}
+
 
 .transcript-body {
   flex: 1;
@@ -519,10 +524,22 @@ html, body {
 
 .transcript-pill {
   max-width: 85%;
+  width: fit-content;
+  align-self: center;
+  will-change: transform, opacity;
 }
 
-.transcript-pill.msg-left { align-self: flex-start; }
-.transcript-pill.msg-right { align-self: flex-end; }
+/* Initial state: centered, fades + floats up */
+.transcript-pill.msg-center {
+  align-self: center;
+}
+
+.transcript-pill.msg-left {
+  align-self: flex-start;
+}
+.transcript-pill.msg-right {
+  align-self: flex-end;
+}
 
 .pill-content {
   display: flex;
@@ -533,6 +550,22 @@ html, body {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.pill-content.pill-appear {
+  animation: pillAppear 0.3s cubic-bezier(0, 0, 0.2, 1) both;
+}
+
+@keyframes pillAppear {
+  from { opacity: 0; transform: translateY(8px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.msg-center .pill-content {
+  background: var(--surface-input);
+  border-radius: 18px;
 }
 
 .msg-left .pill-content {
