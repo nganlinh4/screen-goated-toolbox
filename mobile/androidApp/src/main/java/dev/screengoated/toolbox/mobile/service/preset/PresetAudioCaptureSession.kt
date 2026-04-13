@@ -481,7 +481,6 @@ internal class PresetAudioCaptureSession(
         val modelId = resolvedPreset.preset.blocks.firstOrNull { it.blockType == BlockType.AUDIO }?.model.orEmpty()
         return when (PresetModelCatalog.getById(modelId)?.provider) {
             PresetModelProvider.GEMINI_LIVE -> PresetAudioRuntimeKind.GEMINI_LIVE_STREAMING
-            PresetModelProvider.PARAKEET -> PresetAudioRuntimeKind.PARAKEET_STREAMING
             else -> PresetAudioRuntimeKind.STANDARD
         }
     }

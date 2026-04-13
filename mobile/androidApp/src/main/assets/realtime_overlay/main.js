@@ -27,7 +27,6 @@
             deviceAudioTitle: 'Device audio',
             geminiLive25Title: 'Gemini Live 2.5 (Cloud)',
             geminiLive31Title: 'Gemini Live 3.1 (Cloud)',
-            parakeetTitle: 'Parakeet (Local)',
             gemmaTitle: 'AI Translation (Gemma)',
             cerebrasTitle: 'Instant AI (Cerebras)',
             gtxTitle: 'Unlimited Translation (Google)',
@@ -40,7 +39,6 @@
             downloadingModelTitle: 'Downloading model',
             pleaseWaitText: 'Please wait...',
             cancelText: 'Cancel',
-            parakeetNote: '(English only)',
         };
 
         function restoreControlsScroll(pinnedScrollLeft) {
@@ -123,7 +121,6 @@
         };
         const TRANSCRIPTION_MODEL_LABELS = {
             'gemini-live-audio': 'Gemini Live',
-            'parakeet': 'Parakeet',
             'moonshine-tiny-streaming': 'Moonshine Tiny',
             'moonshine-small-streaming': 'Moonshine Small',
             'moonshine-medium-streaming': 'Moonshine Medium',
@@ -168,7 +165,7 @@
                 transLangBadge.textContent = 'ALL';
                 transLangBadge.dataset.code = 'ALL';
                 transLangBadge.classList.add('greyed');
-            } else if (modelName === 'parakeet' || (modelName && modelName.includes('moonshine'))) {
+            } else if (modelName && modelName.includes('moonshine')) {
                 transLangBadge.textContent = 'EN';
                 transLangBadge.dataset.code = 'EN';
                 transLangBadge.classList.add('greyed');
@@ -496,13 +493,12 @@
             updateTitleBySelector('.model-icon[data-value="cerebras-oss"]', overlayLocale.cerebrasTitle);
             updateTitleBySelector('.model-icon[data-value="google-gtx"]', overlayLocale.gtxTitle);
             updateTitleBySelector('.trans-model-icon[data-value="gemini-live-audio"]', overlayLocale.geminiLive25Title);
-            updateTitleBySelector('.trans-model-icon[data-value="parakeet"]', overlayLocale.parakeetTitle);
             updateTextNode('tts-modal-title-text', overlayLocale.ttsTitle);
             updateTextNode('tts-speed-label', overlayLocale.ttsSpeed);
             updateTextNode('tts-volume-label', overlayLocale.ttsVolume);
             updateTextNode('download-title', overlayLocale.downloadingModelTitle);
             updateTextNode('download-msg', overlayLocale.pleaseWaitText);
-            updateTextNode('download-footnote', overlayLocale.parakeetNote);
+            updateTextNode('download-footnote', '');
             updateTextNode('download-cancel-text', overlayLocale.cancelText);
             if (ttsToggle) {
                 ttsToggle.title = overlayLocale.ttsTitle;

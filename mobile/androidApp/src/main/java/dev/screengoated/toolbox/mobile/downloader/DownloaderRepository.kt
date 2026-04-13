@@ -275,7 +275,7 @@ class DownloaderRepository(
             _state.update { it.copy(ytdlpUpdate = UpdateStatus.CHECKING) }
             withContext(Dispatchers.IO) {
                 try {
-                    ensureInit()
+                    prepareYoutubeDlUpdate()
                     val status = YoutubeDL.getInstance().updateYoutubeDL(context, com.yausername.youtubedl_android.YoutubeDL.UpdateChannel.NIGHTLY)
                     val updated = status == com.yausername.youtubedl_android.YoutubeDL.UpdateStatus.DONE
                     _state.update {
@@ -294,6 +294,30 @@ class DownloaderRepository(
                 }
             }
         }
+    }
+
+    /**
+     * yt-dlp updates require the Python zip payload to exist so YoutubeDL.init()
+     * can succeed before the updater runs. We delete those zips after install to
+     * save space, so the update path must re-download them on demand.
+     */
+    private fun prepareYoutubeDlUpdate() {
+        if (!isNativeZipsDownloaded()) {
+            android.util.Log.d("SGT-DL", "prepareYoutubeDlUpdate: re-downloading native zips")
+            downloadNativeZips()
+        }
+        initialized = false
+        try {
+            val field = YoutubeDL::class.java.getDeclaredField("initialized")
+            field.isAccessible = true
+            field.setBoolean(YoutubeDL.getInstance(), false)
+        } catch (_: Exception) {}
+        try {
+            val field = FFmpeg::class.java.getDeclaredField("initialized")
+            field.isAccessible = true
+            field.setBoolean(FFmpeg.getInstance(), false)
+        } catch (_: Exception) {}
+        ensureInit()
     }
 
     /** Delete downloaded zip files after extraction — they're just wasting disk space. */
@@ -542,6 +566,7 @@ class DownloaderRepository(
                 } catch (e: Exception) {
                     // Auto-retry: update yt-dlp and try once more
                     try {
+                        prepareYoutubeDlUpdate()
                         YoutubeDL.getInstance().updateYoutubeDL(context)
                         val result = executeDownload(idx, session)
                         updateSession(idx) {

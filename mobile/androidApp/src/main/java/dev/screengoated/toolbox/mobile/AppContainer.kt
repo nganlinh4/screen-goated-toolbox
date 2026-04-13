@@ -20,7 +20,6 @@ import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.PermissionSnapshotEvaluator
 import dev.screengoated.toolbox.mobile.service.GeminiLiveSocketClient
 import dev.screengoated.toolbox.mobile.service.RealtimeTranslationClient
-import dev.screengoated.toolbox.mobile.service.parakeet.ParakeetModelManager
 import dev.screengoated.toolbox.mobile.service.tts.AndroidTtsRuntimeService
 import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogService
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
@@ -75,8 +74,6 @@ class AppContainer(
     private val languageDetector = dev.screengoated.toolbox.mobile.service.tts.DeviceLanguageDetector(appContext)
     val bilingualRelayRepository = BilingualRelayRepository(settingsStore, languageDetector)
 
-    val parakeetModelManager = ParakeetModelManager(appContext)
-
     private val downloaderPersistence = DownloaderPersistence(appContext, json)
     val downloaderRepository = DownloaderRepository(appContext, downloaderPersistence).also {
         it.checkTools() // Check tool status on app startup so Settings UI shows correct state
@@ -88,7 +85,6 @@ class AppContainer(
     val audioApiClient = AudioApiClient(
         appContext = appContext,
         httpClient = httpClient,
-        parakeetModelManager = parakeetModelManager,
     )
     private val visionApiClient = VisionApiClient(httpClient)
     private val presetPersistence = PresetPersistence(appContext, json)

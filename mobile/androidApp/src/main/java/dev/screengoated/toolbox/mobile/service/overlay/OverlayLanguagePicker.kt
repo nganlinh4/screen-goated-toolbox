@@ -136,8 +136,10 @@ internal class OverlayLanguagePicker(
                 languages
             } else {
                 languages.filter {
-                    it.contains(filter, ignoreCase = true) ||
-                        LanguageCatalog.codeForName(it).contains(filter, ignoreCase = true)
+                    val (primary, secondary) = splitLabel(it)
+                    primary.contains(filter, ignoreCase = true) ||
+                        secondary.contains(filter, ignoreCase = true) ||
+                        LanguageCatalog.codeForName(primary).contains(filter, ignoreCase = true)
                 }
             }
             for (language in filtered) {
@@ -207,6 +209,8 @@ internal class OverlayLanguagePicker(
         isDark: Boolean,
     ): LinearLayout {
         val accent = if (selected) Color.parseColor("#00C8FF") else Color.TRANSPARENT
+        val (primary, secondaryRaw) = splitLabel(language)
+        val secondary = secondaryRaw.ifBlank { LanguageCatalog.codeForName(primary) }
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -236,7 +240,7 @@ internal class OverlayLanguagePicker(
 
             addView(
                 TextView(context).apply {
-                    text = language
+                    text = primary
                     setTextColor(if (isDark) Color.parseColor("#F4F2F8") else Color.parseColor("#17151B"))
                     textSize = 13f
                     typeface = this@OverlayLanguagePicker.typeface
@@ -247,7 +251,7 @@ internal class OverlayLanguagePicker(
             )
             addView(
                 TextView(context).apply {
-                    text = LanguageCatalog.codeForName(language)
+                    text = secondary
                     setTextColor(if (selected) Color.parseColor("#00C8FF") else if (isDark) Color.parseColor("#A19CA9") else Color.parseColor("#6E6874"))
                     textSize = 11f
                     typeface = Typeface.create(this@OverlayLanguagePicker.typeface, Typeface.BOLD)
@@ -262,5 +266,12 @@ internal class OverlayLanguagePicker(
 
     private fun dp(value: Int): Int {
         return (value * context.resources.displayMetrics.density).toInt()
+    }
+
+    private fun splitLabel(label: String): Pair<String, String> {
+        val parts = label.split('|', limit = 2)
+        val primary = parts.firstOrNull()?.trim().orEmpty()
+        val secondary = parts.getOrNull(1)?.trim().orEmpty()
+        return primary to secondary
     }
 }

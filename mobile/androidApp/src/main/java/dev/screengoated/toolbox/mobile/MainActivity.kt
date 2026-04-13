@@ -326,9 +326,8 @@ internal fun dev.screengoated.toolbox.mobile.shared.preset.Preset.toRealtimeSess
     val transcriptionProvider = when (
         PresetModelCatalog.getById(transcriptionBlock?.model.orEmpty())?.provider
     ) {
-        PresetModelProvider.PARAKEET -> ProviderDescriptor(
-            id = RealtimeModelIds.TRANSCRIPTION_PARAKEET,
-            model = "realtime_eou_120m-v1-onnx",
+        PresetModelProvider.PARAKEET -> RealtimeModelIds.defaultTranscriptionProvider(
+            RealtimeModelIds.TRANSCRIPTION_MOONSHINE,
         )
         PresetModelProvider.GEMINI_LIVE -> RealtimeModelIds.defaultTranscriptionProvider(
             PresetModelCatalog.getById(transcriptionBlock?.model.orEmpty())?.id.orEmpty(),

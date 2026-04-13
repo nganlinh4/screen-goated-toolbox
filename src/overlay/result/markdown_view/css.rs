@@ -66,7 +66,6 @@ pub const MARKDOWN_CSS: &str = r#"
         margin-top: 0;
         margin-bottom: 12px; /* Reduced from 16px */
         padding: 0px;
-        border-radius: 42px;
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
 

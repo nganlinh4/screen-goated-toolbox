@@ -236,7 +236,6 @@ internal class PresetExecutionCapabilityResolver {
             PresetModelProvider.GOOGLE,
             PresetModelProvider.GROQ,
             PresetModelProvider.GEMINI_LIVE,
-            PresetModelProvider.PARAKEET,
             PresetModelProvider.MOONSHINE,
         )
     }

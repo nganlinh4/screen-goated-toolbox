@@ -440,7 +440,7 @@ internal class PresetOverlayController(
                 onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
                 val transcript = capture.precomputedTranscript
                 if (!transcript.isNullOrBlank()) {
-                    // Streaming transcript available (Parakeet/Gemini Live)
+                    // Streaming transcript is already available from the capture session.
                     inputModule.injectText(transcript)
                     inputModule.bringToFront()
                 } else {
