@@ -97,10 +97,9 @@ fn transcription_thread_entry(
             if trans_model == "parakeet" {
                 s.set_transcription_method(super::state::TranscriptionMethod::Parakeet);
             } else if trans_model == crate::model_config::QWEN3_ASR_0_6B_MODEL_ID
-                || trans_model == crate::model_config::QWEN3_ASR_1_7B_MODEL_ID {
+                || trans_model == crate::model_config::QWEN3_ASR_1_7B_MODEL_ID
+            {
                 s.set_transcription_method(super::state::TranscriptionMethod::Qwen3Local);
-            } else if trans_model.starts_with("moonshine-") {
-                s.set_transcription_method(super::state::TranscriptionMethod::MoonshineLocal);
             } else {
                 s.set_transcription_method(super::state::TranscriptionMethod::GeminiLive);
             }
@@ -132,21 +131,6 @@ fn transcription_thread_entry(
                 hwnd_overlay,
                 state.clone(),
                 super::qwen3::Qwen3ModelVariant::Large,
-            )
-        } else if trans_model == "moonshine-tiny-streaming" {
-            super::moonshine::run_moonshine_transcription(
-                current_preset.clone(), stop_signal.clone(), hwnd_overlay, state.clone(),
-                super::moonshine::MoonshineModelVariant::TinyStreaming,
-            )
-        } else if trans_model == "moonshine-small-streaming" {
-            super::moonshine::run_moonshine_transcription(
-                current_preset.clone(), stop_signal.clone(), hwnd_overlay, state.clone(),
-                super::moonshine::MoonshineModelVariant::SmallStreaming,
-            )
-        } else if trans_model == "moonshine-medium-streaming" {
-            super::moonshine::run_moonshine_transcription(
-                current_preset.clone(), stop_signal.clone(), hwnd_overlay, state.clone(),
-                super::moonshine::MoonshineModelVariant::MediumStreaming,
             )
         } else {
             run_realtime_transcription(

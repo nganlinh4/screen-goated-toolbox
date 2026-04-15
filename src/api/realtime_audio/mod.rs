@@ -8,7 +8,6 @@
 
 mod capture;
 pub mod model_loader;
-pub mod moonshine;
 pub mod parakeet;
 pub mod qwen3;
 mod state;

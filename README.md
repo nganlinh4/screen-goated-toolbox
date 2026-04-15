@@ -46,7 +46,7 @@ Create complex presets using a visual editor. Connect blocks to define logic:
 ### Android Companion App
 
 * **Live Translation:** Real-time transcription and translation via floating overlay or in-app display.
-* **On-Device ASR:** Moonshine Voice (English streaming) + sherpa-onnx Zipformer (7 languages + 8-lang multilingual). No cloud required.
+* **On-Device ASR:** Android uses Moonshine Voice (English streaming) + sherpa-onnx Zipformer (7 languages + 8-lang multilingual). Windows uses local Qwen3-ASR and Parakeet paths.
 * **Preset Engine:** Same node-graph presets as Windows, with multi-provider AI support (Gemini, Groq, OpenRouter, Cerebras, Ollama).
 * **Floating Bubble:** Quick-access overlay bubble for triggering presets from any app.
 * **TTS Playback:** Edge TTS and Gemini TTS with speed control.
@@ -265,5 +265,5 @@ Developed by **nganlinh4**.
 * **Audio:** [cpal](https://github.com/RustAudio/cpal) & [symphonia](https://github.com/pdeljanov/Symphonia).
 * **GPU Rendering:** [wgpu](https://github.com/gfx-rs/wgpu) & Media Foundation.
 * **Mobile:** Jetpack Compose & Kotlin Multiplatform.
-* **On-Device ASR:** [Moonshine Voice](https://github.com/moonshine-ai/moonshine), [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR).
+* **On-Device ASR:** Android uses [Moonshine Voice](https://github.com/moonshine-ai/moonshine) and [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx); Windows uses [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) and Parakeet.
 * **AI Providers:** Groq, Google DeepMind, OpenRouter, Cerebras.

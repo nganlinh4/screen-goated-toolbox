@@ -81,7 +81,12 @@ pub fn get_model_by_id(id: &str) -> Option<ModelConfig> {
 }
 
 pub fn normalize_realtime_transcription_model_id(model_id: &str) -> String {
-    generated_normalize_realtime_transcription_model_id(model_id).to_string()
+    let normalized = generated_normalize_realtime_transcription_model_id(model_id);
+    if normalized.starts_with("moonshine-") {
+        GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string()
+    } else {
+        normalized.to_string()
+    }
 }
 
 pub fn realtime_transcription_api_model(model_id: &str) -> String {
