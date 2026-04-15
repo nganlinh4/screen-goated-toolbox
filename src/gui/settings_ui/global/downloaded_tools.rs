@@ -8,6 +8,7 @@ mod model_sections;
 mod pointer_packs;
 mod utils;
 mod video_downloader;
+mod webview2;
 mod zipformer;
 
 use self::{
@@ -15,6 +16,7 @@ use self::{
     model_sections::{render_parakeet_card, render_qwen3_card},
     pointer_packs::render_pointer_pack_downloads_section,
     video_downloader::render_video_downloader_card,
+    webview2::render_webview2_section,
     zipformer::render_zipformer_section,
 };
 
@@ -55,6 +57,8 @@ pub fn render_downloaded_tools_modal(
 
                             columns[1].vertical(|ui| {
                                 render_video_downloader_card(ui, download_manager, text);
+                                ui.add_space(8.0);
+                                render_webview2_section(ui, text);
                                 ui.add_space(8.0);
                                 render_zipformer_section(ui, download_manager, text);
                             });

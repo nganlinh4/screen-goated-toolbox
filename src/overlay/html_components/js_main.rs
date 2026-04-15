@@ -393,7 +393,7 @@ pub fn get(font_size: u32) -> String {
             if (!transLangSelect) return;
             if (modelName === 'zipformer') {{
                 transLangSelect.disabled = false;
-            }} else if (modelName === 'parakeet' || (modelName && modelName.includes('moonshine'))) {{
+            }} else if (modelName === 'parakeet') {{
                 transLangSelect.disabled = true;
                 transLangSelect.value = 'en';
             }} else {{

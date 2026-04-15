@@ -104,8 +104,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             let is_all_lang = transcription_model == gemini_id
                 || transcription_model == qwen3_0_6b_id
                 || transcription_model == qwen3_1_7b_id;
-            let is_en_only =
-                transcription_model == "parakeet" || transcription_model.starts_with("moonshine");
+            let is_en_only = transcription_model == "parakeet";
             let effective_lang = if is_all_lang {
                 "all"
             } else if is_en_only {
