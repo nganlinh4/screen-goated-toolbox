@@ -111,30 +111,3 @@ pub(crate) fn render_support_report_card(ui: &mut egui::Ui) {
             });
     });
 }
-
-pub(crate) fn render_support_report_compact(ui: &mut egui::Ui) {
-    ui.group(|ui| {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Support Matrix").strong());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(
-                    egui::RichText::new(runtime_support::architecture_summary())
-                        .color(egui::Color32::GRAY),
-                );
-            });
-        });
-        ui.add_space(4.0);
-        for (feature, status, details) in support_rows() {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(feature).strong());
-                ui.label(egui::RichText::new(status).color(status_color(status)));
-            });
-            ui.label(
-                egui::RichText::new(details)
-                    .small()
-                    .color(egui::Color32::GRAY),
-            );
-            ui.add_space(4.0);
-        }
-    });
-}
