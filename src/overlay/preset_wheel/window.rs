@@ -145,6 +145,12 @@ fn show_entries(entries: Vec<WheelEntry>, center_pos: POINT, ui_lang: &str) -> O
 }
 
 fn ensure_wheel_ready() -> bool {
+    let capability = crate::runtime_support::require_webview2("Preset wheel");
+    if !capability.is_supported() {
+        crate::runtime_support::notify_capability_issue(&capability);
+        return false;
+    }
+
     if IS_WARMED_UP.load(Ordering::SeqCst) {
         return true;
     }

@@ -1,10 +1,13 @@
 [build]
-# Optimize compilation
-rustflags = [
-    "-C", "target-cpu=native"
-]
+# Keep release binaries portable across the target architecture.
+rustflags = []
 
 [target.x86_64-pc-windows-msvc]
+rustflags = [
+    "-C", "target-feature=+crt-static"
+]
+
+[target.aarch64-pc-windows-msvc]
 rustflags = [
     "-C", "target-feature=+crt-static"
 ]
@@ -13,4 +16,3 @@ rustflags = [
 rustflags = [
     "-C", "target-feature=+crt-static"
 ]
-

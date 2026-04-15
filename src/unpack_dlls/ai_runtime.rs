@@ -43,7 +43,7 @@ struct RuntimePackage {
     entries: &'static [super::remote_zip::RequestedZipEntry],
 }
 
-const ONNX_ENTRIES: &[super::remote_zip::RequestedZipEntry] = &[
+const ONNX_X64_ENTRIES: &[super::remote_zip::RequestedZipEntry] = &[
     super::remote_zip::RequestedZipEntry {
         source_path: "runtimes/win-x64/native/onnxruntime.dll",
         dest_name: ONNX_DLL,
@@ -54,9 +54,26 @@ const ONNX_ENTRIES: &[super::remote_zip::RequestedZipEntry] = &[
     },
 ];
 
-const DIRECTML_ENTRIES: &[super::remote_zip::RequestedZipEntry] =
+const ONNX_ARM64_ENTRIES: &[super::remote_zip::RequestedZipEntry] = &[
+    super::remote_zip::RequestedZipEntry {
+        source_path: "runtimes/win-arm64/native/onnxruntime.dll",
+        dest_name: ONNX_DLL,
+    },
+    super::remote_zip::RequestedZipEntry {
+        source_path: "runtimes/win-arm64/native/onnxruntime_providers_shared.dll",
+        dest_name: ONNX_SHARED_DLL,
+    },
+];
+
+const DIRECTML_X64_ENTRIES: &[super::remote_zip::RequestedZipEntry] =
     &[super::remote_zip::RequestedZipEntry {
         source_path: "bin/x64-win/DirectML.dll",
+        dest_name: DIRECTML_DLL,
+    }];
+
+const DIRECTML_ARM64_ENTRIES: &[super::remote_zip::RequestedZipEntry] =
+    &[super::remote_zip::RequestedZipEntry {
+        source_path: "bin/arm64-win/DirectML.dll",
         dest_name: DIRECTML_DLL,
     }];
 
@@ -67,7 +84,7 @@ const PACKAGES: &[RuntimePackage] = &[
         label: "Downloading ONNX Runtime",
         progress_start: 0.0,
         progress_end: 48.0,
-        entries: ONNX_ENTRIES,
+        entries: ONNX_X64_ENTRIES,
     },
     RuntimePackage {
         url: DIRECTML_PACKAGE_URL,
@@ -75,9 +92,25 @@ const PACKAGES: &[RuntimePackage] = &[
         label: "Downloading DirectML",
         progress_start: 50.0,
         progress_end: 98.0,
-        entries: DIRECTML_ENTRIES,
+        entries: DIRECTML_X64_ENTRIES,
     },
 ];
+
+fn runtime_arch() -> crate::runtime_support::RuntimeArch {
+    crate::runtime_support::tool_download_arch()
+}
+
+fn package_entries(package: RuntimePackage) -> &'static [super::remote_zip::RequestedZipEntry] {
+    match (runtime_arch(), package.archive_name) {
+        (crate::runtime_support::RuntimeArch::Arm64, ONNX_ARCHIVE_NAME) => ONNX_ARM64_ENTRIES,
+        (crate::runtime_support::RuntimeArch::Arm64, DIRECTML_ARCHIVE_NAME) => {
+            DIRECTML_ARM64_ENTRIES
+        }
+        (_, ONNX_ARCHIVE_NAME) => ONNX_X64_ENTRIES,
+        (_, DIRECTML_ARCHIVE_NAME) => DIRECTML_X64_ENTRIES,
+        _ => package.entries,
+    }
+}
 
 lazy_static::lazy_static! {
     static ref INSTALL_MUTEX: Mutex<()> = Mutex::new(());
@@ -307,16 +340,18 @@ fn install_package_with_ranged_fetch(
     stop_signal: &AtomicBool,
     ui: AiRuntimeUi,
 ) -> Result<()> {
+    let arch = runtime_arch();
+    let entries = package_entries(package);
     update_progress(
         ui,
-        &format!("Preparing {} x64 payload", package_name(package)),
+        &format!("Preparing {} {} payload", package_name(package), arch),
         package.progress_start,
     );
 
     let label = package_name(package);
     super::remote_zip::download_entries_to_dir(
         package.url,
-        package.entries,
+        entries,
         bin_dir,
         stop_signal,
         |downloaded, total| {
@@ -324,8 +359,9 @@ fn install_package_with_ranged_fetch(
             let progress =
                 package.progress_start + (package.progress_end - package.progress_start) * fraction;
             let detail = format!(
-                "Downloading {} x64 payload ({:.1} MB / {:.1} MB)",
+                "Downloading {} {} payload ({:.1} MB / {:.1} MB)",
                 label,
+                arch,
                 downloaded as f64 / 1024.0 / 1024.0,
                 total as f64 / 1024.0 / 1024.0
             );
@@ -335,7 +371,7 @@ fn install_package_with_ranged_fetch(
 
     update_progress(
         ui,
-        &format!("Installing {} x64 payload", label),
+        &format!("Installing {} {} payload", label, arch),
         package.progress_end,
     );
     Ok(())
@@ -348,6 +384,7 @@ fn extract_package(
     stop_signal: &AtomicBool,
     ui: AiRuntimeUi,
 ) -> Result<()> {
+    let entries = package_entries(package);
     let file = fs::File::open(archive_path)
         .with_context(|| format!("Failed to open archive '{}'", archive_path.display()))?;
     let mut archive = zip::ZipArchive::new(file)
@@ -357,7 +394,7 @@ fn extract_package(
     let extract_label = format!("Extracting {}", package_name(package));
     update_progress(ui, &extract_label, extraction_progress);
 
-    for entry in package.entries {
+    for entry in entries {
         if stop_signal.load(Ordering::Relaxed) {
             return Err(anyhow!("Download cancelled"));
         }
@@ -457,7 +494,12 @@ pub fn current_ai_runtime_status() -> AiRuntimeStatus {
 }
 
 pub fn ai_runtime_version_label() -> String {
-    format!("ORT {} · DML {}", ONNX_RUNTIME_VERSION, DIRECTML_VERSION)
+    format!(
+        "ONNX Runtime {} + DirectML {} ({})",
+        ONNX_RUNTIME_VERSION,
+        DIRECTML_VERSION,
+        runtime_arch()
+    )
 }
 
 pub fn remove_ai_runtime() -> Result<()> {

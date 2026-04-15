@@ -57,7 +57,8 @@ Create complex presets using a visual editor. Connect blocks to define logic:
 
 Download the latest `.exe` and `.apk` from the [Releases](https://github.com/nganlinh4/screen-goated-toolbox/releases) page.
 
-* **Windows:** `ScreenGoatedToolbox_v<version>.exe`
+* **Windows x64:** `ScreenGoatedToolbox_v<version>-x64.exe`
+* **Windows arm64:** `ScreenGoatedToolbox_v<version>-arm64.exe`
 * **Android:** `ScreenGoatedToolbox_v<version>.apk`
 
 ### Option 2: Build from Source (Windows)
@@ -67,6 +68,7 @@ Download the latest `.exe` and `.apk` from the [Releases](https://github.com/nga
 * [Rust](https://www.rust-lang.org/) (Nightly toolchain required).
 * [Node.js](https://nodejs.org/) (Required for PromptDJ and Screen Record frontends).
 * **Visual Studio Build Tools 2022** with "Desktop development with C++" workload.
+* For Windows `arm64` builds: Visual Studio ARM64 MSVC tools and LLVM `clang`.
 
 ```bash
 git clone https://github.com/nganlinh4/screen-goated-toolbox
@@ -79,7 +81,41 @@ powershell -ExecutionPolicy Bypass -File scripts/setup-egui-snarl.ps1
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-The executable will be located in `target/release/`.
+The default build is `x64`. To build specific Windows architectures:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build.ps1 -Arch x64
+powershell -ExecutionPolicy Bypass -File build.ps1 -Arch arm64
+powershell -ExecutionPolicy Bypass -File build.ps1 -Arch all
+```
+
+Artifacts are written under target-specific release folders and copied into `target\release\`.
+
+### Validate Windows x64 + arm64 compilation
+
+On Windows, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\validate-windows-targets.ps1 -Arch all
+```
+
+This validates:
+
+* `x86_64-pc-windows-msvc`
+* `aarch64-pc-windows-msvc`
+
+The script auto-detects Visual Studio, uses `VsDevCmd.bat`, and writes logs into `target\validation-*.log`.
+
+### Windows ARM64 notes
+
+Windows ARM64 now compiles successfully, but runtime support still depends on the feature:
+
+* **Supported direction:** general app launch, updater/installer selection, architecture-aware runtime downloads.
+* **Requires runtime prerequisite:** WebView2-based overlays and tools.
+* **Still unsupported:** local Qwen3 CUDA runtime on Windows ARM64 / Apple-silicon Windows VMs.
+* **Still environment-dependent:** DirectML-heavy and recorder GPU/VM paths.
+
+See [docs/WINDOWS_ARM64_SUPPORT.md](docs/WINDOWS_ARM64_SUPPORT.md) for the runtime support boundary.
 
 ### Option 3: Build from Source (Android)
 

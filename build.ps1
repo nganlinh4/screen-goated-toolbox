@@ -1,3 +1,8 @@
+param(
+    [ValidateSet("x64", "arm64", "all")]
+    [string]$Arch = "x64"
+)
+
 # Re-patch egui-snarl to ensure custom scroll-to-zoom is applied
 Write-Host "Setting up patched egui-snarl..." -ForegroundColor Cyan
 $snarlDir = Join-Path $PSScriptRoot "libs\egui-snarl"
@@ -101,30 +106,46 @@ else {
     exit 1
 }
 
-# Output paths
-$outputExeName = "ScreenGoatedToolbox_v$version.exe"
-$outputPath = "target/release/$outputExeName"
-$exePathRelease = "target/release/screen-goated-toolbox.exe"
+$targetMap = @{
+    "x64" = "x86_64-pc-windows-msvc"
+    "arm64" = "aarch64-pc-windows-msvc"
+}
+
+$selectedArchs = if ($Arch -eq "all") { @("x64", "arm64") } else { @($Arch) }
+$builtArtifacts = @()
 
 # =============================================================================
 # Build Release version (LTO optimized + stripped)
 # =============================================================================
-Write-Host ""
-Write-Host "=== Building ScreenGoatedToolbox v$version ===" -ForegroundColor Cyan
-Write-Host "Using 'release' profile (LTO + stripped)..." -ForegroundColor Gray
-cargo build --release
+foreach ($archName in $selectedArchs) {
+    $targetTriple = $targetMap[$archName]
+    $targetDir = "target/$targetTriple/release"
+    $exePathRelease = Join-Path $targetDir "screen-goated-toolbox.exe"
+    $outputExeName = "ScreenGoatedToolbox_v$version-$archName.exe"
+    $outputPath = Join-Path $targetDir $outputExeName
 
-if (Test-Path $exePathRelease) {
-    if (Test-Path $outputPath) {
-        Remove-Item $outputPath
+    Write-Host ""
+    Write-Host "=== Building ScreenGoatedToolbox v$version ($archName) ===" -ForegroundColor Cyan
+    Write-Host "Using 'release' profile (LTO + stripped)..." -ForegroundColor Gray
+    cargo build --release --target $targetTriple
+
+    if (Test-Path $exePathRelease) {
+        if (Test-Path $outputPath) {
+            Remove-Item $outputPath
+        }
+        Copy-Item $exePathRelease $outputPath
+        $size = (Get-Item $outputPath).Length / 1MB
+        $builtArtifacts += [PSCustomObject]@{
+            Name = $outputExeName
+            Size = [Math]::Round($size, 2)
+            Target = $targetTriple
+        }
+        Write-Host "  -> Created: $outputExeName ($([Math]::Round($size, 2)) MB)" -ForegroundColor Green
     }
-    Move-Item $exePathRelease $outputPath
-    $size = (Get-Item $outputPath).Length / 1MB
-    Write-Host "  -> Created: $outputExeName ($([Math]::Round($size, 2)) MB)" -ForegroundColor Green
-}
-else {
-    Write-Host "  -> FAILED: release build did not produce exe" -ForegroundColor Red
-    exit 1
+    else {
+        Write-Host "  -> FAILED: release build did not produce exe for $targetTriple" -ForegroundColor Red
+        exit 1
+    }
 }
 
 # =============================================================================
@@ -135,6 +156,9 @@ Write-Host "=======================================" -ForegroundColor White
 Write-Host "         BUILD COMPLETE v$version" -ForegroundColor White
 Write-Host "=======================================" -ForegroundColor White
 Write-Host ""
-Write-Host "  $outputExeName" -ForegroundColor Green
-Write-Host "  Size: $([Math]::Round($size, 2)) MB" -ForegroundColor Gray
-Write-Host ""
+foreach ($artifact in $builtArtifacts) {
+    Write-Host "  $($artifact.Name)" -ForegroundColor Green
+    Write-Host "  Target: $($artifact.Target)" -ForegroundColor Gray
+    Write-Host "  Size: $($artifact.Size) MB" -ForegroundColor Gray
+    Write-Host ""
+}

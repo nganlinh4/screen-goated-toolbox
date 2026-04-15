@@ -265,6 +265,15 @@ pub fn download_qwen3_runtime(
     stop_signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
     use_badge: bool,
 ) -> anyhow::Result<()> {
+    let capability = crate::runtime_support::supports_qwen3_local_runtime();
+    if !capability.is_supported() {
+        set_runtime_notice(capability.details.clone());
+        if use_badge {
+            crate::runtime_support::notify_capability_issue(&capability);
+        }
+        return Err(anyhow!(capability.details));
+    }
+
     if is_qwen3_runtime_managed_installed() {
         return Ok(());
     }

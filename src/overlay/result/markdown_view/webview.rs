@@ -67,6 +67,12 @@ pub fn create_markdown_webview_ex(
     preset_prompt: &str,
     input_text: &str,
 ) -> bool {
+    let capability = crate::runtime_support::require_webview2("Markdown view");
+    if !capability.is_supported() {
+        crate::runtime_support::notify_capability_issue(&capability);
+        return false;
+    }
+
     let hwnd_key = parent_hwnd.0 as isize;
 
     // Check if we already have a webview

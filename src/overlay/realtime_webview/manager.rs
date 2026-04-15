@@ -46,6 +46,12 @@ pub fn stop_realtime_overlay() {
 }
 
 pub fn show_realtime_overlay(preset_idx: usize) {
+    let capability = crate::runtime_support::require_webview2("Realtime overlay");
+    if !capability.is_supported() {
+        crate::runtime_support::notify_capability_issue(&capability);
+        return;
+    }
+
     unsafe {
         if REALTIME_SESSION_STOPPING.load(Ordering::SeqCst) {
             return;

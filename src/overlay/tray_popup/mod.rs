@@ -128,6 +128,11 @@ pub fn show_tray_popup() {
 
 fn show_tray_popup_internal(reuse_pending_anchor: bool) {
     unsafe {
+        if !crate::runtime_support::webview2_runtime_installed() {
+            native_menu::show_native_context_menu();
+            return;
+        }
+
         // Fallback to native menu if WebView failed completely
         if WEBVIEW_INIT_FAILED.load(Ordering::SeqCst) {
             native_menu::show_native_context_menu();

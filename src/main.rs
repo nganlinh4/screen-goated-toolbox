@@ -14,6 +14,7 @@ mod model_config;
 mod overlay;
 mod registry_integration;
 mod retry_model_chain;
+mod runtime_support;
 mod screen_capture;
 mod unpack_dlls;
 mod updater;
