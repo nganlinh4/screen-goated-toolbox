@@ -33,6 +33,10 @@ export interface TextDragState {
   dragOffset: { x: number; y: number };
 }
 
+function getOverlayTextSegments(segment: VideoSegment): TextSegment[] {
+  return [...(segment.subtitleSegments ?? []), ...(segment.textSegments ?? [])];
+}
+
 // ---------------------------------------------------------------------------
 // Font variation helper (text overlay version)
 // ---------------------------------------------------------------------------
@@ -390,7 +394,7 @@ export async function bakeOverlayAtlasAndPaths(
 
   // Pack text overlays
   const textPad = 24;
-  for (const text of segment.textSegments || []) {
+  for (const text of getOverlayTextSegments(segment)) {
     const hitArea = getTextHitArea(atlasCtx, text, outputWidth, outputHeight);
     const w = Math.ceil(hitArea.width + textPad * 2);
     const h = Math.ceil(hitArea.height + textPad * 2);
@@ -474,7 +478,7 @@ export async function bakeOverlayAtlasAndPaths(
   // This eliminates the need to send 40K+ frame objects over IPC.
   const overlayConfig = getKeystrokeOverlayConfig(segment);
   const textEntries = Array.from(textMap.entries()).map(([id, m]) => {
-    const text = (segment.textSegments || []).find(t => t.id === id);
+    const text = getOverlayTextSegments(segment).find(t => t.id === id);
     return {
       id,
       startTime: text?.startTime ?? 0,
@@ -622,7 +626,7 @@ export async function bakeOverlayAtlasAndPaths(
 
     const quads: OverlayQuad[] = [];
 
-    for (const text of segment.textSegments || []) {
+    for (const text of getOverlayTextSegments(segment)) {
       if (t >= text.startTime && t <= text.endTime) {
         const elapsed = t - text.startTime;
         const remaining = text.endTime - t;

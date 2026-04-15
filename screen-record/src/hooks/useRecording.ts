@@ -288,6 +288,7 @@ export function useRecording(props: UseRecordingProps) {
           ],
           zoomKeyframes: [],
           textSegments: [],
+          subtitleSegments: [],
           speedPoints: [
             { time: 0, speed: 1 },
             { time: timelineDuration, speed: 1 },

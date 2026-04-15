@@ -40,13 +40,13 @@ export default defineConfig(async () => ({
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;
           if (id.includes("html2canvas") || id.includes("gif.js")) return "media-vendor";
-          // All other dependencies in one chunk to avoid circular imports
           return "vendor";
         },
         entryFileNames: `assets/[name].js`,
         chunkFileNames: `assets/[name].js`,
         assetFileNames: `assets/[name].[ext]`
-      }
-    }
+      },
+    },
+    chunkSizeWarningLimit: 700,
   },
 }));

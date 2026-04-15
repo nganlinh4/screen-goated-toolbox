@@ -54,6 +54,7 @@ const ko: Translations = {
   tabCursor: '커서',
   tabBlur: '블러',
   tabText: '텍스트',
+  tabSubtitles: '자막',
 
   // ZoomPanel
   zoomConfiguration: '확대 설정',
@@ -127,6 +128,20 @@ const ko: Translations = {
   pillOpacity: '투명도',
   pillRadius: '둥글기',
   deleteText: '텍스트 삭제',
+  subtitlePanelHint: '자막을 생성하거나 타임라인에서 자막 블록을 선택하세요',
+  subtitleSource: '소스',
+  subtitleSourceVideo: '비디오 / 시스템 오디오',
+  subtitleSourceMic: '마이크',
+  subtitleLanguageHint: '언어 힌트',
+  subtitleGenerate: '생성',
+  subtitleRegenerate: '다시 생성',
+  subtitleCancelJob: '작업 취소',
+  subtitleGenerating: '자막 생성 중…',
+  subtitleIdleHint: '소스를 선택한 뒤 현재 클립 또는 시퀀스에 타임스탬프 자막을 생성하세요.',
+  subtitleUnavailableSource: '현재 선택에 사용할 수 있는 자막 소스가 없습니다.',
+  subtitleApplySummary: '자막 블록 {count}개 적용됨',
+  subtitlePartialSummary: '{done}개 클립 완료 · {skipped}개 건너뜀',
+  subtitleTrack: '자막',
 
   // VideoPreview
   processingVideo: '비디오 처리 중',
@@ -256,6 +271,7 @@ const ko: Translations = {
   // Timeline
   trackZoom: '확대',
   trackText: '텍스트',
+  trackSubtitles: '자막',
   trackKeystrokes: '키',
   trackKeystrokesOff: '끔',
   trackKeyboard: '키보드',

@@ -15,21 +15,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, TranslateMessage,
 };
 
-#[derive(Clone, Debug)]
-pub struct WheelOption {
-    pub id: usize,
-    pub label: String,
-}
-
-impl WheelOption {
-    pub fn new(id: usize, label: impl Into<String>) -> Self {
-        Self {
-            id,
-            label: label.into(),
-        }
-    }
-}
-
 pub fn warmup() {
     if IS_WARMING_UP
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -58,16 +43,6 @@ pub fn show_preset_wheel(
         .enumerate()
         .filter(|(_, preset)| should_show_preset(preset, filter_type, filter_mode))
         .map(|(idx, preset)| WheelEntry::new(idx, get_localized_preset_name(&preset.id, &ui_lang)))
-        .collect();
-
-    show_entries(entries, center_pos, &ui_lang)
-}
-
-pub fn show_option_wheel(options: &[WheelOption], center_pos: POINT) -> Option<usize> {
-    let ui_lang = APP.lock().unwrap().config.ui_language.clone();
-    let entries: Vec<WheelEntry> = options
-        .iter()
-        .map(|option| WheelEntry::new(option.id, option.label.clone()))
         .collect();
 
     show_entries(entries, center_pos, &ui_lang)

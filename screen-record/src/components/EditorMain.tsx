@@ -89,6 +89,15 @@ export interface EditorMainProps {
   handleBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   isBackgroundUploadProcessing: boolean;
   editingTextId: string | null;
+  editingSubtitleId: string | null;
+  subtitleSource: 'video' | 'mic';
+  onSubtitleSourceChange: (value: 'video' | 'mic') => void;
+  subtitleLanguageHint: string;
+  onSubtitleLanguageHintChange: (value: string) => void;
+  isGeneratingSubtitles: boolean;
+  subtitleStatusMessage?: string | null;
+  handleGenerateSubtitles: () => void;
+  handleCancelSubtitleGeneration: () => void;
   // TimelineArea props
   thumbnails: string[];
   timelineRef: React.RefObject<HTMLDivElement>;
@@ -96,6 +105,7 @@ export interface EditorMainProps {
   setCurrentTime: (time: number) => void;
   setEditingKeyframeId: (id: number | null) => void;
   setEditingTextId: (id: string | null) => void;
+  setEditingSubtitleId: (id: string | null) => void;
   setEditingKeystrokeSegmentId: (id: string | null) => void;
   setEditingPointerId: (id: string | null) => void;
   seek: (time: number) => void;
@@ -177,12 +187,22 @@ export function EditorMain({
   handleBackgroundUpload,
   isBackgroundUploadProcessing,
   editingTextId,
+  editingSubtitleId,
+  subtitleSource,
+  onSubtitleSourceChange,
+  subtitleLanguageHint,
+  onSubtitleLanguageHintChange,
+  isGeneratingSubtitles,
+  subtitleStatusMessage,
+  handleGenerateSubtitles,
+  handleCancelSubtitleGeneration,
   thumbnails,
   timelineRef,
   editingKeystrokeSegmentId,
   setCurrentTime,
   setEditingKeyframeId,
   setEditingTextId,
+  setEditingSubtitleId,
   setEditingKeystrokeSegmentId,
   setEditingPointerId,
   seek,
@@ -205,6 +225,7 @@ export function EditorMain({
   }, [duration, segment?.speedPoints]);
 
   const [selectedTextIds, setSelectedTextIds] = useState<string[]>([]);
+  const [selectedSubtitleIds, setSelectedSubtitleIds] = useState<string[]>([]);
   const [selectedPointerIds, setSelectedPointerIds] = useState<string[]>([]);
   const [selectedKeystrokeIds, setSelectedKeystrokeIds] = useState<string[]>([]);
   const [selectedWebcamIds, setSelectedWebcamIds] = useState<string[]>([]);
@@ -213,14 +234,19 @@ export function EditorMain({
     setSelectedTextIds(ids);
     if (ids.length > 0) setActivePanel('text');
   }, [setActivePanel]);
+  const handleSubtitleSelectionChange = useCallback((ids: string[]) => {
+    setSelectedSubtitleIds(ids);
+    if (ids.length > 0) setActivePanel('subtitles');
+  }, [setActivePanel]);
   const handlePointerSelectionChange = useCallback((ids: string[]) => setSelectedPointerIds(ids), []);
   const handleKeystrokeSelectionChange = useCallback((ids: string[]) => setSelectedKeystrokeIds(ids), []);
   const handleWebcamSelectionChange = useCallback((ids: string[]) => setSelectedWebcamIds(ids), []);
 
-  const totalSelectedCount = selectedTextIds.length + selectedPointerIds.length + selectedKeystrokeIds.length + selectedWebcamIds.length;
+  const totalSelectedCount = selectedTextIds.length + selectedSubtitleIds.length + selectedPointerIds.length + selectedKeystrokeIds.length + selectedWebcamIds.length;
   const [clearSignal, setClearSignal] = useState(0);
   const clearAllSelections = useCallback(() => {
     setSelectedTextIds([]);
+    setSelectedSubtitleIds([]);
     setSelectedPointerIds([]);
     setSelectedKeystrokeIds([]);
     setSelectedWebcamIds([]);
@@ -339,6 +365,17 @@ export function EditorMain({
             onBackgroundUpload={handleBackgroundUpload}
             isBackgroundUploadProcessing={isBackgroundUploadProcessing}
             editingTextId={editingTextId}
+            selectedSubtitleIds={selectedSubtitleIds}
+            subtitleSource={subtitleSource}
+            onSubtitleSourceChange={onSubtitleSourceChange}
+            subtitleLanguageHint={subtitleLanguageHint}
+            onSubtitleLanguageHintChange={onSubtitleLanguageHintChange}
+            isGeneratingSubtitles={isGeneratingSubtitles}
+            subtitleStatusMessage={subtitleStatusMessage}
+            canUseVideoSubtitleSource={segment?.deviceAudioAvailable !== false}
+            canUseMicSubtitleSource={Boolean(segment?.micAudioAvailable)}
+            onGenerateSubtitles={handleGenerateSubtitles}
+            onCancelSubtitleGeneration={handleCancelSubtitleGeneration}
             selectedTextIds={selectedTextIds}
             hasMouseData={mousePositionsLength > 0}
             onUpdateSegment={setSegment as (segment: VideoSegment) => void}
@@ -364,10 +401,12 @@ export function EditorMain({
           videoRef={videoRef as React.RefObject<HTMLVideoElement>}
           editingKeyframeId={editingKeyframeId}
           editingTextId={editingTextId}
+          editingSubtitleId={editingSubtitleId}
           editingKeystrokeSegmentId={editingKeystrokeSegmentId}
           setCurrentTime={setCurrentTime}
           setEditingKeyframeId={setEditingKeyframeId}
           setEditingTextId={setEditingTextId}
+          setEditingSubtitleId={setEditingSubtitleId}
           setEditingKeystrokeSegmentId={setEditingKeystrokeSegmentId}
           setEditingPointerId={setEditingPointerId}
           setActivePanel={setActivePanel}
@@ -385,6 +424,7 @@ export function EditorMain({
           beginBatch={beginBatch}
           commitBatch={commitBatch}
           onTextSelectionChange={handleTextSelectionChange}
+          onSubtitleSelectionChange={handleSubtitleSelectionChange}
           onPointerSelectionChange={handlePointerSelectionChange}
           onKeystrokeSelectionChange={handleKeystrokeSelectionChange}
           onWebcamSelectionChange={handleWebcamSelectionChange}

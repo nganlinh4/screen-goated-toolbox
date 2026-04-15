@@ -50,6 +50,7 @@ export function useSegmentInitializer({
         ],
         zoomKeyframes: [],
         textSegments: [],
+        subtitleSegments: [],
         speedPoints: [
           { time: 0, speed: 1 },
           { time: duration, speed: 1 },

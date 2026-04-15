@@ -44,6 +44,8 @@ export interface TextSegment {
   };
 }
 
+export type SubtitleSegment = TextSegment;
+
 export interface CursorVisibilitySegment {
   id: string;
   startTime: number;
@@ -158,6 +160,7 @@ export interface VideoSegment {
   smoothMotionPath?: { time: number; x: number; y: number; zoom: number }[];
   zoomInfluencePoints?: { time: number; value: number }[];
   textSegments: TextSegment[];
+  subtitleSegments?: SubtitleSegment[];
   cursorVisibilitySegments?: CursorVisibilitySegment[];
   keystrokeMode?: KeystrokeMode;
   keystrokeLanguage?: "en" | "ko" | "vi" | "es" | "ja" | "zh";

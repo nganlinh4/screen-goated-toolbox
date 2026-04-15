@@ -177,6 +177,11 @@ export function projectClipSegmentToSequence(
         startTime: projectTime(textSegment.startTime),
         endTime: projectTime(textSegment.endTime),
       })),
+      subtitleSegments: (segment.subtitleSegments ?? []).map((subtitleSegment) => ({
+        ...subtitleSegment,
+        startTime: projectTime(subtitleSegment.startTime),
+        endTime: projectTime(subtitleSegment.endTime),
+      })),
       cursorVisibilitySegments: segment.cursorVisibilitySegments?.map(
         (range) => ({
           ...range,
@@ -270,6 +275,15 @@ export function projectSequenceSegmentToClip(
         startTime: toClipTime(textSegment.startTime),
         endTime: toClipTime(textSegment.endTime),
       })),
+    subtitleSegments: (sequenceSegment.subtitleSegments ?? [])
+      .filter((subtitleSegment) =>
+        overlapsClip(subtitleSegment.startTime, subtitleSegment.endTime),
+      )
+      .map((subtitleSegment) => ({
+        ...subtitleSegment,
+        startTime: toClipTime(subtitleSegment.startTime),
+        endTime: toClipTime(subtitleSegment.endTime),
+      })),
     cursorVisibilitySegments: sequenceSegment.cursorVisibilitySegments
       ?.filter((range) => overlapsClip(range.startTime, range.endTime))
       .map((range) => ({
@@ -344,6 +358,7 @@ export function mergeCompositionSegmentsToSequence(
     smoothMotionPath: [],
     zoomInfluencePoints: [],
     textSegments: [],
+    subtitleSegments: [],
     cursorVisibilitySegments: [],
     webcamVisibilitySegments: [],
     keystrokeMode: "keyboardMouse",
@@ -370,6 +385,7 @@ export function mergeCompositionSegmentsToSequence(
     merged.smoothMotionPath?.push(...(projected.smoothMotionPath ?? []));
     merged.zoomInfluencePoints?.push(...(projected.zoomInfluencePoints ?? []));
     merged.textSegments.push(...projected.textSegments);
+    merged.subtitleSegments?.push(...(projected.subtitleSegments ?? []));
     merged.cursorVisibilitySegments?.push(
       ...(projected.cursorVisibilitySegments ?? []),
     );
@@ -464,6 +480,13 @@ export function replaceSequenceClipSegmentInGlobal(
           !overlapsClip(textSegment.startTime, textSegment.endTime),
       ),
       ...projectedClipSegment.textSegments,
+    ].sort((a, b) => a.startTime - b.startTime),
+    subtitleSegments: [
+      ...(globalSegment.subtitleSegments ?? []).filter(
+        (subtitleSegment) =>
+          !overlapsClip(subtitleSegment.startTime, subtitleSegment.endTime),
+      ),
+      ...(projectedClipSegment.subtitleSegments ?? []),
     ].sort((a, b) => a.startTime - b.startTime),
     cursorVisibilitySegments: [
       ...(globalSegment.cursorVisibilitySegments ?? []).filter(

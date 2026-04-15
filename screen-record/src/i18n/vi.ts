@@ -54,6 +54,7 @@ const vi: Translations = {
   tabCursor: 'Con Trỏ',
   tabBlur: 'Nhòe',
   tabText: 'Chữ',
+  tabSubtitles: 'Phụ Đề',
 
   // ZoomPanel
   zoomConfiguration: 'Cấu Hình Phóng To',
@@ -127,6 +128,20 @@ const vi: Translations = {
   pillOpacity: 'Độ Mờ',
   pillRadius: 'Độ Bo Tròn',
   deleteText: 'Xóa Chữ',
+  subtitlePanelHint: 'Tạo phụ đề hoặc chọn một đoạn phụ đề trên timeline',
+  subtitleSource: 'Nguồn',
+  subtitleSourceVideo: 'Video / Âm Thanh Hệ Thống',
+  subtitleSourceMic: 'Mic',
+  subtitleLanguageHint: 'Gợi Ý Ngôn Ngữ',
+  subtitleGenerate: 'Tạo',
+  subtitleRegenerate: 'Tạo Lại',
+  subtitleCancelJob: 'Hủy Tác Vụ',
+  subtitleGenerating: 'Đang tạo phụ đề…',
+  subtitleIdleHint: 'Chọn nguồn rồi tạo phụ đề có mốc thời gian cho clip hoặc chuỗi clip này.',
+  subtitleUnavailableSource: 'Không có nguồn âm thanh phù hợp cho lựa chọn hiện tại.',
+  subtitleApplySummary: 'Đã áp dụng {count} đoạn phụ đề',
+  subtitlePartialSummary: '{done} clip xong · {skipped} clip bị bỏ qua',
+  subtitleTrack: 'Phụ Đề',
 
   // VideoPreview
   processingVideo: 'Đang Xử Lý Video',
@@ -256,6 +271,7 @@ const vi: Translations = {
   // Timeline
   trackZoom: 'Phóng To',
   trackText: 'Chữ',
+  trackSubtitles: 'Phụ Đề',
   trackKeystrokes: 'Phím',
   trackKeystrokesOff: 'Tắt',
   trackKeyboard: 'Bàn Phím',

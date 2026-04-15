@@ -12,8 +12,7 @@ lazy_static::lazy_static! {
 
 const QWEN3_RUNTIME_DLL: &str = "sgt_qwen3_runtime.dll";
 const QWEN3_RUNTIME_ABI_VERSION: u32 = 1;
-const RUNTIME_DLL_URL: &str =
-    "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/qwen3_runtime/dist/sgt_qwen3_runtime.dll";
+const RUNTIME_DLL_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/qwen3_runtime/dist/sgt_qwen3_runtime.dll";
 const LIBTORCH_URL: &str =
     "https://download.pytorch.org/libtorch/cu128/libtorch-win-shared-with-deps-2.7.1%2Bcu128.zip";
 const NATIVE_IMPLEMENTATION: &str = "reference_rust";
@@ -80,10 +79,6 @@ pub struct RuntimeTranscriptionResult {
     #[serde(default)]
     pub is_final: bool,
     #[serde(default)]
-    pub kv_cache_bytes: usize,
-    #[serde(default)]
-    pub kv_cache_dense_bytes: usize,
-    #[serde(default)]
     pub error: String,
 }
 
@@ -133,12 +128,6 @@ fn clear_runtime_notice() {
 
 pub fn current_qwen3_runtime_notice() -> Option<String> {
     LAST_QWEN3_RUNTIME_NOTICE.lock().ok()?.clone()
-}
-
-pub fn is_qwen3_runtime_downloaded() -> bool {
-    runtime_dll_candidates()
-        .ok()
-        .is_some_and(|paths| paths.iter().any(|p| p.exists()))
 }
 
 /// Check if the runtime is installed in the managed (downloadable) private bin dir.
@@ -237,11 +226,15 @@ pub fn download_qwen3_runtime(
     }
 
     // If another thread is already downloading, show its progress and wait
-    if RUNTIME_DOWNLOAD_IN_PROGRESS.compare_exchange(
-        false, true,
-        std::sync::atomic::Ordering::SeqCst,
-        std::sync::atomic::Ordering::SeqCst,
-    ).is_err() {
+    if RUNTIME_DOWNLOAD_IN_PROGRESS
+        .compare_exchange(
+            false,
+            true,
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+        )
+        .is_err()
+    {
         if use_badge {
             crate::overlay::auto_copy_badge::show_progress_notification(
                 "Qwen3-ASR CUDA Runtime",
@@ -274,11 +267,6 @@ pub fn download_qwen3_runtime(
         }
         return Err(anyhow!("Runtime download did not complete successfully"));
     }
-
-    let locale = {
-        let app = crate::APP.lock().unwrap();
-        crate::gui::locale::LocaleText::get(&app.config.ui_language)
-    };
 
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
@@ -340,7 +328,8 @@ pub fn download_qwen3_runtime(
         let libtorch_marker = bin_dir.join("torch_cpu.dll");
         if !libtorch_marker.exists() {
             if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = "Downloading libtorch CUDA runtime (~2.5 GB)...".to_string();
+                state.download_message =
+                    "Downloading libtorch CUDA runtime (~2.5 GB)...".to_string();
             }
             post_download_state();
 
@@ -357,8 +346,12 @@ pub fn download_qwen3_runtime(
             let _ = std::fs::remove_file(&libtorch_zip_path);
             let mut curl_child = std::process::Command::new("curl.exe")
                 .args([
-                    "--fail", "--location", "--continue-at", "-",
-                    "--output", &libtorch_zip_path.to_string_lossy(),
+                    "--fail",
+                    "--location",
+                    "--continue-at",
+                    "-",
+                    "--output",
+                    &libtorch_zip_path.to_string_lossy(),
                     LIBTORCH_URL,
                 ])
                 .stdout(std::process::Stdio::null())
@@ -372,7 +365,10 @@ pub fn download_qwen3_runtime(
                 match curl_child.try_wait() {
                     Ok(Some(status)) => {
                         if !status.success() {
-                            return Err(anyhow!("libtorch download failed (curl exit code {})", status));
+                            return Err(anyhow!(
+                                "libtorch download failed (curl exit code {})",
+                                status
+                            ));
                         }
                         break;
                     }
@@ -384,7 +380,8 @@ pub fn download_qwen3_runtime(
                             return Err(anyhow!("Download cancelled"));
                         }
                         let current_size = std::fs::metadata(&libtorch_zip_path)
-                            .map(|m| m.len()).unwrap_or(0);
+                            .map(|m| m.len())
+                            .unwrap_or(0);
                         let pct = (current_size as f64 / expected_size as f64 * 100.0).min(99.0);
                         let mb = current_size as f64 / 1_048_576.0;
                         let msg = format!("Downloading libtorch... {:.0} MB / ~2500 MB", mb);
@@ -395,7 +392,9 @@ pub fn download_qwen3_runtime(
                         post_download_state();
                         if use_badge {
                             crate::overlay::auto_copy_badge::show_progress_notification(
-                                "Downloading Qwen3-ASR CUDA Runtime", &msg, pct as f32,
+                                "Downloading Qwen3-ASR CUDA Runtime",
+                                &msg,
+                                pct as f32,
                             );
                         }
                         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -423,7 +422,8 @@ pub fn download_qwen3_runtime(
             let total_entries = zip.len();
             let mut extracted = 0usize;
             for idx in 0..total_entries {
-                let mut entry = zip.by_index(idx)
+                let mut entry = zip
+                    .by_index(idx)
                     .map_err(|err| anyhow!("Failed to read libtorch archive entry: {err}"))?;
                 let name = match entry.enclosed_name() {
                     Some(path) => path.to_path_buf(),
@@ -437,8 +437,11 @@ pub fn download_qwen3_runtime(
                     if let Some(file_name) = name.file_name() {
                         if file_name.to_string_lossy().ends_with(".dll") {
                             extracted += 1;
-                            let msg = format!("Extracting DLL {}/~50: {}",
-                                extracted, file_name.to_string_lossy());
+                            let msg = format!(
+                                "Extracting DLL {}/~50: {}",
+                                extracted,
+                                file_name.to_string_lossy()
+                            );
                             if let Ok(mut state) = REALTIME_STATE.lock() {
                                 state.download_message = msg.clone();
                                 state.download_progress = 80.0 + (extracted as f32 / 50.0) * 20.0;
@@ -446,7 +449,8 @@ pub fn download_qwen3_runtime(
                             post_download_state();
                             if use_badge {
                                 crate::overlay::auto_copy_badge::show_progress_notification(
-                                    "Installing Qwen3-ASR CUDA Runtime", &msg,
+                                    "Installing Qwen3-ASR CUDA Runtime",
+                                    &msg,
                                     80.0 + (extracted as f32 / 50.0) * 20.0,
                                 );
                             }
@@ -607,9 +611,8 @@ fn read_last_error_json(exports: &RuntimeExports, handle: *mut c_void) -> String
     if status != SGT_QWEN3_STATUS_OK || ptr.is_null() {
         return "Qwen3 runtime did not return an error payload.".to_string();
     }
-    decode_json_ptr(ptr, len).unwrap_or_else(|_| {
-        "Qwen3 runtime returned an invalid error payload.".to_string()
-    })
+    decode_json_ptr(ptr, len)
+        .unwrap_or_else(|_| "Qwen3 runtime returned an invalid error payload.".to_string())
 }
 
 fn status_to_result(
@@ -686,8 +689,7 @@ fn validate_probe_capabilities(probe: &ProbeResponse, requested_kv_cache_mode: &
 
     if probe.implementation != NATIVE_IMPLEMENTATION {
         let message = if probe.implementation.is_empty() {
-            "Qwen3 runtime did not report a native implementation identity."
-                .to_string()
+            "Qwen3 runtime did not report a native implementation identity.".to_string()
         } else {
             format!(
                 "Qwen3 runtime reported unsupported implementation '{}'.",
@@ -710,8 +712,7 @@ fn validate_probe_capabilities(probe: &ProbeResponse, requested_kv_cache_mode: &
         return Err(anyhow!(message));
     }
     if !probe.kv_compression_available {
-        let message =
-            "Qwen3 runtime did not advertise KV compression support.".to_string();
+        let message = "Qwen3 runtime did not advertise KV compression support.".to_string();
         set_runtime_notice(&message);
         return Err(anyhow!(message));
     }
@@ -722,8 +723,7 @@ fn validate_probe_capabilities(probe: &ProbeResponse, requested_kv_cache_mode: &
     }
     if probe.supported_kv_cache_modes.is_empty() {
         let message =
-            "Qwen3 runtime did not report any supported kv_cache_mode values."
-                .to_string();
+            "Qwen3 runtime did not report any supported kv_cache_mode values.".to_string();
         set_runtime_notice(&message);
         return Err(anyhow!(message));
     }
@@ -740,8 +740,7 @@ fn validate_probe_capabilities(probe: &ProbeResponse, requested_kv_cache_mode: &
         return Err(anyhow!(message));
     }
     if probe_kv_cache_mode.is_empty() {
-        let message =
-            "Qwen3 runtime did not report an active kv_cache_mode.".to_string();
+        let message = "Qwen3 runtime did not report an active kv_cache_mode.".to_string();
         set_runtime_notice(&message);
         return Err(anyhow!(message));
     }
@@ -768,10 +767,7 @@ impl Qwen3Runtime {
 
         let dll_path = runtime_dll_path()?;
         if !dll_path.exists() {
-            let message = format!(
-                "Missing Qwen3 runtime DLL: {}",
-                dll_path.display()
-            );
+            let message = format!("Missing Qwen3 runtime DLL: {}", dll_path.display());
             set_runtime_notice(&message);
             return Err(anyhow!(message));
         }
@@ -849,7 +845,10 @@ impl Qwen3Runtime {
         let probe: ProbeResponse = serde_json::from_str(&probe_json)
             .with_context(|| format!("Failed to parse Qwen3 probe payload: {probe_json}"))?;
         validate_probe_capabilities(&probe, &requested_kv_cache_mode)?;
-        crate::log_info!("[Qwen3Runtime] CUDA ready, kv_cache_mode={}", requested_kv_cache_mode);
+        crate::log_info!(
+            "[Qwen3Runtime] CUDA ready, kv_cache_mode={}",
+            requested_kv_cache_mode
+        );
         let config_json = runtime_config_json(model_dir, &requested_kv_cache_mode);
         let mut runtime_handle = std::ptr::null_mut();
         let create_status = unsafe {

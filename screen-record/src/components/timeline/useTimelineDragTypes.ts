@@ -6,6 +6,9 @@ export interface TimelineDragState {
   isDraggingTextStart: boolean;
   isDraggingTextEnd: boolean;
   isDraggingTextBody: boolean;
+  isDraggingSubtitleStart: boolean;
+  isDraggingSubtitleEnd: boolean;
+  isDraggingSubtitleBody: boolean;
   isDraggingKeystrokeStart: boolean;
   isDraggingKeystrokeEnd: boolean;
   isDraggingKeystrokeBody: boolean;
@@ -18,6 +21,7 @@ export interface TimelineDragState {
   isDraggingZoom: boolean;
   isDraggingSeek: boolean;
   draggingTextId: string | null;
+  draggingSubtitleId: string | null;
   draggingKeystrokeId: string | null;
   draggingPointerId: string | null;
   draggingWebcamId: string | null;
@@ -33,9 +37,10 @@ export interface UseTimelineDragOptions {
   setSegment: (segment: VideoSegment | null) => void;
   setEditingKeyframeId: (id: number | null) => void;
   setEditingTextId: (id: string | null) => void;
+  setEditingSubtitleId?: (id: string | null) => void;
   setEditingKeystrokeId?: (id: string | null) => void;
   setEditingPointerId?: (id: string | null) => void;
-  setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text') => void;
+  setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text' | 'subtitles') => void;
   onSeek?: (time: number) => void;
   onSeekEnd?: () => void;
   beginBatch: () => void;

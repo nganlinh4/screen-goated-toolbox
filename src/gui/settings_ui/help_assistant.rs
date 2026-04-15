@@ -5,8 +5,8 @@
 
 use lazy_static::lazy_static;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 static HELP_INPUT_ACTIVE: AtomicBool = AtomicBool::new(false);

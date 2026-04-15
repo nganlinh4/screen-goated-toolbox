@@ -1,6 +1,7 @@
 // Media Foundation audio decode, processing, and muxing.
 // Decodes source audio to PCM, handles speed/trim, encodes to AAC.
 
+use super::mf_decode;
 use windows::Win32::Media::MediaFoundation::*;
 
 /// Configuration for audio processing.
@@ -47,6 +48,8 @@ impl MfAudioDecoder {
         target_sample_rate: Option<u32>,
         target_channels: Option<u32>,
     ) -> Result<Self, String> {
+        mf_decode::mf_startup()?;
+
         let mut attrs: Option<IMFAttributes> = None;
         unsafe {
             MFCreateAttributes(&mut attrs, 1).map_err(|e| format!("MFCreateAttributes: {e}"))?;

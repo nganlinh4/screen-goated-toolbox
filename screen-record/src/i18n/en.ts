@@ -52,6 +52,7 @@ const en = {
   tabCursor: 'Cursor',
   tabBlur: 'Blur',
   tabText: 'Text',
+  tabSubtitles: 'Subtitles',
 
   // ZoomPanel
   zoomConfiguration: 'Zoom Configuration',
@@ -125,6 +126,20 @@ const en = {
   pillOpacity: 'Opacity',
   pillRadius: 'Roundness',
   deleteText: 'Delete Text',
+  subtitlePanelHint: 'Generate subtitles or select a subtitle block from the timeline',
+  subtitleSource: 'Source',
+  subtitleSourceVideo: 'Video / System Audio',
+  subtitleSourceMic: 'Mic Audio',
+  subtitleLanguageHint: 'Language Hint',
+  subtitleGenerate: 'Generate',
+  subtitleRegenerate: 'Regenerate',
+  subtitleCancelJob: 'Cancel Job',
+  subtitleGenerating: 'Generating subtitles…',
+  subtitleIdleHint: 'Choose a source and generate timestamped subtitles for this clip or sequence.',
+  subtitleUnavailableSource: 'No subtitle source is available for the current selection.',
+  subtitleApplySummary: '{count} subtitle blocks applied',
+  subtitlePartialSummary: '{done} clips completed · {skipped} skipped',
+  subtitleTrack: 'Subtitles',
 
   // VideoPreview
   processingVideo: 'Processing Video',
@@ -254,6 +269,7 @@ const en = {
   // Timeline
   trackZoom: 'Zoom',
   trackText: 'Text',
+  trackSubtitles: 'Subtitles',
   trackKeystrokes: 'Keys',
   trackKeystrokesOff: 'Off',
   trackKeyboard: 'Keyboard',
