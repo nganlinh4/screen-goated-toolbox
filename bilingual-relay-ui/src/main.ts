@@ -104,7 +104,7 @@ const state = {
   lastTime: 0,
   lastTranscriptKey: "__init__",
   firstDetectedLang: "",
-  dominantLang: "",       // the reliably detected lingua code (e.g. "kor")
+  dominantLang: "",       // the reliably detected ISO 639-3 code (e.g. "kor")
   dominantIsLeft: true,   // which side dominant goes to
   lastHotkeyKey: "",
   guideShown: false,
@@ -366,7 +366,7 @@ function renderTranscripts(payload: RelayState) {
 
   const entries = groupTranscripts(items);
 
-  // Lock firstLang once determined — only from paired entries where lingua had
+  // Lock firstLang once determined — only from paired entries where detection had
   // the full finalized text (not partial streaming fragments).
   if (!state.firstDetectedLang) {
     for (const e of entries) {
