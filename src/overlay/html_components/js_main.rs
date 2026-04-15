@@ -396,7 +396,7 @@ pub fn get(font_size: u32) -> String {
                 transLangBadge.textContent = 'ALL';
                 transLangBadge.dataset.code = 'ALL';
                 transLangBadge.classList.add('greyed');
-            }} else if (modelName === 'parakeet' || (modelName && modelName.includes('moonshine'))) {{
+            }} else if (modelName === 'parakeet') {{
                 transLangBadge.textContent = 'EN';
                 transLangBadge.dataset.code = 'EN';
                 transLangBadge.classList.add('greyed');

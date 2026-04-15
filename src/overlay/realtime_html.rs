@@ -81,15 +81,16 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 ("parakeet", "Parakeet"),
                 (qwen3_0_6b_id, "Qwen3 0.6B (GPU)"),
                 (qwen3_1_7b_id, "Qwen3 1.7B (GPU)"),
-                ("moonshine-tiny-streaming", "Moonshine Tiny"),
-                ("moonshine-small-streaming", "Moonshine Small"),
-                ("moonshine-medium-streaming", "Moonshine Medium"),
                 ("zipformer", "Zipformer"),
             ];
             let options_html: String = trans_options
                 .iter()
                 .map(|(val, label)| {
-                    let selected = if *val == transcription_model { " selected" } else { "" };
+                    let selected = if *val == transcription_model {
+                        " selected"
+                    } else {
+                        ""
+                    };
                     format!(r#"<option value="{val}"{selected}>{label}</option>"#)
                 })
                 .collect::<Vec<_>>()
@@ -97,17 +98,23 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
 
             let trans_lang_code = if transcription_model.contains("gemini")
                 || transcription_model == qwen3_0_6b_id
-                || transcription_model == qwen3_1_7b_id {
+                || transcription_model == qwen3_1_7b_id
+            {
                 // Gemini Live and Qwen3 (local GPU) support all languages
                 "ALL"
-            } else if transcription_model == "parakeet" || transcription_model.contains("moonshine") {
+            } else if transcription_model == "parakeet"
+            {
                 "EN"
             } else if transcription_model == "zipformer" {
                 "EN" // will be updated by JS based on selected language
             } else {
                 "EN"
             };
-            let trans_lang_greyed = if transcription_model == "zipformer" { "" } else { "greyed" };
+            let trans_lang_greyed = if transcription_model == "zipformer" {
+                ""
+            } else {
+                "greyed"
+            };
 
             format!(
                 r#"
@@ -144,7 +151,11 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             let model_options_html: String = trans_model_options
                 .iter()
                 .map(|(val, label)| {
-                    let selected = if *val == translation_model { " selected" } else { "" };
+                    let selected = if *val == translation_model {
+                        " selected"
+                    } else {
+                        ""
+                    };
                     format!(r#"<option value="{val}"{selected}>{label}</option>"#)
                 })
                 .collect::<Vec<_>>()
