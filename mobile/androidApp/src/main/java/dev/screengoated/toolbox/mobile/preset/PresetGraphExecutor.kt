@@ -1,10 +1,12 @@
 package dev.screengoated.toolbox.mobile.preset
 
+import dev.screengoated.toolbox.mobile.AppToastBus
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
 
 internal class PresetGraphExecutor(
     private val textApiClient: TextApiClient,
@@ -14,6 +16,7 @@ internal class PresetGraphExecutor(
     private val runtimeSettings: () -> PresetRuntimeSettings,
     private val uiLanguage: () -> String,
     private val executionState: MutableStateFlow<PresetExecutionState>,
+    private val toastBus: AppToastBus,
     private val postProcessActions: PresetPostProcessActions = NoOpPostProcessActions,
     private val historyRecorder: dev.screengoated.toolbox.mobile.history.PresetHistoryRecorder =
         dev.screengoated.toolbox.mobile.history.NoOpPresetHistoryRecorder,
@@ -147,6 +150,7 @@ internal class PresetGraphExecutor(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e // Don't swallow coroutine cancellation
             } catch (e: Exception) {
+                apiKeyErrorToastText(e.message ?: e.toString(), uiLanguage())?.let(toastBus::show)
                 // Emit per-window error state; other overlays continue unaffected
                 outputs[index] = ""
                 if (shouldSurfaceOverlay) {

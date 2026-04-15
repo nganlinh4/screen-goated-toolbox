@@ -2,6 +2,11 @@
 
 use crate::config::preset::Preset;
 use crate::config::preset::{BlockBuilder, PresetBuilder};
+use crate::model_config::{
+    DEFAULT_TEXT_MODEL_ID, PRESET_AUDIO_CONTINUOUS_MODEL_ID,
+    PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID, PRESET_AUDIO_OFFLINE_TRANSCRIBE_MODEL_ID,
+    PRESET_AUDIO_TRANSCRIBE_MODEL_ID, PRESET_SEARCH_MODEL_ID,
+};
 
 /// Create all default audio presets
 pub fn create_audio_presets() -> Vec<Preset> {
@@ -16,7 +21,8 @@ pub fn create_audio_presets() -> Vec<Preset> {
             .auto_paste()
             .auto_stop()
             .blocks(vec![
-                BlockBuilder::audio("whisper-accurate")
+                BlockBuilder::audio(PRESET_AUDIO_TRANSCRIBE_MODEL_ID)
+                    .prompt("Transcribe the audio into text. Output ONLY the transcript.")
                     .language("Vietnamese")
                     .show_overlay(false)
                     .markdown() // Upgraded: Thường -> Đẹp
@@ -31,7 +37,7 @@ pub fn create_audio_presets() -> Vec<Preset> {
             .auto_paste()
             // No auto_stop
             .blocks(vec![
-                BlockBuilder::audio("gemini-live-audio")
+                BlockBuilder::audio(PRESET_AUDIO_CONTINUOUS_MODEL_ID)
                     .language("Vietnamese")
                     .show_overlay(false)
                     .auto_copy()
@@ -44,7 +50,7 @@ pub fn create_audio_presets() -> Vec<Preset> {
             .audio_mic()
             .auto_stop()
             .blocks(vec![
-                BlockBuilder::audio("whisper-accurate")
+                BlockBuilder::audio(PRESET_AUDIO_TRANSCRIBE_MODEL_ID)
                     .language("Vietnamese")
                     .show_overlay(false)
                     .markdown() // Upgraded: Thường -> Đẹp
@@ -58,11 +64,11 @@ pub fn create_audio_presets() -> Vec<Preset> {
             .audio_mic()
             .auto_paste()
             .blocks(vec![
-                BlockBuilder::audio("whisper-accurate")
+                BlockBuilder::audio(PRESET_AUDIO_TRANSCRIBE_MODEL_ID)
                     .language("Korean")
                     .show_overlay(false)
                     .build(),
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Translate to {language1}. Output ONLY the translation.")
                     .language("Korean")
                     .show_overlay(false)
@@ -77,7 +83,7 @@ pub fn create_audio_presets() -> Vec<Preset> {
             .audio_mic()
             .auto_paste()
             .blocks(vec![
-                BlockBuilder::audio("gemini-audio")
+                BlockBuilder::audio(PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID)
                     .prompt("Translate the audio to {language1}. Only output the translated text.")
                     .language("Korean")
                     .show_overlay(false)
@@ -92,11 +98,11 @@ pub fn create_audio_presets() -> Vec<Preset> {
             .audio_mic()
             .auto_stop()
             .blocks(vec![
-                BlockBuilder::audio("whisper-accurate")
+                BlockBuilder::audio(PRESET_AUDIO_TRANSCRIBE_MODEL_ID)
                     .language("Vietnamese")
                     .show_overlay(false)
                     .build(),
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Answer the following question concisely and helpfully. Format as markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.")
                     .markdown_stream() // Đẹp+Str
                     .build(),
@@ -108,11 +114,11 @@ pub fn create_audio_presets() -> Vec<Preset> {
             .audio_mic()
             .auto_stop()
             .blocks(vec![
-                BlockBuilder::audio("whisper-accurate")
+                BlockBuilder::audio(PRESET_AUDIO_TRANSCRIBE_MODEL_ID)
                     .language("Vietnamese")
                     .show_overlay(false)
                     .build(),
-                BlockBuilder::text("compound_mini")
+                BlockBuilder::text(PRESET_SEARCH_MODEL_ID)
                     .prompt("Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.")
                     .markdown_stream() // Đẹp+Str
                     .build(),
@@ -139,10 +145,10 @@ pub fn create_audio_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_study_language", "Study language")
             .audio_device()
             .blocks(vec![
-                BlockBuilder::audio("whisper-accurate")
+                BlockBuilder::audio(PRESET_AUDIO_TRANSCRIBE_MODEL_ID)
                     .language("Vietnamese")
                     .build(),
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Translate to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown_stream() // Đẹp+Str
@@ -155,7 +161,7 @@ pub fn create_audio_presets() -> Vec<Preset> {
             .audio_device()
             .realtime()
             .blocks(vec![
-                BlockBuilder::audio("whisper-accurate")
+                BlockBuilder::audio(PRESET_AUDIO_TRANSCRIBE_MODEL_ID)
                     .build(),
                 BlockBuilder::text("google-gemma")
                     .language("Vietnamese")
@@ -181,7 +187,7 @@ pub fn create_audio_presets() -> Vec<Preset> {
             .auto_paste()
             // No auto_stop
             .blocks(vec![
-                BlockBuilder::audio("parakeet-local")
+                BlockBuilder::audio(PRESET_AUDIO_OFFLINE_TRANSCRIBE_MODEL_ID)
                     .language("English")
                     .show_overlay(false)
                     .auto_copy()

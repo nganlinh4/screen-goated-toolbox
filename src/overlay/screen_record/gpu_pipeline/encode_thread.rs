@@ -8,8 +8,7 @@ use windows::core::Interface;
 use super::super::d3d_interop::D3D11GpuFence;
 use super::super::mf_audio::{AudioConfig, MfAudioDecoder};
 use super::super::mf_encode::{EncoderConfig, MfEncoder};
-use super::audio::{apply_audio_volume_envelope, resample_pcm_bytes};
-use super::frame_timing::get_speed;
+use super::audio::apply_audio_volume_envelope;
 use super::types::{EncodeThreadContext, RenderOutput, ZeroCopyExportResult};
 
 pub(super) fn run_encode_thread(
@@ -67,6 +66,10 @@ pub(super) fn run_encode_thread(
     let mut audio_segment_idx = 0usize;
     let mut audio_eof = false;
     let mut total_audio_samples_written: u64 = 0;
+    let audio_sample_rate = audio_decoder
+        .as_ref()
+        .map(|dec| dec.sample_rate())
+        .unwrap_or(48_000);
 
     if let Some(dec) = &audio_decoder
         && !config.audio_is_preprocessed
@@ -172,7 +175,7 @@ pub(super) fn run_encode_thread(
                             }
                             let next_total =
                                 total_audio_samples_written + samples_per_channel as u64;
-                            let next_100ns = (next_total * 10_000_000) / dec.sample_rate() as u64;
+                            let next_100ns = (next_total * 10_000_000) / audio_sample_rate as u64;
                             let dur_100ns = next_100ns as i64 - audio_output_100ns;
                             if dur_100ns <= 0 {
                                 continue;
@@ -235,19 +238,14 @@ pub(super) fn run_encode_thread(
                         }
                         if chunk_time <= seg_end {
                             let channels = dec.channels() as usize;
-                            let speed =
-                                get_speed(chunk_time, &config.speed_points).clamp(0.1, 16.0);
                             let input_frames = if channels == 0 {
                                 0
                             } else {
                                 pcm.len() / (channels * 4)
                             };
-                            let source_duration_sec = if input_frames == 0 {
-                                0.0
-                            } else {
-                                input_frames as f64 / dec.sample_rate() as f64
-                            };
-                            let mut resampled = resample_pcm_bytes(&pcm, speed, channels);
+                            let source_duration_sec =
+                                input_frames as f64 / audio_sample_rate as f64;
+                            let mut resampled = pcm.clone();
                             apply_audio_volume_envelope(
                                 &mut resampled,
                                 chunk_time,

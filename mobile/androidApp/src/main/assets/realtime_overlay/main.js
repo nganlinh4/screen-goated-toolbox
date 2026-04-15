@@ -161,7 +161,7 @@
 
         function updateTransLangBadgeState(modelName) {
             if (!transLangBadge) return;
-            if (modelName && modelName.includes('gemini')) {
+            if (modelName && (modelName.includes('gemini') || modelName.includes('qwen'))) {
                 transLangBadge.textContent = 'ALL';
                 transLangBadge.dataset.code = 'ALL';
                 transLangBadge.classList.add('greyed');

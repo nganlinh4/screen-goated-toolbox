@@ -69,9 +69,10 @@ internal fun buildOverlayWebView(
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
         settings.setSupportZoom(false)
-        // Use software rendering to avoid Chrome GPU process crashes (SIGSEGV
-        // in Chrome_InProcGp) that occur during rapid session restarts.
-        setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+        // Hardware rendering for backdrop-blur and GPU compositing.
+        // Chrome GPU crash on rapid session restart is mitigated by the
+        // 300ms restart delay in OverlayController.
+        setLayerType(View.LAYER_TYPE_HARDWARE, null)
         webChromeClient = object : WebChromeClient() {
             override fun onJsAlert(
                 view: WebView?,

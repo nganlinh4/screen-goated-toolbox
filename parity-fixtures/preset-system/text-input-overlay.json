@@ -12,7 +12,8 @@
       "close_window",
       "history_up:<draft>",
       "history_down:<draft>",
-      "mic"
+      "mic",
+      "request_focus"
     ],
     "required_js_hooks": [
       "window.setEditorText",
@@ -22,7 +23,8 @@
       "window.clearInput"
     ],
     "accepted_mobile_shims": [
-      "touch_drag_delta_messages"
+      "touch_drag_delta_messages",
+      "outside_tap_focus_release"
     ]
   },
   "documented_deferred_behavior": [

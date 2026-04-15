@@ -113,6 +113,14 @@ internal class OverlayPaneWindow(
 
     fun destroy() {
         hide()
+        // Detach the WebView from its parent container before calling destroy().
+        // windowManager.removeView(rootView) removes rootView from the window surface
+        // but does not detach its children — the WebView still considers itself
+        // attached. Calling WebView.destroy() while still in the view hierarchy
+        // destroys internal Chrome mutexes while the RenderThread/GPU thread may
+        // still hold them, causing a FORTIFY abort. Clearing the children first
+        // ensures Chrome sees the WebView as detached before we destroy it.
+        rootView.removeAllViews()
         paneHolder.destroy()
     }
 

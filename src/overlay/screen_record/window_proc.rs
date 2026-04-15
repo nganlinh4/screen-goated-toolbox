@@ -8,7 +8,7 @@ use wry::Rect;
 
 use super::{
     SR_WEBVIEW, WM_APP_RUN_SCRIPT, WM_APP_SHOW, WM_APP_TOGGLE, WM_APP_UPDATE_SETTINGS,
-    push_settings_to_webview,
+    cleanup_on_app_exit, push_settings_to_webview,
 };
 
 pub(super) unsafe extern "system" fn sr_wnd_proc(
@@ -35,6 +35,11 @@ pub(super) unsafe extern "system" fn sr_wnd_proc(
                 LRESULT(1) // Suppress -- WebView covers full client area
             }
             WM_CLOSE => {
+                if super::engine::IS_RECORDING.load(std::sync::atomic::Ordering::SeqCst)
+                    || super::engine::ENCODER_ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
+                {
+                    cleanup_on_app_exit();
+                }
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 LRESULT(0)
             }

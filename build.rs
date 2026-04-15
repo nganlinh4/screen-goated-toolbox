@@ -92,14 +92,8 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
 
     let constant_mappings = [
         ("DEFAULT_IMAGE_MODEL_ID", "default_image_model_id"),
-        (
-            "DEFAULT_CEREBRAS_TEXT_MODEL_ID",
-            "default_cerebras_text_model_id",
-        ),
-        (
-            "DEFAULT_CEREBRAS_TEXT_API_MODEL",
-            "default_cerebras_text_api_model",
-        ),
+        ("DEFAULT_TEXT_MODEL_ID", "default_text_model_id"),
+        ("DEFAULT_TEXT_API_MODEL", "default_text_api_model"),
         ("GEMINI_LIVE_API_MODEL_2_5", "gemini_live_api_model_2_5"),
         ("GEMINI_LIVE_API_MODEL_3_1", "gemini_live_api_model_3_1"),
         (
@@ -140,6 +134,17 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
         rust_string(manifest_string(defaults, "tts_gemini_live_model"))
     ));
     lines.push(String::new());
+
+    let preset_defaults = manifest_object(&manifest, "preset_defaults");
+    for (const_name, value) in preset_defaults {
+        lines.push(format!(
+            "pub const {const_name}: &str = {};",
+            rust_string(value.as_str().unwrap())
+        ));
+    }
+    if !preset_defaults.is_empty() {
+        lines.push(String::new());
+    }
 
     lines.push("pub const GENERATED_NON_LLM_IDS: &[&str] = &[".to_string());
     for value in manifest_array(&manifest, "non_llm_ids") {

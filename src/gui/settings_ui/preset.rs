@@ -726,7 +726,7 @@ fn create_default_block_for_type(preset_type: &str) -> ProcessingBlock {
         },
         "text" => ProcessingBlock {
             block_type: "text".to_string(),
-            model: "text_accurate_kimi".to_string(),
+            model: "gemma-4-26b-a4b".to_string(),
             prompt: "Process this text.".to_string(),
             selected_language: "Vietnamese".to_string(),
             auto_copy: true,

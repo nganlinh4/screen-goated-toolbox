@@ -15,15 +15,16 @@ import kotlinx.coroutines.launch
 class BilingualRelayService : androidx.lifecycle.LifecycleService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    private lateinit var appContainer: dev.screengoated.toolbox.mobile.AppContainer
     private lateinit var repository: BilingualRelayRepository
     private lateinit var runtime: BilingualRelayRuntime
     private lateinit var notifications: BilingualRelayNotificationFactory
 
     override fun onCreate() {
         super.onCreate()
-        val container = (application as SgtMobileApplication).appContainer
-        repository = container.bilingualRelayRepository
-        runtime = container.bilingualRelayRuntime
+        appContainer = (application as SgtMobileApplication).appContainer
+        repository = appContainer.bilingualRelayRepository
+        runtime = appContainer.bilingualRelayRuntime
         notifications = BilingualRelayNotificationFactory(this, repository::localeText)
         notifications.ensureChannel()
 
@@ -66,7 +67,9 @@ class BilingualRelayService : androidx.lifecycle.LifecycleService() {
             return
         }
         if (repository.currentApiKey().isBlank()) {
-            repository.fail(repository.localeText().bilingualRelayApiKeyRequired)
+            val message = repository.localeText().bilingualRelayApiKeyRequired
+            repository.fail(message)
+            appContainer.toastBus.show(message)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return
@@ -87,7 +90,9 @@ class BilingualRelayService : androidx.lifecycle.LifecycleService() {
             return
         }
         if (repository.currentApiKey().isBlank()) {
-            repository.fail(repository.localeText().bilingualRelayApiKeyRequired)
+            val message = repository.localeText().bilingualRelayApiKeyRequired
+            repository.fail(message)
+            appContainer.toastBus.show(message)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return

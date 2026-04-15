@@ -3,7 +3,7 @@ pub mod runtime;
 
 use super::capture::{start_device_loopback_capture, start_mic_capture, start_per_app_capture};
 use super::state::{SharedRealtimeState, TranscriptionMethod};
-use super::utils::update_overlay_text;
+use super::utils::{append_history_segment, join_transcript_segments, update_overlay_text};
 use super::{REALTIME_RMS, WM_VOLUME_UPDATE};
 use crate::config::Preset;
 use anyhow::Result;
@@ -101,7 +101,9 @@ pub fn run_qwen3_transcription_variant(
     let mut last_voice_activity = Instant::now();
     let mut last_draft_change = Instant::now();
     let mut last_draft_text = String::new();
-    const DRAFT_STALE_MS: u64 = 3_000; // Conclude with period after 3s of no new text
+    // After 3s of no new draft text, append a visual period to signal sentence boundary
+    // to the translation system. Not a real commit — model may still rewrite.
+    const DRAFT_STALE_MS: u64 = 3_000;
 
     while !stop_signal.load(Ordering::Relaxed) {
         if !overlay_hwnd.is_invalid() && !unsafe { IsWindow(Some(overlay_hwnd)).as_bool() } {
@@ -172,8 +174,9 @@ pub fn run_qwen3_transcription_variant(
                 last_draft_change = Instant::now();
                 last_draft_text = draft_text.clone();
             }
-            // If draft hasn't changed for DRAFT_STALE_MS, append a period to
+            // If draft hasn't changed for DRAFT_STALE_MS, append a visual period to
             // signal a sentence boundary to the translation system.
+            // Not a real commit — model may still rewrite the draft.
             let draft_to_publish = if !draft_text.is_empty()
                 && last_draft_change.elapsed() >= Duration::from_millis(DRAFT_STALE_MS)
             {
@@ -269,43 +272,6 @@ fn should_commit_on_silence(
     has_pending_session_audio
         && current_audio_len > 0
         && last_voice_activity.elapsed() >= Duration::from_millis(SILENCE_COMMIT_MS)
-}
-
-fn append_history_segment(history: &mut String, segment: &str) {
-    let segment = sanitize_transcript_segment(segment);
-    if segment.is_empty() {
-        return;
-    }
-    if history.is_empty() {
-        history.push_str(segment.trim_start());
-    } else {
-        let combined = join_transcript_segments(history, &segment);
-        history.clear();
-        history.push_str(&combined);
-    }
-}
-
-fn sanitize_transcript_segment(segment: &str) -> String {
-    segment.replace('\n', " ").replace('\t', " ")
-}
-
-fn join_transcript_segments(left: &str, right: &str) -> String {
-    let left = sanitize_transcript_segment(left);
-    let right = sanitize_transcript_segment(right);
-    match (left.is_empty(), right.is_empty()) {
-        (true, true) => String::new(),
-        (true, false) => right.trim_start().to_string(),
-        (false, true) => left,
-        (false, false) => {
-            let left_has_space = left.chars().last().is_some_and(char::is_whitespace);
-            let right_has_space = right.chars().next().is_some_and(char::is_whitespace);
-            if left_has_space || right_has_space {
-                format!("{left}{right}")
-            } else {
-                format!("{left} {right}")
-            }
-        }
-    }
 }
 
 fn runtime_live_segments(result: &runtime::RuntimeTranscriptionResult) -> (String, String) {

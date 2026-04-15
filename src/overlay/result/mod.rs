@@ -448,6 +448,7 @@ fn start_refinement(hwnd: HWND, user_prompt: &str) {
                             .unwrap_or_else(|| model_id.to_string());
                         (app.config.ui_language.clone(), full_name)
                     };
+                    crate::overlay::utils::show_api_key_error_notification(&e.to_string(), &lang);
                     let err_msg = crate::overlay::utils::get_error_message(
                         &e.to_string(),
                         &lang,

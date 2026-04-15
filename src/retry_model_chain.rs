@@ -162,7 +162,7 @@ fn resolve_auto_retry_model(
     must_support_search: bool,
     config: &Config,
 ) -> Option<ModelConfig> {
-    let all_models = get_all_models_with_ollama();
+    let all_models: Vec<ModelConfig> = get_all_models_with_ollama();
     let current_provider = get_model_by_id(current_model_id)
         .map(|m| m.provider)
         .unwrap_or_default();

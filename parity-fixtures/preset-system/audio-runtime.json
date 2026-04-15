@@ -25,7 +25,8 @@
   },
   "shared_mic_button_contract": {
     "text_input": "preset_transcribe",
-    "result_canvas": "preset_transcribe"
+    "result_canvas": "preset_transcribe",
+    "preset_transcribe_prompt": "Transcribe the audio into text. Output ONLY the transcript."
   },
   "streaming_capture_contract": {
     "gemini-live-audio": "partial_transcript_during_capture",

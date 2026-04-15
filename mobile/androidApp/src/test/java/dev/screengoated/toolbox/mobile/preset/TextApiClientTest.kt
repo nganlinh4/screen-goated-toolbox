@@ -28,6 +28,12 @@ class TextApiClientTest {
             assertEquals(case.provider, resolved.provider.name)
             assertEquals(case.apiModel, resolved.apiModel)
             assertEquals(case.supportsSearch, resolved.supportsSearch)
+            case.thinkingLevel?.let { expected ->
+                assertEquals(
+                    expected,
+                    resolved.geminiThinkingConfig?.get("thinkingLevel"),
+                )
+            }
             case.thinkingIncludeThoughts?.let { expected ->
                 assertEquals(
                     expected,
@@ -38,17 +44,17 @@ class TextApiClientTest {
     }
 
     @Test
-    fun cerebrasRequestBodyUsesResolvedWindowsApiModel() {
+    fun qwenRequestBodyUsesResolvedWindowsApiModel() {
         val payload = json.parseToJsonElement(
             client.debugBuildRequestBody(
-                modelId = "cerebras_gpt_oss",
+                modelId = "qwen_3_235b_a22b_instruct_2507",
                 prompt = "Translate to Vietnamese.",
                 inputText = "Hello",
             ),
         ).jsonObject
 
         assertEquals(
-            PresetModelCatalog.getById("cerebras_gpt_oss")!!.fullName,
+            PresetModelCatalog.getById("qwen_3_235b_a22b_instruct_2507")!!.fullName,
             payload.getValue("model").jsonPrimitive.content,
         )
         assertTrue(payload.getValue("stream").jsonPrimitive.boolean)
@@ -120,6 +126,7 @@ class TextApiClientTest {
                 provider = case.getValue("provider").jsonPrimitive.content,
                 apiModel = case.getValue("api_model").jsonPrimitive.content,
                 supportsSearch = case.getValue("supports_search").jsonPrimitive.boolean,
+                thinkingLevel = case["thinking_level"]?.jsonPrimitive?.contentOrNull,
                 thinkingIncludeThoughts = case["thinking_include_thoughts"]?.jsonPrimitive?.booleanOrNull,
             )
         }
@@ -141,6 +148,7 @@ class TextApiClientTest {
         val provider: String,
         val apiModel: String,
         val supportsSearch: Boolean,
+        val thinkingLevel: String?,
         val thinkingIncludeThoughts: Boolean?,
     )
 }

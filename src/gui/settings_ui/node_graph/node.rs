@@ -52,7 +52,7 @@ impl Default for ChainNode {
                     .as_nanos()
             ),
             block_type: "text".to_string(),
-            model: "text_accurate_kimi".to_string(),
+            model: "gemma-4-26b-a4b".to_string(),
             prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
             language_vars: HashMap::new(),
             show_overlay: true,

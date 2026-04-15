@@ -56,6 +56,7 @@
     "androidTtsSettingsApplyToUnreadText": true,
     "androidTtsRequestsTransientDuckFocus": true,
     "ttsDisplayedSpeedSource": "runtime-effective-while-speaking",
-    "localeUpdatePath": "discrete-js-no-html-reload"
+    "localeUpdatePath": "discrete-js-no-html-reload",
+    "dismissDragPersistence": "restore-pre-drag"
   }
 }

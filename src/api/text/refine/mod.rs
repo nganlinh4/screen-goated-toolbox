@@ -80,7 +80,7 @@ where
                 ("gemini-flash-lite".to_string(), "google".to_string())
             } else if !cerebras_api_key.trim().is_empty() {
                 (
-                    crate::model_config::DEFAULT_CEREBRAS_TEXT_API_MODEL.to_string(),
+                    crate::model_config::DEFAULT_TEXT_API_MODEL.to_string(),
                     "cerebras".to_string(),
                 )
             } else if !groq_api_key.trim().is_empty() {

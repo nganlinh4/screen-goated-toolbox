@@ -6,8 +6,11 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
     let summary = bg_download::downloadable_background_summary();
 
     ui.group(|ui| {
+        ui.heading(text.tool_downloadable_backgrounds);
+        ui.add_space(4.0);
+
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(text.tool_downloadable_backgrounds).strong());
+            ui.label(text.tool_desc_downloadable_backgrounds);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if summary.total_count == 0 {
                     ui.label(
@@ -55,7 +58,6 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
         });
 
         ui.horizontal(|ui| {
-            ui.label(text.tool_desc_downloadable_backgrounds);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let count_text = text
                     .tool_bg_downloaded_count_fmt

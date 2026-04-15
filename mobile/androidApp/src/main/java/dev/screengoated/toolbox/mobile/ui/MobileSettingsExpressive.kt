@@ -63,6 +63,7 @@ internal enum class SettingsActionMorphStyle(
     STATS(ExpressiveMorphPair(MaterialShapes.Oval, MaterialShapes.Gem)),
     HELP(ExpressiveMorphPair(MaterialShapes.Bun, MaterialShapes.Flower)),
     RESET(ExpressiveMorphPair(MaterialShapes.Slanted, MaterialShapes.Pentagon)),
+    DOWNLOADS(ExpressiveMorphPair(MaterialShapes.Pill, MaterialShapes.Clover4Leaf)),
 }
 
 private val VisibilityToggleMorphPair = ExpressiveMorphPair(

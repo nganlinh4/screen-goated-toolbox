@@ -1,6 +1,7 @@
 // --- TEXT INPUT STATE ---
 // Shared state, atomics, and constants for text input overlay.
 
+use crate::win_types::SendHhook;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicIsize};
 use std::sync::{Mutex, Once};
@@ -16,11 +17,13 @@ pub static INPUT_HWND: AtomicIsize = AtomicIsize::new(0);
 pub static IS_WARMING_UP: AtomicBool = AtomicBool::new(false);
 pub static IS_WARMED_UP: AtomicBool = AtomicBool::new(false);
 pub static IS_SHOWING: AtomicBool = AtomicBool::new(false);
+pub static PASSIVE_CAPTURE_ENABLED: AtomicBool = AtomicBool::new(false);
 
 // --- WINDOW MESSAGES ---
 pub const WM_APP_SHOW: u32 = WM_USER + 99;
 pub const WM_APP_SET_TEXT: u32 = WM_USER + 100;
 pub const WM_APP_HIDE: u32 = WM_USER + 101;
+pub const WM_APP_SYNC_PASSIVE_EDITOR: u32 = WM_USER + 102;
 
 type TextSubmitCallback = Box<dyn Fn(String, HWND) + Send>;
 
@@ -36,6 +39,7 @@ lazy_static::lazy_static! {
     pub static ref CFG_CANCEL: Mutex<String> = Mutex::new(String::new());
     pub static ref CFG_CALLBACK: Mutex<Option<TextSubmitCallback>> = Mutex::new(None);
     pub static ref CFG_CONTINUOUS: Mutex<bool> = Mutex::new(false);
+    pub static ref INPUT_HOOK: Mutex<SendHhook> = Mutex::new(SendHhook::default());
 
     // Cross-thread text injection (for auto-paste from transcription)
     pub static ref PENDING_TEXT: Mutex<Option<String>> = Mutex::new(None);

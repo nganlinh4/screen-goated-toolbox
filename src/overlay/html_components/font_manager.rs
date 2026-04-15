@@ -8,7 +8,6 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, Once};
-use windows::Win32::Graphics::Gdi::AddFontMemResourceEx;
 use wry::WebViewBuilder;
 
 /// Google Sans Flex variable font - bundled at compile time (~5MB)
@@ -32,29 +31,6 @@ lazy_static::lazy_static! {
 
     /// Pending HTML pages waiting to be served (page_id -> html)
     static ref PENDING_PAGES: Mutex<HashMap<u64, String>> = Mutex::new(HashMap::new());
-}
-
-/// Warmup: Start server and load font into GDI.
-pub fn warmup_fonts() {
-    load_gdi_font();
-    start_server();
-}
-
-fn load_gdi_font() {
-    unsafe {
-        let num_fonts = 0;
-        let len = GOOGLE_SANS_FLEX_TTF.len() as u32;
-        let handle = AddFontMemResourceEx(
-            GOOGLE_SANS_FLEX_TTF.as_ptr() as *mut _,
-            len,
-            None,
-            &num_fonts,
-        );
-
-        if handle.is_invalid() {
-            eprintln!("Failed to load Google Sans Flex into GDI");
-        }
-    }
 }
 
 fn start_server() {

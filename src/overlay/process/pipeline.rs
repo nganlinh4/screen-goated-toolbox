@@ -307,11 +307,14 @@ pub fn start_text_processing(
         let config = Arc::new(config);
         let preset = Arc::new(preset);
 
-        text_input::show(
+        text_input::show_with_options(
             guide_text,
             ui_lang,
             cancel_hotkey_name,
             false,
+            text_input::ShowOptions {
+                activation_mode: text_input::ActivationMode::Passive,
+            },
             move |user_prompt, input_hwnd| {
                 println!("[DEBUG dynamic] user_prompt=«{}»", user_prompt);
 

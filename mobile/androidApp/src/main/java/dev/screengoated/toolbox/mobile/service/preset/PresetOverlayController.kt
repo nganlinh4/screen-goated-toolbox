@@ -75,6 +75,7 @@ internal class PresetOverlayController(
         isDarkTheme = ::isDarkTheme,
         permissionSnapshotProvider = { appContainer.repository.state.value.permissions },
         screenBoundsProvider = ::screenBounds,
+        toastBus = appContainer.toastBus,
         onStreamingTextChunk = ::appendStreamingTextChunk,
     )
     private val autoSpeakCoordinator = if (ttsRuntimeService != null && ttsSettingsSnapshotProvider != null) {

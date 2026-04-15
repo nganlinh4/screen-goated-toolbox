@@ -12,14 +12,16 @@ class BilingualRelayRepository(
     private val settingsStore: SecureSettingsStore,
     private val languageDetector: DeviceLanguageDetector,
 ) {
+    private val savedConfig = settingsStore.loadBilingualRelayConfig().normalized()
     private val savedTranscripts = settingsStore.loadBilingualRelayTranscripts()
     private val transcriptIdCounter = AtomicLong(
         (savedTranscripts.maxOfOrNull { it.id } ?: 0L) + 1L,
     )
     private val mutableState = MutableStateFlow(
         BilingualRelayState(
-            appliedConfig = settingsStore.loadBilingualRelayConfig().normalized(),
-            draftConfig = settingsStore.loadBilingualRelayConfig().normalized(),
+            appliedConfig = savedConfig,
+            draftConfig = savedConfig,
+            guideSeen = savedConfig.guideSeen,
             transcripts = savedTranscripts,
         ).normalize(),
     )
@@ -38,10 +40,12 @@ class BilingualRelayRepository(
 
     fun applyDraft(): BilingualRelayConfig {
         val applied = mutableState.value.draftConfig.normalized()
+            .copy(guideSeen = mutableState.value.guideSeen)
         settingsStore.saveBilingualRelayConfig(applied)
         mutableState.value = mutableState.value.copy(
             appliedConfig = applied,
             draftConfig = applied,
+            guideSeen = applied.guideSeen,
             dirty = false,
             lastError = null,
             transcripts = emptyList(),
@@ -50,6 +54,16 @@ class BilingualRelayRepository(
     }
 
     fun currentAppliedConfig(): BilingualRelayConfig = mutableState.value.appliedConfig.normalized()
+
+    fun dismissGuide() {
+        val applied = mutableState.value.appliedConfig.normalized().copy(guideSeen = true)
+        settingsStore.saveBilingualRelayConfig(applied)
+        mutableState.value = mutableState.value.copy(
+            appliedConfig = applied,
+            draftConfig = mutableState.value.draftConfig.copy(guideSeen = true),
+            guideSeen = true,
+        ).normalize()
+    }
 
     fun currentApiKey(): String = settingsStore.loadApiKey().trim()
 
@@ -223,6 +237,7 @@ class BilingualRelayRepository(
             appliedConfig = applied,
             dirty = draftNormalized != applied,
             connectionState = connection,
+            guideSeen = guideSeen || applied.guideSeen || draftNormalized.guideSeen,
         )
     }
 

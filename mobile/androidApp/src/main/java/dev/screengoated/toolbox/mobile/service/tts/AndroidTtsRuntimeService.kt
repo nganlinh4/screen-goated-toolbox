@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.service.tts
 
 import android.content.Context
+import dev.screengoated.toolbox.mobile.AppToastBus
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.storage.SecureSettingsStore
@@ -17,6 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
+import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
 
 interface TtsRuntimeService {
     val runtimeState: StateFlow<TtsRuntimeState>
@@ -44,6 +46,7 @@ class AndroidTtsRuntimeService(
     context: Context,
     httpClient: OkHttpClient,
     private val settingsStore: SecureSettingsStore,
+    private val toastBus: AppToastBus,
     edgeVoiceCatalogService: EdgeVoiceCatalogService,
 ) : TtsRuntimeService {
     private val interruptGeneration = AtomicLong(0)
@@ -202,6 +205,10 @@ class AndroidTtsRuntimeService(
             android.util.Log.d("TTS-Timing", "Worker picked up job: method=${job.request.settingsSnapshot.method} text='${job.request.text.take(30)}...'")
             val method = job.request.settingsSnapshot.method
             val apiKey = settingsStore.loadApiKey().trim()
+            if (method == MobileTtsMethod.GEMINI_LIVE && apiKey.isBlank()) {
+                job.audioEvents.offer(ProviderAudioEvent.Error("NO_API_KEY:google"))
+                continue
+            }
             runCatching {
                 when (method) {
                     MobileTtsMethod.GEMINI_LIVE -> geminiProvider.stream(
@@ -286,6 +293,7 @@ class AndroidTtsRuntimeService(
                     }
 
                     is ProviderAudioEvent.Error -> {
+                        apiKeyErrorToastText(event.message, settingsStore.loadUiPreferences().uiLanguage)?.let(toastBus::show)
                         audioPlayer.stopImmediate()
                         completion = TtsCompletionStatus.FAILED
                         done = true
