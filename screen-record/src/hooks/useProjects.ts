@@ -246,6 +246,12 @@ export function useProjects(props: UseProjectsProps) {
           project.recordingMode === "withCursor" ? false : true;
       }
       correctedSegment.crop = normalizeCropRect(correctedSegment.crop);
+      correctedSegment.textSegments = Array.isArray(correctedSegment.textSegments)
+        ? correctedSegment.textSegments
+        : [];
+      correctedSegment.subtitleSegments = Array.isArray(correctedSegment.subtitleSegments)
+        ? correctedSegment.subtitleSegments
+        : [];
       correctedSegment.deviceAudioPoints = normalizeDeviceAudioPoints(
         correctedSegment.deviceAudioPoints,
         videoDuration,

@@ -25,17 +25,8 @@ const VOICE_ACTIVITY_RMS: f32 = 0.015;
 /// Qwen3-ASR model variant (0.6B or 1.7B)
 #[derive(Clone, Copy, Debug)]
 pub enum Qwen3ModelVariant {
-    Small,  // 0.6B
-    Large,  // 1.7B
-}
-
-pub fn run_qwen3_transcription(
-    _preset: Preset,
-    stop_signal: Arc<AtomicBool>,
-    overlay_hwnd: HWND,
-    state: SharedRealtimeState,
-) -> Result<()> {
-    run_qwen3_transcription_variant(_preset, stop_signal, overlay_hwnd, state, Qwen3ModelVariant::Small)
+    Small, // 0.6B
+    Large, // 1.7B
 }
 
 pub fn run_qwen3_transcription_variant(
@@ -50,15 +41,23 @@ pub fn run_qwen3_transcription_variant(
     }
 
     let (is_downloaded, download_label) = match variant {
-        Qwen3ModelVariant::Small => (assets::is_qwen3_model_downloaded(), "Downloading Qwen3-ASR 0.6B model..."),
-        Qwen3ModelVariant::Large => (assets::is_qwen3_1_7b_model_downloaded(), "Downloading Qwen3-ASR 1.7B model..."),
+        Qwen3ModelVariant::Small => (
+            assets::is_qwen3_model_downloaded(),
+            "Downloading Qwen3-ASR 0.6B model...",
+        ),
+        Qwen3ModelVariant::Large => (
+            assets::is_qwen3_1_7b_model_downloaded(),
+            "Downloading Qwen3-ASR 1.7B model...",
+        ),
     };
 
     if !is_downloaded {
         update_overlay_text(overlay_hwnd, download_label);
         match variant {
             Qwen3ModelVariant::Small => assets::download_qwen3_model(stop_signal.clone(), true)?,
-            Qwen3ModelVariant::Large => assets::download_qwen3_1_7b_model(stop_signal.clone(), true)?,
+            Qwen3ModelVariant::Large => {
+                assets::download_qwen3_1_7b_model(stop_signal.clone(), true)?
+            }
         }
     }
 

@@ -106,14 +106,8 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
             "GEMINI_LIVE_AUDIO_MODEL_ID_2_5",
             "gemini_live_audio_model_id_2_5",
         ),
-        (
-            "QWEN3_ASR_0_6B_MODEL_ID",
-            "qwen3_asr_0_6b_model_id",
-        ),
-        (
-            "QWEN3_ASR_1_7B_MODEL_ID",
-            "qwen3_asr_1_7b_model_id",
-        ),
+        ("QWEN3_ASR_0_6B_MODEL_ID", "qwen3_asr_0_6b_model_id"),
+        ("QWEN3_ASR_1_7B_MODEL_ID", "qwen3_asr_1_7b_model_id"),
         (
             "REALTIME_TRANSLATION_MODEL_CEREBRAS",
             "realtime_translation_model_cerebras",

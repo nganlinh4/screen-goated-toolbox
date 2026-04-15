@@ -27,7 +27,7 @@ interface UseAutoZoomProps {
   currentProjectId: string | null;
   backgroundConfig: BackgroundConfig;
   loadProjects: () => Promise<void>;
-  setActivePanel: (panel: "zoom" | "background" | "cursor" | "text") => void;
+  setActivePanel: (panel: "zoom" | "background" | "cursor" | "text" | "subtitles") => void;
 }
 
 export function useAutoZoom(props: UseAutoZoomProps) {

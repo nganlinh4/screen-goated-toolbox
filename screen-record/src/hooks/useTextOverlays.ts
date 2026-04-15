@@ -12,7 +12,7 @@ interface UseTextOverlaysProps {
   setSegment: (segment: VideoSegment | null) => void;
   currentTime: number;
   duration: number;
-  setActivePanel: (panel: "zoom" | "background" | "cursor" | "text") => void;
+  setActivePanel: (panel: "zoom" | "background" | "cursor" | "text" | "subtitles") => void;
 }
 
 export function useTextOverlays(props: UseTextOverlaysProps) {

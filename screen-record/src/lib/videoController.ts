@@ -550,7 +550,7 @@ export class VideoController {
     return {
       trimStart: 0, trimEnd: dur,
       trimSegments: [{ id: crypto.randomUUID(), startTime: 0, endTime: dur }],
-      zoomKeyframes: [], textSegments: [],
+      zoomKeyframes: [], textSegments: [], subtitleSegments: [],
       speedPoints: [{ time: 0, speed: 1 }, { time: dur, speed: 1 }],
       deviceAudioPoints: buildFlatDeviceAudioPoints(dur),
       micAudioPoints: buildFlatMicAudioPoints(dur),

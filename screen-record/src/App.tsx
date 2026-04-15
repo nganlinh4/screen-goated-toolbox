@@ -30,6 +30,7 @@ import { type PersistOptions } from "@/hooks/useSequenceComposition";
 import { EditorOverlays } from "@/components/EditorOverlays";
 import { DragDropOverlay } from "@/components/DragDropOverlay";
 import { useVideoImport } from "@/hooks/useVideoImport";
+import { useSubtitleGeneration } from "@/hooks/useSubtitleGeneration";
 import { EditorMain } from "@/components/EditorMain";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
 import { cloneWebcamConfig, DEFAULT_WEBCAM_CONFIG } from "@/lib/webcam";
@@ -410,6 +411,28 @@ function App() {
     beginBatch,
     commitBatch,
   });
+  const {
+    editingSubtitleId,
+    setEditingSubtitleId,
+    subtitleSource,
+    setSubtitleSource,
+    subtitleLanguageHint,
+    setSubtitleLanguageHint,
+    isGeneratingSubtitles,
+    subtitleStatusMessage,
+    handleGenerateSubtitles,
+    handleCancelSubtitleGeneration,
+  } = useSubtitleGeneration({
+    segment,
+    setSegment: setSegment as (segment: VideoSegment | null | ((prev: VideoSegment | null) => VideoSegment | null)) => void,
+    composition,
+    setComposition,
+    activeClipId,
+    currentRawVideoPath,
+    currentRawMicAudioPath,
+    duration,
+    setActivePanel,
+  });
   const isOverlayMode = projects.showProjectsDialog || isCropping;
 
   const {
@@ -720,12 +743,22 @@ function App() {
           handleBackgroundUpload={handleBackgroundUpload}
           isBackgroundUploadProcessing={isBackgroundUploadProcessing}
           editingTextId={editingTextId}
+          editingSubtitleId={editingSubtitleId}
+          subtitleSource={subtitleSource}
+          onSubtitleSourceChange={setSubtitleSource}
+          subtitleLanguageHint={subtitleLanguageHint}
+          onSubtitleLanguageHintChange={setSubtitleLanguageHint}
+          isGeneratingSubtitles={isGeneratingSubtitles}
+          subtitleStatusMessage={subtitleStatusMessage}
+          handleGenerateSubtitles={handleGenerateSubtitles}
+          handleCancelSubtitleGeneration={handleCancelSubtitleGeneration}
           thumbnails={thumbnails}
           timelineRef={timelineRef}
           editingKeystrokeSegmentId={editingKeystrokeSegmentId}
           setCurrentTime={setCurrentTime}
           setEditingKeyframeId={setEditingKeyframeId}
           setEditingTextId={setEditingTextId}
+          setEditingSubtitleId={setEditingSubtitleId}
           setEditingKeystrokeSegmentId={setEditingKeystrokeSegmentId}
           setEditingPointerId={setEditingPointerId}
           seek={seek}

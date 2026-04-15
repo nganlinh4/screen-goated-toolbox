@@ -5,6 +5,7 @@ import { ZoomPanel } from './ZoomPanel';
 import { CameraPanel } from './CameraPanel';
 import { BackgroundPanel } from './BackgroundPanel';
 import { CursorPanel } from './CursorPanel';
+import { SubtitlePanel } from './SubtitlePanel';
 import { TextPanel } from './TextPanel';
 import { BlurPanel } from './BlurPanel';
 import { motion } from 'framer-motion';
@@ -19,9 +20,10 @@ export type ActivePanel =
   | 'background'
   | 'cursor'
   | 'blur'
+  | 'subtitles'
   | 'text';
 
-const PANEL_TAB_ORDER: ActivePanel[] = ['zoom', 'camera', 'background', 'cursor', 'blur', 'text'];
+const PANEL_TAB_ORDER: ActivePanel[] = ['zoom', 'camera', 'background', 'cursor', 'blur', 'subtitles', 'text'];
 
 // ============================================================================
 // PanelTabs
@@ -49,6 +51,8 @@ function PanelTabs({ activePanel, onPanelChange, hiddenTabs }: PanelTabsProps) {
             ? t.tabCursor
             : id === 'blur'
               ? t.tabBlur
+              : id === 'subtitles'
+                ? t.tabSubtitles
               : t.tabText,
   }));
 
@@ -107,6 +111,17 @@ interface SidePanelProps {
   onBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   isBackgroundUploadProcessing: boolean;
   editingTextId: string | null;
+  selectedSubtitleIds?: string[];
+  subtitleSource: 'video' | 'mic';
+  onSubtitleSourceChange: (value: 'video' | 'mic') => void;
+  subtitleLanguageHint: string;
+  onSubtitleLanguageHintChange: (value: string) => void;
+  isGeneratingSubtitles: boolean;
+  subtitleStatusMessage?: string | null;
+  canUseVideoSubtitleSource: boolean;
+  canUseMicSubtitleSource: boolean;
+  onGenerateSubtitles: () => void;
+  onCancelSubtitleGeneration: () => void;
   selectedTextIds?: string[];
   hasMouseData?: boolean;
   onUpdateSegment: (segment: VideoSegment) => void;
@@ -133,6 +148,17 @@ export function SidePanel({
   onBackgroundUpload,
   isBackgroundUploadProcessing,
   editingTextId,
+  selectedSubtitleIds,
+  subtitleSource,
+  onSubtitleSourceChange,
+  subtitleLanguageHint,
+  onSubtitleLanguageHintChange,
+  isGeneratingSubtitles,
+  subtitleStatusMessage,
+  canUseVideoSubtitleSource,
+  canUseMicSubtitleSource,
+  onGenerateSubtitles,
+  onCancelSubtitleGeneration,
   selectedTextIds,
   hasMouseData,
   onUpdateSegment,
@@ -141,12 +167,14 @@ export function SidePanel({
 }: SidePanelProps) {
   const hasZoomFocus = editingKeyframeId !== null;
   const hasTextFocus = !!editingTextId || (selectedTextIds?.length ?? 0) > 0;
+  const hasSubtitlePanel = !!segment;
 
   const hiddenTabs = new Set<ActivePanel>();
   if (!hasMouseData) hiddenTabs.add('cursor');
   if (!webcamAvailable) hiddenTabs.add('camera');
   if (!hasZoomFocus) hiddenTabs.add('zoom');
   if (!hasTextFocus) hiddenTabs.add('text');
+  if (!hasSubtitlePanel) hiddenTabs.add('subtitles');
   const visiblePanelOrder = PANEL_TAB_ORDER.filter((id) => !hiddenTabs.has(id));
   // If active panel got hidden, fall back to first visible tab
   const effectivePanel = hiddenTabs.has(activePanel) ? (visiblePanelOrder[0] ?? 'background') : activePanel;
@@ -215,6 +243,28 @@ export function SidePanel({
         <BlurPanel
           backgroundConfig={backgroundConfig}
           setBackgroundConfig={setBackgroundConfig}
+          beginBatch={beginBatch}
+          commitBatch={commitBatch}
+        />
+      );
+    }
+
+    if (panelId === 'subtitles') {
+      return (
+        <SubtitlePanel
+          segment={segment}
+          selectedSubtitleIds={selectedSubtitleIds}
+          selectedSource={subtitleSource}
+          onSourceChange={onSubtitleSourceChange}
+          languageHint={subtitleLanguageHint}
+          onLanguageHintChange={onSubtitleLanguageHintChange}
+          isGenerating={isGeneratingSubtitles}
+          statusMessage={subtitleStatusMessage}
+          canUseVideoSource={canUseVideoSubtitleSource}
+          canUseMicSource={canUseMicSubtitleSource}
+          onGenerate={onGenerateSubtitles}
+          onCancel={onCancelSubtitleGeneration}
+          onUpdateSegment={onUpdateSegment}
           beginBatch={beginBatch}
           commitBatch={commitBatch}
         />

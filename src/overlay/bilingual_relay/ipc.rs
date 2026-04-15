@@ -64,7 +64,9 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
         "add_hotkey" => handle_add_hotkey(envelope.args),
         "remove_hotkey" => handle_remove_hotkey(envelope.args),
         "set_tts_volume" => {
-            let vol = envelope.args.get("volume")
+            let vol = envelope
+                .args
+                .get("volume")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(100) as u32;
             crate::overlay::realtime_webview::state::CURRENT_TTS_VOLUME

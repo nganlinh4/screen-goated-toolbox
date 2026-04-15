@@ -7,6 +7,7 @@ import { Playhead } from "./Playhead";
 import { PointerTrack } from "./PointerTrack";
 import { DeviceAudioTrack } from "./DeviceAudioTrack";
 import { SpeedTrack } from "./SpeedTrack";
+import { SubtitleTrack } from "./SubtitleTrack";
 import { TextTrack } from "./TextTrack";
 import { TrimTrack } from "./TrimTrack";
 import { WebcamVisibilityTrack } from "./WebcamVisibilityTrack";
@@ -29,6 +30,7 @@ const TIMELINE_TRACK_HEIGHTS = {
   deviceAudio: 40,
   micAudio: 40,
   webcam: 28,
+  subtitles: 28,
   text: 28,
   keystroke: 28,
   pointer: 28,
@@ -44,13 +46,15 @@ interface TimelineAreaProps {
   videoRef: React.RefObject<HTMLVideoElement>;
   editingKeyframeId: number | null;
   editingTextId: string | null;
+  editingSubtitleId: string | null;
   editingKeystrokeSegmentId: string | null;
   setCurrentTime: (time: number) => void;
   setEditingKeyframeId: (id: number | null) => void;
   setEditingTextId: (id: string | null) => void;
+  setEditingSubtitleId: (id: string | null) => void;
   setEditingKeystrokeSegmentId: (id: string | null) => void;
   setEditingPointerId: (id: string | null) => void;
-  setActivePanel: (panel: "zoom" | "background" | "cursor" | "text") => void;
+  setActivePanel: (panel: "zoom" | "background" | "cursor" | "text" | "subtitles") => void;
   setSegment: (segment: VideoSegment | null) => void;
   onSeek?: (time: number) => void;
   onSeekEnd?: () => void;
@@ -66,6 +70,7 @@ interface TimelineAreaProps {
   beginBatch: () => void;
   commitBatch: () => void;
   onTextSelectionChange?: (ids: string[]) => void;
+  onSubtitleSelectionChange?: (ids: string[]) => void;
   onPointerSelectionChange?: (ids: string[]) => void;
   onKeystrokeSelectionChange?: (ids: string[]) => void;
   onWebcamSelectionChange?: (ids: string[]) => void;
@@ -82,10 +87,12 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   videoRef,
   editingKeyframeId,
   editingTextId,
+  editingSubtitleId,
   editingKeystrokeSegmentId,
   setCurrentTime,
   setEditingKeyframeId,
   setEditingTextId,
+  setEditingSubtitleId,
   setEditingKeystrokeSegmentId,
   setEditingPointerId,
   setActivePanel,
@@ -104,6 +111,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   beginBatch,
   commitBatch,
   onTextSelectionChange,
+  onSubtitleSelectionChange,
   onPointerSelectionChange,
   onKeystrokeSelectionChange,
   onWebcamSelectionChange,
@@ -181,6 +189,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     ...(showDeviceAudio ? [TIMELINE_TRACK_HEIGHTS.deviceAudio] : []),
     ...(showMicAudio ? [TIMELINE_TRACK_HEIGHTS.micAudio] : []),
     ...(showWebcam ? [TIMELINE_TRACK_HEIGHTS.webcam] : []),
+    TIMELINE_TRACK_HEIGHTS.subtitles,
     TIMELINE_TRACK_HEIGHTS.text,
     ...(showKeystroke ? [TIMELINE_TRACK_HEIGHTS.keystroke] : []),
     ...(hasMouseData ? [TIMELINE_TRACK_HEIGHTS.pointer] : []),
@@ -198,6 +207,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     handleZoomDragStart,
     handleTextDragStart,
     handleTextClick,
+    handleSubtitleDragStart,
+    handleSubtitleClick,
     handleKeystrokeDragStart,
     handleKeystrokeClick,
     handlePointerDragStart,
@@ -217,6 +228,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     setSegment,
     setEditingKeyframeId,
     setEditingTextId,
+    setEditingSubtitleId,
     setEditingKeystrokeId: setEditingKeystrokeSegmentId,
     setEditingPointerId,
     setActivePanel,
@@ -232,6 +244,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     dragState.isDraggingTextStart ||
     dragState.isDraggingTextEnd ||
     dragState.isDraggingTextBody ||
+    dragState.isDraggingSubtitleStart ||
+    dragState.isDraggingSubtitleEnd ||
+    dragState.isDraggingSubtitleBody ||
     dragState.isDraggingKeystrokeStart ||
     dragState.isDraggingKeystrokeEnd ||
     dragState.isDraggingKeystrokeBody ||
@@ -277,6 +292,33 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     const idSet = new Set(ids);
     const remaining = (segment.textSegments ?? []).filter(t => !idSet.has(t.id));
     setSegment({ ...segment, textSegments: remaining });
+    commitBatch();
+  }, [segment, setSegment, beginBatch, commitBatch]);
+
+  const handleSubtitleSplit = useCallback((id: string, splitTime: number) => {
+    if (!segment) return;
+    beginBatch();
+    const subtitles = segment.subtitleSegments ?? [];
+    const target = subtitles.find((subtitle) => subtitle.id === id);
+    if (!target || splitTime <= target.startTime + 0.1 || splitTime >= target.endTime - 0.1) {
+      commitBatch();
+      return;
+    }
+    const left = { ...target, endTime: splitTime - 0.01 };
+    const right = { ...target, id: crypto.randomUUID(), startTime: splitTime + 0.01 };
+    setSegment({
+      ...segment,
+      subtitleSegments: subtitles.map((subtitle) => subtitle.id === id ? left : subtitle).concat(right),
+    });
+    commitBatch();
+  }, [segment, setSegment, beginBatch, commitBatch]);
+
+  const handleDeleteSubtitleSegments = useCallback((ids: string[]) => {
+    if (!segment) return;
+    beginBatch();
+    const idSet = new Set(ids);
+    const remaining = (segment.subtitleSegments ?? []).filter((subtitle) => !idSet.has(subtitle.id));
+    setSegment({ ...segment, subtitleSegments: remaining });
     commitBatch();
   }, [segment, setSegment, beginBatch, commitBatch]);
 
@@ -420,6 +462,11 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               isAvailable: true,
               heightClassName: "h-7",
             })}
+            <div className="timeline-label-subtitles h-7 flex items-center">
+              <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+                {t.trackSubtitles}
+              </span>
+            </div>
             <div className="timeline-label-text h-7 flex items-center">
               <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                 {t.trackText}
@@ -578,6 +625,22 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                   ) : (
                     <div className="webcam-visibility-track-empty timeline-track-empty h-7" />
                   ))}
+
+                  {segment ? (
+                    <SubtitleTrack
+                      segment={segment}
+                      duration={duration}
+                      editingSubtitleId={editingSubtitleId}
+                      onSubtitleClick={handleSubtitleClick}
+                      onSubtitleSplit={handleSubtitleSplit}
+                      onHandleDragStart={handleSubtitleDragStart}
+                      onDeleteSubtitleSegments={handleDeleteSubtitleSegments}
+                      onSelectionChange={onSubtitleSelectionChange}
+                      clearSignal={clearSelectionSignal}
+                    />
+                  ) : (
+                    <div className="subtitle-track-empty timeline-track-empty h-7" />
+                  )}
 
                   {segment ? (
                     <TextTrack

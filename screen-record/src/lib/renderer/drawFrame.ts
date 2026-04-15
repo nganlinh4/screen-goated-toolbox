@@ -534,9 +534,13 @@ export async function drawFrame(
 
     drawWebcamOverlay(ctx, zoomState, state, video, webcamVideo, segment, webcamConfig, canvasW, canvasH, webcamAspectRatio);
 
-    if (segment.textSegments) {
+    const overlayTextSegments = [
+      ...(segment.subtitleSegments ?? []),
+      ...(segment.textSegments ?? []),
+    ];
+    if (overlayTextSegments.length > 0) {
       const FADE_DURATION = 0.3;
-      for (const textSegment of segment.textSegments) {
+      for (const textSegment of overlayTextSegments) {
         if (video.currentTime >= textSegment.startTime && video.currentTime <= textSegment.endTime) {
           let fadeAlpha = 1.0;
           const elapsed = video.currentTime - textSegment.startTime;

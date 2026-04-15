@@ -37,6 +37,7 @@ export function useVideoImport(opts: {
         trimSegments: [{ id: crypto.randomUUID(), startTime: 0, endTime: duration }],
         zoomKeyframes: [],
         textSegments: [],
+        subtitleSegments: [],
         speedPoints: [
           { time: 0, speed: 1 },
           { time: duration, speed: 1 },

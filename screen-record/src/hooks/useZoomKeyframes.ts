@@ -17,7 +17,7 @@ interface UseZoomKeyframesProps {
   isVideoReady: boolean;
   renderFrame: () => void;
   activePanel: string;
-  setActivePanel: (panel: "zoom" | "background" | "cursor" | "text") => void;
+  setActivePanel: (panel: "zoom" | "background" | "cursor" | "text" | "subtitles") => void;
 }
 
 export function useZoomKeyframes(props: UseZoomKeyframesProps) {
