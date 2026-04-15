@@ -33,7 +33,6 @@ pub struct RelayTranscriptItem {
     pub role: &'static str,
     pub text: String,
     pub is_final: bool,
-    /// ISO 639-3 language code detected by lingua (e.g. "eng", "vie", "jpn")
     pub lang: String,
 }
 

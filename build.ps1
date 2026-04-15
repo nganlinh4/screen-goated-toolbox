@@ -19,7 +19,18 @@ $pdjTargetDist = Join-Path $PSScriptRoot "src\overlay\prompt_dj\dist"
 
 Push-Location $pdjDir
 try {
+    if (-not (Test-Path "node_modules")) {
+        npm install
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "FAILED: PromptDJ npm install failed." -ForegroundColor Red
+            exit 1
+        }
+    }
     npm run build
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "FAILED: PromptDJ build failed." -ForegroundColor Red
+        exit 1
+    }
 }
 finally {
     Pop-Location
@@ -45,10 +56,18 @@ $brTargetDist = Join-Path $PSScriptRoot "src\overlay\bilingual_relay\dist"
 
 Push-Location $brDir
 try {
-    if (-not (Test-Path "node_modules")) {
+    if (-not (Test-Path "node_modules") -or -not (Test-Path "node_modules\\.bin\\vite.cmd")) {
         npm install
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "FAILED: Bilingual Relay npm install failed." -ForegroundColor Red
+            exit 1
+        }
     }
     npm run build
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "FAILED: Bilingual Relay build failed." -ForegroundColor Red
+        exit 1
+    }
 }
 finally {
     Pop-Location
@@ -76,8 +95,16 @@ Push-Location $srDir
 try {
     if (-not (Test-Path "node_modules")) {
         npm install
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "FAILED: Screen Record npm install failed." -ForegroundColor Red
+            exit 1
+        }
     }
     npm run build
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "FAILED: Screen Record build failed." -ForegroundColor Red
+        exit 1
+    }
 }
 finally {
     Pop-Location
