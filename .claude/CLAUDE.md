@@ -43,6 +43,8 @@ cargo test               # Run tests
 - Always run `cargo clippy --all-targets` before commits
 - Test on Windows 10/11 for compatibility
 - For WSL validation, use `ORT_SKIP_DOWNLOAD=1 cargo check --target x86_64-pc-windows-gnu` (the `ort-sys` crate does not provide downloadable binaries for `x86_64-pc-windows-gnu`).
+- For Windows MSVC target validation, use `scripts/validate-windows-targets.ps1`.
+- Windows ARM64 validation currently requires LLVM `clang` on PATH because `ring` forces clang for `aarch64-pc-windows-msvc`.
 
 ## Android Build Workflow
 - For this repo, Android Gradle build/test/install is most reliable from Windows PowerShell, not WSL Gradle, because the WSL-visible Android SDK can report corrupted/missing build-tools binaries.

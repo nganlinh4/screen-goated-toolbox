@@ -1,6 +1,30 @@
 use std::sync::mpsc::Sender;
 use std::thread;
 
+fn current_release_arch_suffix() -> &'static str {
+    match crate::runtime_support::current_process_arch() {
+        crate::runtime_support::RuntimeArch::Arm64 => "arm64",
+        _ => "x64",
+    }
+}
+
+fn select_release_asset<'a>(
+    assets: &'a [self_update::update::ReleaseAsset],
+) -> Option<&'a self_update::update::ReleaseAsset> {
+    let arch_suffix = current_release_arch_suffix();
+    assets
+        .iter()
+        .find(|asset| {
+            let name = asset.name.to_ascii_lowercase();
+            name.contains(arch_suffix) && (name.ends_with(".exe") || name.ends_with(".zip"))
+        })
+        .or_else(|| {
+            assets
+                .iter()
+                .find(|asset| asset.name.ends_with(".exe") || asset.name.ends_with(".zip"))
+        })
+}
+
 #[derive(Debug, Clone)]
 pub enum UpdateStatus {
     Idle,
@@ -209,16 +233,13 @@ impl Updater {
             };
 
             // Find the .exe or .zip asset from release
-            let asset = match release
-                .assets
-                .iter()
-                .find(|a| a.name.ends_with(".exe") || a.name.ends_with(".zip"))
-            {
+            let asset = match select_release_asset(&release.assets) {
                 Some(a) => a,
                 None => {
-                    let _ = tx.send(UpdateStatus::Error(
-                        "No .exe or .zip found in release assets".to_string(),
-                    ));
+                    let _ = tx.send(UpdateStatus::Error(format!(
+                        "No {} installer asset found in release assets",
+                        current_release_arch_suffix()
+                    )));
                     return;
                 }
             };

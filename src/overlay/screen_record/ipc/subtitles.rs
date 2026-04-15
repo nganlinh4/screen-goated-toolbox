@@ -521,7 +521,10 @@ fn build_sentence_blocks_from_words(words: &[GroqWord]) -> Vec<SubtitleSegmentRe
 
 fn finalize_word_block(words: &[&GroqWord]) -> Option<SubtitleSegmentResult> {
     let text = normalize_subtitle_text(&join_word_tokens(
-        &words.iter().map(|word| word.word.as_str()).collect::<Vec<_>>(),
+        &words
+            .iter()
+            .map(|word| word.word.as_str())
+            .collect::<Vec<_>>(),
     ));
     if text.is_empty() {
         return None;
@@ -638,7 +641,11 @@ fn upsert_clip_result(
         .lock()
         .map_err(|_| "Subtitle snapshot lock poisoned".to_string())?;
     locked.active_clip_id = Some(clip_id.to_string());
-    if let Some(existing) = locked.results.iter_mut().find(|result| result.clip_id == clip_id) {
+    if let Some(existing) = locked
+        .results
+        .iter_mut()
+        .find(|result| result.clip_id == clip_id)
+    {
         existing.segments = segments;
         existing.is_partial = is_partial;
     } else {

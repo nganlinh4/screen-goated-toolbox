@@ -204,6 +204,12 @@ fn wnd_http_response(
 // --- PUBLIC API ---
 
 pub fn show_screen_record() {
+    let capability = crate::runtime_support::require_webview2("Screen record");
+    if !capability.is_supported() {
+        crate::runtime_support::notify_capability_issue(&capability);
+        return;
+    }
+
     unsafe {
         if !IS_WARMED_UP {
             if !IS_INITIALIZING {

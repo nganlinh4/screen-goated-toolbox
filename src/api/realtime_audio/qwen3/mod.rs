@@ -36,6 +36,12 @@ pub fn run_qwen3_transcription_variant(
     state: SharedRealtimeState,
     variant: Qwen3ModelVariant,
 ) -> Result<()> {
+    let capability = crate::runtime_support::supports_qwen3_local_runtime();
+    if !capability.is_supported() {
+        crate::runtime_support::notify_capability_issue(&capability);
+        return Err(anyhow::anyhow!(capability.details));
+    }
+
     if let Ok(mut s) = state.lock() {
         s.set_transcription_method(TranscriptionMethod::Qwen3Local);
     }

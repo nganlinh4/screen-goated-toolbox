@@ -181,6 +181,12 @@ pub fn show_selector(
     text: SelectorText,
     callbacks: SelectorCallbacks,
 ) {
+    let capability = crate::runtime_support::require_webview2("Window selector");
+    if !capability.is_supported() {
+        crate::runtime_support::notify_capability_issue(&capability);
+        return;
+    }
+
     if entries.is_empty() {
         return;
     }

@@ -9,7 +9,6 @@ use super::DownloadManager;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-pub(super) const FFMPEG_DOWNLOAD_URL: &str = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-win64-gpl-8.0.zip";
 pub(super) const FFMPEG_RELEASE_API_URL: &str =
     "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest";
 pub(super) const FFMPEG_RELEASE_MARKER_FILE: &str = "ffmpeg_release_source.txt";
@@ -21,8 +20,27 @@ pub(super) const YTDLP_DOWNLOAD_URL: &str =
     "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp.exe";
 pub(super) const DENO_RELEASE_API_URL: &str =
     "https://api.github.com/repos/denoland/deno/releases/latest";
-pub(super) const DENO_DOWNLOAD_URL: &str =
-    "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip";
+pub(super) fn ffmpeg_download_url() -> &'static str {
+    match crate::runtime_support::tool_download_arch() {
+        crate::runtime_support::RuntimeArch::Arm64 => {
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-winarm64-gpl-8.1.zip"
+        }
+        _ => {
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-8.1.zip"
+        }
+    }
+}
+
+pub(super) fn deno_download_url() -> &'static str {
+    match crate::runtime_support::tool_download_arch() {
+        crate::runtime_support::RuntimeArch::Arm64 => {
+            "https://github.com/denoland/deno/releases/latest/download/deno-aarch64-pc-windows-msvc.zip"
+        }
+        _ => {
+            "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
+        }
+    }
+}
 
 pub(super) fn extract_json_string_field(json: &str, field: &str) -> Option<String> {
     let needle = format!("\"{}\"", field);

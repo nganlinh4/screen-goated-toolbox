@@ -1,7 +1,6 @@
 use super::run::{
-    DENO_DOWNLOAD_URL, FFMPEG_DOWNLOAD_URL, FFMPEG_RELEASE_MARKER_FILE, YTDLP_DOWNLOAD_URL,
-    fetch_btbn_release_label, parse_ffmpeg_version, read_local_deno_version,
-    read_local_ytdlp_version,
+    FFMPEG_RELEASE_MARKER_FILE, YTDLP_DOWNLOAD_URL, deno_download_url, fetch_btbn_release_label,
+    ffmpeg_download_url, parse_ffmpeg_version, read_local_deno_version, read_local_ytdlp_version,
 };
 use super::types::{InstallStatus, UpdateStatus};
 use super::utils::{download_file, extract_deno, extract_ffmpeg, log};
@@ -77,11 +76,12 @@ impl DownloadManager {
         }
 
         thread::spawn(move || {
-            log(&logs, format!("Starting download: {}", DENO_DOWNLOAD_URL));
+            let download_url = deno_download_url();
+            log(&logs, format!("Starting download: {}", download_url));
 
             let zip_path = bin.join("deno.zip");
             let deno_path = bin.join("deno.exe");
-            match download_file(DENO_DOWNLOAD_URL, &zip_path, &status, &cancel) {
+            match download_file(download_url, &zip_path, &status, &cancel) {
                 Ok(_) => {
                     log(&logs, "Deno download complete. Extracting...");
                     *status.lock().unwrap() = InstallStatus::Extracting;
@@ -140,7 +140,7 @@ impl DownloadManager {
         }
 
         thread::spawn(move || {
-            let url = FFMPEG_DOWNLOAD_URL;
+            let url = ffmpeg_download_url();
             log(&logs, format!("Starting download: {}", url));
             let remote_release = fetch_btbn_release_label().ok();
 

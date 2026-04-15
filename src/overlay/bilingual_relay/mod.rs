@@ -40,6 +40,12 @@ thread_local! {
 }
 
 pub fn show_bilingual_relay() {
+    let capability = crate::runtime_support::require_webview2("Bilingual relay");
+    if !capability.is_supported() {
+        crate::runtime_support::notify_capability_issue(&capability);
+        return;
+    }
+
     window::show();
 }
 

@@ -193,6 +193,11 @@ pub fn show_with_options(
     options: ShowOptions,
     on_submit: impl Fn(String, HWND) + Send + 'static,
 ) {
+    let capability = crate::runtime_support::require_webview2("Text input overlay");
+    if !capability.is_supported() {
+        crate::runtime_support::notify_capability_issue(&capability);
+        return;
+    }
     // Re-entrancy guard: if we are already in the process of showing/waiting, ignore subsequent calls
     // This prevents key-mashing from spawning multiple wait loops or confused states
     if IS_SHOWING

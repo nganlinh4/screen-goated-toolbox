@@ -328,6 +328,12 @@ impl HasWindowHandle for HwndWrapper {
 }
 
 pub fn show_prompt_dj() {
+    let capability = crate::runtime_support::require_webview2("Prompt DJ");
+    if !capability.is_supported() {
+        crate::runtime_support::notify_capability_issue(&capability);
+        return;
+    }
+
     unsafe {
         // Initialize on-demand if not warmed up
         if !IS_WARMED_UP {
