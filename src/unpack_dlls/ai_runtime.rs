@@ -457,10 +457,7 @@ pub fn current_ai_runtime_status() -> AiRuntimeStatus {
 }
 
 pub fn ai_runtime_version_label() -> String {
-    format!(
-        "ONNX Runtime {} + DirectML {}",
-        ONNX_RUNTIME_VERSION, DIRECTML_VERSION
-    )
+    format!("ORT {} · DML {}", ONNX_RUNTIME_VERSION, DIRECTML_VERSION)
 }
 
 pub fn remove_ai_runtime() -> Result<()> {

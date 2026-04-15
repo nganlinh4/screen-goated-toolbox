@@ -47,7 +47,7 @@ struct RuntimeExports {
 }
 
 struct RuntimeInner {
-    _library: Library,
+    library: Option<Library>,
     _preloaded_cuda: (Option<Library>, Option<Library>),
     exports: RuntimeExports,
     handle: *mut c_void,
@@ -105,6 +105,12 @@ impl Drop for RuntimeInner {
                 let _ = (self.exports.destroy_runtime)(self.handle);
             }
         }
+        let (c10_cuda, torch_cuda) = (self._preloaded_cuda.0.take(), self._preloaded_cuda.1.take());
+        let library = self.library.take();
+        drop(c10_cuda);
+        drop(torch_cuda);
+        drop(library);
+        reset_cuda_device();
     }
 }
 
@@ -121,6 +127,44 @@ impl Drop for Qwen3Session {
 fn set_runtime_notice(message: impl Into<String>) {
     *LAST_QWEN3_RUNTIME_NOTICE.lock().unwrap() = Some(message.into());
 }
+
+#[cfg(target_os = "windows")]
+fn reset_cuda_device() {
+    type CudaDeviceFn = unsafe extern "C" fn() -> i32;
+
+    unsafe {
+        unsafe extern "system" {
+            fn GetModuleHandleA(lp_module_name: *const u8) -> *mut c_void;
+            fn LoadLibraryA(lp_lib_file_name: *const u8) -> *mut c_void;
+            fn FreeLibrary(h_module: *mut c_void) -> i32;
+            fn GetProcAddress(h_module: *mut c_void, lp_proc_name: *const u8) -> *mut c_void;
+        }
+
+        let mut module = GetModuleHandleA(c"cudart64_12.dll".as_ptr() as *const u8);
+        let loaded_here = module.is_null();
+        if loaded_here {
+            module = LoadLibraryA(c"cudart64_12.dll".as_ptr() as *const u8);
+        }
+        if !module.is_null() {
+            let sync_proc = GetProcAddress(module, c"cudaDeviceSynchronize".as_ptr() as *const u8);
+            if !sync_proc.is_null() {
+                let sync: CudaDeviceFn = std::mem::transmute(sync_proc);
+                let _ = sync();
+            }
+            let proc = GetProcAddress(module, c"cudaDeviceReset".as_ptr() as *const u8);
+            if !proc.is_null() {
+                let reset: CudaDeviceFn = std::mem::transmute(proc);
+                let _ = reset();
+            }
+            if loaded_here {
+                let _ = FreeLibrary(module);
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn reset_cuda_device() {}
 
 fn clear_runtime_notice() {
     *LAST_QWEN3_RUNTIME_NOTICE.lock().unwrap() = None;
@@ -235,32 +279,11 @@ pub fn download_qwen3_runtime(
         )
         .is_err()
     {
-        if use_badge {
-            crate::overlay::auto_copy_badge::show_progress_notification(
-                "Qwen3-ASR CUDA Runtime",
-                "Download already in progress...",
-                0.0,
-            );
-        }
         while RUNTIME_DOWNLOAD_IN_PROGRESS.load(std::sync::atomic::Ordering::Relaxed) {
             std::thread::sleep(std::time::Duration::from_millis(300));
             if stop_signal.load(std::sync::atomic::Ordering::Relaxed) {
                 return Err(anyhow!("Download cancelled while waiting"));
             }
-            // Mirror the progress from the active download thread
-            if use_badge {
-                use crate::overlay::realtime_webview::state::REALTIME_STATE;
-                if let Ok(state) = REALTIME_STATE.lock() {
-                    crate::overlay::auto_copy_badge::show_progress_notification(
-                        "Qwen3-ASR CUDA Runtime",
-                        &state.download_message,
-                        state.download_progress,
-                    );
-                }
-            }
-        }
-        if use_badge {
-            crate::overlay::auto_copy_badge::hide_progress_notification();
         }
         if is_qwen3_runtime_managed_installed() {
             return Ok(());
@@ -276,14 +299,6 @@ pub fn download_qwen3_runtime(
         state.download_progress = 0.0;
     }
     clear_runtime_notice();
-
-    if use_badge {
-        crate::overlay::auto_copy_badge::show_progress_notification(
-            "Downloading Qwen3-ASR CUDA Runtime",
-            "Please wait... downloading libtorch + runtime DLL.",
-            0.0,
-        );
-    }
 
     fn post_download_state() {
         use crate::overlay::realtime_webview::state::REALTIME_HWND;
@@ -332,14 +347,6 @@ pub fn download_qwen3_runtime(
                     "Downloading libtorch CUDA runtime (~2.5 GB)...".to_string();
             }
             post_download_state();
-
-            if use_badge {
-                crate::overlay::auto_copy_badge::show_progress_notification(
-                    "Downloading Qwen3-ASR CUDA Runtime",
-                    "Downloading libtorch from pytorch.org (~2.5 GB)...",
-                    10.0,
-                );
-            }
 
             // Use curl as a background process for the large libtorch download
             let libtorch_zip_path = bin_dir.join("libtorch-download.zip");
@@ -390,13 +397,6 @@ pub fn download_qwen3_runtime(
                             state.download_progress = pct as f32;
                         }
                         post_download_state();
-                        if use_badge {
-                            crate::overlay::auto_copy_badge::show_progress_notification(
-                                "Downloading Qwen3-ASR CUDA Runtime",
-                                &msg,
-                                pct as f32,
-                            );
-                        }
                         std::thread::sleep(std::time::Duration::from_secs(1));
                     }
                     Err(err) => return Err(anyhow!("Failed to check curl status: {err}")),
@@ -407,13 +407,6 @@ pub fn download_qwen3_runtime(
                 state.download_message = "Extracting libtorch DLLs...".to_string();
             }
             post_download_state();
-            if use_badge {
-                crate::overlay::auto_copy_badge::show_progress_notification(
-                    "Downloading Qwen3-ASR CUDA Runtime",
-                    "Extracting libtorch DLLs...",
-                    80.0,
-                );
-            }
 
             // Extract only DLLs from libtorch/lib/ into bin_dir
             let file = std::fs::File::open(&libtorch_zip_path)?;
@@ -447,13 +440,6 @@ pub fn download_qwen3_runtime(
                                 state.download_progress = 80.0 + (extracted as f32 / 50.0) * 20.0;
                             }
                             post_download_state();
-                            if use_badge {
-                                crate::overlay::auto_copy_badge::show_progress_notification(
-                                    "Installing Qwen3-ASR CUDA Runtime",
-                                    &msg,
-                                    80.0 + (extracted as f32 / 50.0) * 20.0,
-                                );
-                            }
                             let output_path = bin_dir.join(file_name);
                             let mut output = std::fs::File::create(&output_path)?;
                             std::io::copy(&mut entry, &mut output)?;
@@ -478,9 +464,6 @@ pub fn download_qwen3_runtime(
 
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = false;
-    }
-    if use_badge {
-        crate::overlay::auto_copy_badge::hide_progress_notification();
     }
     post_download_state();
 
@@ -577,7 +560,7 @@ fn ensure_cuda_driver_loaded() -> Result<()> {
         use windows::Win32::System::LibraryLoader::LoadLibraryA;
         use windows::core::PCSTR;
 
-        let _module: HMODULE = unsafe { LoadLibraryA(PCSTR(b"nvcuda.dll\0".as_ptr()))? };
+        let _module: HMODULE = unsafe { LoadLibraryA(PCSTR(c"nvcuda.dll".as_ptr() as *const u8))? };
         Ok(())
     }
     #[cfg(not(target_os = "windows"))]
@@ -864,7 +847,7 @@ impl Qwen3Runtime {
         clear_runtime_notice();
         Ok(Self {
             inner: Arc::new(RuntimeInner {
-                _library: library,
+                library: Some(library),
                 _preloaded_cuda,
                 exports,
                 handle: runtime_handle,

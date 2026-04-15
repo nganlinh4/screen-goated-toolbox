@@ -173,49 +173,6 @@ pub fn init_com_and_dpi() {
 
 /// Spawn warmup thread for overlay components.
 pub fn spawn_warmup_thread() {
-    use crate::overlay;
-
-    std::thread::spawn(|| {
-        // 0. Warmup fonts first (download/cache for instant display)
-        overlay::html_components::font_manager::warmup_fonts();
-
-        // Helper: Wait for tray popup to close before proceeding
-        let wait_for_popup_close = || {
-            while overlay::tray_popup::is_popup_open() {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-        };
-
-        // 1. Start warmups
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
-        // 1. Warmup tray popup (with is_warmup=true to avoid focus stealing)
-        wait_for_popup_close();
-        overlay::tray_popup::warmup_tray_popup();
-
-        // 1.5 Warmup preset wheel (persistent hidden window)
-        overlay::preset_wheel::warmup();
-
-        // 2. Wait for splash screen / main box to appear and settle
-        std::thread::sleep(std::time::Duration::from_millis(3000));
-
-        // 3. Warmup text input window first (more likely to be used quickly)
-        wait_for_popup_close();
-        overlay::text_input::warmup();
-
-        // 3.5 Warmup auto copy badge
-        wait_for_popup_close();
-        overlay::auto_copy_badge::warmup();
-
-        // 3.75 Warmup text selection tag (native GDI)
-        wait_for_popup_close();
-        overlay::text_selection::warmup();
-
-        // 7. Wait before realtime warmup
-        std::thread::sleep(std::time::Duration::from_millis(5000));
-
-        // 9. Warmup Recording Overlay
-        wait_for_popup_close();
-        overlay::recording::warmup_recording_overlay();
-    });
+    // Startup warmups are intentionally disabled.
+    // All overlays now initialize on first use.
 }

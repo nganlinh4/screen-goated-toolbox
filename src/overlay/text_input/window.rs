@@ -2,8 +2,10 @@
 // Window creation and WebView initialization.
 
 use super::messages::input_wnd_proc;
+use super::passive;
 use super::state::*;
 use super::styles::{HwndWrapper, get_editor_html};
+use crate::win_types::SendHhook;
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
@@ -159,6 +161,15 @@ pub fn internal_create_window_loop() {
         IS_WARMED_UP.store(true, Ordering::SeqCst);
         IS_WARMING_UP.store(false, Ordering::SeqCst); // Done warming up
 
+        if let Ok(hook) = SetWindowsHookExW(
+            WH_KEYBOARD_LL,
+            Some(passive::keyboard_hook_proc),
+            Some(instance.into()),
+            0,
+        ) {
+            *INPUT_HOOK.lock().unwrap() = SendHhook(hook);
+        }
+
         // Message Loop
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
@@ -173,6 +184,11 @@ pub fn internal_create_window_loop() {
         INPUT_HWND.store(0, Ordering::SeqCst);
         IS_WARMED_UP.store(false, Ordering::SeqCst);
         IS_WARMING_UP.store(false, Ordering::SeqCst);
+        let hook = *INPUT_HOOK.lock().unwrap();
+        if !hook.0.is_invalid() {
+            let _ = UnhookWindowsHookEx(hook.0);
+            *INPUT_HOOK.lock().unwrap() = SendHhook::default();
+        }
         CoUninitialize();
     }
 }

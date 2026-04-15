@@ -8,16 +8,6 @@ lazy_static::lazy_static! {
         std::sync::Mutex::new(None);
 }
 
-fn current_download_feedback() -> (String, String) {
-    use crate::overlay::realtime_webview::state::REALTIME_STATE;
-
-    if let Ok(state) = REALTIME_STATE.lock() {
-        (state.download_title.clone(), state.download_message.clone())
-    } else {
-        ("Downloading".to_string(), String::new())
-    }
-}
-
 fn set_parakeet_action_error(message: impl Into<String>) {
     *LAST_PARAKEET_ACTION_ERROR.lock().unwrap() = Some(message.into());
 }
@@ -35,7 +25,18 @@ pub fn download_file(
     url: &str,
     path: &Path,
     stop_signal: &std::sync::atomic::AtomicBool,
-    use_badge: bool,
+    _use_badge: bool,
+) -> Result<()> {
+    download_file_with_progress(url, path, stop_signal, |_, _| {})
+}
+
+/// Like `download_file` but calls `on_progress(downloaded_bytes, total_bytes)` every ~100ms.
+/// `total_bytes` is 0 if Content-Length is not available.
+pub fn download_file_with_progress(
+    url: &str,
+    path: &Path,
+    stop_signal: &std::sync::atomic::AtomicBool,
+    on_progress: impl Fn(u64, u64),
 ) -> Result<()> {
     if path.exists() {
         return Ok(());
@@ -82,19 +83,15 @@ pub fn download_file(
         file.write_all(&buffer[..bytes_read])?;
         downloaded += bytes_read as u64;
 
-        if total_size > 0 && last_update.elapsed() >= update_interval {
-            let progress = (downloaded as f32 / total_size as f32) * 100.0;
+        if last_update.elapsed() >= update_interval {
+            on_progress(downloaded, total_size);
 
-            if use_badge {
-                let (title, message) = current_download_feedback();
-                crate::overlay::auto_copy_badge::show_progress_notification(
-                    &title, &message, progress,
-                );
-            }
-
-            use crate::overlay::realtime_webview::state::REALTIME_STATE;
-            if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_progress = progress;
+            if total_size > 0 {
+                let progress = (downloaded as f32 / total_size as f32) * 100.0;
+                use crate::overlay::realtime_webview::state::REALTIME_STATE;
+                if let Ok(mut state) = REALTIME_STATE.lock() {
+                    state.download_progress = progress;
+                }
             }
             last_update = std::time::Instant::now();
 
@@ -146,15 +143,15 @@ pub fn remove_parakeet_model() -> Result<()> {
 
 pub fn redownload_parakeet_model(
     stop_signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    use_badge: bool,
+    _use_badge: bool,
 ) -> Result<()> {
     remove_parakeet_model()?;
-    download_parakeet_model(stop_signal, use_badge)
+    download_parakeet_model(stop_signal, false)
 }
 
 pub fn download_parakeet_model(
     stop_signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    use_badge: bool,
+    _use_badge: bool,
 ) -> Result<()> {
     let dir = get_parakeet_model_dir();
 
@@ -171,13 +168,6 @@ pub fn download_parakeet_model(
         state.download_progress = 0.0;
     }
     clear_parakeet_action_error();
-    if use_badge {
-        crate::overlay::auto_copy_badge::show_progress_notification(
-            locale.parakeet_downloading_title,
-            locale.parakeet_downloading_message,
-            0.0,
-        );
-    }
 
     use super::WM_DOWNLOAD_PROGRESS;
     use crate::overlay::realtime_webview::state::REALTIME_HWND;
@@ -235,7 +225,7 @@ pub fn download_parakeet_model(
                 }
             }
 
-            download_file(url, &dir.join(filename), &stop_signal, use_badge)?;
+            download_file(url, &dir.join(filename), &stop_signal, false)?;
         }
 
         Ok(())
@@ -243,9 +233,6 @@ pub fn download_parakeet_model(
 
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = false;
-    }
-    if use_badge {
-        crate::overlay::auto_copy_badge::hide_progress_notification();
     }
     unsafe {
         if !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {

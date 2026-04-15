@@ -336,6 +336,7 @@ internal fun inputWindowSpecSupport(
         y = (screenHeightPx(screenBounds) * 0.14f).roundToInt(),
         focusable = true,
         showImeOnFocus = true,
+        watchOutsideTouch = true,
         htmlContent = htmlContent,
         baseUrl = INPUT_WINDOW_BASE_URL,
     )

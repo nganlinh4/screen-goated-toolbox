@@ -166,6 +166,11 @@ fn handle_gemini_tts(
 
     if api_key.trim().is_empty() {
         eprintln!("[TTS Worker] ERROR: No Gemini API key configured - TTS will not work");
+        let lang = match APP.lock() {
+            Ok(app) => app.config.ui_language.clone(),
+            Err(_) => "en".to_string(),
+        };
+        crate::overlay::utils::show_api_key_error_notification("NO_API_KEY:gemini", &lang);
         let _ = tx.send(AudioEvent::End);
         clear_tts_loading_state(request.req.hwnd);
         clear_tts_state(request.req.hwnd);

@@ -122,6 +122,7 @@ fun SgtMobileApp(
     var ttsGeminiOnly by rememberSaveable { mutableStateOf(false) }
     var showPresetRuntimeSettings by rememberSaveable { mutableStateOf(false) }
     var showUsageStats by rememberSaveable { mutableStateOf(false) }
+    var showDownloadedTools by rememberSaveable { mutableStateOf(false) }
     var showDownloader by rememberSaveable { mutableStateOf(false) }
     var showDj by rememberSaveable { mutableStateOf(false) }
     var showBilingualRelay by rememberSaveable { mutableStateOf(false) }
@@ -182,6 +183,13 @@ fun SgtMobileApp(
             providerSettings = presetRuntimeSettings.providerSettings,
             lang = uiPreferences.uiLanguage,
             onDismiss = { showUsageStats = false },
+        )
+    }
+
+    if (showDownloadedTools) {
+        DownloadedToolsDialog(
+            locale = locale,
+            onDismiss = { showDownloadedTools = false },
         )
     }
 
@@ -260,6 +268,7 @@ fun SgtMobileApp(
                     onOllamaUrlChanged = onOllamaUrlChanged,
                     onPresetRuntimeSettingsClick = { showPresetRuntimeSettings = true },
                     onUsageStatsClick = { showUsageStats = true },
+                    onDownloadedToolsClick = { showDownloadedTools = true },
                     onResetDefaults = {
                         // Match Windows reset scope: reset everything except API keys and language
                         presetRepository.resetAllToDefaults()

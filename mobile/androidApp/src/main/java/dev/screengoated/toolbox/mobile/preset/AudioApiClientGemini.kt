@@ -23,6 +23,9 @@ internal suspend fun AudioApiClient.transcribeWithGemini(
     streamingEnabled: Boolean,
 ): String {
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:google")
+    if (model.fullName.contains("gemma-4-")) {
+        throw IOException("Unsupported audio model: ${model.fullName}")
+    }
     val payload = buildGeminiAudioPayload(
         model = model,
         prompt = prompt,
@@ -260,7 +263,7 @@ private fun buildGeminiAudioPayload(
                 ),
         ),
     )
-    return JSONObject().put(
+    val payload = JSONObject().put(
         "contents",
         JSONArray().put(
             JSONObject()
@@ -268,6 +271,24 @@ private fun buildGeminiAudioPayload(
                 .put("parts", contentParts),
         ),
     )
+
+    PresetModelCatalog.geminiThinkingConfig(model.fullName)?.let { thinking ->
+        val thinkingConfig = JSONObject().apply {
+            thinking.forEach { (key, value) ->
+                when (value) {
+                    is Boolean -> put(key, value)
+                    is Number -> put(key, value)
+                    else -> put(key, value.toString())
+                }
+            }
+        }
+        payload.put(
+            "generationConfig",
+            JSONObject().put("thinkingConfig", thinkingConfig),
+        )
+    }
+
+    return payload
 }
 
 private fun extractGeminiAudioDelta(payload: String): String {

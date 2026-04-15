@@ -155,7 +155,7 @@ internal fun resolveNextRetryModel(
         }
     }?.let { return it }
 
-    PresetModelCatalog.models
+    PresetModelCatalog.dialogModels()
         .filter { it.provider == current.provider }
         .lastOrNull { candidate ->
             candidate.id != currentModelId &&
@@ -163,7 +163,7 @@ internal fun resolveNextRetryModel(
                 isRetryCandidateCompatible(candidate, targetType, mustSupportSearch, blockedProviders, apiKeys, settings)
         }?.let { return it }
 
-    return PresetModelCatalog.models
+    return PresetModelCatalog.dialogModels()
         .filter { it.provider != current.provider }
         .lastOrNull { candidate ->
             candidate.id !in failedModelIds &&

@@ -440,7 +440,7 @@ pub fn render_sidebar(
             new_preset.text_input_mode = "select".to_string();
             if let Some(block) = new_preset.blocks.first_mut() {
                 block.block_type = "text".to_string();
-                block.model = "text_accurate_kimi".to_string();
+                block.model = "gemma-4-26b-a4b".to_string();
                 block.prompt = "Translate this text.".to_string();
             }
         } else if type_str == "audio" {

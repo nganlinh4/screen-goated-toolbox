@@ -54,8 +54,8 @@ class PresetRetryChainTest {
     @Test
     fun retryResolutionUsesWindowsDefaultChainFirst() {
         val next = resolveNextRetryModel(
-            currentModelId = "cerebras_gpt_oss",
-            failedModelIds = listOf("cerebras_gpt_oss"),
+            currentModelId = "gemma-4-26b-a4b",
+            failedModelIds = listOf("gemma-4-26b-a4b"),
             blockedProviders = emptySet(),
             chainKind = PresetRetryChainKind.TEXT_TO_TEXT,
             apiKeys = ApiKeys(

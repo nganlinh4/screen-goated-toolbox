@@ -68,14 +68,13 @@ object PresetModelCatalog {
         return forType(targetType)
     }
 
+    fun dialogModels(): List<PresetModelDescriptor> = models
+
     fun isNonLlm(id: String): Boolean = getById(id)?.isNonLlm == true
 
     fun supportsSearchById(id: String): Boolean = getById(id)?.let { supportsSearchByName(it.fullName) } ?: false
 
     fun supportsSearchByName(fullName: String): Boolean {
-        if (fullName.contains("gemma-3-27b-it")) {
-            return false
-        }
         if (fullName.contains("gemini-3-flash-preview") || fullName.contains("gemini-3.1-flash-lite-preview")) {
             return false
         }
@@ -92,7 +91,7 @@ object PresetModelCatalog {
     }
 
     fun geminiThinkingConfig(fullName: String): Map<String, Any>? {
-        if (fullName.contains("gemini-3.1-flash-lite")) {
+        if (fullName.contains("gemini-3.1-flash-lite") || fullName.contains("gemma-4-")) {
             return mapOf("thinkingLevel" to "MINIMAL")
         }
 

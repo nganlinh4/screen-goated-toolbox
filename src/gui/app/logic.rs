@@ -9,6 +9,7 @@ use crate::icon_gen;
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 use eframe::egui;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 use tray_icon::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::Graphics::Gdi::{
@@ -330,7 +331,12 @@ impl SettingsApp {
                     self.tip_timer = now; // Reset timer for fade-out
                 }
             }
-            ctx.request_repaint();
+            if elapsed < fade_duration {
+                ctx.request_repaint_after(Duration::from_millis(16));
+            } else {
+                let remaining = (fade_duration + display_duration - elapsed).max(0.0);
+                ctx.request_repaint_after(Duration::from_secs_f32(remaining.max(0.016)));
+            }
         } else {
             // Fading Out
             self.tip_fade_state = (1.0 - (elapsed / fade_duration)).max(0.0);
@@ -352,7 +358,11 @@ impl SettingsApp {
                 self.tip_timer = now; // Reset timer
                 self.tip_is_fading_in = true; // Start fading in
             }
-            ctx.request_repaint();
+            if elapsed < fade_duration {
+                ctx.request_repaint_after(Duration::from_millis(16));
+            } else {
+                ctx.request_repaint_after(Duration::from_millis(16));
+            }
         }
     }
 
@@ -375,9 +385,8 @@ impl SettingsApp {
                     if i.modifiers.shift {
                         modifiers_bitmap |= MOD_SHIFT;
                     }
-                    if i.modifiers.command {
-                        modifiers_bitmap |= MOD_WIN;
-                    }
+                    // egui's `command` is a cross-platform shortcut alias:
+                    // on Windows it is the same as Ctrl, not the physical Win key.
 
                     // Check Keyboard Events
                     for event in &i.events {
@@ -485,9 +494,8 @@ impl SettingsApp {
                     if i.modifiers.shift {
                         modifiers_bitmap |= MOD_SHIFT;
                     }
-                    if i.modifiers.command {
-                        modifiers_bitmap |= MOD_WIN;
-                    }
+                    // egui's `command` is a cross-platform shortcut alias:
+                    // on Windows it is the same as Ctrl, not the physical Win key.
 
                     // Check Keyboard Events
                     for event in &i.events {

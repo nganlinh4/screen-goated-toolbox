@@ -12,17 +12,23 @@ use std::sync::{
     atomic::{AtomicIsize, Ordering},
 };
 use windows::Win32::Foundation::*;
+use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::{Rect, WebContext, WebView};
 
 static REGISTER_POPUP_CLASS: Once = Once::new();
 static POPUP_HWND: AtomicIsize = AtomicIsize::new(0);
 static IGNORE_FOCUS_LOSS_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static PENDING_SHOW_ANCHOR_X: AtomicIsize = AtomicIsize::new(0);
+static PENDING_SHOW_ANCHOR_Y: AtomicIsize = AtomicIsize::new(0);
+static HAS_PENDING_SHOW_ANCHOR: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 // Warmup flag - tracks if the window has been created and is ready for instant display
 static IS_WARMED_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static IS_WARMING_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static WARMUP_START_TIME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static AUTO_SHOW_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 // Flag to track if WebView has permanently failed to initialize
 static WEBVIEW_INIT_FAILED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
@@ -117,6 +123,10 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
 
 /// Show the tray popup at cursor position
 pub fn show_tray_popup() {
+    show_tray_popup_internal(false);
+}
+
+fn show_tray_popup_internal(reuse_pending_anchor: bool) {
     unsafe {
         // Fallback to native menu if WebView failed completely
         if WEBVIEW_INIT_FAILED.load(Ordering::SeqCst) {
@@ -124,29 +134,44 @@ pub fn show_tray_popup() {
             return;
         }
 
+        let is_warming_up = IS_WARMING_UP.load(Ordering::SeqCst);
+        let has_pending_anchor = HAS_PENDING_SHOW_ANCHOR.load(Ordering::SeqCst);
+
+        if !reuse_pending_anchor && !(is_warming_up && has_pending_anchor) {
+            let mut pt = POINT::default();
+            if GetCursorPos(&mut pt).is_ok() {
+                PENDING_SHOW_ANCHOR_X.store(pt.x as isize, Ordering::SeqCst);
+                PENDING_SHOW_ANCHOR_Y.store(pt.y as isize, Ordering::SeqCst);
+                HAS_PENDING_SHOW_ANCHOR.store(true, Ordering::SeqCst);
+            }
+        }
+
         // Check if warmed up and window exists
         if !IS_WARMED_UP.load(Ordering::SeqCst) {
-            // Not ready yet - trigger warmup and show notification
+            // Not ready yet - trigger warmup silently and auto-show once ready.
             warmup_tray_popup();
 
-            let ui_lang = crate::APP.lock().unwrap().config.ui_language.clone();
-            let locale = crate::gui::locale::LocaleText::get(&ui_lang);
-            crate::overlay::auto_copy_badge::show_notification(locale.tray_popup_loading);
-
-            // Spawn thread to wait for warmup completion and auto-show
-            std::thread::spawn(move || {
-                // Poll for 5 seconds (50 * 100ms)
-                for _ in 0..50 {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    // Check if ready
-                    let ready = IS_WARMED_UP.load(Ordering::SeqCst)
-                        && POPUP_HWND.load(Ordering::SeqCst) != 0;
-                    if ready {
-                        show_tray_popup();
-                        return;
+            // Spawn only one waiter to auto-show after warmup.
+            if AUTO_SHOW_PENDING
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                std::thread::spawn(move || {
+                    // Poll for 5 seconds (50 * 100ms)
+                    for _ in 0..50 {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        // Check if ready
+                        let ready = IS_WARMED_UP.load(Ordering::SeqCst)
+                            && POPUP_HWND.load(Ordering::SeqCst) != 0;
+                        if ready {
+                            AUTO_SHOW_PENDING.store(false, Ordering::SeqCst);
+                            show_tray_popup_internal(true);
+                            return;
+                        }
                     }
-                }
-            });
+                    AUTO_SHOW_PENDING.store(false, Ordering::SeqCst);
+                });
+            }
             return;
         }
 
@@ -182,6 +207,7 @@ pub fn show_tray_popup() {
 
 /// Hide the tray popup (preserves window for reuse)
 pub fn hide_tray_popup() {
+    AUTO_SHOW_PENDING.store(false, Ordering::SeqCst);
     let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
     if hwnd_val != 0 {
         let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
@@ -204,6 +230,7 @@ pub fn warmup_tray_popup() {
             IS_WARMED_UP.store(false, Ordering::SeqCst);
             IS_WARMING_UP.store(false, Ordering::SeqCst);
             POPUP_HWND.store(0, Ordering::SeqCst);
+            AUTO_SHOW_PENDING.store(false, Ordering::SeqCst);
         }
     }
 
@@ -226,16 +253,4 @@ pub fn warmup_tray_popup() {
     std::thread::spawn(|| {
         window::create_popup_window();
     });
-}
-
-/// Check if the tray popup is currently visible
-/// Used by warmup logic to defer WebView2 initialization until popup closes
-pub fn is_popup_open() -> bool {
-    let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
-    if hwnd_val != 0 {
-        let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-        unsafe { IsWindowVisible(hwnd).as_bool() }
-    } else {
-        false
-    }
 }

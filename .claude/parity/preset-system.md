@@ -58,6 +58,7 @@
 - Android preset model catalog must be generated from the Windows Rust source file [src/model_config.rs](../../src/model_config.rs) during the Android build, rather than maintained as a separate handwritten copy.
 - Android preset text execution must use the resolved Windows provider + `full_name` API model, not Android prefix guessing or raw preset block IDs.
 - Android preset text execution must mirror the Windows text request contract for supported providers:
+  - the built-in translate-region preset (`preset_translate`) uses `gemma-4-26b-a4b-vision` and plain markdown rendering; the Windows build carries the backtick hotkey on this preset
   - input-adapter-only text-input presets (for example `preset_quick_note`) are valid executable presets when the input-adapter block itself requests an overlay
   - `renderMode = markdown` must follow the Windows non-streaming request path even if the block has `streamingEnabled = true`
   - retry/fallback must follow the Windows chain model for preset blocks:
@@ -67,6 +68,7 @@
     - advance on retryable provider/model failures, block only auth/provider-availability failures, and resolve the next candidate from the Windows-compatible configured chain before falling back to other compatible catalog models
     - when retry switches models/providers while a result window is already loading, Android should update that loading state with a localized retry message like Windows instead of failing silently
   - Gemini uses the Gemini `models/{full_name}:streamGenerateContent` SSE endpoint, Windows thinking config rules, and Windows search-tool gating rules
+  - Gemma 4 family models (`gemma-4-26b-a4b-it` and `gemma-4-31b-it`) must send `thinkingConfig` equivalent to Gemini 3.1 Flash Lite minimal thinking (`thinkingLevel: MINIMAL`) on both Windows and Android across text, vision, and audio request paths
   - Cerebras, Groq, and OpenRouter use the OpenAI-compatible chat completions contract with the resolved Windows `full_name`
   - Groq compound models use the Windows non-streaming `compound_custom.tools` request shape instead of the standard streaming chat payload
   - Google GTX uses the translation endpoint as a non-LLM provider
@@ -76,7 +78,9 @@
   - result-window removal should be scoped to the current execution session, not all active overlays globally
   - result-window geometry persistence must continue to resolve against the owning preset ID even after newer sessions become active
 - Android preset text-input overlays must follow the Windows refocus model closely enough that the IME can still appear while other preset overlays exist:
-  - the input window must be focusable
+  - the input window must be able to acquire focus for editing
+  - while the overlay remains visible, Android may temporarily relinquish that focus/IME ownership when the user taps another editable target outside the overlay, so other apps can open the system keyboard without forcing the preset window closed
+  - tapping back into the overlay editor must restore overlay focus and IME promptly
   - the Android host may use repeated delayed refocus/IME nudges after show, mirroring the Windows aggressive refocus behavior after modal/overlay transitions
 - Android preset capability must not claim support for a text preset if one of its text blocks points at a model/provider runtime Android does not actually implement yet.
 - Android result overlays should reuse the Windows markdown CSS, fit script, and button-canvas web contract from the shared HTML/WebView layer instead of re-implementing the layout in Compose.

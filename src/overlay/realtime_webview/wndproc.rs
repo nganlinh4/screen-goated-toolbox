@@ -242,6 +242,7 @@ pub unsafe extern "system" fn realtime_wnd_proc(
                 }
 
                 // Stop transcription and TTS
+                REALTIME_SESSION_STOPPING.store(true, Ordering::SeqCst);
                 REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
                 crate::api::tts::TTS_MANAGER.stop();
 

@@ -1,8 +1,8 @@
 {
   "cases": [
     {
-      "name": "cerebras_preset_model_resolves_to_windows_api_name",
-      "model_id": "cerebras_gpt_oss",
+      "name": "qwen_preset_model_resolves_to_windows_api_name",
+      "model_id": "qwen_3_235b_a22b_instruct_2507",
       "provider": "CEREBRAS",
       "api_model": "qwen-3-235b-a22b-instruct-2507",
       "supports_search": false
@@ -14,6 +14,38 @@
       "api_model": "gemini-3-flash-preview",
       "supports_search": false,
       "thinking_include_thoughts": true
+    },
+    {
+      "name": "gemma_4_26b_uses_minimal_thinking",
+      "model_id": "gemma-4-26b-a4b",
+      "provider": "GOOGLE",
+      "api_model": "gemma-4-26b-a4b-it",
+      "supports_search": false,
+      "thinking_level": "MINIMAL"
+    },
+    {
+      "name": "gemma_4_31b_uses_minimal_thinking",
+      "model_id": "gemma-4-31b",
+      "provider": "GOOGLE",
+      "api_model": "gemma-4-31b-it",
+      "supports_search": false,
+      "thinking_level": "MINIMAL"
+    },
+    {
+      "name": "gemma_4_vision_26b_uses_minimal_thinking",
+      "model_id": "gemma-4-26b-a4b-vision",
+      "provider": "GOOGLE",
+      "api_model": "gemma-4-26b-a4b-it",
+      "supports_search": false,
+      "thinking_level": "MINIMAL"
+    },
+    {
+      "name": "gemma_4_vision_31b_uses_minimal_thinking",
+      "model_id": "gemma-4-31b-vision",
+      "provider": "GOOGLE",
+      "api_model": "gemma-4-31b-it",
+      "supports_search": false,
+      "thinking_level": "MINIMAL"
     },
     {
       "name": "compound_mini_uses_groq_compound_contract",

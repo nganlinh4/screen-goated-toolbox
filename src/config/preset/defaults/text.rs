@@ -2,6 +2,10 @@
 
 use crate::config::preset::Preset;
 use crate::config::preset::{BlockBuilder, PresetBuilder};
+use crate::model_config::{
+    DEFAULT_TEXT_MODEL_ID, PRESET_SEARCH_MODEL_ID, PRESET_TEXT_ARENA_FAST_MODEL_ID,
+    PRESET_TEXT_GAME_MODEL_ID, PRESET_TRANSLATE_ARENA_GTX_MODEL_ID,
+};
 
 /// Create all default text presets
 pub fn create_text_presets() -> Vec<Preset> {
@@ -24,7 +28,7 @@ pub fn create_text_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_translate_select", "Trans (Select text)")
             .text_select()
             .blocks(vec![
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Translate the following text to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown_stream()
@@ -41,19 +45,19 @@ pub fn create_text_presets() -> Vec<Preset> {
                 BlockBuilder::input_adapter()
                     .build(),
                 // Node 1: Google Translate (GTX) - fast, non-LLM
-                BlockBuilder::text("google-gtx")
+                BlockBuilder::text(PRESET_TRANSLATE_ARENA_GTX_MODEL_ID)
                     .prompt("Translate to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown_stream()
                     .build(),
                 // Node 2: Groq Kimi - accurate LLM
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Translate the following text to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown_stream()
                     .build(),
                 // Node 3: Gemini Flash Lite - Google's fast LLM
-                BlockBuilder::text("text_gemini_flash_lite")
+                BlockBuilder::text(PRESET_TEXT_ARENA_FAST_MODEL_ID)
                     .prompt("Translate the following text to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown_stream()
@@ -67,13 +71,13 @@ pub fn create_text_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_trans_retrans_select", "Trans+Retrans (Select)")
             .text_select()
             .blocks(vec![
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Translate the following text to {language1}. Output ONLY the translation.")
                     .language("Korean")
                     .markdown_stream()
                     .auto_copy()
                     .build(),
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Translate to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown_stream()
@@ -86,7 +90,7 @@ pub fn create_text_presets() -> Vec<Preset> {
             .text_select()
             .auto_paste()
             .blocks(vec![
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Translate the following text to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown()
@@ -102,7 +106,7 @@ pub fn create_text_presets() -> Vec<Preset> {
             .text_select()
             .auto_paste()
             .blocks(vec![
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Correct grammar, spelling, and punctuation errors in the following text. Do not change the meaning or tone. Output ONLY the corrected text.")
                     .language("Vietnamese")
                     .markdown()
@@ -118,7 +122,7 @@ pub fn create_text_presets() -> Vec<Preset> {
             .text_select()
             .auto_paste()
             .blocks(vec![
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Paraphrase the following text using varied vocabulary while maintaining the exact original meaning and language. Output ONLY the paraphrased text.")
                     .language("Vietnamese")
                     .markdown()
@@ -134,7 +138,7 @@ pub fn create_text_presets() -> Vec<Preset> {
             .text_select()
             .auto_paste()
             .blocks(vec![
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Rewrite the following text to be professional and formal, suitable for business communication. CRITICAL: Your output MUST be in the EXACT SAME LANGUAGE as the input text (if input is Korean, output Korean; if Vietnamese, output Vietnamese; if Japanese, output Japanese, etc.). Do NOT translate to English. Maintain the original meaning. Output ONLY the rewritten text.")
                     .language("Vietnamese")
                     .markdown()
@@ -149,7 +153,7 @@ pub fn create_text_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_explain", "Explain")
             .text_select()
             .blocks(vec![
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Explain what this is in {language1}. Be concise but thorough. Mention the purpose, key logic, and any important patterns or techniques used. Format the output as a markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) triple backticks.")
                     .language("Vietnamese")
                     .markdown_stream() // Upgraded: Đẹp -> Đẹp+Str
@@ -162,7 +166,7 @@ pub fn create_text_presets() -> Vec<Preset> {
             .text_select()
             .dynamic_prompt()
             .blocks(vec![
-                BlockBuilder::text("compound_mini")
+                BlockBuilder::text(PRESET_SEARCH_MODEL_ID)
                     .prompt("")
                     .language("Vietnamese")
                     .markdown_stream() // Upgraded: Đẹp -> Đẹp+Str
@@ -176,7 +180,7 @@ pub fn create_text_presets() -> Vec<Preset> {
             .dynamic_prompt()
             .auto_paste()
             .blocks(vec![
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Edit the following text according to the user's instructions below. Follow the user's request precisely — if they ask to change the language, change it. Output ONLY the edited result without any introductory text, explanations, or quotes.")
                     .language("Vietnamese")
                     .show_overlay(false)
@@ -194,25 +198,25 @@ pub fn create_text_presets() -> Vec<Preset> {
                 BlockBuilder::input_adapter()
                     .build(),
                 // Node 1: Make a learning HTML (from 0)
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Create a standalone INTERACTIVE HTML learning card/game for the following text. Use internal CSS for a beautiful, modern, colored design, game-like and comprehensive interface. Only OUTPUT the raw HTML code, DO NOT include HTML file indicator (```html) or triple backticks.")
                     .language("Vietnamese")
                     .markdown()
                     .build(),
                 // Node 2: Summarize with sources (from 3)
-                BlockBuilder::text("compound_mini")
+                BlockBuilder::text(PRESET_SEARCH_MODEL_ID)
                     .prompt("Search the internet to ensure of the accuracy of the following text as well as getting as much source information as possible. Summarize the following text into a detailed markdown summary with clickable links to the sources. Structure it clearly. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.")
                     .language("Vietnamese")
                     .markdown_stream() // Đẹp+Str
                     .build(),
                 // Node 3: Translate (from 0)
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Translate the following text to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown_stream() // Đẹp+Str
                     .build(),
                 // Node 4: Summarize keywords (from 3)
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Summarize the essence of this text into 3-5 keywords or a short phrase in {language1}.")
                     .markdown_stream() // Đẹp+Str
                     .language("Vietnamese")
@@ -240,13 +244,13 @@ pub fn create_text_presets() -> Vec<Preset> {
             .text_type()
             .continuous()
             .blocks(vec![
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Translate the following text to {language1}. Output ONLY the translation. Text to translate:")
                     .language("Korean")
                     .markdown_stream()
                     .auto_copy()
                     .build(),
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Translate to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown_stream()
@@ -258,7 +262,7 @@ pub fn create_text_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_ask_ai", "Ask AI")
             .text_type()
             .blocks(vec![
-                BlockBuilder::text("cerebras_gpt_oss")
+                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
                     .prompt("Answer the following question or request helpfully and comprehensively. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks. QUESTION/REQUEST:")
                     .markdown_stream()
                     .build(),
@@ -269,7 +273,7 @@ pub fn create_text_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_internet_search", "Internet Search")
             .text_type()
             .blocks(vec![
-                BlockBuilder::text("compound_mini")
+                BlockBuilder::text(PRESET_SEARCH_MODEL_ID)
                     .prompt("Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks. SEARCH FOR:")
                     .markdown_stream() // Upgraded: Đẹp -> Đẹp+Str
                     .build(),
@@ -280,7 +284,7 @@ pub fn create_text_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_make_game", "Make a Game")
             .text_type()
             .blocks(vec![
-                BlockBuilder::text("text_gemini_3_0_flash")
+                BlockBuilder::text(PRESET_TEXT_GAME_MODEL_ID)
                     .prompt("Create a complete, standalone HTML game. The game MUST be playable using ONLY MOUSE CONTROLS (like swipe , drag or clicks, no keyboard required). Avoid the looping Game Over UI at startup. Use modern and trending CSS on the internet for a polished look, prefer using images or icons or svg assets from the internet for a convincing game aesthetics. Provide HTML code only. Only OUTPUT the raw HTML code, DO NOT include HTML file indicator (```html) or triple backticks. Create the game based on the following request:")
                     .markdown()
                     .build(),

@@ -5,6 +5,7 @@ import android.graphics.Rect
 import android.os.SystemClock
 import android.util.Log
 import android.view.WindowManager
+import dev.screengoated.toolbox.mobile.AppToastBus
 import dev.screengoated.toolbox.mobile.capture.AudioCaptureController
 import dev.screengoated.toolbox.mobile.capture.ProjectionConsentInvalidException
 import dev.screengoated.toolbox.mobile.preset.AudioApiClient
@@ -19,6 +20,7 @@ import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
+import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +53,7 @@ internal class PresetAudioCaptureSession(
     private val isDarkTheme: () -> Boolean,
     private val permissionSnapshotProvider: () -> dev.screengoated.toolbox.mobile.shared.live.PermissionSnapshot,
     private val screenBoundsProvider: () -> Rect,
+    private val toastBus: AppToastBus,
     private val onStreamingTextChunk: (String) -> Boolean = { false },
 ) {
     private val density = context.resources.displayMetrics.density
@@ -381,7 +384,8 @@ internal class PresetAudioCaptureSession(
                 flushPendingStreamingChunks(session)
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (ignored: Throwable) {
+            } catch (error: Throwable) {
+                apiKeyErrorToastText(error.message ?: error.toString(), uiLanguage())?.let(toastBus::show)
                 activeStreamingSession = null
             } finally {
                 if (state == "initializing" && !processingRequested) {

@@ -22,6 +22,10 @@
   - `inputAudioTranscription`
   - `outputAudioTranscription`
 - Valid saved config auto-starts the session when the surface opens.
+- A localized onboarding guide must appear while `guide_seen` is false:
+  - the popup title is the localized bilingual relay title
+  - the popup body uses the localized `bilingual_relay_guide` text
+  - dismissing the popup persists `guide_seen = true` and suppresses future auto-show, matching Windows `dismiss_guide`
 - `Apply` always commits the current draft and forces a fresh session restart when the draft is valid.
 - The secondary control is a real `Start` / `Stop` toggle:
   - `Stop` ends the current session immediately
@@ -52,3 +56,4 @@
 
 ## Fixtures
 - Prompt fixture: [parity-fixtures/bilingual-relay/prompt-contract.json](../../parity-fixtures/bilingual-relay/prompt-contract.json)
+- Onboarding fixture: [parity-fixtures/bilingual-relay/onboarding-contract.json](../../parity-fixtures/bilingual-relay/onboarding-contract.json)

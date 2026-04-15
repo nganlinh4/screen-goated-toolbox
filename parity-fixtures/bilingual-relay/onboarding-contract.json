@@ -1,0 +1,13 @@
+{
+  "persistedFlag": "guide_seen",
+  "showWhen": {
+    "guide_seen": false
+  },
+  "titleSource": "bilingual_relay_title",
+  "messageSource": "bilingual_relay_guide",
+  "confirmLabelSource": "bilingual_relay_guide_ok",
+  "dismissBehavior": {
+    "persistGuideSeen": true,
+    "suppressFutureAutoShow": true
+  }
+}

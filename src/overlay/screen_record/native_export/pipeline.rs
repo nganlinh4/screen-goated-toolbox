@@ -463,34 +463,46 @@ fn prepare_audio_and_video(config: &ExportConfig) -> Result<AudioVideoPrep, Stri
         PathBuf::from(config.output_dir.trim())
     };
 
+    let speed_changes_audio_timeline = speed_points
+        .iter()
+        .any(|point| (point.speed - 1.0).abs() > 0.0001);
     let t_audio_start = Instant::now();
-    let use_preprocessed_audio =
-        config.format != "gif" && !config.mic_audio_path.trim().is_empty() && has_audible_mic_audio;
+    let use_preprocessed_audio = config.format != "gif"
+        && (speed_changes_audio_timeline
+            || (!config.mic_audio_path.trim().is_empty() && has_audible_mic_audio));
     let timestamp_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis();
     let mixed_audio_path = if use_preprocessed_audio {
-        build_preprocessed_audio_mix(
-            &[
-                ExportAudioSource {
-                    path: config.device_audio_path.clone(),
-                    volume_points: device_audio_points.clone(),
-                    start_offset_sec: 0.0,
-                },
-                ExportAudioSource {
-                    path: config.mic_audio_path.clone(),
-                    volume_points: mic_audio_points.clone(),
-                    start_offset_sec: config.segment.mic_audio_offset_sec,
-                },
-            ],
-            &speed_points,
-            config.trim_start,
-            config.duration,
-            &config.segment.trim_segments,
-            &output_base_dir,
-            &format!("SGT_Export_{}", timestamp_ms),
-        )?
+        let mut sources = Vec::new();
+        if !config.device_audio_path.trim().is_empty() && has_audible_device_audio {
+            sources.push(ExportAudioSource {
+                path: config.device_audio_path.clone(),
+                volume_points: device_audio_points.clone(),
+                start_offset_sec: 0.0,
+            });
+        }
+        if !config.mic_audio_path.trim().is_empty() && has_audible_mic_audio {
+            sources.push(ExportAudioSource {
+                path: config.mic_audio_path.clone(),
+                volume_points: mic_audio_points.clone(),
+                start_offset_sec: config.segment.mic_audio_offset_sec,
+            });
+        }
+        if sources.is_empty() {
+            None
+        } else {
+            build_preprocessed_audio_mix(
+                &sources,
+                &speed_points,
+                config.trim_start,
+                config.duration,
+                &config.segment.trim_segments,
+                &output_base_dir,
+                &format!("SGT_Export_{}", timestamp_ms),
+            )?
+        }
     } else {
         None
     };

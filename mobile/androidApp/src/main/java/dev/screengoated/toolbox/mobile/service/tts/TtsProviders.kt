@@ -81,7 +81,7 @@ internal class GeminiTtsProvider(
         sink: LinkedBlockingDeque<ProviderAudioEvent>,
     ) {
         if (apiKey.isBlank()) {
-            sink.offer(ProviderAudioEvent.Error("Add your Gemini API key before using Gemini TTS."))
+            sink.offer(ProviderAudioEvent.Error("NO_API_KEY:google"))
             return
         }
 

@@ -51,6 +51,9 @@ internal class PresetOverlayInputModule(
             windowManager = windowManager,
             spec = spec,
             onMessage = ::handleMessage,
+            onOutsideTouch = {
+                inputWindow?.setFocusable(false)
+            },
         ).also { window ->
             window.show()
             window.bringToFront(refocusIme = true)
@@ -157,6 +160,10 @@ internal class PresetOverlayInputModule(
             }
             message == "mic" -> {
                 onMicRequested()
+            }
+            message == "request_focus" -> {
+                inputWindow?.setFocusable(true)
+                inputWindow?.bringToFront(refocusIme = true)
             }
             message.startsWith("submit:") -> {
                 val text = message.substringAfter("submit:", "").trim()

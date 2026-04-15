@@ -78,11 +78,21 @@ fn transcription_thread_entry(
     };
 
     let mut current_preset = preset;
+    let mut freeze_on_next_restart = false;
 
     loop {
         AUDIO_SOURCE_CHANGE.store(false, Ordering::SeqCst);
         TRANSCRIPTION_MODEL_CHANGE.store(false, Ordering::SeqCst);
         super::DEVICE_RECONNECT_REQUESTED.store(false, Ordering::SeqCst);
+
+        // On model/source switch: freeze old transcript so it stays visible,
+        // then let the new session start fresh.
+        if freeze_on_next_restart {
+            if let Ok(mut s) = state.lock() {
+                s.freeze_current_transcript();
+            }
+            freeze_on_next_restart = false;
+        }
 
         // Reset volume indicator to ensure fresh state when switching methods
         REALTIME_RMS.store(0, Ordering::SeqCst);
@@ -100,6 +110,8 @@ fn transcription_thread_entry(
                 || trans_model == crate::model_config::QWEN3_ASR_1_7B_MODEL_ID
             {
                 s.set_transcription_method(super::state::TranscriptionMethod::Qwen3Local);
+            } else if trans_model == "zipformer" {
+                s.set_transcription_method(super::state::TranscriptionMethod::SherpaZipformer);
             } else {
                 s.set_transcription_method(super::state::TranscriptionMethod::GeminiLive);
             }
@@ -131,6 +143,13 @@ fn transcription_thread_entry(
                 hwnd_overlay,
                 state.clone(),
                 super::qwen3::Qwen3ModelVariant::Large,
+            )
+        } else if trans_model == "zipformer" {
+            super::sherpa_onnx::run_sherpa_transcription(
+                current_preset.clone(),
+                stop_signal.clone(),
+                hwnd_overlay,
+                state.clone(),
             )
         } else {
             run_realtime_transcription(
@@ -199,6 +218,7 @@ fn transcription_thread_entry(
 
         // If a restart is triggered, reset stop signal to allow the new transcription to run
         if restart_source || restart_model {
+            freeze_on_next_restart = true;
             stop_signal.store(false, Ordering::SeqCst);
         }
 
@@ -219,6 +239,9 @@ fn transcription_thread_entry(
             break;
         }
     }
+
+    crate::overlay::realtime_webview::state::REALTIME_SESSION_STOPPING
+        .store(false, Ordering::SeqCst);
 }
 
 fn run_realtime_transcription(

@@ -1,6 +1,6 @@
 use super::panel::{
-    WM_FORCE_SHOW_PANEL, close_panel, destroy_panel, ensure_panel_created, move_panel_to_bubble,
-    save_bubble_position, show_panel,
+    WM_FORCE_SHOW_PANEL, close_panel, destroy_panel, move_panel_to_bubble, save_bubble_position,
+    show_panel,
 };
 use super::render::update_bubble_visual;
 use super::state::*;
@@ -146,14 +146,8 @@ fn create_bubble_window() {
         // Start fade-in animation immediately
         let _ = SetTimer(Some(hwnd), OPACITY_TIMER_ID, 16, None);
 
-        // Warmup: Create panel window AND WebView2 process immediately.
-        // We do this here (hidden) so the first click shows the panel instantly.
-        // HOWEVER: If the tray popup is currently open, skip the warmup to avoid
-        // focus conflicts that would close the popup. The warmup will happen
-        // on first panel open instead.
-        if !crate::overlay::tray_popup::is_popup_open() {
-            ensure_panel_created(hwnd, true);
-        }
+        // Do not pre-create the favorites panel/WebView on startup.
+        // The panel now initializes on first open to keep launch cost minimal.
 
         // Message loop
         let mut msg = MSG::default();

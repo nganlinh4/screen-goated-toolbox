@@ -34,6 +34,7 @@ class AppContainer(
     context: Context,
 ) {
     private val appContext = context.applicationContext
+    val toastBus = AppToastBus()
 
     val json: Json = Json {
         ignoreUnknownKeys = true
@@ -104,6 +105,7 @@ class AppContainer(
         runtimeSettings = { settingsStore.loadPresetRuntimeSettings() },
         uiLanguage = { repository.currentUiPreferences().uiLanguage },
         overrideStore = presetPersistence,
+        toastBus = toastBus,
         historyRecorder = HistoryBackedPresetHistoryRecorder(historyRepository),
     )
 
@@ -119,6 +121,7 @@ class AppContainer(
         context = appContext,
         httpClient = httpClient,
         settingsStore = settingsStore,
+        toastBus = toastBus,
         edgeVoiceCatalogService = edgeVoiceCatalogService,
     )
 }
