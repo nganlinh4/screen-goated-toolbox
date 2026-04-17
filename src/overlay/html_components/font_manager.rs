@@ -178,11 +178,6 @@ pub fn configure_webview(builder: WebViewBuilder) -> WebViewBuilder {
     builder
 }
 
-/// Start the local font/page server ahead of time so first-use overlays avoid startup latency.
-pub fn warmup_fonts() {
-    start_server();
-}
-
 /// Returns the CSS @font-face rule using the local server
 pub fn get_font_css() -> String {
     let base_url = get_server_url().unwrap_or_else(|| "http://127.0.0.1:0".to_string());

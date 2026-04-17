@@ -224,16 +224,6 @@ pub fn hide_tray_popup() {
     }
 }
 
-pub fn is_popup_open() -> bool {
-    let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
-    if hwnd_val == 0 {
-        return false;
-    }
-
-    let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-    unsafe { IsWindowVisible(hwnd).as_bool() }
-}
-
 /// Warmup the tray popup - creates hidden window with WebView for instant display later
 pub fn warmup_tray_popup() {
     // Check if dead stuck (timestamp check)
