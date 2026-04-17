@@ -126,6 +126,12 @@ internal fun presetResultJavascriptCore(): String {
         function resetStreamCounters() {
             window._streamWordCount = 0;
             window._streamRenderCount = 0;
+            if (window._streamRevealState) {
+                window._streamRevealState.queue = [];
+                window._streamRevealState.active = false;
+                window._streamRevealState.lastRevealedIndex = -1;
+                window._streamRevealState.credits = 0;
+            }
         }
 
         function shouldEnableInteractiveWordWrap(text) {
@@ -345,23 +351,94 @@ internal fun presetResultJavascriptCore(): String {
 
             const words = document.querySelectorAll('.word');
             const newWordCount = words.length;
-            if (!isNewSession) {
-                const newWords = [];
-                for (let index = prevWordCount; index < newWordCount; index += 1) {
-                    newWords.push(words[index]);
+
+            // ===== ADAPTIVE WORD-BY-WORD REVEAL =====
+            // Queue new words and release on rAF at a backlog-adaptive rate.
+            // Low backlog → smooth ~25ms/word feel; bursts accelerate so the
+            // displayed text catches up to the model without hiding throughput
+            // behind animation. Credit accumulation gives a ~16ms floor.
+            if (!window._streamRevealState) {
+                window._streamRevealState = {
+                    queue: [],
+                    active: false,
+                    lastRevealedIndex: -1,
+                    lastTick: 0,
+                    credits: 0
+                };
+            }
+            const revealState = window._streamRevealState;
+
+            if (isNewSession) {
+                revealState.queue = [];
+                revealState.active = false;
+                revealState.lastRevealedIndex = newWordCount - 1;
+                revealState.credits = 0;
+            } else {
+                // Word-centric hide: display:none removes the word from LAYOUT
+                // entirely so scrollHeight reflects only REVEALED content. This
+                // lets font-size shrink gradually per-word as reveal progresses.
+                revealState.queue = [];
+                const revealStart = Math.max(0, revealState.lastRevealedIndex + 1);
+                for (let rv = revealStart; rv < newWordCount; rv += 1) {
+                    const rw = words[rv];
+                    if (!rw) continue;
+                    rw.style.display = 'none';
+                    rw.style.opacity = '0';
+                    rw.style.filter = 'blur(2px)';
+                    rw.style.transition = 'opacity 0.25s ease-out, filter 0.25s ease-out';
+                    revealState.queue.push({ el: rw, index: rv });
                 }
-                if (newWords.length > 0) {
-                    newWords.forEach(word => {
-                        word.style.opacity = '0';
-                        word.style.filter = 'blur(2px)';
-                    });
-                    requestAnimationFrame(() => {
-                        newWords.forEach(word => {
-                            word.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out';
-                            word.style.opacity = '1';
-                            word.style.filter = 'blur(0)';
-                        });
-                    });
+
+                if (revealState.queue.length > 0 && !revealState.active) {
+                    revealState.active = true;
+                    revealState.lastTick = performance.now();
+                    revealState.credits = 1;
+                    const SMOOTH_WPS = 40;
+                    const CATCH_THRESHOLD = 10;
+                    const BATCH_CAP = 64;
+                    const tick = function(now) {
+                        const q = revealState.queue;
+                        if (!q || q.length === 0) {
+                            revealState.active = false;
+                            revealState.credits = 0;
+                            return;
+                        }
+                        let dt = now - revealState.lastTick;
+                        if (dt < 0) dt = 0;
+                        revealState.lastTick = now;
+                        const backlog = q.length;
+                        const targetWps = SMOOTH_WPS * (1 + backlog / CATCH_THRESHOLD);
+                        revealState.credits += targetWps * dt / 1000;
+                        let emitted = 0;
+                        while (revealState.credits >= 1 && q.length > 0 && emitted < BATCH_CAP) {
+                            const item = q.shift();
+                            if (item.el && item.el.isConnected) {
+                                item.el.style.display = '';
+                                void item.el.offsetWidth;
+                                item.el.style.opacity = '1';
+                                item.el.style.filter = 'blur(0)';
+                            }
+                            revealState.lastRevealedIndex = item.index;
+                            revealState.credits -= 1;
+                            emitted += 1;
+                        }
+
+                        if (emitted > 0) {
+                            const doc2 = document.documentElement;
+                            const overflow = doc2.scrollHeight - window.innerHeight;
+                            if (overflow > 0) {
+                                const currentFs = parseFloat(document.body.style.fontSize) || 14;
+                                const minFs = ((revealState.lastRevealedIndex + 1) < 200) ? 6 : 14;
+                                if (currentFs > minFs) {
+                                    const shrinkPx = Math.max(1, Math.min(3, Math.ceil(overflow / 30)));
+                                    const newFs = Math.max(minFs, currentFs - shrinkPx);
+                                    document.body.style.fontSize = newFs + 'px';
+                                }
+                            }
+                        }
+                        requestAnimationFrame(tick);
+                    };
+                    requestAnimationFrame(tick);
                 }
             }
 
