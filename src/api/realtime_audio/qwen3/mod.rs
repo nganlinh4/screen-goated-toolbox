@@ -282,9 +282,12 @@ fn should_commit_on_silence(
 
 fn runtime_live_segments(result: &runtime::RuntimeTranscriptionResult) -> (String, String) {
     if result.fixed_text.is_empty() && result.draft_text.is_empty() {
-        (String::new(), result.text.clone())
+        (String::new(), strip_trailing_sentence_marks(&result.text))
     } else {
-        (result.fixed_text.clone(), result.draft_text.clone())
+        (
+            result.fixed_text.clone(),
+            strip_trailing_sentence_marks(&result.draft_text),
+        )
     }
 }
 
@@ -293,6 +296,15 @@ fn runtime_final_text(result: &runtime::RuntimeTranscriptionResult) -> String {
         result.text.clone()
     } else {
         join_transcript_segments(&result.fixed_text, &result.draft_text)
+    }
+}
+
+fn strip_trailing_sentence_marks(text: &str) -> String {
+    let trimmed = text.trim_end();
+    if trimmed.ends_with(['.', '?', '!']) {
+        trimmed.trim_end_matches(['.', '?', '!']).to_string()
+    } else {
+        text.to_string()
     }
 }
 
