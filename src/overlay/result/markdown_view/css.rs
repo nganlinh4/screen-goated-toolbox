@@ -42,8 +42,12 @@ pub const MARKDOWN_CSS: &str = r#"
     body {
         font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, sans-serif;
         font-optical-sizing: auto;
-        /* wdth 90 for more compact text as requested */
-        font-variation-settings: 'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100;
+        /* Weight and width split across properties so headings can set their own
+           weight (via font-weight) while inheriting the fit algorithm's wdth
+           (via font-stretch). font-variation-settings carries only slnt/ROND. */
+        font-weight: 400;
+        font-stretch: 90%;
+        font-variation-settings: 'slnt' 0, 'ROND' 100;
         /* Default size 14px - JavaScript fit_font_to_window handles dynamic scaling for short content */
         font-size: 14px;
         line-height: 1.5; /* Reduced line height for compactness */
@@ -69,7 +73,9 @@ pub const MARKDOWN_CSS: &str = r#"
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
 
-        font-variation-settings: 'wght' 600, 'wdth' 110, 'slnt' 0, 'ROND' 100;
+        /* wght via font-weight, wdth inherits from body's font-stretch so the
+           JS fit can stretch heading glyphs when vertical slack is available. */
+        font-weight: 600;
         text-align: center;
         position: relative;
         overflow: hidden;
@@ -82,7 +88,7 @@ pub const MARKDOWN_CSS: &str = r#"
         padding-bottom: 4px;
         margin-top: 1.0em; /* Reduced from 1.2em */
         margin-bottom: 0.5em;
-        font-variation-settings: 'wght' 550, 'wdth' 100, 'slnt' 0, 'ROND' 100;
+        font-weight: 550;
     }
 
     h3 {
@@ -90,17 +96,22 @@ pub const MARKDOWN_CSS: &str = r#"
         color: var(--h3-color);
         margin-top: 0.8em; /* Reduced from 1.0em */
         margin-bottom: 0.4em;
-        font-variation-settings: 'wght' 500, 'wdth' 100, 'slnt' 0, 'ROND' 100;
+        font-weight: 500;
     }
 
     h4, h5, h6 {
         color: var(--h4-color);
         margin-top: 0.8em;
         margin-bottom: 0.4em;
-        font-variation-settings: 'wght' 500, 'wdth' 100, 'slnt' 0, 'ROND' 100;
+        font-weight: 500;
     }
 
-    p { margin: 0 0; }
+    /* Match Phase 0's target margin so new streaming chunks arrive with the
+       correct vertical spacing instead of blinking from 0 → 0.15em on every
+       fit. Phase 0's inline setting still wins for non-last blocks; :last-child
+       keeps the trailing paragraph flush (matches clearLastMargin behavior). */
+    p { margin: 0 0 0.15em; }
+    p:last-child { margin-bottom: 0; }
 
     /* Interactive Word Styling - COLOR ONLY, preserves font scaling */
     .word {
@@ -180,7 +191,6 @@ pub const MARKDOWN_CSS: &str = r#"
         text-align: left;
         font-weight: 600;
         border-bottom: 1px solid var(--border-color);
-        font-variation-settings: 'wght' 600, 'wdth' 100, 'slnt' 0, 'ROND' 100;
     }
     td {
         padding: 6px 10px; /* Reduced from 8px */

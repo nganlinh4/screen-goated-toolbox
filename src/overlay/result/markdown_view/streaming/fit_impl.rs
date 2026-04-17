@@ -11,6 +11,18 @@ const FIT_FONT_SCRIPT: &str = r#"
     if (window._sgtFitting) return;
     window._sgtFitting = true;
 
+    // Cancel any in-flight smoothing animation so this fit can retarget from the
+    // currently-displayed axes (preserved in _sgtCurrentFontSize / _sgtCurrentWdth).
+    if (window._sgtFitAnim) {
+        try { cancelAnimationFrame(window._sgtFitAnim); } catch (_e) {}
+        window._sgtFitAnim = null;
+    }
+    if (typeof window._sgtCurrentWdth !== 'number') {
+        window._sgtCurrentWdth = 90;
+    }
+    // _sgtCurrentFontSize is intentionally left undefined on the first fit so
+    // that fit snaps to its target (nothing to ease from yet).
+
     function postFitDiagnostic(payload) {
         try {
             if (window.ipc && typeof window.ipc.postMessage === 'function') {
@@ -63,6 +75,30 @@ const FIT_FONT_SCRIPT: &str = r#"
                     // Get content and length early so the fit heuristic can reject pathological wraps.
                     var text = body.innerText || body.textContent || '';
                     var textLen = text.trim().length;
+
+                    // Helper: body wdth is driven via font-stretch (inherits to
+                    // headings), not via variation-settings.
+                    function applyBodyWdth(w) {
+                        body.style.fontStretch = w + '%';
+                    }
+
+                    // Short-circuit redundant final fits. Window activate/deactivate
+                    // can re-trigger fit_font_to_window even when text, window size,
+                    // and committed axes are unchanged — wasted ~100ms each time.
+                    if (!isStreamingFit) {
+                        var lastFinal = window._sgtLastFinalFit;
+                        var cachedFs = parseFloat(body.style.fontSize);
+                        var cachedStretch = parseFloat(body.style.fontStretch);
+                        if (lastFinal
+                            && lastFinal.textLen === textLen
+                            && lastFinal.winW === winW
+                            && lastFinal.winH === winH
+                            && Number.isFinite(cachedFs)
+                            && Math.abs(lastFinal.fontSize - cachedFs) < 0.5
+                            && Math.abs((lastFinal.fontStretch || 90) - (Number.isFinite(cachedStretch) ? cachedStretch : 90)) < 0.5) {
+                            return;
+                        }
+                    }
 
                     function currentLineHeightPx() {
                         var computed = window.getComputedStyle(body);
@@ -134,10 +170,20 @@ const FIT_FONT_SCRIPT: &str = r#"
                                 ? 100
                                 : Math.max(24, Math.min(48, Math.floor(winH / 10)))));
 
+                    // Capture currently-displayed axes BEFORE Phase 0 resets them.
+                    // Using body.style (not window state) is robust to cross-script-
+                    // context resets that can clear window globals between streaming
+                    // and final fits. This is also the value the user currently SEES,
+                    // which is what the ease-out animation needs to start from.
+                    var priorDisplayedFontSize = parseFloat(body.style.fontSize);
+                    var priorDisplayedWdth = parseFloat(body.style.fontStretch);
+                    var hasPriorFontSize = Number.isFinite(priorDisplayedFontSize) && priorDisplayedFontSize > 0;
+                    var hasPriorWdth = Number.isFinite(priorDisplayedWdth) && priorDisplayedWdth > 0;
+
                     // ===== PHASE 0: RESET (Start TIGHT like GDI) =====
                     // Long text keeps this compact baseline too, so the final settle-fit
                     // does not snap away from the condensed streaming look.
-                    body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+                    applyBodyWdth(90);
                     body.style.letterSpacing = '0px';
                     body.style.lineHeight = '1.15';
                     body.style.paddingTop = '0';
@@ -156,26 +202,45 @@ const FIT_FONT_SCRIPT: &str = r#"
                     // Binary search for largest font size that fits.
                     var low = minSize, high = maxSize, bestSize = minSize;
                     var foundFittingSize = false;
-                    while (low <= high) {
-                        var mid = Math.floor((low + high) / 2);
-                        body.style.fontSize = mid + 'px';
+
+                    // Streaming stability: before searching, try the previously-displayed
+                    // font size. If the new chunk still fits, keep the size — avoids the
+                    // tiny per-chunk reflows that cause the wrap-alternation eyesore.
+                    // Each refit then applies hysteresis (below) so several subsequent
+                    // chunks fit without forcing another reflow.
+                    var preservedSize = false;
+                    if (isStreamingFit && hasPriorFontSize && priorDisplayedFontSize >= minSize) {
+                        body.style.fontSize = priorDisplayedFontSize + 'px';
                         clearLastMargin();
                         if (fits()) {
+                            bestSize = priorDisplayedFontSize;
                             foundFittingSize = true;
-                            bestSize = mid;
-                            low = mid + 1;
-                        } else {
-                            high = mid - 1;
+                            preservedSize = true;
                         }
                     }
-                    if (!foundFittingSize) {
-                        bestSize = minSize;
+
+                    if (!preservedSize) {
+                        while (low <= high) {
+                            var mid = Math.floor((low + high) / 2);
+                            body.style.fontSize = mid + 'px';
+                            clearLastMargin();
+                            if (fits()) {
+                                foundFittingSize = true;
+                                bestSize = mid;
+                                low = mid + 1;
+                            } else {
+                                high = mid - 1;
+                            }
+                        }
+                        if (!foundFittingSize) {
+                            bestSize = minSize;
+                        }
+                        body.style.fontSize = bestSize + 'px';
+                        clearLastMargin();
                     }
-                    body.style.fontSize = bestSize + 'px';
-                    clearLastMargin();
 
                     // Small-window + less-text path: run a settle pass to avoid "almost right" first paint.
-                    if (isConstrainedShortContent) {
+                    if (isConstrainedShortContent && !preservedSize) {
                         void body.offsetHeight;
                         var settleLow = minSize, settleHigh = bestSize, settleBest = minSize;
                         while (settleLow <= settleHigh) {
@@ -195,7 +260,7 @@ const FIT_FONT_SCRIPT: &str = r#"
 
                     // ===== PHASE 1.5: CONDENSE OPTIMIZATION (wdth < 90) =====
                     // Dense/tall text can get stuck at small font sizes because wrapping is width-limited.
-                    if (textLen > 0 && (bestSize < maxSize - 2 || !foundFittingSize)) {
+                    if (!preservedSize && textLen > 0 && (bestSize < maxSize - 2 || !foundFittingSize)) {
                         var baseSize = parseFloat(body.style.fontSize) || bestSize;
                         var bestComboSize = baseSize;
                         var bestComboWdth = 90;
@@ -203,7 +268,7 @@ const FIT_FONT_SCRIPT: &str = r#"
                         var bestComboOverflow = Math.max(0, doc.scrollHeight - winH);
 
                         for (var testWdth = 85; testWdth >= 55; testWdth -= 5) {
-                            body.style.fontVariationSettings = "'wght' 400, 'wdth' " + testWdth + ", 'slnt' 0, 'ROND' 100";
+                            applyBodyWdth(testWdth);
                             clearLastMargin();
 
                             var cLow = minSize, cHigh = maxSize, cBest = minSize;
@@ -240,9 +305,32 @@ const FIT_FONT_SCRIPT: &str = r#"
                             }
                         }
 
-                        body.style.fontVariationSettings = "'wght' 400, 'wdth' " + bestComboWdth + ", 'slnt' 0, 'ROND' 100";
+                        applyBodyWdth(bestComboWdth);
                         body.style.fontSize = bestComboSize + 'px';
                         clearLastMargin();
+                    }
+
+                    // ===== HYSTERESIS + QUANTIZATION: stabilize streaming size =====
+                    // Binary search lands on the TIGHTEST fitting size; adding a few
+                    // chars would overflow and trigger another refit. Two steps:
+                    //   (1) Shrink 15% past strict-fit so scrollHeight lands under the
+                    //       window, giving several chunks of growth headroom.
+                    //   (2) Snap down to a 4-px bucket so refits differ by >=4 px.
+                    //       Kills 1-3 px reflows that reshape wrapping for almost no
+                    //       visible zoom — the core "wrap-alternation" eyesore.
+                    // Skipped on final fits (user gets largest readable size) and
+                    // when we preserved the previous size (no refit happened).
+                    if (isStreamingFit && !preservedSize && foundFittingSize) {
+                        var currentBest = parseFloat(body.style.fontSize) || bestSize;
+                        var bucketPx = 4;
+                        var hysteresisSize = currentBest * 0.85;
+                        hysteresisSize = Math.floor(hysteresisSize / bucketPx) * bucketPx;
+                        hysteresisSize = Math.max(minSize, hysteresisSize);
+                        if (hysteresisSize < currentBest) {
+                            bestSize = hysteresisSize;
+                            body.style.fontSize = bestSize + 'px';
+                            clearLastMargin();
+                        }
                     }
 
                     // ===== PHASES 2-7: gap filling =====
@@ -329,7 +417,7 @@ const FIT_FONT_SCRIPT: &str = r#"
                             var lowW = 90, highW = 150, bestW = 90;
                             while (lowW <= highW) {
                                 var midW = Math.floor((lowW + highW) / 2);
-                                body.style.fontVariationSettings = "'wght' 400, 'wdth' " + midW + ", 'slnt' 0, 'ROND' 100";
+                                applyBodyWdth(midW);
                                 clearLastMargin();
                                 if (fits()) {
                                     bestW = midW;
@@ -338,7 +426,7 @@ const FIT_FONT_SCRIPT: &str = r#"
                                     highW = midW - 1;
                                 }
                             }
-                            body.style.fontVariationSettings = "'wght' 400, 'wdth' " + bestW + ", 'slnt' 0, 'ROND' 100";
+                            applyBodyWdth(bestW);
                             clearLastMargin();
                         }
 
@@ -353,7 +441,7 @@ const FIT_FONT_SCRIPT: &str = r#"
                             var baseHeight = doc.scrollHeight;
                             while (lowWFew <= highWFew) {
                                 var midWFew = Math.floor((lowWFew + highWFew) / 2);
-                                body.style.fontVariationSettings = "'wght' 400, 'wdth' " + midWFew + ", 'slnt' 0, 'ROND' 100";
+                                applyBodyWdth(midWFew);
                                 if (doc.scrollHeight <= baseHeight && fits()) {
                                     bestWFew = midWFew;
                                     lowWFew = midWFew + 1;
@@ -361,7 +449,7 @@ const FIT_FONT_SCRIPT: &str = r#"
                                     highWFew = midWFew - 1;
                                 }
                             }
-                            body.style.fontVariationSettings = "'wght' 400, 'wdth' " + bestWFew + ", 'slnt' 0, 'ROND' 100";
+                            applyBodyWdth(bestWFew);
 
                             baseHeight = doc.scrollHeight;
                             var lowLSFew = 0, highLSFew = 100, bestLSFew = 0;
@@ -389,7 +477,7 @@ const FIT_FONT_SCRIPT: &str = r#"
                         var rescueBestWdth = 90;
                         var rescueBestOverflow = Math.max(0, doc.scrollHeight - winH);
                         for (var rescueWdth = 90; rescueWdth >= 45; rescueWdth -= 5) {
-                            body.style.fontVariationSettings = "'wght' 400, 'wdth' " + rescueWdth + ", 'slnt' 0, 'ROND' 100";
+                            applyBodyWdth(rescueWdth);
                             clearLastMargin();
                             var rescueOverflow = Math.max(0, doc.scrollHeight - winH);
                             if (rescueOverflow < rescueBestOverflow || (rescueOverflow === rescueBestOverflow && rescueWdth > rescueBestWdth)) {
@@ -397,7 +485,7 @@ const FIT_FONT_SCRIPT: &str = r#"
                                 rescueBestWdth = rescueWdth;
                             }
                         }
-                        body.style.fontVariationSettings = "'wght' 400, 'wdth' " + rescueBestWdth + ", 'slnt' 0, 'ROND' 100";
+                        applyBodyWdth(rescueBestWdth);
                         clearLastMargin();
                     }
 
@@ -429,9 +517,9 @@ const FIT_FONT_SCRIPT: &str = r#"
                             probe.style.fontWeight = cs.fontWeight;
                             probe.style.lineHeight = cs.lineHeight;
                             document.body.appendChild(probe);
-                            probe.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+                            probe.style.fontStretch = '90%';
                             var widthAt90 = probe.getBoundingClientRect().width;
-                            probe.style.fontVariationSettings = "'wght' 400, 'wdth' 55, 'slnt' 0, 'ROND' 100";
+                            probe.style.fontStretch = '55%';
                             var widthAt55 = probe.getBoundingClientRect().width;
                             if (probe.parentNode) probe.parentNode.removeChild(probe);
 
@@ -462,6 +550,86 @@ const FIT_FONT_SCRIPT: &str = r#"
                                 streamingFit: isStreamingFit
                             };
                             window.ipc.postMessage(JSON.stringify(payload));
+                        }
+                    } catch (_err) {}
+
+                    // ===== FONT-SIZE + WDTH SMOOTHING =====
+                    // Binary-search lands on a per-chunk target for each axis, which
+                    // pops between streaming fits. Ease from the currently-displayed
+                    // values toward the new targets so later chunk-to-chunk jitter
+                    // doesn't visibly twitch. Final (non-streaming) fits still snap
+                    // so the padding distribution above stays accurate.
+                    // First-ever fit also snaps — nothing to ease from yet.
+                    try {
+                        var targetStretch = parseFloat(body.style.fontStretch);
+                        var targetWdth = Number.isFinite(targetStretch) && targetStretch > 0 ? targetStretch : 90;
+                        var targetFontSize = parseFloat(body.style.fontSize) || 14;
+
+                        var startWdth = hasPriorWdth ? priorDisplayedWdth : 90;
+                        var startFontSize = hasPriorFontSize ? priorDisplayedFontSize : targetFontSize;
+                        var hadPriorSize = hasPriorFontSize;
+
+                        var wdthDelta = Math.abs(targetWdth - startWdth);
+                        var fsAnimDelta = Math.abs(targetFontSize - startFontSize);
+                        // Animate whenever there's a prior visible value and a meaningful
+                        // delta. Final fits animate too so the settle-up from hysteresis'd
+                        // streaming size becomes a smooth zoom instead of a snap.
+                        var shouldAnimate = hadPriorSize
+                            && (fsAnimDelta >= 0.5 || wdthDelta >= 1.5);
+
+                        function applyAxes(fs, w) {
+                            body.style.fontSize = fs + 'px';
+                            body.style.fontStretch = w + '%';
+                        }
+
+                        // Save signature for the short-circuit at fit entry. Only for
+                        // final fits (streaming changes mid-flight and shouldn't cache).
+                        if (!isStreamingFit) {
+                            window._sgtLastFinalFit = {
+                                textLen: textLen,
+                                winW: winW,
+                                winH: winH,
+                                fontSize: targetFontSize,
+                                fontStretch: targetWdth
+                            };
+                        }
+
+                        if (!shouldAnimate) {
+                            applyAxes(targetFontSize, targetWdth);
+                            window._sgtCurrentFontSize = targetFontSize;
+                            window._sgtCurrentWdth = targetWdth;
+                        } else {
+                            applyAxes(startFontSize, startWdth);
+                            var animStart = performance.now();
+                            // Adaptive duration: if the word-reveal queue has a
+                            // backlog, stretch the size animation over the time
+                            // it takes to drain those words. Keeps font-size
+                            // change "đều đặn" with word reveal instead of
+                            // snapping per chunk. Reveal target is ~40wps at
+                            // low backlog scaling up; we aim for the animation
+                            // to finish roughly when the last queued word
+                            // appears.
+                            var revealBacklog = (window._streamRevealState
+                                && window._streamRevealState.queue)
+                                ? window._streamRevealState.queue.length
+                                : 0;
+                            var duration = Math.max(220,
+                                Math.min(2200, 200 + revealBacklog * 28));
+                            var tick = function(now) {
+                                var t = Math.min(1, (now - animStart) / duration);
+                                var eased = 1 - Math.pow(1 - t, 3);
+                                var curFs = startFontSize + (targetFontSize - startFontSize) * eased;
+                                var curW = startWdth + (targetWdth - startWdth) * eased;
+                                applyAxes(curFs, curW);
+                                window._sgtCurrentFontSize = curFs;
+                                window._sgtCurrentWdth = curW;
+                                if (t < 1) {
+                                    window._sgtFitAnim = requestAnimationFrame(tick);
+                                } else {
+                                    window._sgtFitAnim = null;
+                                }
+                            };
+                            window._sgtFitAnim = requestAnimationFrame(tick);
                         }
                     } catch (_err) {}
                 } catch (err) {

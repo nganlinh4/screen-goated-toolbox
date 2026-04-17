@@ -310,25 +310,128 @@ fn update_stream_markdown_content_ex(
     const words = document.querySelectorAll('.word');
     const newWordCount = words.length;
 
-    if (shouldAnimateNewWords && !isNewSession) {{
-        let newWords = [];
-        for (let i = prevWordCount; i < newWordCount; i++) {{
-            newWords.push(words[i]);
+    // ===== ADAPTIVE WORD-BY-WORD REVEAL =====
+    // Instead of fading in all new words at once per chunk, queue them and
+    // release on rAF at a backlog-adaptive rate. Low backlog → smooth
+    // ~25ms/word feel; large bursts → rate scales so the displayed text
+    // catches up to the model without hiding throughput behind animation.
+    // Credit accumulation gives a natural ~16ms floor (1 word per frame).
+    if (!window._streamRevealState) {{
+        window._streamRevealState = {{
+            queue: [],
+            active: false,
+            lastRevealedIndex: -1,
+            lastTick: 0,
+            credits: 0
+        }};
+    }}
+    var revealState = window._streamRevealState;
+
+    if (isNewSession) {{
+        // First render of a session — all words default-visible, no animation.
+        revealState.queue = [];
+        revealState.active = false;
+        revealState.lastRevealedIndex = newWordCount - 1;
+        revealState.credits = 0;
+    }} else if (!shouldAnimateNewWords) {{
+        // Finalize path: flush anything pending and reveal the rest instantly.
+        if (revealState.queue.length > 0) {{
+            revealState.queue.forEach(function(item) {{
+                if (item.el && item.el.isConnected) {{
+                    item.el.style.display = '';
+                    item.el.style.opacity = '1';
+                    item.el.style.filter = 'blur(0)';
+                }}
+            }});
+            revealState.queue = [];
+        }}
+        revealState.active = false;
+        revealState.lastRevealedIndex = newWordCount - 1;
+        revealState.credits = 0;
+    }} else {{
+        // Word-centric hide: display:none removes the word from LAYOUT
+        // entirely so scrollHeight reflects only REVEALED content. This lets
+        // font-size shrink gradually per-word as the reveal progresses,
+        // instead of snapping per-chunk to fit hidden-but-allocated words.
+        // innerHTML was just replaced — any pre-existing queue entries hold
+        // stale DOM refs. Rebuild from fresh refs starting at the first word
+        // past lastRevealedIndex, which includes any the previous chunk
+        // enqueued but hadn't released yet.
+        revealState.queue = [];
+        var revealStart = Math.max(0, revealState.lastRevealedIndex + 1);
+        for (var rv = revealStart; rv < newWordCount; rv++) {{
+            var rw = words[rv];
+            if (!rw) continue;
+            rw.style.display = 'none';
+            rw.style.opacity = '0';
+            rw.style.filter = 'blur(2px)';
+            rw.style.transition = 'opacity 0.25s ease-out, filter 0.25s ease-out';
+            revealState.queue.push({{ el: rw, index: rv }});
         }}
 
-        if (newWords.length > 0) {{
-            newWords.forEach(w => {{
-                w.style.opacity = '0';
-                w.style.filter = 'blur(2px)';
-            }});
+        if (revealState.queue.length > 0 && !revealState.active) {{
+            revealState.active = true;
+            revealState.lastTick = performance.now();
+            // Prime with 1 credit so the very first word releases on the
+            // first tick without waiting for credit accumulation.
+            revealState.credits = 1;
+            var SMOOTH_WPS = 40;      // ~25ms/word at zero backlog
+            var CATCH_THRESHOLD = 10; // doubles rate per +10 backlog
+            var BATCH_CAP = 64;       // hardware safety ceiling per frame
+            var tick = function(now) {{
+                var q = revealState.queue;
+                if (!q || q.length === 0) {{
+                    revealState.active = false;
+                    revealState.credits = 0;
+                    return;
+                }}
+                var dt = now - revealState.lastTick;
+                if (dt < 0) dt = 0;
+                revealState.lastTick = now;
+                var backlog = q.length;
+                // targetWps scales linearly with backlog: at 0 backlog we
+                // release at SMOOTH_WPS; each CATCH_THRESHOLD units of
+                // backlog doubles the effective rate.
+                var targetWps = SMOOTH_WPS * (1 + backlog / CATCH_THRESHOLD);
+                revealState.credits += targetWps * dt / 1000;
+                var emitted = 0;
+                while (revealState.credits >= 1 && q.length > 0 && emitted < BATCH_CAP) {{
+                    var item = q.shift();
+                    if (item.el && item.el.isConnected) {{
+                        // Bring word INTO layout (display:none → default inline)
+                        // then force reflow so the browser commits the display
+                        // change before the opacity transition kicks in.
+                        item.el.style.display = '';
+                        void item.el.offsetWidth;
+                        item.el.style.opacity = '1';
+                        item.el.style.filter = 'blur(0)';
+                    }}
+                    revealState.lastRevealedIndex = item.index;
+                    revealState.credits -= 1;
+                    emitted++;
+                }}
 
-            requestAnimationFrame(() => {{
-                newWords.forEach(w => {{
-                    w.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out';
-                    w.style.opacity = '1';
-                    w.style.filter = 'blur(0)';
-                }});
-            }});
+                // Per-tick font-size nudge: if the newly-revealed words pushed
+                // scrollHeight past the window, shrink by 1-3 px. Small steps
+                // per tick keep the size change "đều đặn" with word reveal
+                // instead of snapping per chunk. Reveal tick is the single
+                // source of truth for streaming font-size now.
+                if (emitted > 0) {{
+                    var doc2 = document.documentElement;
+                    var overflow = doc2.scrollHeight - window.innerHeight;
+                    if (overflow > 0) {{
+                        var currentFs = parseFloat(document.body.style.fontSize) || 14;
+                        var minFs = ((revealState.lastRevealedIndex + 1) < 200) ? 6 : 14;
+                        if (currentFs > minFs) {{
+                            var shrinkPx = Math.max(1, Math.min(3, Math.ceil(overflow / 30)));
+                            var newFs = Math.max(minFs, currentFs - shrinkPx);
+                            document.body.style.fontSize = newFs + 'px';
+                        }}
+                    }}
+                }}
+                requestAnimationFrame(tick);
+            }};
+            requestAnimationFrame(tick);
         }}
     }}
 
@@ -392,7 +495,7 @@ pub fn reset_stream_counter(parent_hwnd: HWND) {
     WEBVIEWS.with(|webviews| {
         if let Some(webview) = webviews.borrow().get(&hwnd_key)
             && let Err(err) = webview.evaluate_script(
-                "window._streamPrevLen = 0; window._streamPrevContent = ''; window._streamWordCount = 0; window._streamRenderCount = 0;",
+                "window._streamPrevLen = 0; window._streamPrevContent = ''; window._streamWordCount = 0; window._streamRenderCount = 0; if (window._streamRevealState) { window._streamRevealState.queue = []; window._streamRevealState.active = false; window._streamRevealState.lastRevealedIndex = -1; window._streamRevealState.credits = 0; }",
             )
         {
             crate::log_info!(
