@@ -212,7 +212,10 @@ pub fn clear_all_app_data() {
     // Legacy Roaming\SGT (orphaned from an old code version — pure garbage).
     if legacy_sgt_roaming.exists() {
         if let Err(e) = std::fs::remove_dir_all(&legacy_sgt_roaming) {
-            eprintln!("[reset] failed to remove legacy {:?}: {}", legacy_sgt_roaming, e);
+            eprintln!(
+                "[reset] failed to remove legacy {:?}: {}",
+                legacy_sgt_roaming, e
+            );
             delete_directory_contents_recursive(&legacy_sgt_roaming);
         }
     }
