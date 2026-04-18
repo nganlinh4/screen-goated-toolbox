@@ -11,7 +11,6 @@ use windows::Win32::System::Threading::GetCurrentProcess;
 pub enum RuntimeArch {
     X64,
     Arm64,
-    Unknown,
 }
 
 impl RuntimeArch {
@@ -19,7 +18,6 @@ impl RuntimeArch {
         match self {
             Self::X64 => "x64",
             Self::Arm64 => "arm64",
-            Self::Unknown => "unknown",
         }
     }
 }
@@ -63,13 +61,12 @@ impl FeatureCapability {
 pub struct EnvironmentInfo {
     pub process_arch: RuntimeArch,
     pub native_arch: RuntimeArch,
-    pub is_emulated: bool,
 }
 
 #[derive(Clone, Debug)]
 pub enum WebView2InstallStatus {
     Installed,
-    Installing { progress: Option<f32> },
+    Installing,
     Missing,
     Error(String),
 }
@@ -93,7 +90,9 @@ pub fn current_process_arch() -> RuntimeArch {
     }
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     {
-        RuntimeArch::Unknown
+        // Windows-only app — the supported targets are x86_64 and aarch64.
+        // Default to X64 on anything else just to keep the type total.
+        RuntimeArch::X64
     }
 }
 
@@ -103,19 +102,6 @@ pub fn environment_info() -> EnvironmentInfo {
     EnvironmentInfo {
         process_arch,
         native_arch,
-        is_emulated: native_arch != RuntimeArch::Unknown && native_arch != process_arch,
-    }
-}
-
-pub fn architecture_summary() -> String {
-    let env = environment_info();
-    if env.is_emulated {
-        format!(
-            "Process: {} (emulated), Native machine: {}",
-            env.process_arch, env.native_arch
-        )
-    } else {
-        format!("Architecture: {}", env.process_arch)
     }
 }
 
@@ -221,7 +207,7 @@ pub fn webview2_runtime_installed() -> bool {
 pub fn current_webview2_status() -> WebView2InstallStatus {
     let current = WEBVIEW2_STATUS.lock().unwrap().clone();
     match current {
-        WebView2InstallStatus::Installing { .. } => current,
+        WebView2InstallStatus::Installing => current,
         WebView2InstallStatus::Error(message) => {
             if webview2_runtime_installed() {
                 WebView2InstallStatus::Installed
@@ -236,7 +222,7 @@ pub fn current_webview2_status() -> WebView2InstallStatus {
 
 pub fn start_webview2_runtime_install() -> bool {
     match current_webview2_status() {
-        WebView2InstallStatus::Installed | WebView2InstallStatus::Installing { .. } => false,
+        WebView2InstallStatus::Installed | WebView2InstallStatus::Installing => false,
         _ => {
             std::thread::spawn(|| {
                 if let Err(err) = install_webview2_runtime() {
@@ -328,7 +314,7 @@ fn find_webview2_under(path: &Path) -> Option<PathBuf> {
 fn install_webview2_runtime() -> Result<()> {
     {
         let mut status = WEBVIEW2_STATUS.lock().unwrap();
-        *status = WebView2InstallStatus::Installing { progress: None };
+        *status = WebView2InstallStatus::Installing;
     }
     crate::overlay::auto_copy_badge::show_progress_notification(
         "Installing WebView2 Runtime",
@@ -371,8 +357,21 @@ fn install_webview2_runtime() -> Result<()> {
     crate::overlay::auto_copy_badge::hide_progress_notification();
     crate::overlay::auto_copy_badge::show_detailed_notification(
         "WebView2 Runtime ready",
-        "Microsoft Edge WebView2 Runtime installed successfully.",
+        "Microsoft Edge WebView2 Runtime installed. Restarting the app...",
         crate::overlay::auto_copy_badge::NotificationType::Success,
     );
+
+    // Auto-restart the app so the new WebView2 runtime is loaded fresh and
+    // every overlay that fell back to native menus (tray popup, etc.) picks
+    // up the full web UI on the next launch.
+    if let Ok(exe) = std::env::current_exe() {
+        // Give the notification a brief moment to render before replacing
+        // the process.
+        std::thread::sleep(std::time::Duration::from_millis(900));
+        let _ = std::process::Command::new(&exe)
+            .args(std::env::args().skip(1))
+            .spawn();
+        std::process::exit(0);
+    }
     Ok(())
 }

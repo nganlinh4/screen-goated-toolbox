@@ -148,8 +148,17 @@ foreach ($archName in $selectedArchs) {
     $targetTriple = $targetMap[$archName]
     $targetDir = "target/$targetTriple/release"
     $exePathRelease = Join-Path $targetDir "screen-goated-toolbox.exe"
-    $outputExeName = "ScreenGoatedToolbox_v$version-$archName.exe"
+    $outputExeName = if ($archName -eq "x64") {
+        "ScreenGoatedToolbox_v$version.exe"
+    } else {
+        "ScreenGoatedToolbox_v$version-$archName.exe"
+    }
     $outputPath = Join-Path $targetDir $outputExeName
+    $legacyX64Path = if ($archName -eq "x64") {
+        Join-Path $targetDir "ScreenGoatedToolbox_v$version-x64.exe"
+    } else {
+        $null
+    }
 
     Write-Host ""
     Write-Host "=== Building ScreenGoatedToolbox v$version ($archName) ===" -ForegroundColor Cyan
@@ -157,6 +166,9 @@ foreach ($archName in $selectedArchs) {
     cargo build --release --target $targetTriple
 
     if (Test-Path $exePathRelease) {
+        if ($legacyX64Path -and (Test-Path $legacyX64Path)) {
+            Remove-Item $legacyX64Path
+        }
         if (Test-Path $outputPath) {
             Remove-Item $outputPath
         }

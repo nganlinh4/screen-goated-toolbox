@@ -139,6 +139,8 @@ impl SettingsApp {
     }
 
     pub(crate) fn update_startup(&mut self, ctx: &egui::Context) {
+        const TRAY_STARTUP_GRACE_FRAMES: u16 = 180;
+
         if self.startup_stage == 0 {
             unsafe {
                 let mut cursor_pos = POINT::default();
@@ -199,17 +201,27 @@ impl SettingsApp {
             ctx.request_repaint();
         } else if self.startup_stage == 35 {
             // CRITICAL: Wait for Tray Icon to be ready before starting splash
-            // This ensures all shell integration is settled.
+            // This ensures all shell integration is settled. Do not wait forever:
+            // on some Windows/VM setups tray icon init can fail or be delayed,
+            // and the app would remain permanently invisible.
             if self.tray_icon.is_none() {
-                // If tray failed or is still initializing, keep waiting
-                ctx.request_repaint();
-                return;
+                self.tray_startup_wait_frames = self.tray_startup_wait_frames.saturating_add(1);
+                if self.tray_startup_wait_frames < TRAY_STARTUP_GRACE_FRAMES {
+                    ctx.request_repaint();
+                    return;
+                }
+                crate::log_info!(
+                    "[Startup] Tray icon unavailable after {} frames; continuing without blocking window",
+                    self.tray_startup_wait_frames
+                );
+            } else {
+                self.tray_startup_wait_frames = 0;
             }
 
-            if self.config.start_in_tray {
+            if self.config.start_in_tray && self.tray_icon.is_some() {
                 // ENSURE HIDDEN: If starting in tray, we must stay invisible.
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-                self.startup_stage = 37;
+                self.startup_stage = 38;
             } else {
                 // CREATE SPLASH while window is still invisible.
                 // This lets the splash render one frame to the backbuffer before
@@ -228,9 +240,19 @@ impl SettingsApp {
 
             ctx.request_repaint();
         } else if self.startup_stage == 36 {
-            // Splash has rendered one invisible frame — now show the window.
+            // Splash has rendered one invisible frame — now show the window using
+            // safe native chrome first. This avoids the hidden transparent/
+            // undecorated startup path that can leave the app invisible on some
+            // Windows setups.
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            super::utils::show_main_window_native();
             self.startup_stage = 37;
+            ctx.request_repaint();
+        } else if self.startup_stage == 37 {
+            // After one visible frame, restore the custom transparent frameless chrome.
+            self.ensure_custom_chrome(ctx);
+            self.startup_stage = 38;
+            ctx.request_repaint();
         }
     }
 

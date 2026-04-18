@@ -296,6 +296,7 @@ impl SettingsApp {
             tray_favorite_bubble_item,
             last_ui_language: initial_ui_language,
             tray_retry_timer: 0.0,
+            tray_startup_wait_frames: 0,
             event_rx: rx,
             is_quitting: false,
             run_at_startup,
@@ -313,6 +314,7 @@ impl SettingsApp {
             splash: None, // DELAYED CREATION to stage 35 for perfect $t=0$ timing
             fade_in_start: None,
             startup_stage: 0,
+            custom_chrome_ready: false,
             cached_audio_devices,
             snarl: None,
             last_edited_preset_idx: None,

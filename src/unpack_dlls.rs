@@ -12,38 +12,115 @@ pub use self::ai_runtime::{
 };
 
 pub(crate) fn private_bin_dir() -> PathBuf {
+    let arch_dir = match crate::runtime_support::current_process_arch() {
+        crate::runtime_support::RuntimeArch::Arm64 => "arm64",
+        crate::runtime_support::RuntimeArch::X64 => "x64",
+    };
+
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("screen-goated-toolbox")
         .join("bin")
+        .join(arch_dir)
 }
 
 fn ensure_private_bin_dir_exists(bin_dir: &Path) {
     let _ = fs::create_dir_all(bin_dir);
 }
 
-fn unpack_support_dlls(bin_dir: &Path) {
-    let dlls: &[(&str, &[u8])] = &[
-        (
-            "vcruntime140.dll",
-            include_bytes!("embed_dlls/vcruntime140.dll"),
-        ),
-        (
-            "vcruntime140_1.dll",
-            include_bytes!("embed_dlls/vcruntime140_1.dll"),
-        ),
-        ("msvcp140.dll", include_bytes!("embed_dlls/msvcp140.dll")),
-        (
-            "msvcp140_1.dll",
-            include_bytes!("embed_dlls/msvcp140_1.dll"),
-        ),
-    ];
+fn bundled_support_dlls() -> &'static [(&'static str, &'static [u8])] {
+    match crate::runtime_support::current_process_arch() {
+        crate::runtime_support::RuntimeArch::Arm64 => &[
+            (
+                "concrt140.dll",
+                include_bytes!("embed_dlls/arm64/concrt140.dll"),
+            ),
+            (
+                "msvcp140.dll",
+                include_bytes!("embed_dlls/arm64/msvcp140.dll"),
+            ),
+            (
+                "msvcp140_1.dll",
+                include_bytes!("embed_dlls/arm64/msvcp140_1.dll"),
+            ),
+            (
+                "msvcp140_2.dll",
+                include_bytes!("embed_dlls/arm64/msvcp140_2.dll"),
+            ),
+            (
+                "msvcp140_atomic_wait.dll",
+                include_bytes!("embed_dlls/arm64/msvcp140_atomic_wait.dll"),
+            ),
+            (
+                "msvcp140_codecvt_ids.dll",
+                include_bytes!("embed_dlls/arm64/msvcp140_codecvt_ids.dll"),
+            ),
+            (
+                "vccorlib140.dll",
+                include_bytes!("embed_dlls/arm64/vccorlib140.dll"),
+            ),
+            (
+                "vcruntime140.dll",
+                include_bytes!("embed_dlls/arm64/vcruntime140.dll"),
+            ),
+            (
+                "vcruntime140_1.dll",
+                include_bytes!("embed_dlls/arm64/vcruntime140_1.dll"),
+            ),
+            (
+                "vcruntime140_threads.dll",
+                include_bytes!("embed_dlls/arm64/vcruntime140_threads.dll"),
+            ),
+        ],
+        crate::runtime_support::RuntimeArch::X64 => &[
+            (
+                "concrt140.dll",
+                include_bytes!("embed_dlls/x64/concrt140.dll"),
+            ),
+            (
+                "msvcp140.dll",
+                include_bytes!("embed_dlls/x64/msvcp140.dll"),
+            ),
+            (
+                "msvcp140_1.dll",
+                include_bytes!("embed_dlls/x64/msvcp140_1.dll"),
+            ),
+            (
+                "msvcp140_2.dll",
+                include_bytes!("embed_dlls/x64/msvcp140_2.dll"),
+            ),
+            (
+                "msvcp140_atomic_wait.dll",
+                include_bytes!("embed_dlls/x64/msvcp140_atomic_wait.dll"),
+            ),
+            (
+                "msvcp140_codecvt_ids.dll",
+                include_bytes!("embed_dlls/x64/msvcp140_codecvt_ids.dll"),
+            ),
+            (
+                "vccorlib140.dll",
+                include_bytes!("embed_dlls/x64/vccorlib140.dll"),
+            ),
+            (
+                "vcruntime140.dll",
+                include_bytes!("embed_dlls/x64/vcruntime140.dll"),
+            ),
+            (
+                "vcruntime140_1.dll",
+                include_bytes!("embed_dlls/x64/vcruntime140_1.dll"),
+            ),
+            (
+                "vcruntime140_threads.dll",
+                include_bytes!("embed_dlls/x64/vcruntime140_threads.dll"),
+            ),
+        ],
+    }
+}
 
-    for (name, bytes) in dlls {
+fn unpack_support_dlls(bin_dir: &Path) {
+    for (name, bytes) in bundled_support_dlls() {
         let path = bin_dir.join(name);
-        if !path.exists() {
-            let _ = fs::write(&path, bytes);
-        }
+        let _ = fs::write(&path, bytes);
     }
 }
 
@@ -65,8 +142,9 @@ fn configure_private_bin_dir(bin_dir: &Path) {
     }
 }
 
-/// Prepare the private runtime directory and unpack only the small CRT support DLLs.
-/// The large local AI runtime is installed on demand via `ensure_ai_runtime_installed`.
+/// Prepare the private runtime directory and unpack the app-local VC CRT for the current
+/// architecture. The large local AI runtime is installed on demand via
+/// `ensure_ai_runtime_installed`.
 pub fn unpack_dlls() {
     let bin_dir = private_bin_dir();
     ensure_private_bin_dir_exists(&bin_dir);
