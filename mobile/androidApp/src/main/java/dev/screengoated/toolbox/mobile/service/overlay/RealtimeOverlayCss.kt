@@ -307,7 +307,7 @@ private fun overlayModalCss(isDark: Boolean): String {
             gap: 12px;
             margin-bottom: 12px;
         }
-        .tts-modal-label, .download-modal-footnote {
+        .tts-modal-label {
             font-size: 11px;
             color: ${modal.labelColor};
         }

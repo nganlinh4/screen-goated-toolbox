@@ -288,7 +288,6 @@ pub struct LocaleText {
     pub parakeet_downloading_title: &'static str,
     pub parakeet_downloading_message: &'static str,
     pub parakeet_downloading_file: &'static str, // "Downloading {}..."
-    pub parakeet_supports_english_only: &'static str,
     pub qwen3_downloading_title: &'static str,
     pub qwen3_downloading_message: &'static str,
     pub qwen3_downloading_file: &'static str, // "Downloading {}..."
@@ -361,7 +360,6 @@ pub struct LocaleText {
     // --- DOWNLOADED TOOLS MODAL ---
     pub downloaded_tools_button: &'static str,
     pub downloaded_tools_title: &'static str,
-    pub tool_webview2: &'static str,
     pub tool_ai_runtime: &'static str,
     pub tool_parakeet: &'static str,
     pub tool_qwen3: &'static str,
@@ -375,7 +373,6 @@ pub struct LocaleText {
     pub tool_status_unsupported: &'static str,
     pub tool_action_download: &'static str,
     pub tool_action_delete: &'static str,
-    pub tool_desc_webview2: &'static str,
     pub tool_desc_ai_runtime: &'static str,
     pub tool_desc_parakeet: &'static str,
     pub tool_desc_qwen3: &'static str,

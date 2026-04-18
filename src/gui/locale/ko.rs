@@ -322,7 +322,6 @@ pub fn get() -> LocaleText {
 
         downloaded_tools_button: "다운로드된 도구",
         downloaded_tools_title: "다운로드된 도구 관리",
-        tool_webview2: "WebView2 런타임",
         tool_ai_runtime: "DirectML + ONNX Runtime",
         tool_parakeet: "Parakeet 실시간 모델",
         tool_qwen3: "Qwen3-ASR 모델",
@@ -336,7 +335,6 @@ pub fn get() -> LocaleText {
         tool_status_unsupported: "이 시스템에서 지원되지 않음",
         tool_action_download: "다운로드",
         tool_action_delete: "삭제",
-        tool_desc_webview2: "SGT 오버레이, 트레이 팝업, 녹화 UI, 임베드 웹 표면에 필요합니다",
         tool_desc_ai_runtime: "로컬 Parakeet 음성 모델용 DirectML + ONNX Runtime",
         tool_desc_parakeet: "캐빈 번역 기능 및 Audio->Text 노드의 \"Stream offline\" 모델로 사용됩니다",
         tool_desc_qwen3: "다국어 음성 인식 (52개 언어)",
@@ -446,7 +444,6 @@ pub fn get() -> LocaleText {
         parakeet_downloading_title: "Parakeet 모델 다운로드 중 (0.6 GB)",
         parakeet_downloading_message: "잠시만 기다려주세요...",
         parakeet_downloading_file: "{} 다운로드 중...",
-        parakeet_supports_english_only: "(영어만 지원됨)",
         qwen3_downloading_title: "Qwen3-ASR 0.6B 다운로드 중",
         qwen3_downloading_message: "잠시만 기다려주세요... 큰 로컬 모델입니다.",
         qwen3_downloading_file: "{} 다운로드 중...",

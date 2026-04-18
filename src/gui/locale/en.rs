@@ -328,7 +328,6 @@ pub fn get() -> LocaleText {
         parakeet_downloading_title: "Downloading Parakeet (0.6 GB)",
         parakeet_downloading_message: "Please wait...",
         parakeet_downloading_file: "Downloading {}...",
-        parakeet_supports_english_only: "(Only supports English)",
         qwen3_downloading_title: "Downloading Qwen3-ASR 0.6B",
         qwen3_downloading_message: "Please wait... this is a large local model.",
         qwen3_downloading_file: "Downloading {}...",
@@ -400,7 +399,6 @@ pub fn get() -> LocaleText {
 
         downloaded_tools_button: "Downloaded Tools",
         downloaded_tools_title: "Downloaded Tools Manager",
-        tool_webview2: "WebView2 Runtime",
         tool_ai_runtime: "DirectML + ONNX Runtime",
         tool_parakeet: "Parakeet Realtime Model",
         tool_qwen3: "Qwen3-ASR Model",
@@ -414,7 +412,6 @@ pub fn get() -> LocaleText {
         tool_status_unsupported: "Unsupported on this system",
         tool_action_download: "Download",
         tool_action_delete: "Delete",
-        tool_desc_webview2: "Required by SGT overlays, tray popups, recorder UI, and embedded web surfaces",
         tool_desc_ai_runtime: "DirectML + ONNX Runtime for the local Parakeet speech model",
         tool_desc_parakeet: "Used in Cabin Translation and as the \"Stream offline\" model in Audio->Text node",
         tool_desc_qwen3: "Multilingual speech-to-text (52 languages)",

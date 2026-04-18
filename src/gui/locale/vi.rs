@@ -329,7 +329,6 @@ pub fn get() -> LocaleText {
         parakeet_downloading_title: "Đang tải mô hình Parakeet (0.6 GB)",
         parakeet_downloading_message: "Vui lòng đợi...",
         parakeet_downloading_file: "Đang tải {}...",
-        parakeet_supports_english_only: "(Chỉ hỗ trợ tiếng Anh)",
         qwen3_downloading_title: "Đang tải Qwen3-ASR 0.6B",
         qwen3_downloading_message: "Vui lòng đợi... đây là model cục bộ khá lớn.",
         qwen3_downloading_file: "Đang tải {}...",
@@ -401,7 +400,6 @@ pub fn get() -> LocaleText {
 
         downloaded_tools_button: "Công cụ đã tải",
         downloaded_tools_title: "Quản lý công cụ đã tải",
-        tool_webview2: "Runtime WebView2",
         tool_ai_runtime: "DirectML + ONNX Runtime",
         tool_parakeet: "Mô hình Parakeet Realtime",
         tool_qwen3: "Mô hình Qwen3-ASR",
@@ -415,7 +413,6 @@ pub fn get() -> LocaleText {
         tool_status_unsupported: "Không hỗ trợ trên hệ thống này",
         tool_action_download: "Tải về",
         tool_action_delete: "Xoá",
-        tool_desc_webview2: "Bắt buộc cho overlay SGT, popup khay hệ thống, UI quay màn hình và các bề mặt web nhúng",
         tool_desc_ai_runtime: "DirectML + ONNX Runtime cho mô hình giọng nói Parakeet cục bộ",
         tool_desc_parakeet: "Dùng trong tính năng Dịch cabin và là mô hình \"Stream offline\" trong node Audio->Text",
         tool_desc_qwen3: "Nhận dạng giọng nói đa ngôn ngữ (52 ngôn ngữ)",
