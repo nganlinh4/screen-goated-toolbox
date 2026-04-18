@@ -238,7 +238,11 @@ pub(super) fn upsert_transcript(role: &'static str, text: String, is_final: bool
             }
         } else {
             // New item — only detect if already final (single-shot transcript)
-            let lang = if is_final { detect_lang(text) } else { String::new() };
+            let lang = if is_final {
+                detect_lang(text)
+            } else {
+                String::new()
+            };
             state.transcripts.push(RelayTranscriptItem {
                 id: super::runtime::next_transcript_id(),
                 role,
