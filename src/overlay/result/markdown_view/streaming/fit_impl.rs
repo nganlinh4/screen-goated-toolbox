@@ -11,8 +11,11 @@ const FIT_FONT_SCRIPT: &str = r#"
     if (window._sgtFitting) return;
     window._sgtFitting = true;
 
-    // Cancel any in-flight smoothing animation so this fit can retarget from the
-    // currently-displayed axes (preserved in _sgtCurrentFontSize / _sgtCurrentWdth).
+    // Cancel any in-flight smoothing animation so this fit can retarget from
+    // the currently-displayed axes without two animations fighting. Binary
+    // search below writes body.fontSize synchronously for each probe and
+    // reads scrollHeight — we need no CSS transition and no rAF driver
+    // mutating the same values concurrently.
     if (window._sgtFitAnim) {
         try { cancelAnimationFrame(window._sgtFitAnim); } catch (_e) {}
         window._sgtFitAnim = null;
@@ -188,7 +191,12 @@ const FIT_FONT_SCRIPT: &str = r#"
                     body.style.lineHeight = '1.15';
                     body.style.paddingTop = '0';
                     body.style.paddingBottom = '0';
-                    var resetBlocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
+                    // Headings (h1/h2/h3) keep their CSS-designed margins — the
+                    // CSS has deliberate values (12px, 0.5em, 0.4em) that make
+                    // headings visually distinct. Overriding them to 0.15em here
+                    // caused "big→small" spacing blinks between chunks because
+                    // fresh HTML has CSS defaults until Phase 0 runs.
+                    var resetBlocks = body.querySelectorAll('p, li, blockquote');
                     for (var i = 0; i < resetBlocks.length; i++) {
                         resetBlocks[i].style.marginBottom = '0.15em';
                         resetBlocks[i].style.paddingBottom = '0';
@@ -569,14 +577,6 @@ const FIT_FONT_SCRIPT: &str = r#"
                         var startFontSize = hasPriorFontSize ? priorDisplayedFontSize : targetFontSize;
                         var hadPriorSize = hasPriorFontSize;
 
-                        var wdthDelta = Math.abs(targetWdth - startWdth);
-                        var fsAnimDelta = Math.abs(targetFontSize - startFontSize);
-                        // Animate whenever there's a prior visible value and a meaningful
-                        // delta. Final fits animate too so the settle-up from hysteresis'd
-                        // streaming size becomes a smooth zoom instead of a snap.
-                        var shouldAnimate = hadPriorSize
-                            && (fsAnimDelta >= 0.5 || wdthDelta >= 1.5);
-
                         function applyAxes(fs, w) {
                             body.style.fontSize = fs + 'px';
                             body.style.fontStretch = w + '%';
@@ -594,27 +594,25 @@ const FIT_FONT_SCRIPT: &str = r#"
                             };
                         }
 
-                        if (!shouldAnimate) {
+                        // Smoothly animate from the visually-displayed value
+                        // (captured pre-fit as priorDisplayedFontSize) to the
+                        // computed target. Binary search above wrote many
+                        // probe values to body.fontSize synchronously and ended
+                        // at targetFontSize; we now rewind to startFontSize and
+                        // drive a clean interpolation to target. No CSS
+                        // transition is active (removed) so measurements in
+                        // future fits read whatever we set here exactly.
+                        var fsDelta = Math.abs(targetFontSize - startFontSize);
+                        var wDelta = Math.abs(targetWdth - startWdth);
+                        if (!hadPriorSize || (fsDelta < 0.5 && wDelta < 1.5)) {
+                            // First fit, or nothing meaningful changed — snap.
                             applyAxes(targetFontSize, targetWdth);
                             window._sgtCurrentFontSize = targetFontSize;
                             window._sgtCurrentWdth = targetWdth;
                         } else {
                             applyAxes(startFontSize, startWdth);
                             var animStart = performance.now();
-                            // Adaptive duration: if the word-reveal queue has a
-                            // backlog, stretch the size animation over the time
-                            // it takes to drain those words. Keeps font-size
-                            // change "đều đặn" with word reveal instead of
-                            // snapping per chunk. Reveal target is ~40wps at
-                            // low backlog scaling up; we aim for the animation
-                            // to finish roughly when the last queued word
-                            // appears.
-                            var revealBacklog = (window._streamRevealState
-                                && window._streamRevealState.queue)
-                                ? window._streamRevealState.queue.length
-                                : 0;
-                            var duration = Math.max(220,
-                                Math.min(2200, 200 + revealBacklog * 28));
+                            var duration = 280;
                             var tick = function(now) {
                                 var t = Math.min(1, (now - animStart) / duration);
                                 var eased = 1 - Math.pow(1 - t, 3);
