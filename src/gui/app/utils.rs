@@ -4,6 +4,10 @@ use eframe::egui;
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Threading::*;
+use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
+use windows::Win32::UI::WindowsAndMessaging::{
+    FindWindowW, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
+};
 use windows::core::*;
 
 // Simple Linear Congruential Generator for randomness without external crate
@@ -27,6 +31,16 @@ pub fn signal_restore_window() {
 }
 
 impl SettingsApp {
+    pub(crate) fn ensure_custom_chrome(&mut self, ctx: &egui::Context) {
+        if self.custom_chrome_ready {
+            return;
+        }
+
+        ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Transparent(true));
+        self.custom_chrome_ready = true;
+    }
+
     /// Sync screen_record_hotkeys from the global AppState.
     /// This ensures we have the latest hotkeys when checking for conflicts,
     /// since screen record hotkeys can be modified externally via WebView.
@@ -76,7 +90,7 @@ impl SettingsApp {
         }
     }
 
-    pub(crate) fn restore_window(&self, ctx: &egui::Context) {
+    pub(crate) fn restore_window(&mut self, ctx: &egui::Context) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
@@ -86,6 +100,8 @@ impl SettingsApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
             egui::WindowLevel::Normal,
         ));
+        show_main_window_native();
+        self.ensure_custom_chrome(ctx);
         ctx.request_repaint();
     }
 
@@ -97,6 +113,23 @@ impl SettingsApp {
     ) -> Option<String> {
         self.config
             .check_hotkey_conflict(vk, mods, Some(current_preset_idx))
+    }
+}
+
+pub(crate) fn show_main_window_native() {
+    unsafe {
+        let class_name = w!("eframe");
+        let mut hwnd = FindWindowW(class_name, None).unwrap_or_default();
+        if hwnd.is_invalid() {
+            let title = w!("Screen Goated Toolbox (SGT by nganlinh4)");
+            hwnd = FindWindowW(None, title).unwrap_or_default();
+        }
+        if !hwnd.is_invalid() {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = ShowWindow(hwnd, SW_SHOW);
+            let _ = SetForegroundWindow(hwnd);
+            let _ = SetFocus(Some(hwnd));
+        }
     }
 }
 

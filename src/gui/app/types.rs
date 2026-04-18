@@ -39,6 +39,7 @@ pub struct SettingsApp {
     pub(crate) tray_favorite_bubble_item: CheckMenuItem, // Store for favorite bubble toggle
     pub(crate) last_ui_language: String,     // Track language to detect changes
     pub(crate) tray_retry_timer: f64,        // Timer for lazy tray icon creation
+    pub(crate) tray_startup_wait_frames: u16, // Bounds hidden-start wait for tray readiness
     pub(crate) event_rx: Receiver<UserEvent>,
     pub(crate) is_quitting: bool,
     pub(crate) run_at_startup: bool,
@@ -57,8 +58,10 @@ pub struct SettingsApp {
     pub(crate) splash: Option<crate::gui::splash::SplashScreen>,
     pub(crate) fade_in_start: Option<f64>,
 
-    // 0 = Init/Offscreen, 1 = Early init, 2..34 = Wait, 35 = Create splash, 36 = Show window, 37 = Ready
+    // 0 = Init/Offscreen, 1 = Early init, 2..34 = Wait, 35 = Create splash,
+    // 36 = Show native window, 37 = Re-enable custom chrome, 38 = Ready
     pub(crate) startup_stage: u8,
+    pub(crate) custom_chrome_ready: bool,
 
     pub(crate) cached_audio_devices: Arc<Mutex<Vec<(String, String)>>>,
 

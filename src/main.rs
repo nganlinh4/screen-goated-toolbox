@@ -248,6 +248,10 @@ fn main() -> eframe::Result<()> {
     );
     crate::log_info!("========================================");
 
+    // Install panic reporting before any substantial startup work so early failures
+    // do not exit silently on Windows release builds.
+    initialization::setup_crash_handler();
+
     // Unpack embedded DLLs
     unpack_dlls::unpack_dlls();
 
@@ -258,6 +262,15 @@ fn main() -> eframe::Result<()> {
 
     // Cleanup temp files
     initialization::cleanup_temporary_files();
+
+    // Auto-install WebView2 Runtime in the background if it's missing.
+    // Every web-based overlay needs it; runs in a background thread so the
+    // GUI can start using fallback native menus while downloading. The install
+    // function auto-restarts the app on success so the fresh runtime is used.
+    if !runtime_support::webview2_runtime_installed() {
+        crate::log_info!("[WebView2] Runtime not detected — starting auto-install in background.");
+        runtime_support::start_webview2_runtime_install();
+    }
 
     // Ensure context menu entry
     crate::log_info!("Ensuring context menu entry...");
@@ -272,9 +285,6 @@ fn main() -> eframe::Result<()> {
 
     // Apply pending updates
     initialization::apply_pending_updates();
-
-    // Set up crash handler
-    initialization::setup_crash_handler();
 
     // Ensure the named event exists
     let _ = RESTORE_EVENT.as_ref();
@@ -389,8 +399,8 @@ fn main() -> eframe::Result<()> {
         .with_inner_size([WINDOW_WIDTH, WINDOW_HEIGHT])
         .with_resizable(true)
         .with_visible(false)
-        .with_transparent(true)
-        .with_decorations(false);
+        .with_transparent(false)
+        .with_decorations(true);
 
     // Detect system theme
     let system_dark = gui::utils::is_system_in_dark_mode();
