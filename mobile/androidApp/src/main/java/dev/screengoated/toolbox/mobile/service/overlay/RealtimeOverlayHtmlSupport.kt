@@ -46,7 +46,6 @@ internal fun overlayBaseHtmlTemplate(): String {
                 <div class="download-progress-bar">
                     <div class="download-progress-fill" id="download-fill" style="width: 0%;"></div>
                 </div>
-                <div class="download-modal-footnote">{{SUPPORTS_ENGLISH}}</div>
                 <button class="download-cancel-btn" id="download-cancel-btn" title="{{CANCEL_DOWNLOAD_TITLE}}">
                     <span class="material-symbols-rounded">{{CLOSE_SVG}}</span>
                     {{CANCEL_TEXT}}

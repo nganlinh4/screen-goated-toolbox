@@ -53,7 +53,6 @@ internal class RealtimeOverlayHtmlBuilder(
                 "DOWNLOAD_SVG" to RealtimeOverlayIcons.DOWNLOAD,
                 "DOWNLOAD_TITLE" to locale.overlay.downloadingModelTitle,
                 "PLEASE_WAIT_TEXT" to locale.overlay.pleaseWaitText,
-                "SUPPORTS_ENGLISH" to "",
                 "CLOSE_SVG" to RealtimeOverlayIcons.CLOSE,
                 "CANCEL_TEXT" to locale.overlay.cancelText,
                 "CANCEL_DOWNLOAD_TITLE" to locale.overlay.cancelText,

@@ -387,11 +387,6 @@ pub fn get(is_dark: bool) -> String {
             width: 0%;
             transition: width 0.2s;
         }}
-        .download-modal-footnote {{
-            font-size: 10px;
-            color: {label_color};
-            font-style: italic;
-        }}
         .download-cancel-btn {{
             display: flex;
             align-items: center;
