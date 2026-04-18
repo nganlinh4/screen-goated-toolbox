@@ -341,6 +341,7 @@ fn update_stream_markdown_content_ex(
                     item.el.style.display = '';
                     item.el.style.opacity = '1';
                     item.el.style.filter = 'blur(0)';
+                    item.el.style.transform = 'translateY(0)';
                 }}
             }});
             revealState.queue = [];
@@ -364,8 +365,9 @@ fn update_stream_markdown_content_ex(
             if (!rw) continue;
             rw.style.display = 'none';
             rw.style.opacity = '0';
-            rw.style.filter = 'blur(2px)';
-            rw.style.transition = 'opacity 0.25s ease-out, filter 0.25s ease-out';
+            rw.style.filter = 'blur(3px)';
+            rw.style.transform = 'translateY(14px)';
+            rw.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
             revealState.queue.push({{ el: rw, index: rv }});
         }}
 
@@ -400,35 +402,23 @@ fn update_stream_markdown_content_ex(
                     if (item.el && item.el.isConnected) {{
                         // Bring word INTO layout (display:none → default inline)
                         // then force reflow so the browser commits the display
-                        // change before the opacity transition kicks in.
+                        // change before the opacity/transform transitions kick in.
                         item.el.style.display = '';
                         void item.el.offsetWidth;
                         item.el.style.opacity = '1';
                         item.el.style.filter = 'blur(0)';
+                        item.el.style.transform = 'translateY(0)';
                     }}
                     revealState.lastRevealedIndex = item.index;
                     revealState.credits -= 1;
                     emitted++;
                 }}
 
-                // Per-tick font-size nudge: if the newly-revealed words pushed
-                // scrollHeight past the window, shrink by 1-3 px. Small steps
-                // per tick keep the size change "đều đặn" with word reveal
-                // instead of snapping per chunk. Reveal tick is the single
-                // source of truth for streaming font-size now.
-                if (emitted > 0) {{
-                    var doc2 = document.documentElement;
-                    var overflow = doc2.scrollHeight - window.innerHeight;
-                    if (overflow > 0) {{
-                        var currentFs = parseFloat(document.body.style.fontSize) || 14;
-                        var minFs = ((revealState.lastRevealedIndex + 1) < 200) ? 6 : 14;
-                        if (currentFs > minFs) {{
-                            var shrinkPx = Math.max(1, Math.min(3, Math.ceil(overflow / 30)));
-                            var newFs = Math.max(minFs, currentFs - shrinkPx);
-                            document.body.style.fontSize = newFs + 'px';
-                        }}
-                    }}
-                }}
+                // Font-size is handled entirely by the Rust-side fit algorithm
+                // (fit_font_to_window_streaming) which runs per chunk with its
+                // own 220ms rAF animation — smooth by construction. No
+                // per-tick shrink here: doing it caused measurement/transition
+                // feedback loops that manifested as roller-coaster zooming.
                 requestAnimationFrame(tick);
             }};
             requestAnimationFrame(tick);

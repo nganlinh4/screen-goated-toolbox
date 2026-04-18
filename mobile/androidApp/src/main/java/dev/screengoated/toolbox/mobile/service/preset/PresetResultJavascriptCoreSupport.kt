@@ -384,8 +384,9 @@ internal fun presetResultJavascriptCore(): String {
                     if (!rw) continue;
                     rw.style.display = 'none';
                     rw.style.opacity = '0';
-                    rw.style.filter = 'blur(2px)';
-                    rw.style.transition = 'opacity 0.25s ease-out, filter 0.25s ease-out';
+                    rw.style.filter = 'blur(3px)';
+                    rw.style.transform = 'translateY(14px)';
+                    rw.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
                     revealState.queue.push({ el: rw, index: rv });
                 }
 
@@ -417,25 +418,16 @@ internal fun presetResultJavascriptCore(): String {
                                 void item.el.offsetWidth;
                                 item.el.style.opacity = '1';
                                 item.el.style.filter = 'blur(0)';
+                                item.el.style.transform = 'translateY(0)';
                             }
                             revealState.lastRevealedIndex = item.index;
                             revealState.credits -= 1;
                             emitted += 1;
                         }
 
-                        if (emitted > 0) {
-                            const doc2 = document.documentElement;
-                            const overflow = doc2.scrollHeight - window.innerHeight;
-                            if (overflow > 0) {
-                                const currentFs = parseFloat(document.body.style.fontSize) || 14;
-                                const minFs = ((revealState.lastRevealedIndex + 1) < 200) ? 6 : 14;
-                                if (currentFs > minFs) {
-                                    const shrinkPx = Math.max(1, Math.min(3, Math.ceil(overflow / 30)));
-                                    const newFs = Math.max(minFs, currentFs - shrinkPx);
-                                    document.body.style.fontSize = newFs + 'px';
-                                }
-                            }
-                        }
+                        // Font-size handled by the native fit algorithm only —
+                        // per-tick shrinks here caused measurement/transition
+                        // feedback loops that manifested as zoom oscillation.
                         requestAnimationFrame(tick);
                     };
                     requestAnimationFrame(tick);

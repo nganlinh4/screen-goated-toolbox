@@ -113,9 +113,13 @@ pub const MARKDOWN_CSS: &str = r#"
     p { margin: 0 0 0.15em; }
     p:last-child { margin-bottom: 0; }
 
-    /* Interactive Word Styling - COLOR ONLY, preserves font scaling */
+    /* Interactive Word Styling - COLOR ONLY, preserves font scaling.
+       `display: inline-block` is required for the streaming reveal's
+       `transform: translateY()` rise-from-below animation — transforms are
+       silently ignored on pure inline elements. Wrapping still behaves like
+       inline because each span is separated by literal whitespace in the HTML. */
     .word {
-        display: inline;
+        display: inline-block;
         transition: color 0.2s ease, text-shadow 0.2s ease;
         cursor: text;
     }
@@ -151,7 +155,7 @@ pub const MARKDOWN_CSS: &str = r#"
 
     /* Ensure code blocks remain non-interactive */
     pre .word {
-        display: inline;
+        display: inline-block;
         transition: none;
     }
     pre .word:hover,
