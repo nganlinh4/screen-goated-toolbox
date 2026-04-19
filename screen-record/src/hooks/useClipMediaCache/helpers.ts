@@ -426,8 +426,16 @@ export async function loadClipMediaIntoEditorCore(
   }
   const videoObjectUrl = await videoControllerRef.current?.loadVideo(
     clipUrls
-      ? { videoUrl: clipUrls.videoUrl, debugLabel: `clip-focus:${clip.id}` }
-      : { videoBlob: loadedAssets?.videoBlob ?? undefined, debugLabel: `clip-focus:${clip.id}` },
+      ? {
+          videoUrl: clipUrls.videoUrl,
+          initialTime: clip.segment.trimStart,
+          debugLabel: `clip-focus:${clip.id}`,
+        }
+      : {
+          videoBlob: loadedAssets?.videoBlob ?? undefined,
+          initialTime: clip.segment.trimStart,
+          debugLabel: `clip-focus:${clip.id}`,
+        },
   );
   if (!isLatestRequest()) return;
   if (videoObjectUrl) {

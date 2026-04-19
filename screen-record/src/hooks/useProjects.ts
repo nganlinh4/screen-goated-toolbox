@@ -169,11 +169,13 @@ export function useProjects(props: UseProjectsProps) {
         const mediaUrl = await getMediaServerUrl(rawVideoPath);
         videoObjectUrl = await props.videoControllerRef.current?.loadVideo({
           videoUrl: mediaUrl,
+          initialTime: project.segment.trimStart,
           debugLabel: "project-load",
         });
       } else if (project.videoBlob) {
         videoObjectUrl = await props.videoControllerRef.current?.loadVideo({
           videoBlob: project.videoBlob,
+          initialTime: project.segment.trimStart,
           debugLabel: "project-load",
         });
       }
