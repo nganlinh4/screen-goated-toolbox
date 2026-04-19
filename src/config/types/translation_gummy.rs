@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::Hotkey;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-pub struct BilingualRelayProfile {
+pub struct TranslationGummyProfile {
     #[serde(default)]
     pub language: String,
     #[serde(default)]
@@ -12,7 +12,7 @@ pub struct BilingualRelayProfile {
     pub tone: String,
 }
 
-impl BilingualRelayProfile {
+impl TranslationGummyProfile {
     pub fn normalized(&self) -> Self {
         Self {
             language: self.language.trim().to_string(),
@@ -23,11 +23,11 @@ impl BilingualRelayProfile {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct BilingualRelaySettings {
+pub struct TranslationGummySettings {
     #[serde(default = "default_first_profile")]
-    pub first: BilingualRelayProfile,
+    pub first: TranslationGummyProfile,
     #[serde(default = "default_second_profile")]
-    pub second: BilingualRelayProfile,
+    pub second: TranslationGummyProfile,
     /// Legacy single hotkey — migrated into `hotkeys` on load.
     #[serde(default, skip_serializing)]
     pub hotkey: Option<Hotkey>,
@@ -37,23 +37,23 @@ pub struct BilingualRelaySettings {
     pub guide_seen: bool,
 }
 
-fn default_first_profile() -> BilingualRelayProfile {
-    BilingualRelayProfile {
+fn default_first_profile() -> TranslationGummyProfile {
+    TranslationGummyProfile {
         language: "English".to_string(),
         accent: String::new(),
         tone: String::new(),
     }
 }
 
-fn default_second_profile() -> BilingualRelayProfile {
-    BilingualRelayProfile {
+fn default_second_profile() -> TranslationGummyProfile {
+    TranslationGummyProfile {
         language: "Korean".to_string(),
         accent: "Busan".to_string(),
         tone: "polite".to_string(),
     }
 }
 
-impl BilingualRelaySettings {
+impl TranslationGummySettings {
     pub fn normalized(&self) -> Self {
         let mut hotkeys = self.hotkeys.clone();
         // Migrate legacy single hotkey into vec
@@ -80,7 +80,7 @@ impl BilingualRelaySettings {
     }
 
     pub fn build_system_instruction(&self) -> String {
-        fn describe(profile: &BilingualRelayProfile) -> String {
+        fn describe(profile: &TranslationGummyProfile) -> String {
             let mut value = profile.language.trim().to_string();
             if !profile.accent.trim().is_empty() {
                 value.push(' ');
@@ -104,7 +104,7 @@ impl BilingualRelaySettings {
     }
 }
 
-impl Default for BilingualRelaySettings {
+impl Default for TranslationGummySettings {
     fn default() -> Self {
         Self {
             first: default_first_profile(),
@@ -118,17 +118,17 @@ impl Default for BilingualRelaySettings {
 
 #[cfg(test)]
 mod tests {
-    use super::{BilingualRelayProfile, BilingualRelaySettings};
+    use super::{TranslationGummyProfile, TranslationGummySettings};
 
     #[test]
     fn build_system_instruction_omits_blank_optional_fields() {
-        let settings = BilingualRelaySettings {
-            first: BilingualRelayProfile {
+        let settings = TranslationGummySettings {
+            first: TranslationGummyProfile {
                 language: "Korean".to_string(),
                 accent: "Busan".to_string(),
                 tone: "polite".to_string(),
             },
-            second: BilingualRelayProfile {
+            second: TranslationGummyProfile {
                 language: "English".to_string(),
                 accent: String::new(),
                 tone: "easy to hear".to_string(),
@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn default_settings_use_the_expected_language_pair() {
-        let settings = BilingualRelaySettings::default();
+        let settings = TranslationGummySettings::default();
         assert_eq!(settings.first.language, "English");
         assert_eq!(settings.first.accent, "");
         assert_eq!(settings.first.tone, "");

@@ -12,11 +12,11 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 use wry::WebContext;
 
-use crate::config::{BilingualRelaySettings, Hotkey, save_config};
+use crate::config::{Hotkey, TranslationGummySettings, save_config};
 use crate::gui::locale::LocaleText;
 use crate::win_types::SendHwnd;
 
-pub use runtime::{RelayConnectionState, RelayTranscriptItem};
+pub use runtime::{TranslationGummyConnectionState, TranslationGummyTranscriptItem};
 
 const MOD_ALT: u32 = 0x0001;
 const MOD_CONTROL: u32 = 0x0002;
@@ -38,8 +38,8 @@ thread_local! {
     pub(super) static WEB_CONTEXT: std::cell::RefCell<Option<WebContext>> = const { std::cell::RefCell::new(None) };
 }
 
-pub fn show_bilingual_relay() {
-    let capability = crate::runtime_support::require_webview2("Bilingual relay");
+pub fn show_translation_gummy() {
+    let capability = crate::runtime_support::require_webview2("Translation Gummy");
     if !capability.is_supported() {
         crate::runtime_support::notify_capability_issue(&capability);
         return;
@@ -72,7 +72,7 @@ pub(super) fn insert_session_separator() {
 }
 
 pub(super) fn publish_connection(
-    connection_state: RelayConnectionState,
+    connection_state: TranslationGummyConnectionState,
     is_running: bool,
     last_error: Option<String>,
 ) {
@@ -81,7 +81,7 @@ pub(super) fn publish_connection(
 }
 
 pub(super) fn publish_error(
-    connection_state: RelayConnectionState,
+    connection_state: TranslationGummyConnectionState,
     error: String,
     is_running: bool,
 ) {
@@ -109,11 +109,11 @@ pub(super) fn auto_start_if_possible() {
     if applied.is_valid() {
         start_if_possible(applied);
     } else {
-        publish_connection(RelayConnectionState::NotConfigured, false, None);
+        publish_connection(TranslationGummyConnectionState::NotConfigured, false, None);
     }
 }
 
-pub(super) fn start_if_possible(settings: BilingualRelaySettings) {
+pub(super) fn start_if_possible(settings: TranslationGummySettings) {
     let locale = LocaleText::get(&current_ui_language());
     let api_key_missing = crate::APP
         .lock()
@@ -121,8 +121,8 @@ pub(super) fn start_if_possible(settings: BilingualRelaySettings) {
         .unwrap_or(true);
     if api_key_missing {
         publish_error(
-            RelayConnectionState::Error,
-            locale.bilingual_relay_api_key_required.to_string(),
+            TranslationGummyConnectionState::Error,
+            locale.translation_gummy_api_key_required.to_string(),
             false,
         );
         return;
@@ -143,16 +143,16 @@ pub(super) fn apply_draft() {
     });
 
     if !can_apply {
-        publish_connection(RelayConnectionState::NotConfigured, false, None);
+        publish_connection(TranslationGummyConnectionState::NotConfigured, false, None);
         return;
     }
 
     {
         let mut app = crate::APP.lock().unwrap();
         // Preserve hotkeys (managed separately via add_hotkey/remove_hotkey)
-        let hotkeys = app.config.bilingual_relay.hotkeys.clone();
-        app.config.bilingual_relay = draft.clone();
-        app.config.bilingual_relay.hotkeys = hotkeys;
+        let hotkeys = app.config.translation_gummy.hotkeys.clone();
+        app.config.translation_gummy = draft.clone();
+        app.config.translation_gummy.hotkeys = hotkeys;
         save_config(&app.config);
     }
 
@@ -174,20 +174,20 @@ pub(super) fn toggle_run() {
     let snapshot = state::snapshot();
     if snapshot.is_running {
         runtime::stop_session();
-        publish_connection(RelayConnectionState::Stopped, false, None);
+        publish_connection(TranslationGummyConnectionState::Stopped, false, None);
         return;
     }
     if snapshot.applied.is_valid() {
         start_if_possible(snapshot.applied);
     } else {
-        publish_connection(RelayConnectionState::NotConfigured, false, None);
+        publish_connection(TranslationGummyConnectionState::NotConfigured, false, None);
     }
 }
 
-pub(super) fn current_settings() -> BilingualRelaySettings {
+pub(super) fn current_settings() -> TranslationGummySettings {
     crate::APP
         .lock()
-        .map(|app| app.config.bilingual_relay.clone().normalized())
+        .map(|app| app.config.translation_gummy.clone().normalized())
         .unwrap_or_default()
 }
 
@@ -198,28 +198,30 @@ pub(super) fn current_ui_language() -> String {
         .unwrap_or_else(|_| "en".to_string())
 }
 
-pub(super) fn connection_key(connection_state: RelayConnectionState) -> &'static str {
+pub(super) fn connection_key(connection_state: TranslationGummyConnectionState) -> &'static str {
     match connection_state {
-        RelayConnectionState::NotConfigured => "not_configured",
-        RelayConnectionState::Connecting => "connecting",
-        RelayConnectionState::Ready => "ready",
-        RelayConnectionState::Reconnecting => "reconnecting",
-        RelayConnectionState::Error => "error",
-        RelayConnectionState::Stopped => "stopped",
+        TranslationGummyConnectionState::NotConfigured => "not_configured",
+        TranslationGummyConnectionState::Connecting => "connecting",
+        TranslationGummyConnectionState::Ready => "ready",
+        TranslationGummyConnectionState::Reconnecting => "reconnecting",
+        TranslationGummyConnectionState::Error => "error",
+        TranslationGummyConnectionState::Stopped => "stopped",
     }
 }
 
 pub(super) fn status_label(
     text: &LocaleText,
-    connection_state: RelayConnectionState,
+    connection_state: TranslationGummyConnectionState,
 ) -> &'static str {
     match connection_state {
-        RelayConnectionState::NotConfigured => text.bilingual_relay_status_not_configured,
-        RelayConnectionState::Connecting => text.bilingual_relay_status_connecting,
-        RelayConnectionState::Ready => text.bilingual_relay_status_ready,
-        RelayConnectionState::Reconnecting => text.bilingual_relay_status_reconnecting,
-        RelayConnectionState::Error => text.bilingual_relay_status_error,
-        RelayConnectionState::Stopped => text.bilingual_relay_status_stopped,
+        TranslationGummyConnectionState::NotConfigured => {
+            text.translation_gummy_status_not_configured
+        }
+        TranslationGummyConnectionState::Connecting => text.translation_gummy_status_connecting,
+        TranslationGummyConnectionState::Ready => text.translation_gummy_status_ready,
+        TranslationGummyConnectionState::Reconnecting => text.translation_gummy_status_reconnecting,
+        TranslationGummyConnectionState::Error => text.translation_gummy_status_error,
+        TranslationGummyConnectionState::Stopped => text.translation_gummy_status_stopped,
     }
 }
 

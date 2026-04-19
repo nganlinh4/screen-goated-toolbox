@@ -6,8 +6,8 @@ import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
-import dev.screengoated.toolbox.mobile.bilingualrelay.BilingualRelayConfig
-import dev.screengoated.toolbox.mobile.bilingualrelay.BilingualRelayTranscriptItem
+import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyConfig
+import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyTranscriptItem
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
@@ -43,35 +43,41 @@ class SecureSettingsStore(
             .apply()
     }
 
-    fun loadBilingualRelayConfig(): BilingualRelayConfig {
-        val payload = prefs.getString(KEY_BILINGUAL_RELAY_CONFIG, null) ?: return BilingualRelayConfig()
+    fun loadTranslationGummyConfig(): TranslationGummyConfig {
+        val payload = prefs.getString(KEY_TRANSLATION_GUMMY_CONFIG, null)
+            ?: prefs.getString(LEGACY_KEY_BILINGUAL_RELAY_CONFIG, null)
+            ?: return TranslationGummyConfig()
         return runCatching {
-            json.decodeFromString<BilingualRelayConfig>(payload)
-        }.getOrDefault(BilingualRelayConfig())
+            json.decodeFromString<TranslationGummyConfig>(payload)
+        }.getOrDefault(TranslationGummyConfig())
     }
 
-    fun saveBilingualRelayConfig(config: BilingualRelayConfig) {
+    fun saveTranslationGummyConfig(config: TranslationGummyConfig) {
         prefs.edit()
             .putString(
-                KEY_BILINGUAL_RELAY_CONFIG,
-                json.encodeToString(BilingualRelayConfig.serializer(), config),
+                KEY_TRANSLATION_GUMMY_CONFIG,
+                json.encodeToString(TranslationGummyConfig.serializer(), config),
             )
+            .remove(LEGACY_KEY_BILINGUAL_RELAY_CONFIG)
             .apply()
     }
 
-    fun loadBilingualRelayTranscripts(): List<BilingualRelayTranscriptItem> {
-        val payload = prefs.getString(KEY_BILINGUAL_RELAY_TRANSCRIPTS, null) ?: return emptyList()
+    fun loadTranslationGummyTranscripts(): List<TranslationGummyTranscriptItem> {
+        val payload = prefs.getString(KEY_TRANSLATION_GUMMY_TRANSCRIPTS, null)
+            ?: prefs.getString(LEGACY_KEY_BILINGUAL_RELAY_TRANSCRIPTS, null)
+            ?: return emptyList()
         return runCatching {
-            json.decodeFromString<List<BilingualRelayTranscriptItem>>(payload)
+            json.decodeFromString<List<TranslationGummyTranscriptItem>>(payload)
         }.getOrDefault(emptyList())
     }
 
-    fun saveBilingualRelayTranscripts(transcripts: List<BilingualRelayTranscriptItem>) {
+    fun saveTranslationGummyTranscripts(transcripts: List<TranslationGummyTranscriptItem>) {
         prefs.edit()
             .putString(
-                KEY_BILINGUAL_RELAY_TRANSCRIPTS,
+                KEY_TRANSLATION_GUMMY_TRANSCRIPTS,
                 json.encodeToString(transcripts),
             )
+            .remove(LEGACY_KEY_BILINGUAL_RELAY_TRANSCRIPTS)
             .apply()
     }
 
@@ -215,8 +221,10 @@ class SecureSettingsStore(
     companion object {
         private const val PREFS_NAME = "sgt_mobile_secure"
         private const val KEY_SESSION_CONFIG = "session_config"
-        private const val KEY_BILINGUAL_RELAY_CONFIG = "bilingual_relay_config"
-        private const val KEY_BILINGUAL_RELAY_TRANSCRIPTS = "bilingual_relay_transcripts"
+        private const val KEY_TRANSLATION_GUMMY_CONFIG = "translation_gummy_config"
+        private const val KEY_TRANSLATION_GUMMY_TRANSCRIPTS = "translation_gummy_transcripts"
+        private const val LEGACY_KEY_BILINGUAL_RELAY_CONFIG = "bilingual_relay_config"
+        private const val LEGACY_KEY_BILINGUAL_RELAY_TRANSCRIPTS = "bilingual_relay_transcripts"
         private const val KEY_GEMINI_API_KEY = "gemini_api_key"
         private const val KEY_CEREBRAS_API_KEY = "cerebras_api_key"
         private const val KEY_GROQ_API_KEY = "groq_api_key"

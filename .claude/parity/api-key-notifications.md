@@ -7,7 +7,7 @@
 - Windows TTS worker: [src/api/tts/worker/mod.rs](../../src/api/tts/worker/mod.rs)
 - Android app toast bus: [mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/AppToastBus.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/AppToastBus.kt)
 - Android preset graph/audio/runtime surfaces: [mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/PresetGraphExecutor.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/PresetGraphExecutor.kt), [mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/PresetAudioCaptureSession.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/PresetAudioCaptureSession.kt), [mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/tts/AndroidTtsRuntimeService.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/tts/AndroidTtsRuntimeService.kt)
-- Android bilingual relay startup: [mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/bilingualrelay/BilingualRelayService.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/bilingualrelay/BilingualRelayService.kt)
+- Android translation gummy startup: [mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/translationgummy/TranslationGummyService.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/translationgummy/TranslationGummyService.kt)
 
 ## Behavior Contract
 - Any `NO_API_KEY:*` or `INVALID_API_KEY` failure must be surfaced as a global user notice on the active platform.

@@ -77,8 +77,8 @@ impl SettingsApp {
     }
 
     fn render_detail_view(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, text: &LocaleText) {
-        // Poll bilingual relay request to open TTS settings
-        if crate::overlay::bilingual_relay::REQUEST_OPEN_TTS_SETTINGS
+        // Poll translation gummy request to open TTS settings
+        if crate::overlay::translation_gummy::REQUEST_OPEN_TTS_SETTINGS
             .swap(false, std::sync::atomic::Ordering::SeqCst)
         {
             self.view_mode = ViewMode::Global;

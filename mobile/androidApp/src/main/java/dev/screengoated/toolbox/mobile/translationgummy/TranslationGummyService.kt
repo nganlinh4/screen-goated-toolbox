@@ -1,4 +1,4 @@
-package dev.screengoated.toolbox.mobile.bilingualrelay
+package dev.screengoated.toolbox.mobile.translationgummy
 
 import android.content.Context
 import android.content.Intent
@@ -12,26 +12,26 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-class BilingualRelayService : androidx.lifecycle.LifecycleService() {
+class TranslationGummyService : androidx.lifecycle.LifecycleService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private lateinit var appContainer: dev.screengoated.toolbox.mobile.AppContainer
-    private lateinit var repository: BilingualRelayRepository
-    private lateinit var runtime: BilingualRelayRuntime
-    private lateinit var notifications: BilingualRelayNotificationFactory
+    private lateinit var repository: TranslationGummyRepository
+    private lateinit var runtime: TranslationGummyRuntime
+    private lateinit var notifications: TranslationGummyNotificationFactory
 
     override fun onCreate() {
         super.onCreate()
         appContainer = (application as SgtMobileApplication).appContainer
-        repository = appContainer.bilingualRelayRepository
-        runtime = appContainer.bilingualRelayRuntime
-        notifications = BilingualRelayNotificationFactory(this, repository::localeText)
+        repository = appContainer.translationGummyRepository
+        runtime = appContainer.translationGummyRuntime
+        notifications = TranslationGummyNotificationFactory(this, repository::localeText)
         notifications.ensureChannel()
 
         serviceScope.launch {
             repository.state.collectLatest { state ->
-                NotificationManagerCompat.from(this@BilingualRelayService).notify(
-                    BilingualRelayNotificationFactory.NOTIFICATION_ID,
+                NotificationManagerCompat.from(this@TranslationGummyService).notify(
+                    TranslationGummyNotificationFactory.NOTIFICATION_ID,
                     notifications.build(state),
                 )
             }
@@ -56,7 +56,7 @@ class BilingualRelayService : androidx.lifecycle.LifecycleService() {
     private fun startSession() {
         // Must call startForeground before anything else after startForegroundService()
         startForeground(
-            BilingualRelayNotificationFactory.NOTIFICATION_ID,
+            TranslationGummyNotificationFactory.NOTIFICATION_ID,
             notifications.build(repository.state.value),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
         )
@@ -67,7 +67,7 @@ class BilingualRelayService : androidx.lifecycle.LifecycleService() {
             return
         }
         if (repository.currentApiKey().isBlank()) {
-            val message = repository.localeText().bilingualRelayApiKeyRequired
+            val message = repository.localeText().translationGummyApiKeyRequired
             repository.fail(message)
             appContainer.toastBus.show(message)
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -79,7 +79,7 @@ class BilingualRelayService : androidx.lifecycle.LifecycleService() {
 
     private fun restartSession() {
         startForeground(
-            BilingualRelayNotificationFactory.NOTIFICATION_ID,
+            TranslationGummyNotificationFactory.NOTIFICATION_ID,
             notifications.build(repository.state.value),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
         )
@@ -90,7 +90,7 @@ class BilingualRelayService : androidx.lifecycle.LifecycleService() {
             return
         }
         if (repository.currentApiKey().isBlank()) {
-            val message = repository.localeText().bilingualRelayApiKeyRequired
+            val message = repository.localeText().translationGummyApiKeyRequired
             repository.fail(message)
             appContainer.toastBus.show(message)
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -107,11 +107,11 @@ class BilingualRelayService : androidx.lifecycle.LifecycleService() {
     }
 
     companion object {
-        const val ACTION_STOP = "dev.screengoated.toolbox.mobile.action.BILINGUAL_RELAY_STOP"
-        const val ACTION_RESTART = "dev.screengoated.toolbox.mobile.action.BILINGUAL_RELAY_RESTART"
+        const val ACTION_STOP = "dev.screengoated.toolbox.mobile.action.TRANSLATION_GUMMY_STOP"
+        const val ACTION_RESTART = "dev.screengoated.toolbox.mobile.action.TRANSLATION_GUMMY_RESTART"
 
         fun start(context: Context, restart: Boolean = false) {
-            val intent = Intent(context, BilingualRelayService::class.java)
+            val intent = Intent(context, TranslationGummyService::class.java)
             if (restart) {
                 intent.action = ACTION_RESTART
             }
@@ -120,7 +120,7 @@ class BilingualRelayService : androidx.lifecycle.LifecycleService() {
 
         fun stop(context: Context) {
             context.startService(
-                Intent(context, BilingualRelayService::class.java)
+                Intent(context, TranslationGummyService::class.java)
                     .setAction(ACTION_STOP),
             )
         }

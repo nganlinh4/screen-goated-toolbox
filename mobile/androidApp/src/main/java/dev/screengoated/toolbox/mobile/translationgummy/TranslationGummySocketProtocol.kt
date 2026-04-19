@@ -1,13 +1,13 @@
-package dev.screengoated.toolbox.mobile.bilingualrelay
+package dev.screengoated.toolbox.mobile.translationgummy
 
 import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 
-internal const val BILINGUAL_RELAY_LIVE_WS_ENDPOINT =
+internal const val TRANSLATION_GUMMY_LIVE_WS_ENDPOINT =
     "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
-internal data class BilingualRelaySocketUpdate(
+internal data class TranslationGummySocketUpdate(
     val setupComplete: Boolean = false,
     val inputTranscript: String? = null,
     val outputTranscript: String? = null,
@@ -18,11 +18,23 @@ internal data class BilingualRelaySocketUpdate(
     val goAway: Boolean = false,
 )
 
-internal fun buildBilingualRelaySetupPayload(
+internal fun buildTranslationGummySetupPayload(
     model: String,
     instruction: String,
     voiceName: String,
 ): String {
+    val realtimeInputConfig = JSONObject()
+        .put(
+            "automaticActivityDetection",
+            JSONObject()
+                .put("startOfSpeechSensitivity", "START_SENSITIVITY_HIGH")
+                .put("endOfSpeechSensitivity", "END_SENSITIVITY_HIGH")
+                .put("prefixPaddingMs", 80)
+                .put("silenceDurationMs", 320),
+        )
+        .put("activityHandling", "START_OF_ACTIVITY_INTERRUPTS")
+        .put("turnCoverage", "TURN_INCLUDES_ONLY_ACTIVITY")
+
     val generationConfig = JSONObject()
         .put("responseModalities", JSONArray().put("AUDIO"))
         .put("mediaResolution", "MEDIA_RESOLUTION_LOW")
@@ -51,6 +63,7 @@ internal fun buildBilingualRelaySetupPayload(
                         JSONArray().put(JSONObject().put("text", instruction)),
                     ),
                 )
+                .put("realtimeInputConfig", realtimeInputConfig)
                 .put("contextWindowCompression", JSONObject().put("slidingWindow", JSONObject()))
                 .put("inputAudioTranscription", JSONObject())
                 .put("outputAudioTranscription", JSONObject()),
@@ -58,7 +71,7 @@ internal fun buildBilingualRelaySetupPayload(
         .toString()
 }
 
-internal fun buildBilingualRelayAudioPayload(pcmData: ShortArray): String {
+internal fun buildTranslationGummyAudioPayload(pcmData: ShortArray): String {
     val bytes = ByteArray(pcmData.size * 2)
     pcmData.forEachIndexed { index, sample ->
         val byteIndex = index * 2
@@ -78,15 +91,15 @@ internal fun buildBilingualRelayAudioPayload(pcmData: ShortArray): String {
         .toString()
 }
 
-internal fun buildBilingualRelayAudioStreamEndPayload(): String {
+internal fun buildTranslationGummyAudioStreamEndPayload(): String {
     return JSONObject()
         .put("realtimeInput", JSONObject().put("audioStreamEnd", true))
         .toString()
 }
 
-internal fun parseBilingualRelaySocketUpdate(message: String): BilingualRelaySocketUpdate {
+internal fun parseTranslationGummySocketUpdate(message: String): TranslationGummySocketUpdate {
     if (message.contains("setupComplete")) {
-        return BilingualRelaySocketUpdate(setupComplete = true)
+        return TranslationGummySocketUpdate(setupComplete = true)
     }
 
     return runCatching {
@@ -94,14 +107,14 @@ internal fun parseBilingualRelaySocketUpdate(message: String): BilingualRelaySoc
 
         // GoAway: server signals imminent termination
         if (root.has("goAway")) {
-            return@runCatching BilingualRelaySocketUpdate(goAway = true)
+            return@runCatching TranslationGummySocketUpdate(goAway = true)
         }
 
         val errorMessage = root.optJSONObject("error")
             ?.optString("message")
             ?.takeIf(String::isNotBlank)
         if (errorMessage != null) {
-            return@runCatching BilingualRelaySocketUpdate(error = errorMessage)
+            return@runCatching TranslationGummySocketUpdate(error = errorMessage)
         }
 
         val serverContent = root.optJSONObject("serverContent")
@@ -133,12 +146,12 @@ internal fun parseBilingualRelaySocketUpdate(message: String): BilingualRelaySoc
             }
         }
 
-        BilingualRelaySocketUpdate(
+        TranslationGummySocketUpdate(
             inputTranscript = inputTranscript,
             outputTranscript = outputTranscript,
             audioChunk = audioChunk,
             turnComplete = turnComplete,
             interrupted = interrupted,
         )
-    }.getOrDefault(BilingualRelaySocketUpdate())
+    }.getOrDefault(TranslationGummySocketUpdate())
 }

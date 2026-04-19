@@ -228,7 +228,7 @@ internal fun AppsCarouselSection(
     canToggle: Boolean,
     onDownloaderClick: () -> Unit = {},
     onDjClick: () -> Unit = {},
-    onBilingualRelayClick: () -> Unit = {},
+    onTranslationGummyClick: () -> Unit = {},
     onPagerSwipeLockChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
@@ -243,7 +243,7 @@ internal fun AppsCarouselSection(
             canToggle,
             onDownloaderClick,
             onDjClick,
-            onBilingualRelayClick,
+            onTranslationGummyClick,
             onPagerSwipeLockChanged,
             sharedTransitionScope,
             animatedVisibilityScope,
@@ -256,7 +256,7 @@ internal fun AppsCarouselSection(
             canToggle,
             onDownloaderClick,
             onDjClick,
-            onBilingualRelayClick,
+            onTranslationGummyClick,
             sharedTransitionScope,
             animatedVisibilityScope,
         )
@@ -272,7 +272,7 @@ private fun AppsItemContent(
     canToggle: Boolean,
     onDownloaderClick: () -> Unit,
     onDjClick: () -> Unit,
-    onBilingualRelayClick: () -> Unit,
+    onTranslationGummyClick: () -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
@@ -281,7 +281,7 @@ private fun AppsItemContent(
             .fillMaxSize()
             .then(
                 when (index) {
-                    1 -> Modifier.clickable(onClick = onBilingualRelayClick)
+                    1 -> Modifier.clickable(onClick = onTranslationGummyClick)
                     2 -> {
                         val sharedMod = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
                             with(sharedTransitionScope) {
@@ -301,7 +301,7 @@ private fun AppsItemContent(
     ) {
         when (index) {
             0 -> LiveTranslateCarouselTile(state = state, locale = locale, onSessionToggle = onSessionToggle, canToggle = canToggle)
-            1 -> AppTile(slot = appSlots[1], title = locale.appBilingualRelayTitle, drawableRes = dev.screengoated.toolbox.mobile.R.drawable.ms_breakfast_dining)
+            1 -> AppTile(slot = appSlots[1], title = locale.appTranslationGummyTitle, drawableRes = dev.screengoated.toolbox.mobile.R.drawable.ms_breakfast_dining)
             2 -> AppTile(slot = appSlots[2], title = locale.appVideoDownloaderTitle, drawableRes = R.drawable.ms_movie)
             3 -> AppTile(slot = appSlots[3], title = locale.appDjTitle, drawableRes = R.drawable.ms_album)
             else -> EmptyAppTile(slot = appSlots[index])
@@ -317,7 +317,7 @@ private fun AppsVerticalCarousel(
     canToggle: Boolean,
     onDownloaderClick: () -> Unit,
     onDjClick: () -> Unit,
-    onBilingualRelayClick: () -> Unit,
+    onTranslationGummyClick: () -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
@@ -345,7 +345,7 @@ private fun AppsVerticalCarousel(
                     canToggle,
                     onDownloaderClick,
                     onDjClick,
-                    onBilingualRelayClick,
+                    onTranslationGummyClick,
                     sharedTransitionScope,
                     animatedVisibilityScope,
                 )
@@ -364,7 +364,7 @@ private fun AppsHorizontalCarousel(
     canToggle: Boolean,
     onDownloaderClick: () -> Unit,
     onDjClick: () -> Unit,
-    onBilingualRelayClick: () -> Unit,
+    onTranslationGummyClick: () -> Unit,
     onPagerSwipeLockChanged: (Boolean) -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
@@ -404,7 +404,7 @@ private fun AppsHorizontalCarousel(
                     canToggle,
                     onDownloaderClick,
                     onDjClick,
-                    onBilingualRelayClick,
+                    onTranslationGummyClick,
                     sharedTransitionScope,
                     animatedVisibilityScope,
                 )

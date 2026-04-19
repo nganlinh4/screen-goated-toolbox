@@ -114,7 +114,7 @@ fn migrate_config(config: &mut Config) {
         &mut config.model_priority_chains.text_to_text,
         ModelType::Text,
     );
-    normalize_bilingual_relay_settings(config);
+    normalize_translation_gummy_settings(config);
 
     if config.realtime_translation_model == "taalas-rt" {
         config.realtime_translation_model =
@@ -196,13 +196,13 @@ fn default_model_id_for_type(expected_type: ModelType) -> &'static str {
     }
 }
 
-fn normalize_bilingual_relay_settings(config: &mut Config) {
-    let defaults = crate::config::BilingualRelaySettings::default();
-    if config.bilingual_relay.first.language.trim().is_empty() {
-        config.bilingual_relay.first = defaults.first;
+fn normalize_translation_gummy_settings(config: &mut Config) {
+    let defaults = crate::config::TranslationGummySettings::default();
+    if config.translation_gummy.first.language.trim().is_empty() {
+        config.translation_gummy.first = defaults.first;
     }
-    if config.bilingual_relay.second.language.trim().is_empty() {
-        config.bilingual_relay.second = defaults.second;
+    if config.translation_gummy.second.language.trim().is_empty() {
+        config.translation_gummy.second = defaults.second;
     }
 }
 
@@ -393,21 +393,21 @@ mod tests {
     }
 
     #[test]
-    fn migrate_config_fills_missing_bilingual_relay_defaults() {
+    fn migrate_config_fills_missing_translation_gummy_defaults() {
         let mut config = Config::default();
-        config.bilingual_relay.first.language.clear();
-        config.bilingual_relay.second.language.clear();
-        config.bilingual_relay.second.accent.clear();
-        config.bilingual_relay.second.tone.clear();
+        config.translation_gummy.first.language.clear();
+        config.translation_gummy.second.language.clear();
+        config.translation_gummy.second.accent.clear();
+        config.translation_gummy.second.tone.clear();
 
         migrate_config(&mut config);
 
-        assert_eq!(config.bilingual_relay.first.language, "English");
-        assert_eq!(config.bilingual_relay.first.accent, "");
-        assert_eq!(config.bilingual_relay.first.tone, "");
-        assert_eq!(config.bilingual_relay.second.language, "Korean");
-        assert_eq!(config.bilingual_relay.second.accent, "Busan");
-        assert_eq!(config.bilingual_relay.second.tone, "polite");
+        assert_eq!(config.translation_gummy.first.language, "English");
+        assert_eq!(config.translation_gummy.first.accent, "");
+        assert_eq!(config.translation_gummy.first.tone, "");
+        assert_eq!(config.translation_gummy.second.language, "Korean");
+        assert_eq!(config.translation_gummy.second.accent, "Busan");
+        assert_eq!(config.translation_gummy.second.tone, "polite");
     }
 }
 

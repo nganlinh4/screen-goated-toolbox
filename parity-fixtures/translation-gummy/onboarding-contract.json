@@ -3,9 +3,9 @@
   "showWhen": {
     "guide_seen": false
   },
-  "titleSource": "bilingual_relay_title",
-  "messageSource": "bilingual_relay_guide",
-  "confirmLabelSource": "bilingual_relay_guide_ok",
+  "titleSource": "translation_gummy_title",
+  "messageSource": "translation_gummy_guide",
+  "confirmLabelSource": "translation_gummy_guide_ok",
   "dismissBehavior": {
     "persistGuideSeen": true,
     "suppressFutureAutoShow": true

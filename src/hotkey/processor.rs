@@ -69,7 +69,7 @@ fn handle_pending_file() {
 /// Handle a hotkey message.
 fn handle_hotkey(id: i32) {
     if (9800..9900).contains(&id) {
-        overlay::bilingual_relay::show_bilingual_relay();
+        overlay::translation_gummy::show_translation_gummy();
         return;
     }
 

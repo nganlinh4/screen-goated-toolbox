@@ -60,7 +60,7 @@ pub fn render_footer(
     current_tip: String,
     tip_alpha: f32,
     show_modal: &mut bool,
-    show_bilingual_relay: &mut bool,
+    show_translation_gummy: &mut bool,
     show_pointer_gallery: &mut bool,
 ) {
     ui.horizontal(|ui| {
@@ -108,7 +108,7 @@ pub fn render_footer(
         };
         if render_launch_button(
             ui,
-            text.bilingual_relay_btn,
+            text.translation_gummy_btn,
             Icon::Speaker,
             relay_color,
             relay_bg,
@@ -116,7 +116,7 @@ pub fn render_footer(
         )
         .clicked()
         {
-            *show_bilingual_relay = true;
+            *show_translation_gummy = true;
         }
 
         ui.add_space(8.0);

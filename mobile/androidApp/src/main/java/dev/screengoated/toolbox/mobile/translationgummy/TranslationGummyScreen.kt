@@ -3,7 +3,7 @@
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
 )
 
-package dev.screengoated.toolbox.mobile.bilingualrelay
+package dev.screengoated.toolbox.mobile.translationgummy
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -57,14 +57,14 @@ import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 private val CoralAccent = Color(0xFFFF7387)
 
 @Composable
-fun BilingualRelayScreen(
+fun TranslationGummyScreen(
     locale: MobileLocaleText,
     onBack: () -> Unit,
     onNavigateToTtsSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val repository = remember(context) {
-        (context.applicationContext as SgtMobileApplication).appContainer.bilingualRelayRepository
+        (context.applicationContext as SgtMobileApplication).appContainer.translationGummyRepository
     }
     val state by repository.state.collectAsState()
     var autoStartAttempted by remember { mutableStateOf(false) }
@@ -73,7 +73,7 @@ fun BilingualRelayScreen(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) { granted ->
         if (granted[Manifest.permission.RECORD_AUDIO] == true && state.appliedConfig.isValid()) {
-            BilingualRelayService.start(context)
+            TranslationGummyService.start(context)
         }
     }
 
@@ -82,7 +82,7 @@ fun BilingualRelayScreen(
             context, Manifest.permission.RECORD_AUDIO,
         ) == PackageManager.PERMISSION_GRANTED
         if (hasPermission) {
-            BilingualRelayService.start(context, restart = forceRestart)
+            TranslationGummyService.start(context, restart = forceRestart)
         } else {
             permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
         }
@@ -192,14 +192,14 @@ fun BilingualRelayScreen(
                             contentPadding = PaddingValues(horizontal = 12.dp),
                             modifier = Modifier.height(36.dp),
                         ) {
-                            Text(locale.bilingualRelayApply, style = MaterialTheme.typography.labelMedium)
+                            Text(locale.translationGummyApply, style = MaterialTheme.typography.labelMedium)
                         }
                     }
                     Spacer(Modifier.width(4.dp))
                     FilledTonalButton(
                         onClick = {
                             if (state.isRunning) {
-                                BilingualRelayService.stop(context)
+                                TranslationGummyService.stop(context)
                             } else {
                                 ensureStarted()
                             }
@@ -227,7 +227,7 @@ fun BilingualRelayScreen(
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            if (state.isRunning) locale.bilingualRelayStop else locale.bilingualRelayStart,
+                            if (state.isRunning) locale.translationGummyStop else locale.translationGummyStart,
                             style = MaterialTheme.typography.labelMedium,
                         )
                     }
@@ -243,13 +243,13 @@ fun BilingualRelayScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             // Language Card 1
-            RelayLanguageCard(
+            TranslationGummyLanguageCard(
                 number = "1",
-                title = locale.bilingualRelayFirstProfile,
+                title = locale.translationGummyFirstProfile,
                 profile = state.draftConfig.first,
-                languagePlaceholder = locale.bilingualRelayLanguageLabel,
-                accentPlaceholder = locale.bilingualRelayAccentLabel,
-                tonePlaceholder = locale.bilingualRelayToneLabel,
+                languagePlaceholder = locale.translationGummyLanguageLabel,
+                accentPlaceholder = locale.translationGummyAccentLabel,
+                tonePlaceholder = locale.translationGummyToneLabel,
                 accent = CoralAccent,
                 onChanged = { repository.updateDraft { it.copy(first = it.first.copy(
                     language = if (it.first.language != state.draftConfig.first.language) it.first.language else state.draftConfig.first.language,
@@ -262,13 +262,13 @@ fun BilingualRelayScreen(
             )
 
             // Language Card 2
-            RelayLanguageCard(
+            TranslationGummyLanguageCard(
                 number = "2",
-                title = locale.bilingualRelaySecondProfile,
+                title = locale.translationGummySecondProfile,
                 profile = state.draftConfig.second,
-                languagePlaceholder = locale.bilingualRelayLanguageLabel,
-                accentPlaceholder = locale.bilingualRelayAccentLabel,
-                tonePlaceholder = locale.bilingualRelayToneLabel,
+                languagePlaceholder = locale.translationGummyLanguageLabel,
+                accentPlaceholder = locale.translationGummyAccentLabel,
+                tonePlaceholder = locale.translationGummyToneLabel,
                 accent = CoralAccent,
                 onLanguageChanged = { repository.updateDraft { c -> c.copy(second = c.second.copy(language = it)) } },
                 onAccentChanged = { repository.updateDraft { c -> c.copy(second = c.second.copy(accent = it)) } },
@@ -288,9 +288,9 @@ fun BilingualRelayScreen(
             // Transcript
             TranscriptCard(
                 transcripts = state.transcripts,
-                emptyLabel = locale.bilingualRelayNoTranscriptYet,
-                inputChip = locale.bilingualRelayInputChip,
-                outputChip = locale.bilingualRelayOutputChip,
+                emptyLabel = locale.translationGummyNoTranscriptYet,
+                inputChip = locale.translationGummyInputChip,
+                outputChip = locale.translationGummyOutputChip,
                 accent = CoralAccent,
                 listState = transcriptListState,
                 modifier = Modifier.weight(1f),
@@ -299,10 +299,10 @@ fun BilingualRelayScreen(
     }
 
     if (!state.guideSeen) {
-        BilingualRelayGuideDialog(
-            title = locale.bilingualRelayTitle,
-            message = locale.bilingualRelayGuide,
-            confirmLabel = locale.bilingualRelayGuideOk,
+        TranslationGummyGuideDialog(
+            title = locale.translationGummyTitle,
+            message = locale.translationGummyGuide,
+            confirmLabel = locale.translationGummyGuideOk,
             onDismiss = repository::dismissGuide,
         )
     }
@@ -311,15 +311,15 @@ fun BilingualRelayScreen(
 // ── Language Card ──
 
 @Composable
-private fun RelayLanguageCard(
+private fun TranslationGummyLanguageCard(
     number: String,
     title: String,
-    profile: BilingualRelayLanguageProfile,
+    profile: TranslationGummyLanguageProfile,
     languagePlaceholder: String,
     accentPlaceholder: String,
     tonePlaceholder: String,
     accent: Color,
-    onChanged: ((BilingualRelayLanguageProfile) -> Unit)? = null,
+    onChanged: ((TranslationGummyLanguageProfile) -> Unit)? = null,
     onLanguageChanged: (String) -> Unit,
     onAccentChanged: (String) -> Unit,
     onToneChanged: (String) -> Unit,
@@ -369,7 +369,7 @@ private fun RelayLanguageCard(
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyMedium,
                     shape = MaterialTheme.shapes.large,
-                    colors = relayTextFieldColors(accent),
+                    colors = translationGummyTextFieldColors(accent),
                 )
             }
             // Row 2: Accent + Tone
@@ -384,7 +384,7 @@ private fun RelayLanguageCard(
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodySmall,
                     shape = MaterialTheme.shapes.large,
-                    colors = relayTextFieldColors(accent),
+                    colors = translationGummyTextFieldColors(accent),
                 )
                 OutlinedTextField(
                     value = profile.tone,
@@ -394,7 +394,7 @@ private fun RelayLanguageCard(
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodySmall,
                     shape = MaterialTheme.shapes.large,
-                    colors = relayTextFieldColors(accent),
+                    colors = translationGummyTextFieldColors(accent),
                 )
             }
         }
@@ -402,7 +402,7 @@ private fun RelayLanguageCard(
 }
 
 @Composable
-private fun relayTextFieldColors(accent: Color): TextFieldColors {
+private fun translationGummyTextFieldColors(accent: Color): TextFieldColors {
     return OutlinedTextFieldDefaults.colors(
         focusedContainerColor = accent.copy(alpha = 0.08f),
         unfocusedContainerColor = accent.copy(alpha = 0.04f),
@@ -431,23 +431,23 @@ private enum class TranscriptBubblePlacement {
     RIGHT,
 }
 
-private fun groupEntries(items: List<BilingualRelayTranscriptItem>): List<TranscriptEntry> {
+private fun groupEntries(items: List<TranslationGummyTranscriptItem>): List<TranscriptEntry> {
     val entries = mutableListOf<TranscriptEntry>()
     var i = 0
     while (i < items.size) {
         val item = items[i]
-        if (item.role == BilingualRelayTranscriptRole.SEPARATOR) {
+        if (item.role == TranslationGummyTranscriptRole.SEPARATOR) {
             entries += TranscriptEntry.Sep(item.id, item.text)
             i++
             continue
         }
-        if (item.role == BilingualRelayTranscriptRole.INPUT) {
+        if (item.role == TranslationGummyTranscriptRole.INPUT) {
             val next = items.getOrNull(i + 1)
-            if (next != null && next.role == BilingualRelayTranscriptRole.OUTPUT) {
+            if (next != null && next.role == TranslationGummyTranscriptRole.OUTPUT) {
                 entries += TranscriptEntry.Pair(item.id, item.text, next.text, next.lang, TranscriptBubblePlacement.CENTER)
                 i += 2
             } else {
-                entries += TranscriptEntry.Pair(item.id, item.text, "", item.lang, TranscriptBubblePlacement.CENTER)
+                entries += TranscriptEntry.Pair(item.id, item.text, "", "", TranscriptBubblePlacement.CENTER)
                 i++
             }
         } else {
@@ -475,7 +475,7 @@ private fun groupEntries(items: List<BilingualRelayTranscriptItem>): List<Transc
 
 @Composable
 private fun TranscriptCard(
-    transcripts: List<BilingualRelayTranscriptItem>,
+    transcripts: List<TranslationGummyTranscriptItem>,
     emptyLabel: String,
     inputChip: String,
     outputChip: String,
@@ -670,17 +670,17 @@ private fun DashedLine(modifier: Modifier, color: Color) {
 // ── Status Dot ──
 
 @Composable
-private fun StatusDot(connectionState: BilingualRelayConnectionState) {
+private fun StatusDot(connectionState: TranslationGummyConnectionState) {
     val color = when (connectionState) {
-        BilingualRelayConnectionState.READY -> Color(0xFF4CAF50)
-        BilingualRelayConnectionState.CONNECTING -> CoralAccent
-        BilingualRelayConnectionState.RECONNECTING -> Color(0xFFFFC107)
-        BilingualRelayConnectionState.ERROR -> Color(0xFFF44336)
+        TranslationGummyConnectionState.READY -> Color(0xFF4CAF50)
+        TranslationGummyConnectionState.CONNECTING -> CoralAccent
+        TranslationGummyConnectionState.RECONNECTING -> Color(0xFFFFC107)
+        TranslationGummyConnectionState.ERROR -> Color(0xFFF44336)
         else -> MaterialTheme.colorScheme.outlineVariant
     }
     Canvas(modifier = Modifier.size(8.dp)) {
         drawCircle(color = color)
-        if (connectionState == BilingualRelayConnectionState.READY) {
+        if (connectionState == TranslationGummyConnectionState.READY) {
             drawCircle(color = color.copy(alpha = 0.3f), radius = size.minDimension * 0.8f)
         }
     }
@@ -692,7 +692,7 @@ private const val WF_NUM_BARS = 22
 
 @Composable
 private fun CompactWaveform(
-    connectionState: BilingualRelayConnectionState,
+    connectionState: TranslationGummyConnectionState,
     level: Float,
     accent: Color,
     modifier: Modifier = Modifier,
@@ -705,9 +705,9 @@ private fun CompactWaveform(
     val gradient = Brush.verticalGradient(listOf(accent, accent.copy(alpha = 0.85f), accent.copy(alpha = 0.6f)))
 
     val displayLevel = when (connectionState) {
-        BilingualRelayConnectionState.READY -> level.coerceAtLeast(0.02f)
-        BilingualRelayConnectionState.CONNECTING -> 0.10f
-        BilingualRelayConnectionState.RECONNECTING -> 0.08f
+        TranslationGummyConnectionState.READY -> level.coerceAtLeast(0.02f)
+        TranslationGummyConnectionState.CONNECTING -> 0.10f
+        TranslationGummyConnectionState.RECONNECTING -> 0.08f
         else -> 0.01f
     }
 
@@ -798,13 +798,13 @@ private fun morphToPath(morph: Morph, progress: Float, size: Size): androidx.com
 }
 
 private fun connectionStateLabel(
-    state: BilingualRelayConnectionState,
+    state: TranslationGummyConnectionState,
     locale: MobileLocaleText,
 ): String = when (state) {
-    BilingualRelayConnectionState.NOT_CONFIGURED -> locale.bilingualRelayStatusNotConfigured
-    BilingualRelayConnectionState.CONNECTING -> locale.bilingualRelayStatusConnecting
-    BilingualRelayConnectionState.READY -> locale.bilingualRelayStatusReady
-    BilingualRelayConnectionState.RECONNECTING -> locale.bilingualRelayStatusReconnecting
-    BilingualRelayConnectionState.ERROR -> locale.bilingualRelayStatusError
-    BilingualRelayConnectionState.STOPPED -> locale.bilingualRelayStatusStopped
+    TranslationGummyConnectionState.NOT_CONFIGURED -> locale.translationGummyStatusNotConfigured
+    TranslationGummyConnectionState.CONNECTING -> locale.translationGummyStatusConnecting
+    TranslationGummyConnectionState.READY -> locale.translationGummyStatusReady
+    TranslationGummyConnectionState.RECONNECTING -> locale.translationGummyStatusReconnecting
+    TranslationGummyConnectionState.ERROR -> locale.translationGummyStatusError
+    TranslationGummyConnectionState.STOPPED -> locale.translationGummyStatusStopped
 }

@@ -1,4 +1,4 @@
-package dev.screengoated.toolbox.mobile.bilingualrelay
+package dev.screengoated.toolbox.mobile.translationgummy
 
 import dev.screengoated.toolbox.mobile.service.tts.DeviceLanguageDetector
 import dev.screengoated.toolbox.mobile.storage.SecureSettingsStore
@@ -8,17 +8,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicLong
 
-class BilingualRelayRepository(
+class TranslationGummyRepository(
     private val settingsStore: SecureSettingsStore,
     private val languageDetector: DeviceLanguageDetector,
 ) {
-    private val savedConfig = settingsStore.loadBilingualRelayConfig().normalized()
-    private val savedTranscripts = settingsStore.loadBilingualRelayTranscripts()
+    private val savedConfig = settingsStore.loadTranslationGummyConfig().normalized()
+    private val savedTranscripts = settingsStore.loadTranslationGummyTranscripts()
     private val transcriptIdCounter = AtomicLong(
         (savedTranscripts.maxOfOrNull { it.id } ?: 0L) + 1L,
     )
     private val mutableState = MutableStateFlow(
-        BilingualRelayState(
+        TranslationGummyState(
             appliedConfig = savedConfig,
             draftConfig = savedConfig,
             guideSeen = savedConfig.guideSeen,
@@ -26,10 +26,10 @@ class BilingualRelayRepository(
         ).normalize(),
     )
 
-    val state: StateFlow<BilingualRelayState> = mutableState.asStateFlow()
+    val state: StateFlow<TranslationGummyState> = mutableState.asStateFlow()
 
     fun updateDraft(
-        transform: (BilingualRelayConfig) -> BilingualRelayConfig,
+        transform: (TranslationGummyConfig) -> TranslationGummyConfig,
     ) {
         // Don't call .normalized() here — trim() strips trailing spaces while typing.
         // Normalization happens in applyDraft() and buildSystemInstruction() instead.
@@ -38,10 +38,10 @@ class BilingualRelayRepository(
         ).normalize()
     }
 
-    fun applyDraft(): BilingualRelayConfig {
+    fun applyDraft(): TranslationGummyConfig {
         val applied = mutableState.value.draftConfig.normalized()
             .copy(guideSeen = mutableState.value.guideSeen)
-        settingsStore.saveBilingualRelayConfig(applied)
+        settingsStore.saveTranslationGummyConfig(applied)
         mutableState.value = mutableState.value.copy(
             appliedConfig = applied,
             draftConfig = applied,
@@ -53,11 +53,11 @@ class BilingualRelayRepository(
         return applied
     }
 
-    fun currentAppliedConfig(): BilingualRelayConfig = mutableState.value.appliedConfig.normalized()
+    fun currentAppliedConfig(): TranslationGummyConfig = mutableState.value.appliedConfig.normalized()
 
     fun dismissGuide() {
         val applied = mutableState.value.appliedConfig.normalized().copy(guideSeen = true)
-        settingsStore.saveBilingualRelayConfig(applied)
+        settingsStore.saveTranslationGummyConfig(applied)
         mutableState.value = mutableState.value.copy(
             appliedConfig = applied,
             draftConfig = mutableState.value.draftConfig.copy(guideSeen = true),
@@ -76,7 +76,7 @@ class BilingualRelayRepository(
 
     fun markNotConfigured() {
         mutableState.value = mutableState.value.copy(
-            connectionState = BilingualRelayConnectionState.NOT_CONFIGURED,
+            connectionState = TranslationGummyConnectionState.NOT_CONFIGURED,
             isRunning = false,
             lastError = null,
             visualizerLevel = 0f,
@@ -86,9 +86,9 @@ class BilingualRelayRepository(
     fun markConnecting(reconnecting: Boolean) {
         mutableState.value = mutableState.value.copy(
             connectionState = if (reconnecting) {
-                BilingualRelayConnectionState.RECONNECTING
+                TranslationGummyConnectionState.RECONNECTING
             } else {
-                BilingualRelayConnectionState.CONNECTING
+                TranslationGummyConnectionState.CONNECTING
             },
             isRunning = true,
             lastError = null,
@@ -98,7 +98,7 @@ class BilingualRelayRepository(
     fun markReady() {
         insertSessionSeparator()
         mutableState.value = mutableState.value.copy(
-            connectionState = BilingualRelayConnectionState.READY,
+            connectionState = TranslationGummyConnectionState.READY,
             isRunning = true,
             lastError = null,
         ).normalize()
@@ -107,12 +107,12 @@ class BilingualRelayRepository(
     fun insertSessionSeparator() {
         val transcripts = mutableState.value.transcripts
         if (transcripts.isEmpty()) return
-        if (transcripts.last().role == BilingualRelayTranscriptRole.SEPARATOR) return
+        if (transcripts.last().role == TranslationGummyTranscriptRole.SEPARATOR) return
         val formatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
         val timeText = formatter.format(java.util.Date())
-        val updated = transcripts + BilingualRelayTranscriptItem(
+        val updated = transcripts + TranslationGummyTranscriptItem(
             id = transcriptIdCounter.getAndIncrement(),
-            role = BilingualRelayTranscriptRole.SEPARATOR,
+            role = TranslationGummyTranscriptRole.SEPARATOR,
             text = timeText,
             isFinal = true,
             updatedAtMs = android.os.SystemClock.elapsedRealtime(),
@@ -127,9 +127,9 @@ class BilingualRelayRepository(
     fun markStopped() {
         mutableState.value = mutableState.value.copy(
             connectionState = if (mutableState.value.appliedConfig.isValid()) {
-                BilingualRelayConnectionState.STOPPED
+                TranslationGummyConnectionState.STOPPED
             } else {
-                BilingualRelayConnectionState.NOT_CONFIGURED
+                TranslationGummyConnectionState.NOT_CONFIGURED
             },
             isRunning = false,
             visualizerLevel = 0f,
@@ -138,7 +138,7 @@ class BilingualRelayRepository(
 
     fun fail(message: String) {
         mutableState.value = mutableState.value.copy(
-            connectionState = BilingualRelayConnectionState.ERROR,
+            connectionState = TranslationGummyConnectionState.ERROR,
             isRunning = false,
             lastError = message,
             visualizerLevel = 0f,
@@ -161,7 +161,7 @@ class BilingualRelayRepository(
     }
 
     fun upsertTranscript(
-        role: BilingualRelayTranscriptRole,
+        role: TranslationGummyTranscriptRole,
         text: String,
         final: Boolean,
         nowMs: Long,
@@ -176,11 +176,7 @@ class BilingualRelayRepository(
         if (idx >= 0) {
             // Merge into unfinal item of same role
             val merged = mergeTranscriptText(updated[idx].text, trimmed)
-            val lang = if (updated[idx].lang.isBlank() || final) {
-                languageDetector.detectIso639_3(merged).ifBlank { updated[idx].lang }
-            } else {
-                updated[idx].lang
-            }
+            val lang = detectTranscriptLang(role, merged, updated[idx].lang, final)
             updated[idx] = updated[idx].copy(
                 text = merged,
                 isFinal = final,
@@ -192,24 +188,20 @@ class BilingualRelayRepository(
             // (Gemini splits long translations into multiple chunks after turnComplete)
             val lastIdx = updated.lastIndex
             val merged = mergeTranscriptText(updated[lastIdx].text, trimmed)
-            val lang = if (updated[lastIdx].lang.isBlank()) {
-                languageDetector.detectIso639_3(merged).ifBlank { updated[lastIdx].lang }
-            } else {
-                updated[lastIdx].lang
-            }
+            val lang = detectTranscriptLang(role, merged, updated[lastIdx].lang, final = true)
             updated[lastIdx] = updated[lastIdx].copy(
                 text = merged,
                 updatedAtMs = nowMs,
                 lang = lang,
             )
         } else {
-            updated += BilingualRelayTranscriptItem(
+            updated += TranslationGummyTranscriptItem(
                 id = transcriptIdCounter.getAndIncrement(),
                 role = role,
                 text = trimmed,
                 isFinal = final,
                 updatedAtMs = nowMs,
-                lang = languageDetector.detectIso639_3(trimmed),
+                lang = detectTranscriptLang(role, trimmed, existingLang = "", final = final),
             )
         }
         mutableState.value = mutableState.value.copy(
@@ -225,12 +217,12 @@ class BilingualRelayRepository(
         persistTranscripts()
     }
 
-    private fun BilingualRelayState.normalize(): BilingualRelayState {
+    private fun TranslationGummyState.normalize(): TranslationGummyState {
         val applied = appliedConfig.normalized()
         // Compare normalized versions for dirty check, but keep raw draft for typing
         val draftNormalized = draftConfig.normalized()
         val connection = when {
-            !applied.isValid() && !isRunning -> BilingualRelayConnectionState.NOT_CONFIGURED
+            !applied.isValid() && !isRunning -> TranslationGummyConnectionState.NOT_CONFIGURED
             else -> connectionState
         }
         return copy(
@@ -241,8 +233,24 @@ class BilingualRelayRepository(
         )
     }
 
+    private fun detectTranscriptLang(
+        role: TranslationGummyTranscriptRole,
+        text: String,
+        existingLang: String,
+        final: Boolean,
+    ): String {
+        if (role != TranslationGummyTranscriptRole.OUTPUT) {
+            return ""
+        }
+        return if (existingLang.isBlank() || final) {
+            languageDetector.detectIso639_3(text).ifBlank { existingLang }
+        } else {
+            existingLang
+        }
+    }
+
     private fun persistTranscripts() {
-        settingsStore.saveBilingualRelayTranscripts(
+        settingsStore.saveTranslationGummyTranscripts(
             mutableState.value.transcripts.filter { it.isFinal },
         )
     }

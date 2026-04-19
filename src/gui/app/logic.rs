@@ -98,7 +98,7 @@ impl SettingsApp {
 
             // D. Update Screen Record WebView
             crate::overlay::screen_record::update_settings();
-            crate::overlay::bilingual_relay::update_settings();
+            crate::overlay::translation_gummy::update_settings();
 
             // E. Update Favorite Bubble + Panel
             unsafe {
@@ -317,7 +317,7 @@ impl SettingsApp {
         if RESTORE_SIGNAL.swap(false, Ordering::SeqCst) {
             self.restore_window(ctx);
         }
-        if crate::overlay::bilingual_relay::REQUEST_DISMISS_SPLASH.swap(false, Ordering::SeqCst) {
+        if crate::overlay::translation_gummy::REQUEST_DISMISS_SPLASH.swap(false, Ordering::SeqCst) {
             self.splash = None;
         }
     }

@@ -10,14 +10,14 @@ use crate::api::realtime_audio::websocket::{
 };
 use crate::api::tts::TTS_MANAGER;
 use crate::api::tts::types::AudioEvent;
-use crate::config::BilingualRelaySettings;
+use crate::config::TranslationGummySettings;
 use base64::{Engine as _, engine::general_purpose};
 use serde::Serialize;
 use tungstenite::Message;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RelayConnectionState {
+pub enum TranslationGummyConnectionState {
     NotConfigured,
     Connecting,
     Ready,
@@ -28,7 +28,7 @@ pub enum RelayConnectionState {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RelayTranscriptItem {
+pub struct TranslationGummyTranscriptItem {
     pub id: u64,
     pub role: &'static str,
     pub text: String,
@@ -47,7 +47,13 @@ lazy_static::lazy_static! {
     static ref SESSION_CONTROL: Mutex<Option<SessionControl>> = Mutex::new(None);
 }
 
-pub fn start_session(hwnd: isize, settings: BilingualRelaySettings) {
+struct LocalInputTurnState {
+    pre_roll: Vec<i16>,
+    turn_active: bool,
+    last_speech_at: Option<Instant>,
+}
+
+pub fn start_session(hwnd: isize, settings: TranslationGummySettings) {
     stop_session();
 
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -65,7 +71,7 @@ pub fn stop_session() {
 
 fn run_loop(
     hwnd: isize,
-    settings: BilingualRelaySettings,
+    settings: TranslationGummySettings,
     stop: Arc<std::sync::atomic::AtomicBool>,
 ) {
     let api_key = match APP.lock() {
@@ -74,7 +80,7 @@ fn run_loop(
     };
     if api_key.is_empty() {
         super::publish_error(
-            RelayConnectionState::Error,
+            TranslationGummyConnectionState::Error,
             "missing_api_key".to_string(),
             false,
         );
@@ -85,9 +91,9 @@ fn run_loop(
     while !stop.load(Ordering::SeqCst) {
         super::publish_connection(
             if reconnecting {
-                RelayConnectionState::Reconnecting
+                TranslationGummyConnectionState::Reconnecting
             } else {
-                RelayConnectionState::Connecting
+                TranslationGummyConnectionState::Connecting
             },
             true,
             None,
@@ -107,10 +113,14 @@ fn run_loop(
                     || msg.contains("closed normally");
                 if is_normal_close {
                     // Server-side session timeout — reconnect silently
-                    super::publish_connection(RelayConnectionState::Reconnecting, true, None);
+                    super::publish_connection(
+                        TranslationGummyConnectionState::Reconnecting,
+                        true,
+                        None,
+                    );
                     std::thread::sleep(Duration::from_millis(500));
                 } else {
-                    super::publish_error(RelayConnectionState::Error, msg, false);
+                    super::publish_error(TranslationGummyConnectionState::Error, msg, false);
                     std::thread::sleep(Duration::from_millis(1200));
                 }
                 reconnecting = true;
@@ -119,14 +129,14 @@ fn run_loop(
     }
 
     if !stop.load(Ordering::SeqCst) {
-        super::publish_connection(RelayConnectionState::Stopped, false, None);
+        super::publish_connection(TranslationGummyConnectionState::Stopped, false, None);
     }
 }
 
 fn run_single_session(
     hwnd: isize,
     api_key: &str,
-    settings: &BilingualRelaySettings,
+    settings: &TranslationGummySettings,
     stop: Arc<std::sync::atomic::AtomicBool>,
 ) -> anyhow::Result<()> {
     let mut socket = connect_websocket(api_key)?;
@@ -136,7 +146,7 @@ fn run_single_session(
     set_socket_nonblocking(&mut socket)?;
 
     super::insert_session_separator();
-    super::publish_connection(RelayConnectionState::Ready, true, None);
+    super::publish_connection(TranslationGummyConnectionState::Ready, true, None);
     super::publish_audio_level(0.0);
 
     let buffer = Arc::new(Mutex::new(Vec::<i16>::new()));
@@ -146,9 +156,14 @@ fn run_single_session(
 
     let mut playback = PlaybackBridge::new(hwnd);
     let mut pending_audio: Vec<i16> = Vec::new();
+    let mut input_turn = LocalInputTurnState {
+        pre_roll: Vec::new(),
+        turn_active: false,
+        last_speech_at: None,
+    };
 
     while !stop.load(Ordering::SeqCst) {
-        flush_audio(&mut socket, &buffer, &mut pending_audio)?;
+        flush_audio(&mut socket, &buffer, &mut pending_audio, &mut input_turn)?;
 
         match socket.read() {
             Ok(Message::Text(msg)) => {
@@ -190,13 +205,13 @@ fn run_single_session(
     let _ = socket.close(None);
     playback.end();
     super::finalize_transcripts();
-    super::publish_connection(RelayConnectionState::Stopped, false, None);
+    super::publish_connection(TranslationGummyConnectionState::Stopped, false, None);
     Ok(())
 }
 
 fn send_setup(
     socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
-    settings: &BilingualRelaySettings,
+    settings: &TranslationGummySettings,
 ) -> anyhow::Result<()> {
     let (model_name, voice_name) = current_gemini_tts_settings();
     let payload = serde_json::json!({
@@ -216,6 +231,16 @@ fn send_setup(
             },
             "systemInstruction": {
                 "parts": [{ "text": settings.build_system_instruction() }]
+            },
+            "realtimeInputConfig": {
+                "automaticActivityDetection": {
+                    "startOfSpeechSensitivity": "START_SENSITIVITY_HIGH",
+                    "endOfSpeechSensitivity": "END_SENSITIVITY_HIGH",
+                    "prefixPaddingMs": 80,
+                    "silenceDurationMs": 320
+                },
+                "activityHandling": "START_OF_ACTIVITY_INTERRUPTS",
+                "turnCoverage": "TURN_INCLUDES_ONLY_ACTIVITY"
             },
             "contextWindowCompression": {
                 "slidingWindow": {}
@@ -304,6 +329,7 @@ fn flush_audio(
     socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
     buffer: &Arc<Mutex<Vec<i16>>>,
     pending_audio: &mut Vec<i16>,
+    input_turn: &mut LocalInputTurnState,
 ) -> anyhow::Result<()> {
     {
         let mut guard = buffer.lock().unwrap();
@@ -315,8 +341,44 @@ fn flush_audio(
     const CHUNK_SAMPLES: usize = 1600;
     while pending_audio.len() >= CHUNK_SAMPLES {
         let chunk: Vec<i16> = pending_audio.drain(..CHUNK_SAMPLES).collect();
-        send_audio_chunk(socket, &chunk)?;
+        let rms = calculate_rms(&chunk);
         super::publish_audio_level(calculate_audio_level(&chunk));
+        if rms >= LOCAL_INPUT_SPEECH_RMS {
+            if !input_turn.turn_active {
+                if !input_turn.pre_roll.is_empty() {
+                    send_audio_chunk(socket, &input_turn.pre_roll)?;
+                    input_turn.pre_roll.clear();
+                }
+                input_turn.turn_active = true;
+            }
+            input_turn.last_speech_at = Some(Instant::now());
+            send_audio_chunk(socket, &chunk)?;
+            continue;
+        }
+
+        if !input_turn.turn_active {
+            input_turn.pre_roll.extend_from_slice(&chunk);
+            if input_turn.pre_roll.len() > LOCAL_INPUT_PREROLL_SAMPLES {
+                let overflow = input_turn.pre_roll.len() - LOCAL_INPUT_PREROLL_SAMPLES;
+                input_turn.pre_roll.drain(..overflow);
+            }
+            continue;
+        }
+
+        let silence_ms = input_turn
+            .last_speech_at
+            .map(|started| started.elapsed().as_millis() as u64)
+            .unwrap_or(LOCAL_INPUT_END_SILENCE_MS);
+        if silence_ms <= LOCAL_INPUT_TRAILING_AUDIO_MS {
+            send_audio_chunk(socket, &chunk)?;
+            continue;
+        }
+        if silence_ms >= LOCAL_INPUT_END_SILENCE_MS {
+            send_audio_stream_end(socket)?;
+            input_turn.turn_active = false;
+            input_turn.last_speech_at = None;
+            input_turn.pre_roll.clear();
+        }
     }
     Ok(())
 }
@@ -334,6 +396,20 @@ fn calculate_audio_level(samples: &[i16]) -> f32 {
         .sum::<f32>();
     let rms = (sum_squares / samples.len() as f32).sqrt();
     (rms * 5.5).clamp(0.0, 1.0)
+}
+
+fn calculate_rms(samples: &[i16]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let sum_squares = samples
+        .iter()
+        .map(|sample| {
+            let normalized = *sample as f32 / i16::MAX as f32;
+            normalized * normalized
+        })
+        .sum::<f32>();
+    (sum_squares / samples.len() as f32).sqrt()
 }
 
 fn handle_update(message: &str, hwnd: isize, playback: &mut PlaybackBridge) -> anyhow::Result<()> {
@@ -494,6 +570,11 @@ fn parse_update(message: &str) -> ParsedUpdate {
 
     update
 }
+
+const LOCAL_INPUT_SPEECH_RMS: f32 = 0.015;
+const LOCAL_INPUT_TRAILING_AUDIO_MS: u64 = 180;
+const LOCAL_INPUT_END_SILENCE_MS: u64 = 420;
+const LOCAL_INPUT_PREROLL_SAMPLES: usize = 3200;
 
 pub fn next_transcript_id() -> u64 {
     TRANSCRIPT_COUNTER.fetch_add(1, Ordering::SeqCst)

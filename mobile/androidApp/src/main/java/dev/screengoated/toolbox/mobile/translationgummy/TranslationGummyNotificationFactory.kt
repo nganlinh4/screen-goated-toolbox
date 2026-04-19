@@ -1,4 +1,4 @@
-package dev.screengoated.toolbox.mobile.bilingualrelay
+package dev.screengoated.toolbox.mobile.translationgummy
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,7 +10,7 @@ import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
-class BilingualRelayNotificationFactory(
+class TranslationGummyNotificationFactory(
     private val context: Context,
     private val localeProvider: () -> MobileLocaleText,
 ) {
@@ -23,20 +23,20 @@ class BilingualRelayNotificationFactory(
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                locale.bilingualRelayNotificationChannel,
+                locale.translationGummyNotificationChannel,
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                description = locale.bilingualRelayNotificationDescription
+                description = locale.translationGummyNotificationDescription
             },
         )
     }
 
-    fun build(state: BilingualRelayState): android.app.Notification {
+    fun build(state: TranslationGummyState): android.app.Notification {
         val locale = localeProvider()
         val stopIntent = PendingIntent.getService(
             context,
             0,
-            Intent(context, BilingualRelayService::class.java).setAction(BilingualRelayService.ACTION_STOP),
+            Intent(context, TranslationGummyService::class.java).setAction(TranslationGummyService.ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val openIntent = PendingIntent.getActivity(
@@ -48,27 +48,27 @@ class BilingualRelayNotificationFactory(
         )
 
         val status = when (state.connectionState) {
-            BilingualRelayConnectionState.NOT_CONFIGURED -> locale.bilingualRelayStatusNotConfigured
-            BilingualRelayConnectionState.CONNECTING -> locale.bilingualRelayStatusConnecting
-            BilingualRelayConnectionState.READY -> locale.bilingualRelayStatusReady
-            BilingualRelayConnectionState.RECONNECTING -> locale.bilingualRelayStatusReconnecting
-            BilingualRelayConnectionState.ERROR -> state.lastError ?: locale.bilingualRelayConnectionLost
-            BilingualRelayConnectionState.STOPPED -> locale.bilingualRelayStatusStopped
+            TranslationGummyConnectionState.NOT_CONFIGURED -> locale.translationGummyStatusNotConfigured
+            TranslationGummyConnectionState.CONNECTING -> locale.translationGummyStatusConnecting
+            TranslationGummyConnectionState.READY -> locale.translationGummyStatusReady
+            TranslationGummyConnectionState.RECONNECTING -> locale.translationGummyStatusReconnecting
+            TranslationGummyConnectionState.ERROR -> state.lastError ?: locale.translationGummyConnectionLost
+            TranslationGummyConnectionState.STOPPED -> locale.translationGummyStatusStopped
         }
 
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(locale.bilingualRelayTitle)
+            .setContentTitle(locale.translationGummyTitle)
             .setContentText(status)
             .setOngoing(state.isRunning)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setContentIntent(openIntent)
-            .addAction(0, locale.bilingualRelayNotificationStop, stopIntent)
+            .addAction(0, locale.translationGummyNotificationStop, stopIntent)
             .build()
     }
 
     companion object {
         const val NOTIFICATION_ID = 42067
-        private const val CHANNEL_ID = "sgt_bilingual_relay"
+        private const val CHANNEL_ID = "sgt_translation_gummy"
     }
 }

@@ -76,7 +76,11 @@ unsafe extern "system" fn window_proc(
             }
             WM_CLOSE => {
                 super::runtime::stop_session();
-                super::publish_connection(super::RelayConnectionState::Stopped, false, None);
+                super::publish_connection(
+                    super::TranslationGummyConnectionState::Stopped,
+                    false,
+                    None,
+                );
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 LRESULT(0)
             }
@@ -104,7 +108,7 @@ unsafe extern "system" fn window_proc(
 
 unsafe fn internal_create_loop() {
     let instance = unsafe { GetModuleHandleW(None).unwrap() };
-    let class_name = w!("BilingualRelayWindowClass");
+    let class_name = w!("TranslationGummyWindowClass");
 
     super::REGISTER_CLASS.call_once(|| unsafe {
         let wc = WNDCLASSW {
@@ -126,7 +130,7 @@ unsafe fn internal_create_loop() {
     let y = (screen_h - height) / 2;
 
     let title = HSTRING::from(
-        crate::gui::locale::LocaleText::get(&super::current_ui_language()).bilingual_relay_title,
+        crate::gui::locale::LocaleText::get(&super::current_ui_language()).translation_gummy_title,
     );
 
     let hwnd = unsafe {
@@ -190,7 +194,8 @@ unsafe fn internal_create_loop() {
         (function() {{
             const originalPostMessage = window.ipc.postMessage;
             window.isWry = true;
-            window.__BR_INITIAL_STATE__ = {initial_payload};
+            window.__TG_INITIAL_STATE__ = {initial_payload};
+            window.__BR_INITIAL_STATE__ = window.__TG_INITIAL_STATE__;
             window.invoke = async (cmd, args = {{}}) => {{
                 return new Promise((resolve, reject) => {{
                     const id = Math.random().toString(36).slice(2);
@@ -273,7 +278,7 @@ fn refresh_window_chrome(hwnd: HWND) {
     let is_dark = crate::overlay::is_dark_mode();
     crate::gui::utils::set_window_icon(hwnd, is_dark);
     let title = HSTRING::from(
-        crate::gui::locale::LocaleText::get(&super::current_ui_language()).bilingual_relay_title,
+        crate::gui::locale::LocaleText::get(&super::current_ui_language()).translation_gummy_title,
     );
     unsafe {
         let _ = SetWindowTextW(hwnd, PCWSTR(title.as_ptr()));

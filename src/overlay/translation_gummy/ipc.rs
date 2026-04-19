@@ -37,7 +37,7 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
         Ok(envelope) => envelope,
         Err(err) => {
             super::publish_error(
-                super::RelayConnectionState::Error,
+                super::TranslationGummyConnectionState::Error,
                 format!("invalid ipc payload: {err}"),
                 false,
             );
@@ -57,7 +57,7 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
         }
         "dismiss_guide" => {
             let mut app = crate::APP.lock().unwrap();
-            app.config.bilingual_relay.guide_seen = true;
+            app.config.translation_gummy.guide_seen = true;
             crate::config::save_config(&app.config);
             Ok(Value::Null)
         }
@@ -74,7 +74,7 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
             Ok(Value::Null)
         }
         "open_tts_settings" => {
-            // Minimize the relay window
+            // Minimize the Translation Gummy window
             unsafe {
                 let _ = ShowWindow(hwnd, SW_MINIMIZE);
             }
@@ -82,7 +82,7 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
             let lang = super::current_ui_language();
             let locale = crate::gui::locale::LocaleText::get(&lang);
             crate::overlay::auto_copy_badge::enqueue_notification_with_duration(
-                locale.bilingual_relay_tts_settings_hint.to_string(),
+                locale.translation_gummy_tts_settings_hint.to_string(),
                 String::new(),
                 crate::overlay::auto_copy_badge::NotificationType::Info,
                 Some(4000),
@@ -182,7 +182,7 @@ fn handle_add_hotkey(args: Value) -> Result<Value, String> {
     // Save immediately to config
     {
         let mut app = crate::APP.lock().unwrap();
-        app.config.bilingual_relay.hotkeys.push(hotkey.clone());
+        app.config.translation_gummy.hotkeys.push(hotkey.clone());
         crate::config::save_config(&app.config);
     }
 
@@ -195,7 +195,7 @@ fn handle_add_hotkey(args: Value) -> Result<Value, String> {
             .lock()
             .unwrap()
             .config
-            .bilingual_relay
+            .translation_gummy
             .hotkeys
             .clone();
         ui.applied.hotkeys = ui.draft.hotkeys.clone();
@@ -216,8 +216,8 @@ fn handle_remove_hotkey(args: Value) -> Result<Value, String> {
 
     {
         let mut app = crate::APP.lock().unwrap();
-        if index < app.config.bilingual_relay.hotkeys.len() {
-            app.config.bilingual_relay.hotkeys.remove(index);
+        if index < app.config.translation_gummy.hotkeys.len() {
+            app.config.translation_gummy.hotkeys.remove(index);
             crate::config::save_config(&app.config);
         }
     }
@@ -229,7 +229,7 @@ fn handle_remove_hotkey(args: Value) -> Result<Value, String> {
             .lock()
             .unwrap()
             .config
-            .bilingual_relay
+            .translation_gummy
             .hotkeys
             .clone();
         ui.applied.hotkeys = ui.draft.hotkeys.clone();

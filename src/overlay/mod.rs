@@ -1,5 +1,4 @@
 pub mod auto_copy_badge; // Auto-copy notification badge
-pub mod bilingual_relay;
 pub mod broom_assets;
 pub mod continuous_mode; // Continuous mode for image/text presets (hold-to-activate)
 pub mod image_continuous_mode; // Non-blocking image selection mode (right-click gestures)
@@ -14,6 +13,7 @@ pub mod screen_record;
 pub mod selection; // Made public for extract_crop_from_hbitmap_public
 pub mod text_input; // NEW MODULE
 pub mod text_selection;
+pub mod translation_gummy;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 

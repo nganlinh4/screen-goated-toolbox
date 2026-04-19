@@ -4,8 +4,8 @@ import android.content.Context
 import dev.screengoated.toolbox.mobile.downloader.DownloaderPersistence
 import dev.screengoated.toolbox.mobile.downloader.DownloaderRepository
 import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantClient
-import dev.screengoated.toolbox.mobile.bilingualrelay.BilingualRelayRepository
-import dev.screengoated.toolbox.mobile.bilingualrelay.BilingualRelayRuntime
+import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyRepository
+import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyRuntime
 import dev.screengoated.toolbox.mobile.history.HistoryBackedPresetHistoryRecorder
 import dev.screengoated.toolbox.mobile.history.HistoryPersistence
 import dev.screengoated.toolbox.mobile.history.HistoryRepository
@@ -73,7 +73,7 @@ class AppContainer(
         historyRepository = historyRepository,
     )
     private val languageDetector = dev.screengoated.toolbox.mobile.service.tts.DeviceLanguageDetector(appContext)
-    val bilingualRelayRepository = BilingualRelayRepository(settingsStore, languageDetector)
+    val translationGummyRepository = TranslationGummyRepository(settingsStore, languageDetector)
 
     private val downloaderPersistence = DownloaderPersistence(appContext, json)
     val downloaderRepository = DownloaderRepository(appContext, downloaderPersistence).also {
@@ -111,10 +111,10 @@ class AppContainer(
 
     val geminiLiveSocketClient = GeminiLiveSocketClient(httpClient)
     val realtimeTranslationClient = RealtimeTranslationClient(httpClient)
-    val bilingualRelayRuntime = BilingualRelayRuntime(
+    val translationGummyRuntime = TranslationGummyRuntime(
         context = appContext,
         projectionConsentStore = projectionConsentStore,
-        repository = bilingualRelayRepository,
+        repository = translationGummyRepository,
         httpClient = httpClient,
     )
     val ttsRuntimeService = AndroidTtsRuntimeService(

@@ -1,6 +1,6 @@
 import "./styles.css";
 
-type RelayProfile = {
+type TranslationGummyProfile = {
   language: string;
   accent: string;
   tone: string;
@@ -12,7 +12,7 @@ type HotkeyItem = {
   modifiers: number;
 };
 
-type RelayState = {
+type TranslationGummyState = {
   darkMode: boolean;
   statusLabel: string;
   connectionState: string;
@@ -22,8 +22,8 @@ type RelayState = {
   canToggle: boolean;
   audioLevel: number;
   draft: {
-    first: RelayProfile;
-    second: RelayProfile;
+    first: TranslationGummyProfile;
+    second: TranslationGummyProfile;
   };
   hotkeys: HotkeyItem[];
   guideSeen: boolean;
@@ -65,8 +65,10 @@ type RelayState = {
 
 declare global {
   interface Window {
-    __BR_INITIAL_STATE__?: RelayState;
-    __BR_SET_STATE?: (payload: RelayState) => void;
+    __TG_INITIAL_STATE__?: TranslationGummyState;
+    __TG_SET_STATE?: (payload: TranslationGummyState) => void;
+    __BR_INITIAL_STATE__?: TranslationGummyState;
+    __BR_SET_STATE?: (payload: TranslationGummyState) => void;
     invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
   }
 }
@@ -95,7 +97,7 @@ const COLORS_LIGHT: Record<string, string[]> = {
 };
 
 const state = {
-  payload: window.__BR_INITIAL_STATE__ ?? null,
+  payload: window.__TG_INITIAL_STATE__ ?? window.__BR_INITIAL_STATE__ ?? null,
   hotkeyCaptureArmed: false,
   transcriptPinned: true,
   visualLevel: 0,
@@ -239,7 +241,7 @@ function updateTranscriptScrollAffinity() {
   state.transcriptPinned = body.scrollHeight - body.scrollTop - body.clientHeight < 36;
 }
 
-function transcriptKey(items: RelayState["transcripts"]): string {
+function transcriptKey(items: TranslationGummyState["transcripts"]): string {
   if (!items.length) return `empty:${state.payload?.strings.chatHistory}`;
   const last = items[items.length - 1];
   const langs = items.map(i => i.lang || "_").join("");
@@ -256,7 +258,7 @@ type TranscriptPair = {
 
 type TranscriptEntry = TranscriptPair | { type: "separator"; time: string; id: number };
 
-function groupTranscripts(items: RelayState["transcripts"]): TranscriptEntry[] {
+function groupTranscripts(items: TranslationGummyState["transcripts"]): TranscriptEntry[] {
   const entries: TranscriptEntry[] = [];
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
@@ -351,7 +353,7 @@ function animateClassChange(node: HTMLElement, wantClass: string) {
   anim.onfinish = () => anim.cancel();
 }
 
-function renderTranscripts(payload: RelayState) {
+function renderTranscripts(payload: TranslationGummyState) {
   const items = payload.transcripts ?? [];
   const key = transcriptKey(items);
   if (key === state.lastTranscriptKey) return;
@@ -466,7 +468,7 @@ function hotkeyKey(hotkeys: HotkeyItem[]): string {
   return hotkeys.map((h) => `${h.code}:${h.modifiers}`).join(",");
 }
 
-function renderHotkeys(payload: RelayState) {
+function renderHotkeys(payload: TranslationGummyState) {
   const armed = state.hotkeyCaptureArmed ? "1" : "0";
   const key = hotkeyKey(payload.hotkeys ?? []) + "|" + armed + "|" + payload.strings.setHotkey;
   if (key === state.lastHotkeyKey) return;
@@ -524,7 +526,7 @@ function connectionClass(cs: string) {
   return "";
 }
 
-function updateGuideContent(payload: RelayState) {
+function updateGuideContent(payload: TranslationGummyState) {
   const guideTitle = document.querySelector<HTMLElement>("#guideTitle")!;
   const guideMsg = document.querySelector<HTMLElement>("#guideMsg")!;
   guideTitle.textContent = payload.strings.title;
@@ -537,7 +539,7 @@ function setAttr(el: HTMLElement, k: string, v: string) { if (el.getAttribute(k)
 
 let lastRenderedLang = "";
 
-function render(payload: RelayState) {
+function render(payload: TranslationGummyState) {
   state.payload = payload;
   el.root.dataset.theme = payload.darkMode ? "dark" : "light";
 
@@ -785,6 +787,7 @@ bindDraftInput(el.secondLanguage, "second", "language");
 bindDraftInput(el.secondAccent, "second", "accent");
 bindDraftInput(el.secondTone, "second", "tone");
 
-window.__BR_SET_STATE = (payload: RelayState) => render(payload);
+window.__TG_SET_STATE = (payload: TranslationGummyState) => render(payload);
+window.__BR_SET_STATE = window.__TG_SET_STATE;
 if (state.payload) render(state.payload);
 requestAnimationFrame(drawVisualizer);

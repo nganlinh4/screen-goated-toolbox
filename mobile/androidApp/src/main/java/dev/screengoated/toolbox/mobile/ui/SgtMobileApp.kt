@@ -54,7 +54,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
-import dev.screengoated.toolbox.mobile.bilingualrelay.BilingualRelayScreen
+import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyScreen
 import dev.screengoated.toolbox.mobile.history.HistoryUiState
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
@@ -125,7 +125,7 @@ fun SgtMobileApp(
     var showDownloadedTools by rememberSaveable { mutableStateOf(false) }
     var showDownloader by rememberSaveable { mutableStateOf(false) }
     var showDj by rememberSaveable { mutableStateOf(false) }
-    var showBilingualRelay by rememberSaveable { mutableStateOf(false) }
+    var showTranslationGummy by rememberSaveable { mutableStateOf(false) }
     var activePresetId by rememberSaveable { mutableStateOf<String?>(null) }
     val presetRepository = (LocalContext.current.applicationContext as SgtMobileApplication)
         .appContainer
@@ -140,13 +140,13 @@ fun SgtMobileApp(
             edgeVoiceCatalogState = edgeVoiceCatalogState,
             onDismiss = {
                 showTtsSettings = false
-                // Restart bilingual relay websocket if voice or model changed
-                // (matches Windows bilingual_relay::update_settings)
-                if (showBilingualRelay &&
+                // Restart translation gummy websocket if voice or model changed
+                // (matches Windows translation_gummy::update_settings)
+                if (showTranslationGummy &&
                     (globalTtsSettings.geminiModel != ttsSnapshotAtOpen.geminiModel ||
                         globalTtsSettings.voice != ttsSnapshotAtOpen.voice)
                 ) {
-                    dev.screengoated.toolbox.mobile.bilingualrelay.BilingualRelayService.start(
+                    dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyService.start(
                         appContext,
                         restart = true,
                     )
@@ -297,7 +297,7 @@ fun SgtMobileApp(
                     onSessionToggle = onSessionToggle,
                     onDownloaderClick = { showDownloader = true },
                     onDjClick = { showDj = true },
-                    onBilingualRelayClick = { showBilingualRelay = true },
+                    onTranslationGummyClick = { showTranslationGummy = true },
                     onPresetClick = { presetId -> activePresetId = presetId },
                     onHistorySearchQueryChanged = onHistorySearchQueryChanged,
                     onClearHistorySearchQuery = onClearHistorySearchQuery,
@@ -405,11 +405,11 @@ fun SgtMobileApp(
             }
         }
 
-        if (showBilingualRelay) {
-            androidx.activity.compose.BackHandler { showBilingualRelay = false }
+        if (showTranslationGummy) {
+            androidx.activity.compose.BackHandler { showTranslationGummy = false }
         }
         androidx.compose.animation.AnimatedVisibility(
-            visible = showBilingualRelay,
+            visible = showTranslationGummy,
             enter = fadeIn(tween(200)) + androidx.compose.animation.scaleIn(
                 initialScale = 0.8f,
                 animationSpec = tween(
@@ -430,9 +430,9 @@ fun SgtMobileApp(
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.surface),
             ) {
-                BilingualRelayScreen(
+                TranslationGummyScreen(
                     locale = locale,
-                    onBack = { showBilingualRelay = false },
+                    onBack = { showTranslationGummy = false },
                     onNavigateToTtsSettings = {
                         ttsGeminiOnly = true
                         showTtsSettings = true

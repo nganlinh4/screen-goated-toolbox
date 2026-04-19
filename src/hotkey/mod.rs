@@ -26,7 +26,7 @@ const MOD_WIN: u32 = 0x0008;
 pub const WM_RELOAD_HOTKEYS: u32 = WM_USER + 101;
 pub const WM_UNREGISTER_HOTKEYS: u32 = WM_USER + 103;
 pub const WM_REGISTER_HOTKEYS: u32 = WM_USER + 104;
-pub const BILINGUAL_RELAY_HOTKEY_ID: i32 = 9800;
+pub const TRANSLATION_GUMMY_HOTKEY_ID: i32 = 9800;
 
 lazy_static! {
     /// Global event for inter-process restore signaling (manual-reset event).
@@ -93,14 +93,14 @@ pub fn register_all_hotkeys(hwnd: HWND) {
         }
     }
 
-    for (idx, hotkey) in app.config.bilingual_relay.hotkeys.iter().enumerate() {
+    for (idx, hotkey) in app.config.translation_gummy.hotkeys.iter().enumerate() {
         if idx >= 100 || [0x04, 0x05, 0x06].contains(&hotkey.code) {
             continue;
         }
         unsafe {
             let _ = RegisterHotKey(
                 Some(hwnd),
-                BILINGUAL_RELAY_HOTKEY_ID + idx as i32,
+                TRANSLATION_GUMMY_HOTKEY_ID + idx as i32,
                 HOT_KEY_MODIFIERS(hotkey.modifiers),
                 hotkey.code,
             );
@@ -122,10 +122,10 @@ pub fn unregister_all_hotkeys(hwnd: HWND) {
             let _ = UnregisterHotKey(Some(hwnd), 9900 + idx);
         }
     }
-    // Unregister Bilingual Relay Hotkeys
+    // Unregister Translation Gummy Hotkeys
     for idx in 0..100 {
         unsafe {
-            let _ = UnregisterHotKey(Some(hwnd), BILINGUAL_RELAY_HOTKEY_ID + idx);
+            let _ = UnregisterHotKey(Some(hwnd), TRANSLATION_GUMMY_HOTKEY_ID + idx);
         }
     }
 }
@@ -203,9 +203,9 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                     }
 
                     if found_id.is_none() {
-                        for (idx, hk) in app.config.bilingual_relay.hotkeys.iter().enumerate() {
+                        for (idx, hk) in app.config.translation_gummy.hotkeys.iter().enumerate() {
                             if hk.code == vk && hk.modifiers == mods {
-                                found_id = Some(BILINGUAL_RELAY_HOTKEY_ID + idx as i32);
+                                found_id = Some(TRANSLATION_GUMMY_HOTKEY_ID + idx as i32);
                                 break;
                             }
                         }

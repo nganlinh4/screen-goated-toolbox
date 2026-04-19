@@ -1,4 +1,4 @@
-package dev.screengoated.toolbox.mobile.bilingualrelay
+package dev.screengoated.toolbox.mobile.translationgummy
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,7 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 @Composable
-internal fun BilingualRelayGuideDialog(
+internal fun TranslationGummyGuideDialog(
     title: String,
     message: String,
     confirmLabel: String,

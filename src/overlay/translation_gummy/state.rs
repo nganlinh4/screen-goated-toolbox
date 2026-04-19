@@ -2,10 +2,10 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::BilingualRelaySettings;
+use crate::config::TranslationGummySettings;
 use crate::gui::locale::LocaleText;
 
-use super::{RelayConnectionState, RelayTranscriptItem};
+use super::{TranslationGummyConnectionState, TranslationGummyTranscriptItem};
 
 lazy_static::lazy_static! {
     static ref UI_STATE: Mutex<UiState> = Mutex::new(UiState::from_config());
@@ -13,12 +13,12 @@ lazy_static::lazy_static! {
 
 #[derive(Clone)]
 pub(super) struct UiState {
-    pub(super) applied: BilingualRelaySettings,
-    pub(super) draft: BilingualRelaySettings,
+    pub(super) applied: TranslationGummySettings,
+    pub(super) draft: TranslationGummySettings,
     pub(super) dirty: bool,
     pub(super) is_running: bool,
-    pub(super) connection_state: RelayConnectionState,
-    pub(super) transcripts: Vec<RelayTranscriptItem>,
+    pub(super) connection_state: TranslationGummyConnectionState,
+    pub(super) transcripts: Vec<TranslationGummyTranscriptItem>,
     pub(super) last_error: Option<String>,
     pub(super) hotkey_error: Option<String>,
     pub(super) audio_level: f32,
@@ -32,7 +32,7 @@ impl UiState {
             applied,
             dirty: false,
             is_running: false,
-            connection_state: RelayConnectionState::NotConfigured,
+            connection_state: TranslationGummyConnectionState::NotConfigured,
             transcripts: load_persisted_transcripts(),
             last_error: None,
             hotkey_error: None,
@@ -46,7 +46,7 @@ impl UiState {
         self.dirty = self.draft != self.applied;
         self.audio_level = self.audio_level.clamp(0.0, 1.0);
         if !self.applied.is_valid() && !self.is_running {
-            self.connection_state = RelayConnectionState::NotConfigured;
+            self.connection_state = TranslationGummyConnectionState::NotConfigured;
         }
         if !self.is_running {
             self.audio_level = 0.0;
@@ -65,11 +65,11 @@ struct WebPayload {
     can_apply: bool,
     can_toggle: bool,
     audio_level: f32,
-    draft: BilingualRelaySettings,
+    draft: TranslationGummySettings,
     hotkeys: Vec<crate::config::Hotkey>,
     hotkey_error: Option<String>,
     last_error: Option<String>,
-    transcripts: Vec<RelayTranscriptItem>,
+    transcripts: Vec<TranslationGummyTranscriptItem>,
     guide_seen: bool,
     tts_model: String,
     tts_voice: String,
@@ -134,13 +134,15 @@ pub(super) fn insert_session_separator() {
             return;
         }
         let now = chrono::Local::now().format("%H:%M").to_string();
-        state.transcripts.push(super::RelayTranscriptItem {
-            id: super::runtime::next_transcript_id(),
-            role: "separator",
-            text: now,
-            is_final: true,
-            lang: String::new(),
-        });
+        state
+            .transcripts
+            .push(super::TranslationGummyTranscriptItem {
+                id: super::runtime::next_transcript_id(),
+                role: "separator",
+                text: now,
+                is_final: true,
+                lang: String::new(),
+            });
         // Keep max 200 items (100 pairs + separators)
         if state.transcripts.len() > 200 {
             let overflow = state.transcripts.len() - 200;
@@ -152,7 +154,7 @@ pub(super) fn insert_session_separator() {
 }
 
 pub(super) fn publish_connection(
-    connection_state: RelayConnectionState,
+    connection_state: TranslationGummyConnectionState,
     is_running: bool,
     last_error: Option<String>,
 ) {
@@ -169,7 +171,7 @@ pub(super) fn publish_connection(
 }
 
 pub(super) fn publish_error(
-    connection_state: RelayConnectionState,
+    connection_state: TranslationGummyConnectionState,
     error: String,
     is_running: bool,
 ) {
@@ -243,7 +245,7 @@ pub(super) fn upsert_transcript(role: &'static str, text: String, is_final: bool
             } else {
                 String::new()
             };
-            state.transcripts.push(RelayTranscriptItem {
+            state.transcripts.push(TranslationGummyTranscriptItem {
                 id: super::runtime::next_transcript_id(),
                 role,
                 text: text.to_string(),
@@ -308,13 +310,13 @@ pub(super) fn payload_json() -> Option<String> {
         hotkeys: state.draft.hotkeys.clone(),
         hotkey_error: state.hotkey_error.clone(),
         last_error: state.last_error.clone().map(|err| match err.as_str() {
-            "missing_api_key" => text.bilingual_relay_api_key_required.to_string(),
+            "missing_api_key" => text.translation_gummy_api_key_required.to_string(),
             _ => err,
         }),
         transcripts: state.transcripts.clone(),
         guide_seen: crate::APP
             .lock()
-            .map(|a| a.config.bilingual_relay.guide_seen)
+            .map(|a| a.config.translation_gummy.guide_seen)
             .unwrap_or(true),
         tts_model: {
             let (m, _) = super::runtime::current_gemini_tts_settings();
@@ -325,27 +327,27 @@ pub(super) fn payload_json() -> Option<String> {
             v
         },
         strings: WebStrings {
-            title: text.bilingual_relay_title.to_string(),
-            first_profile: text.bilingual_relay_first_profile.to_string(),
-            second_profile: text.bilingual_relay_second_profile.to_string(),
-            language_label: text.bilingual_relay_language_label.to_string(),
-            accent_label: text.bilingual_relay_accent_label.to_string(),
-            tone_label: text.bilingual_relay_tone_label.to_string(),
-            hotkey_label: text.bilingual_relay_hotkey_label.to_string(),
-            set_hotkey: text.bilingual_relay_hotkey_set.to_string(),
-            clear_hotkey: text.bilingual_relay_hotkey_clear.to_string(),
-            apply: text.bilingual_relay_apply.to_string(),
-            start: text.bilingual_relay_start.to_string(),
-            stop: text.bilingual_relay_stop.to_string(),
-            transcript_title: text.bilingual_relay_transcript_title.to_string(),
-            input_chip: text.bilingual_relay_input_chip.to_string(),
-            output_chip: text.bilingual_relay_output_chip.to_string(),
-            no_transcript: text.bilingual_relay_no_transcript_yet.to_string(),
-            guide: text.bilingual_relay_guide.to_string(),
-            guide_ok: text.bilingual_relay_guide_ok.to_string(),
-            chat_history: text.bilingual_relay_chat_history.to_string(),
-            current_model: text.bilingual_relay_current_model.to_string(),
-            current_voice: text.bilingual_relay_current_voice.to_string(),
+            title: text.translation_gummy_title.to_string(),
+            first_profile: text.translation_gummy_first_profile.to_string(),
+            second_profile: text.translation_gummy_second_profile.to_string(),
+            language_label: text.translation_gummy_language_label.to_string(),
+            accent_label: text.translation_gummy_accent_label.to_string(),
+            tone_label: text.translation_gummy_tone_label.to_string(),
+            hotkey_label: text.translation_gummy_hotkey_label.to_string(),
+            set_hotkey: text.translation_gummy_hotkey_set.to_string(),
+            clear_hotkey: text.translation_gummy_hotkey_clear.to_string(),
+            apply: text.translation_gummy_apply.to_string(),
+            start: text.translation_gummy_start.to_string(),
+            stop: text.translation_gummy_stop.to_string(),
+            transcript_title: text.translation_gummy_transcript_title.to_string(),
+            input_chip: text.translation_gummy_input_chip.to_string(),
+            output_chip: text.translation_gummy_output_chip.to_string(),
+            no_transcript: text.translation_gummy_no_transcript_yet.to_string(),
+            guide: text.translation_gummy_guide.to_string(),
+            guide_ok: text.translation_gummy_guide_ok.to_string(),
+            chat_history: text.translation_gummy_chat_history.to_string(),
+            current_model: text.translation_gummy_current_model.to_string(),
+            current_voice: text.translation_gummy_current_voice.to_string(),
         },
     };
     serde_json::to_string(&payload).ok()
@@ -355,7 +357,9 @@ pub(super) fn sync_to_webview() {
     let Some(payload_json) = payload_json() else {
         return;
     };
-    let script = format!("window.__BR_SET_STATE && window.__BR_SET_STATE({payload_json});");
+    let script = format!(
+        "window.__TG_SET_STATE && window.__TG_SET_STATE({payload_json}); window.__BR_SET_STATE && window.__BR_SET_STATE({payload_json});"
+    );
     super::WEBVIEW.with(|webview| {
         if let Some(webview) = webview.borrow().as_ref() {
             let _ = webview.evaluate_script(&script);
@@ -404,6 +408,14 @@ fn transcripts_path() -> std::path::PathBuf {
         .unwrap_or_default()
         .join("screen-goated-toolbox");
     let _ = std::fs::create_dir_all(&dir);
+    dir.join("translation_gummy_transcripts.json")
+}
+
+fn legacy_transcripts_path() -> std::path::PathBuf {
+    let dir = dirs::config_dir()
+        .unwrap_or_default()
+        .join("screen-goated-toolbox");
+    let _ = std::fs::create_dir_all(&dir);
     dir.join("bilingual_relay_transcripts.json")
 }
 
@@ -426,8 +438,12 @@ pub(super) fn persist_transcripts() {
     }
 }
 
-fn load_persisted_transcripts() -> Vec<RelayTranscriptItem> {
-    let path = transcripts_path();
+fn load_persisted_transcripts() -> Vec<TranslationGummyTranscriptItem> {
+    let path = if transcripts_path().exists() {
+        transcripts_path()
+    } else {
+        legacy_transcripts_path()
+    };
     let data = match std::fs::read_to_string(&path) {
         Ok(d) => d,
         Err(_) => return Vec::new(),
@@ -445,7 +461,7 @@ fn load_persisted_transcripts() -> Vec<RelayTranscriptItem> {
                 "separator" => "separator",
                 _ => "input",
             };
-            RelayTranscriptItem {
+            TranslationGummyTranscriptItem {
                 id: super::runtime::next_transcript_id(),
                 role,
                 text: p.text,
