@@ -506,10 +506,12 @@ export class VideoController {
 
   public async loadVideo(args: {
     videoBlob?: Blob; videoUrl?: string;
+    initialTime?: number;
     onLoadingProgress?: (p: number) => void; debugLabel?: string;
   }): Promise<string> {
     return fetchVideoSource(args, this.webcamVideo, this.deviceAudio, this.micAudio,
-      (url, label) => this.handleVideoSourceChange(url, label));
+      (url, initialTime, label) =>
+        this.handleVideoSourceChange(url, initialTime, label));
   }
 
   public async loadDeviceAudio(args: {
@@ -528,13 +530,17 @@ export class VideoController {
     });
   }
 
-  private async handleVideoSourceChange(videoUrl: string, debugLabel?: string): Promise<void> {
+  private async handleVideoSourceChange(
+    videoUrl: string,
+    initialTime?: number,
+    debugLabel?: string,
+  ): Promise<void> {
     if (!this.video || !this.canvas) return;
     this.isChangingSource = true;
     this.pendingSourceChangeLabel = debugLabel ?? null;
     this.setReady(false);
     this.resetTransientPlaybackState();
-    await performVideoSourceChange(this.video, this.canvas, videoUrl,
+    await performVideoSourceChange(this.video, this.canvas, videoUrl, initialTime,
       () => {},
       () => { this.isChangingSource = false; this.pendingSourceChangeLabel = null; this.setReady(true); },
     );

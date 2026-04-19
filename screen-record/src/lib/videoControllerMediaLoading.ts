@@ -93,6 +93,7 @@ export async function loadMediaElement(
 export interface LoadVideoArgs {
   videoBlob?: Blob;
   videoUrl?: string;
+  initialTime?: number;
   onLoadingProgress?: (p: number) => void;
   debugLabel?: string;
 }
@@ -107,7 +108,11 @@ export async function fetchVideoSource(
   webcamVideo: HTMLMediaElement | undefined,
   deviceAudio: HTMLMediaElement | undefined,
   micAudio: HTMLMediaElement | undefined,
-  onSourceChange: (url: string, debugLabel?: string) => Promise<void>,
+  onSourceChange: (
+    url: string,
+    initialTime?: number,
+    debugLabel?: string,
+  ) => Promise<void>,
 ): Promise<string> {
   // Clear previous audio/webcam
   if (webcamVideo && hasValidMediaElement(webcamVideo)) {
@@ -120,14 +125,15 @@ export async function fetchVideoSource(
     clearMediaElementSource(micAudio);
   }
 
-  const { videoBlob, videoUrl, onLoadingProgress, debugLabel } = args;
+  const { videoBlob, videoUrl, initialTime, onLoadingProgress, debugLabel } =
+    args;
   let blob: Blob;
 
   if (videoBlob) {
     blob = videoBlob;
   } else if (videoUrl?.startsWith("blob:") || isNativeMediaUrl(videoUrl)) {
     const directVideoUrl = videoUrl!;
-    await onSourceChange(directVideoUrl, debugLabel);
+    await onSourceChange(directVideoUrl, initialTime, debugLabel);
     onLoadingProgress?.(100);
     return directVideoUrl;
   } else if (videoUrl) {
@@ -162,7 +168,7 @@ export async function fetchVideoSource(
   }
 
   const objectUrl = URL.createObjectURL(blob);
-  await onSourceChange(objectUrl, debugLabel);
+  await onSourceChange(objectUrl, initialTime, debugLabel);
   return objectUrl;
 }
 
@@ -183,6 +189,7 @@ export async function performVideoSourceChange(
   video: HTMLVideoElement,
   canvas: HTMLCanvasElement,
   videoUrl: string,
+  initialTime: number | undefined,
   beforeChange: () => void,
   afterChange: () => void,
 ): Promise<void> {
@@ -207,8 +214,41 @@ export async function performVideoSourceChange(
         ctx.imageSmoothingQuality = "high";
       }
 
-      afterChange();
-      resolve();
+      const seekTarget =
+        typeof initialTime === "number" && Number.isFinite(initialTime)
+          ? Math.max(0, Math.min(initialTime, video.duration || initialTime))
+          : 0;
+      if (seekTarget <= 0.001) {
+        afterChange();
+        resolve();
+        return;
+      }
+
+      const finishAfterSeek = () => {
+        afterChange();
+        resolve();
+      };
+
+      if (Math.abs(video.currentTime - seekTarget) <= 0.02) {
+        finishAfterSeek();
+        return;
+      }
+
+      const onSeeked = () => {
+        cleanupSeek();
+        finishAfterSeek();
+      };
+      const cleanupSeek = () => {
+        clearTimeout(seekTimeout);
+        video.removeEventListener("seeked", onSeeked);
+      };
+      const seekTimeout = window.setTimeout(() => {
+        cleanupSeek();
+        finishAfterSeek();
+      }, 800);
+
+      video.addEventListener("seeked", onSeeked, { once: true });
+      video.currentTime = seekTarget;
     };
 
     const onMetadata = () => {
