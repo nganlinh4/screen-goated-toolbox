@@ -20,9 +20,9 @@
       "expected_notice": true
     },
     {
-      "name": "bilingual_relay_missing_key",
+      "name": "translation_gummy_missing_key",
       "raw_error": "Add your Gemini API key before starting Translation Gummy.",
-      "surface": "bilingual_relay_start",
+      "surface": "translation_gummy_start",
       "expected_notice": true
     }
   ]

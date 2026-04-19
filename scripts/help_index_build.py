@@ -17,7 +17,7 @@ BATCH_SIZE = 50  # chunks per batch (Ollama handles sequentially, no rate limit)
 
 # Full codebase — everything users might ask about
 INCLUDE_DIRS = [
-    "src", "screen-record/src", "bilingual-relay-ui/src", "catalog",
+    "src", "screen-record/src", "translation-gummy-ui/src", "catalog",
     "libs/lang-detect/src", "native/qwen3_runtime/src",
     "mobile/androidApp/src/main/java", "mobile/shared/src/commonMain",
     "promptdj-midi",

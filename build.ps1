@@ -48,24 +48,24 @@ else {
     exit 1
 }
 
-# --- Build Bilingual Relay Frontend ---
-Write-Host "Building Bilingual Relay Frontend..." -ForegroundColor Cyan
-$brDir = Join-Path $PSScriptRoot "bilingual-relay-ui"
+# --- Build Translation Gummy Frontend ---
+Write-Host "Building Translation Gummy Frontend..." -ForegroundColor Cyan
+$brDir = Join-Path $PSScriptRoot "translation-gummy-ui"
 $brDist = Join-Path $brDir "dist"
-$brTargetDist = Join-Path $PSScriptRoot "src\overlay\bilingual_relay\dist"
+$brTargetDist = Join-Path $PSScriptRoot "src\overlay\translation_gummy\dist"
 
 Push-Location $brDir
 try {
     if (-not (Test-Path "node_modules") -or -not (Test-Path "node_modules\\.bin\\vite.cmd")) {
         npm install
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "FAILED: Bilingual Relay npm install failed." -ForegroundColor Red
+            Write-Host "FAILED: Translation Gummy npm install failed." -ForegroundColor Red
             exit 1
         }
     }
     npm run build
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "FAILED: Bilingual Relay build failed." -ForegroundColor Red
+        Write-Host "FAILED: Translation Gummy build failed." -ForegroundColor Red
         exit 1
     }
 }
@@ -78,10 +78,10 @@ if (Test-Path $brDist) {
         New-Item -ItemType Directory -Path $brTargetDist -Force | Out-Null
     }
     Copy-Item -Path "$brDist\*" -Destination $brTargetDist -Recurse -Force
-    Write-Host "Bilingual Relay assets synchronized." -ForegroundColor Green
+    Write-Host "Translation Gummy assets synchronized." -ForegroundColor Green
 }
 else {
-    Write-Host "FAILED: Bilingual Relay build did not produce dist folder." -ForegroundColor Red
+    Write-Host "FAILED: Translation Gummy build did not produce dist folder." -ForegroundColor Red
     exit 1
 }
 

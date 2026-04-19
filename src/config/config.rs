@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
-    BilingualRelaySettings, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey,
-    ModelPriorityChains, ThemeMode, TtsLanguageCondition, TtsMethod,
+    DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey, ModelPriorityChains,
+    ThemeMode, TranslationGummySettings, TtsLanguageCondition, TtsMethod,
     default_tts_language_conditions, get_system_ui_language,
 };
 
@@ -85,8 +85,8 @@ fn default_ollama_base_url() -> String {
     "http://localhost:11434".to_string()
 }
 
-fn default_bilingual_relay_settings() -> BilingualRelaySettings {
-    BilingualRelaySettings::default()
+fn default_translation_gummy_settings() -> TranslationGummySettings {
+    TranslationGummySettings::default()
 }
 
 // ============================================================================
@@ -310,9 +310,12 @@ pub struct Config {
     #[serde(default = "default_screen_record_window_size")]
     pub screen_record_window_size: (i32, i32),
 
-    /// Settings for the bilingual relay mini app
-    #[serde(default = "default_bilingual_relay_settings")]
-    pub bilingual_relay: BilingualRelaySettings,
+    /// Settings for the Translation Gummy mini app.
+    #[serde(
+        default = "default_translation_gummy_settings",
+        alias = "bilingual_relay"
+    )]
+    pub translation_gummy: TranslationGummySettings,
 }
 
 fn default_screen_record_hotkeys() -> Vec<Hotkey> {
@@ -346,10 +349,10 @@ impl Config {
             }
         }
 
-        for h in &self.bilingual_relay.hotkeys {
+        for h in &self.translation_gummy.hotkeys {
             if h.code == vk && h.modifiers == mods {
                 return Some(format!(
-                    "Conflict with global hotkey '{}' (Bilingual Relay)",
+                    "Conflict with global hotkey '{}' (Translation Gummy)",
                     h.name
                 ));
             }
@@ -449,7 +452,7 @@ impl Default for Config {
             // Screen Record
             screen_record_hotkeys: default_screen_record_hotkeys(),
             screen_record_window_size: default_screen_record_window_size(),
-            bilingual_relay: default_bilingual_relay_settings(),
+            translation_gummy: default_translation_gummy_settings(),
         }
     }
 }

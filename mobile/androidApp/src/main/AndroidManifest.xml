@@ -61,7 +61,7 @@
             android:foregroundServiceType="microphone|mediaProjection" />
 
         <service
-            android:name=".bilingualrelay.BilingualRelayService"
+            android:name=".translationgummy.TranslationGummyService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="microphone" />

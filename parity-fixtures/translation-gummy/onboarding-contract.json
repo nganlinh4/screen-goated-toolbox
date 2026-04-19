@@ -1,0 +1,13 @@
+{
+  "persistedFlag": "guide_seen",
+  "showWhen": {
+    "guide_seen": false
+  },
+  "titleSource": "translation_gummy_title",
+  "messageSource": "translation_gummy_guide",
+  "confirmLabelSource": "translation_gummy_guide_ok",
+  "dismissBehavior": {
+    "persistGuideSeen": true,
+    "suppressFutureAutoShow": true
+  }
+}

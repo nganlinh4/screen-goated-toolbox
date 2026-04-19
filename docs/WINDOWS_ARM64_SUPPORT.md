@@ -25,7 +25,7 @@ It does **not** guarantee full feature parity on all Windows-on-Arm environments
 These features require Microsoft Edge WebView2 Runtime at runtime:
 
 - realtime overlay
-- bilingual relay
+- translation gummy
 - text input overlay
 - preset wheel
 - PromptDJ

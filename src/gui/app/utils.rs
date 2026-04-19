@@ -71,7 +71,7 @@ impl SettingsApp {
 
         // Sync PromptDJ and ScreenRecord settings if windows are active
         crate::overlay::prompt_dj::update_settings();
-        crate::overlay::bilingual_relay::update_settings();
+        crate::overlay::translation_gummy::update_settings();
         crate::overlay::screen_record::update_settings();
 
         unsafe {
