@@ -30,6 +30,8 @@ export interface SubtitlePanelProps {
   canUseMicSource: boolean;
   onGenerate: () => void;
   onCancel: () => void;
+  canExportSrt: boolean;
+  onExportSrt: () => void;
   onUpdateSegment: (segment: VideoSegment) => void;
   beginBatch: () => void;
   commitBatch: () => void;
@@ -54,6 +56,8 @@ export function SubtitlePanel({
   canUseMicSource,
   onGenerate,
   onCancel,
+  canExportSrt,
+  onExportSrt,
   onUpdateSegment,
   beginBatch,
   commitBatch,
@@ -80,6 +84,8 @@ export function SubtitlePanel({
 
   const getMethodLabel = (method: SubtitleMethod) => {
     switch (method) {
+      case 'gemini-live-3-1-flash-preview':
+        return t.subtitleMethodGeminiLive3_1FlashPreview;
       case 'groq-whisper-large-v3-turbo':
         return t.subtitleMethodGroqWhisperLargeV3Turbo;
       case 'qwen-local-1-7b':
@@ -131,8 +137,8 @@ export function SubtitlePanel({
 
   return (
     <PanelCard className="subtitle-panel">
-      <div className="space-y-3.5">
-        <p className="text-xs text-on-surface-variant">{t.subtitlePanelHint}</p>
+      <div className="subtitle-panel-body space-y-3">
+        <p className="subtitle-panel-hint text-[11px] leading-4 text-on-surface-variant">{t.subtitlePanelHint}</p>
 
         <div className="subtitle-source-row flex items-center gap-2">
           <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
@@ -142,7 +148,7 @@ export function SubtitlePanel({
             value={selectedSource}
             options={subtitleSourceOptions}
             onChange={(value) => onSourceChange(value as 'video' | 'mic')}
-            triggerClassName="subtitle-source-select flex-1"
+            triggerClassName="subtitle-source-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
             contentClassName="subtitle-source-menu"
           />
         </div>
@@ -155,7 +161,7 @@ export function SubtitlePanel({
             value={selectedMethod}
             options={subtitleMethodOptions}
             onChange={(value) => onMethodChange(value as SubtitleMethod)}
-            triggerClassName="subtitle-method-select flex-1"
+            triggerClassName="subtitle-method-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
             contentClassName="subtitle-method-menu"
           />
         </div>
@@ -171,17 +177,19 @@ export function SubtitlePanel({
             searchable
             searchPlaceholder={t.subtitleLanguageSearchPlaceholder}
             emptyStateLabel={t.subtitleLanguageSearchEmpty}
-            triggerClassName="subtitle-language-select flex-1"
-            contentClassName="subtitle-language-menu min-w-[max(300px,var(--radix-popover-trigger-width))]"
+            triggerClassName="subtitle-language-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+            contentClassName="subtitle-language-menu"
           />
         </div>
 
-        <div className="subtitle-actions flex gap-2">
+        <div className="subtitle-actions grid grid-cols-3 gap-1.5">
           <button
             type="button"
             disabled={subtitleActionDisabled}
             onClick={onGenerate}
-            className="ui-button flex-1 rounded-xl px-3 py-2 text-sm font-medium disabled:opacity-50"
+            data-tone="primary"
+            data-emphasis="strong"
+            className="subtitle-generate-button ui-action-button flex h-8 items-center justify-center rounded-lg px-2.5 text-[11px] font-medium leading-tight"
           >
             {generateLabel}
           </button>
@@ -189,21 +197,31 @@ export function SubtitlePanel({
             type="button"
             disabled={!isGenerating}
             onClick={onCancel}
-            className="ui-button flex-1 rounded-xl px-3 py-2 text-sm font-medium disabled:opacity-50"
+            data-tone="danger"
+            className="subtitle-cancel-button ui-action-button flex h-8 items-center justify-center rounded-lg px-2.5 text-[11px] font-medium leading-tight"
           >
             {t.subtitleCancelJob}
           </button>
+          <button
+            type="button"
+            disabled={!canExportSrt}
+            onClick={onExportSrt}
+            data-tone="success"
+            className="subtitle-export-srt-button ui-action-button flex h-8 items-center justify-center rounded-lg px-2.5 text-[11px] font-medium leading-tight"
+          >
+            {selectedSubtitleRange ? t.subtitleExportRangeSrt : t.subtitleExportSrt}
+          </button>
         </div>
 
-        <p className="text-[11px] text-on-surface-variant">
+        <p className="subtitle-status-message text-[11px] leading-4 text-on-surface-variant">
           {selectedMethodReason ?? statusMessage ?? (hasSubtitleSource ? t.subtitleIdleHint : t.subtitleUnavailableSource)}
         </p>
 
         {sourceSubtitle && editableSubtitles.length > 0 ? (
-          <div className="subtitle-style-controls space-y-3.5">
-            <div className="subtitle-badge-row flex items-center gap-2">
+          <div className="subtitle-style-controls space-y-3">
+            <div className="subtitle-badge-row flex items-center gap-1.5">
               <div
-                className="subtitle-preview-badge inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-medium"
+                className="subtitle-preview-badge inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium"
                 style={{ background: 'color-mix(in srgb, var(--timeline-zoom-color) 15%, transparent)', color: 'var(--timeline-zoom-color)' }}
               >
                 <AlignCenter className="h-3 w-3" />
@@ -225,7 +243,7 @@ export function SubtitlePanel({
               onFocus={beginBatch}
               onBlur={commitBatch}
               onChange={(e) => updateSubtitleText(e.target.value)}
-              className="subtitle-editor-input ui-input w-full rounded-xl px-3 py-2 text-on-surface text-sm thin-scrollbar subtle-resize"
+              className="subtitle-editor-input ui-input w-full rounded-lg px-2.5 py-2 text-[12px] leading-5 text-on-surface thin-scrollbar subtle-resize"
               rows={2}
             />
 
@@ -287,7 +305,7 @@ export function SubtitlePanel({
               />
             </SettingRow>
 
-            <label className="flex items-center gap-3 text-[10px] text-on-surface-variant cursor-pointer">
+            <label className="subtitle-background-toggle flex items-center gap-3 text-[11px] text-on-surface-variant cursor-pointer">
               <Checkbox
                 checked={sourceSubtitle.style.background?.enabled ?? false}
                 onChange={(e) => updateSelectedSubtitles((subtitle) => ({

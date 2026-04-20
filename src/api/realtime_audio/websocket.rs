@@ -70,14 +70,21 @@ pub fn send_setup_message(
     socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>,
     model: &str,
 ) -> Result<()> {
+    let uses_live_3_1 = model == crate::model_config::GEMINI_LIVE_API_MODEL_3_1;
     let mut generation_config = serde_json::json!({
         "responseModalities": ["AUDIO"],
         "mediaResolution": "MEDIA_RESOLUTION_LOW",
     });
 
-    generation_config["thinkingConfig"] = serde_json::json!({
-        "thinkingBudget": 0
-    });
+    generation_config["thinkingConfig"] = if uses_live_3_1 {
+        serde_json::json!({
+            "thinkingLevel": "minimal"
+        })
+    } else {
+        serde_json::json!({
+            "thinkingBudget": 0
+        })
+    };
 
     let setup = serde_json::json!({
         "setup": {

@@ -25,6 +25,7 @@ import type { ProjectComposition, VideoSegment } from '@/types/video';
 export type SubtitleMethod =
   | 'groq-whisper-accurate'
   | 'groq-whisper-large-v3-turbo'
+  | 'gemini-live-3-1-flash-preview'
   | 'qwen-local-0-6b'
   | 'qwen-local-1-7b';
 
@@ -35,9 +36,60 @@ const DEFAULT_SUBTITLE_METHOD_CAPABILITIES: Array<{
 }> = [
   { method: 'groq-whisper-accurate', available: true, reason: null },
   { method: 'groq-whisper-large-v3-turbo', available: true, reason: null },
+  { method: 'gemini-live-3-1-flash-preview', available: false, reason: null },
   { method: 'qwen-local-0-6b', available: false, reason: null },
   { method: 'qwen-local-1-7b', available: false, reason: null },
 ];
+
+const SUBTITLE_SOURCE_KEY = 'screen-record-subtitle-source-v1';
+const SUBTITLE_METHOD_KEY = 'screen-record-subtitle-method-v1';
+const SUBTITLE_LANGUAGE_HINT_KEY = 'screen-record-subtitle-language-hint-v1';
+
+function getInitialSubtitleSource(): 'video' | 'mic' {
+  try {
+    const raw = localStorage.getItem(SUBTITLE_SOURCE_KEY);
+    if (raw === 'video' || raw === 'mic') {
+      return raw;
+    }
+  } catch {
+    // ignore persistence failures
+  }
+  return 'video';
+}
+
+function isSubtitleMethod(value: string): value is SubtitleMethod {
+  return (
+    value === 'groq-whisper-accurate' ||
+    value === 'groq-whisper-large-v3-turbo' ||
+    value === 'gemini-live-3-1-flash-preview' ||
+    value === 'qwen-local-0-6b' ||
+    value === 'qwen-local-1-7b'
+  );
+}
+
+function getInitialSubtitleMethod(): SubtitleMethod {
+  try {
+    const raw = localStorage.getItem(SUBTITLE_METHOD_KEY);
+    if (raw && isSubtitleMethod(raw)) {
+      return raw;
+    }
+  } catch {
+    // ignore persistence failures
+  }
+  return 'gemini-live-3-1-flash-preview';
+}
+
+function getInitialSubtitleLanguageHint(): string {
+  try {
+    const raw = localStorage.getItem(SUBTITLE_LANGUAGE_HINT_KEY);
+    if (raw && raw.trim()) {
+      return raw;
+    }
+  } catch {
+    // ignore persistence failures
+  }
+  return 'auto';
+}
 
 interface SubtitleClipResult {
   clipId: string;
@@ -150,13 +202,37 @@ export function useSubtitleGeneration({
   setActivePanel,
 }: UseSubtitleGenerationParams) {
   const [editingSubtitleId, setEditingSubtitleId] = useState<string | null>(null);
-  const [sourceType, setSourceType] = useState<'video' | 'mic'>('video');
-  const [subtitleMethod, setSubtitleMethod] = useState<SubtitleMethod>('groq-whisper-accurate');
-  const [languageHint, setLanguageHint] = useState('auto');
+  const [sourceType, setSourceType] = useState<'video' | 'mic'>(getInitialSubtitleSource);
+  const [subtitleMethod, setSubtitleMethod] = useState<SubtitleMethod>(getInitialSubtitleMethod);
+  const [languageHint, setLanguageHint] = useState(getInitialSubtitleLanguageHint);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobContext, setJobContext] = useState<SubtitleJobContext | null>(null);
   const [status, setStatus] = useState<SubtitleJobStatus | null>(null);
   const [capabilities, setCapabilities] = useState<SubtitleGenerationCapabilities | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SUBTITLE_SOURCE_KEY, sourceType);
+    } catch {
+      // ignore persistence failures
+    }
+  }, [sourceType]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SUBTITLE_METHOD_KEY, subtitleMethod);
+    } catch {
+      // ignore persistence failures
+    }
+  }, [subtitleMethod]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SUBTITLE_LANGUAGE_HINT_KEY, languageHint.trim() || 'auto');
+    } catch {
+      // ignore persistence failures
+    }
+  }, [languageHint]);
 
   const canUseVideoSource = useMemo(() => {
     if (composition && getEffectiveCompositionMode(composition) === 'unified') {

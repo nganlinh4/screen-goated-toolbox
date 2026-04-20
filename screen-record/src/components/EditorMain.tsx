@@ -12,8 +12,10 @@ import { PlaybackControlsRow } from "@/components/PlaybackControlsRow";
 import { SidePanel, type ActivePanel } from "@/components/sidepanel/index";
 import { TimelineArea } from "@/components/timeline";
 import type { CanvasModeToggleProps } from "@/components/CanvasModeToggle";
+import { useSettings } from "@/hooks/useSettings";
 import type { SubtitleMethod } from "@/hooks/useSubtitleGeneration";
 import { createManualSubtitleSegment } from "@/lib/subtitleDefaults";
+import { saveSubtitleSrt } from "@/lib/subtitleSrt";
 import type { SubtitleGenerationIndicator } from "@/lib/subtitleGenerationPlan";
 import {
   deriveSelectionRangeFromIds,
@@ -116,6 +118,7 @@ export interface EditorMainProps {
   handleCancelSubtitleGeneration: () => void;
   currentRawVideoPath: string;
   currentRawMicAudioPath: string;
+  currentProjectName?: string | null;
   // TimelineArea props
   thumbnails: string[];
   timelineRef: React.RefObject<HTMLDivElement>;
@@ -222,6 +225,7 @@ export function EditorMain({
   handleCancelSubtitleGeneration,
   currentRawVideoPath,
   currentRawMicAudioPath,
+  currentProjectName,
   thumbnails,
   timelineRef,
   editingKeystrokeSegmentId,
@@ -238,6 +242,7 @@ export function EditorMain({
   handleAddPointerSegment,
   setTimelineCanvasWidthPx,
 }: EditorMainProps) {
+  const { t } = useSettings();
   const showPlaybackControls = Boolean(
     currentVideo && !isLoadingVideo && !isOverlayMode,
   );
@@ -256,6 +261,7 @@ export function EditorMain({
   const [selectedPointerIds, setSelectedPointerIds] = useState<string[]>([]);
   const [selectedKeystrokeIds, setSelectedKeystrokeIds] = useState<string[]>([]);
   const [selectedWebcamIds, setSelectedWebcamIds] = useState<string[]>([]);
+  const exportSubtitleSrtInFlightRef = React.useRef(false);
 
   const handleTextSelectionChange = useCallback((ids: string[]) => {
     setSelectedTextIds(ids);
@@ -360,6 +366,30 @@ export function EditorMain({
     setEditingSubtitleId(subtitle.id);
     setActivePanel('subtitles');
   }, [currentTime, duration, segment, setActivePanel, setEditingSubtitleId, setSegment]);
+
+  const canExportSubtitleSrt = (segment?.subtitleSegments?.length ?? 0) > 0;
+
+  const handleExportSubtitleSrt = useCallback(async () => {
+    if (!segment?.subtitleSegments?.length) return;
+    if (exportSubtitleSrtInFlightRef.current) return;
+    exportSubtitleSrtInFlightRef.current = true;
+    try {
+      await saveSubtitleSrt(
+        segment.subtitleSegments,
+        selectedSubtitleRange,
+        currentProjectName
+          ? `${currentProjectName}${selectedSubtitleRange ? '-subtitles-range' : '-subtitles'}`
+          : selectedSubtitleRange
+            ? 'subtitles-range'
+            : 'subtitles',
+        t.subtitleSrtSavedTo,
+      );
+    } catch (error) {
+      console.error('[SubtitleSrt] Failed to save subtitle file:', error);
+    } finally {
+      exportSubtitleSrtInFlightRef.current = false;
+    }
+  }, [currentProjectName, segment?.subtitleSegments, selectedSubtitleRange, t.subtitleSrtSavedTo]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -507,6 +537,8 @@ export function EditorMain({
             canUseMicSubtitleSource={Boolean(segment?.micAudioAvailable)}
             onGenerateSubtitles={() => handleGenerateSubtitles(selectedSubtitleRange)}
             onCancelSubtitleGeneration={handleCancelSubtitleGeneration}
+            canExportSubtitleSrt={canExportSubtitleSrt}
+            onExportSubtitleSrt={handleExportSubtitleSrt}
             selectedTextIds={selectedTextIds}
             hasMouseData={mousePositionsLength > 0}
             onUpdateSegment={setSegment as (segment: VideoSegment) => void}

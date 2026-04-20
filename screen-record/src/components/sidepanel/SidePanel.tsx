@@ -130,6 +130,8 @@ interface SidePanelProps {
   canUseMicSubtitleSource: boolean;
   onGenerateSubtitles: () => void;
   onCancelSubtitleGeneration: () => void;
+  canExportSubtitleSrt: boolean;
+  onExportSubtitleSrt: () => void;
   selectedTextIds?: string[];
   hasMouseData?: boolean;
   onUpdateSegment: (segment: VideoSegment) => void;
@@ -173,6 +175,8 @@ export function SidePanel({
   canUseMicSubtitleSource,
   onGenerateSubtitles,
   onCancelSubtitleGeneration,
+  canExportSubtitleSrt,
+  onExportSubtitleSrt,
   selectedTextIds,
   hasMouseData,
   onUpdateSegment,
@@ -284,6 +288,8 @@ export function SidePanel({
           canUseMicSource={canUseMicSubtitleSource}
           onGenerate={onGenerateSubtitles}
           onCancel={onCancelSubtitleGeneration}
+          canExportSrt={canExportSubtitleSrt}
+          onExportSrt={onExportSubtitleSrt}
           onUpdateSegment={onUpdateSegment}
           beginBatch={beginBatch}
           commitBatch={commitBatch}

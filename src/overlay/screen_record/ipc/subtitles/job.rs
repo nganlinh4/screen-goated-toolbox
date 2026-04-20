@@ -67,7 +67,7 @@ pub fn handle_get_subtitle_generation_status(
         .lock()
         .map_err(|_| "Subtitle snapshot lock poisoned".to_string())?
         .clone();
-    Ok(serde_json::to_value(snapshot).map_err(|e| format!("Serialize subtitle status: {e}"))?)
+    serde_json::to_value(snapshot).map_err(|e| format!("Serialize subtitle status: {e}"))
 }
 
 pub fn handle_get_subtitle_generation_capabilities(

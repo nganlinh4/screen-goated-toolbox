@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "postinstall": "node ../scripts/ensure-rollup-native.mjs",
+    "prebuild": "node ../scripts/ensure-rollup-native.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
