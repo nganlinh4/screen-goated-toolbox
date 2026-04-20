@@ -8,6 +8,8 @@ pub enum SubtitleGenerationMethod {
     #[default]
     GroqWhisperAccurate,
     GroqWhisperLargeV3Turbo,
+    #[serde(rename = "gemini-live-3-1-flash-preview")]
+    GeminiLive3_1FlashPreview,
     #[serde(rename = "qwen-local-0-6b", alias = "qwen-local")]
     QwenLocal0_6B,
     #[serde(rename = "qwen-local-1-7b")]

@@ -7,6 +7,7 @@ mod cursor_svg;
 mod hotkeys;
 pub mod media_server;
 mod recording;
+mod subtitle_export;
 mod subtitles;
 mod window_monitor;
 
@@ -196,6 +197,7 @@ pub fn handle_ipc_command(
             let saved_path = raw_video::move_saved_raw_video(current_path, target_dir)?;
             Ok(serde_json::json!({ "savedPath": saved_path }))
         }
+        "save_subtitle_srt" => subtitle_export::handle_save_subtitle_srt(&args),
         "copy_video_file_to_clipboard" => {
             let file_path = args["filePath"].as_str().ok_or("Missing filePath")?;
             raw_video::copy_video_file_to_clipboard(file_path)?;

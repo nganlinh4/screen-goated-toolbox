@@ -180,6 +180,8 @@ const FIT_FONT_SCRIPT: &str = r#"
                     // which is what the ease-out animation needs to start from.
                     var priorDisplayedFontSize = parseFloat(body.style.fontSize);
                     var priorDisplayedWdth = parseFloat(body.style.fontStretch);
+                    var priorDisplayedPadTop = parseFloat(body.style.paddingTop) || 0;
+                    var priorDisplayedPadBottom = parseFloat(body.style.paddingBottom) || 0;
                     var hasPriorFontSize = Number.isFinite(priorDisplayedFontSize) && priorDisplayedFontSize > 0;
                     var hasPriorWdth = Number.isFinite(priorDisplayedWdth) && priorDisplayedWdth > 0;
 
@@ -572,14 +574,22 @@ const FIT_FONT_SCRIPT: &str = r#"
                         var targetStretch = parseFloat(body.style.fontStretch);
                         var targetWdth = Number.isFinite(targetStretch) && targetStretch > 0 ? targetStretch : 90;
                         var targetFontSize = parseFloat(body.style.fontSize) || 14;
+                        var targetPadTop = parseFloat(body.style.paddingTop) || 0;
+                        var targetPadBottom = parseFloat(body.style.paddingBottom) || 0;
 
                         var startWdth = hasPriorWdth ? priorDisplayedWdth : 90;
                         var startFontSize = hasPriorFontSize ? priorDisplayedFontSize : targetFontSize;
+                        var startPadTop = priorDisplayedPadTop;
+                        var startPadBottom = priorDisplayedPadBottom;
                         var hadPriorSize = hasPriorFontSize;
 
                         function applyAxes(fs, w) {
                             body.style.fontSize = fs + 'px';
                             body.style.fontStretch = w + '%';
+                        }
+                        function applyPadding(pt, pb) {
+                            body.style.paddingTop = pt + 'px';
+                            body.style.paddingBottom = pb + 'px';
                         }
 
                         // Save signature for the short-circuit at fit entry. Only for
@@ -602,23 +612,36 @@ const FIT_FONT_SCRIPT: &str = r#"
                         // drive a clean interpolation to target. No CSS
                         // transition is active (removed) so measurements in
                         // future fits read whatever we set here exactly.
+                        //
+                        // Final (mouse-enter / settle) fits get a longer,
+                        // more pronounced duration — they usually involve a
+                        // bigger delta (streaming hysteresis'd size → final
+                        // max-fit size after resize) and deserve to be
+                        // visibly smooth.
                         var fsDelta = Math.abs(targetFontSize - startFontSize);
                         var wDelta = Math.abs(targetWdth - startWdth);
-                        if (!hadPriorSize || (fsDelta < 0.5 && wDelta < 1.5)) {
+                        var duration = isStreamingFit ? 280 : 420;
+                        var snapThreshold = isStreamingFit ? 0.5 : 0.15;
+                        var snapWThreshold = isStreamingFit ? 1.5 : 0.5;
+                        if (!hadPriorSize || (fsDelta < snapThreshold && wDelta < snapWThreshold)) {
                             // First fit, or nothing meaningful changed — snap.
                             applyAxes(targetFontSize, targetWdth);
+                            applyPadding(targetPadTop, targetPadBottom);
                             window._sgtCurrentFontSize = targetFontSize;
                             window._sgtCurrentWdth = targetWdth;
                         } else {
                             applyAxes(startFontSize, startWdth);
+                            applyPadding(startPadTop, startPadBottom);
                             var animStart = performance.now();
-                            var duration = 280;
                             var tick = function(now) {
                                 var t = Math.min(1, (now - animStart) / duration);
                                 var eased = 1 - Math.pow(1 - t, 3);
                                 var curFs = startFontSize + (targetFontSize - startFontSize) * eased;
                                 var curW = startWdth + (targetWdth - startWdth) * eased;
+                                var curPT = startPadTop + (targetPadTop - startPadTop) * eased;
+                                var curPB = startPadBottom + (targetPadBottom - startPadBottom) * eased;
                                 applyAxes(curFs, curW);
+                                applyPadding(curPT, curPB);
                                 window._sgtCurrentFontSize = curFs;
                                 window._sgtCurrentWdth = curW;
                                 if (t < 1) {
