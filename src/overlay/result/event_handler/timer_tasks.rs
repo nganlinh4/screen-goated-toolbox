@@ -267,8 +267,13 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                     markdown_view::finalize_stream_markdown_content(hwnd, &md_text);
                     // Initialize Grid.js on any tables
                     markdown_view::init_gridjs(hwnd);
-                    // Ensure WebView bounds are set (forces layout recalculation)
-                    markdown_view::resize_markdown_webview(hwnd, false);
+                    // Ensure WebView bounds are set (forces layout recalculation).
+                    // Use the ACTUAL hover state so the settle-fit measures against
+                    // the window size the user currently sees — otherwise a user
+                    // already hovering the overlay when streaming ends would have
+                    // to move the mouse out and back in just to get the full-size
+                    // settled font value.
+                    markdown_view::resize_markdown_webview(hwnd, is_hovered);
                     // Fit font to fill any unfilled space
                     markdown_view::fit_font_to_window(hwnd);
                     // Now reset for next session
@@ -293,8 +298,10 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                     // Regular markdown mode (not streaming) - full render
                     markdown_view::reset_stream_counter(hwnd);
                     markdown_view::create_markdown_webview(hwnd, &md_text, is_hovered);
-                    // Ensure WebView bounds are set (forces layout recalculation)
-                    markdown_view::resize_markdown_webview(hwnd, false);
+                    // Ensure WebView bounds are set (forces layout recalculation).
+                    // Use the actual hover state so the settle-fit measures
+                    // against the size the user currently sees.
+                    markdown_view::resize_markdown_webview(hwnd, is_hovered);
                     // Fit font to fill any unfilled space
                     markdown_view::fit_font_to_window(hwnd);
                     // Register with button canvas
