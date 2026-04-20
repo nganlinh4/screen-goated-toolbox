@@ -260,6 +260,7 @@ fn model_option_label(model: &crate::model_config::ModelConfig, ui_language: &st
         "ollama" => "🏠 ",
         "qrserver" => "🔳 ",
         "parakeet" => "🐦 ",
+        "qwen3" => "● ",
         "taalas" => "🚀 ",
         _ => "⚙️ ",
     };

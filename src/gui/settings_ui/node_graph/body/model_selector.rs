@@ -93,6 +93,7 @@ pub fn show_model_and_settings(
                         "ollama" => "🏠 ",
                         "qrserver" => "🔳 ",
                         "parakeet" => "🐦 ",
+                        "qwen3" => "● ",
                         "taalas" => "🚀 ",
                         _ => "⚙️ ",
                     };
