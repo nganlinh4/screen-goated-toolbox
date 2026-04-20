@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { VideoSegment, BackgroundConfig } from '@/types/video';
 import { useSettings } from '@/hooks/useSettings';
+import type { SubtitleMethod } from '@/hooks/useSubtitleGeneration';
+import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
 import { ZoomPanel } from './ZoomPanel';
 import { CameraPanel } from './CameraPanel';
 import { BackgroundPanel } from './BackgroundPanel';
@@ -112,8 +114,14 @@ interface SidePanelProps {
   isBackgroundUploadProcessing: boolean;
   editingTextId: string | null;
   selectedSubtitleIds?: string[];
+  selectedSubtitleRange?: TrackSelectionRange | null;
   subtitleSource: 'video' | 'mic';
   onSubtitleSourceChange: (value: 'video' | 'mic') => void;
+  subtitleMethod: SubtitleMethod;
+  onSubtitleMethodChange: (value: SubtitleMethod) => void;
+  subtitleMethodCapabilities: Array<{ method: SubtitleMethod; available: boolean; reason?: string | null }>;
+  canUseSelectedSubtitleMethod: boolean;
+  selectedSubtitleMethodReason?: string | null;
   subtitleLanguageHint: string;
   onSubtitleLanguageHintChange: (value: string) => void;
   isGeneratingSubtitles: boolean;
@@ -149,8 +157,14 @@ export function SidePanel({
   isBackgroundUploadProcessing,
   editingTextId,
   selectedSubtitleIds,
+  selectedSubtitleRange,
   subtitleSource,
   onSubtitleSourceChange,
+  subtitleMethod,
+  onSubtitleMethodChange,
+  subtitleMethodCapabilities,
+  canUseSelectedSubtitleMethod,
+  selectedSubtitleMethodReason,
   subtitleLanguageHint,
   onSubtitleLanguageHintChange,
   isGeneratingSubtitles,
@@ -254,8 +268,14 @@ export function SidePanel({
         <SubtitlePanel
           segment={segment}
           selectedSubtitleIds={selectedSubtitleIds}
+          selectedSubtitleRange={selectedSubtitleRange}
           selectedSource={subtitleSource}
           onSourceChange={onSubtitleSourceChange}
+          selectedMethod={subtitleMethod}
+          onMethodChange={onSubtitleMethodChange}
+          methodCapabilities={subtitleMethodCapabilities}
+          canUseSelectedMethod={canUseSelectedSubtitleMethod}
+          selectedMethodReason={selectedSubtitleMethodReason}
           languageHint={subtitleLanguageHint}
           onLanguageHintChange={onSubtitleLanguageHintChange}
           isGenerating={isGeneratingSubtitles}

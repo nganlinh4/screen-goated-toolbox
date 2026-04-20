@@ -80,7 +80,9 @@ impl TextDecoder {
         } else {
             hidden.to_dtype(self.lm_head_weight_t.kind())
         };
-        hidden.matmul(&self.lm_head_weight_t).to_dtype(DType::Float32)
+        hidden
+            .matmul(&self.lm_head_weight_t)
+            .to_dtype(DType::Float32)
     }
 
     pub fn prefill(

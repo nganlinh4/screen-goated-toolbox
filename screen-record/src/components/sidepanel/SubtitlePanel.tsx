@@ -1,17 +1,27 @@
+import type { SubtitleMethod } from '@/hooks/useSubtitleGeneration';
 import { AlignCenter } from 'lucide-react';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { SettingRow } from '@/components/layout/SettingRow';
 import { ColorPicker } from '@/components/ui/ColorPicker';
+import { PanelSelect } from '@/components/ui/PanelSelect';
 import { Slider } from '@/components/ui/Slider';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useSettings } from '@/hooks/useSettings';
+import { SUBTITLE_LANGUAGE_OPTIONS } from '@/lib/subtitleLanguageOptions';
+import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
 import { VideoSegment } from '@/types/video';
 
 export interface SubtitlePanelProps {
   segment: VideoSegment | null;
   selectedSubtitleIds?: string[];
+  selectedSubtitleRange?: TrackSelectionRange | null;
   selectedSource: 'video' | 'mic';
   onSourceChange: (value: 'video' | 'mic') => void;
+  selectedMethod: SubtitleMethod;
+  onMethodChange: (value: SubtitleMethod) => void;
+  methodCapabilities: Array<{ method: SubtitleMethod; available: boolean; reason?: string | null }>;
+  canUseSelectedMethod: boolean;
+  selectedMethodReason?: string | null;
   languageHint: string;
   onLanguageHintChange: (value: string) => void;
   isGenerating: boolean;
@@ -28,8 +38,14 @@ export interface SubtitlePanelProps {
 export function SubtitlePanel({
   segment,
   selectedSubtitleIds,
+  selectedSubtitleRange,
   selectedSource,
   onSourceChange,
+  selectedMethod,
+  onMethodChange,
+  methodCapabilities,
+  canUseSelectedMethod,
+  selectedMethodReason,
   languageHint,
   onLanguageHintChange,
   isGenerating,
@@ -54,6 +70,25 @@ export function SubtitlePanel({
     : (segment?.subtitleSegments ?? []);
   const hasSubtitleSource = canUseVideoSource || canUseMicSource;
   const hasSubtitles = (segment?.subtitleSegments?.length ?? 0) > 0;
+  const subtitleActionDisabled = isGenerating || !hasSubtitleSource || !canUseSelectedMethod;
+  const generateLabel = selectedSubtitleRange
+    ? t.subtitleGenerateForRange
+    : hasSubtitles
+      ? t.subtitleRegenerate
+      : t.subtitleGenerate;
+  const isMultiSelect = (selectedSubtitleIds?.length ?? 0) >= 2;
+
+  const getMethodLabel = (method: SubtitleMethod) => {
+    switch (method) {
+      case 'qwen-local-1-7b':
+        return t.subtitleMethodQwenLocal1_7B;
+      case 'qwen-local-0-6b':
+        return t.subtitleMethodQwenLocal0_6B;
+      case 'groq-whisper-accurate':
+      default:
+        return t.subtitleMethodGroqWhisperAccurate;
+    }
+  };
 
   const updateSelectedSubtitles = (updater: (subtitle: NonNullable<typeof sourceSubtitle>) => NonNullable<typeof sourceSubtitle>) => {
     if (!segment || !sourceSubtitle) return;
@@ -66,6 +101,32 @@ export function SubtitlePanel({
     });
   };
 
+  const updateSubtitleText = (text: string) => {
+    updateSelectedSubtitles((subtitle) => ({
+      ...subtitle,
+      text,
+    }));
+  };
+
+  const subtitleSourceOptions = [
+    {
+      value: 'video',
+      label: t.subtitleSourceVideo,
+      disabled: !canUseVideoSource,
+    },
+    {
+      value: 'mic',
+      label: t.subtitleSourceMic,
+      disabled: !canUseMicSource,
+    },
+  ];
+
+  const subtitleMethodOptions = methodCapabilities.map((method) => ({
+    value: method.method,
+    label: getMethodLabel(method.method),
+    disabled: !method.available,
+  }));
+
   return (
     <PanelCard className="subtitle-panel">
       <div className="space-y-3.5">
@@ -75,36 +136,52 @@ export function SubtitlePanel({
           <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
             {t.subtitleSource}
           </span>
-          <select
+          <PanelSelect
             value={selectedSource}
-            onChange={(e) => onSourceChange(e.target.value as 'video' | 'mic')}
-            className="ui-input h-9 flex-1 rounded-xl px-3 text-sm"
-          >
-            <option value="video" disabled={!canUseVideoSource}>{t.subtitleSourceVideo}</option>
-            <option value="mic" disabled={!canUseMicSource}>{t.subtitleSourceMic}</option>
-          </select>
+            options={subtitleSourceOptions}
+            onChange={(value) => onSourceChange(value as 'video' | 'mic')}
+            triggerClassName="subtitle-source-select flex-1"
+            contentClassName="subtitle-source-menu"
+          />
+        </div>
+
+        <div className="subtitle-method-row flex items-center gap-2">
+          <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+            {t.subtitleMethod}
+          </span>
+          <PanelSelect
+            value={selectedMethod}
+            options={subtitleMethodOptions}
+            onChange={(value) => onMethodChange(value as SubtitleMethod)}
+            triggerClassName="subtitle-method-select flex-1"
+            contentClassName="subtitle-method-menu"
+          />
         </div>
 
         <div className="subtitle-language-row flex items-center gap-2">
           <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
             {t.subtitleLanguageHint}
           </span>
-          <input
+          <PanelSelect
             value={languageHint}
-            onChange={(e) => onLanguageHintChange(e.target.value)}
-            placeholder="auto"
-            className="ui-input h-9 flex-1 rounded-xl px-3 text-sm"
+            options={SUBTITLE_LANGUAGE_OPTIONS}
+            onChange={onLanguageHintChange}
+            searchable
+            searchPlaceholder={t.subtitleLanguageSearchPlaceholder}
+            emptyStateLabel={t.subtitleLanguageSearchEmpty}
+            triggerClassName="subtitle-language-select flex-1"
+            contentClassName="subtitle-language-menu min-w-[max(300px,var(--radix-popover-trigger-width))]"
           />
         </div>
 
         <div className="subtitle-actions flex gap-2">
           <button
             type="button"
-            disabled={isGenerating || !hasSubtitleSource}
+            disabled={subtitleActionDisabled}
             onClick={onGenerate}
             className="ui-button flex-1 rounded-xl px-3 py-2 text-sm font-medium disabled:opacity-50"
           >
-            {hasSubtitles ? t.subtitleRegenerate : t.subtitleGenerate}
+            {generateLabel}
           </button>
           <button
             type="button"
@@ -117,16 +194,38 @@ export function SubtitlePanel({
         </div>
 
         <p className="text-[11px] text-on-surface-variant">
-          {statusMessage ?? (hasSubtitleSource ? t.subtitleIdleHint : t.subtitleUnavailableSource)}
+          {selectedMethodReason ?? statusMessage ?? (hasSubtitleSource ? t.subtitleIdleHint : t.subtitleUnavailableSource)}
         </p>
 
         {sourceSubtitle && editableSubtitles.length > 0 ? (
           <div className="subtitle-style-controls space-y-3.5">
-            <div className="subtitle-preview-badge inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-medium"
-              style={{ background: 'color-mix(in srgb, var(--timeline-zoom-color) 15%, transparent)', color: 'var(--timeline-zoom-color)' }}>
-              <AlignCenter className="w-3 h-3" />
-              {selection ? `${editableSubtitles.length} ${t.trackSubtitles}` : t.trackSubtitles}
+            <div className="subtitle-badge-row flex items-center gap-2">
+              <div
+                className="subtitle-preview-badge inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-medium"
+                style={{ background: 'color-mix(in srgb, var(--timeline-zoom-color) 15%, transparent)', color: 'var(--timeline-zoom-color)' }}
+              >
+                <AlignCenter className="h-3 w-3" />
+                {selection ? `${editableSubtitles.length} ${t.trackSubtitles}` : t.trackSubtitles}
+              </div>
+
+              {isMultiSelect ? (
+                <div
+                  className="subtitle-multi-select-badge rounded-md px-2 py-1 text-[10px] font-medium"
+                  style={{ background: 'color-mix(in srgb, var(--timeline-zoom-color) 15%, transparent)', color: 'var(--timeline-zoom-color)' }}
+                >
+                  {selectedSubtitleIds!.length} {t.textMultiSelectLabel}
+                </div>
+              ) : null}
             </div>
+
+            <textarea
+              value={sourceSubtitle.text}
+              onFocus={beginBatch}
+              onBlur={commitBatch}
+              onChange={(e) => updateSubtitleText(e.target.value)}
+              className="subtitle-editor-input ui-input w-full rounded-xl px-3 py-2 text-on-surface text-sm thin-scrollbar subtle-resize"
+              rows={2}
+            />
 
             <SettingRow label={t.fontSize} valueDisplay={`${sourceSubtitle.style.fontSize}`}>
               <Slider

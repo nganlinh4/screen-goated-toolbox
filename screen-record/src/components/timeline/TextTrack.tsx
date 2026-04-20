@@ -5,6 +5,7 @@ import {
   getHandlePriorityThresholdTime,
   isTimeNearRangeBoundary,
 } from "./trackHoverUtils";
+import { buildTextSplitPreview } from '@/lib/textSplitPreview';
 import { useTrackRangeSelect } from './useTrackRangeSelect';
 
 function buildFontVariationCSS(vars?: TextSegment['style']['fontVariations']): string | undefined {
@@ -41,7 +42,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
   clearSignal,
 }) => {
   const [hoverState, setHoverState] = useState<
-    | { type: 'split'; x: number; time: number; seg: TextSegment }
+    | { type: 'split'; x: number; time: number; seg: TextSegment; preview: { leftText: string; rightText: string } | null }
     | { type: 'add'; x: number }
     | null
   >(null);
@@ -52,8 +53,16 @@ export const TextTrack: React.FC<TextTrackProps> = ({
   const {
     selectedIds, rangeSelect, trackRef, isDraggingRange,
     onSegmentPointerDown,
+    addSegmentSelection,
     handleTrackPointerDown, handleTrackPointerMove, handleTrackPointerUp,
-  } = useTrackRangeSelect(texts, duration, onSelectionChange, onDeleteTextSegments, clearSignal);
+  } = useTrackRangeSelect(
+    texts,
+    duration,
+    onSelectionChange,
+    undefined,
+    onDeleteTextSegments,
+    clearSignal,
+  );
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isDraggingRange.current) return;
@@ -64,8 +73,24 @@ export const TextTrack: React.FC<TextTrackProps> = ({
 
     const containing = texts.find(seg => time >= seg.startTime && time <= seg.endTime);
     if (containing) {
-      const canSplit = onTextSplit && time > containing.startTime + 0.15 && time < containing.endTime - 0.15;
-      setHoverState(canSplit ? { type: 'split', x, time, seg: containing } : null);
+      const preview = buildTextSplitPreview({
+        text: containing.text,
+        startTime: containing.startTime,
+        endTime: containing.endTime,
+        splitTime: time,
+      });
+      const canSplit = onTextSplit && preview && time > containing.startTime + 0.15 && time < containing.endTime - 0.15;
+      setHoverState(
+        canSplit
+          ? {
+              type: 'split',
+              x,
+              time,
+              seg: containing,
+              preview,
+            }
+          : null,
+      );
       return;
     }
     if (isTimeNearRangeBoundary(time, texts, thresholdTime)) {
@@ -92,6 +117,8 @@ export const TextTrack: React.FC<TextTrackProps> = ({
         <div
           key={text.id}
           onPointerDown={(e) => {
+            if (e.shiftKey || e.ctrlKey) return;
+            addSegmentSelection(text.id);
             e.stopPropagation();
             onSegmentPointerDown();
             const rect = e.currentTarget.parentElement!.getBoundingClientRect();
@@ -99,7 +126,13 @@ export const TextTrack: React.FC<TextTrackProps> = ({
             const clickTime = (clickX / rect.width) * safeDuration;
             onHandleDragStart(text.id, 'body', clickTime - text.startTime);
           }}
-          onClick={(e) => { e.stopPropagation(); onTextClick(text.id); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (e.shiftKey) {
+              addSegmentSelection(text.id, { shiftKey: true });
+            }
+            onTextClick(text.id);
+          }}
           className="text-segment timeline-block absolute h-full cursor-move group"
           data-tone="accent"
           data-active={editingTextId === text.id ? "true" : "false"}
@@ -136,11 +169,20 @@ export const TextTrack: React.FC<TextTrackProps> = ({
       )}
 
       {hoverState && hoverState.type === 'split' && !isDraggingRange.current && (
-        <button className="text-split-btn timeline-arch-button absolute bottom-0 z-10 pointer-events-auto flex items-center justify-center"
-          data-tone="accent" style={{ left: hoverState.x - 8 }}
-          onPointerDown={(e) => { e.stopPropagation(); onTextSplit?.(hoverState.seg.id, hoverState.time); setHoverState(null); }}>
-          <Scissors className="w-2 h-2" />
-        </button>
+        <div className="text-split-control absolute bottom-0 z-10 pointer-events-auto" style={{ left: hoverState.x - 8 }}>
+          <div className="text-split-hover group/text-split relative">
+            <div className="text-split-preview-chip timeline-chip absolute left-1/2 z-30 -translate-x-1/2 bottom-[calc(100%+6px)] px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap pointer-events-none opacity-0 translate-y-1 transition-all duration-150 group-hover/text-split:opacity-100 group-hover/text-split:translate-y-0" data-tone="accent">
+              <span>{hoverState.preview?.leftText ?? hoverState.seg.text}</span>
+              <span className="mx-1 opacity-80">|</span>
+              <span>{hoverState.preview?.rightText ?? hoverState.seg.text}</span>
+            </div>
+            <button className="text-split-btn timeline-arch-button flex items-center justify-center"
+              data-tone="accent"
+              onPointerDown={(e) => { e.stopPropagation(); onTextSplit?.(hoverState.seg.id, hoverState.time); setHoverState(null); }}>
+              <Scissors className="w-2 h-2" />
+            </button>
+          </div>
+        </div>
       )}
       {hoverState && hoverState.type === 'add' && onAddText && !isDraggingRange.current && (
         <button className="text-add-btn timeline-arch-button absolute bottom-0 z-10 pointer-events-auto flex items-center justify-center text-[8px] font-bold"

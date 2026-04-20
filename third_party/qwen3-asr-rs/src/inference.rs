@@ -20,14 +20,15 @@ use crate::weights;
 mod generation;
 #[path = "inference_prefix.rs"]
 mod prefix;
+pub(crate) use generation::PromptPrefixCache;
 use generation::{
     capitalize_first, parse_asr_output, parse_language_prefix, GenerationSession, ParsedGeneration,
     RopeCache,
 };
-pub(crate) use generation::PromptPrefixCache;
 
 const MEL_SAMPLE_RATE: u32 = 16000;
 const DEFAULT_MAX_NEW_TOKENS: usize = 4096;
+pub const DEFAULT_SUBTITLE_MAX_NEW_TOKENS: usize = 256;
 pub(crate) const DEFAULT_STREAMING_MAX_NEW_TOKENS: usize = 32;
 const EXTRA_DECODE_POSITIONS: usize = 512;
 const DEBUG_MAX_NEW_TOKENS_ENV: &str = "SGT_QWEN3_DEBUG_MAX_NEW_TOKENS";
@@ -43,7 +44,10 @@ pub fn kv_cache_mode_name(mode: KvCacheMode) -> &'static str {
 }
 
 pub fn supported_kv_cache_mode_names() -> [&'static str; 2] {
-    [KV_CACHE_MODE_DENSE_APPEND, KV_CACHE_MODE_EXPERIMENTAL_TURBOQUANT]
+    [
+        KV_CACHE_MODE_DENSE_APPEND,
+        KV_CACHE_MODE_EXPERIMENTAL_TURBOQUANT,
+    ]
 }
 
 pub fn kv_cache_mode_from_name(name: &str) -> Option<KvCacheMode> {
@@ -185,6 +189,21 @@ impl AsrInference {
         self.transcribe_audio_embeds(&audio_embeds, language, samples.len())
     }
 
+    pub fn transcribe_samples_with_max_new_tokens(
+        &self,
+        samples: &[f32],
+        language: Option<&str>,
+        max_new_tokens: usize,
+    ) -> Result<TranscribeResult> {
+        let audio_embeds = self.encode_audio_samples(samples)?;
+        self.transcribe_audio_embeds_with_max_new_tokens(
+            &audio_embeds,
+            language,
+            samples.len(),
+            max_new_tokens,
+        )
+    }
+
     /// Transcribe 16-bit mono PCM audio at 16kHz.
     pub fn transcribe_pcm16(
         &self,
@@ -192,7 +211,12 @@ impl AsrInference {
         language: Option<&str>,
     ) -> Result<TranscribeResult> {
         let audio_embeds = self.encode_pcm16_samples(samples)?;
-        self.transcribe_audio_embeds(&audio_embeds, language, samples.len())
+        self.transcribe_audio_embeds_with_max_new_tokens(
+            &audio_embeds,
+            language,
+            samples.len(),
+            DEFAULT_MAX_NEW_TOKENS,
+        )
     }
 
     fn base_prompt_token_ids(&self) -> &[i64] {

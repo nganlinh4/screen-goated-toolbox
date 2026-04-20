@@ -1,6 +1,6 @@
 use super::{
-    AsrInference, GenerationSession, PromptPrefixCache, TranscribeResult,
-    DEFAULT_MAX_NEW_TOKENS, EXTRA_DECODE_POSITIONS, MEL_SAMPLE_RATE,
+    AsrInference, GenerationSession, PromptPrefixCache, TranscribeResult, DEFAULT_MAX_NEW_TOKENS,
+    EXTRA_DECODE_POSITIONS, MEL_SAMPLE_RATE,
 };
 use crate::tensor::Tensor;
 use anyhow::Result;
@@ -12,23 +12,37 @@ impl AsrInference {
         language: Option<&str>,
         sample_count: usize,
     ) -> Result<TranscribeResult> {
+        self.transcribe_audio_embeds_with_max_new_tokens(
+            audio_embeds,
+            language,
+            sample_count,
+            DEFAULT_MAX_NEW_TOKENS,
+        )
+    }
+
+    pub(crate) fn transcribe_audio_embeds_with_max_new_tokens(
+        &self,
+        audio_embeds: &Tensor,
+        language: Option<&str>,
+        sample_count: usize,
+        max_new_tokens: usize,
+    ) -> Result<TranscribeResult> {
         tracing::info!(samples = sample_count, kv_mode = %super::kv_cache_mode_name(self.kv_cache_mode), "starting transcribe_audio_embeds");
         let suffix_ids = self.suffix_prompt_token_ids(language)?;
         let suffix_token_count = suffix_ids.len();
         let base_prefix = self.create_prompt_prefix_cache_with_suffix_len(suffix_token_count)?;
         tracing::info!(samples = sample_count, kv_mode = %super::kv_cache_mode_name(self.kv_cache_mode), "base prefix ready");
-        let audio_prefix =
-            self.extend_owned_prefix_cache_with_audio_with_suffix_len(
-                base_prefix,
-                audio_embeds,
-                suffix_token_count,
-            )?;
+        let audio_prefix = self.extend_owned_prefix_cache_with_audio_with_suffix_len(
+            base_prefix,
+            audio_embeds,
+            suffix_token_count,
+        )?;
         tracing::info!(samples = sample_count, kv_mode = %super::kv_cache_mode_name(self.kv_cache_mode), "audio prefix ready");
         self.transcribe_from_owned_audio_prefix_cache(
             audio_prefix,
             language,
             sample_count,
-            DEFAULT_MAX_NEW_TOKENS,
+            max_new_tokens,
             suffix_ids,
         )
     }

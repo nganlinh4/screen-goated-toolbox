@@ -84,7 +84,13 @@ pub fn matmul(a: &MlxArray, b: &MlxArray) -> MlxArray {
 pub fn reshape(a: &MlxArray, shape: &[i32]) -> MlxArray {
     let mut res = MlxArray::empty();
     unsafe {
-        ffi::mlx_reshape(&mut res.ptr, a.ptr, shape.as_ptr(), shape.len(), default_stream());
+        ffi::mlx_reshape(
+            &mut res.ptr,
+            a.ptr,
+            shape.as_ptr(),
+            shape.len(),
+            default_stream(),
+        );
     }
     res
 }
@@ -93,7 +99,11 @@ pub fn transpose(a: &MlxArray, axes: &[i32]) -> MlxArray {
     let mut res = MlxArray::empty();
     unsafe {
         ffi::mlx_transpose_axes(
-            &mut res.ptr, a.ptr, axes.as_ptr(), axes.len(), default_stream(),
+            &mut res.ptr,
+            a.ptr,
+            axes.as_ptr(),
+            axes.len(),
+            default_stream(),
         );
     }
     res
@@ -119,7 +129,11 @@ pub fn squeeze(a: &MlxArray, axes: &[i32]) -> MlxArray {
     let mut res = MlxArray::empty();
     unsafe {
         ffi::mlx_squeeze_axes(
-            &mut res.ptr, a.ptr, axes.as_ptr(), axes.len(), default_stream(),
+            &mut res.ptr,
+            a.ptr,
+            axes.as_ptr(),
+            axes.len(),
+            default_stream(),
         );
     }
     res
@@ -131,9 +145,12 @@ pub fn slice(a: &MlxArray, start: &[i32], stop: &[i32], strides: &[i32]) -> MlxA
         ffi::mlx_slice(
             &mut res.ptr,
             a.ptr,
-            start.as_ptr(), start.len(),
-            stop.as_ptr(), stop.len(),
-            strides.as_ptr(), strides.len(),
+            start.as_ptr(),
+            start.len(),
+            stop.as_ptr(),
+            stop.len(),
+            strides.as_ptr(),
+            strides.len(),
             default_stream(),
         );
     }
@@ -144,7 +161,11 @@ pub fn broadcast_to(a: &MlxArray, shape: &[i32]) -> MlxArray {
     let mut res = MlxArray::empty();
     unsafe {
         ffi::mlx_broadcast_to(
-            &mut res.ptr, a.ptr, shape.as_ptr(), shape.len(), default_stream(),
+            &mut res.ptr,
+            a.ptr,
+            shape.as_ptr(),
+            shape.len(),
+            default_stream(),
         );
     }
     res
@@ -208,7 +229,12 @@ pub fn sum(a: &MlxArray, axes: &[i32], keepdims: bool) -> MlxArray {
     let mut res = MlxArray::empty();
     unsafe {
         ffi::mlx_sum_axes(
-            &mut res.ptr, a.ptr, axes.as_ptr(), axes.len(), keepdims, default_stream(),
+            &mut res.ptr,
+            a.ptr,
+            axes.as_ptr(),
+            axes.len(),
+            keepdims,
+            default_stream(),
         );
     }
     res
@@ -218,7 +244,12 @@ pub fn mean(a: &MlxArray, axes: &[i32], keepdims: bool) -> MlxArray {
     let mut res = MlxArray::empty();
     unsafe {
         ffi::mlx_mean_axes(
-            &mut res.ptr, a.ptr, axes.as_ptr(), axes.len(), keepdims, default_stream(),
+            &mut res.ptr,
+            a.ptr,
+            axes.as_ptr(),
+            axes.len(),
+            keepdims,
+            default_stream(),
         );
     }
     res
@@ -228,7 +259,13 @@ pub fn var(a: &MlxArray, axes: &[i32], keepdims: bool, ddof: i32) -> MlxArray {
     let mut res = MlxArray::empty();
     unsafe {
         ffi::mlx_var_axes(
-            &mut res.ptr, a.ptr, axes.as_ptr(), axes.len(), keepdims, ddof, default_stream(),
+            &mut res.ptr,
+            a.ptr,
+            axes.as_ptr(),
+            axes.len(),
+            keepdims,
+            ddof,
+            default_stream(),
         );
     }
     res
@@ -318,7 +355,12 @@ pub fn softmax(a: &MlxArray, axes: &[i32]) -> MlxArray {
     let mut res = MlxArray::empty();
     unsafe {
         ffi::mlx_softmax_axes(
-            &mut res.ptr, a.ptr, axes.as_ptr(), axes.len(), true, default_stream(),
+            &mut res.ptr,
+            a.ptr,
+            axes.as_ptr(),
+            axes.len(),
+            true,
+            default_stream(),
         );
     }
     res
@@ -407,8 +449,14 @@ pub fn conv1d(
     let mut res = MlxArray::empty();
     unsafe {
         ffi::mlx_conv1d(
-            &mut res.ptr, input.ptr, weight.ptr,
-            stride, padding, dilation, groups, default_stream(),
+            &mut res.ptr,
+            input.ptr,
+            weight.ptr,
+            stride,
+            padding,
+            dilation,
+            groups,
+            default_stream(),
         );
     }
     res
@@ -425,11 +473,17 @@ pub fn conv2d(
     let mut res = MlxArray::empty();
     unsafe {
         ffi::mlx_conv2d(
-            &mut res.ptr, input.ptr, weight.ptr,
-            stride[0], stride[1],
-            padding[0], padding[1],
-            dilation[0], dilation[1],
-            groups, default_stream(),
+            &mut res.ptr,
+            input.ptr,
+            weight.ptr,
+            stride[0],
+            stride[1],
+            padding[0],
+            padding[1],
+            dilation[0],
+            dilation[1],
+            groups,
+            default_stream(),
         );
     }
     res
@@ -450,11 +504,17 @@ pub fn pad(
     let mode = b"constant\0".as_ptr() as *const std::os::raw::c_char;
     unsafe {
         ffi::mlx_pad(
-            &mut res.ptr, a.ptr,
-            axes.as_ptr(), axes.len(),
-            low_pad.as_ptr(), low_pad.len(),
-            high_pad.as_ptr(), high_pad.len(),
-            val.ptr, mode, default_stream(),
+            &mut res.ptr,
+            a.ptr,
+            axes.as_ptr(),
+            axes.len(),
+            low_pad.as_ptr(),
+            low_pad.len(),
+            high_pad.as_ptr(),
+            high_pad.len(),
+            val.ptr,
+            mode,
+            default_stream(),
         );
     }
     res
@@ -481,7 +541,14 @@ pub fn fast_layer_norm(
     let mut res = MlxArray::empty();
     let bias_ptr = bias.map_or(std::ptr::null_mut(), |b| b.ptr);
     unsafe {
-        ffi::mlx_fast_layer_norm(&mut res.ptr, x.ptr, weight.ptr, bias_ptr, eps, default_stream());
+        ffi::mlx_fast_layer_norm(
+            &mut res.ptr,
+            x.ptr,
+            weight.ptr,
+            bias_ptr,
+            eps,
+            default_stream(),
+        );
     }
     res
 }

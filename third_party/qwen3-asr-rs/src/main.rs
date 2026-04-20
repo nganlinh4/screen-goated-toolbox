@@ -4,10 +4,10 @@ use std::path::Path;
 use qwen3_asr_rs::cuda_runtime::{
     force_cuda_requested, maybe_reexec_with_cuda_preload, preload_cuda_runtime,
 };
-use qwen3_asr_rs::tensor::Device;
 use qwen3_asr_rs::inference::{
-    AsrInference, KvCacheMode, kv_cache_mode_from_name, kv_cache_mode_name,
+    kv_cache_mode_from_name, kv_cache_mode_name, AsrInference, KvCacheMode,
 };
+use qwen3_asr_rs::tensor::Device;
 
 fn resolve_kv_cache_mode() -> (KvCacheMode, Option<String>) {
     let requested = std::env::var("SGT_QWEN3_RUNTIME_KV_MODE")
@@ -55,7 +55,9 @@ fn main() -> Result<()> {
         eprintln!("  audio_file   Path to the input audio file (any format supported by ffmpeg)");
         eprintln!("  language     Optional: force language (e.g., chinese, english, japanese)");
         eprintln!();
-        eprintln!("The audio file will be automatically converted to mono 16kHz f32 for the model.");
+        eprintln!(
+            "The audio file will be automatically converted to mono 16kHz f32 for the model."
+        );
         eprintln!();
         eprintln!("Environment variables:");
         #[cfg(feature = "tch-backend")]

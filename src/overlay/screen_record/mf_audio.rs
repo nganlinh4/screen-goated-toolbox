@@ -28,6 +28,13 @@ pub struct MfAudioDecoder {
     audio_stream_index: u32,
     sample_rate: u32,
     channels: u32,
+    output_format: AudioOutputFormat,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum AudioOutputFormat {
+    Float32,
+    Pcm16,
 }
 
 /// Audio stream handle for the SinkWriter (shares the writer with video).
@@ -82,42 +89,8 @@ impl MfAudioDecoder {
                 .map_err(|e| format!("Select audio: {e}"))?;
         }
 
-        // Request PCM float output
-        let pcm_type =
-            unsafe { MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))? };
-        unsafe {
-            pcm_type
-                .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio)
-                .map_err(|e| format!("SetGUID MAJOR_TYPE: {e}"))?;
-            pcm_type
-                .SetGUID(&MF_MT_SUBTYPE, &MFAudioFormat_Float)
-                .map_err(|e| format!("SetGUID SUBTYPE: {e}"))?;
-            pcm_type
-                .SetUINT32(&MF_MT_AUDIO_BITS_PER_SAMPLE, 32)
-                .map_err(|e| format!("SetUINT32 BITS: {e}"))?;
-            if let Some(sample_rate) = target_sample_rate {
-                pcm_type
-                    .SetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND, sample_rate)
-                    .map_err(|e| format!("SetUINT32 SAMPLE_RATE: {e}"))?;
-            }
-            if let Some(channels) = target_channels {
-                pcm_type
-                    .SetUINT32(&MF_MT_AUDIO_NUM_CHANNELS, channels)
-                    .map_err(|e| format!("SetUINT32 CHANNELS: {e}"))?;
-                let block_align = channels * 4;
-                pcm_type
-                    .SetUINT32(&MF_MT_AUDIO_BLOCK_ALIGNMENT, block_align)
-                    .map_err(|e| format!("SetUINT32 BLOCK_ALIGN: {e}"))?;
-                if let Some(sample_rate) = target_sample_rate {
-                    pcm_type
-                        .SetUINT32(&MF_MT_AUDIO_AVG_BYTES_PER_SECOND, sample_rate * block_align)
-                        .map_err(|e| format!("SetUINT32 AVG_BYTES: {e}"))?;
-                }
-            }
-            reader
-                .SetCurrentMediaType(audio_idx, None, &pcm_type)
-                .map_err(|e| format!("SetCurrentMediaType Float: {e}"))?;
-        }
+        let output_format =
+            negotiate_output_format(&reader, audio_idx, target_sample_rate, target_channels)?;
 
         // Read back negotiated format
         let current_type = unsafe {
@@ -137,8 +110,8 @@ impl MfAudioDecoder {
         };
 
         println!(
-            "[MfAudioDecoder] Opened: {}Hz, {} channels",
-            sample_rate, channels
+            "[MfAudioDecoder] Opened: {}Hz, {} channels, {:?}",
+            sample_rate, channels, output_format
         );
 
         Ok(Self {
@@ -146,6 +119,7 @@ impl MfAudioDecoder {
             audio_stream_index: audio_idx,
             sample_rate,
             channels,
+            output_format,
         })
     }
 
@@ -200,7 +174,12 @@ impl MfAudioDecoder {
             let _ = buffer.Unlock();
         }
 
-        Ok(Some((data, timestamp)))
+        let normalized = match self.output_format {
+            AudioOutputFormat::Float32 => data,
+            AudioOutputFormat::Pcm16 => pcm16_bytes_to_f32le_bytes(&data),
+        };
+
+        Ok(Some((normalized, timestamp)))
     }
 
     /// Seek to a position in 100ns units.
@@ -221,6 +200,101 @@ impl MfAudioDecoder {
     pub fn channels(&self) -> u32 {
         self.channels
     }
+}
+
+fn negotiate_output_format(
+    reader: &IMFSourceReader,
+    audio_idx: u32,
+    target_sample_rate: Option<u32>,
+    target_channels: Option<u32>,
+) -> Result<AudioOutputFormat, String> {
+    let float_result = try_set_output_type(
+        reader,
+        audio_idx,
+        &MFAudioFormat_Float,
+        32,
+        target_sample_rate,
+        target_channels,
+        "Float",
+    );
+    if float_result.is_ok() {
+        return Ok(AudioOutputFormat::Float32);
+    }
+
+    let pcm16_result = try_set_output_type(
+        reader,
+        audio_idx,
+        &MFAudioFormat_PCM,
+        16,
+        target_sample_rate,
+        target_channels,
+        "PCM16",
+    );
+    if pcm16_result.is_ok() {
+        return Ok(AudioOutputFormat::Pcm16);
+    }
+
+    Err(format!(
+        "{}; {}",
+        float_result.unwrap_err(),
+        pcm16_result.unwrap_err()
+    ))
+}
+
+fn try_set_output_type(
+    reader: &IMFSourceReader,
+    audio_idx: u32,
+    subtype: &windows::core::GUID,
+    bits_per_sample: u32,
+    target_sample_rate: Option<u32>,
+    target_channels: Option<u32>,
+    label: &str,
+) -> Result<(), String> {
+    let pcm_type = unsafe { MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))? };
+    unsafe {
+        pcm_type
+            .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio)
+            .map_err(|e| format!("SetGUID MAJOR_TYPE: {e}"))?;
+        pcm_type
+            .SetGUID(&MF_MT_SUBTYPE, subtype)
+            .map_err(|e| format!("SetGUID SUBTYPE {label}: {e}"))?;
+        pcm_type
+            .SetUINT32(&MF_MT_AUDIO_BITS_PER_SAMPLE, bits_per_sample)
+            .map_err(|e| format!("SetUINT32 BITS {label}: {e}"))?;
+        if let Some(sample_rate) = target_sample_rate {
+            pcm_type
+                .SetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND, sample_rate)
+                .map_err(|e| format!("SetUINT32 SAMPLE_RATE {label}: {e}"))?;
+        }
+        if let Some(channels) = target_channels {
+            pcm_type
+                .SetUINT32(&MF_MT_AUDIO_NUM_CHANNELS, channels)
+                .map_err(|e| format!("SetUINT32 CHANNELS {label}: {e}"))?;
+            let bytes_per_sample = bits_per_sample / 8;
+            let block_align = channels * bytes_per_sample;
+            pcm_type
+                .SetUINT32(&MF_MT_AUDIO_BLOCK_ALIGNMENT, block_align)
+                .map_err(|e| format!("SetUINT32 BLOCK_ALIGN {label}: {e}"))?;
+            if let Some(sample_rate) = target_sample_rate {
+                pcm_type
+                    .SetUINT32(&MF_MT_AUDIO_AVG_BYTES_PER_SECOND, sample_rate * block_align)
+                    .map_err(|e| format!("SetUINT32 AVG_BYTES {label}: {e}"))?;
+            }
+        }
+        reader
+            .SetCurrentMediaType(audio_idx, None, &pcm_type)
+            .map_err(|e| format!("SetCurrentMediaType {label}: {e}"))?;
+    }
+    Ok(())
+}
+
+fn pcm16_bytes_to_f32le_bytes(bytes: &[u8]) -> Vec<u8> {
+    let mut floats = Vec::with_capacity((bytes.len() / 2) * 4);
+    for chunk in bytes.chunks_exact(2) {
+        let sample = i16::from_le_bytes([chunk[0], chunk[1]]) as f32 / i16::MAX as f32;
+        floats.extend_from_slice(&sample.clamp(-1.0, 1.0).to_le_bytes());
+    }
+    floats
 }
 
 impl AudioStream {

@@ -352,13 +352,16 @@ impl TextAttention {
         let x_cast = cast_for_compute(x, compute_dtype);
         let qkv = x_cast.matmul(&self.qkv_weight_t);
 
-        let q = qkv.narrow(-1, 0, self.q_dim)
+        let q = qkv
+            .narrow(-1, 0, self.q_dim)
             .reshape(&[bsz, seq_len, nqh, hd])
             .transpose(1, 2);
-        let k = qkv.narrow(-1, self.q_dim, self.kv_dim)
+        let k = qkv
+            .narrow(-1, self.q_dim, self.kv_dim)
             .reshape(&[bsz, seq_len, nkvh, hd])
             .transpose(1, 2);
-        let v = qkv.narrow(-1, self.q_dim + self.kv_dim, self.kv_dim)
+        let v = qkv
+            .narrow(-1, self.q_dim + self.kv_dim, self.kv_dim)
             .reshape(&[bsz, seq_len, nkvh, hd])
             .transpose(1, 2);
 
@@ -385,7 +388,8 @@ impl TextAttention {
                     .expect("text attention cache must produce attention output after merge")
             }
             None => {
-                let cache = kv_cache.get_or_insert_with(|| KvCacheEntry::from_tokens(k, v, kv_cache_mode));
+                let cache =
+                    kv_cache.get_or_insert_with(|| KvCacheEntry::from_tokens(k, v, kv_cache_mode));
                 cache
                     .attend_with_quantized_prefix(&q, scale, mask)
                     .expect("text attention cache must produce attention output after merge")
@@ -438,8 +442,10 @@ impl TextMlp {
         let x = cast_for_compute(x, compute_dtype);
         let fused = x.matmul(&self.gate_up_weight_t);
         if let Some((ref gb, ref ub)) = self.gate_up_bias {
-            let gate_part = fused.narrow(-1, 0, self.intermediate_size) + cast_for_compute(gb, compute_dtype);
-            let up_part = fused.narrow(-1, self.intermediate_size, self.intermediate_size) + cast_for_compute(ub, compute_dtype);
+            let gate_part =
+                fused.narrow(-1, 0, self.intermediate_size) + cast_for_compute(gb, compute_dtype);
+            let up_part = fused.narrow(-1, self.intermediate_size, self.intermediate_size)
+                + cast_for_compute(ub, compute_dtype);
             return self.down_proj.forward(&(gate_part.silu() * up_part));
         }
         let gate = fused.narrow(-1, 0, self.intermediate_size).silu();

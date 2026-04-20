@@ -29,7 +29,12 @@ import { cloneWebcamConfig } from "@/lib/webcam";
 import {
   normalizeWebcamVisibilitySegments,
 } from "@/lib/webcamVisibility";
-import { getMediaServerUrl, writeBlobToTempMediaFile } from "@/lib/mediaServer";
+import {
+  getMediaServerUrl,
+  importVideoToManagedMediaFile,
+  isManagedImportedVideoPath,
+  writeBlobToTempMediaFile,
+} from "@/lib/mediaServer";
 import {
   normalizeCropRect,
   normalizeTrackDelaySec,
@@ -119,7 +124,21 @@ export function useProjects(props: UseProjectsProps) {
       let rawVideoPath = project.rawVideoPath ?? "";
       if (!rawVideoPath && project.videoBlob && project.videoBlob.size > 0) {
         try {
-          rawVideoPath = await writeBlobToTempMediaFile(project.videoBlob);
+          if (project.recordingMode === "imported") {
+            const restored = await importVideoToManagedMediaFile(
+              project.videoBlob,
+              `${project.name || "imported-video"}.mp4`,
+            );
+            rawVideoPath = restored.path;
+            if (project.segment) {
+              project.segment = {
+                ...project.segment,
+                deviceAudioAvailable: restored.hasAudio,
+              };
+            }
+          } else {
+            rawVideoPath = await writeBlobToTempMediaFile(project.videoBlob);
+          }
           if (rawVideoPath) {
             // Persist so this migration only happens once.
             await projectManager.updateProject(projectId, {
@@ -129,6 +148,34 @@ export function useProjects(props: UseProjectsProps) {
           }
         } catch (e) {
           console.error("[ProjectLoad] Failed to restore rawVideoPath:", e);
+        }
+      }
+      if (
+        rawVideoPath &&
+        project.recordingMode === "imported" &&
+        !isManagedImportedVideoPath(rawVideoPath)
+      ) {
+        try {
+          const response = await fetch(await getMediaServerUrl(rawVideoPath));
+          if (response.ok) {
+            const restored = await importVideoToManagedMediaFile(
+              await response.blob(),
+              `${project.name || "imported-video"}.mp4`,
+            );
+            rawVideoPath = restored.path;
+            if (project.segment) {
+              project.segment = {
+                ...project.segment,
+                deviceAudioAvailable: restored.hasAudio,
+              };
+            }
+            await projectManager.updateProject(projectId, {
+              ...project,
+              rawVideoPath,
+            });
+          }
+        } catch (e) {
+          console.error("[ProjectLoad] Failed to normalize imported rawVideoPath:", e);
         }
       }
       let rawMicAudioPath = project.rawMicAudioPath ?? "";

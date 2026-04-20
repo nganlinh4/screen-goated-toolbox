@@ -1,6 +1,5 @@
-use super::server;
 use anyhow::{Result, anyhow};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -11,12 +10,21 @@ use std::time::{Duration, Instant};
 
 const SERVER_BOOT_TIMEOUT: Duration = Duration::from_secs(90);
 const SERVER_POLL_INTERVAL: Duration = Duration::from_millis(500);
-const SERVER_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const SERVER_HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
+const SERVER_TRANSCRIPTION_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const STDERR_TAIL_LIMIT: usize = 16 * 1024;
+const QWEN3_SERVER_ASSET_NAME: &str = "qwen3-asr-reference-windows-x64.zip";
 
-static QWEN_LOCAL_AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
+static QWEN_LOCAL_HEALTH_AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
     let config = ureq::Agent::config_builder()
-        .timeout_global(Some(SERVER_REQUEST_TIMEOUT))
+        .timeout_global(Some(SERVER_HEALTH_TIMEOUT))
+        .build();
+    config.into()
+});
+
+static QWEN_LOCAL_TRANSCRIPTION_AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(SERVER_TRANSCRIPTION_TIMEOUT))
         .build();
     config.into()
 });
@@ -26,41 +34,20 @@ struct HealthResponse {
     status: String,
 }
 
-#[derive(Deserialize)]
-struct StreamingSessionResponse {
-    session_id: u64,
+#[derive(Clone, Deserialize)]
+pub struct VerboseTranscriptionSegment {
+    pub start: f64,
+    pub end: f64,
+    pub text: String,
 }
 
 #[derive(Deserialize)]
-struct LegacyStreamingTranscriptResponse {
-    text: String,
-}
-
-#[derive(Deserialize)]
-pub struct StreamingTranscriptResponse {
+pub struct VerboseTranscriptionResponse {
     pub language: String,
-    #[serde(default)]
-    pub fixed_text: String,
-    #[serde(default)]
-    pub draft_text: String,
+    pub duration: f64,
     pub text: String,
     #[serde(default)]
-    pub kv_cache_bytes: usize,
-    #[serde(default)]
-    pub kv_cache_dense_bytes: usize,
-}
-
-#[derive(Serialize)]
-struct CreateStreamingSessionRequest {
-    chunk_size_ms: u32,
-    unfixed_chunk_num: usize,
-    unfixed_token_num: usize,
-}
-
-#[derive(Serialize)]
-struct StreamingTranscriptionRequest<'a> {
-    language: Option<&'a str>,
-    finalize: bool,
+    pub segments: Vec<VerboseTranscriptionSegment>,
 }
 
 pub struct QwenReferenceServer {
@@ -106,152 +93,39 @@ impl QwenReferenceServer {
         Ok(server)
     }
 
-    pub fn create_streaming_session(
+    pub fn transcribe_audio_verbose(
         &mut self,
-        chunk_size_ms: u32,
-        unfixed_chunk_num: usize,
-        unfixed_token_num: usize,
-    ) -> Result<u64> {
-        let mut response = QWEN_LOCAL_AGENT
-            .post(&format!("{}/v1/audio/streaming/sessions", self.base_url))
+        audio_data: Vec<u8>,
+        language: Option<&str>,
+    ) -> Result<VerboseTranscriptionResponse> {
+        let mut request = QWEN_LOCAL_TRANSCRIPTION_AGENT
+            .post(&format!("{}/v1/audio/transcriptions/raw", self.base_url))
             .config()
             .http_status_as_error(false)
             .build()
-            .send_json(CreateStreamingSessionRequest {
-                chunk_size_ms,
-                unfixed_chunk_num,
-                unfixed_token_num,
-            })
-            .map_err(|err| {
-                anyhow!(
-                    "Failed to create Qwen3 streaming session: {err}{}",
-                    self.server_status_context()
-                )
-            })?;
-
-        if !response.status().is_success() {
-            return Err(self.http_status_error(
-                "Failed to create Qwen3 streaming session",
-                &mut response,
-            ));
+            .header("Content-Type", "audio/wav")
+            .header("X-Audio-Filename", "subtitle-source.wav")
+            .header("X-Response-Format", "verbose_json");
+        if let Some(language) = language {
+            request = request.header("X-Language", language);
         }
 
-        let payload: StreamingSessionResponse = response
+        let mut response = request.send(&audio_data).map_err(|err| {
+            anyhow!(
+                "Qwen3 subtitle transcription request failed: {err}{}",
+                self.server_status_context()
+            )
+        })?;
+
+        if !response.status().is_success() {
+            return Err(self
+                .http_status_error("Qwen3 subtitle transcription request failed", &mut response));
+        }
+
+        response
             .body_mut()
             .read_json()
-            .map_err(|err| anyhow!("Failed to parse Qwen3 streaming session response: {err}"))?;
-        Ok(payload.session_id)
-    }
-
-    pub fn append_streaming_audio(&mut self, session_id: u64, samples: &[i16]) -> Result<()> {
-        let mut bytes = Vec::with_capacity(samples.len() * 2);
-        for sample in samples {
-            bytes.extend_from_slice(&sample.to_le_bytes());
-        }
-
-        let mut response = QWEN_LOCAL_AGENT
-            .post(&format!(
-                "{}/v1/audio/streaming/sessions/{session_id}/audio",
-                self.base_url
-            ))
-            .config()
-            .http_status_as_error(false)
-            .build()
-            .header("Content-Type", "application/octet-stream")
-            .send(&bytes)
-            .map_err(|err| {
-                anyhow!(
-                    "Failed to append audio to Qwen3 streaming session: {err}{}",
-                    self.server_status_context()
-                )
-            })?;
-
-        if !response.status().is_success() {
-            return Err(self.http_status_error(
-                "Failed to append audio to Qwen3 streaming session",
-                &mut response,
-            ));
-        }
-
-        Ok(())
-    }
-
-    pub fn transcribe_streaming_session(
-        &mut self,
-        session_id: u64,
-        language: Option<&str>,
-        finalize: bool,
-    ) -> Result<StreamingTranscriptResponse> {
-        let mut response = QWEN_LOCAL_AGENT
-            .post(&format!(
-                "{}/v1/audio/streaming/sessions/{session_id}/transcriptions",
-                self.base_url
-            ))
-            .config()
-            .http_status_as_error(false)
-            .build()
-            .send_json(StreamingTranscriptionRequest { language, finalize })
-            .map_err(|err| {
-                anyhow!(
-                    "Qwen3 streaming transcription request failed: {err}{}",
-                    self.server_status_context()
-                )
-            })?;
-
-        if !response.status().is_success() {
-            return Err(self.http_status_error(
-                "Qwen3 streaming transcription request failed",
-                &mut response,
-            ));
-        }
-
-        let body = response
-            .body_mut()
-            .read_to_string()
-            .map_err(|err| anyhow!("Failed to read Qwen3 streaming response body: {err}"))?;
-
-        match serde_json::from_str::<StreamingTranscriptResponse>(&body) {
-            Ok(parsed) => Ok(parsed),
-            Err(streaming_error) => match serde_json::from_str::<LegacyStreamingTranscriptResponse>(&body) {
-                Ok(legacy) => Ok(StreamingTranscriptResponse {
-                    language: String::new(),
-                    fixed_text: String::new(),
-                    draft_text: legacy.text.clone(),
-                    text: legacy.text,
-                }),
-                Err(_) => Err(anyhow!(
-                    "Failed to parse Qwen3 streaming response: {streaming_error}\n\nRaw response:\n{}",
-                    body.trim()
-                )),
-            },
-        }
-    }
-
-    pub fn reset_streaming_session(&mut self, session_id: u64) -> Result<()> {
-        let mut response = QWEN_LOCAL_AGENT
-            .post(&format!(
-                "{}/v1/audio/streaming/sessions/{session_id}/reset",
-                self.base_url
-            ))
-            .config()
-            .http_status_as_error(false)
-            .build()
-            .send_empty()
-            .map_err(|err| {
-                anyhow!(
-                    "Failed to reset Qwen3 streaming session: {err}{}",
-                    self.server_status_context()
-                )
-            })?;
-
-        if !response.status().is_success() {
-            return Err(self.http_status_error(
-                "Failed to reset Qwen3 streaming session",
-                &mut response,
-            ));
-        }
-
-        Ok(())
+            .map_err(|err| anyhow!("Failed to parse Qwen3 subtitle response: {err}"))
     }
 
     fn wait_until_ready(&mut self) -> Result<()> {
@@ -272,7 +146,7 @@ impl QwenReferenceServer {
                 ));
             }
 
-            match QWEN_LOCAL_AGENT
+            match QWEN_LOCAL_HEALTH_AGENT
                 .get(&format!("{}/health", self.base_url))
                 .call()
                 .and_then(|response| response.into_body().read_json::<HealthResponse>())
@@ -343,14 +217,14 @@ fn spawn_stderr_drain(child: &mut Child) -> Arc<Mutex<String>> {
     if let Some(stderr) = child.stderr.take() {
         let tail_clone = tail.clone();
         std::thread::spawn(move || {
-        let reader = BufReader::new(stderr);
-        for line in reader.lines().map_while(Result::ok) {
-            if line.starts_with("[QwenBackend]") || line.starts_with("[QwenAB]") {
-                eprintln!("{line}");
+            let reader = BufReader::new(stderr);
+            for line in reader.lines().map_while(Result::ok) {
+                if line.starts_with("[QwenBackend]") || line.starts_with("[QwenAB]") {
+                    eprintln!("{line}");
+                }
+                append_stderr_tail(&tail_clone, &line);
             }
-            append_stderr_tail(&tail_clone, &line);
-        }
-    });
+        });
     }
     tail
 }
@@ -403,8 +277,8 @@ fn discover_server_path() -> Result<PathBuf> {
         candidates.push(PathBuf::from(path));
     }
 
-    candidates.extend(server::local_sidecar_candidate_paths());
-    candidates.push(server::get_qwen3_server_path());
+    candidates.extend(local_sidecar_candidate_paths());
+    candidates.push(get_qwen3_server_path());
 
     if let Ok(exe_path) = std::env::current_exe()
         && let Some(exe_dir) = exe_path.parent()
@@ -424,8 +298,8 @@ fn discover_server_path() -> Result<PathBuf> {
 }
 
 fn server_runtime_path(server_path: &Path) -> Option<PathBuf> {
-    let managed_runtime = server::get_qwen3_server_runtime_dir();
-    if server_path == server::get_qwen3_server_path() && managed_runtime.exists() {
+    let managed_runtime = get_qwen3_server_runtime_dir();
+    if server_path == get_qwen3_server_path() && managed_runtime.exists() {
         return Some(managed_runtime);
     }
 
@@ -436,11 +310,11 @@ fn server_runtime_path(server_path: &Path) -> Option<PathBuf> {
         return Some(path);
     }
 
-    if server::local_sidecar_candidate_paths()
+    if local_sidecar_candidate_paths()
         .iter()
         .any(|candidate| candidate == server_path)
     {
-        return server::get_local_qwen3_cached_runtime_dir();
+        return get_local_qwen3_cached_runtime_dir();
     }
 
     None
@@ -455,4 +329,97 @@ fn prepend_env_path(command: &mut Command, runtime_dir: &Path) {
         combined.push(existing);
     }
     command.env("PATH", combined);
+}
+
+fn get_qwen3_server_dir() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("screen-goated-toolbox")
+        .join("bin")
+        .join("qwen3_asr_reference")
+}
+
+fn get_qwen3_server_path() -> PathBuf {
+    get_qwen3_server_dir().join("asr-server.exe")
+}
+
+fn get_qwen3_server_runtime_dir() -> PathBuf {
+    get_qwen3_server_dir().join("libtorch").join("lib")
+}
+
+fn cache_runtime_root(cache_dir: &Path, name: &str) -> Option<PathBuf> {
+    let variant_dir = cache_dir.join(format!("libtorch-{name}"));
+    let nested_root = variant_dir.join("libtorch");
+    if nested_root.join("lib").exists() {
+        return Some(nested_root);
+    }
+    if variant_dir.join("lib").exists() {
+        return Some(variant_dir);
+    }
+    None
+}
+
+fn get_local_qwen3_cached_runtime_dir() -> Option<PathBuf> {
+    let repo_root = repo_root().ok()?;
+    let cache_dir = repo_root.join("tools").join("qwen3-reference-cache");
+    let variant = std::fs::read_to_string(cache_dir.join("runtime-variant.txt"))
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let candidates = variant
+        .into_iter()
+        .filter_map(|name| cache_runtime_root(&cache_dir, &name).map(|root| root.join("lib")))
+        .chain(std::iter::once(cache_dir.join("libtorch").join("lib")));
+    candidates.into_iter().find(|path| path.exists())
+}
+
+fn local_sidecar_candidate_paths() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Ok(repo_root) = repo_root() {
+        candidates.push(
+            repo_root
+                .join("third_party")
+                .join("qwen3-asr-rs")
+                .join("target")
+                .join("release")
+                .join("asr-server.exe"),
+        );
+        candidates.push(
+            repo_root
+                .join("dist")
+                .join(QWEN3_SERVER_ASSET_NAME.trim_end_matches(".zip"))
+                .join("asr-server.exe"),
+        );
+    }
+
+    candidates
+}
+
+fn repo_root() -> Result<PathBuf> {
+    let mut seeds = Vec::new();
+    if let Ok(dir) = std::env::current_dir() {
+        seeds.push(dir);
+    }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        seeds.push(parent.to_path_buf());
+    }
+
+    for seed in seeds {
+        let mut dir = seed;
+        loop {
+            if dir.join("Cargo.toml").exists() && dir.join(".claude").exists() {
+                return Ok(dir);
+            }
+            if !dir.pop() {
+                break;
+            }
+        }
+    }
+
+    Err(anyhow!(
+        "Could not locate Screen Goated Toolbox repository root"
+    ))
 }

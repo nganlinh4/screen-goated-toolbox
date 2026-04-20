@@ -50,7 +50,14 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
     selectedIds, rangeSelect, trackRef, isDraggingRange,
     onSegmentPointerDown,
     handleTrackPointerDown, handleTrackPointerMove, handleTrackPointerUp,
-  } = useTrackRangeSelect(segments, duration, onSelectionChange, onDeleteWebcamSegments, clearSignal);
+  } = useTrackRangeSelect(
+    segments,
+    duration,
+    onSelectionChange,
+    undefined,
+    onDeleteWebcamSegments,
+    clearSignal,
+  );
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isAvailable || isDraggingRange.current) {

@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { projectManager } from "@/lib/projectManager";
-import { writeBlobToTempMediaFile, getMediaServerUrl } from "@/lib/mediaServer";
+import { importVideoToManagedMediaFile, getMediaServerUrl } from "@/lib/mediaServer";
 import { buildFlatDeviceAudioPoints } from "@/lib/deviceAudio";
 import { DEFAULT_BACKGROUND_CONFIG } from "@/lib/appUtils";
 import type { VideoSegment, Project } from "@/types/video";
@@ -23,8 +23,11 @@ export function useVideoImport(opts: {
     isImportingRef.current = true;
     setIsImporting(true);
     try {
-      // 1. Write file to disk via media server
-      const rawVideoPath = await writeBlobToTempMediaFile(file);
+      // 1. Normalize to the app-managed import format so uploads behave like recorded clips.
+      const { path: rawVideoPath, hasAudio } = await importVideoToManagedMediaFile(
+        file,
+        file.name,
+      );
 
       // 2. Probe duration + generate thumbnail via temporary video element
       const videoUrl = await getMediaServerUrl(rawVideoPath);
@@ -43,7 +46,7 @@ export function useVideoImport(opts: {
           { time: duration, speed: 1 },
         ],
         deviceAudioPoints: buildFlatDeviceAudioPoints(duration),
-        deviceAudioAvailable: true,
+        deviceAudioAvailable: hasAudio,
         micAudioAvailable: false,
         webcamAvailable: false,
         useCustomCursor: false,

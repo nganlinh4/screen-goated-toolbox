@@ -96,8 +96,8 @@ impl AsrTokenizer {
         let vocab_path_str = vocab_path.to_string_lossy().into_owned();
         let merges_path_str = merges_path.to_string_lossy().into_owned();
         let bpe = BPE::from_file(&vocab_path_str, &merges_path_str)
-        .build()
-        .map_err(|e| anyhow::anyhow!("Failed to build tokenizer from vocab/merges: {e}"))?;
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build tokenizer from vocab/merges: {e}"))?;
 
         let mut tokenizer = Tokenizer::new(bpe);
         let byte_level = ByteLevel::new(config.add_prefix_space, true, true);

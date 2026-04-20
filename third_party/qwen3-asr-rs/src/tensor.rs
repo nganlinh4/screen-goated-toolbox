@@ -343,12 +343,24 @@ impl Tensor {
         };
         // Cast mask to query dtype if needed (SDPA requires matching dtypes)
         let mask_cast = use_mask.map(|m| {
-            if m.kind() == query.kind() { m.shallow_clone() } else { m.to_dtype(query.kind()) }
+            if m.kind() == query.kind() {
+                m.shallow_clone()
+            } else {
+                m.to_dtype(query.kind())
+            }
         });
         // Ensure Q/K/V have matching dtypes (SDPA requirement)
         let q_dtype = query.kind();
-        let key = if key.kind() == q_dtype { key.shallow_clone() } else { key.to_dtype(q_dtype) };
-        let value = if value.kind() == q_dtype { value.shallow_clone() } else { value.to_dtype(q_dtype) };
+        let key = if key.kind() == q_dtype {
+            key.shallow_clone()
+        } else {
+            key.to_dtype(q_dtype)
+        };
+        let value = if value.kind() == q_dtype {
+            value.shallow_clone()
+        } else {
+            value.to_dtype(q_dtype)
+        };
         Tensor::from_tch(tch::Tensor::scaled_dot_product_attention(
             &query.inner,
             &key.inner,
