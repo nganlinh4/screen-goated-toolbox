@@ -80,6 +80,8 @@ export function SubtitlePanel({
 
   const getMethodLabel = (method: SubtitleMethod) => {
     switch (method) {
+      case 'groq-whisper-large-v3-turbo':
+        return t.subtitleMethodGroqWhisperLargeV3Turbo;
       case 'qwen-local-1-7b':
         return t.subtitleMethodQwenLocal1_7B;
       case 'qwen-local-0-6b':

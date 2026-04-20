@@ -765,6 +765,8 @@ function App() {
           subtitleGenerationIndicator={subtitleGenerationIndicator}
           handleGenerateSubtitles={handleGenerateSubtitles}
           handleCancelSubtitleGeneration={handleCancelSubtitleGeneration}
+          currentRawVideoPath={currentRawVideoPath}
+          currentRawMicAudioPath={currentRawMicAudioPath}
           thumbnails={thumbnails}
           timelineRef={timelineRef}
           editingKeystrokeSegmentId={editingKeystrokeSegmentId}

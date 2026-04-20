@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub enum SubtitleGenerationMethod {
     #[default]
     GroqWhisperAccurate,
+    GroqWhisperLargeV3Turbo,
     #[serde(rename = "qwen-local-0-6b", alias = "qwen-local")]
     QwenLocal0_6B,
     #[serde(rename = "qwen-local-1-7b")]

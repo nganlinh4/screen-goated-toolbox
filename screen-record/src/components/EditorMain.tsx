@@ -114,6 +114,8 @@ export interface EditorMainProps {
   subtitleGenerationIndicator?: SubtitleGenerationIndicator | null;
   handleGenerateSubtitles: (selectedRange?: TrackSelectionRange | null) => void;
   handleCancelSubtitleGeneration: () => void;
+  currentRawVideoPath: string;
+  currentRawMicAudioPath: string;
   // TimelineArea props
   thumbnails: string[];
   timelineRef: React.RefObject<HTMLDivElement>;
@@ -218,6 +220,8 @@ export function EditorMain({
   subtitleGenerationIndicator,
   handleGenerateSubtitles,
   handleCancelSubtitleGeneration,
+  currentRawVideoPath,
+  currentRawMicAudioPath,
   thumbnails,
   timelineRef,
   editingKeystrokeSegmentId,
@@ -549,6 +553,8 @@ export function EditorMain({
           isDeviceAudioAvailable={segment?.deviceAudioAvailable !== false}
           isMicAudioAvailable={Boolean(segment?.micAudioAvailable)}
           isWebcamAvailable={Boolean(segment?.webcamAvailable)}
+          currentRawVideoPath={currentRawVideoPath}
+          currentRawMicAudioPath={currentRawMicAudioPath}
           beginBatch={beginBatch}
           commitBatch={commitBatch}
           onTextSelectionChange={handleTextSelectionChange}
