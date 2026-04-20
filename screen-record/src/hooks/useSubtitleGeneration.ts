@@ -24,6 +24,7 @@ import type { ProjectComposition, VideoSegment } from '@/types/video';
 
 export type SubtitleMethod =
   | 'groq-whisper-accurate'
+  | 'groq-whisper-large-v3-turbo'
   | 'qwen-local-0-6b'
   | 'qwen-local-1-7b';
 
@@ -33,6 +34,7 @@ const DEFAULT_SUBTITLE_METHOD_CAPABILITIES: Array<{
   reason?: string | null;
 }> = [
   { method: 'groq-whisper-accurate', available: true, reason: null },
+  { method: 'groq-whisper-large-v3-turbo', available: true, reason: null },
   { method: 'qwen-local-0-6b', available: false, reason: null },
   { method: 'qwen-local-1-7b', available: false, reason: null },
 ];

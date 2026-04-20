@@ -1,8 +1,9 @@
 use serde::Deserialize;
 
-use crate::APP;
 use crate::api::client::UREQ_AGENT;
 use crate::model_config::get_model_by_id;
+use crate::overlay::screen_record::ipc::subtitles::types::SubtitleGenerationMethod;
+use crate::APP;
 
 use super::{
     SubtitleBackend, SubtitleBackendProgress, ends_sentence, join_word_tokens,
@@ -20,11 +21,16 @@ pub struct GroqSubtitleBackend {
 }
 
 impl GroqSubtitleBackend {
-    pub fn new() -> Result<Self, String> {
+    pub fn new(method: SubtitleGenerationMethod) -> Result<Self, String> {
+        let model_id = match method {
+            SubtitleGenerationMethod::GroqWhisperAccurate => "whisper-accurate",
+            SubtitleGenerationMethod::GroqWhisperLargeV3Turbo => "whisper-fast",
+            _ => return Err("Unsupported Groq subtitle method".to_string()),
+        };
         let (api_key, model_name) = {
             let app = APP.lock().map_err(|_| "APP lock poisoned".to_string())?;
-            let model = get_model_by_id("whisper-accurate")
-                .ok_or_else(|| "whisper-accurate model config missing".to_string())?;
+            let model = get_model_by_id(model_id)
+                .ok_or_else(|| format!("{model_id} model config missing"))?;
             (app.config.api_key.clone(), model.full_name)
         };
         if api_key.trim().is_empty() {

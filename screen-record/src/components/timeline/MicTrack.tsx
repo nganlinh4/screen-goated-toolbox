@@ -1,6 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { MicAudioPoint, VideoSegment } from "@/types/video";
-import { buildFlatMicAudioPoints, clampMicAudioVolume } from "@/lib/micAudio";
+import {
+  buildFlatMicAudioPoints,
+  clampMicAudioVolume,
+  getMicAudioVolumeAtTime,
+} from "@/lib/micAudio";
 import {
   type AdjacentSegmentIndices,
   type AdjustableLineDragVisualMode,
@@ -13,6 +17,7 @@ import {
   sortPointsByTime,
   subscribeToAdjustableLineDragVisualMode,
 } from "./adjustableLineUtils";
+import { AudioWaveformLayer } from "./AudioWaveformLayer";
 
 const MIC_TRACK_TOP_PX = 5;
 const MIC_TRACK_BOTTOM_PX = 35;
@@ -39,6 +44,7 @@ interface MicTrackProps {
   segment: VideoSegment;
   duration: number;
   isAvailable: boolean;
+  sourcePath?: string | null;
   onUpdateMicAudioPoints: (points: MicAudioPoint[]) => void;
   beginBatch: () => void;
   commitBatch: () => void;
@@ -48,6 +54,7 @@ export const MicTrack: React.FC<MicTrackProps> = ({
   segment,
   duration,
   isAvailable,
+  sourcePath,
   onUpdateMicAudioPoints,
   beginBatch,
   commitBatch,
@@ -489,6 +496,16 @@ export const MicTrack: React.FC<MicTrackProps> = ({
           className="mic-audio-track-curve-clip absolute inset-0 overflow-hidden"
           style={{ borderRadius: "inherit" }}
         >
+          <AudioWaveformLayer
+            sourcePath={sourcePath}
+            duration={duration}
+            gainPoints={points}
+            getVolumeAtTime={getMicAudioVolumeAtTime}
+            colorVariable="--timeline-mic-audio-color"
+            topPx={MIC_TRACK_TOP_PX}
+            bottomPx={MIC_TRACK_BOTTOM_PX}
+            offsetSec={segment.micAudioOffsetSec ?? 0}
+          />
           <svg
             className="mic-audio-track-curve h-full w-full overflow-hidden"
             preserveAspectRatio="none"

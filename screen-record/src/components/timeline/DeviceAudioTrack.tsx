@@ -1,6 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { DeviceAudioPoint, VideoSegment } from "@/types/video";
-import { buildFlatDeviceAudioPoints, clampDeviceAudioVolume } from "@/lib/deviceAudio";
+import {
+  buildFlatDeviceAudioPoints,
+  clampDeviceAudioVolume,
+  getDeviceAudioVolumeAtTime,
+} from "@/lib/deviceAudio";
 import {
   type AdjacentSegmentIndices,
   type AdjustableLineDragVisualMode,
@@ -13,6 +17,7 @@ import {
   sortPointsByTime,
   subscribeToAdjustableLineDragVisualMode,
 } from "./adjustableLineUtils";
+import { AudioWaveformLayer } from "./AudioWaveformLayer";
 
 const DEVICE_AUDIO_TRACK_TOP_PX = 5;
 const DEVICE_AUDIO_TRACK_BOTTOM_PX = 35;
@@ -40,6 +45,7 @@ interface DeviceAudioTrackProps {
   segment: VideoSegment;
   duration: number;
   isAvailable: boolean;
+  sourcePath?: string | null;
   onUpdateDeviceAudioPoints: (points: DeviceAudioPoint[]) => void;
   beginBatch: () => void;
   commitBatch: () => void;
@@ -49,6 +55,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
   segment,
   duration,
   isAvailable,
+  sourcePath,
   onUpdateDeviceAudioPoints,
   beginBatch,
   commitBatch,
@@ -490,6 +497,15 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
           className="device-audio-track-curve-clip absolute inset-0 overflow-hidden"
           style={{ borderRadius: "inherit" }}
         >
+          <AudioWaveformLayer
+            sourcePath={sourcePath}
+            duration={duration}
+            gainPoints={points}
+            getVolumeAtTime={getDeviceAudioVolumeAtTime}
+            colorVariable="--timeline-device-audio-color"
+            topPx={DEVICE_AUDIO_TRACK_TOP_PX}
+            bottomPx={DEVICE_AUDIO_TRACK_BOTTOM_PX}
+          />
           <svg
             className="device-audio-track-curve h-full w-full overflow-hidden"
             preserveAspectRatio="none"

@@ -26,7 +26,10 @@ pub fn create_backend(
 ) -> Result<Box<dyn SubtitleBackend + Send>, String> {
     match method {
         SubtitleGenerationMethod::GroqWhisperAccurate => {
-            Ok(Box::new(groq::GroqSubtitleBackend::new()?))
+            Ok(Box::new(groq::GroqSubtitleBackend::new(method)?))
+        }
+        SubtitleGenerationMethod::GroqWhisperLargeV3Turbo => {
+            Ok(Box::new(groq::GroqSubtitleBackend::new(method)?))
         }
         SubtitleGenerationMethod::QwenLocal0_6B => {
             Ok(Box::new(qwen::QwenSubtitleBackend::new(Qwen3ModelVariant::Small)?))
@@ -41,6 +44,11 @@ pub fn capabilities() -> Vec<SubtitleMethodCapability> {
     vec![
         SubtitleMethodCapability {
             method: SubtitleGenerationMethod::GroqWhisperAccurate,
+            available: true,
+            reason: None,
+        },
+        SubtitleMethodCapability {
+            method: SubtitleGenerationMethod::GroqWhisperLargeV3Turbo,
             available: true,
             reason: None,
         },

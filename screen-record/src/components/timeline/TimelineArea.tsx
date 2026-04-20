@@ -71,6 +71,8 @@ interface TimelineAreaProps {
   isDeviceAudioAvailable: boolean;
   isMicAudioAvailable: boolean;
   isWebcamAvailable: boolean;
+  currentRawVideoPath: string;
+  currentRawMicAudioPath: string;
   beginBatch: () => void;
   commitBatch: () => void;
   onTextSelectionChange?: (ids: string[]) => void;
@@ -115,6 +117,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   isDeviceAudioAvailable,
   isMicAudioAvailable,
   isWebcamAvailable,
+  currentRawVideoPath,
+  currentRawMicAudioPath,
   beginBatch,
   commitBatch,
   onTextSelectionChange,
@@ -608,6 +612,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       segment={segment}
                       duration={duration}
                       isAvailable={isDeviceAudioAvailable}
+                      sourcePath={currentRawVideoPath}
                       onUpdateDeviceAudioPoints={(points) => {
                         setSegment({ ...segment, deviceAudioPoints: points });
                       }}
@@ -623,6 +628,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       segment={segment}
                       duration={duration}
                       isAvailable={isMicAudioAvailable}
+                      sourcePath={currentRawMicAudioPath}
                       onUpdateMicAudioPoints={(points) => {
                         setSegment({ ...segment, micAudioPoints: points });
                       }}

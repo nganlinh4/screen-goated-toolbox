@@ -2,6 +2,7 @@
 // IPC command handling for screen recording WebView.
 // Routes commands to specialized submodules.
 
+mod audio_waveform;
 mod cursor_svg;
 mod hotkeys;
 pub mod media_server;
@@ -143,6 +144,7 @@ pub fn handle_ipc_command(
             let result = super::mf_decode::generate_thumbnails(path, count, start, end)?;
             Ok(serde_json::json!(result))
         }
+        "get_audio_waveform" => audio_waveform::handle_get_audio_waveform(&args),
         "probe_video_metadata" => {
             let path = args["path"].as_str().ok_or("Missing path")?;
             let result = mf_decode::probe_video_metadata(path)?;
