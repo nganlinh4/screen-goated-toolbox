@@ -520,6 +520,7 @@ export function EditorMain({
             onBackgroundUpload={handleBackgroundUpload}
             isBackgroundUploadProcessing={isBackgroundUploadProcessing}
             editingTextId={editingTextId}
+            editingSubtitleId={editingSubtitleId}
             selectedSubtitleIds={selectedSubtitleIds}
             selectedSubtitleRange={selectedSubtitleRange}
             subtitleSource={subtitleSource}

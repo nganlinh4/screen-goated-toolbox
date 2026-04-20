@@ -113,6 +113,7 @@ interface SidePanelProps {
   onBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   isBackgroundUploadProcessing: boolean;
   editingTextId: string | null;
+  editingSubtitleId: string | null;
   selectedSubtitleIds?: string[];
   selectedSubtitleRange?: TrackSelectionRange | null;
   subtitleSource: 'video' | 'mic';
@@ -158,6 +159,7 @@ export function SidePanel({
   onBackgroundUpload,
   isBackgroundUploadProcessing,
   editingTextId,
+  editingSubtitleId,
   selectedSubtitleIds,
   selectedSubtitleRange,
   subtitleSource,
@@ -271,6 +273,7 @@ export function SidePanel({
       return (
         <SubtitlePanel
           segment={segment}
+          editingSubtitleId={editingSubtitleId}
           selectedSubtitleIds={selectedSubtitleIds}
           selectedSubtitleRange={selectedSubtitleRange}
           selectedSource={subtitleSource}

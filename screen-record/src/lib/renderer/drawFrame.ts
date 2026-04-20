@@ -547,7 +547,7 @@ export async function drawFrame(
           const remaining = textSegment.endTime - video.currentTime;
           if (elapsed < FADE_DURATION) fadeAlpha = elapsed / FADE_DURATION;
           if (remaining < FADE_DURATION) fadeAlpha = Math.min(fadeAlpha, remaining / FADE_DURATION);
-          drawTextOverlay(ctx, textSegment, canvas.width, canvas.height, fadeAlpha);
+          drawTextOverlay(ctx, textSegment, canvas.width, canvas.height, fadeAlpha, video.currentTime);
         }
       }
       canvas.style.fontVariationSettings = 'normal';

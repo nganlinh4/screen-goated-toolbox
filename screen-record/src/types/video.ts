@@ -20,28 +20,64 @@ export interface TextBackground {
   borderRadius: number;
 }
 
+export interface TextWrapStyle {
+  enabled: boolean;
+  maxWidthPercent: number; // percentage of canvas width
+}
+
+export interface TextStrokeStyle {
+  enabled: boolean;
+  color: string;
+  width: number;
+  opacity: number; // 0-1
+}
+
+export interface TextShadowStyle {
+  enabled: boolean;
+  color: string;
+  blur: number;
+  offsetX: number;
+  offsetY: number;
+  opacity: number; // 0-1
+}
+
+export type TextAnimationPreset = "none" | "fade" | "slide-up" | "pop";
+
+export interface TextAnimationStyle {
+  preset: TextAnimationPreset;
+  inDuration: number; // seconds
+  outDuration: number; // seconds
+}
+
+export interface TextStyle {
+  fontSize: number;
+  color: string;
+  x: number; // 0-100 percentage
+  y: number; // 0-100 percentage
+  fontWeight?: "normal" | "bold";
+  fontVariations?: {
+    wght?: number; // 100-900, default 400
+    wdth?: number; // 75-125, default 100
+    slnt?: number; // -12 to 0, default 0
+    ROND?: number; // 0-100, default 0
+  };
+  textAlign?: "left" | "center" | "right";
+  opacity?: number; // 0-1, default 1
+  letterSpacing?: number; // px, default 0
+  lineHeight?: number; // multiplier, default 1.25
+  wrap?: TextWrapStyle;
+  stroke?: TextStrokeStyle;
+  shadow?: TextShadowStyle;
+  animation?: TextAnimationStyle;
+  background?: TextBackground;
+}
+
 export interface TextSegment {
   id: string;
   startTime: number;
   endTime: number;
   text: string;
-  style: {
-    fontSize: number;
-    color: string;
-    x: number; // 0-100 percentage
-    y: number; // 0-100 percentage
-    fontWeight?: "normal" | "bold";
-    fontVariations?: {
-      wght?: number; // 100-900, default 400
-      wdth?: number; // 75-125, default 100
-      slnt?: number; // -12 to 0, default 0
-      ROND?: number; // 0-100, default 0
-    };
-    textAlign?: "left" | "center" | "right";
-    opacity?: number; // 0-1, default 1
-    letterSpacing?: number; // px, default 0
-    background?: TextBackground;
-  };
+  style: TextStyle;
 }
 
 export type SubtitleSegment = TextSegment;

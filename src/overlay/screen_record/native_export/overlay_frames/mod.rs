@@ -16,8 +16,8 @@ use layout::{
 use types::{
     ActiveEvent, DEFAULT_KEYSTROKE_OVERLAY_SCALE, DEFAULT_KEYSTROKE_OVERLAY_X,
     DEFAULT_KEYSTROKE_OVERLAY_Y, KEYSTROKE_OVERLAY_MAX_SCALE, KEYSTROKE_OVERLAY_MIN_SCALE,
-    TEXT_FADE_DUR, clamp01, find_active_events, get_keystroke_visual_state, get_speed,
-    is_time_inside_segments,
+    clamp01, find_active_events, get_keystroke_visual_state, get_speed,
+    get_text_visual_state, is_time_inside_segments,
 };
 pub use types::{KeystrokeAtlasEntry, OverlayAtlasMetadata};
 
@@ -144,26 +144,31 @@ fn emit_text_quads(
 ) {
     for text in &meta.text_entries {
         if t >= text.start_time && t <= text.end_time {
-            let elapsed = t - text.start_time;
-            let remaining = text.end_time - t;
-            let mut alpha = 1.0_f64;
-            if elapsed < TEXT_FADE_DUR {
-                alpha = elapsed / TEXT_FADE_DUR;
-            }
-            if remaining < TEXT_FADE_DUR {
-                alpha = alpha.min(remaining / TEXT_FADE_DUR);
-            }
-            if alpha > 0.001 {
+            let visual = get_text_visual_state(
+                t,
+                text.start_time,
+                text.end_time,
+                text.animation_preset.as_str(),
+                text.animation_in_duration,
+                text.animation_out_duration,
+                text.rect_h as f64,
+            );
+            if visual.alpha > 0.001 {
+                let quad_x = text.pivot_x as f64
+                    + ((text.hit_x - text.pad) as f64 - text.pivot_x as f64) * visual.scale;
+                let quad_y = text.pivot_y as f64
+                    + ((text.hit_y - text.pad) as f64 - text.pivot_y as f64) * visual.scale
+                    + visual.translate_y;
                 quads.push(OverlayQuad {
-                    x: text.hit_x - text.pad,
-                    y: text.hit_y - text.pad,
-                    w: text.rect_w,
-                    h: text.rect_h,
+                    x: quad_x as f32,
+                    y: quad_y as f32,
+                    w: (text.rect_w as f64 * visual.scale) as f32,
+                    h: (text.rect_h as f64 * visual.scale) as f32,
                     u: text.rect_x / atlas_w as f32,
                     v: text.rect_y / atlas_h as f32,
                     uw: text.rect_w / atlas_w as f32,
                     vh: text.rect_h / atlas_h as f32,
-                    alpha: alpha as f32,
+                    alpha: visual.alpha as f32,
                 });
             }
         }

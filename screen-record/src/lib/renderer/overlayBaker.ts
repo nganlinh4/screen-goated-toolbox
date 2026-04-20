@@ -22,6 +22,10 @@ import {
   DEFAULT_KEYSTROKE_OVERLAY_Y,
   DEFAULT_KEYSTROKE_OVERLAY_SCALE,
 } from './keystrokeRenderer';
+import {
+  DEFAULT_TEXT_LINE_HEIGHT,
+  normalizeTextStyle,
+} from '@/lib/textStyleDefaults';
 
 // ---------------------------------------------------------------------------
 // Text drag state
@@ -61,66 +65,192 @@ export function applyFontVariations(
   ctx.canvas.style.fontVariationSettings = parts.length > 0 ? parts.join(', ') : 'normal';
 }
 
-// ---------------------------------------------------------------------------
-// Text overlay rendering
-// ---------------------------------------------------------------------------
+interface TextLayout {
+  style: ReturnType<typeof normalizeTextStyle>;
+  lines: string[];
+  lineWidths: number[];
+  maxLineWidth: number;
+  totalHeight: number;
+  lineHeightPx: number;
+  blockLeft: number;
+  blockTop: number;
+  bgPadX: number;
+  bgPadY: number;
+  hitArea: { x: number; y: number; width: number; height: number };
+  pivotX: number;
+  pivotY: number;
+}
 
-export function drawTextOverlay(
+interface TextAnimationState {
+  alpha: number;
+  scale: number;
+  translateY: number;
+}
+
+function applyAnimationToRect(
+  rect: { x: number; y: number; width: number; height: number },
+  pivotX: number,
+  pivotY: number,
+  animation: TextAnimationState,
+) {
+  return {
+    x: pivotX + (rect.x - pivotX) * animation.scale,
+    y: pivotY + (rect.y - pivotY) * animation.scale + animation.translateY,
+    width: rect.width * animation.scale,
+    height: rect.height * animation.scale,
+  };
+}
+
+function applyColorOpacity(color: string, opacity: number): string {
+  const safeOpacity = clamp01(opacity);
+  if (safeOpacity >= 0.999) return color;
+  const hex = color.trim();
+  if (hex.startsWith('#')) {
+    const raw = hex.slice(1);
+    const expanded = raw.length === 3
+      ? raw.split('').map((part) => part + part).join('')
+      : raw.length === 4
+        ? raw.split('').map((part) => part + part).join('')
+        : raw;
+    if (expanded.length === 6 || expanded.length === 8) {
+      const r = parseInt(expanded.slice(0, 2), 16);
+      const g = parseInt(expanded.slice(2, 4), 16);
+      const b = parseInt(expanded.slice(4, 6), 16);
+      const a = expanded.length === 8 ? parseInt(expanded.slice(6, 8), 16) / 255 : 1;
+      return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, a * safeOpacity))})`;
+    }
+  }
+  const rgbaMatch = hex.match(/^rgba?\((.+)\)$/i);
+  if (rgbaMatch) {
+    const parts = rgbaMatch[1].split(',').map((part) => part.trim());
+    if (parts.length >= 3) {
+      const [r, g, b] = parts;
+      const baseAlpha = parts[3] ? Number(parts[3]) : 1;
+      return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, baseAlpha * safeOpacity))})`;
+    }
+  }
+  return color;
+}
+
+function measureTextLine(
+  ctx: CanvasRenderingContext2D,
+  line: string,
+  letterSpacing: number,
+): number {
+  const baseWidth = ctx.measureText(line).width;
+  if (letterSpacing !== 0 && line.length > 1) {
+    return baseWidth + letterSpacing * (line.length - 1);
+  }
+  return baseWidth;
+}
+
+function breakWordByWidth(
+  ctx: CanvasRenderingContext2D,
+  word: string,
+  maxWidth: number,
+  letterSpacing: number,
+): string[] {
+  const parts: string[] = [];
+  let current = '';
+  for (const char of Array.from(word)) {
+    const next = current + char;
+    if (current && measureTextLine(ctx, next, letterSpacing) > maxWidth) {
+      parts.push(current);
+      current = char;
+    } else {
+      current = next;
+    }
+  }
+  if (current) parts.push(current);
+  return parts.length > 0 ? parts : [''];
+}
+
+function wrapParagraph(
+  ctx: CanvasRenderingContext2D,
+  paragraph: string,
+  maxWidth: number,
+  letterSpacing: number,
+): string[] {
+  if (!paragraph) return [''];
+  const tokens = paragraph.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return [''];
+  const lines: string[] = [];
+  let currentLine = '';
+
+  for (const token of tokens) {
+    const candidate = currentLine ? `${currentLine} ${token}` : token;
+    if (measureTextLine(ctx, candidate, letterSpacing) <= maxWidth) {
+      currentLine = candidate;
+      continue;
+    }
+    if (currentLine) {
+      lines.push(currentLine);
+      currentLine = '';
+    }
+    if (measureTextLine(ctx, token, letterSpacing) <= maxWidth) {
+      currentLine = token;
+      continue;
+    }
+    const broken = breakWordByWidth(ctx, token, maxWidth, letterSpacing);
+    lines.push(...broken.slice(0, -1));
+    currentLine = broken[broken.length - 1] ?? '';
+  }
+
+  if (currentLine) lines.push(currentLine);
+  return lines.length > 0 ? lines : [''];
+}
+
+function buildTextLines(
+  ctx: CanvasRenderingContext2D,
+  textSegment: TextSegment,
+  width: number,
+  letterSpacing: number,
+): string[] {
+  const style = normalizeTextStyle(textSegment.style);
+  const paragraphs = textSegment.text.split('\n');
+  if (!style.wrap?.enabled) return paragraphs.length > 0 ? paragraphs : [''];
+  const maxWidth = Math.max(32, (style.wrap.maxWidthPercent / 100) * width);
+  return paragraphs.flatMap((paragraph) =>
+    wrapParagraph(ctx, paragraph, maxWidth, letterSpacing),
+  );
+}
+
+function buildTextLayout(
   ctx: CanvasRenderingContext2D,
   textSegment: TextSegment,
   width: number,
   height: number,
-  fadeAlpha: number = 1.0
-): { x: number; y: number; width: number; height: number } {
-  const { style } = textSegment;
+): TextLayout {
+  const style = normalizeTextStyle(textSegment.style);
   const textAlign = style.textAlign ?? 'center';
-  const opacity = style.opacity ?? 1;
   const letterSpacing = style.letterSpacing ?? 0;
-  const background = style.background;
   const fontSize = style.fontSize;
-
+  const background = style.background;
   const vars = style.fontVariations;
   const wght = vars?.wght ?? (style.fontWeight === 'bold' ? 700 : 400);
 
-  ctx.save();
-  // Do NOT reset the transform here. During export atlas baking the caller
-  // has applied a translation to place text inside its sprite slot.
-  ctx.globalAlpha = opacity * fadeAlpha;
-
-  // Set font-variation-settings on canvas element CSS -- the only way to control
-  // variable font axes (wdth, slnt, ROND) in Canvas 2D (no native API exists).
   applyFontVariations(ctx, vars);
   ctx.font = `${wght} ${fontSize}px 'Google Sans Flex', sans-serif`;
 
-  ctx.textBaseline = 'middle';
-
-  // Split text by newlines for multi-line
-  const lines = textSegment.text.split('\n');
-  const lineHeight = fontSize * 1.25;
-
-  // Measure each line width (account for letter spacing)
-  const measureLine = (line: string): number => {
-    const baseWidth = ctx.measureText(line).width;
-    if (letterSpacing !== 0 && line.length > 1) {
-      return baseWidth + letterSpacing * (line.length - 1);
-    }
-    return baseWidth;
-  };
-
-  const lineWidths = lines.map(measureLine);
-  const maxLineWidth = Math.max(...lineWidths);
-  const totalHeight = lines.length * lineHeight;
-
-  // Anchor position (0-100% based)
+  const lines = buildTextLines(ctx, textSegment, width, letterSpacing);
+  const lineHeightPx = fontSize * (style.lineHeight ?? DEFAULT_TEXT_LINE_HEIGHT);
+  const lineWidths = lines.map((line) => measureTextLine(ctx, line, letterSpacing));
+  const maxLineWidth = Math.max(...lineWidths, 0);
+  const totalHeight = Math.max(lineHeightPx, lines.length * lineHeightPx);
   const anchorX = (style.x / 100) * width;
   const anchorY = (style.y / 100) * height;
-
-  // Background pill padding
   const bgPadX = background?.enabled ? (background.paddingX ?? 16) : 0;
   const bgPadY = background?.enabled ? (background.paddingY ?? 8) : 0;
+  const strokeWidth = style.stroke?.enabled ? (style.stroke.width ?? 0) : 0;
+  const shadow = style.shadow;
+  const shadowExtentX = shadow?.enabled
+    ? Math.abs(shadow.offsetX ?? 0) + (shadow.blur ?? 0)
+    : 0;
+  const shadowExtentY = shadow?.enabled
+    ? Math.abs(shadow.offsetY ?? 0) + (shadow.blur ?? 0)
+    : 0;
+  const hitPad = 10 + strokeWidth + Math.max(shadowExtentX, shadowExtentY);
 
-  // Hit area encompasses all lines + padding
-  const hitPad = 10;
   let blockLeft: number;
   if (textAlign === 'left') {
     blockLeft = anchorX;
@@ -130,20 +260,125 @@ export function drawTextOverlay(
     blockLeft = anchorX - maxLineWidth / 2;
   }
   const blockTop = anchorY - totalHeight / 2;
+  const pivotX = blockLeft + maxLineWidth / 2;
+  const pivotY = blockTop + totalHeight / 2;
 
-  const hitArea = {
-    x: blockLeft - bgPadX - hitPad,
-    y: blockTop - bgPadY - hitPad,
-    width: maxLineWidth + bgPadX * 2 + hitPad * 2,
-    height: totalHeight + bgPadY * 2 + hitPad * 2
+  return {
+    style,
+    lines,
+    lineWidths,
+    maxLineWidth,
+    totalHeight,
+    lineHeightPx,
+    blockLeft,
+    blockTop,
+    bgPadX,
+    bgPadY,
+    pivotX,
+    pivotY,
+    hitArea: {
+      x: blockLeft - bgPadX - hitPad,
+      y: blockTop - bgPadY - hitPad,
+      width: maxLineWidth + bgPadX * 2 + hitPad * 2,
+      height: totalHeight + bgPadY * 2 + hitPad * 2,
+    },
   };
+}
+
+export function getTextAnimationState(
+  textSegment: TextSegment,
+  currentTime: number,
+): TextAnimationState {
+  const style = normalizeTextStyle(textSegment.style);
+  const animation = style.animation ?? {
+    preset: 'fade',
+    inDuration: 0.3,
+    outDuration: 0.3,
+  };
+  const elapsed = currentTime - textSegment.startTime;
+  const remaining = textSegment.endTime - currentTime;
+  const inDuration = Math.max(0.001, animation.inDuration);
+  const outDuration = Math.max(0.001, animation.outDuration);
+  const enterT = clamp01(elapsed / inDuration);
+  const exitT = clamp01(remaining / outDuration);
+  const preset = animation.preset;
+
+  if (preset === 'none') {
+    return { alpha: 1, scale: 1, translateY: 0 };
+  }
+
+  let alpha = 1;
+  if (elapsed < inDuration) alpha = enterT;
+  if (remaining < outDuration) alpha = Math.min(alpha, exitT);
+
+  if (preset === 'fade') {
+    return { alpha, scale: 1, translateY: 0 };
+  }
+
+  if (preset === 'slide-up') {
+    const enterOffset = Math.max(18, style.fontSize * 0.35);
+    const exitOffset = Math.max(12, style.fontSize * 0.22);
+    let translateY = 0;
+    if (elapsed < inDuration) translateY = (1 - easeOutCubic(enterT)) * enterOffset;
+    if (remaining < outDuration) {
+      translateY = Math.max(translateY, (1 - easeOutCubic(exitT)) * exitOffset);
+    }
+    return { alpha, scale: 1, translateY };
+  }
+
+  const enterScale = 0.9 + easeOutBack(enterT) * 0.1;
+  const exitScale = 1 + (1 - easeOutCubic(exitT)) * 0.05;
+  let scale = 1;
+  if (elapsed < inDuration) scale = enterScale;
+  if (remaining < outDuration) scale = exitScale;
+  return { alpha, scale, translateY: 0 };
+}
+
+function easeOutCubic(t: number): number {
+  const p = 1 - clamp01(t);
+  return 1 - p * p * p;
+}
+
+function easeOutBack(t: number): number {
+  const p = clamp01(t) - 1;
+  const s = 1.70158;
+  return 1 + (s + 1) * p * p * p + s * p * p;
+}
+
+// ---------------------------------------------------------------------------
+// Text overlay rendering
+// ---------------------------------------------------------------------------
+
+export function drawTextOverlay(
+  ctx: CanvasRenderingContext2D,
+  textSegment: TextSegment,
+  width: number,
+  height: number,
+  fadeAlpha: number = 1.0,
+  currentTime?: number,
+): { x: number; y: number; width: number; height: number } {
+  ctx.save();
+  const layout = buildTextLayout(ctx, textSegment, width, height);
+  const { style } = layout;
+  const textAlign = style.textAlign ?? 'center';
+  const opacity = style.opacity ?? 1;
+  const letterSpacing = style.letterSpacing ?? 0;
+  const background = style.background;
+  const animation = currentTime !== undefined
+    ? getTextAnimationState(textSegment, currentTime)
+    : { alpha: 1, scale: 1, translateY: 0 };
+  ctx.globalAlpha = opacity * fadeAlpha * animation.alpha;
+  ctx.textBaseline = 'middle';
+  ctx.translate(layout.pivotX, layout.pivotY + animation.translateY);
+  ctx.scale(animation.scale, animation.scale);
+  ctx.translate(-layout.pivotX, -layout.pivotY);
 
   // Background pill
   if (background?.enabled) {
-    const pillX = blockLeft - bgPadX;
-    const pillY = blockTop - bgPadY;
-    const pillW = maxLineWidth + bgPadX * 2;
-    const pillH = totalHeight + bgPadY * 2;
+    const pillX = layout.blockLeft - layout.bgPadX;
+    const pillY = layout.blockTop - layout.bgPadY;
+    const pillW = layout.maxLineWidth + layout.bgPadX * 2;
+    const pillH = layout.totalHeight + layout.bgPadY * 2;
     const r = Math.min(background.borderRadius ?? 8, pillW / 2, pillH / 2);
 
     const savedAlpha = ctx.globalAlpha;
@@ -155,36 +390,59 @@ export function drawTextOverlay(
     ctx.globalAlpha = savedAlpha;
   }
 
-  // Draw each line
-  ctx.shadowColor = 'rgba(0,0,0,0.7)';
-  ctx.shadowBlur = 4;
-  ctx.shadowOffsetX = 2;
-  ctx.shadowOffsetY = 2;
-  ctx.fillStyle = style.color;
+  const shadow = style.shadow;
+  if (shadow?.enabled) {
+    ctx.shadowColor = applyColorOpacity(shadow.color, shadow.opacity);
+    ctx.shadowBlur = shadow.blur;
+    ctx.shadowOffsetX = shadow.offsetX;
+    ctx.shadowOffsetY = shadow.offsetY;
+  } else {
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+  }
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const ly = blockTop + i * lineHeight + lineHeight / 2;
+  for (let i = 0; i < layout.lines.length; i++) {
+    const line = layout.lines[i];
+    const ly = layout.blockTop + i * layout.lineHeightPx + layout.lineHeightPx / 2;
     let lx: number;
     if (textAlign === 'left') {
-      lx = blockLeft;
+      lx = layout.blockLeft;
     } else if (textAlign === 'right') {
-      lx = blockLeft + maxLineWidth;
+      lx = layout.blockLeft + layout.maxLineWidth;
     } else {
-      lx = blockLeft + maxLineWidth / 2;
+      lx = layout.blockLeft + layout.maxLineWidth / 2;
+    }
+
+    if (style.stroke?.enabled && style.stroke.width > 0) {
+      const savedAlpha = ctx.globalAlpha;
+      ctx.globalAlpha = savedAlpha * (style.stroke.opacity ?? 1);
+      ctx.lineJoin = 'round';
+      ctx.miterLimit = 2;
+      ctx.lineWidth = style.stroke.width;
+      ctx.strokeStyle = applyColorOpacity(style.stroke.color, style.stroke.opacity);
+      if (letterSpacing !== 0 && line.length > 1) {
+        drawTextWithSpacing(ctx, line, lx, ly, letterSpacing, textAlign, layout.lineWidths[i], true);
+      } else {
+        ctx.textAlign = textAlign;
+        ctx.strokeText(line, lx, ly);
+      }
+      ctx.globalAlpha = savedAlpha;
     }
 
     if (letterSpacing !== 0 && line.length > 1) {
-      // Char-by-char rendering for letter spacing
-      drawTextWithSpacing(ctx, line, lx, ly, letterSpacing, textAlign, lineWidths[i]);
+      ctx.fillStyle = style.color;
+      drawTextWithSpacing(ctx, line, lx, ly, letterSpacing, textAlign, layout.lineWidths[i]);
     } else {
       ctx.textAlign = textAlign;
+      ctx.fillStyle = style.color;
       ctx.fillText(line, lx, ly);
     }
   }
 
   ctx.restore();
-  return hitArea;
+  return applyAnimationToRect(layout.hitArea, layout.pivotX, layout.pivotY, animation);
 }
 
 // ---------------------------------------------------------------------------
@@ -198,7 +456,8 @@ export function drawTextWithSpacing(
   y: number,
   spacing: number,
   align: CanvasTextAlign,
-  totalWidth: number
+  totalWidth: number,
+  strokeOnly: boolean = false,
 ): void {
   ctx.textAlign = 'left';
   let startX: number;
@@ -212,7 +471,11 @@ export function drawTextWithSpacing(
 
   let cx = startX;
   for (let i = 0; i < text.length; i++) {
-    ctx.fillText(text[i], cx, y);
+    if (strokeOnly) {
+      ctx.strokeText(text[i], cx, y);
+    } else {
+      ctx.fillText(text[i], cx, y);
+    }
     cx += ctx.measureText(text[i]).width + spacing;
   }
 }
@@ -227,58 +490,10 @@ export function getTextHitArea(
   width: number,
   height: number
 ): { x: number; y: number; width: number; height: number } {
-  const { style } = textSegment;
-  const textAlign = style.textAlign ?? 'center';
-  const letterSpacing = style.letterSpacing ?? 0;
-  const fontSize = style.fontSize;
-  const background = style.background;
-
-  const vars = style.fontVariations;
-  const wght = vars?.wght ?? (style.fontWeight === 'bold' ? 700 : 400);
-
   ctx.save();
-  applyFontVariations(ctx, vars);
-  ctx.font = `${wght} ${fontSize}px 'Google Sans Flex', sans-serif`;
-
-  const lines = textSegment.text.split('\n');
-  const lineHeight = fontSize * 1.25;
-
-  const measureLine = (line: string): number => {
-    const baseWidth = ctx.measureText(line).width;
-    if (letterSpacing !== 0 && line.length > 1) {
-      return baseWidth + letterSpacing * (line.length - 1);
-    }
-    return baseWidth;
-  };
-
-  const maxLineWidth = Math.max(...lines.map(measureLine));
-  const totalHeight = lines.length * lineHeight;
-
-  const anchorX = (style.x / 100) * width;
-  const anchorY = (style.y / 100) * height;
-
-  const bgPadX = background?.enabled ? (background.paddingX ?? 16) : 0;
-  const bgPadY = background?.enabled ? (background.paddingY ?? 8) : 0;
-  const hitPad = 10;
-
-  let blockLeft: number;
-  if (textAlign === 'left') {
-    blockLeft = anchorX;
-  } else if (textAlign === 'right') {
-    blockLeft = anchorX - maxLineWidth;
-  } else {
-    blockLeft = anchorX - maxLineWidth / 2;
-  }
-  const blockTop = anchorY - totalHeight / 2;
-
+  const layout = buildTextLayout(ctx, textSegment, width, height);
   ctx.restore();
-
-  return {
-    x: blockLeft - bgPadX - hitPad,
-    y: blockTop - bgPadY - hitPad,
-    width: maxLineWidth + bgPadX * 2 + hitPad * 2,
-    height: totalHeight + bgPadY * 2 + hitPad * 2
-  };
+  return layout.hitArea;
 }
 
 // ---------------------------------------------------------------------------
@@ -479,6 +694,13 @@ export async function bakeOverlayAtlasAndPaths(
   const overlayConfig = getKeystrokeOverlayConfig(segment);
   const textEntries = Array.from(textMap.entries()).map(([id, m]) => {
     const text = getOverlayTextSegments(segment).find(t => t.id === id);
+    const style = text ? normalizeTextStyle(text.style) : null;
+    const layout = text ? (() => {
+      atlasCtx.save();
+      const result = buildTextLayout(atlasCtx, text, outputWidth, outputHeight);
+      atlasCtx.restore();
+      return result;
+    })() : null;
     return {
       id,
       startTime: text?.startTime ?? 0,
@@ -489,7 +711,14 @@ export async function bakeOverlayAtlasAndPaths(
       rectH: m.rect.h,
       hitX: m.baseHitArea.x,
       hitY: m.baseHitArea.y,
+      hitW: m.baseHitArea.width,
+      hitH: m.baseHitArea.height,
+      pivotX: layout?.pivotX ?? (m.baseHitArea.x + m.baseHitArea.width / 2),
+      pivotY: layout?.pivotY ?? (m.baseHitArea.y + m.baseHitArea.height / 2),
       pad: m.pad,
+      animationPreset: style?.animation?.preset ?? 'fade',
+      animationInDuration: style?.animation?.inDuration ?? 0.3,
+      animationOutDuration: style?.animation?.outDuration ?? 0.3,
     };
   });
   const keystrokeEntries = Array.from(keystrokeUniqueMap.entries()).map(([uniqueKey, m]) => ({
@@ -607,8 +836,6 @@ export async function bakeOverlayAtlasAndPaths(
   const trimSegments = getTrimSegments(segment, duration);
   const endTime = trimSegments[trimSegments.length - 1].endTime;
   const delaySec = getKeystrokeDelaySec(segment);
-  const fadeDur = 0.3;
-
   let segIdx = 0;
   let t = trimSegments[0].startTime;
   let frameCount = 0;
@@ -628,23 +855,30 @@ export async function bakeOverlayAtlasAndPaths(
 
     for (const text of getOverlayTextSegments(segment)) {
       if (t >= text.startTime && t <= text.endTime) {
-        const elapsed = t - text.startTime;
-        const remaining = text.endTime - t;
-        let alpha = 1.0;
-        if (elapsed < fadeDur) alpha = elapsed / fadeDur;
-        if (remaining < fadeDur) alpha = Math.min(alpha, remaining / fadeDur);
+        const animation = getTextAnimationState(text, t);
         const mapping = textMap.get(text.id);
-        if (mapping && alpha > 0.001) {
+        if (mapping && animation.alpha > 0.001) {
+          const animatedRect = applyAnimationToRect(
+            {
+              x: mapping.baseHitArea.x - mapping.pad,
+              y: mapping.baseHitArea.y - mapping.pad,
+              width: mapping.rect.w,
+              height: mapping.rect.h,
+            },
+            mapping.baseHitArea.x + mapping.baseHitArea.width / 2,
+            mapping.baseHitArea.y + mapping.baseHitArea.height / 2,
+            animation,
+          );
           quads.push({
-            x: mapping.baseHitArea.x - mapping.pad,
-            y: mapping.baseHitArea.y - mapping.pad,
-            w: mapping.rect.w,
-            h: mapping.rect.h,
+            x: animatedRect.x,
+            y: animatedRect.y,
+            w: animatedRect.width,
+            h: animatedRect.height,
             u: mapping.rect.x / MAX_ATLAS_SIZE,
             v: mapping.rect.y / actualAtlasHeight,
             uw: mapping.rect.w / MAX_ATLAS_SIZE,
             vh: mapping.rect.h / actualAtlasHeight,
-            alpha,
+            alpha: animation.alpha,
           });
         }
       }
