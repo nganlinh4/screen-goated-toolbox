@@ -11,8 +11,6 @@ pub(super) const DEFAULT_KEYSTROKE_OVERLAY_Y: f64 = 100.0;
 pub(super) const DEFAULT_KEYSTROKE_OVERLAY_SCALE: f64 = 1.0;
 pub(super) const KEYSTROKE_OVERLAY_MIN_SCALE: f64 = 0.45;
 pub(super) const KEYSTROKE_OVERLAY_MAX_SCALE: f64 = 2.4;
-pub(super) const TEXT_FADE_DUR: f64 = 0.3;
-
 // --- Metadata types (deserialized from JS IPC) ---
 
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -77,7 +75,14 @@ pub struct TextAtlasEntry {
     pub rect_h: f32,
     pub hit_x: f32,
     pub hit_y: f32,
+    pub hit_w: f32,
+    pub hit_h: f32,
+    pub pivot_x: f32,
+    pub pivot_y: f32,
     pub pad: f32,
+    pub animation_preset: String,
+    pub animation_in_duration: f64,
+    pub animation_out_duration: f64,
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -132,6 +137,89 @@ pub(super) fn ease_out_cubic(t: f64) -> f64 {
 pub(super) fn ease_in_cubic(t: f64) -> f64 {
     let p = clamp01(t);
     p * p * p
+}
+
+pub(super) fn ease_out_back(t: f64) -> f64 {
+    let p = clamp01(t) - 1.0;
+    let s = 1.70158;
+    1.0 + (s + 1.0) * p * p * p + s * p * p
+}
+
+pub(super) struct TextVisualState {
+    pub alpha: f64,
+    pub scale: f64,
+    pub translate_y: f64,
+}
+
+pub(super) fn get_text_visual_state(
+    current_time: f64,
+    start_time: f64,
+    end_time: f64,
+    animation_preset: &str,
+    animation_in_duration: f64,
+    animation_out_duration: f64,
+    rect_h: f64,
+) -> TextVisualState {
+    if animation_preset == "none" {
+        return TextVisualState {
+            alpha: 1.0,
+            scale: 1.0,
+            translate_y: 0.0,
+        };
+    }
+
+    let elapsed = current_time - start_time;
+    let remaining = end_time - current_time;
+    let in_duration = animation_in_duration.max(0.001);
+    let out_duration = animation_out_duration.max(0.001);
+    let enter_t = clamp01(elapsed / in_duration);
+    let exit_t = clamp01(remaining / out_duration);
+
+    let mut alpha = 1.0;
+    if elapsed < in_duration {
+        alpha = enter_t;
+    }
+    if remaining < out_duration {
+        alpha = alpha.min(exit_t);
+    }
+
+    match animation_preset {
+        "slide-up" => {
+            let enter_offset = (rect_h * 0.35).max(18.0);
+            let exit_offset = (rect_h * 0.22).max(12.0);
+            let mut translate_y = 0.0;
+            if elapsed < in_duration {
+                translate_y = (1.0 - ease_out_cubic(enter_t)) * enter_offset;
+            }
+            if remaining < out_duration {
+                translate_y = translate_y.max((1.0 - ease_out_cubic(exit_t)) * exit_offset);
+            }
+            TextVisualState {
+                alpha,
+                scale: 1.0,
+                translate_y,
+            }
+        }
+        "pop" => {
+            let mut scale = 1.0;
+            if elapsed < in_duration {
+                scale = 0.9 + ease_out_back(enter_t) * 0.1;
+            }
+            if remaining < out_duration {
+                scale = 1.0 + (1.0 - ease_out_cubic(exit_t)) * 0.05;
+            }
+            TextVisualState {
+                alpha,
+                scale,
+                translate_y: 0.0,
+            }
+        }
+        _ => TextVisualState {
+            alpha,
+            scale: 1.0,
+            translate_y: 0.0,
+        },
+    }
 }
 
 pub(super) fn upper_bound(sorted: &[f64], value: f64) -> usize {

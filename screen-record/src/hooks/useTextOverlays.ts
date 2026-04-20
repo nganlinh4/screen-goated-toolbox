@@ -3,6 +3,14 @@ import {
   VideoSegment,
   TextSegment,
 } from "@/types/video";
+import {
+  DEFAULT_TEXT_ANIMATION,
+  DEFAULT_TEXT_LINE_HEIGHT,
+  DEFAULT_TEXT_SHADOW,
+  DEFAULT_TEXT_STROKE,
+  DEFAULT_TEXT_WRAP,
+  defaultTextBackground,
+} from "@/lib/textStyleDefaults";
 
 // ============================================================================
 // useTextOverlays
@@ -39,14 +47,12 @@ export function useTextOverlays(props: UseTextOverlaysProps) {
           textAlign: "center",
           opacity: 1,
           letterSpacing: 1,
-          background: {
-            enabled: true,
-            color: "#000000",
-            opacity: 0.6,
-            paddingX: 16,
-            paddingY: 8,
-            borderRadius: 32,
-          },
+          lineHeight: DEFAULT_TEXT_LINE_HEIGHT,
+          wrap: { ...DEFAULT_TEXT_WRAP },
+          stroke: { ...DEFAULT_TEXT_STROKE },
+          shadow: { ...DEFAULT_TEXT_SHADOW },
+          animation: { ...DEFAULT_TEXT_ANIMATION },
+          background: defaultTextBackground({ opacity: 0.6 }),
         },
       };
 
