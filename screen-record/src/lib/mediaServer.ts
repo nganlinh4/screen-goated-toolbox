@@ -43,6 +43,35 @@ export async function writeBlobToTempMediaFile(blob: Blob): Promise<string> {
   return data.path;
 }
 
+export async function importVideoToManagedMediaFile(
+  blob: Blob,
+  fileName?: string,
+): Promise<{ path: string; hasAudio: boolean }> {
+  const port = await getMediaServerPort();
+  const suffix = fileName ? `?filename=${encodeURIComponent(fileName)}` : "";
+  const response = await fetch(`http://127.0.0.1:${port}/import-video${suffix}`, {
+    method: "POST",
+    body: blob,
+  });
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
+    throw new Error(message || `Failed to import video (${response.status})`);
+  }
+  const data = (await response.json()) as { path?: string; hasAudio?: boolean };
+  if (!data.path) {
+    throw new Error("Imported video path missing");
+  }
+  return { path: data.path, hasAudio: data.hasAudio !== false };
+}
+
+export function isManagedImportedVideoPath(
+  path: string | null | undefined,
+): boolean {
+  if (!path) return false;
+  const normalizedPath = path.replace(/\\/g, "/").toLowerCase();
+  return normalizedPath.includes("/screen-goated-toolbox/recordings/imported-");
+}
+
 export function isManagedCompositionSnapshotPath(
   path: string | null | undefined,
 ): boolean {

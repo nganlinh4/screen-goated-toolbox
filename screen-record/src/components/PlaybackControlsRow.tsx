@@ -49,6 +49,8 @@ export interface PlaybackControlsRowProps {
   // Selection
   selectedSegmentCount?: number;
   onClearSelection?: () => void;
+  canMergeSelection?: boolean;
+  onMergeSelection?: () => void;
 }
 
 export function PlaybackControlsRow({
@@ -84,6 +86,8 @@ export function PlaybackControlsRow({
   handleSmartPointerHiding,
   selectedSegmentCount,
   onClearSelection,
+  canMergeSelection,
+  onMergeSelection,
 }: PlaybackControlsRowProps) {
   const { t } = useSettings();
 
@@ -173,6 +177,17 @@ export function PlaybackControlsRow({
               {t.smartPointer}
             </Button>
           ) : undefined}
+          mergeButton={
+            canMergeSelection && onMergeSelection ? (
+              <Button
+                onClick={onMergeSelection}
+                className="selection-merge-button ui-action-button flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg"
+                data-tone="accent"
+              >
+                {t.mergeSelection}
+              </Button>
+            ) : null
+          }
           selectionChip={
             selectedSegmentCount && selectedSegmentCount > 0 && onClearSelection ? (
               <Button

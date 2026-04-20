@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, Multipart, Path as AxumPath, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Json, Response},
     routing::{delete, get, post},
     Router,
@@ -17,12 +17,14 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
-use qwen3_asr_rs::inference::{AsrInference, KvCacheMode, kv_cache_mode_from_name, kv_cache_mode_name};
+use qwen3_asr_rs::inference::{
+    kv_cache_mode_from_name, kv_cache_mode_name, AsrInference, KvCacheMode,
+};
 
 fn resolve_kv_cache_mode() -> (KvCacheMode, Option<String>) {
     let requested = std::env::var("SGT_QWEN3_RUNTIME_KV_MODE")
@@ -45,13 +47,18 @@ fn resolve_kv_cache_mode() -> (KvCacheMode, Option<String>) {
 }
 use qwen3_asr_rs::streaming::{StreamingConfig, StreamingState, StreamingTranscript};
 use qwen3_asr_rs::tensor::Device;
+mod server_segmentation;
+use server_segmentation::{transcribe_with_segments, TimedTranscriptSegment};
 
 // ---------------------------------------------------------------------------
 // CLI arguments
 // ---------------------------------------------------------------------------
 
 #[derive(Parser, Debug)]
-#[command(name = "asr-server", about = "OpenAI-compatible ASR API server for Qwen3-ASR")]
+#[command(
+    name = "asr-server",
+    about = "OpenAI-compatible ASR API server for Qwen3-ASR"
+)]
 struct Args {
     /// Path to the Qwen3-ASR model directory
     #[arg(long)]
@@ -101,6 +108,7 @@ struct VerboseTranscriptionResponse {
     language: String,
     duration: f64,
     text: String,
+    segments: Vec<TimedTranscriptSegment>,
 }
 
 #[derive(Serialize)]
@@ -232,10 +240,9 @@ async fn transcribe_handler(
                 }
             }
             "response_format" => {
-                let val = field
-                    .text()
-                    .await
-                    .map_err(|e| AppError(anyhow::anyhow!("Failed to read response_format: {}", e)))?;
+                let val = field.text().await.map_err(|e| {
+                    AppError(anyhow::anyhow!("Failed to read response_format: {}", e))
+                })?;
                 if !val.is_empty() {
                     response_format = val;
                 }
@@ -248,8 +255,45 @@ async fn transcribe_handler(
     }
 
     // Validate file
-    let (filename, bytes) = file_bytes
-        .ok_or_else(|| AppError(anyhow::anyhow!("Missing required field: file")))?;
+    let (filename, bytes) =
+        file_bytes.ok_or_else(|| AppError(anyhow::anyhow!("Missing required field: file")))?;
+    transcribe_uploaded_bytes(state, filename, bytes, language, response_format).await
+}
+
+async fn transcribe_raw_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let filename = headers
+        .get("x-audio-filename")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("audio.wav")
+        .to_string();
+    let language = headers
+        .get("x-language")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let response_format = headers
+        .get("x-response-format")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("json")
+        .to_string();
+
+    transcribe_uploaded_bytes(state, filename, body.to_vec(), language, response_format).await
+}
+
+async fn transcribe_uploaded_bytes(
+    state: AppState,
+    filename: String,
+    bytes: Vec<u8>,
+    language: Option<String>,
+    response_format: String,
+) -> Result<Response, AppError> {
     if bytes.is_empty() {
         return Err(AppError(anyhow::anyhow!("Uploaded file is empty")));
     }
@@ -274,27 +318,54 @@ async fn transcribe_handler(
 
     // Run inference in blocking task (GPU-bound)
     let model = state.model.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let _keep = tmp_path; // ensure temp file lives until transcription completes
-        let model = model
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
-        model.transcribe(&tmp_path_str, lang.as_deref())
-    })
-    .await
-    .map_err(|e| AppError(anyhow::anyhow!("Blocking task failed: {}", e)))??;
-
     // Format response
     match response_format.as_str() {
-        "text" => Ok((StatusCode::OK, result.text).into_response()),
-        "verbose_json" => Ok(Json(VerboseTranscriptionResponse {
-            task: "transcribe".to_string(),
-            language: result.language,
-            duration: result.duration_seconds,
-            text: result.text,
-        })
-        .into_response()),
-        _ => Ok(Json(TranscriptionResponse { text: result.text }).into_response()),
+        "verbose_json" => {
+            let result = tokio::task::spawn_blocking(move || {
+                let _keep = tmp_path; // ensure temp file lives until transcription completes
+                let model = model
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
+                transcribe_with_segments(&model, &tmp_path_str, lang.as_deref())
+            })
+            .await
+            .map_err(|e| AppError(anyhow::anyhow!("Blocking task failed: {}", e)))??;
+
+            Ok(Json(VerboseTranscriptionResponse {
+                task: "transcribe".to_string(),
+                language: result.language,
+                duration: result.duration,
+                text: result.text,
+                segments: result.segments,
+            })
+            .into_response())
+        }
+        "text" => {
+            let result = tokio::task::spawn_blocking(move || {
+                let _keep = tmp_path; // ensure temp file lives until transcription completes
+                let model = model
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
+                model.transcribe(&tmp_path_str, lang.as_deref())
+            })
+            .await
+            .map_err(|e| AppError(anyhow::anyhow!("Blocking task failed: {}", e)))??;
+
+            Ok((StatusCode::OK, result.text).into_response())
+        }
+        _ => {
+            let result = tokio::task::spawn_blocking(move || {
+                let _keep = tmp_path; // ensure temp file lives until transcription completes
+                let model = model
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
+                model.transcribe(&tmp_path_str, lang.as_deref())
+            })
+            .await
+            .map_err(|e| AppError(anyhow::anyhow!("Blocking task failed: {}", e)))??;
+
+            Ok(Json(TranscriptionResponse { text: result.text }).into_response())
+        }
     }
 }
 
@@ -372,30 +443,27 @@ async fn transcribe_streaming_session_handler(
         .ok_or_else(|| AppError(anyhow::anyhow!("Unknown streaming session: {}", session_id)))?;
 
     let model = state.model.clone();
-    let (result, kv_cache_bytes, kv_cache_dense_bytes): (
-        StreamingTranscript,
-        usize,
-        usize,
-    ) = tokio::task::spawn_blocking(move || {
-        let model = model
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
-        let mut session = session
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Session lock poisoned: {}", e))?;
-        let transcript = if request.finalize {
-            model.finish_streaming_transcribe(&mut session, language.as_deref())
-        } else {
-            session.transcribe(&model, language.as_deref())
-        }?;
-        Ok::<_, anyhow::Error>((
-            transcript,
-            session.kv_cache_bytes(),
-            session.kv_cache_dense_bytes(),
-        ))
-    })
-    .await
-    .map_err(|e| AppError(anyhow::anyhow!("Blocking task failed: {}", e)))??;
+    let (result, kv_cache_bytes, kv_cache_dense_bytes): (StreamingTranscript, usize, usize) =
+        tokio::task::spawn_blocking(move || {
+            let model = model
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
+            let mut session = session
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Session lock poisoned: {}", e))?;
+            let transcript = if request.finalize {
+                model.finish_streaming_transcribe(&mut session, language.as_deref())
+            } else {
+                session.transcribe(&model, language.as_deref())
+            }?;
+            Ok::<_, anyhow::Error>((
+                transcript,
+                session.kv_cache_bytes(),
+                session.kv_cache_dense_bytes(),
+            ))
+        })
+        .await
+        .map_err(|e| AppError(anyhow::anyhow!("Blocking task failed: {}", e)))??;
 
     Ok(Json(StreamingTranscriptResponse {
         language: result.language,
@@ -527,7 +595,11 @@ async fn main() -> Result<()> {
     // Build router
     let app = Router::new()
         .route("/v1/audio/transcriptions", post(transcribe_handler))
-        .route("/v1/audio/streaming/sessions", post(create_streaming_session_handler))
+        .route("/v1/audio/transcriptions/raw", post(transcribe_raw_handler))
+        .route(
+            "/v1/audio/streaming/sessions",
+            post(create_streaming_session_handler),
+        )
         .route(
             "/v1/audio/streaming/sessions/:session_id/audio",
             post(append_streaming_audio_handler),
@@ -546,7 +618,7 @@ async fn main() -> Result<()> {
         )
         .route("/v1/models", get(models_handler))
         .route("/health", get(health_handler))
-        .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
+        .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);

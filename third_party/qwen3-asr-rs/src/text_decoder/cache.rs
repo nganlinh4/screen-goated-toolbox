@@ -36,9 +36,15 @@ impl KvCacheEntry {
         }
     }
 
-    pub fn len(&self) -> i64 { self.prefix_len() + self.dense_len }
-    pub(crate) fn dense_key_view(&self) -> Tensor { self.key.narrow(2, 0, self.dense_len) }
-    pub(crate) fn dense_value_view(&self) -> Tensor { self.value.narrow(2, 0, self.dense_len) }
+    pub fn len(&self) -> i64 {
+        self.prefix_len() + self.dense_len
+    }
+    pub(crate) fn dense_key_view(&self) -> Tensor {
+        self.key.narrow(2, 0, self.dense_len)
+    }
+    pub(crate) fn dense_value_view(&self) -> Tensor {
+        self.value.narrow(2, 0, self.dense_len)
+    }
 
     pub fn attend_with_quantized_prefix(
         &self,
@@ -56,7 +62,9 @@ impl KvCacheEntry {
         }
         let prefix = prefix.expect("non-zero prefix length must have compressed prefix");
         if q.device() == Device::Cpu {
-            return Some(self.cpu_attention_output_with_materialized_prefix(prefix, q, scale, mask));
+            return Some(
+                self.cpu_attention_output_with_materialized_prefix(prefix, q, scale, mask),
+            );
         }
 
         let prefix_logits = prefix.estimate_key_scores(q, scale);
@@ -75,7 +83,8 @@ impl KvCacheEntry {
         let mut output = prefix.weighted_value_sum(&prefix_weights);
         if self.dense_len > 0 {
             let dense_weights = weights.narrow(3, prefix_len, self.dense_len);
-            let dense_output = dense_tail_weighted_value_sum(&dense_weights, &self.dense_value_view());
+            let dense_output =
+                dense_tail_weighted_value_sum(&dense_weights, &self.dense_value_view());
             let output_kind = output.kind();
             output = if output_kind == dense_output.kind() {
                 output + dense_output
@@ -114,11 +123,20 @@ impl KvCacheEntry {
         Tensor::scaled_dot_product_attention(q, &key, &value, scale, mask)
     }
     fn dense_attention_output(&self, q: &Tensor, scale: f64, mask: Option<&Tensor>) -> Tensor {
-        Tensor::scaled_dot_product_attention(q, &self.dense_key_view(), &self.dense_value_view(), scale, mask)
+        Tensor::scaled_dot_product_attention(
+            q,
+            &self.dense_key_view(),
+            &self.dense_value_view(),
+            scale,
+            mask,
+        )
     }
 
     pub fn compressed_prefix_bytes(&self) -> usize {
-        self.quantized_prefix.as_ref().map(TurboQuantKvPrefix::compressed_bytes).unwrap_or(0)
+        self.quantized_prefix
+            .as_ref()
+            .map(TurboQuantKvPrefix::compressed_bytes)
+            .unwrap_or(0)
     }
 
     pub fn dense_prefix_equivalent_bytes(&self) -> usize {
@@ -130,7 +148,9 @@ impl KvCacheEntry {
 
     pub fn dense_tail_bytes(&self) -> usize {
         let shape = self.key.size();
-        (shape[0] * shape[1] * self.dense_len * shape[3]) as usize * dtype_bytes(self.key.kind()) * 2
+        (shape[0] * shape[1] * self.dense_len * shape[3]) as usize
+            * dtype_bytes(self.key.kind())
+            * 2
     }
 
     pub fn total_cache_bytes(&self) -> usize {
@@ -138,20 +158,32 @@ impl KvCacheEntry {
     }
 
     #[cfg(test)]
-    pub(crate) fn quantized_prefix_len(&self) -> i64 { self.prefix_len() }
+    pub(crate) fn quantized_prefix_len(&self) -> i64 {
+        self.prefix_len()
+    }
     #[cfg(test)]
-    pub(crate) fn dense_capacity(&self) -> i64 { self.dense_capacity }
+    pub(crate) fn dense_capacity(&self) -> i64 {
+        self.dense_capacity
+    }
     #[cfg(test)]
-    pub(crate) fn key_view(&self) -> Tensor { self.merge_prefix_and_dense(false) }
+    pub(crate) fn key_view(&self) -> Tensor {
+        self.merge_prefix_and_dense(false)
+    }
     #[cfg(test)]
-    pub(crate) fn value_view(&self) -> Tensor { self.merge_prefix_and_dense(true) }
+    pub(crate) fn value_view(&self) -> Tensor {
+        self.merge_prefix_and_dense(true)
+    }
 
     pub fn ensure_capacity(&mut self, required: i64) {
         if required <= self.dense_capacity {
             return;
         }
 
-        let new_capacity = self.dense_capacity.max(1).max(required).max(self.dense_capacity * 2);
+        let new_capacity = self
+            .dense_capacity
+            .max(1)
+            .max(required)
+            .max(self.dense_capacity * 2);
         let key_shape = self.key.size();
         let key = Tensor::zeros(
             &[key_shape[0], key_shape[1], new_capacity, key_shape[3]],
@@ -159,7 +191,11 @@ impl KvCacheEntry {
             self.key.device(),
         );
         let mut key = key;
-        copy_prefix_into_reserved_buffer(&mut key, &self.key.narrow(2, 0, self.dense_len), self.dense_len);
+        copy_prefix_into_reserved_buffer(
+            &mut key,
+            &self.key.narrow(2, 0, self.dense_len),
+            self.dense_len,
+        );
         self.key = key;
 
         let value_shape = self.value.size();
@@ -198,18 +234,26 @@ impl KvCacheEntry {
         self.offload_quantized_prefix();
     }
 
-    pub fn finalize_prefill_offload(&mut self) { self.offload_quantized_prefix(); }
+    pub fn finalize_prefill_offload(&mut self) {
+        self.offload_quantized_prefix();
+    }
 
     fn deep_copy_with_capacity(&self, required_capacity: i64) -> Self {
         self.copy_dense_window_with_prefix(
             0,
             self.dense_len,
-            self.dense_capacity.max(required_capacity).max(self.dense_len),
-            self.quantized_prefix.as_ref().map(TurboQuantKvPrefix::storage_clone),
+            self.dense_capacity
+                .max(required_capacity)
+                .max(self.dense_len),
+            self.quantized_prefix
+                .as_ref()
+                .map(TurboQuantKvPrefix::storage_clone),
         )
     }
 
-    fn deep_copy_with_dense_reserve(&self, additional_dense_tokens: i64) -> Self { self.deep_copy_with_capacity(self.dense_len + additional_dense_tokens) }
+    fn deep_copy_with_dense_reserve(&self, additional_dense_tokens: i64) -> Self {
+        self.deep_copy_with_capacity(self.dense_len + additional_dense_tokens)
+    }
 
     fn into_with_dense_reserve(mut self, additional_dense_tokens: i64) -> Self {
         self.ensure_capacity(self.dense_len + additional_dense_tokens);
@@ -229,22 +273,45 @@ impl KvCacheEntry {
     }
 
     fn prefix_len(&self) -> i64 {
-        self.quantized_prefix.as_ref().map(TurboQuantKvPrefix::key_len).unwrap_or(0)
+        self.quantized_prefix
+            .as_ref()
+            .map(TurboQuantKvPrefix::key_len)
+            .unwrap_or(0)
     }
 
     #[cfg(test)]
     fn merge_prefix_and_dense(&self, use_value: bool) -> Tensor {
-        let dense = if use_value { self.value.narrow(2, 0, self.dense_len) } else { self.key.narrow(2, 0, self.dense_len) };
+        let dense = if use_value {
+            self.value.narrow(2, 0, self.dense_len)
+        } else {
+            self.key.narrow(2, 0, self.dense_len)
+        };
         if let Some(prefix) = &self.quantized_prefix {
-            let prefix = if use_value { prefix.value_view() } else { prefix.key_view() };
-            if self.dense_len == 0 { prefix } else { Tensor::cat(&[prefix, dense], 2) }
+            let prefix = if use_value {
+                prefix.value_view()
+            } else {
+                prefix.key_view()
+            };
+            if self.dense_len == 0 {
+                prefix
+            } else {
+                Tensor::cat(&[prefix, dense], 2)
+            }
         } else {
             dense
         }
     }
 
-    fn copy_dense_window_with_prefix(&self, start: i64, len: i64, capacity: i64, quantized_prefix: Option<TurboQuantKvPrefix>) -> Self {
-        if len == 0 { return self.empty_dense_window_with_prefix(capacity, quantized_prefix); }
+    fn copy_dense_window_with_prefix(
+        &self,
+        start: i64,
+        len: i64,
+        capacity: i64,
+        quantized_prefix: Option<TurboQuantKvPrefix>,
+    ) -> Self {
+        if len == 0 {
+            return self.empty_dense_window_with_prefix(capacity, quantized_prefix);
+        }
         let capacity = capacity.max(len);
         let key_shape = self.key.size();
         let value_shape = self.value.size();
@@ -293,8 +360,11 @@ impl KvCacheEntry {
         if let Some(prefix) = quantized_prefix.as_mut() {
             prefix.append_dense_tokens(&prefix_key, &prefix_value);
         } else {
-            quantized_prefix =
-                Some(TurboQuantKvPrefix::quantize_appending(None, &prefix_key, &prefix_value));
+            quantized_prefix = Some(TurboQuantKvPrefix::quantize_appending(
+                None,
+                &prefix_key,
+                &prefix_value,
+            ));
         }
 
         let new_capacity = remaining_len;
@@ -306,22 +376,57 @@ impl KvCacheEntry {
         );
     }
 
-    fn empty_dense_window_with_prefix(&self, capacity: i64, quantized_prefix: Option<TurboQuantKvPrefix>) -> Self {
-        let key_shape = self.key.size(); let value_shape = self.value.size();
-        Self { mode: self.mode, quantized_prefix, key: Tensor::zeros(&[key_shape[0], key_shape[1], capacity, key_shape[3]], self.key.kind(), self.key.device()), value: Tensor::zeros(&[value_shape[0], value_shape[1], capacity, value_shape[3]], self.value.kind(), self.value.device()), dense_len: 0, dense_capacity: capacity }
+    fn empty_dense_window_with_prefix(
+        &self,
+        capacity: i64,
+        quantized_prefix: Option<TurboQuantKvPrefix>,
+    ) -> Self {
+        let key_shape = self.key.size();
+        let value_shape = self.value.size();
+        Self {
+            mode: self.mode,
+            quantized_prefix,
+            key: Tensor::zeros(
+                &[key_shape[0], key_shape[1], capacity, key_shape[3]],
+                self.key.kind(),
+                self.key.device(),
+            ),
+            value: Tensor::zeros(
+                &[value_shape[0], value_shape[1], capacity, value_shape[3]],
+                self.value.kind(),
+                self.value.device(),
+            ),
+            dense_len: 0,
+            dense_capacity: capacity,
+        }
     }
 }
 
 impl KvCache {
     pub fn new(num_layers: usize, mode: KvCacheMode) -> Self {
-        Self { mode, layers: (0..num_layers).map(|_| None).collect() }
+        Self {
+            mode,
+            layers: (0..num_layers).map(|_| None).collect(),
+        }
     }
 
-    pub fn get_mut(&mut self, layer: usize) -> &mut Option<KvCacheEntry> { &mut self.layers[layer] }
-    pub fn mode(&self) -> KvCacheMode { self.mode }
-    pub fn seq_len(&self) -> i64 { self.layers[0].as_ref().map(KvCacheEntry::len).unwrap_or(0) }
+    pub fn get_mut(&mut self, layer: usize) -> &mut Option<KvCacheEntry> {
+        &mut self.layers[layer]
+    }
+    pub fn mode(&self) -> KvCacheMode {
+        self.mode
+    }
+    pub fn seq_len(&self) -> i64 {
+        self.layers[0].as_ref().map(KvCacheEntry::len).unwrap_or(0)
+    }
 
-    pub fn total_cache_bytes(&self) -> usize { self.layers.iter().filter_map(|entry| entry.as_ref()).map(KvCacheEntry::total_cache_bytes).sum() }
+    pub fn total_cache_bytes(&self) -> usize {
+        self.layers
+            .iter()
+            .filter_map(|entry| entry.as_ref())
+            .map(KvCacheEntry::total_cache_bytes)
+            .sum()
+    }
 
     pub fn dense_equivalent_cache_bytes(&self) -> usize {
         self.layers
@@ -333,7 +438,18 @@ impl KvCache {
 
     pub fn deep_copy_with_reserve(&self, additional_tokens: usize) -> Self {
         let additional_tokens = additional_tokens as i64;
-        Self { mode: self.mode, layers: self.layers.iter().map(|entry| entry.as_ref().map(|entry| entry.deep_copy_with_dense_reserve(additional_tokens))).collect() }
+        Self {
+            mode: self.mode,
+            layers: self
+                .layers
+                .iter()
+                .map(|entry| {
+                    entry
+                        .as_ref()
+                        .map(|entry| entry.deep_copy_with_dense_reserve(additional_tokens))
+                })
+                .collect(),
+        }
     }
 
     pub fn into_with_reserve(self, additional_tokens: usize) -> Self {
@@ -350,7 +466,18 @@ impl KvCache {
 
     pub fn deep_copy_generation_ready(&self, additional_tokens: usize) -> Self {
         let additional_tokens = additional_tokens as i64;
-        Self { mode: self.mode, layers: self.layers.iter().map(|entry| entry.as_ref().map(|entry| entry.deep_copy_generation_ready(additional_tokens))).collect() }
+        Self {
+            mode: self.mode,
+            layers: self
+                .layers
+                .iter()
+                .map(|entry| {
+                    entry
+                        .as_ref()
+                        .map(|entry| entry.deep_copy_generation_ready(additional_tokens))
+                })
+                .collect(),
+        }
     }
 
     pub fn into_generation_ready(self, additional_tokens: usize) -> Self {
@@ -386,13 +513,25 @@ pub struct DecoderState {
 
 impl DecoderState {
     pub fn new(num_layers: usize, kv_cache_mode: KvCacheMode) -> Self {
-        Self { kv_cache: KvCache::new(num_layers, kv_cache_mode), next_position: 0, last_logits: None }
+        Self {
+            kv_cache: KvCache::new(num_layers, kv_cache_mode),
+            next_position: 0,
+            last_logits: None,
+        }
     }
 
-    pub fn next_position(&self) -> usize { self.next_position }
-    pub fn cached_seq_len(&self) -> i64 { self.kv_cache.seq_len() }
-    pub fn total_cache_bytes(&self) -> usize { self.kv_cache.total_cache_bytes() }
-    pub fn dense_equivalent_cache_bytes(&self) -> usize { self.kv_cache.dense_equivalent_cache_bytes() }
+    pub fn next_position(&self) -> usize {
+        self.next_position
+    }
+    pub fn cached_seq_len(&self) -> i64 {
+        self.kv_cache.seq_len()
+    }
+    pub fn total_cache_bytes(&self) -> usize {
+        self.kv_cache.total_cache_bytes()
+    }
+    pub fn dense_equivalent_cache_bytes(&self) -> usize {
+        self.kv_cache.dense_equivalent_cache_bytes()
+    }
 
     pub fn deep_copy_with_reserve(&self, additional_tokens: usize) -> Self {
         Self {
@@ -420,14 +559,21 @@ impl DecoderState {
         self
     }
 
-    pub(crate) fn advance_by(&mut self, tokens: usize) { self.next_position += tokens; }
+    pub(crate) fn advance_by(&mut self, tokens: usize) {
+        self.next_position += tokens;
+    }
 }
 
 pub fn create_causal_mask(seq_len: i64, past_len: i64, device: Device) -> Tensor {
-    Tensor::full(&[seq_len, past_len + seq_len], f64::NEG_INFINITY, DType::Float32, device)
-        .triu(past_len + 1)
-        .unsqueeze(0)
-        .unsqueeze(0)
+    Tensor::full(
+        &[seq_len, past_len + seq_len],
+        f64::NEG_INFINITY,
+        DType::Float32,
+        device,
+    )
+    .triu(past_len + 1)
+    .unsqueeze(0)
+    .unsqueeze(0)
 }
 
 const RECENT_DENSE_TAIL_TOKENS: i64 = 32;

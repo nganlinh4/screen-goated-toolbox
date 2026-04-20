@@ -1,6 +1,8 @@
-import React, { useCallback, useMemo, useState, type MutableRefObject, type RefObject } from "react";
+import React, { useCallback, useEffect, useMemo, useState, type MutableRefObject, type RefObject } from "react";
 import {
   BackgroundConfig,
+  SubtitleSegment,
+  TextSegment,
   VideoSegment,
   WebcamConfig,
 } from "@/types/video";
@@ -10,6 +12,14 @@ import { PlaybackControlsRow } from "@/components/PlaybackControlsRow";
 import { SidePanel, type ActivePanel } from "@/components/sidepanel/index";
 import { TimelineArea } from "@/components/timeline";
 import type { CanvasModeToggleProps } from "@/components/CanvasModeToggle";
+import type { SubtitleMethod } from "@/hooks/useSubtitleGeneration";
+import { createManualSubtitleSegment } from "@/lib/subtitleDefaults";
+import type { SubtitleGenerationIndicator } from "@/lib/subtitleGenerationPlan";
+import {
+  deriveSelectionRangeFromIds,
+  mergeTextSegmentsInRange,
+  type TrackSelectionRange,
+} from "@/lib/timelineSegmentSelection";
 
 export interface EditorMainProps {
   // Error
@@ -92,11 +102,17 @@ export interface EditorMainProps {
   editingSubtitleId: string | null;
   subtitleSource: 'video' | 'mic';
   onSubtitleSourceChange: (value: 'video' | 'mic') => void;
+  subtitleMethod: SubtitleMethod;
+  onSubtitleMethodChange: (value: SubtitleMethod) => void;
+  subtitleMethodCapabilities: Array<{ method: SubtitleMethod; available: boolean; reason?: string | null }>;
+  canUseSelectedSubtitleMethod: boolean;
+  selectedSubtitleMethodReason?: string | null;
   subtitleLanguageHint: string;
   onSubtitleLanguageHintChange: (value: string) => void;
   isGeneratingSubtitles: boolean;
   subtitleStatusMessage?: string | null;
-  handleGenerateSubtitles: () => void;
+  subtitleGenerationIndicator?: SubtitleGenerationIndicator | null;
+  handleGenerateSubtitles: (selectedRange?: TrackSelectionRange | null) => void;
   handleCancelSubtitleGeneration: () => void;
   // TimelineArea props
   thumbnails: string[];
@@ -190,10 +206,16 @@ export function EditorMain({
   editingSubtitleId,
   subtitleSource,
   onSubtitleSourceChange,
+  subtitleMethod,
+  onSubtitleMethodChange,
+  subtitleMethodCapabilities,
+  canUseSelectedSubtitleMethod,
+  selectedSubtitleMethodReason,
   subtitleLanguageHint,
   onSubtitleLanguageHintChange,
   isGeneratingSubtitles,
   subtitleStatusMessage,
+  subtitleGenerationIndicator,
   handleGenerateSubtitles,
   handleCancelSubtitleGeneration,
   thumbnails,
@@ -226,6 +248,7 @@ export function EditorMain({
 
   const [selectedTextIds, setSelectedTextIds] = useState<string[]>([]);
   const [selectedSubtitleIds, setSelectedSubtitleIds] = useState<string[]>([]);
+  const [selectedSubtitleRange, setSelectedSubtitleRange] = useState<TrackSelectionRange | null>(null);
   const [selectedPointerIds, setSelectedPointerIds] = useState<string[]>([]);
   const [selectedKeystrokeIds, setSelectedKeystrokeIds] = useState<string[]>([]);
   const [selectedWebcamIds, setSelectedWebcamIds] = useState<string[]>([]);
@@ -238,6 +261,10 @@ export function EditorMain({
     setSelectedSubtitleIds(ids);
     if (ids.length > 0) setActivePanel('subtitles');
   }, [setActivePanel]);
+  const handleSubtitleRangeChange = useCallback((range: TrackSelectionRange | null) => {
+    setSelectedSubtitleRange(range);
+    if (range) setActivePanel('subtitles');
+  }, [setActivePanel]);
   const handlePointerSelectionChange = useCallback((ids: string[]) => setSelectedPointerIds(ids), []);
   const handleKeystrokeSelectionChange = useCallback((ids: string[]) => setSelectedKeystrokeIds(ids), []);
   const handleWebcamSelectionChange = useCallback((ids: string[]) => setSelectedWebcamIds(ids), []);
@@ -247,11 +274,103 @@ export function EditorMain({
   const clearAllSelections = useCallback(() => {
     setSelectedTextIds([]);
     setSelectedSubtitleIds([]);
+    setSelectedSubtitleRange(null);
     setSelectedPointerIds([]);
     setSelectedKeystrokeIds([]);
     setSelectedWebcamIds([]);
     setClearSignal(c => c + 1);
   }, []);
+
+  const textMergeRange = useMemo(
+    () => deriveSelectionRangeFromIds(selectedTextIds, segment?.textSegments ?? []),
+    [segment?.textSegments, selectedTextIds],
+  );
+  const subtitleMergeRange = useMemo(
+    () => deriveSelectionRangeFromIds(selectedSubtitleIds, segment?.subtitleSegments ?? []),
+    [segment?.subtitleSegments, selectedSubtitleIds],
+  );
+
+  const mergeTarget = useMemo(() => {
+    if (activePanel === 'subtitles' && selectedSubtitleIds.length >= 2) return 'subtitles' as const;
+    if (activePanel === 'text' && selectedTextIds.length >= 2) return 'text' as const;
+    if (selectedSubtitleIds.length >= 2) return 'subtitles' as const;
+    if (selectedTextIds.length >= 2) return 'text' as const;
+    return null;
+  }, [activePanel, selectedSubtitleIds.length, selectedTextIds.length]);
+
+  const handleMergeSelection = useCallback(() => {
+    if (!segment || !mergeTarget) return;
+
+    if (mergeTarget === 'text' && textMergeRange) {
+      const result = mergeTextSegmentsInRange<TextSegment>(
+        segment.textSegments,
+        textMergeRange,
+        '\n',
+      );
+      if (!result.merged) return;
+      setSegment({
+        ...segment,
+        textSegments: result.segments,
+      });
+      setEditingTextId(result.merged.id);
+      setEditingSubtitleId(null);
+      setActivePanel('text');
+      clearAllSelections();
+      return;
+    }
+
+    if (mergeTarget === 'subtitles' && subtitleMergeRange) {
+      const result = mergeTextSegmentsInRange<SubtitleSegment>(
+        segment.subtitleSegments ?? [],
+        subtitleMergeRange,
+        ' ',
+      );
+      if (!result.merged) return;
+      setSegment({
+        ...segment,
+        subtitleSegments: result.segments,
+      });
+      setEditingSubtitleId(result.merged.id);
+      setActivePanel('subtitles');
+      clearAllSelections();
+    }
+  }, [
+    clearAllSelections,
+    mergeTarget,
+    segment,
+    setActivePanel,
+    setEditingSubtitleId,
+    setEditingTextId,
+    setSegment,
+    subtitleMergeRange,
+    textMergeRange,
+  ]);
+
+  const handleAddSubtitle = useCallback((atTime?: number) => {
+    if (!segment) return;
+    const subtitle = createManualSubtitleSegment(atTime ?? currentTime, duration);
+    setSegment({
+      ...segment,
+      subtitleSegments: [...(segment.subtitleSegments ?? []), subtitle],
+    });
+    setEditingSubtitleId(subtitle.id);
+    setActivePanel('subtitles');
+  }, [currentTime, duration, segment, setActivePanel, setEditingSubtitleId, setSegment]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+      if (event.code !== 'KeyM') return;
+      if (!mergeTarget) return;
+      event.preventDefault();
+      handleMergeSelection();
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [handleMergeSelection, mergeTarget]);
 
   const wallClockCurrentTime = useMemo(() => {
     const pts = segment?.speedPoints;
@@ -339,6 +458,8 @@ export function EditorMain({
             handleAutoZoomConfigChange={handleAutoZoomConfigChange}
             handleSmartPointerHiding={handleSmartPointerHiding}
             selectedSegmentCount={totalSelectedCount}
+            canMergeSelection={mergeTarget !== null}
+            onMergeSelection={handleMergeSelection}
             onClearSelection={clearAllSelections}
           />
 
@@ -366,15 +487,21 @@ export function EditorMain({
             isBackgroundUploadProcessing={isBackgroundUploadProcessing}
             editingTextId={editingTextId}
             selectedSubtitleIds={selectedSubtitleIds}
+            selectedSubtitleRange={selectedSubtitleRange}
             subtitleSource={subtitleSource}
             onSubtitleSourceChange={onSubtitleSourceChange}
+            subtitleMethod={subtitleMethod}
+            onSubtitleMethodChange={onSubtitleMethodChange}
+            subtitleMethodCapabilities={subtitleMethodCapabilities}
+            canUseSelectedSubtitleMethod={canUseSelectedSubtitleMethod}
+            selectedSubtitleMethodReason={selectedSubtitleMethodReason}
             subtitleLanguageHint={subtitleLanguageHint}
             onSubtitleLanguageHintChange={onSubtitleLanguageHintChange}
             isGeneratingSubtitles={isGeneratingSubtitles}
             subtitleStatusMessage={subtitleStatusMessage}
             canUseVideoSubtitleSource={segment?.deviceAudioAvailable !== false}
             canUseMicSubtitleSource={Boolean(segment?.micAudioAvailable)}
-            onGenerateSubtitles={handleGenerateSubtitles}
+            onGenerateSubtitles={() => handleGenerateSubtitles(selectedSubtitleRange)}
             onCancelSubtitleGeneration={handleCancelSubtitleGeneration}
             selectedTextIds={selectedTextIds}
             hasMouseData={mousePositionsLength > 0}
@@ -414,6 +541,7 @@ export function EditorMain({
           onSeek={seek}
           onSeekEnd={flushSeek}
           onAddText={handleAddText}
+          onAddSubtitle={handleAddSubtitle}
           onAddKeystrokeSegment={handleAddKeystrokeSegment}
           onAddPointerSegment={handleAddPointerSegment}
           isPlaying={isPlaying}
@@ -425,11 +553,13 @@ export function EditorMain({
           commitBatch={commitBatch}
           onTextSelectionChange={handleTextSelectionChange}
           onSubtitleSelectionChange={handleSubtitleSelectionChange}
+          onSubtitleRangeChange={handleSubtitleRangeChange}
           onPointerSelectionChange={handlePointerSelectionChange}
           onKeystrokeSelectionChange={handleKeystrokeSelectionChange}
           onWebcamSelectionChange={handleWebcamSelectionChange}
           clearSelectionSignal={clearSignal}
           hasMouseData={mousePositionsLength > 0}
+          subtitleGenerationIndicator={subtitleGenerationIndicator}
         />
         {isOverlayMode && (
           <div className="timeline-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />

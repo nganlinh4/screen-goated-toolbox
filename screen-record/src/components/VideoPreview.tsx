@@ -178,6 +178,7 @@ interface PlaybackControlsProps {
   keystrokeToggle?: React.ReactNode;
   autoZoomButton?: React.ReactNode;
   smartPointerButton?: React.ReactNode;
+  mergeButton?: React.ReactNode;
   selectionChip?: React.ReactNode;
 }
 
@@ -197,6 +198,7 @@ export function PlaybackControls({
   keystrokeToggle,
   autoZoomButton,
   smartPointerButton,
+  mergeButton,
   selectionChip,
 }: PlaybackControlsProps) {
   const { t } = useSettings();
@@ -289,6 +291,12 @@ export function PlaybackControls({
         <>
           <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
           {smartPointerButton}
+        </>
+      )}
+      {mergeButton && (
+        <>
+          <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
+          {mergeButton}
         </>
       )}
       {selectionChip && (

@@ -416,13 +416,20 @@ function App() {
     setEditingSubtitleId,
     subtitleSource,
     setSubtitleSource,
+    subtitleMethod,
+    setSubtitleMethod,
+    subtitleMethodCapabilities,
+    canUseSelectedSubtitleMethod,
+    selectedSubtitleMethodReason,
     subtitleLanguageHint,
     setSubtitleLanguageHint,
     isGeneratingSubtitles,
     subtitleStatusMessage,
+    subtitleGenerationIndicator,
     handleGenerateSubtitles,
     handleCancelSubtitleGeneration,
   } = useSubtitleGeneration({
+    t: settings.t,
     segment,
     setSegment: setSegment as (segment: VideoSegment | null | ((prev: VideoSegment | null) => VideoSegment | null)) => void,
     composition,
@@ -746,10 +753,16 @@ function App() {
           editingSubtitleId={editingSubtitleId}
           subtitleSource={subtitleSource}
           onSubtitleSourceChange={setSubtitleSource}
+          subtitleMethod={subtitleMethod}
+          onSubtitleMethodChange={setSubtitleMethod}
+          subtitleMethodCapabilities={subtitleMethodCapabilities}
+          canUseSelectedSubtitleMethod={canUseSelectedSubtitleMethod}
+          selectedSubtitleMethodReason={selectedSubtitleMethodReason}
           subtitleLanguageHint={subtitleLanguageHint}
           onSubtitleLanguageHintChange={setSubtitleLanguageHint}
           isGeneratingSubtitles={isGeneratingSubtitles}
           subtitleStatusMessage={subtitleStatusMessage}
+          subtitleGenerationIndicator={subtitleGenerationIndicator}
           handleGenerateSubtitles={handleGenerateSubtitles}
           handleCancelSubtitleGeneration={handleCancelSubtitleGeneration}
           thumbnails={thumbnails}

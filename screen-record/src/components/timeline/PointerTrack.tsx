@@ -44,7 +44,14 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
     selectedIds, rangeSelect, trackRef, isDraggingRange,
     onSegmentPointerDown,
     handleTrackPointerDown, handleTrackPointerMove, handleTrackPointerUp,
-  } = useTrackRangeSelect(segments, duration, onSelectionChange, onDeletePointerSegments, clearSignal);
+  } = useTrackRangeSelect(
+    segments,
+    duration,
+    onSelectionChange,
+    undefined,
+    onDeletePointerSegments,
+    clearSignal,
+  );
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isDraggingRange.current) return;

@@ -282,6 +282,9 @@ pub fn handle_ipc_command(
         "start_recording" => recording::handle_start_recording(&args),
         "stop_recording" => recording::handle_stop_recording(),
         "start_subtitle_generation" => subtitles::handle_start_subtitle_generation(&args),
+        "get_subtitle_generation_capabilities" => {
+            subtitles::handle_get_subtitle_generation_capabilities(&args)
+        }
         "get_subtitle_generation_status" => subtitles::handle_get_subtitle_generation_status(&args),
         "cancel_subtitle_generation" => subtitles::handle_cancel_subtitle_generation(&args),
         "get_hotkeys" => hotkeys::handle_get_hotkeys(),

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import type { VideoSegment } from "@/types/video";
 import { useSettings } from "@/hooks/useSettings";
+import type { SubtitleGenerationIndicator } from "@/lib/subtitleGenerationPlan";
+import type { TrackSelectionRange } from "@/lib/timelineSegmentSelection";
 import { KeystrokeTrack } from "./KeystrokeTrack";
 import { MicTrack } from "./MicTrack";
 import { Playhead } from "./Playhead";
@@ -21,6 +23,7 @@ import {
   clampVisibilitySegmentsToDuration,
   mergePointerSegments,
 } from "@/lib/cursorHiding";
+import { buildTextSplitPreview } from "@/lib/textSplitPreview";
 
 const TIMELINE_TRACK_GAP_PX = 2;
 const TIMELINE_TRACK_HEIGHTS = {
@@ -59,6 +62,7 @@ interface TimelineAreaProps {
   onSeek?: (time: number) => void;
   onSeekEnd?: () => void;
   onAddText?: (atTime?: number) => void;
+  onAddSubtitle?: (atTime?: number) => void;
   onAddKeystrokeSegment?: (atTime?: number) => void;
   onAddPointerSegment?: (atTime?: number) => void;
   isPlaying?: boolean;
@@ -71,11 +75,13 @@ interface TimelineAreaProps {
   commitBatch: () => void;
   onTextSelectionChange?: (ids: string[]) => void;
   onSubtitleSelectionChange?: (ids: string[]) => void;
+  onSubtitleRangeChange?: (range: TrackSelectionRange | null) => void;
   onPointerSelectionChange?: (ids: string[]) => void;
   onKeystrokeSelectionChange?: (ids: string[]) => void;
   onWebcamSelectionChange?: (ids: string[]) => void;
   clearSelectionSignal?: number;
   hasMouseData?: boolean;
+  subtitleGenerationIndicator?: SubtitleGenerationIndicator | null;
 }
 
 export const TimelineArea: React.FC<TimelineAreaProps> = ({
@@ -100,6 +106,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   onSeek,
   onSeekEnd,
   onAddText,
+  onAddSubtitle,
   onAddKeystrokeSegment,
   onAddPointerSegment,
   isPlaying,
@@ -112,11 +119,13 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   commitBatch,
   onTextSelectionChange,
   onSubtitleSelectionChange,
+  onSubtitleRangeChange,
   onPointerSelectionChange,
   onKeystrokeSelectionChange,
   onWebcamSelectionChange,
   clearSelectionSignal,
   hasMouseData = true,
+  subtitleGenerationIndicator,
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
@@ -277,8 +286,27 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
       commitBatch();
       return;
     }
-    const left = { ...target, endTime: splitTime - 0.01 };
-    const right = { ...target, id: crypto.randomUUID(), startTime: splitTime + 0.01 };
+    const preview = buildTextSplitPreview({
+      text: target.text,
+      startTime: target.startTime,
+      endTime: target.endTime,
+      splitTime,
+    });
+    if (!preview) {
+      commitBatch();
+      return;
+    }
+    const left = {
+      ...target,
+      endTime: splitTime - 0.01,
+      text: preview.leftText,
+    };
+    const right = {
+      ...target,
+      id: crypto.randomUUID(),
+      startTime: splitTime + 0.01,
+      text: preview.rightText,
+    };
     setSegment({
       ...segment,
       textSegments: texts.map(t => t.id === id ? left : t).concat(right),
@@ -304,8 +332,27 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
       commitBatch();
       return;
     }
-    const left = { ...target, endTime: splitTime - 0.01 };
-    const right = { ...target, id: crypto.randomUUID(), startTime: splitTime + 0.01 };
+    const preview = buildTextSplitPreview({
+      text: target.text,
+      startTime: target.startTime,
+      endTime: target.endTime,
+      splitTime,
+    });
+    if (!preview) {
+      commitBatch();
+      return;
+    }
+    const left = {
+      ...target,
+      endTime: splitTime - 0.01,
+      text: preview.leftText,
+    };
+    const right = {
+      ...target,
+      id: crypto.randomUUID(),
+      startTime: splitTime + 0.01,
+      text: preview.rightText,
+    };
     setSegment({
       ...segment,
       subtitleSegments: subtitles.map((subtitle) => subtitle.id === id ? left : subtitle).concat(right),
@@ -634,9 +681,12 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       onSubtitleClick={handleSubtitleClick}
                       onSubtitleSplit={handleSubtitleSplit}
                       onHandleDragStart={handleSubtitleDragStart}
+                      onAddSubtitle={onAddSubtitle}
                       onDeleteSubtitleSegments={handleDeleteSubtitleSegments}
                       onSelectionChange={onSubtitleSelectionChange}
+                      onRangeChange={onSubtitleRangeChange}
                       clearSignal={clearSelectionSignal}
+                      generationIndicator={subtitleGenerationIndicator}
                     />
                   ) : (
                     <div className="subtitle-track-empty timeline-track-empty h-7" />

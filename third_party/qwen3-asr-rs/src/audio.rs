@@ -26,12 +26,20 @@ fn load_audio_symphonia(path: &str, target_sample_rate: u32) -> Result<Vec<f32>>
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
     let mut hint = Hint::new();
-    if let Some(ext) = std::path::Path::new(path).extension().and_then(|e| e.to_str()) {
+    if let Some(ext) = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+    {
         hint.with_extension(ext);
     }
 
     let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
         .context("Failed to probe audio format")?;
 
     let mut format = probed.format;
@@ -41,11 +49,11 @@ fn load_audio_symphonia(path: &str, target_sample_rate: u32) -> Result<Vec<f32>>
         .ok_or_else(|| anyhow::anyhow!("No audio track found in {}", path))?;
 
     let track_id = track.id;
-    let source_sample_rate = track.codec_params.sample_rate
+    let source_sample_rate = track
+        .codec_params
+        .sample_rate
         .ok_or_else(|| anyhow::anyhow!("Unknown sample rate"))?;
-    let channels = track.codec_params.channels
-        .map(|c| c.count())
-        .unwrap_or(1);
+    let channels = track.codec_params.channels.map(|c| c.count()).unwrap_or(1);
 
     let mut decoder = symphonia::default::get_codecs()
         .make(&track.codec_params, &DecoderOptions::default())
@@ -134,12 +142,7 @@ fn load_audio_wav(path: &str, target_sample_rate: u32) -> Result<Vec<f32>> {
                 .map(|s| s.unwrap() as f32 / max_val)
                 .collect()
         }
-        hound::SampleFormat::Float => {
-            reader
-                .into_samples::<f32>()
-                .map(|s| s.unwrap())
-                .collect()
-        }
+        hound::SampleFormat::Float => reader.into_samples::<f32>().map(|s| s.unwrap()).collect(),
     };
 
     // Convert to mono if stereo
@@ -172,7 +175,9 @@ fn load_audio_wav(path: &str, target_sample_rate: u32) -> Result<Vec<f32>> {
 
 /// Resample audio using rubato.
 fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Result<Vec<f32>> {
-    use rubato::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, Resampler, WindowFunction};
+    use rubato::{
+        Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+    };
 
     let params = SincInterpolationParameters {
         sinc_len: 256,

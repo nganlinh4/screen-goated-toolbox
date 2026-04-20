@@ -186,7 +186,14 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
     selectedIds, rangeSelect, trackRef, isDraggingRange,
     onSegmentPointerDown,
     handleTrackPointerDown, handleTrackPointerMove, handleTrackPointerUp,
-  } = useTrackRangeSelect(segments, duration, onSelectionChange, onDeleteKeystrokeSegments, clearSignal);
+  } = useTrackRangeSelect(
+    segments,
+    duration,
+    onSelectionChange,
+    undefined,
+    onDeleteKeystrokeSegments,
+    clearSignal,
+  );
   const rawEventRanges = useMemo(
     () => getRawEventRanges(segment, safeDuration),
     [segment.keystrokeEvents, segment.keystrokeMode, segment.keystrokeDelaySec, safeDuration]

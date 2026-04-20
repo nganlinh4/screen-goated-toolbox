@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::tensor::{DType, Device, Tensor};
-use crate::text_decoder::{KvCache, KvCacheEntry, KvCacheMode, create_causal_mask};
+use crate::text_decoder::{create_causal_mask, KvCache, KvCacheEntry, KvCacheMode};
 
 fn make_kv_tensor(total_tokens: i64, offset: f32) -> Tensor {
     make_kv_tensor_with_heads(1, 1, total_tokens, offset)
@@ -30,7 +30,10 @@ fn make_kv_tensor_with_heads(batch: i64, heads: i64, total_tokens: i64, offset: 
 }
 
 fn max_abs_diff(left: &Tensor, right: &Tensor) -> f32 {
-    let left = left.to_dtype(DType::Float32).to_device(Device::Cpu).to_vec_f32();
+    let left = left
+        .to_dtype(DType::Float32)
+        .to_device(Device::Cpu)
+        .to_vec_f32();
     let right = right
         .to_dtype(DType::Float32)
         .to_device(Device::Cpu)
@@ -106,7 +109,10 @@ fn dense_only_attention_now_flows_through_cache_attention_path_for_both_modes() 
         .to_device(Device::Cpu);
     let scale = 1.0 / (4.0f64).sqrt();
 
-    for mode in [KvCacheMode::DenseAppend, KvCacheMode::ExperimentalTurboQuant] {
+    for mode in [
+        KvCacheMode::DenseAppend,
+        KvCacheMode::ExperimentalTurboQuant,
+    ] {
         let key = make_kv_tensor(32, 0.3);
         let value = make_kv_tensor(32, -0.7);
         let entry = KvCacheEntry::from_tokens(key.shallow_clone(), value.shallow_clone(), mode);
@@ -162,8 +168,7 @@ fn compressed_kv_multi_head_decode_attention_stays_reasonably_close_to_dense() {
     let full_key = Tensor::cat(&[key.shallow_clone(), append_key.shallow_clone()], 2);
     let full_value = Tensor::cat(&[value.shallow_clone(), append_value.shallow_clone()], 2);
     let query = Tensor::from_slice_f32(&[
-        0.1, -0.2, 0.3, 0.4, -0.4, 0.5, -0.6, 0.7, 0.2, 0.1, -0.3, 0.8, -0.7, 0.6, 0.5,
-        -0.1,
+        0.1, -0.2, 0.3, 0.4, -0.4, 0.5, -0.6, 0.7, 0.2, 0.1, -0.3, 0.8, -0.7, 0.6, 0.5, -0.1,
     ])
     .reshape(&[1, 4, 1, 4])
     .to_device(Device::Cpu);
@@ -194,11 +199,7 @@ fn compressed_kv_state_copy_keeps_compressed_stats() {
     let append_key = make_kv_tensor(256, 0.25).narrow(2, 128, 128);
     let append_value = make_kv_tensor(256, -0.75).narrow(2, 128, 128);
 
-    let mut entry = KvCacheEntry::from_tokens(
-        key,
-        value,
-        KvCacheMode::ExperimentalTurboQuant,
-    );
+    let mut entry = KvCacheEntry::from_tokens(key, value, KvCacheMode::ExperimentalTurboQuant);
     entry.append(&append_key, &append_value);
     let original_prefix_len = entry.quantized_prefix_len();
     let original_prefix_bytes = entry.compressed_prefix_bytes();
@@ -210,7 +211,10 @@ fn compressed_kv_state_copy_keeps_compressed_stats() {
 
     assert_eq!(copy.quantized_prefix_len(), original_prefix_len);
     assert_eq!(copy.compressed_prefix_bytes(), original_prefix_bytes);
-    assert_eq!(copy.dense_prefix_equivalent_bytes(), original_dense_prefix_bytes);
+    assert_eq!(
+        copy.dense_prefix_equivalent_bytes(),
+        original_dense_prefix_bytes
+    );
 }
 #[test]
 fn compressed_kv_copy_does_not_reserve_dense_space_for_compressed_prefix() {
@@ -219,11 +223,7 @@ fn compressed_kv_copy_does_not_reserve_dense_space_for_compressed_prefix() {
     let append_key = make_kv_tensor(256, 0.4).narrow(2, 128, 128);
     let append_value = make_kv_tensor(256, -0.6).narrow(2, 128, 128);
 
-    let mut entry = KvCacheEntry::from_tokens(
-        key,
-        value,
-        KvCacheMode::ExperimentalTurboQuant,
-    );
+    let mut entry = KvCacheEntry::from_tokens(key, value, KvCacheMode::ExperimentalTurboQuant);
     entry.append(&append_key, &append_value);
     let mut cache = KvCache::new(1, KvCacheMode::ExperimentalTurboQuant);
     cache.layers[0] = Some(entry);
@@ -291,8 +291,14 @@ fn compressed_kv_force_compresses_remaining_dense_tail_page_on_generation_ready_
     let copied_entry = copy.layers[0].as_ref().expect("copied layer must exist");
 
     assert_eq!(copied_entry.quantized_prefix_len(), 192);
-    assert_eq!(copied_entry.compressed_prefix_bytes(), entry.compressed_prefix_bytes());
-    assert_eq!(copied_entry.dense_prefix_equivalent_bytes(), entry.dense_prefix_equivalent_bytes());
+    assert_eq!(
+        copied_entry.compressed_prefix_bytes(),
+        entry.compressed_prefix_bytes()
+    );
+    assert_eq!(
+        copied_entry.dense_prefix_equivalent_bytes(),
+        entry.dense_prefix_equivalent_bytes()
+    );
     assert_eq!(copied_entry.dense_len, 0);
     assert_eq!(copied_entry.dense_capacity(), 0);
     assert_eq!(copied_entry.len(), 192);
@@ -308,11 +314,7 @@ fn compressed_kv_mutable_offload_preserves_multi_head_stride() {
     let expected_key = Tensor::cat(&[key.shallow_clone(), append_key.shallow_clone()], 2);
     let expected_value = Tensor::cat(&[value.shallow_clone(), append_value.shallow_clone()], 2);
 
-    let mut entry = KvCacheEntry::from_tokens(
-        key,
-        value,
-        KvCacheMode::ExperimentalTurboQuant,
-    );
+    let mut entry = KvCacheEntry::from_tokens(key, value, KvCacheMode::ExperimentalTurboQuant);
     entry.append(&append_key, &append_value);
 
     assert_eq!(entry.len(), 192);
@@ -341,26 +343,20 @@ fn compressed_kv_masked_attention_stays_reasonably_close_to_dense() {
     let full_key = Tensor::cat(&[key.shallow_clone(), append_key.shallow_clone()], 2);
     let full_value = Tensor::cat(&[value.shallow_clone(), append_value.shallow_clone()], 2);
     let query = Tensor::from_slice_f32(&[
-        0.2, -0.1, 0.3, 0.5,
-        -0.4, 0.2, 0.1, 0.6,
-        0.3, 0.2, -0.2, 0.4,
-        0.1, -0.3, 0.5, 0.2,
+        0.2, -0.1, 0.3, 0.5, -0.4, 0.2, 0.1, 0.6, 0.3, 0.2, -0.2, 0.4, 0.1, -0.3, 0.5, 0.2,
     ])
     .reshape(&[1, 1, 4, 4])
     .to_device(Device::Cpu);
 
-    let mut entry = KvCacheEntry::from_tokens(
-        key,
-        value,
-        KvCacheMode::ExperimentalTurboQuant,
-    );
+    let mut entry = KvCacheEntry::from_tokens(key, value, KvCacheMode::ExperimentalTurboQuant);
     entry.append(&append_key, &append_value);
     let scale = 1.0 / (4.0f64).sqrt();
     let mask = create_causal_mask(4, 128 + 64 - 4, Device::Cpu);
     let approx = entry
         .attend_with_quantized_prefix(&query, scale, Some(&mask))
         .expect("experimental TurboQuant masked path should be active");
-    let dense = Tensor::scaled_dot_product_attention(&query, &full_key, &full_value, scale, Some(&mask));
+    let dense =
+        Tensor::scaled_dot_product_attention(&query, &full_key, &full_value, scale, Some(&mask));
 
     assert!(
         max_abs_diff(&approx, &dense) < 0.4,
@@ -377,11 +373,7 @@ fn compressed_kv_multi_head_attention_stays_reasonably_close_to_dense() {
     let full_value = Tensor::cat(&[value.shallow_clone(), append_value.shallow_clone()], 2);
     let query = make_kv_tensor_with_heads(1, 2, 3, 1.1);
 
-    let mut entry = KvCacheEntry::from_tokens(
-        key,
-        value,
-        KvCacheMode::ExperimentalTurboQuant,
-    );
+    let mut entry = KvCacheEntry::from_tokens(key, value, KvCacheMode::ExperimentalTurboQuant);
     entry.append(&append_key, &append_value);
     let scale = 1.0 / (4.0f64).sqrt();
     let approx = entry
@@ -401,11 +393,7 @@ fn compressed_kv_generation_ready_copy_preserves_multi_head_mixed_state() {
     let append_key = make_kv_tensor_with_heads(1, 2, 224, 0.45).narrow(2, 128, 96);
     let append_value = make_kv_tensor_with_heads(1, 2, 224, -0.15).narrow(2, 128, 96);
 
-    let mut entry = KvCacheEntry::from_tokens(
-        key,
-        value,
-        KvCacheMode::ExperimentalTurboQuant,
-    );
+    let mut entry = KvCacheEntry::from_tokens(key, value, KvCacheMode::ExperimentalTurboQuant);
     entry.append(&append_key, &append_value);
     let mut cache = KvCache::new(1, KvCacheMode::ExperimentalTurboQuant);
     cache.layers[0] = Some(entry);
@@ -413,13 +401,18 @@ fn compressed_kv_generation_ready_copy_preserves_multi_head_mixed_state() {
     let copied_entry = copy.layers[0].as_ref().expect("copied layer must exist");
 
     assert_eq!(copied_entry.quantized_prefix_len(), 224);
-    assert_eq!(copied_entry.compressed_prefix_bytes(), entry.compressed_prefix_bytes());
-    assert_eq!(copied_entry.dense_prefix_equivalent_bytes(), entry.dense_prefix_equivalent_bytes());
+    assert_eq!(
+        copied_entry.compressed_prefix_bytes(),
+        entry.compressed_prefix_bytes()
+    );
+    assert_eq!(
+        copied_entry.dense_prefix_equivalent_bytes(),
+        entry.dense_prefix_equivalent_bytes()
+    );
     assert_eq!(copied_entry.dense_capacity(), 32);
     assert_eq!(copied_entry.dense_len, 0);
     assert_eq!(copied_entry.len(), 224);
 }
-
 
 #[test]
 fn compressed_kv_mutable_offload_handles_multi_head_repeated_appends() {
@@ -446,11 +439,7 @@ fn compressed_kv_mutable_offload_handles_multi_head_repeated_appends() {
         2,
     );
 
-    let mut entry = KvCacheEntry::from_tokens(
-        key,
-        value,
-        KvCacheMode::ExperimentalTurboQuant,
-    );
+    let mut entry = KvCacheEntry::from_tokens(key, value, KvCacheMode::ExperimentalTurboQuant);
     entry.append(&append_key_1, &append_value_1);
     let first_prefix_len = entry.quantized_prefix_len();
     let first_prefix_bytes = entry.compressed_prefix_bytes();
@@ -501,11 +490,7 @@ fn compressed_kv_generation_ready_copy_handles_multi_head_repeated_offload_state
         2,
     );
 
-    let mut entry = KvCacheEntry::from_tokens(
-        key,
-        value,
-        KvCacheMode::ExperimentalTurboQuant,
-    );
+    let mut entry = KvCacheEntry::from_tokens(key, value, KvCacheMode::ExperimentalTurboQuant);
     entry.append(&append_key_1, &append_value_1);
     entry.append(&append_key_2, &append_value_2);
     let mut cache = KvCache::new(1, KvCacheMode::ExperimentalTurboQuant);
@@ -514,8 +499,14 @@ fn compressed_kv_generation_ready_copy_handles_multi_head_repeated_offload_state
     let copied_entry = copy.layers[0].as_ref().expect("copied layer must exist");
 
     assert_eq!(copied_entry.quantized_prefix_len(), 256);
-    assert_eq!(copied_entry.compressed_prefix_bytes(), entry.compressed_prefix_bytes());
-    assert_eq!(copied_entry.dense_prefix_equivalent_bytes(), entry.dense_prefix_equivalent_bytes());
+    assert_eq!(
+        copied_entry.compressed_prefix_bytes(),
+        entry.compressed_prefix_bytes()
+    );
+    assert_eq!(
+        copied_entry.dense_prefix_equivalent_bytes(),
+        entry.dense_prefix_equivalent_bytes()
+    );
     assert_eq!(copied_entry.dense_len, 0);
     assert_eq!(copied_entry.len(), 256);
     assert_eq!(copied_entry.key_view().size(), expected_key.size());
@@ -538,8 +529,22 @@ fn compressed_kv_owned_generation_ready_preserves_multi_head_repeated_offload_st
     let append_value_1 = make_kv_tensor_with_heads(2, 3, 192, -0.15).narrow(2, 128, 64);
     let append_key_2 = make_kv_tensor_with_heads(2, 3, 256, 0.85).narrow(2, 192, 64);
     let append_value_2 = make_kv_tensor_with_heads(2, 3, 256, -0.15).narrow(2, 192, 64);
-    let expected_key = Tensor::cat(&[key.shallow_clone(), append_key_1.shallow_clone(), append_key_2.shallow_clone()], 2);
-    let expected_value = Tensor::cat(&[value.shallow_clone(), append_value_1.shallow_clone(), append_value_2.shallow_clone()], 2);
+    let expected_key = Tensor::cat(
+        &[
+            key.shallow_clone(),
+            append_key_1.shallow_clone(),
+            append_key_2.shallow_clone(),
+        ],
+        2,
+    );
+    let expected_value = Tensor::cat(
+        &[
+            value.shallow_clone(),
+            append_value_1.shallow_clone(),
+            append_value_2.shallow_clone(),
+        ],
+        2,
+    );
     let mut entry = KvCacheEntry::from_tokens(key, value, KvCacheMode::ExperimentalTurboQuant);
     entry.append(&append_key_1, &append_value_1);
     entry.append(&append_key_2, &append_value_2);
@@ -549,8 +554,14 @@ fn compressed_kv_owned_generation_ready_preserves_multi_head_repeated_offload_st
     let moved_entry = moved.layers[0].as_ref().expect("moved layer must exist");
 
     assert_eq!(moved_entry.quantized_prefix_len(), 256);
-    assert_eq!(moved_entry.compressed_prefix_bytes(), entry.compressed_prefix_bytes());
-    assert_eq!(moved_entry.dense_prefix_equivalent_bytes(), entry.dense_prefix_equivalent_bytes());
+    assert_eq!(
+        moved_entry.compressed_prefix_bytes(),
+        entry.compressed_prefix_bytes()
+    );
+    assert_eq!(
+        moved_entry.dense_prefix_equivalent_bytes(),
+        entry.dense_prefix_equivalent_bytes()
+    );
     assert_eq!(moved_entry.dense_len, 0);
     assert_eq!(moved_entry.dense_capacity(), 48);
     assert_eq!(moved_entry.len(), 256);
@@ -579,7 +590,11 @@ fn compressed_kv_owned_generation_ready_handles_extreme_offload_transition() {
     assert_eq!(live_entry.quantized_prefix_len(), 1056);
 
     let mut cache = KvCache::new(1, KvCacheMode::ExperimentalTurboQuant);
-    cache.layers[0] = Some(KvCacheEntry::from_tokens(key, value, KvCacheMode::ExperimentalTurboQuant));
+    cache.layers[0] = Some(KvCacheEntry::from_tokens(
+        key,
+        value,
+        KvCacheMode::ExperimentalTurboQuant,
+    ));
     let mut cache = cache.into_generation_ready(0);
     let entry = cache.layers[0].as_mut().expect("moved layer must exist");
     entry.append(&append_key, &append_value);

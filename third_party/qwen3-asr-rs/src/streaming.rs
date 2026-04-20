@@ -111,8 +111,12 @@ impl StreamingState {
         Ok(self.snapshot(true))
     }
 
-    pub fn kv_cache_bytes(&self) -> usize { 0 }
-    pub fn kv_cache_dense_bytes(&self) -> usize { 0 }
+    pub fn kv_cache_bytes(&self) -> usize {
+        0
+    }
+    pub fn kv_cache_dense_bytes(&self) -> usize {
+        0
+    }
 
     pub fn reset(&mut self) {
         self.buffer.clear();
@@ -136,9 +140,7 @@ impl StreamingState {
         language: Option<&str>,
     ) -> Result<&PromptPrefixCache> {
         let lang_key = language.map(|s| s.to_string());
-        if self.cached_base_prefix.is_none()
-            || self.cached_base_language != lang_key
-        {
+        if self.cached_base_prefix.is_none() || self.cached_base_language != lang_key {
             self.cached_base_prefix = Some(model.create_base_prefix_cache(language)?);
             self.cached_base_language = lang_key;
             self.audio_prefix_cache = None;
@@ -156,14 +158,12 @@ impl StreamingState {
         let audio_embeds = model.encode_audio_samples(&chunk_f32)?;
         if self.audio_prefix_cache.is_none() {
             let base = self.get_or_create_base_prefix(model, language)?;
-            self.audio_prefix_cache = Some(
-                model.extend_prefix_cache_with_audio(base, &audio_embeds, language)?,
-            );
+            self.audio_prefix_cache =
+                Some(model.extend_prefix_cache_with_audio(base, &audio_embeds, language)?);
         } else {
             let cache = self.audio_prefix_cache.take().unwrap();
-            self.audio_prefix_cache = Some(
-                model.extend_owned_prefix_cache_with_audio(cache, &audio_embeds, language)?,
-            );
+            self.audio_prefix_cache =
+                Some(model.extend_owned_prefix_cache_with_audio(cache, &audio_embeds, language)?);
         }
         Ok(self.audio_prefix_cache.as_ref().unwrap())
     }
@@ -177,7 +177,9 @@ impl StreamingState {
         let prefix = self.build_prefix_text(model)?;
         // Incremental: encode only the latest chunk and extend the cached prefix.
         // The audio_prefix_cache was already extended in transcribe() before this call.
-        let audio_prefix_cache = self.audio_prefix_cache.as_ref()
+        let audio_prefix_cache = self
+            .audio_prefix_cache
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("audio prefix cache not initialized"))?;
         let mut generation_prefix_cache =
             model.create_generation_prefix_cache(audio_prefix_cache, language)?;
@@ -214,7 +216,10 @@ impl StreamingState {
         // Real periods survive into fixed_text when the next chunk confirms them.
         // This prevents the translation system from prematurely committing.
         let trimmed_draft = draft_text.trim_end();
-        if trimmed_draft.ends_with('.') || trimmed_draft.ends_with('?') || trimmed_draft.ends_with('!') {
+        if trimmed_draft.ends_with('.')
+            || trimmed_draft.ends_with('?')
+            || trimmed_draft.ends_with('!')
+        {
             draft_text = trimmed_draft
                 .trim_end_matches(|c| c == '.' || c == '?' || c == '!')
                 .to_string();
@@ -335,7 +340,10 @@ fn normalize_punctuation_spacing(text: &str) -> String {
         if chars[i] == ' ' && i + 1 < chars.len() {
             let next = chars[i + 1];
             // Skip space before punctuation or contractions
-            if matches!(next, ',' | '.' | '!' | '?' | ':' | ';' | '\'' | '"' | ')' | ']') {
+            if matches!(
+                next,
+                ',' | '.' | '!' | '?' | ':' | ';' | '\'' | '"' | ')' | ']'
+            ) {
                 i += 1;
                 continue;
             }
@@ -378,7 +386,9 @@ fn tail_preview(text: &str, max_chars: usize) -> String {
     if chars.len() <= max_chars {
         return text.to_string();
     }
-    let tail: String = chars[chars.len().saturating_sub(max_chars)..].iter().collect();
+    let tail: String = chars[chars.len().saturating_sub(max_chars)..]
+        .iter()
+        .collect();
     format!("...{tail}")
 }
 

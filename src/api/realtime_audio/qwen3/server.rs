@@ -9,8 +9,7 @@ use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-const SGT_RELEASES_API_URL: &str =
-    "https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases?per_page=8&prerelease=false";
+const SGT_RELEASES_API_URL: &str = "https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases?per_page=8&prerelease=false";
 const QWEN3_SERVER_ASSET_NAME: &str = "qwen3-asr-reference-windows-x64.zip";
 
 lazy_static::lazy_static! {
@@ -118,8 +117,7 @@ pub fn get_active_qwen3_server_path() -> Option<PathBuf> {
 }
 
 pub fn get_active_qwen3_server_root() -> Option<PathBuf> {
-    get_active_qwen3_server_path()
-        .and_then(|path| path.parent().map(Path::to_path_buf))
+    get_active_qwen3_server_path().and_then(|path| path.parent().map(Path::to_path_buf))
 }
 
 pub fn remove_qwen3_server() -> Result<()> {
@@ -250,7 +248,9 @@ fn repo_root() -> Result<PathBuf> {
         }
     }
 
-    Err(anyhow!("Could not locate Screen Goated Toolbox repository root"))
+    Err(anyhow!(
+        "Could not locate Screen Goated Toolbox repository root"
+    ))
 }
 
 fn find_release_with_asset() -> Result<GitHubRelease> {

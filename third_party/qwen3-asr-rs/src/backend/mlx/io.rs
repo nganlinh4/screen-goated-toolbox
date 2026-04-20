@@ -19,9 +19,8 @@ pub fn load_safetensors(path: &Path) -> Result<HashMap<String, MlxArray>, String
     let cpu_stream = unsafe { ffi::mlx_stream_new_device(cpu_device) };
     unsafe { ffi::mlx_device_free(cpu_device) };
 
-    let status = unsafe {
-        ffi::mlx_load_safetensors(&mut data, &mut metadata, c_path.as_ptr(), cpu_stream)
-    };
+    let status =
+        unsafe { ffi::mlx_load_safetensors(&mut data, &mut metadata, c_path.as_ptr(), cpu_stream) };
     unsafe { ffi::mlx_stream_free(cpu_stream) };
 
     if status != 0 {
@@ -42,9 +41,8 @@ pub fn load_safetensors(path: &Path) -> Result<HashMap<String, MlxArray>, String
     loop {
         let mut key_ptr: *const std::os::raw::c_char = std::ptr::null();
         let mut arr = MlxArray::empty();
-        let status = unsafe {
-            ffi::mlx_map_string_to_array_iterator_next(&mut key_ptr, &mut arr.ptr, iter)
-        };
+        let status =
+            unsafe { ffi::mlx_map_string_to_array_iterator_next(&mut key_ptr, &mut arr.ptr, iter) };
         if status != 0 || key_ptr.is_null() {
             break;
         }
@@ -73,8 +71,8 @@ pub fn load_safetensors_dir(dir: &Path) -> Result<HashMap<String, MlxArray>, Str
     }
 
     let pattern_prefix = "model-";
-    let entries = std::fs::read_dir(dir)
-        .map_err(|e| format!("Failed to read directory {:?}: {e}", dir))?;
+    let entries =
+        std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory {:?}: {e}", dir))?;
 
     let mut shard_files: Vec<_> = entries
         .filter_map(|entry| {
