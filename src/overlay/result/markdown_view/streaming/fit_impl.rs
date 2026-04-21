@@ -170,10 +170,14 @@ const FIT_FONT_SCRIPT: &str = r#"
 
                     // Allowed ranges — match streaming's 14px readability floor.
                     var minSize = (textLen < 200) ? 6 : 14;
+                    // Streaming cap is deliberately conservative (48px). An
+                    // early tiny chunk could otherwise be sized up to 96
+                    // and then forced to climb down a long shrink ladder
+                    // (110 -> 60 -> 44 -> 32) as the response grows. The
+                    // final (non-streaming) fit keeps the full range so
+                    // short final responses can still display large.
                     var maxSize = isStreamingFit
-                        ? (isTinyContent
-                            ? Math.min(96, winH)
-                            : (isShortContent ? Math.min(72, winH) : Math.min(48, winH)))
+                        ? Math.min(48, winH)
                         : (isTinyContent
                             ? 200
                             : (isShortContent
@@ -191,6 +195,28 @@ const FIT_FONT_SCRIPT: &str = r#"
                     var priorDisplayedPadBottom = parseFloat(body.style.paddingBottom) || 0;
                     var hasPriorFontSize = Number.isFinite(priorDisplayedFontSize) && priorDisplayedFontSize > 0;
                     var hasPriorWdth = Number.isFinite(priorDisplayedWdth) && priorDisplayedWdth > 0;
+
+                    // ===== STREAMING HYSTERESIS =====
+                    // If the prior size still produces a layout within a
+                    // tolerance band of winH, skip the refit entirely — no
+                    // new target, no animation, nothing visually changes.
+                    // This is the "predictable, careful" behavior: chunks 2-N
+                    // mostly inherit chunk 1's size, and the user sees one
+                    // gentle settle at the end instead of N progressive
+                    // shrinks. We only trigger a refit when overflow is
+                    // meaningfully wrong (> 12% over winH) or when content
+                    // is drastically under-filled (> 40% whitespace, which
+                    // means prior size is way too small for current content
+                    // — rare but happens if the response ended up compact).
+                    if (isStreamingFit && hasPriorFontSize && priorDisplayedFontSize >= minSize) {
+                        body.style.fontSize = priorDisplayedFontSize + 'px';
+                        void body.offsetHeight;
+                        var hystScrollH = doc.scrollHeight;
+                        var hystOverRatio = hystScrollH / winH;
+                        if (hystOverRatio <= 1.12 && hystOverRatio >= 0.60) {
+                            return;
+                        }
+                    }
 
                     // ===== PHASE 0: RESET (Start TIGHT like GDI) =====
                     // Long text keeps this compact baseline too, so the final settle-fit
@@ -250,7 +276,6 @@ const FIT_FONT_SCRIPT: &str = r#"
                             }
                         }
                         if (!foundFittingSize) {
-                            console.log('[SGT-fit] binary-search FLOOR (no size fit) minSize=' + minSize, 'textLen=' + textLen, 'scrollH=' + doc.scrollHeight, 'winH=' + winH);
                             bestSize = minSize;
                         }
                         body.style.fontSize = bestSize + 'px';
@@ -278,7 +303,13 @@ const FIT_FONT_SCRIPT: &str = r#"
 
                     // ===== PHASE 1.5: CONDENSE OPTIMIZATION (wdth < 90) =====
                     // Dense/tall text can get stuck at small font sizes because wrapping is width-limited.
-                    if (!preservedSize && textLen > 0 && (bestSize < maxSize - 2 || !foundFittingSize)) {
+                    // Skip during streaming — the per-chunk condense search
+                    // was finding narrower combos that forced bestSize down
+                    // (e.g. wdth=85 → bestSize=32 instead of the wdth=90
+                    // Phase-1 result of 40), producing the streaming-vs-final
+                    // size disagreement. The final fit still runs condense
+                    // so the settled state gets the benefit.
+                    if (!isStreamingFit && !preservedSize && textLen > 0 && (bestSize < maxSize - 2 || !foundFittingSize)) {
                         var baseSize = parseFloat(body.style.fontSize) || bestSize;
                         var bestComboSize = baseSize;
                         var bestComboWdth = 90;
@@ -328,28 +359,15 @@ const FIT_FONT_SCRIPT: &str = r#"
                         clearLastMargin();
                     }
 
-                    // ===== HYSTERESIS + QUANTIZATION: stabilize streaming size =====
-                    // Binary search lands on the TIGHTEST fitting size; adding a few
-                    // chars would overflow and trigger another refit. Two steps:
-                    //   (1) Shrink 15% past strict-fit so scrollHeight lands under the
-                    //       window, giving several chunks of growth headroom.
-                    //   (2) Snap down to a 4-px bucket so refits differ by >=4 px.
-                    //       Kills 1-3 px reflows that reshape wrapping for almost no
-                    //       visible zoom — the core "wrap-alternation" eyesore.
-                    // Skipped on final fits (user gets largest readable size) and
-                    // when we preserved the previous size (no refit happened).
-                    if (isStreamingFit && !preservedSize && foundFittingSize) {
-                        var currentBest = parseFloat(body.style.fontSize) || bestSize;
-                        var bucketPx = 4;
-                        var hysteresisSize = currentBest * 0.85;
-                        hysteresisSize = Math.floor(hysteresisSize / bucketPx) * bucketPx;
-                        hysteresisSize = Math.max(minSize, hysteresisSize);
-                        if (hysteresisSize < currentBest) {
-                            bestSize = hysteresisSize;
-                            body.style.fontSize = bestSize + 'px';
-                            clearLastMargin();
-                        }
-                    }
+                    // Legacy "15% shrink + 4px bucket" block removed. It was
+                    // making streaming land 15% smaller than the actual
+                    // best fit (e.g. 38 -> 32), so the final fit would
+                    // then jump UP to the correct value — exactly the
+                    // streaming-vs-final disagreement the logs exposed.
+                    // The fit-entry hysteresis (tolerates 12% overflow
+                    // before refitting) already provides growth headroom,
+                    // so this shrink is redundant. Streaming now keeps
+                    // Phase-1's true best size, matching final fit.
 
                     // ===== PHASES 2-7: gap filling =====
                     // During active streaming, skip the expansion passes entirely.
@@ -628,23 +646,40 @@ const FIT_FONT_SCRIPT: &str = r#"
                         // visibly smooth.
                         var fsDelta = Math.abs(targetFontSize - startFontSize);
                         var wDelta = Math.abs(targetWdth - startWdth);
-                        var duration = isStreamingFit ? 280 : 420;
-                        var snapThreshold = isStreamingFit ? 0.5 : 0.15;
-                        var snapWThreshold = isStreamingFit ? 1.5 : 0.5;
+                        // Continuous-flow duration: duration scales linearly
+                        // with delta so visual velocity is constant (~55 px/s
+                        // for streaming, ~75 px/s for final). A 5px change
+                        // finishes in ~90ms, a 40px change takes ~720ms — no
+                        // jarring fast flicks for small deltas, no
+                        // "everything takes 280ms" for big ones. Clamped at
+                        // [140, 900]ms so the loop never feels instant or
+                        // glacial regardless of delta.
+                        var PX_PER_SEC = isStreamingFit ? 55 : 75;
+                        var durationFromDelta = (fsDelta / PX_PER_SEC) * 1000;
+                        var duration = Math.max(140, Math.min(900, durationFromDelta));
+                        // Only SNAP when the first fit of a session (no prior
+                        // to animate from) or when the delta is essentially
+                        // zero (< 0.1px wouldn't be visible anyway). Removed
+                        // the old 0.5px threshold — those small jumps were
+                        // forming the visible "stair-step" between chunks.
+                        var snapThreshold = 0.1;
+                        var snapWThreshold = 0.3;
                         if (!hadPriorSize || (fsDelta < snapThreshold && wDelta < snapWThreshold)) {
-                            // First fit, or nothing meaningful changed — snap.
-                            console.log('[SGT-fit]', isStreamingFit ? 'streaming' : 'final', 'fit SNAP target=' + targetFontSize.toFixed(1), 'scrollH=' + doc.scrollHeight, 'winH=' + winH);
                             applyAxes(targetFontSize, targetWdth);
                             applyPadding(targetPadTop, targetPadBottom);
                             window._sgtCurrentFontSize = targetFontSize;
                             window._sgtCurrentWdth = targetWdth;
                         } else {
-                            console.log('[SGT-fit]', isStreamingFit ? 'streaming' : 'final', 'fit ANIM', startFontSize.toFixed(1), '->', targetFontSize.toFixed(1), 'scrollH=' + doc.scrollHeight, 'winH=' + winH);
                             applyAxes(startFontSize, startWdth);
                             applyPadding(startPadTop, startPadBottom);
                             var animStart = performance.now();
                             var tick = function(now) {
                                 var t = Math.min(1, (now - animStart) / duration);
+                                // ease-out cubic — non-zero initial velocity
+                                // preserves visual continuity when a new
+                                // target comes in mid-animation (common in
+                                // fast streaming). smootherStep would create
+                                // a brake-and-restart feel at every new fit.
                                 var eased = 1 - Math.pow(1 - t, 3);
                                 var curFs = startFontSize + (targetFontSize - startFontSize) * eased;
                                 var curW = startWdth + (targetWdth - startWdth) * eased;
@@ -766,7 +801,6 @@ pub fn init_gridjs(parent_hwnd: HWND) {
                             var scale = (winH / doc.scrollHeight) * 0.92;
                             var nFs = Math.max(minFs, Math.floor(cFs * scale));
                             if (nFs >= cFs) return;
-                            console.log('[SGT-fit] gridjs-ready shrink', cFs.toFixed(1), '->', nFs, 'scrollH=' + doc.scrollHeight, 'winH=' + winH);
                             document.body.style.fontSize = nFs + 'px';
                             window._sgtCurrentFontSize = nFs;
                         } catch (_e) {}

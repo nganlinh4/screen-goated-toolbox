@@ -200,6 +200,37 @@ internal fun presetResultJavascriptCore(): String {
             resetStreamCounters();
             runFit(!!data.streaming);
             schedulePostTableFit(!!data.streaming);
+            installPostStreamOverflowObserver();
+        }
+
+        function installPostStreamOverflowObserver() {
+            if (window._sgtOverflowObserver || typeof ResizeObserver === 'undefined') return;
+            try {
+                let debounceTimer = null;
+                const ob = new ResizeObserver(function() {
+                    if (debounceTimer) return;
+                    debounceTimer = setTimeout(function() {
+                        debounceTimer = null;
+                        if (window._sgtFitAnim) return;
+                        try {
+                            const doc = document.documentElement;
+                            const winH = window.innerHeight;
+                            const overflowPx = doc.scrollHeight - winH;
+                            if (overflowPx <= winH * 0.05) return;
+                            const cFs = parseFloat(document.body.style.fontSize) || 14;
+                            const minFs = 14;
+                            if (cFs <= minFs) return;
+                            const scale = (winH / doc.scrollHeight) * 0.92;
+                            const nFs = Math.max(minFs, Math.floor(cFs * scale));
+                            if (nFs >= cFs) return;
+                            document.body.style.fontSize = nFs + 'px';
+                            window._sgtCurrentFontSize = nFs;
+                        } catch (_e) {}
+                    }, 120);
+                });
+                ob.observe(document.body);
+                window._sgtOverflowObserver = ob;
+            } catch (_e) {}
         }
 
         function applyStreamingResultState(raw) {
@@ -288,7 +319,11 @@ internal fun presetResultJavascriptCore(): String {
             // until the fit animates to the new target restores smooth
             // scaling during streaming.
             if (isNewSession) {
-                const maxPossible = Math.min(isConstrainedWindow ? 84 : 110, winH);
+                // Conservative streaming ceiling (see Windows streaming.rs):
+                // first tiny chunk would otherwise binary-search up to 110
+                // and force a long shrink ladder across the rest of the
+                // stream. Cap at 48px; the final fit restores full range.
+                const maxPossible = Math.min(isConstrainedWindow ? 40 : 48, winH);
                 const estimated = Math.sqrt((winW * winH) / (textLen + 1));
                 let low = Math.max(minSize, Math.floor(estimated * 0.5));
                 let high = Math.min(maxPossible, Math.ceil(estimated * 1.15));
@@ -379,11 +414,15 @@ internal fun presetResultJavascriptCore(): String {
                 for (let rv = revealStart; rv < newWordCount; rv += 1) {
                     const rw = words[rv];
                     if (!rw) continue;
+                    // No transform on hidden state — Chromium includes
+                    // transformed overflow in scrollHeight, so the
+                    // translateY on every queued word was inflating the
+                    // fit's measurement by ~14px and forcing it to a
+                    // smaller font than the final (no-transform) DOM.
                     rw.style.visibility = 'hidden';
                     rw.style.opacity = '0';
                     rw.style.filter = 'blur(3px)';
-                    rw.style.transform = 'translateY(14px)';
-                    rw.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
+                    rw.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out';
                     revealState.queue.push({ el: rw, index: rv });
                 }
 
@@ -414,7 +453,6 @@ internal fun presetResultJavascriptCore(): String {
                                 item.el.style.visibility = 'visible';
                                 item.el.style.opacity = '1';
                                 item.el.style.filter = 'blur(0)';
-                                item.el.style.transform = 'translateY(0)';
                             }
                             revealState.lastRevealedIndex = item.index;
                             revealState.credits -= 1;
@@ -434,49 +472,12 @@ internal fun presetResultJavascriptCore(): String {
 
             if (body.style.opacity === '0') body.style.opacity = '1';
 
-            // Post-stream overflow watchdog: reveal-tick shrink only runs
-            // while the queue has entries. Tables, images, or any late
-            // reflow after streaming ends can push scrollHeight past winH
-            // with no loop alive to catch it. A persistent ResizeObserver
-            // on body runs the same ratio-shrink whenever body resizes,
-            // so the view auto-neutralizes without a user interaction.
-            if (!window._sgtOverflowObserver && typeof ResizeObserver !== 'undefined') {
-                try {
-                    let debounceTimer = null;
-                    const ob = new ResizeObserver(function() {
-                        if (debounceTimer) return;
-                        debounceTimer = setTimeout(function() {
-                            debounceTimer = null;
-                            // Stand down while fit's rAF is interpolating
-                            // — body transiently sits at the OLD pre-fit
-                            // value during the animation and scrollHeight
-                            // spikes there. Reading during that window
-                            // caused the "too small after streaming"
-                            // undershoot.
-                            if (window._sgtFitAnim) return;
-                            try {
-                                const doc = document.documentElement;
-                                const winH = window.innerHeight;
-                                const overflowPx = doc.scrollHeight - winH;
-                                if (overflowPx <= winH * 0.05) return;
-                                const revealed = (window._streamRevealState && typeof window._streamRevealState.lastRevealedIndex === 'number')
-                                    ? (window._streamRevealState.lastRevealedIndex + 1)
-                                    : 0;
-                                const cFs = parseFloat(document.body.style.fontSize) || 14;
-                                const minFs = (revealed > 0 && revealed < 200) ? 6 : 14;
-                                if (cFs <= minFs) return;
-                                const scale = (winH / doc.scrollHeight) * 0.92;
-                                const nFs = Math.max(minFs, Math.floor(cFs * scale));
-                                if (nFs >= cFs) return;
-                                document.body.style.fontSize = nFs + 'px';
-                                window._sgtCurrentFontSize = nFs;
-                            } catch (_e) {}
-                        }, 120);
-                    });
-                    ob.observe(document.body);
-                    window._sgtOverflowObserver = ob;
-                } catch (_e) {}
-            }
+            // RO intentionally NOT installed here — during streaming the
+            // fit rAF may be scheduled but not yet running (throttled when
+            // overlay isn't foreground), so RO could fire inside that gap
+            // with body still at the prev chunk's size against the new
+            // chunk's larger content, seeing scrollH inflation, and
+            // panic-shrinking. RO is installed only by the finalize path.
 
             window._streamWordCount = newWordCount;
             window._streamRenderCount = prevRenderCount + 1;
