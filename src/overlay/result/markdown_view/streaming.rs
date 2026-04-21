@@ -241,7 +241,15 @@ fn update_stream_markdown_content_ex(
     // animates to the new target is the trade that restores the smooth
     // scaling-during-streaming the user remembers.
     if (shouldRunInlineSizing && isNewSession) {{
-        var maxPossible = Math.min(isConstrainedWindow ? 84 : 110, winH);
+        // Conservative streaming ceiling: the very first chunk of a
+        // response is typically tiny (one word) and would binary-search
+        // all the way up to 110px, forcing a 110 -> 60 -> 44 -> 32
+        // shrink ladder across the rest of the stream. Cap at 48px so
+        // chunk 1 lands near where later chunks will land anyway — the
+        // fit then only needs small adjustments, not a full descent.
+        // Short final responses get upgraded to the full 200px ceiling
+        // by the non-streaming final fit, so nothing is lost.
+        var maxPossible = Math.min(isConstrainedWindow ? 40 : 48, winH);
         var estimated = Math.sqrt((winW * winH) / (textLen + 1));
         var low = Math.max(minSize, Math.floor(estimated * 0.5));
         var high = Math.min(maxPossible, Math.ceil(estimated * 1.15));
@@ -328,7 +336,6 @@ fn update_stream_markdown_content_ex(
                     item.el.style.visibility = 'visible';
                     item.el.style.opacity = '1';
                     item.el.style.filter = 'blur(0)';
-                    item.el.style.transform = 'translateY(0)';
                 }}
             }});
             revealState.queue = [];
@@ -354,11 +361,17 @@ fn update_stream_markdown_content_ex(
         for (var rv = revealStart; rv < newWordCount; rv++) {{
             var rw = words[rv];
             if (!rw) continue;
+            // NO transform on hidden state — Chromium includes transformed
+            // overflow in scrollHeight, so translateY(14px) on every queued
+            // word was inflating the fit's measurement by ~14px and forcing
+            // it to land on a smaller font than the final DOM (which has
+            // no transforms) would measure. That's why streaming settled
+            // at 32 but the final fit found 40 — same content, different
+            // scrollHeight because of the transforms on hidden words.
             rw.style.visibility = 'hidden';
             rw.style.opacity = '0';
             rw.style.filter = 'blur(3px)';
-            rw.style.transform = 'translateY(14px)';
-            rw.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
+            rw.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out';
             revealState.queue.push({{ el: rw, index: rv }});
         }}
 
@@ -391,13 +404,13 @@ fn update_stream_markdown_content_ex(
                 while (revealState.credits >= 1 && q.length > 0 && emitted < BATCH_CAP) {{
                     var item = q.shift();
                     if (item.el && item.el.isConnected) {{
-                        // Word is already in layout (visibility:hidden) —
-                        // flip to visible and trigger the transform/opacity
-                        // transitions for the rise-from-below reveal.
+                        // Word was kept in layout via visibility:hidden —
+                        // flip to visible and let the CSS transition fade
+                        // opacity/filter in. No transform rise (see comment
+                        // above where words are queued).
                         item.el.style.visibility = 'visible';
                         item.el.style.opacity = '1';
                         item.el.style.filter = 'blur(0)';
-                        item.el.style.transform = 'translateY(0)';
                     }}
                     revealState.lastRevealedIndex = item.index;
                     revealState.credits -= 1;
@@ -433,15 +446,17 @@ fn update_stream_markdown_content_ex(
         body.style.opacity = '1';
     }}
 
-    // Post-stream overflow watchdog: the reveal tick's inline overflow shrink
-    // only runs while the reveal queue has entries. Tables expanding via
-    // Grid.js, images loading, or any late reflow AFTER streaming ends can
-    // push scrollHeight past winH with no loop alive to catch it — user
-    // would then have to hover the overlay to trigger a resize + fit.
-    // A persistent ResizeObserver on body runs the same ratio-shrink
-    // whenever body resizes post-stream, so the view auto-neutralizes
-    // without needing a mouse-enter.
-    if (!window._sgtOverflowObserver && typeof ResizeObserver !== 'undefined') {{
+    // Post-stream overflow watchdog: ONLY install this when streaming has
+    // ended (!shouldAnimateNewWords = finalize path). During active
+    // streaming the fit's rAF may be scheduled but not yet running
+    // (throttled rAF when overlay isn't foreground, JS queue latency),
+    // so the _sgtFitAnim guard is insufficient — RO fires, sees the
+    // previous chunk's font size against the new chunk's content
+    // (scrollH blown up), and panic-shrinks. Fit would have handled it
+    // smoothly one frame later. So during streaming we trust the fit
+    // entirely; RO only steps in after finalize for Grid.js/image
+    // reflows that happen post-stream with no fit scheduled.
+    if (!shouldAnimateNewWords && !window._sgtOverflowObserver && typeof ResizeObserver !== 'undefined') {{
         try {{
             var debounceTimer = null;
             var ob = new ResizeObserver(function() {{
@@ -471,7 +486,6 @@ fn update_stream_markdown_content_ex(
                         var scale = (winH / doc.scrollHeight) * 0.92;
                         var nFs = Math.max(minFs, Math.floor(cFs * scale));
                         if (nFs >= cFs) return;
-                        console.log('[SGT-fit] RO shrink', cFs.toFixed(1), '->', nFs, 'scrollH=' + doc.scrollHeight, 'winH=' + winH, 'revealed=' + revealed);
                         document.body.style.fontSize = nFs + 'px';
                         window._sgtCurrentFontSize = nFs;
                     }} catch (_e) {{}}
