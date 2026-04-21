@@ -4,9 +4,7 @@ use crate::api::ollama::ollama_generate_text;
 use crate::config::Config;
 use crate::model_config::ModelConfig;
 
-use super::types::{
-    SubtitleTranslationItemRequest, SubtitleTranslationResultItem,
-};
+use super::types::{SubtitleTranslationItemRequest, SubtitleTranslationResultItem};
 
 #[derive(Clone, Debug)]
 pub struct TranslationConversationTurn {
@@ -328,7 +326,10 @@ fn translate_with_cerebras(
     });
     let response = UREQ_AGENT
         .post("https://api.cerebras.ai/v1/chat/completions")
-        .header("Authorization", &format!("Bearer {}", config.cerebras_api_key))
+        .header(
+            "Authorization",
+            &format!("Bearer {}", config.cerebras_api_key),
+        )
         .header("Content-Type", "application/json")
         .send_json(payload)
         .map_err(|error| format!("Cerebras subtitle translation failed: {error}"))?;
@@ -364,7 +365,10 @@ fn translate_with_openrouter(
     });
     let response = UREQ_AGENT
         .post("https://openrouter.ai/api/v1/chat/completions")
-        .header("Authorization", &format!("Bearer {}", config.openrouter_api_key))
+        .header(
+            "Authorization",
+            &format!("Bearer {}", config.openrouter_api_key),
+        )
         .header("HTTP-Referer", "https://screen-goated-toolbox.local")
         .header("X-Title", "Screen Goated Toolbox")
         .send_json(payload)

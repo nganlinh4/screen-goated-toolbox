@@ -133,10 +133,8 @@ fn run_subtitle_generation(
                     locked.skipped.len()
                 );
                 locked.message_key = Some("subtitleStatusCompleteWithSkipped".to_string());
-                locked.message_params = HashMap::from([(
-                    "skipped".to_string(),
-                    locked.skipped.len().to_string(),
-                )]);
+                locked.message_params =
+                    HashMap::from([("skipped".to_string(), locked.skipped.len().to_string())]);
             }
         }
         Err(error) => {

@@ -2,17 +2,20 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::APP;
 use crate::config::Config;
-use crate::model_config::{ModelConfig, ModelType, get_all_models_with_ollama, get_model_by_id, model_is_non_llm};
+use crate::model_config::{
+    ModelConfig, ModelType, get_all_models_with_ollama, get_model_by_id, model_is_non_llm,
+};
 use crate::retry_model_chain::{
     RetryChainKind, preflight_skip_reason, provider_is_available, resolve_next_retry_model,
 };
-use crate::APP;
 
 use super::translation_providers::{TranslationConversationTurn, translate_subtitle_chunk};
 use super::types::{
-    SubtitleTranslationCapabilities, SubtitleTranslationJobSnapshot, SubtitleTranslationItemRequest,
-    SubtitleTranslationModelCapability, SubtitleTranslationRequest, SubtitleTranslationResultItem,
+    SubtitleTranslationCapabilities, SubtitleTranslationItemRequest,
+    SubtitleTranslationJobSnapshot, SubtitleTranslationModelCapability, SubtitleTranslationRequest,
+    SubtitleTranslationResultItem,
 };
 
 #[derive(Clone)]
@@ -165,7 +168,9 @@ fn run_subtitle_translation_inner(
     let config = current_config()?;
     let candidate_models = collect_translation_models(&config);
     if candidate_models.is_empty() {
-        return Err("No compatible text-to-text translation model is currently available.".to_string());
+        return Err(
+            "No compatible text-to-text translation model is currently available.".to_string(),
+        );
     }
 
     update_translation_snapshot(snapshot, |locked| {
@@ -177,7 +182,8 @@ fn run_subtitle_translation_inner(
     })?;
 
     let mut last_error =
-        "Subtitle translation failed because every model attempt returned invalid output.".to_string();
+        "Subtitle translation failed because every model attempt returned invalid output."
+            .to_string();
 
     for chunk_count in 1..=request.items.len() {
         if cancelled.load(Ordering::SeqCst) {
@@ -210,7 +216,10 @@ fn run_subtitle_translation_inner(
                     );
                     locked.message_key = Some("subtitleTranslationStatusChunk".to_string());
                     locked.message_params = HashMap::from([
-                        ("model".to_string(), localized_model_label(model, &config.ui_language)),
+                        (
+                            "model".to_string(),
+                            localized_model_label(model, &config.ui_language),
+                        ),
                         ("current".to_string(), (chunk_index + 1).to_string()),
                         ("total".to_string(), chunks.len().to_string()),
                     ]);
@@ -292,7 +301,10 @@ fn collect_translation_models(config: &Config) -> Vec<ModelConfig> {
             RetryChainKind::TextToText,
             config,
         ) {
-            if failed_model_ids.iter().any(|failed| failed == &next_model.id) {
+            if failed_model_ids
+                .iter()
+                .any(|failed| failed == &next_model.id)
+            {
                 break;
             }
             failed_model_ids.push(next_model.id.clone());

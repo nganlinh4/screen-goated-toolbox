@@ -1,9 +1,9 @@
 use serde::Deserialize;
 
+use crate::APP;
 use crate::api::client::UREQ_AGENT;
 use crate::model_config::get_model_by_id;
 use crate::overlay::screen_record::ipc::subtitles::types::SubtitleGenerationMethod;
-use crate::APP;
 
 use super::{
     SubtitleBackend, SubtitleBackendProgress, ends_sentence, join_word_tokens,

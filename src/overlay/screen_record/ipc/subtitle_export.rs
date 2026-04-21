@@ -4,9 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::overlay::auto_copy_badge::{NotificationType, show_timed_detailed_notification};
 
 pub fn handle_save_subtitle_srt(args: &serde_json::Value) -> Result<serde_json::Value, String> {
-    let srt_content = args["srtContent"]
-        .as_str()
-        .ok_or("Missing srtContent")?;
+    let srt_content = args["srtContent"].as_str().ok_or("Missing srtContent")?;
     let default_file_name = args["defaultFileName"]
         .as_str()
         .filter(|value| !value.trim().is_empty())
@@ -49,8 +47,13 @@ fn sanitize_dir_path(path: &str) -> Result<PathBuf, String> {
 
     let dir = PathBuf::from(trimmed);
     if !dir.exists() {
-        fs::create_dir_all(&dir)
-            .map_err(|error| format!("Failed to create target directory {}: {}", dir.display(), error))?;
+        fs::create_dir_all(&dir).map_err(|error| {
+            format!(
+                "Failed to create target directory {}: {}",
+                dir.display(),
+                error
+            )
+        })?;
     }
     if !dir.is_dir() {
         return Err(format!("Target path is not a directory: {}", dir.display()));
