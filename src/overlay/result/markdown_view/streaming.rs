@@ -417,16 +417,14 @@ fn update_stream_markdown_content_ex(
                     emitted++;
                 }}
 
-                // Per-chunk fit may leave font-size too large when fast
-                // streaming reveals many queued words between fits — the
-                // chunk-time fit measured partial revealed content (display:
-                // none hides the rest from layout), so later reveals can push
-                // content past winH. When overflow crosses 5% of winH here,
-                // cancel any in-flight fit rAF and commit a ratio-shrunk size
-                // directly (synchronous write, no CSS transition = no
-                // measurement/target feedback loop). Threshold + integer
-                // bucket keep this stable instead of oscillating.
-                if (emitted > 0) {{
+                // Stand down while fit's rAF is interpolating — its animation
+                // transiently parks body.fontSize at the OLD pre-fit value
+                // before easing down to the new target, and scrollHeight
+                // spikes there. Reading during that window and shrinking
+                // caused an undershoot. With visibility:hidden keeping all
+                // queued words in layout, the fit already measures the full
+                // final height correctly, so this shrink is a fallback only.
+                if (emitted > 0 && !window._sgtFitAnim) {{
                     var doc2 = document.documentElement;
                     var overflowPx = doc2.scrollHeight - window.innerHeight;
                     if (overflowPx > window.innerHeight * 0.05) {{
@@ -440,12 +438,7 @@ fn update_stream_markdown_content_ex(
                             var scale = (window.innerHeight / doc2.scrollHeight) * 0.92;
                             var newFs = Math.max(minFs, Math.floor(currentFs * scale));
                             if (newFs < currentFs) {{
-                                // Cancel fit's in-flight rAF so it can't
-                                // overwrite our commit mid-animation.
-                                if (window._sgtFitAnim) {{
-                                    try {{ cancelAnimationFrame(window._sgtFitAnim); }} catch (_e) {{}}
-                                    window._sgtFitAnim = null;
-                                }}
+                                console.log('[SGT-fit] reveal-tick shrink', currentFs.toFixed(1), '->', newFs, 'scrollH=' + doc2.scrollHeight, 'winH=' + window.innerHeight, 'revealed=' + (revealState.lastRevealedIndex + 1));
                                 document.body.style.fontSize = newFs + 'px';
                                 window._sgtCurrentFontSize = newFs;
                             }}
@@ -485,6 +478,15 @@ fn update_stream_markdown_content_ex(
                 if (debounceTimer) return;
                 debounceTimer = setTimeout(function() {{
                     debounceTimer = null;
+                    // Stand down while the fit's rAF is interpolating — its
+                    // animation transiently parks body.fontSize at the OLD
+                    // pre-fit value before easing to the new (smaller)
+                    // target. scrollHeight spikes there because the fit
+                    // already committed the full final content but body
+                    // is still visually at the pre-fit size. Reading
+                    // scrollHeight during that window and panic-shrinking
+                    // caused the "too small after streaming" undershoot.
+                    if (window._sgtFitAnim) return;
                     try {{
                         var doc = document.documentElement;
                         var winH = window.innerHeight;
@@ -499,10 +501,7 @@ fn update_stream_markdown_content_ex(
                         var scale = (winH / doc.scrollHeight) * 0.92;
                         var nFs = Math.max(minFs, Math.floor(cFs * scale));
                         if (nFs >= cFs) return;
-                        if (window._sgtFitAnim) {{
-                            try {{ cancelAnimationFrame(window._sgtFitAnim); }} catch (_e) {{}}
-                            window._sgtFitAnim = null;
-                        }}
+                        console.log('[SGT-fit] RO shrink', cFs.toFixed(1), '->', nFs, 'scrollH=' + doc.scrollHeight, 'winH=' + winH, 'revealed=' + revealed);
                         document.body.style.fontSize = nFs + 'px';
                         window._sgtCurrentFontSize = nFs;
                     }} catch (_e) {{}}

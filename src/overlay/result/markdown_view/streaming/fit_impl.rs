@@ -625,11 +625,13 @@ const FIT_FONT_SCRIPT: &str = r#"
                         var snapWThreshold = isStreamingFit ? 1.5 : 0.5;
                         if (!hadPriorSize || (fsDelta < snapThreshold && wDelta < snapWThreshold)) {
                             // First fit, or nothing meaningful changed — snap.
+                            console.log('[SGT-fit]', isStreamingFit ? 'streaming' : 'final', 'fit SNAP target=' + targetFontSize.toFixed(1), 'scrollH=' + doc.scrollHeight, 'winH=' + winH);
                             applyAxes(targetFontSize, targetWdth);
                             applyPadding(targetPadTop, targetPadBottom);
                             window._sgtCurrentFontSize = targetFontSize;
                             window._sgtCurrentWdth = targetWdth;
                         } else {
+                            console.log('[SGT-fit]', isStreamingFit ? 'streaming' : 'final', 'fit ANIM', startFontSize.toFixed(1), '->', targetFontSize.toFixed(1), 'scrollH=' + doc.scrollHeight, 'winH=' + winH);
                             applyAxes(startFontSize, startWdth);
                             applyPadding(startPadTop, startPadBottom);
                             var animStart = performance.now();
@@ -744,29 +746,37 @@ pub fn init_gridjs(parent_hwnd: HWND) {
                     // time the styled grid is in flow. Count pending grids,
                     // run a ratio-shrink once they're all ready.
                     var pendingGrids = 0;
-                    function afterGridReady() {
-                        pendingGrids -= 1;
-                        if (pendingGrids > 0) return;
+                    function checkAndShrink() {
                         try {
                             var doc = document.documentElement;
                             var winH = window.innerHeight;
                             var overflowPx = doc.scrollHeight - winH;
                             if (overflowPx <= winH * 0.05) return;
                             var cFs = parseFloat(document.body.style.fontSize) || 14;
-                            // After final fit we're past streaming — use the
-                            // non-streaming floor of 14 for readability.
                             var minFs = 14;
                             if (cFs <= minFs) return;
                             var scale = (winH / doc.scrollHeight) * 0.92;
                             var nFs = Math.max(minFs, Math.floor(cFs * scale));
                             if (nFs >= cFs) return;
-                            if (window._sgtFitAnim) {
-                                try { cancelAnimationFrame(window._sgtFitAnim); } catch (_e) {}
-                                window._sgtFitAnim = null;
-                            }
+                            console.log('[SGT-fit] gridjs-ready shrink', cFs.toFixed(1), '->', nFs, 'scrollH=' + doc.scrollHeight, 'winH=' + winH);
                             document.body.style.fontSize = nFs + 'px';
                             window._sgtCurrentFontSize = nFs;
                         } catch (_e) {}
+                    }
+                    function afterGridReady() {
+                        pendingGrids -= 1;
+                        if (pendingGrids > 0) return;
+                        // If the fit's rAF is still interpolating, poll
+                        // until it settles — otherwise we'd read scrollH
+                        // at a transient mid-animation state.
+                        var poll = function() {
+                            if (window._sgtFitAnim) {
+                                requestAnimationFrame(poll);
+                            } else {
+                                checkAndShrink();
+                            }
+                        };
+                        poll();
                     }
 
                     for (var i = 0; i < tables.length; i++) {
