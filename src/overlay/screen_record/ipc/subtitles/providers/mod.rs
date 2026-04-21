@@ -2,9 +2,9 @@ mod gemini;
 mod groq;
 mod qwen;
 
-use crate::api::realtime_audio::qwen3::{Qwen3ModelVariant, assets, reference};
-use crate::runtime_support::{RuntimeArch, environment_info};
 use crate::APP;
+use crate::api::realtime_audio::qwen3::{Qwen3ModelVariant, assets, reference, runtime};
+use crate::runtime_support::{RuntimeArch, environment_info};
 
 use super::types::{CompactSubtitleSegment, SubtitleGenerationMethod, SubtitleMethodCapability};
 
@@ -36,12 +36,12 @@ pub fn create_backend(
         SubtitleGenerationMethod::GeminiLive3_1FlashPreview => {
             Ok(Box::new(gemini::GeminiLiveSubtitleBackend::new()?))
         }
-        SubtitleGenerationMethod::QwenLocal0_6B => {
-            Ok(Box::new(qwen::QwenSubtitleBackend::new(Qwen3ModelVariant::Small)?))
-        }
-        SubtitleGenerationMethod::QwenLocal1_7B => {
-            Ok(Box::new(qwen::QwenSubtitleBackend::new(Qwen3ModelVariant::Large)?))
-        }
+        SubtitleGenerationMethod::QwenLocal0_6B => Ok(Box::new(qwen::QwenSubtitleBackend::new(
+            Qwen3ModelVariant::Small,
+        )?)),
+        SubtitleGenerationMethod::QwenLocal1_7B => Ok(Box::new(qwen::QwenSubtitleBackend::new(
+            Qwen3ModelVariant::Large,
+        )?)),
     }
 }
 
@@ -142,9 +142,7 @@ fn gemini_live_capability() -> SubtitleMethodCapability {
         return SubtitleMethodCapability {
             method: SubtitleGenerationMethod::GeminiLive3_1FlashPreview,
             available: false,
-            reason: Some(
-                "Enable Gemini in settings to use Gemini Live subtitles.".to_string(),
-            ),
+            reason: Some("Enable Gemini in settings to use Gemini Live subtitles.".to_string()),
         };
     }
 
@@ -201,6 +199,16 @@ fn qwen_local_capability(
             reason: Some(format!(
                 "Install the {model_label} model from Downloaded Tools to use Qwen Local subtitles."
             )),
+        };
+    }
+    if !runtime::has_discoverable_qwen3_runtime() {
+        return SubtitleMethodCapability {
+            method,
+            available: false,
+            reason: Some(
+                "Install the Qwen3-ASR CUDA Runtime from Downloaded Tools to use Qwen Local subtitles."
+                    .to_string(),
+            ),
         };
     }
     if !reference::has_discoverable_server() {

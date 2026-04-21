@@ -25,9 +25,29 @@ pub fn download_file(
     url: &str,
     path: &Path,
     stop_signal: &std::sync::atomic::AtomicBool,
-    _use_badge: bool,
+    use_badge: bool,
 ) -> Result<()> {
-    download_file_with_progress(url, path, stop_signal, |_, _| {})
+    if use_badge {
+        sync_download_badge(0.0);
+    }
+
+    let result = download_file_with_progress(url, path, stop_signal, |downloaded, total| {
+        if !use_badge {
+            return;
+        }
+        let progress = if total > 0 {
+            (downloaded as f32 / total as f32) * 100.0
+        } else {
+            0.0
+        };
+        sync_download_badge(progress);
+    });
+
+    if use_badge {
+        crate::overlay::auto_copy_badge::hide_progress_notification();
+    }
+
+    result
 }
 
 /// Like `download_file` but calls `on_progress(downloaded_bytes, total_bytes)` every ~100ms.
@@ -114,6 +134,23 @@ pub fn download_file_with_progress(
     }
 
     Ok(())
+}
+
+fn sync_download_badge(progress: f32) {
+    use crate::overlay::realtime_webview::state::REALTIME_STATE;
+
+    let (title, message) = if let Ok(state) = REALTIME_STATE.lock() {
+        let title = if state.download_title.trim().is_empty() {
+            "Downloading...".to_string()
+        } else {
+            state.download_title.clone()
+        };
+        (title, state.download_message.clone())
+    } else {
+        ("Downloading...".to_string(), String::new())
+    };
+
+    crate::overlay::auto_copy_badge::show_progress_notification(&title, &message, progress);
 }
 
 pub fn get_parakeet_model_dir() -> PathBuf {

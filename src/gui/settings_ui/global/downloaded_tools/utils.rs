@@ -17,6 +17,14 @@ pub(super) fn get_dir_size(path: &Path) -> u64 {
     total_size
 }
 
+pub(super) fn get_path_size(path: &Path) -> u64 {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_dir() => get_dir_size(path),
+        Ok(metadata) => metadata.len(),
+        Err(_) => 0,
+    }
+}
+
 pub(super) fn format_size(bytes: u64) -> String {
     let mb = bytes as f64 / 1024.0 / 1024.0;
     format!("{:.1} MB", mb)

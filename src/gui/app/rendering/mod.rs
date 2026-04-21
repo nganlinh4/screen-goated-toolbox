@@ -12,6 +12,7 @@ use crate::gui::settings_ui::{
     ViewMode, render_global_settings, render_history_panel, render_preset_editor, render_sidebar,
 };
 use eframe::egui;
+use std::sync::atomic::Ordering;
 
 impl SettingsApp {
     pub(crate) fn render_main_layout(&mut self, ctx: &egui::Context) {
@@ -83,6 +84,10 @@ impl SettingsApp {
         {
             self.view_mode = ViewMode::Global;
             self.show_tts_modal = true;
+        }
+        if super::types::REQUEST_OPEN_DOWNLOADED_TOOLS.swap(false, Ordering::SeqCst) {
+            self.view_mode = ViewMode::Global;
+            self.show_tools_modal = true;
         }
         match self.view_mode {
             ViewMode::Global => {

@@ -298,11 +298,6 @@ fn discover_server_path() -> Result<PathBuf> {
 }
 
 fn server_runtime_path(server_path: &Path) -> Option<PathBuf> {
-    let managed_runtime = get_qwen3_server_runtime_dir();
-    if server_path == get_qwen3_server_path() && managed_runtime.exists() {
-        return Some(managed_runtime);
-    }
-
     let sibling_runtime = server_path
         .parent()
         .map(|parent| parent.join("libtorch").join("lib"));
@@ -314,10 +309,16 @@ fn server_runtime_path(server_path: &Path) -> Option<PathBuf> {
         .iter()
         .any(|candidate| candidate == server_path)
     {
-        return get_local_qwen3_cached_runtime_dir();
+        if let Some(path) = get_local_qwen3_cached_runtime_dir() {
+            return Some(path);
+        }
     }
 
-    None
+    if server_path == get_qwen3_server_path() {
+        return crate::api::realtime_audio::qwen3::runtime::active_qwen3_runtime_dir();
+    }
+
+    crate::api::realtime_audio::qwen3::runtime::active_qwen3_runtime_dir()
 }
 
 fn prepend_env_path(command: &mut Command, runtime_dir: &Path) {
@@ -341,10 +342,6 @@ fn get_qwen3_server_dir() -> PathBuf {
 
 fn get_qwen3_server_path() -> PathBuf {
     get_qwen3_server_dir().join("asr-server.exe")
-}
-
-fn get_qwen3_server_runtime_dir() -> PathBuf {
-    get_qwen3_server_dir().join("libtorch").join("lib")
 }
 
 fn cache_runtime_root(cache_dir: &Path, name: &str) -> Option<PathBuf> {
@@ -389,6 +386,13 @@ fn local_sidecar_candidate_paths() -> Vec<PathBuf> {
             repo_root
                 .join("dist")
                 .join(QWEN3_SERVER_ASSET_NAME.trim_end_matches(".zip"))
+                .join("asr-server.exe"),
+        );
+        candidates.push(
+            repo_root
+                .join("native")
+                .join("qwen3_reference_sidecar")
+                .join("dist")
                 .join("asr-server.exe"),
         );
     }

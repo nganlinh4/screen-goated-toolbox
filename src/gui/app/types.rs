@@ -22,6 +22,8 @@ lazy_static::lazy_static! {
     pub static ref RESTORE_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
 
+pub static REQUEST_OPEN_DOWNLOADED_TOOLS: AtomicBool = AtomicBool::new(false);
+
 pub enum UserEvent {
     Tray(TrayIconEvent),
     Menu(MenuEvent),

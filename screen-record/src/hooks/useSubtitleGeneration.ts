@@ -67,6 +67,10 @@ function isSubtitleMethod(value: string): value is SubtitleMethod {
   );
 }
 
+function isQwenLocalSubtitleMethod(method: SubtitleMethod) {
+  return method === 'qwen-local-0-6b' || method === 'qwen-local-1-7b';
+}
+
 function getInitialSubtitleMethod(): SubtitleMethod {
   try {
     const raw = localStorage.getItem(SUBTITLE_METHOD_KEY);
@@ -110,6 +114,12 @@ interface SubtitleMethodCapability {
 
 interface SubtitleGenerationCapabilities {
   methods: SubtitleMethodCapability[];
+}
+
+interface PrepareQwenLocalResult {
+  available: boolean;
+  startedDownloads: boolean;
+  reason?: string | null;
 }
 
 interface SubtitleJobStatus {
@@ -203,7 +213,8 @@ export function useSubtitleGeneration({
 }: UseSubtitleGenerationParams) {
   const [editingSubtitleId, setEditingSubtitleId] = useState<string | null>(null);
   const [sourceType, setSourceType] = useState<'video' | 'mic'>(getInitialSubtitleSource);
-  const [subtitleMethod, setSubtitleMethod] = useState<SubtitleMethod>(getInitialSubtitleMethod);
+  const [subtitleMethod, setSubtitleMethodState] = useState<SubtitleMethod>(getInitialSubtitleMethod);
+  const [subtitleMethodNotice, setSubtitleMethodNotice] = useState<string | null>(null);
   const [languageHint, setLanguageHint] = useState(getInitialSubtitleLanguageHint);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobContext, setJobContext] = useState<SubtitleJobContext | null>(null);
@@ -273,15 +284,45 @@ export function useSubtitleGeneration({
     if (selectedCapability?.available !== false) return;
     const fallbackMethod = capabilities?.methods.find((entry) => entry.available)?.method;
     if (fallbackMethod && fallbackMethod !== subtitleMethod) {
-      setSubtitleMethod(fallbackMethod);
+      setSubtitleMethodState(fallbackMethod);
     }
   }, [capabilities, capabilityByMethod, subtitleMethod]);
 
+  const setSubtitleMethod = useCallback(async (nextMethod: SubtitleMethod) => {
+    if (nextMethod === subtitleMethod) return;
+    setSubtitleMethodNotice(null);
+    if (!isQwenLocalSubtitleMethod(nextMethod)) {
+      setSubtitleMethodState(nextMethod);
+      return;
+    }
+
+    const latestCapabilities = await refreshSubtitleCapabilities().catch(() => capabilities);
+    const nextCapability = latestCapabilities?.methods.find((entry) => entry.method === nextMethod);
+    if (nextCapability?.available !== false) {
+      setSubtitleMethodState(nextMethod);
+      return;
+    }
+
+    try {
+      const result = await invoke<PrepareQwenLocalResult>('prepare_qwen_local_subtitles', {
+        subtitleMethod: nextMethod,
+      });
+      if (result.available) {
+        setSubtitleMethodState(nextMethod);
+        return;
+      }
+      setSubtitleMethodNotice(result.reason ?? nextCapability?.reason ?? null);
+    } catch (error) {
+      setSubtitleMethodNotice(error instanceof Error ? error.message : String(error));
+    }
+  }, [capabilities, refreshSubtitleCapabilities, subtitleMethod]);
+
   const selectedMethodCapability = capabilityByMethod.get(subtitleMethod);
   const canUseSelectedSubtitleMethod = selectedMethodCapability?.available !== false;
-  const selectedSubtitleMethodReason = selectedMethodCapability?.available === false
+  const selectedSubtitleMethodReason = subtitleMethodNotice
+    ?? (selectedMethodCapability?.available === false
     ? selectedMethodCapability.reason ?? 'This subtitle method is unavailable.'
-    : null;
+    : null);
 
   const applyResults = useCallback((results: SubtitleClipResult[], context: SubtitleJobContext | null) => {
     if (results.length === 0) return;
