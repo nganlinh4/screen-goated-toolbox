@@ -17,6 +17,7 @@ sha2 = "0.10"
 url = "2.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_path_to_error = "0.1"
 anyhow = "1.0"
 base64 = "0.22"
 self_update = { version = "0.42", features = ["archive-zip", "compression-zip-deflate"] }
@@ -53,7 +54,8 @@ hound = "3.5"
 wasapi = "0.22"
 minimp3 = "0.6"
 egui_extras = { version = "0.33", features = ["all_loaders"] }
-symphonia = { version = "0.5", features = ["mp3", "flac", "ogg", "wav", "aac", "alac", "pcm"] }
+symphonia = { version = "0.5", features = ["mp3", "flac", "ogg", "wav", "aac", "alac", "pcm", "isomp4"] }
+symphonia-adapter-libopus = "0.2.6"
 
 # Markdown Rendering
 pulldown-cmark = "0.13"

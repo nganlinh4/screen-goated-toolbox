@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@/lib/ipc";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
 import {
@@ -69,6 +69,7 @@ interface NativeVideoMetadataProbe {
 
 export function useExport(props: UseExportProps) {
   const [isProcessing, setIsProcessing] = useState(false);
+  const exportInFlightRef = useRef(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showExportSuccessDialog, setShowExportSuccessDialog] = useState(false);
@@ -473,6 +474,9 @@ export function useExport(props: UseExportProps) {
   );
 
   const startExport = useCallback(async () => {
+    if (exportInFlightRef.current || isProcessing) {
+      return;
+    }
     const useBatchExport =
       !!props.composition &&
       (isCompositionExport || (exportOptions.format || "mp4") === "both");
@@ -487,6 +491,7 @@ export function useExport(props: UseExportProps) {
     const sourceVideoPath = resolveSourceVideoPath();
 
     try {
+      exportInFlightRef.current = true;
       setShowExportDialog(false);
       setIsProcessing(true);
       setLastExportArtifacts([]);
@@ -526,6 +531,7 @@ export function useExport(props: UseExportProps) {
     } catch (error) {
       console.error("[Export] Error:", error);
     } finally {
+      exportInFlightRef.current = false;
       setIsProcessing(false);
       setExportProgress(0);
     }
@@ -533,12 +539,14 @@ export function useExport(props: UseExportProps) {
     exportAutoCopyEnabled,
     exportOptions,
     isCompositionExport,
+    isProcessing,
     props,
     resolveExportArtifacts,
     resolveSourceVideoPath,
   ]);
 
   const cancelExport = useCallback(() => {
+    exportInFlightRef.current = false;
     videoExporter.cancel();
     setIsProcessing(false);
     setExportProgress(0);

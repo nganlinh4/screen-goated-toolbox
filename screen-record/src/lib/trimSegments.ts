@@ -1,4 +1,4 @@
-import type { TrimSegment, VideoSegment } from '@/types/video';
+import type { SpeedPoint, TrimSegment, VideoSegment } from '@/types/video';
 
 const MIN_SEGMENT_DURATION = 0.1;
 const EPSILON = 0.0001;
@@ -123,6 +123,79 @@ export function getNextPlayableTime(
   return null;
 }
 
+function normalizeSpeedPointTime(
+  value: number,
+  duration: number,
+): number {
+  if (!Number.isFinite(value)) return 0;
+  return clamp(value, 0, duration);
+}
+
+function normalizeSpeedPointValue(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return clamp(value, 0.1, 16);
+}
+
+export function normalizeSpeedPoints(
+  points: SpeedPoint[] | undefined,
+  duration: number,
+): SpeedPoint[] {
+  const safeDuration = Number.isFinite(duration) ? Math.max(duration, 0) : 0;
+  const source = Array.isArray(points) ? points : [];
+
+  const normalized = source
+    .filter(
+      (point) =>
+        point &&
+        typeof point.time === 'number' &&
+        Number.isFinite(point.time) &&
+        typeof point.speed === 'number' &&
+        Number.isFinite(point.speed),
+    )
+    .map((point) => ({
+      time: normalizeSpeedPointTime(point.time, safeDuration),
+      speed: normalizeSpeedPointValue(point.speed),
+    }))
+    .sort((left, right) => left.time - right.time);
+
+  const deduped: SpeedPoint[] = [];
+  for (const point of normalized) {
+    const last = deduped[deduped.length - 1];
+    if (last && Math.abs(last.time - point.time) <= EPSILON) {
+      deduped[deduped.length - 1] = point;
+    } else {
+      deduped.push(point);
+    }
+  }
+
+  const seeded = deduped.length > 0
+    ? deduped
+    : [
+        { time: 0, speed: 1 },
+        { time: safeDuration, speed: 1 },
+      ];
+  const first = seeded[0];
+  const last = seeded[seeded.length - 1];
+  const withStart =
+    first.time > EPSILON
+      ? [{ time: 0, speed: first.speed }, ...seeded]
+      : [{ time: 0, speed: first.speed }, ...seeded.slice(1)];
+  const tail = withStart[withStart.length - 1];
+  const withEndpoints =
+    Math.abs(tail.time - safeDuration) > EPSILON
+      ? [...withStart, { time: safeDuration, speed: last.speed }]
+      : [...withStart.slice(0, -1), { time: safeDuration, speed: tail.speed }];
+
+  if (withEndpoints.length === 1) {
+    return [
+      withEndpoints[0],
+      { time: safeDuration, speed: withEndpoints[0].speed },
+    ];
+  }
+
+  return withEndpoints;
+}
+
 export function normalizeSegmentTrimData(segment: VideoSegment, duration: number): VideoSegment {
   const segs = getTrimSegments(segment, duration);
   return {
@@ -130,6 +203,7 @@ export function normalizeSegmentTrimData(segment: VideoSegment, duration: number
     trimSegments: segs,
     trimStart: segs[0].startTime,
     trimEnd: segs[segs.length - 1].endTime,
+    speedPoints: normalizeSpeedPoints(segment.speedPoints, segs[segs.length - 1].endTime),
   };
 }
 
@@ -156,4 +230,3 @@ export function sourceRangeToCompactRanges(
   }
   return result;
 }
-

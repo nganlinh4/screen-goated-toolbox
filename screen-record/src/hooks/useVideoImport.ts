@@ -11,6 +11,10 @@ export interface UseVideoImportResult {
   importVideo: (file: File) => Promise<void>;
 }
 
+function buildVideoImportTraceId() {
+  return `video-import-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export function useVideoImport(opts: {
   onProjectCreated: (project: Project) => void;
 }): UseVideoImportResult {
@@ -23,11 +27,13 @@ export function useVideoImport(opts: {
 
     isImportingRef.current = true;
     setIsImporting(true);
+    const traceId = buildVideoImportTraceId();
     try {
-      // 1. Normalize to the app-managed import format so uploads behave like recorded clips.
+      // 1. Persist the uploaded source into the app-managed recordings area.
       const { path: rawVideoPath, hasAudio } = await importVideoToManagedMediaFile(
         file,
         file.name,
+        traceId,
       );
 
       // 2. Probe duration + generate thumbnail via temporary video element
@@ -72,7 +78,7 @@ export function useVideoImport(opts: {
 
       opts.onProjectCreated(project);
     } catch (err) {
-      console.error("[VideoImport] Failed:", err);
+      console.error(`[VideoImport:${traceId}] failed`, err);
     } finally {
       isImportingRef.current = false;
       setIsImporting(false);
@@ -82,7 +88,12 @@ export function useVideoImport(opts: {
   return { isImporting, importVideo };
 }
 
-function probeVideo(url: string): Promise<{ duration: number; thumbnail: string | undefined }> {
+function probeVideo(
+  url: string,
+): Promise<{
+  duration: number;
+  thumbnail: string | undefined;
+}> {
   return new Promise((resolve, reject) => {
     const video = document.createElement("video");
     video.muted = true;
@@ -120,7 +131,10 @@ function probeVideo(url: string): Promise<{ duration: number; thumbnail: string 
       } catch { /* thumbnail generation failed, proceed without */ }
 
       cleanup();
-      resolve({ duration: video.duration, thumbnail });
+      resolve({
+        duration: video.duration,
+        thumbnail,
+      });
     };
 
     video.onerror = () => {

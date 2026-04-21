@@ -14,10 +14,18 @@ pub enum VideoCodec {
     H264,
 }
 
+/// Uncompressed surface format accepted by the SinkWriter input stream.
+#[derive(Debug, Clone, Copy)]
+pub enum VideoInputSurfaceFormat {
+    Argb32,
+    Nv12,
+}
+
 /// Configuration for the MF encoder.
 #[derive(Debug, Clone)]
 pub struct EncoderConfig {
     pub codec: VideoCodec,
+    pub input_surface_format: VideoInputSurfaceFormat,
     pub width: u32,
     pub height: u32,
     pub fps_num: u32,
@@ -87,8 +95,9 @@ impl MfEncoder {
         }
 
         println!(
-            "[MfEncoder] Created {:?} encoder {}x{} @ {}kbps, {}/{} fps (Has Audio: {}) → {}",
+            "[MfEncoder] Created {:?}/{:?} encoder {}x{} @ {}kbps, {}/{} fps (Has Audio: {}) → {}",
             config.codec,
+            config.input_surface_format,
             config.width,
             config.height,
             config.bitrate_kbps,
@@ -330,16 +339,19 @@ fn create_output_media_type(config: &EncoderConfig) -> Result<IMFMediaType, Stri
 fn create_input_media_type(config: &EncoderConfig) -> Result<IMFMediaType, String> {
     let media_type = unsafe { MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))? };
 
+    let input_subtype = match config.input_surface_format {
+        VideoInputSurfaceFormat::Argb32 => MFVideoFormat_ARGB32,
+        VideoInputSurfaceFormat::Nv12 => MFVideoFormat_NV12,
+    };
+
     unsafe {
         media_type
             .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
             .map_err(|e| format!("SetGUID MAJOR_TYPE: {e}"))?;
 
-        // ARGB32 = BGRA byte order on little-endian. The SinkWriter inserts
-        // a color converter MFT to convert BGRA→NV12 before the HW encoder.
         media_type
-            .SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_ARGB32)
-            .map_err(|e| format!("SetGUID SUBTYPE ARGB32: {e}"))?;
+            .SetGUID(&MF_MT_SUBTYPE, &input_subtype)
+            .map_err(|e| format!("SetGUID SUBTYPE {:?}: {e}", config.input_surface_format))?;
 
         let frame_size = ((config.width as u64) << 32) | (config.height as u64);
         media_type

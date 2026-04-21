@@ -1,7 +1,13 @@
 // Media Foundation audio decode, processing, and muxing.
 // Decodes source audio to PCM, handles speed/trim, encodes to AAC.
 
+#[path = "mf_audio_symphonia.rs"]
+mod mf_audio_symphonia;
+
+use parking_lot::Mutex;
+
 use super::mf_decode;
+use self::mf_audio_symphonia::SymphoniaAudioDecoder;
 use windows::Win32::Media::MediaFoundation::*;
 
 /// Configuration for audio processing.
@@ -24,17 +30,26 @@ impl Default for AudioConfig {
 
 /// MF-based audio decoder that outputs PCM float samples.
 pub struct MfAudioDecoder {
-    reader: IMFSourceReader,
-    audio_stream_index: u32,
     sample_rate: u32,
     channels: u32,
+    backend: AudioDecoderBackend,
+}
+
+enum AudioDecoderBackend {
+    Mf(MfBackend),
+    Symphonia(Mutex<SymphoniaAudioDecoder>),
+}
+
+struct MfBackend {
+    reader: IMFSourceReader,
+    audio_stream_index: u32,
     output_format: AudioOutputFormat,
 }
 
 #[derive(Clone, Copy, Debug)]
 enum AudioOutputFormat {
     Float32,
-    Pcm16,
+    PcmInteger { bits_per_sample: u32 },
 }
 
 /// Audio stream handle for the SinkWriter (shares the writer with video).
@@ -46,7 +61,7 @@ impl MfAudioDecoder {
     /// Open an audio file (or video file with audio track) for decoding.
     /// Outputs 32-bit float PCM at the source sample rate.
     pub fn new(file_path: &str) -> Result<Self, String> {
-        Self::new_with_output_format(file_path, None, None)
+        Self::new_with_options(file_path, None, None, true)
     }
 
     /// Open an audio file with an optional caller-specified PCM float output format.
@@ -54,6 +69,57 @@ impl MfAudioDecoder {
         file_path: &str,
         target_sample_rate: Option<u32>,
         target_channels: Option<u32>,
+    ) -> Result<Self, String> {
+        Self::new_with_options(file_path, target_sample_rate, target_channels, false)
+    }
+
+    /// Open an audio file with a preferred output format but allow falling back
+    /// to a native PCM shape if the exact transform is unavailable.
+    pub fn new_with_preferred_output_format(
+        file_path: &str,
+        target_sample_rate: Option<u32>,
+        target_channels: Option<u32>,
+    ) -> Result<Self, String> {
+        Self::new_with_options(file_path, target_sample_rate, target_channels, true)
+    }
+
+    fn new_with_options(
+        file_path: &str,
+        target_sample_rate: Option<u32>,
+        target_channels: Option<u32>,
+        allow_fallback_to_native_pcm: bool,
+    ) -> Result<Self, String> {
+        match Self::try_new_mf(
+            file_path,
+            target_sample_rate,
+            target_channels,
+            allow_fallback_to_native_pcm,
+        ) {
+            Ok(decoder) => Ok(decoder),
+            Err(mf_error) => {
+                let symphonia_decoder =
+                    SymphoniaAudioDecoder::new(file_path, target_sample_rate, target_channels)
+                        .map_err(|symphonia_error| {
+                            format!("{mf_error}; Symphonia fallback: {symphonia_error}")
+                        })?;
+                println!(
+                    "[MfAudioDecoder] Media Foundation unavailable, using Symphonia fallback: {}",
+                    mf_error
+                );
+                Ok(Self {
+                    sample_rate: symphonia_decoder.sample_rate(),
+                    channels: symphonia_decoder.channels(),
+                    backend: AudioDecoderBackend::Symphonia(Mutex::new(symphonia_decoder)),
+                })
+            }
+        }
+    }
+
+    fn try_new_mf(
+        file_path: &str,
+        target_sample_rate: Option<u32>,
+        target_channels: Option<u32>,
+        allow_fallback_to_native_pcm: bool,
     ) -> Result<Self, String> {
         mf_decode::mf_startup()?;
 
@@ -89,15 +155,20 @@ impl MfAudioDecoder {
                 .map_err(|e| format!("Select audio: {e}"))?;
         }
 
-        let output_format =
-            negotiate_output_format(&reader, audio_idx, target_sample_rate, target_channels)?;
+        negotiate_output_format(
+            &reader,
+            audio_idx,
+            target_sample_rate,
+            target_channels,
+            allow_fallback_to_native_pcm,
+        )?;
 
-        // Read back negotiated format
         let current_type = unsafe {
             reader
                 .GetCurrentMediaType(audio_idx)
                 .map_err(|e| format!("GetCurrentMediaType: {e}"))?
         };
+        let output_format = detect_output_format(&current_type)?;
         let sample_rate = unsafe {
             current_type
                 .GetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND)
@@ -115,11 +186,13 @@ impl MfAudioDecoder {
         );
 
         Ok(Self {
-            reader,
-            audio_stream_index: audio_idx,
             sample_rate,
             channels,
-            output_format,
+            backend: AudioDecoderBackend::Mf(MfBackend {
+                reader,
+                audio_stream_index: audio_idx,
+                output_format,
+            }),
         })
     }
 
@@ -127,14 +200,39 @@ impl MfAudioDecoder {
     /// Returns `None` at end-of-stream.
     /// Returns `(pcm_data, timestamp_100ns)`.
     pub fn read_samples(&self) -> Result<Option<(Vec<u8>, i64)>, String> {
+        match &self.backend {
+            AudioDecoderBackend::Symphonia(decoder) => decoder.lock().read_samples(),
+            AudioDecoderBackend::Mf(backend) => read_samples_mf(backend),
+        }
+    }
+
+    /// Seek to a position in 100ns units.
+    pub fn seek(&self, position_100ns: i64) -> Result<(), String> {
+        match &self.backend {
+            AudioDecoderBackend::Symphonia(decoder) => decoder.lock().seek(position_100ns),
+            AudioDecoderBackend::Mf(backend) => seek_mf(backend, position_100ns),
+        }
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    pub fn channels(&self) -> u32 {
+        self.channels
+    }
+}
+
+fn read_samples_mf(backend: &MfBackend) -> Result<Option<(Vec<u8>, i64)>, String> {
         let mut stream_flags: u32 = 0;
         let mut timestamp: i64 = 0;
         let mut sample: Option<IMFSample> = None;
 
         unsafe {
-            self.reader
+            backend
+                .reader
                 .ReadSample(
-                    self.audio_stream_index,
+                    backend.audio_stream_index,
                     0,
                     None,
                     Some(&mut stream_flags),
@@ -174,32 +272,25 @@ impl MfAudioDecoder {
             let _ = buffer.Unlock();
         }
 
-        let normalized = match self.output_format {
+        let normalized = match backend.output_format {
             AudioOutputFormat::Float32 => data,
-            AudioOutputFormat::Pcm16 => pcm16_bytes_to_f32le_bytes(&data),
+            AudioOutputFormat::PcmInteger { bits_per_sample } => {
+                pcm_integer_bytes_to_f32le_bytes(&data, bits_per_sample)
+            }
         };
 
         Ok(Some((normalized, timestamp)))
     }
 
-    /// Seek to a position in 100ns units.
-    pub fn seek(&self, position_100ns: i64) -> Result<(), String> {
-        let propvar = super::mf_decode::make_i64_propvariant(position_100ns);
-        unsafe {
-            self.reader
-                .SetCurrentPosition(&windows::core::GUID::zeroed(), &propvar)
-                .map_err(|e| format!("SetCurrentPosition audio: {e}"))?;
-        }
-        Ok(())
+fn seek_mf(backend: &MfBackend, position_100ns: i64) -> Result<(), String> {
+    let propvar = super::mf_decode::make_i64_propvariant(position_100ns);
+    unsafe {
+        backend
+            .reader
+            .SetCurrentPosition(&windows::core::GUID::zeroed(), &propvar)
+            .map_err(|e| format!("SetCurrentPosition audio: {e}"))?;
     }
-
-    pub fn sample_rate(&self) -> u32 {
-        self.sample_rate
-    }
-
-    pub fn channels(&self) -> u32 {
-        self.channels
-    }
+    Ok(())
 }
 
 fn negotiate_output_format(
@@ -207,41 +298,81 @@ fn negotiate_output_format(
     audio_idx: u32,
     target_sample_rate: Option<u32>,
     target_channels: Option<u32>,
-) -> Result<AudioOutputFormat, String> {
-    let float_result = try_set_output_type(
-        reader,
-        audio_idx,
-        &MFAudioFormat_Float,
-        32,
-        target_sample_rate,
-        target_channels,
-        "Float",
-    );
-    if float_result.is_ok() {
+    allow_fallback_to_native_pcm: bool,
+) -> Result<(), String> {
+    let mut errors = Vec::new();
+
+    if target_sample_rate.is_some() || target_channels.is_some() {
+        match try_set_output_type_exact(
+            reader,
+            audio_idx,
+            &MFAudioFormat_Float,
+            32,
+            target_sample_rate,
+            target_channels,
+            "Float",
+        ) {
+            Ok(()) => return Ok(()),
+            Err(error) => errors.push(error),
+        }
+
+        match try_set_output_type_exact(
+            reader,
+            audio_idx,
+            &MFAudioFormat_PCM,
+            16,
+            target_sample_rate,
+            target_channels,
+            "PCM16",
+        ) {
+            Ok(()) => return Ok(()),
+            Err(error) => errors.push(error),
+        }
+    }
+
+    match try_set_output_type_partial(reader, audio_idx, &MFAudioFormat_PCM, "PCM(partial)") {
+        Ok(()) => return Ok(()),
+        Err(error) => errors.push(error),
+    }
+
+    if allow_fallback_to_native_pcm {
+        match try_set_output_type_partial(reader, audio_idx, &MFAudioFormat_Float, "Float(partial)")
+        {
+            Ok(()) => return Ok(()),
+            Err(error) => errors.push(error),
+        }
+    }
+
+    Err(errors.join("; "))
+}
+
+fn detect_output_format(current_type: &IMFMediaType) -> Result<AudioOutputFormat, String> {
+    let subtype = unsafe {
+        current_type
+            .GetGUID(&MF_MT_SUBTYPE)
+            .map_err(|e| format!("GetGUID SUBTYPE: {e}"))?
+    };
+
+    if subtype == MFAudioFormat_Float {
         return Ok(AudioOutputFormat::Float32);
     }
 
-    let pcm16_result = try_set_output_type(
-        reader,
-        audio_idx,
-        &MFAudioFormat_PCM,
-        16,
-        target_sample_rate,
-        target_channels,
-        "PCM16",
-    );
-    if pcm16_result.is_ok() {
-        return Ok(AudioOutputFormat::Pcm16);
+    if subtype == MFAudioFormat_PCM {
+        let bits_per_sample = unsafe {
+            current_type
+                .GetUINT32(&MF_MT_AUDIO_BITS_PER_SAMPLE)
+                .unwrap_or(16)
+        };
+        return match bits_per_sample {
+            8 | 16 | 24 | 32 => Ok(AudioOutputFormat::PcmInteger { bits_per_sample }),
+            other => Err(format!("Unsupported PCM bits-per-sample: {other}")),
+        };
     }
 
-    Err(format!(
-        "{}; {}",
-        float_result.unwrap_err(),
-        pcm16_result.unwrap_err()
-    ))
+    Err(format!("Unsupported negotiated audio subtype: {subtype:?}"))
 }
 
-fn try_set_output_type(
+fn try_set_output_type_exact(
     reader: &IMFSourceReader,
     audio_idx: u32,
     subtype: &windows::core::GUID,
@@ -288,10 +419,72 @@ fn try_set_output_type(
     Ok(())
 }
 
+fn try_set_output_type_partial(
+    reader: &IMFSourceReader,
+    audio_idx: u32,
+    subtype: &windows::core::GUID,
+    label: &str,
+) -> Result<(), String> {
+    let partial_type =
+        unsafe { MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))? };
+    unsafe {
+        partial_type
+            .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio)
+            .map_err(|e| format!("SetGUID MAJOR_TYPE: {e}"))?;
+        partial_type
+            .SetGUID(&MF_MT_SUBTYPE, subtype)
+            .map_err(|e| format!("SetGUID SUBTYPE {label}: {e}"))?;
+        reader
+            .SetCurrentMediaType(audio_idx, None, &partial_type)
+            .map_err(|e| format!("SetCurrentMediaType {label}: {e}"))?;
+    }
+    Ok(())
+}
+
+fn pcm_integer_bytes_to_f32le_bytes(bytes: &[u8], bits_per_sample: u32) -> Vec<u8> {
+    match bits_per_sample {
+        8 => pcm8_bytes_to_f32le_bytes(bytes),
+        16 => pcm16_bytes_to_f32le_bytes(bytes),
+        24 => pcm24_bytes_to_f32le_bytes(bytes),
+        32 => pcm32_bytes_to_f32le_bytes(bytes),
+        _ => Vec::new(),
+    }
+}
+
+fn pcm8_bytes_to_f32le_bytes(bytes: &[u8]) -> Vec<u8> {
+    let mut floats = Vec::with_capacity(bytes.len() * 4);
+    for byte in bytes {
+        let centered = (*byte as f32 - 128.0) / 128.0;
+        floats.extend_from_slice(&centered.clamp(-1.0, 1.0).to_le_bytes());
+    }
+    floats
+}
+
 fn pcm16_bytes_to_f32le_bytes(bytes: &[u8]) -> Vec<u8> {
     let mut floats = Vec::with_capacity((bytes.len() / 2) * 4);
     for chunk in bytes.chunks_exact(2) {
         let sample = i16::from_le_bytes([chunk[0], chunk[1]]) as f32 / i16::MAX as f32;
+        floats.extend_from_slice(&sample.clamp(-1.0, 1.0).to_le_bytes());
+    }
+    floats
+}
+
+fn pcm24_bytes_to_f32le_bytes(bytes: &[u8]) -> Vec<u8> {
+    let mut floats = Vec::with_capacity((bytes.len() / 3) * 4);
+    for chunk in bytes.chunks_exact(3) {
+        let sample = ((chunk[2] as i32) << 24 | (chunk[1] as i32) << 16 | (chunk[0] as i32) << 8)
+            >> 8;
+        let normalized = sample as f32 / 8_388_608.0;
+        floats.extend_from_slice(&normalized.clamp(-1.0, 1.0).to_le_bytes());
+    }
+    floats
+}
+
+fn pcm32_bytes_to_f32le_bytes(bytes: &[u8]) -> Vec<u8> {
+    let mut floats = Vec::with_capacity(bytes.len());
+    for chunk in bytes.chunks_exact(4) {
+        let sample = i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as f32
+            / i32::MAX as f32;
         floats.extend_from_slice(&sample.clamp(-1.0, 1.0).to_le_bytes());
     }
     floats

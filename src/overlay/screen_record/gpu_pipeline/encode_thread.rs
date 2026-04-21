@@ -7,7 +7,7 @@ use windows::core::Interface;
 
 use super::super::d3d_interop::D3D11GpuFence;
 use super::super::mf_audio::{AudioConfig, MfAudioDecoder};
-use super::super::mf_encode::{EncoderConfig, MfEncoder};
+use super::super::mf_encode::{EncoderConfig, MfEncoder, VideoInputSurfaceFormat};
 use super::audio::apply_audio_volume_envelope;
 use super::types::{EncodeThreadContext, RenderOutput, ZeroCopyExportResult};
 
@@ -48,6 +48,7 @@ pub(super) fn run_encode_thread(
 
     let encoder_config = EncoderConfig {
         codec: config.codec,
+        input_surface_format: VideoInputSurfaceFormat::Argb32,
         width: config.output_width,
         height: config.output_height,
         fps_num: config.framerate,

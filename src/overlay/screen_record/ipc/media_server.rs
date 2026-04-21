@@ -2,13 +2,15 @@
 // HTTP media server for streaming recorded video/audio files with
 // range-request support, plus POST endpoints for staging atlas data.
 
+mod import_normalize;
+
 use super::super::SERVER_PORT;
 use super::super::native_export;
 use std::fs::File;
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::thread;
+use std::time::Instant;
 use tiny_http::{Response, Server, StatusCode};
 
 const NORMALIZED_IMPORT_AUDIO_SAMPLE_RATE: u32 = 48_000;
@@ -22,115 +24,20 @@ fn recordings_dir() -> PathBuf {
         .join("recordings")
 }
 
-fn ffmpeg_exe() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or(PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("bin")
-        .join("ffmpeg.exe")
+fn normalize_imported_video(
+    input_path: &Path,
+    output_path: &Path,
+    trace_id: &str,
+) -> Result<bool, String> {
+    import_normalize::normalize_imported_video_mf(input_path, output_path, trace_id)
 }
 
-fn ffprobe_exe() -> PathBuf {
-    ffmpeg_exe().with_file_name("ffprobe.exe")
-}
-
-fn media_has_audio(path: &Path) -> bool {
-    let ffprobe = ffprobe_exe();
-    let path_str = path.to_string_lossy().to_string();
-    if ffprobe.exists()
-        && let Ok(output) = Command::new(&ffprobe)
-            .args([
-                "-v",
-                "error",
-                "-select_streams",
-                "a:0",
-                "-show_entries",
-                "stream=codec_type",
-                "-of",
-                "csv=p=0",
-                &path_str,
-            ])
-            .output()
-        && output.status.success()
-    {
-        return !String::from_utf8_lossy(&output.stdout).trim().is_empty();
-    }
-
-    let ffmpeg = ffmpeg_exe();
-    if !ffmpeg.exists() {
-        return false;
-    }
-
-    Command::new(&ffmpeg)
-        .args(["-i", &path_str])
-        .output()
-        .map(|output| String::from_utf8_lossy(&output.stderr).contains("Audio:"))
-        .unwrap_or(false)
-}
-
-fn normalize_imported_video(input_path: &Path, output_path: &Path) -> Result<bool, String> {
-    let ffmpeg = ffmpeg_exe();
-    if !ffmpeg.exists() {
-        return Err(format!(
-            "FFmpeg not found at {}. Please install it from Downloaded Tools before importing video.",
-            ffmpeg.display()
-        ));
-    }
-
-    let has_audio = media_has_audio(input_path);
-    let input_path_str = input_path.to_string_lossy().to_string();
-    let output_path_str = output_path.to_string_lossy().to_string();
-    let sample_rate = NORMALIZED_IMPORT_AUDIO_SAMPLE_RATE.to_string();
-    let channels = NORMALIZED_IMPORT_AUDIO_CHANNELS.to_string();
-    let audio_bitrate = format!("{NORMALIZED_IMPORT_AUDIO_BITRATE_KBPS}k");
-
-    let mut command = Command::new(&ffmpeg);
-    command.args([
-        "-y",
-        "-i",
-        &input_path_str,
-        "-map",
-        "0:v:0",
-        "-c:v",
-        "libx264",
-        "-pix_fmt",
-        "yuv420p",
-        "-preset",
-        "veryfast",
-        "-movflags",
-        "+faststart",
-    ]);
-
-    if has_audio {
-        command.args([
-            "-map",
-            "0:a:0",
-            "-c:a",
-            "aac",
-            "-ar",
-            &sample_rate,
-            "-ac",
-            &channels,
-            "-b:a",
-            &audio_bitrate,
-        ]);
-    } else {
-        command.arg("-an");
-    }
-
-    command.arg(&output_path_str);
-
-    let output = command
-        .output()
-        .map_err(|e| format!("Failed to launch FFmpeg: {e}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "Imported video normalization failed:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    Ok(has_audio)
+fn managed_import_path(
+    recordings_dir: &Path,
+    ts: u128,
+    extension: &str,
+) -> PathBuf {
+    recordings_dir.join(format!("imported-{ts}.{extension}"))
 }
 
 pub fn start_global_media_server() -> Result<u16, String> {
@@ -314,14 +221,30 @@ pub fn start_global_media_server() -> Result<u16, String> {
                     .and_then(|value| urlencoding::decode(value).ok())
                     .map(|value| value.into_owned())
                     .unwrap_or_else(|| "upload.mp4".to_string());
+                let trace_id = url
+                    .split_once('?')
+                    .map(|(_, query)| query)
+                    .unwrap_or("")
+                    .split('&')
+                    .find_map(|kv| kv.strip_prefix("traceId="))
+                    .and_then(|value| urlencoding::decode(value).ok())
+                    .map(|value| value.into_owned())
+                    .unwrap_or_else(|| format!("video-import-{ts}"));
                 let extension = Path::new(&file_name)
                     .extension()
                     .and_then(|ext| ext.to_str())
                     .filter(|ext| !ext.is_empty())
                     .unwrap_or("mp4");
+                let normalize_requested = url
+                    .split_once('?')
+                    .map(|(_, query)| query)
+                    .unwrap_or("")
+                    .split('&')
+                    .any(|kv| kv == "normalize=1" || kv == "normalize=true");
                 let input_path = recordings_dir.join(format!("import-source-{ts}.{extension}"));
-                let output_path = recordings_dir.join(format!("imported-{ts}.mp4"));
+                let output_path = managed_import_path(&recordings_dir, ts, extension);
                 let mut body = Vec::new();
+                let request_started_at = Instant::now();
 
                 let result = (|| -> Result<(String, bool), String> {
                     request
@@ -333,7 +256,27 @@ pub fn start_global_media_server() -> Result<u16, String> {
                     }
                     std::fs::write(&input_path, &body)
                         .map_err(|e| format!("Write imported video temp file: {e}"))?;
-                    let has_audio = normalize_imported_video(&input_path, &output_path)?;
+                    if normalize_requested {
+                        let normalize_output_path =
+                            recordings_dir.join(format!("imported-{ts}.mp4"));
+                        let has_audio = normalize_imported_video(
+                            &input_path,
+                            &normalize_output_path,
+                            &trace_id,
+                        )?;
+                        return Ok((normalize_output_path.to_string_lossy().to_string(), has_audio));
+                    }
+
+                    std::fs::rename(&input_path, &output_path).or_else(|rename_error| {
+                        std::fs::copy(&input_path, &output_path)
+                            .map(|_| ())
+                            .map_err(|copy_error| {
+                                format!(
+                                    "Persist imported video failed (rename: {rename_error}; copy: {copy_error})"
+                                )
+                            })
+                    })?;
+                    let has_audio = import_normalize::probe_media_has_audio(&output_path)?;
                     Ok((output_path.to_string_lossy().to_string(), has_audio))
                 })();
 
@@ -341,6 +284,15 @@ pub fn start_global_media_server() -> Result<u16, String> {
 
                 match result {
                     Ok((path, has_audio)) => {
+                        crate::log_info!(
+                            "[VideoImport:{}][HTTP] complete total {:.3}s size_mb={:.2} file=\"{}\" output=\"{}\" has_audio={}",
+                            trace_id,
+                            request_started_at.elapsed().as_secs_f64(),
+                            body.len() as f64 / (1024.0 * 1024.0),
+                            file_name,
+                            path,
+                            has_audio
+                        );
                         let json = format!(
                             "{{\"path\":{},\"hasAudio\":{}}}",
                             serde_json::json!(path),
@@ -358,6 +310,12 @@ pub fn start_global_media_server() -> Result<u16, String> {
                         let _ = request.respond(res);
                     }
                     Err(error) => {
+                        crate::log_info!(
+                            "[VideoImport:{}][HTTP] failed after {:.3}s: {}",
+                            trace_id,
+                            request_started_at.elapsed().as_secs_f64(),
+                            error
+                        );
                         let _ = std::fs::remove_file(&output_path);
                         let mut res = Response::from_string(error).with_status_code(500);
                         res.add_header(cors);
