@@ -429,12 +429,14 @@ internal fun presetResultJavascriptCore(): String {
                             emitted += 1;
                         }
 
-                        // Overflow-only refit: fast streaming can push content
-                        // past winH between per-chunk fits (fit measures
-                        // partial revealed content). Shrink synchronously
-                        // when overflow exceeds 5% of winH; cancel any
-                        // in-flight fit rAF first so it can't overwrite us.
-                        if (emitted > 0) {
+                        // Fallback overflow shrink (visibility:hidden keeps
+                        // all queued words in layout so the fit already
+                        // measures correctly in most cases). Stand down
+                        // while fit's rAF is interpolating — its animation
+                        // transiently parks body.fontSize at the OLD value,
+                        // and scrollHeight spikes there. Reading during
+                        // that window would cause an undershoot.
+                        if (emitted > 0 && !window._sgtFitAnim) {
                             const doc2 = document.documentElement;
                             const overflowPx = doc2.scrollHeight - window.innerHeight;
                             if (overflowPx > window.innerHeight * 0.05) {
@@ -444,10 +446,6 @@ internal fun presetResultJavascriptCore(): String {
                                     const scale = (window.innerHeight / doc2.scrollHeight) * 0.92;
                                     const newFs = Math.max(minFs, Math.floor(currentFs * scale));
                                     if (newFs < currentFs) {
-                                        if (window._sgtFitAnim) {
-                                            try { cancelAnimationFrame(window._sgtFitAnim); } catch (_e) {}
-                                            window._sgtFitAnim = null;
-                                        }
                                         document.body.style.fontSize = newFs + 'px';
                                         window._sgtCurrentFontSize = newFs;
                                     }
@@ -475,6 +473,13 @@ internal fun presetResultJavascriptCore(): String {
                         if (debounceTimer) return;
                         debounceTimer = setTimeout(function() {
                             debounceTimer = null;
+                            // Stand down while fit's rAF is interpolating
+                            // — body transiently sits at the OLD pre-fit
+                            // value during the animation and scrollHeight
+                            // spikes there. Reading during that window
+                            // caused the "too small after streaming"
+                            // undershoot.
+                            if (window._sgtFitAnim) return;
                             try {
                                 const doc = document.documentElement;
                                 const winH = window.innerHeight;
@@ -489,10 +494,6 @@ internal fun presetResultJavascriptCore(): String {
                                 const scale = (winH / doc.scrollHeight) * 0.92;
                                 const nFs = Math.max(minFs, Math.floor(cFs * scale));
                                 if (nFs >= cFs) return;
-                                if (window._sgtFitAnim) {
-                                    try { cancelAnimationFrame(window._sgtFitAnim); } catch (_e) {}
-                                    window._sgtFitAnim = null;
-                                }
                                 document.body.style.fontSize = nFs + 'px';
                                 window._sgtCurrentFontSize = nFs;
                             } catch (_e) {}
