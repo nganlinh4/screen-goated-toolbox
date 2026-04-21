@@ -1,30 +1,18 @@
 use crate::api::realtime_audio::WM_DOWNLOAD_PROGRESS;
 use crate::api::realtime_audio::model_loader::download_file;
 use anyhow::{Result, anyhow};
-use serde::Deserialize;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-const SGT_RELEASES_API_URL: &str = "https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases?per_page=8&prerelease=false";
-const QWEN3_SERVER_ASSET_NAME: &str = "qwen3-asr-reference-windows-x64.zip";
+const QWEN3_SERVER_BINARY_NAME: &str = "asr-server.exe";
+const DEFAULT_QWEN3_SERVER_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/qwen3_reference_sidecar/dist/asr-server.exe";
 
 lazy_static::lazy_static! {
     static ref LAST_QWEN3_SERVER_NOTICE: Mutex<Option<String>> = Mutex::new(None);
-}
-
-#[derive(Deserialize)]
-struct GitHubRelease {
-    assets: Vec<GitHubReleaseAsset>,
-}
-
-#[derive(Deserialize)]
-struct GitHubReleaseAsset {
-    name: String,
-    browser_download_url: String,
 }
 
 fn set_qwen3_server_notice(message: impl Into<String>) {
@@ -71,36 +59,6 @@ pub fn get_qwen3_server_path() -> PathBuf {
     get_qwen3_server_dir().join("asr-server.exe")
 }
 
-pub fn get_qwen3_server_runtime_dir() -> PathBuf {
-    get_qwen3_server_dir().join("libtorch").join("lib")
-}
-
-fn cache_runtime_root(cache_dir: &Path, name: &str) -> Option<PathBuf> {
-    let variant_dir = cache_dir.join(format!("libtorch-{name}"));
-    let nested_root = variant_dir.join("libtorch");
-    if nested_root.join("lib").exists() {
-        return Some(nested_root);
-    }
-    if variant_dir.join("lib").exists() {
-        return Some(variant_dir);
-    }
-    None
-}
-
-pub fn get_local_qwen3_cached_runtime_dir() -> Option<PathBuf> {
-    let repo_root = repo_root().ok()?;
-    let cache_dir = repo_root.join("tools").join("qwen3-reference-cache");
-    let variant = fs::read_to_string(cache_dir.join("runtime-variant.txt"))
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    let candidates = variant
-        .into_iter()
-        .filter_map(|name| cache_runtime_root(&cache_dir, &name).map(|root| root.join("lib")))
-        .chain(std::iter::once(cache_dir.join("libtorch").join("lib")));
-    candidates.into_iter().find(|path| path.exists())
-}
-
 pub fn is_qwen3_server_downloaded() -> bool {
     get_active_qwen3_server_path().is_some()
 }
@@ -114,10 +72,6 @@ pub fn get_active_qwen3_server_path() -> Option<PathBuf> {
         .into_iter()
         .find(|path| path.exists())
         .or_else(|| get_qwen3_server_path().exists().then(get_qwen3_server_path))
-}
-
-pub fn get_active_qwen3_server_root() -> Option<PathBuf> {
-    get_active_qwen3_server_path().and_then(|path| path.parent().map(Path::to_path_buf))
 }
 
 pub fn remove_qwen3_server() -> Result<()> {
@@ -148,38 +102,28 @@ pub fn download_qwen3_server(stop_signal: Arc<AtomicBool>, use_badge: bool) -> R
     post_download_state();
 
     let result: Result<()> = (|| {
-        let release = find_release_with_asset()?;
-        let asset = release
-            .assets
-            .iter()
-            .find(|asset| asset.name == QWEN3_SERVER_ASSET_NAME)
-            .ok_or_else(|| {
-                anyhow!(
-                    "Latest Screen Goated Toolbox releases do not contain the '{}' sidecar asset yet.",
-                    QWEN3_SERVER_ASSET_NAME
-                )
-            })?;
+        let download_url = qwen3_server_download_url();
         if let Ok(mut state) = REALTIME_STATE.lock() {
             state.download_message = locale
                 .qwen3_server_downloading_file
-                .replace("{}", &asset.name);
+                .replace("{}", QWEN3_SERVER_BINARY_NAME);
         }
         post_download_state();
 
-        let archive_path = get_qwen3_server_dir().join(&asset.name);
-        download_file(
-            &asset.browser_download_url,
-            &archive_path,
-            &stop_signal,
-            use_badge,
-        )?;
-
-        extract_qwen3_server_archive(&archive_path, &get_qwen3_server_dir())?;
-        let _ = fs::remove_file(archive_path);
+        let server_path = get_qwen3_server_path();
+        let _ = fs::create_dir_all(get_qwen3_server_dir());
+        download_file(&download_url, &server_path, &stop_signal, use_badge).map_err(|err| {
+            anyhow!(
+                "Failed to download Qwen3 reference server executable from '{}': {}. Commit and push '{}' to a git-tracked URL, or set SGT_QWEN3_ASR_SERVER_URL.",
+                download_url,
+                err,
+                "native/qwen3_reference_sidecar/dist/asr-server.exe"
+            )
+        })?;
 
         if !is_qwen3_server_downloaded() {
             return Err(anyhow!(
-                "Downloaded Qwen3 reference server bundle did not contain asr-server.exe"
+                "Downloaded Qwen3 reference server executable was not saved successfully"
             ));
         }
 
@@ -202,6 +146,20 @@ pub fn download_qwen3_server(stop_signal: Arc<AtomicBool>, use_badge: bool) -> R
     result
 }
 
+fn qwen3_server_download_url() -> String {
+    std::env::var("SGT_QWEN3_ASR_SERVER_URL")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            std::env::var("SGT_QWEN3_ASR_SERVER_BUNDLE_URL")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_else(|| DEFAULT_QWEN3_SERVER_URL.to_string())
+}
+
 pub fn local_sidecar_candidate_paths() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
@@ -217,8 +175,15 @@ pub fn local_sidecar_candidate_paths() -> Vec<PathBuf> {
         candidates.push(
             repo_root
                 .join("dist")
-                .join(QWEN3_SERVER_ASSET_NAME.trim_end_matches(".zip"))
-                .join("asr-server.exe"),
+                .join("qwen3-asr-reference-windows-x64")
+                .join(QWEN3_SERVER_BINARY_NAME),
+        );
+        candidates.push(
+            repo_root
+                .join("native")
+                .join("qwen3_reference_sidecar")
+                .join("dist")
+                .join(QWEN3_SERVER_BINARY_NAME),
         );
     }
 
@@ -251,69 +216,4 @@ fn repo_root() -> Result<PathBuf> {
     Err(anyhow!(
         "Could not locate Screen Goated Toolbox repository root"
     ))
-}
-
-fn find_release_with_asset() -> Result<GitHubRelease> {
-    let releases = fetch_releases()?;
-    releases
-        .into_iter()
-        .find(|release| release.assets.iter().any(|asset| asset.name == QWEN3_SERVER_ASSET_NAME))
-        .ok_or_else(|| {
-            anyhow!(
-                "No Screen Goated Toolbox release currently publishes '{}'. Build it from 'third_party/qwen3-asr-rs' with scripts/build_qwen3_reference_sidecar.ps1 and upload the bundle to a repo release.",
-                QWEN3_SERVER_ASSET_NAME
-            )
-        })
-}
-
-fn fetch_releases() -> Result<Vec<GitHubRelease>> {
-    ureq::get(SGT_RELEASES_API_URL)
-        .header("User-Agent", "ScreenGoatedToolbox")
-        .call()
-        .map_err(|err| anyhow!("Failed to fetch Screen Goated Toolbox release metadata: {err}"))?
-        .into_body()
-        .read_json::<Vec<GitHubRelease>>()
-        .map_err(|err| anyhow!("Failed to parse Screen Goated Toolbox release metadata: {err}"))
-}
-
-fn extract_qwen3_server_archive(archive_path: &Path, output_dir: &Path) -> Result<()> {
-    if archive_path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
-    {
-        fs::create_dir_all(output_dir)?;
-        fs::copy(archive_path, get_qwen3_server_path())?;
-        return Ok(());
-    }
-
-    let file = fs::File::open(archive_path)?;
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|err| anyhow!("Failed to open Qwen3 reference server archive: {err}"))?;
-    fs::create_dir_all(output_dir)?;
-
-    for idx in 0..archive.len() {
-        let mut entry = archive
-            .by_index(idx)
-            .map_err(|err| anyhow!("Failed to read Qwen3 reference server archive entry: {err}"))?;
-        let relative_path = match entry.enclosed_name() {
-            Some(path) => path.to_path_buf(),
-            None => continue,
-        };
-        let output_path = output_dir.join(relative_path);
-
-        if entry.is_dir() {
-            fs::create_dir_all(&output_path)?;
-            continue;
-        }
-
-        if let Some(parent) = output_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let mut output = fs::File::create(&output_path)?;
-        std::io::copy(&mut entry, &mut output)?;
-    }
-
-    Ok(())
 }

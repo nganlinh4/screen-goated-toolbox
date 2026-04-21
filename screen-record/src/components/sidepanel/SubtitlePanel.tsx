@@ -156,7 +156,11 @@ export function SubtitlePanel({
   const subtitleMethodOptions = methodCapabilities.map((method) => ({
     value: method.method,
     label: getMethodLabel(method.method),
-    disabled: !method.available,
+    disabled: !method.available
+      && !(
+        (method.method === 'qwen-local-0-6b' || method.method === 'qwen-local-1-7b')
+        && method.reason?.includes('Downloaded Tools')
+      ),
   }));
   const subtitleViewOptions = [
     {

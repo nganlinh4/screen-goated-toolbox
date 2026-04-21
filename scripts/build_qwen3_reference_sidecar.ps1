@@ -20,11 +20,14 @@ if (!(Test-Path $vendorDir)) {
 $distRoot = Join-Path $RepoRoot "dist"
 $bundleDir = Join-Path $distRoot $AssetName
 $zipPath = Join-Path $distRoot "$AssetName.zip"
+$standaloneDistDir = Join-Path $RepoRoot "native/qwen3_reference_sidecar/dist"
+$standaloneExePath = Join-Path $standaloneDistDir "asr-server.exe"
 $cacheDir = Join-Path $RepoRoot "tools/qwen3-reference-cache"
 $variantMarker = Join-Path $cacheDir "runtime-variant.txt"
 
 New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+New-Item -ItemType Directory -Force -Path $standaloneDistDir | Out-Null
 
 if ($Clean) {
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $bundleDir
@@ -191,6 +194,9 @@ $serverExe = Join-Path $vendorDir "target/release/asr-server.exe"
 if (!(Test-Path $serverExe)) {
     throw "Expected built sidecar at $serverExe"
 }
+
+Copy-Item $serverExe $standaloneExePath -Force
+Write-Host "Standalone server executable ready at $standaloneExePath"
 
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $bundleDir
 New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null

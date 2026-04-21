@@ -6,7 +6,7 @@ Source provenance:
 
 Packaging path:
 - Build and bundle with [build_qwen3_reference_sidecar.ps1](/mnt/c/work/screen-goated-toolbox/scripts/build_qwen3_reference_sidecar.ps1)
-- GitHub Actions release workflow: [.github/workflows/qwen3-reference-sidecar.yml](/mnt/c/work/screen-goated-toolbox/.github/workflows/qwen3-reference-sidecar.yml)
+- Standalone downloadable executable is emitted to `native/qwen3_reference_sidecar/dist/asr-server.exe`
 
 Runtime role:
 - This sidecar is the current SGT-owned reference backend for `qwen3-asr-turboquant`

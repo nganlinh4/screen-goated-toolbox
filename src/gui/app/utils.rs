@@ -1,4 +1,4 @@
-use super::types::{RESTORE_SIGNAL, SettingsApp};
+use super::types::{REQUEST_OPEN_DOWNLOADED_TOOLS, RESTORE_SIGNAL, SettingsApp};
 use crate::config::save_config;
 use eframe::egui;
 use std::sync::atomic::Ordering;
@@ -26,6 +26,16 @@ pub fn signal_restore_window() {
         ) {
             let _ = SetEvent(event);
             let _ = CloseHandle(event);
+        }
+    }
+}
+
+pub fn request_open_downloaded_tools() {
+    REQUEST_OPEN_DOWNLOADED_TOOLS.store(true, Ordering::SeqCst);
+    signal_restore_window();
+    if let Ok(ctx) = crate::gui::GUI_CONTEXT.lock() {
+        if let Some(ctx) = ctx.as_ref() {
+            ctx.request_repaint();
         }
     }
 }

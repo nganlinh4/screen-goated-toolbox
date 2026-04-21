@@ -28,6 +28,11 @@ src/overlay/prompt_dj/dist/
 # General web artifacts
 node_modules/
 dist/
+!native/qwen3_reference_sidecar/
+!native/qwen3_reference_sidecar/README.md
+!native/qwen3_reference_sidecar/dist/
+!native/qwen3_reference_sidecar/dist/.gitkeep
+!native/qwen3_reference_sidecar/dist/asr-server.exe
 
 # Screen Record artifacts
 src/overlay/screen_record/dist/

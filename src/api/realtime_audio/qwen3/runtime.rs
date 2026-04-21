@@ -503,6 +503,18 @@ fn runtime_dll_path() -> Result<PathBuf> {
     Ok(parent.join(QWEN3_RUNTIME_DLL))
 }
 
+pub fn active_qwen3_runtime_dir() -> Option<PathBuf> {
+    runtime_dll_candidates()
+        .ok()?
+        .into_iter()
+        .find(|path| path.exists())
+        .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+}
+
+pub fn has_discoverable_qwen3_runtime() -> bool {
+    active_qwen3_runtime_dir().is_some()
+}
+
 fn runtime_dll_candidates() -> Result<Vec<PathBuf>> {
     let mut candidates = Vec::new();
 

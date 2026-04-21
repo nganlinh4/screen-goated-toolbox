@@ -1,6 +1,7 @@
 pub mod assets;
 pub mod reference;
 pub mod runtime;
+pub mod server;
 
 use super::capture::{start_device_loopback_capture, start_mic_capture, start_per_app_capture};
 use super::state::{SharedRealtimeState, TranscriptionMethod};
