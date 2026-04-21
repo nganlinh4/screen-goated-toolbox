@@ -802,7 +802,7 @@ body.dragging-seek * {
     box-shadow: none;
 }
 
-.ui-action-button[data-active="true"][data-tone="primary"] {
+.ui-action-button:not(:disabled):not([data-disabled="true"])[data-active="true"][data-tone="primary"] {
     background: color-mix(in srgb, var(--primary-color) 16%, var(--ui-surface-3));
     border-color: color-mix(in srgb, var(--primary-color) 50%, var(--ui-border));
     color: var(--primary-color);
@@ -815,7 +815,7 @@ body.dragging-seek * {
     --ui-action-hover-fg: var(--success-color);
 }
 
-.ui-action-button[data-active="true"][data-tone="success"] {
+.ui-action-button:not(:disabled):not([data-disabled="true"])[data-active="true"][data-tone="success"] {
     background: color-mix(in srgb, var(--success-color) 18%, var(--ui-surface-3));
     border-color: color-mix(in srgb, var(--success-color) 52%, var(--ui-border));
     color: var(--success-color);
@@ -828,7 +828,7 @@ body.dragging-seek * {
     --ui-action-hover-fg: var(--on-surface);
 }
 
-.ui-action-button[data-active="true"][data-tone="warning"] {
+.ui-action-button:not(:disabled):not([data-disabled="true"])[data-active="true"][data-tone="warning"] {
     background: color-mix(in srgb, var(--timeline-warning-color) 18%, var(--ui-surface-3));
     border-color: color-mix(in srgb, var(--timeline-warning-color) 54%, var(--ui-border));
     color: var(--timeline-warning-color);
@@ -841,47 +841,47 @@ body.dragging-seek * {
     --ui-action-hover-fg: var(--tertiary-color);
 }
 
-.ui-action-button[data-active="true"][data-tone="danger"] {
+.ui-action-button:not(:disabled):not([data-disabled="true"])[data-active="true"][data-tone="danger"] {
     background: color-mix(in srgb, var(--tertiary-color) 16%, var(--ui-surface-3));
     border-color: color-mix(in srgb, var(--tertiary-color) 52%, var(--ui-border));
     color: var(--tertiary-color);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--tertiary-color) 36%, transparent), var(--shadow-elevation-2);
 }
 
-.ui-action-button[data-emphasis="strong"][data-tone="primary"] {
+.ui-action-button:not(:disabled):not([data-disabled="true"])[data-emphasis="strong"][data-tone="primary"] {
     background: color-mix(in srgb, var(--primary-color) 90%, black 6%);
     border-color: color-mix(in srgb, var(--primary-color) 84%, black 10%);
     color: #ffffff;
     box-shadow: var(--shadow-elevation-2), var(--glow-primary);
 }
 
-.ui-action-button[data-emphasis="strong"][data-tone="primary"]:hover {
+.ui-action-button:not(:disabled):not([data-disabled="true"])[data-emphasis="strong"][data-tone="primary"]:hover {
     background: color-mix(in srgb, var(--primary-color) 94%, black 4%);
     border-color: color-mix(in srgb, var(--primary-color) 88%, black 8%);
     color: #ffffff;
 }
 
-.ui-action-button[data-emphasis="strong"][data-tone="success"] {
+.ui-action-button:not(:disabled):not([data-disabled="true"])[data-emphasis="strong"][data-tone="success"] {
     background: color-mix(in srgb, var(--success-color) 88%, black 8%);
     border-color: color-mix(in srgb, var(--success-color) 82%, black 12%);
     color: #ffffff;
     box-shadow: var(--shadow-elevation-2);
 }
 
-.ui-action-button[data-emphasis="strong"][data-tone="success"]:hover {
+.ui-action-button:not(:disabled):not([data-disabled="true"])[data-emphasis="strong"][data-tone="success"]:hover {
     background: color-mix(in srgb, var(--success-color) 92%, black 6%);
     border-color: color-mix(in srgb, var(--success-color) 86%, black 10%);
     color: #ffffff;
 }
 
-.ui-action-button[data-emphasis="strong"][data-tone="danger"] {
+.ui-action-button:not(:disabled):not([data-disabled="true"])[data-emphasis="strong"][data-tone="danger"] {
     background: color-mix(in srgb, var(--tertiary-color) 88%, black 8%);
     border-color: color-mix(in srgb, var(--tertiary-color) 82%, black 12%);
     color: #ffffff;
     box-shadow: var(--shadow-elevation-2);
 }
 
-.ui-action-button[data-emphasis="strong"][data-tone="danger"]:hover {
+.ui-action-button:not(:disabled):not([data-disabled="true"])[data-emphasis="strong"][data-tone="danger"]:hover {
     background: color-mix(in srgb, var(--tertiary-color) 92%, black 6%);
     border-color: color-mix(in srgb, var(--tertiary-color) 86%, black 10%);
     color: #ffffff;

@@ -59,10 +59,6 @@ pub fn get_qwen3_server_path() -> PathBuf {
     get_qwen3_server_dir().join("asr-server.exe")
 }
 
-pub fn is_qwen3_server_downloaded() -> bool {
-    get_active_qwen3_server_path().is_some()
-}
-
 pub fn is_qwen3_server_managed() -> bool {
     get_qwen3_server_path().exists()
 }
@@ -85,7 +81,7 @@ pub fn remove_qwen3_server() -> Result<()> {
 }
 
 pub fn download_qwen3_server(stop_signal: Arc<AtomicBool>, use_badge: bool) -> Result<()> {
-    if is_qwen3_server_downloaded() {
+    if is_qwen3_server_managed() {
         return Ok(());
     }
 
@@ -121,7 +117,7 @@ pub fn download_qwen3_server(stop_signal: Arc<AtomicBool>, use_badge: bool) -> R
             )
         })?;
 
-        if !is_qwen3_server_downloaded() {
+        if !is_qwen3_server_managed() {
             return Err(anyhow!(
                 "Downloaded Qwen3 reference server executable was not saved successfully"
             ));
