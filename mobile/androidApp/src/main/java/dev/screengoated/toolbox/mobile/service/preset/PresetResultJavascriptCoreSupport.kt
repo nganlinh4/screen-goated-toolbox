@@ -425,9 +425,31 @@ internal fun presetResultJavascriptCore(): String {
                             emitted += 1;
                         }
 
-                        // Font-size handled by the native fit algorithm only —
-                        // per-tick shrinks here caused measurement/transition
-                        // feedback loops that manifested as zoom oscillation.
+                        // Overflow-only refit: fast streaming can push content
+                        // past winH between per-chunk fits (fit measures
+                        // partial revealed content). Shrink synchronously
+                        // when overflow exceeds 5% of winH; cancel any
+                        // in-flight fit rAF first so it can't overwrite us.
+                        if (emitted > 0) {
+                            const doc2 = document.documentElement;
+                            const overflowPx = doc2.scrollHeight - window.innerHeight;
+                            if (overflowPx > window.innerHeight * 0.05) {
+                                const currentFs = parseFloat(document.body.style.fontSize) || 14;
+                                const minFs = ((revealState.lastRevealedIndex + 1) < 200) ? 6 : 14;
+                                if (currentFs > minFs) {
+                                    const scale = (window.innerHeight / doc2.scrollHeight) * 0.92;
+                                    const newFs = Math.max(minFs, Math.floor(currentFs * scale));
+                                    if (newFs < currentFs) {
+                                        if (window._sgtFitAnim) {
+                                            try { cancelAnimationFrame(window._sgtFitAnim); } catch (_e) {}
+                                            window._sgtFitAnim = null;
+                                        }
+                                        document.body.style.fontSize = newFs + 'px';
+                                        window._sgtCurrentFontSize = newFs;
+                                    }
+                                }
+                            }
+                        }
                         requestAnimationFrame(tick);
                     };
                     requestAnimationFrame(tick);
@@ -435,6 +457,48 @@ internal fun presetResultJavascriptCore(): String {
             }
 
             if (body.style.opacity === '0') body.style.opacity = '1';
+
+            // Post-stream overflow watchdog: reveal-tick shrink only runs
+            // while the queue has entries. Tables, images, or any late
+            // reflow after streaming ends can push scrollHeight past winH
+            // with no loop alive to catch it. A persistent ResizeObserver
+            // on body runs the same ratio-shrink whenever body resizes,
+            // so the view auto-neutralizes without a user interaction.
+            if (!window._sgtOverflowObserver && typeof ResizeObserver !== 'undefined') {
+                try {
+                    let debounceTimer = null;
+                    const ob = new ResizeObserver(function() {
+                        if (debounceTimer) return;
+                        debounceTimer = setTimeout(function() {
+                            debounceTimer = null;
+                            try {
+                                const doc = document.documentElement;
+                                const winH = window.innerHeight;
+                                const overflowPx = doc.scrollHeight - winH;
+                                if (overflowPx <= winH * 0.05) return;
+                                const revealed = (window._streamRevealState && typeof window._streamRevealState.lastRevealedIndex === 'number')
+                                    ? (window._streamRevealState.lastRevealedIndex + 1)
+                                    : 0;
+                                const cFs = parseFloat(document.body.style.fontSize) || 14;
+                                const minFs = (revealed > 0 && revealed < 200) ? 6 : 14;
+                                if (cFs <= minFs) return;
+                                const scale = (winH / doc.scrollHeight) * 0.92;
+                                const nFs = Math.max(minFs, Math.floor(cFs * scale));
+                                if (nFs >= cFs) return;
+                                if (window._sgtFitAnim) {
+                                    try { cancelAnimationFrame(window._sgtFitAnim); } catch (_e) {}
+                                    window._sgtFitAnim = null;
+                                }
+                                document.body.style.fontSize = nFs + 'px';
+                                window._sgtCurrentFontSize = nFs;
+                            } catch (_e) {}
+                        }, 120);
+                    });
+                    ob.observe(document.body);
+                    window._sgtOverflowObserver = ob;
+                } catch (_e) {}
+            }
+
             window._streamWordCount = newWordCount;
             window._streamRenderCount = prevRenderCount + 1;
             window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });

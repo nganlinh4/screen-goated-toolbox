@@ -414,11 +414,41 @@ fn update_stream_markdown_content_ex(
                     emitted++;
                 }}
 
-                // Font-size is handled entirely by the Rust-side fit algorithm
-                // (fit_font_to_window_streaming) which runs per chunk with its
-                // own 220ms rAF animation — smooth by construction. No
-                // per-tick shrink here: doing it caused measurement/transition
-                // feedback loops that manifested as roller-coaster zooming.
+                // Per-chunk fit may leave font-size too large when fast
+                // streaming reveals many queued words between fits — the
+                // chunk-time fit measured partial revealed content (display:
+                // none hides the rest from layout), so later reveals can push
+                // content past winH. When overflow crosses 5% of winH here,
+                // cancel any in-flight fit rAF and commit a ratio-shrunk size
+                // directly (synchronous write, no CSS transition = no
+                // measurement/target feedback loop). Threshold + integer
+                // bucket keep this stable instead of oscillating.
+                if (emitted > 0) {{
+                    var doc2 = document.documentElement;
+                    var overflowPx = doc2.scrollHeight - window.innerHeight;
+                    if (overflowPx > window.innerHeight * 0.05) {{
+                        var currentFs = parseFloat(document.body.style.fontSize) || 14;
+                        var minFs = ((revealState.lastRevealedIndex + 1) < 200) ? 6 : 14;
+                        if (currentFs > minFs) {{
+                            // Ratio-based shrink with safety margin: aim for
+                            // scrollHeight to land at 88% of winH after the
+                            // write, giving headroom for the next burst of
+                            // reveals before another refit.
+                            var scale = (window.innerHeight / doc2.scrollHeight) * 0.92;
+                            var newFs = Math.max(minFs, Math.floor(currentFs * scale));
+                            if (newFs < currentFs) {{
+                                // Cancel fit's in-flight rAF so it can't
+                                // overwrite our commit mid-animation.
+                                if (window._sgtFitAnim) {{
+                                    try {{ cancelAnimationFrame(window._sgtFitAnim); }} catch (_e) {{}}
+                                    window._sgtFitAnim = null;
+                                }}
+                                document.body.style.fontSize = newFs + 'px';
+                                window._sgtCurrentFontSize = newFs;
+                            }}
+                        }}
+                    }}
+                }}
                 requestAnimationFrame(tick);
             }};
             requestAnimationFrame(tick);
@@ -435,6 +465,49 @@ fn update_stream_markdown_content_ex(
 
     if (body.style.opacity === '0') {{
         body.style.opacity = '1';
+    }}
+
+    // Post-stream overflow watchdog: the reveal tick's inline overflow shrink
+    // only runs while the reveal queue has entries. Tables expanding via
+    // Grid.js, images loading, or any late reflow AFTER streaming ends can
+    // push scrollHeight past winH with no loop alive to catch it — user
+    // would then have to hover the overlay to trigger a resize + fit.
+    // A persistent ResizeObserver on body runs the same ratio-shrink
+    // whenever body resizes post-stream, so the view auto-neutralizes
+    // without needing a mouse-enter.
+    if (!window._sgtOverflowObserver && typeof ResizeObserver !== 'undefined') {{
+        try {{
+            var debounceTimer = null;
+            var ob = new ResizeObserver(function() {{
+                if (debounceTimer) return;
+                debounceTimer = setTimeout(function() {{
+                    debounceTimer = null;
+                    try {{
+                        var doc = document.documentElement;
+                        var winH = window.innerHeight;
+                        var overflowPx = doc.scrollHeight - winH;
+                        if (overflowPx <= winH * 0.05) return;
+                        var revealed = (window._streamRevealState && typeof window._streamRevealState.lastRevealedIndex === 'number')
+                            ? (window._streamRevealState.lastRevealedIndex + 1)
+                            : 0;
+                        var cFs = parseFloat(document.body.style.fontSize) || 14;
+                        var minFs = (revealed > 0 && revealed < 200) ? 6 : 14;
+                        if (cFs <= minFs) return;
+                        var scale = (winH / doc.scrollHeight) * 0.92;
+                        var nFs = Math.max(minFs, Math.floor(cFs * scale));
+                        if (nFs >= cFs) return;
+                        if (window._sgtFitAnim) {{
+                            try {{ cancelAnimationFrame(window._sgtFitAnim); }} catch (_e) {{}}
+                            window._sgtFitAnim = null;
+                        }}
+                        document.body.style.fontSize = nFs + 'px';
+                        window._sgtCurrentFontSize = nFs;
+                    }} catch (_e) {{}}
+                }}, 120);
+            }});
+            ob.observe(document.body);
+            window._sgtOverflowObserver = ob;
+        }} catch (_e) {{}}
     }}
 
     window._streamWordCount = newWordCount;
