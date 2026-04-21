@@ -404,34 +404,17 @@ fn update_stream_markdown_content_ex(
                     emitted++;
                 }}
 
-                // Stand down while fit's rAF is interpolating — its animation
-                // transiently parks body.fontSize at the OLD pre-fit value
-                // before easing down to the new target, and scrollHeight
-                // spikes there. Reading during that window and shrinking
-                // caused an undershoot. With visibility:hidden keeping all
-                // queued words in layout, the fit already measures the full
-                // final height correctly, so this shrink is a fallback only.
-                if (emitted > 0 && !window._sgtFitAnim) {{
-                    var doc2 = document.documentElement;
-                    var overflowPx = doc2.scrollHeight - window.innerHeight;
-                    if (overflowPx > window.innerHeight * 0.05) {{
-                        var currentFs = parseFloat(document.body.style.fontSize) || 14;
-                        var minFs = ((revealState.lastRevealedIndex + 1) < 200) ? 6 : 14;
-                        if (currentFs > minFs) {{
-                            // Ratio-based shrink with safety margin: aim for
-                            // scrollHeight to land at 88% of winH after the
-                            // write, giving headroom for the next burst of
-                            // reveals before another refit.
-                            var scale = (window.innerHeight / doc2.scrollHeight) * 0.92;
-                            var newFs = Math.max(minFs, Math.floor(currentFs * scale));
-                            if (newFs < currentFs) {{
-                                console.log('[SGT-fit] reveal-tick shrink', currentFs.toFixed(1), '->', newFs, 'scrollH=' + doc2.scrollHeight, 'winH=' + window.innerHeight, 'revealed=' + (revealState.lastRevealedIndex + 1));
-                                document.body.style.fontSize = newFs + 'px';
-                                window._sgtCurrentFontSize = newFs;
-                            }}
-                        }}
-                    }}
-                }}
+                // No overflow shrink here — it was a sync jump that caused
+                // visible cliff-drops between chunks. When a new chunk's
+                // content arrives, body is briefly at the previous chunk's
+                // font size; for ~32ms it may overshoot winH until the
+                // per-chunk fit's rAF kicks in and animates smoothly down.
+                // That brief overshoot is far less jarring than the
+                // abrupt 105→13 jump this shrink used to apply. The fit
+                // itself handles the resize via its 280ms ease-out; with
+                // visibility:hidden keeping queued words in layout and
+                // textContent driving textLen, the fit now sees the full
+                // final scrollHeight upfront and picks the right target.
                 requestAnimationFrame(tick);
             }};
             requestAnimationFrame(tick);

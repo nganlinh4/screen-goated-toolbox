@@ -421,29 +421,11 @@ internal fun presetResultJavascriptCore(): String {
                             emitted += 1;
                         }
 
-                        // Fallback overflow shrink (visibility:hidden keeps
-                        // all queued words in layout so the fit already
-                        // measures correctly in most cases). Stand down
-                        // while fit's rAF is interpolating — its animation
-                        // transiently parks body.fontSize at the OLD value,
-                        // and scrollHeight spikes there. Reading during
-                        // that window would cause an undershoot.
-                        if (emitted > 0 && !window._sgtFitAnim) {
-                            const doc2 = document.documentElement;
-                            const overflowPx = doc2.scrollHeight - window.innerHeight;
-                            if (overflowPx > window.innerHeight * 0.05) {
-                                const currentFs = parseFloat(document.body.style.fontSize) || 14;
-                                const minFs = ((revealState.lastRevealedIndex + 1) < 200) ? 6 : 14;
-                                if (currentFs > minFs) {
-                                    const scale = (window.innerHeight / doc2.scrollHeight) * 0.92;
-                                    const newFs = Math.max(minFs, Math.floor(currentFs * scale));
-                                    if (newFs < currentFs) {
-                                        document.body.style.fontSize = newFs + 'px';
-                                        window._sgtCurrentFontSize = newFs;
-                                    }
-                                }
-                            }
-                        }
+                        // No overflow shrink here — it was a sync jump that
+                        // caused visible cliff-drops between chunks. The
+                        // per-chunk fit's rAF now handles resizing smoothly
+                        // when a new chunk arrives with more content than
+                        // the previous font size can hold.
                         requestAnimationFrame(tick);
                     };
                     requestAnimationFrame(tick);
