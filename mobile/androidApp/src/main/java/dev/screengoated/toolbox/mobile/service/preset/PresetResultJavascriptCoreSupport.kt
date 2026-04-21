@@ -236,7 +236,11 @@ internal fun presetResultJavascriptCore(): String {
             const winH = window.innerHeight;
             const winW = window.innerWidth;
             const isConstrainedWindow = (winH < 260 || winW < 420);
-            const text = (body.innerText || body.textContent || '').trim();
+            // textContent (not innerText) so visibility:hidden words still
+            // count — they take layout space and scrollHeight reflects
+            // them; excluding them from textLen/wordCount tripped
+            // hasPathologicalWrap and forced bestSize down to minSize.
+            const text = (body.textContent || '').trim();
             const textLen = text.length;
             const isNewSession = (prevRenderCount === 0 || (prevWordCount < 5 && textLen < 50));
             const isConstrainedShortContent = isConstrainedWindow && textLen < 450;
