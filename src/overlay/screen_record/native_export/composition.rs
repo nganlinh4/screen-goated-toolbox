@@ -4,6 +4,7 @@ use std::process::Command;
 use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde::de::DeserializeOwned;
 use serde_json::json;
 
 use super::config::{CompositionExportClipJob, CompositionExportConfig, ExportConfig};
@@ -232,8 +233,7 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
     let _active_export_guard = super::ExportActiveGuard::activate();
     super::EXPORT_CANCELLED.store(false, Ordering::SeqCst);
 
-    let export: CompositionExportConfig =
-        serde_json::from_value(args).map_err(|e| e.to_string())?;
+    let export: CompositionExportConfig = parse_json_with_path(args)?;
     if export.clips.is_empty() {
         return Err("Composition export has no clips".to_string());
     }
@@ -407,4 +407,12 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
     staging::clear_session(&export.session_id);
 
     result
+}
+
+fn parse_json_with_path<T: DeserializeOwned>(args: serde_json::Value) -> Result<T, String> {
+    let json =
+        serde_json::to_string(&args).map_err(|e| format!("Serialize composition args: {e}"))?;
+    let mut deserializer = serde_json::Deserializer::from_str(&json);
+    serde_path_to_error::deserialize(&mut deserializer)
+        .map_err(|error| format!("{} at {}", error.inner(), error.path()))
 }

@@ -13,6 +13,7 @@ import type {
 import { videoRenderer } from './videoRenderer';
 import { getTotalTrimDuration, getTrimBounds, normalizeSegmentTrimData } from './trimSegments';
 import { invoke } from '@/lib/ipc';
+import { normalizeBackgroundConfig } from './backgroundConfig';
 
 import {
   clamp,
@@ -105,6 +106,59 @@ interface PreparedBakePayload {
 interface PreparedBakeCacheEntry {
   payload: PreparedBakePayload;
   estimatedBytes: number;
+}
+
+function sanitizeNativeExportValue<T>(value: T): T {
+  return JSON.parse(
+    JSON.stringify(value, (_key, nestedValue) =>
+      nestedValue === null ? undefined : nestedValue),
+  ) as T;
+}
+
+function collectNullPaths(
+  value: unknown,
+  basePath = '$',
+  output: string[] = [],
+): string[] {
+  if (value === null) {
+    output.push(basePath);
+    return output;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => {
+      collectNullPaths(entry, `${basePath}[${index}]`, output);
+    });
+    return output;
+  }
+  if (typeof value === 'object' && value) {
+    Object.entries(value).forEach(([key, entry]) => {
+      collectNullPaths(entry, `${basePath}.${key}`, output);
+    });
+  }
+  return output;
+}
+
+function collectNonFiniteNumberPaths(
+  value: unknown,
+  basePath = '$',
+  output: string[] = [],
+): string[] {
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    output.push(basePath);
+    return output;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => {
+      collectNonFiniteNumberPaths(entry, `${basePath}[${index}]`, output);
+    });
+    return output;
+  }
+  if (typeof value === 'object' && value) {
+    Object.entries(value).forEach(([key, entry]) => {
+      collectNonFiniteNumberPaths(entry, `${basePath}.${key}`, output);
+    });
+  }
+  return output;
 }
 
 export class VideoExporter {
@@ -315,11 +369,9 @@ export class VideoExporter {
         : [];
 
     await this.yieldToUiFrame();
-    const t0 = Date.now();
     const overlayPayload = normalizedSegment
       ? await videoRenderer.bakeOverlayAtlasAndPaths(normalizedSegment, context.width, context.height, context.fps)
       : undefined;
-    await invoke('log_message', { message: `[Prep] Build Overlay Atlas: ${Date.now() - t0}ms` });
 
     return {
       normalizedSegment,
@@ -388,7 +440,6 @@ export class VideoExporter {
     }
     this.isExporting = true;
     await this.yieldToUiFrame();
-    const t0Total = performance.now();
 
     try {
       const {
@@ -401,8 +452,6 @@ export class VideoExporter {
       } = options;
       const context = this.buildPreparationContext(options);
       const prepared = await this.getPreparedPayload(context);
-      const tAfterPrep = performance.now();
-      console.log(`[Prep] getPreparedPayload: ${(tAfterPrep - t0Total).toFixed(0)}ms`);
 
       // Video/audio data always flows by file path -- Rust falls back to VIDEO_PATH
       // if sourceVideoPath is empty. Never send raw bytes through JSON IPC.
@@ -435,7 +484,6 @@ export class VideoExporter {
       }
 
       // Camera and cursor baking now done in Rust -- only stage text/keystroke overlays.
-      const t0Overlays = Date.now();
       if (prepared.overlayPayload) {
         await invoke('stage_export_data', {
           dataType: 'atlas',
@@ -470,7 +518,6 @@ export class VideoExporter {
           });
         }
       }
-      await invoke('log_message', { message: `[Prep] IPC Atlas+Overlays: ${Date.now() - t0Overlays}ms` });
 
       // Animated cursor frames are pre-staged to Rust's persistent store
       // in the background at app startup (see cursorAnimationCapture.ts).
@@ -478,6 +525,10 @@ export class VideoExporter {
 
       // Send lightweight config (no baked arrays -- they're already staged)
       const mousePositions = context.mousePositions ?? [];
+      const backgroundConfig = normalizeBackgroundConfig(context.backgroundConfig);
+      const segment = prepared.normalizedSegment
+        ? sanitizeNativeExportValue(prepared.normalizedSegment)
+        : prepared.normalizedSegment;
       const exportConfig = {
         width: prepared.width,
         height: prepared.height,
@@ -495,27 +546,31 @@ export class VideoExporter {
         format: options.format || 'mp4',
         trimStart: prepared.trimBounds.trimStart,
         duration: prepared.activeDuration,
-        segment: prepared.normalizedSegment,
-        backgroundConfig: context.backgroundConfig,
+        segment,
+        backgroundConfig,
         webcamConfig: context.webcamConfig,
         mousePositions,
       };
-      const tBeforeStringify = performance.now();
-      const configJsonSize = JSON.stringify(exportConfig).length;
-      const tAfterStringify = performance.now();
-      console.log(`[Prep] JSON.stringify exportConfig: ${(tAfterStringify - tBeforeStringify).toFixed(0)}ms, size=${(configJsonSize / 1024).toFixed(0)}KB, mousePositions=${mousePositions.length}`);
+      const exportNullPaths = collectNullPaths(exportConfig, '$');
+      if (exportNullPaths.length > 0) {
+        throw new Error(
+          `Null fields in exportConfig: ${exportNullPaths.slice(0, 20).join(', ')}${exportNullPaths.length > 20 ? ' ...' : ''}`,
+        );
+      }
+      const exportNonFinitePaths = collectNonFiniteNumberPaths(exportConfig, '$');
+      if (exportNonFinitePaths.length > 0) {
+        throw new Error(
+          `Non-finite numeric fields in exportConfig: ${exportNonFinitePaths.slice(0, 20).join(', ')}${exportNonFinitePaths.length > 20 ? ' ...' : ''}`,
+        );
+      }
 
       try {
-        const tBeforeInvoke = performance.now();
         const res = await invoke('start_export_server', exportConfig) as {
           status?: string;
           path?: string;
           bytes?: number;
           diagnostics?: ExportRuntimeDiagnostics;
         };
-        const tAfterInvoke = performance.now();
-        console.log(`[Prep] invoke('start_export_server') roundtrip: ${(tAfterInvoke - tBeforeInvoke).toFixed(0)}ms`);
-        console.log(`[Prep] Total 'Preparing' duration: ${(tAfterInvoke - t0Total).toFixed(0)}ms`);
         if (res?.diagnostics) {
           window.postMessage({
             type: 'sr-export-diagnostics',

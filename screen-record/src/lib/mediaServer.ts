@@ -46,9 +46,17 @@ export async function writeBlobToTempMediaFile(blob: Blob): Promise<string> {
 export async function importVideoToManagedMediaFile(
   blob: Blob,
   fileName?: string,
+  traceId?: string,
 ): Promise<{ path: string; hasAudio: boolean }> {
   const port = await getMediaServerPort();
-  const suffix = fileName ? `?filename=${encodeURIComponent(fileName)}` : "";
+  const params = new URLSearchParams();
+  if (fileName) {
+    params.set("filename", fileName);
+  }
+  if (traceId) {
+    params.set("traceId", traceId);
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
   const response = await fetch(`http://127.0.0.1:${port}/import-video${suffix}`, {
     method: "POST",
     body: blob,

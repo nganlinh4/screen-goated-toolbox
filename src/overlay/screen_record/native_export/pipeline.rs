@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
+use serde::de::DeserializeOwned;
+
 use super::audio_mix::{ExportAudioSource, build_preprocessed_audio_mix};
 use super::config::{self, ExportConfig};
 use super::{camera_path, cursor_path, staging};
@@ -24,7 +26,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     super::progress::persist_replay_args(&args);
 
     let parse_start = Instant::now();
-    let config: ExportConfig = serde_json::from_value(args).map_err(|e| e.to_string())?;
+    let config: ExportConfig = parse_json_with_path(args)?;
     let parse_secs = parse_start.elapsed().as_secs_f64();
     eprintln!("[Export][Timing] JSON parse: {:.3}s", parse_secs);
     let staged_start = Instant::now();
@@ -38,6 +40,18 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     });
 
     run_native_export_with_staged(config, staged, parse_secs, Some(progress_cb))
+}
+
+fn parse_json_with_path<T: DeserializeOwned>(args: serde_json::Value) -> Result<T, String> {
+    let json = serde_json::to_string(&args).map_err(|e| format!("Serialize export args: {e}"))?;
+    let mut deserializer = serde_json::Deserializer::from_str(&json);
+    serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
+        format!(
+            "{} at {}",
+            error.inner(),
+            error.path()
+        )
+    })
 }
 
 pub(crate) fn run_native_export_with_staged(
