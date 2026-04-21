@@ -736,6 +736,39 @@ pub fn init_gridjs(parent_hwnd: HWND) {
                     if (typeof gridjs === 'undefined') return;
 
                     var tables = document.querySelectorAll('table:not(.gridjs-table):not([data-processed-table="true"])');
+                    // Post-Grid.js shrink: when the last grid fires 'ready' the
+                    // real table layout is finally committed to scrollHeight.
+                    // The final fit that ran moments ago measured the raw
+                    // <table> (before Grid.js styling inflated it), so its
+                    // target font-size can overshoot the viewport by the
+                    // time the styled grid is in flow. Count pending grids,
+                    // run a ratio-shrink once they're all ready.
+                    var pendingGrids = 0;
+                    function afterGridReady() {
+                        pendingGrids -= 1;
+                        if (pendingGrids > 0) return;
+                        try {
+                            var doc = document.documentElement;
+                            var winH = window.innerHeight;
+                            var overflowPx = doc.scrollHeight - winH;
+                            if (overflowPx <= winH * 0.05) return;
+                            var cFs = parseFloat(document.body.style.fontSize) || 14;
+                            // After final fit we're past streaming — use the
+                            // non-streaming floor of 14 for readability.
+                            var minFs = 14;
+                            if (cFs <= minFs) return;
+                            var scale = (winH / doc.scrollHeight) * 0.92;
+                            var nFs = Math.max(minFs, Math.floor(cFs * scale));
+                            if (nFs >= cFs) return;
+                            if (window._sgtFitAnim) {
+                                try { cancelAnimationFrame(window._sgtFitAnim); } catch (_e) {}
+                                window._sgtFitAnim = null;
+                            }
+                            document.body.style.fontSize = nFs + 'px';
+                            window._sgtCurrentFontSize = nFs;
+                        } catch (_e) {}
+                    }
+
                     for (var i = 0; i < tables.length; i++) {
                         var table = tables[i];
                         if (table.closest('.gridjs-container') || table.closest('.gridjs-injected-wrapper')) continue;
@@ -765,9 +798,16 @@ pub fn init_gridjs(parent_hwnd: HWND) {
                                     td: 'gridjs-td-premium'
                                 }
                             });
-                            grid.on('ready', function() {
-                                table.classList.add('gridjs-hidden-source');
-                            });
+                            pendingGrids += 1;
+                            (function(capturedTable) {
+                                grid.on('ready', function() {
+                                    capturedTable.classList.add('gridjs-hidden-source');
+                                    // Wait one extra frame so the grid's
+                                    // final layout is actually in flow
+                                    // before we measure scrollHeight.
+                                    requestAnimationFrame(afterGridReady);
+                                });
+                            })(table);
                             grid.render(wrapper);
                         } catch (e) {
                             console.error('Grid.js streaming init error:', e);
