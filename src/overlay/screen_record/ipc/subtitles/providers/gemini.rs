@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use crate::APP;
 use crate::api::audio::extract_pcm_from_wav;
 use crate::api::realtime_audio::websocket::{
     connect_websocket, parse_input_transcription, send_audio_chunk, send_audio_stream_end,
@@ -11,7 +12,6 @@ use crate::model_config::GEMINI_LIVE_API_MODEL_3_1;
 use crate::overlay::screen_record::ipc::subtitles::wav_chunks::{
     SubtitleWavChunk, split_subtitle_wav_into_chunks,
 };
-use crate::APP;
 
 use super::{SubtitleBackend, SubtitleBackendProgress, normalize_subtitle_text};
 use crate::overlay::screen_record::ipc::subtitles::audio::MIN_SUBTITLE_DURATION_SEC;
@@ -36,7 +36,9 @@ impl GeminiLiveSubtitleBackend {
     pub fn new() -> Result<Self, String> {
         let app = APP.lock().map_err(|_| "APP lock poisoned".to_string())?;
         if !app.config.use_gemini {
-            return Err("Gemini Live subtitles require Gemini to be enabled in settings.".to_string());
+            return Err(
+                "Gemini Live subtitles require Gemini to be enabled in settings.".to_string(),
+            );
         }
         if app.config.gemini_api_key.trim().is_empty() {
             return Err("Gemini Live subtitles require a Gemini API key.".to_string());
@@ -104,7 +106,9 @@ impl SubtitleBackend for GeminiLiveSubtitleBackend {
                 Ok(event) => event,
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err("Gemini Live subtitle workers disconnected unexpectedly.".to_string());
+                    return Err(
+                        "Gemini Live subtitle workers disconnected unexpectedly.".to_string()
+                    );
                 }
             };
             match event {
@@ -131,7 +135,9 @@ impl SubtitleBackend for GeminiLiveSubtitleBackend {
                         Ok(segments) => {
                             completed.insert(event.chunk.task.chunk_index, segments);
                             success_streak += 1;
-                            if success_streak >= concurrency_limit && concurrency_limit < max_parallel {
+                            if success_streak >= concurrency_limit
+                                && concurrency_limit < max_parallel
+                            {
                                 concurrency_limit += 1;
                                 success_streak = 0;
                             }
@@ -219,7 +225,10 @@ fn dispatch_ready_gemini_jobs(
         let Some(worker_id) = idle_workers.pop_front() else {
             break;
         };
-        let Some(ready_index) = pending.iter().position(|task| task.ready_at <= Instant::now()) else {
+        let Some(ready_index) = pending
+            .iter()
+            .position(|task| task.ready_at <= Instant::now())
+        else {
             idle_workers.push_front(worker_id);
             break;
         };
@@ -347,12 +356,8 @@ fn transcribe_gemini_chunk(
     mut on_partial: impl FnMut(Vec<CompactSubtitleSegment>),
 ) -> Result<Vec<CompactSubtitleSegment>, String> {
     let chunk_duration = wav_duration_seconds(&chunk.wav_data)?;
-    let transcript = transcribe_wav_with_gemini_live(
-        api_key,
-        model,
-        socket,
-        &chunk.wav_data,
-        |text| {
+    let transcript =
+        transcribe_wav_with_gemini_live(api_key, model, socket, &chunk.wav_data, |text| {
             let normalized = normalize_subtitle_text(text);
             if normalized.is_empty() {
                 return;
@@ -366,8 +371,7 @@ fn transcribe_gemini_chunk(
                 })
                 .collect::<Vec<_>>();
             on_partial(segments);
-        },
-    )?;
+        })?;
     let normalized = normalize_subtitle_text(&transcript);
     if normalized.is_empty() {
         return Ok(Vec::new());
@@ -401,8 +405,7 @@ fn transcribe_wav_with_gemini_live(
         if turn_started.elapsed() >= GEMINI_SUBTITLE_CHUNK_WALL_TIMEOUT {
             return Err("chunk wall timeout".to_string());
         }
-        send_audio_chunk(socket, chunk)
-            .map_err(|err| format!("send audio chunk: {err}"))?;
+        send_audio_chunk(socket, chunk).map_err(|err| format!("send audio chunk: {err}"))?;
         drain_live_input_messages(
             socket,
             &mut transcript,
@@ -442,7 +445,8 @@ fn ensure_gemini_session<'a>(
 }
 
 fn connect_gemini_session(api_key: &str, model: &str) -> Result<LiveSocket, String> {
-    let mut socket = connect_websocket(api_key).map_err(|err| format!("connect websocket: {err}"))?;
+    let mut socket =
+        connect_websocket(api_key).map_err(|err| format!("connect websocket: {err}"))?;
     send_gemini_subtitle_setup_message(&mut socket, model)?;
     set_socket_short_timeout(&mut socket).map_err(|err| format!("set setup timeout: {err}"))?;
     wait_for_gemini_setup_complete(&mut socket)?;
@@ -591,12 +595,12 @@ fn drain_live_input_messages(
                 if err.kind() == std::io::ErrorKind::WouldBlock
                     || err.kind() == std::io::ErrorKind::TimedOut =>
             {
-                if last_transcript_at.elapsed() >= idle_timeout || started.elapsed() >= idle_timeout {
+                if last_transcript_at.elapsed() >= idle_timeout || started.elapsed() >= idle_timeout
+                {
                     return Ok(());
                 }
             }
-            Err(tungstenite::Error::ConnectionClosed)
-            | Err(tungstenite::Error::AlreadyClosed) => {
+            Err(tungstenite::Error::ConnectionClosed) | Err(tungstenite::Error::AlreadyClosed) => {
                 return Ok(());
             }
             Err(err) => return Err(format!("read live transcription: {err}")),

@@ -100,18 +100,15 @@ fn memory_cache() -> &'static Mutex<WaveformMemoryCache> {
     MEMORY_CACHE.get_or_init(|| Mutex::new(WaveformMemoryCache::default()))
 }
 
-pub fn handle_get_audio_waveform(
-    args: &serde_json::Value,
-) -> Result<serde_json::Value, String> {
+pub fn handle_get_audio_waveform(args: &serde_json::Value) -> Result<serde_json::Value, String> {
     let request: AudioWaveformRequest = serde_json::from_value(args.clone())
         .map_err(|err| format!("Decode audio waveform request: {err}"))?;
     let response = get_audio_waveform(&request)?;
-    serde_json::to_value(response).map_err(|err| format!("Serialize audio waveform response: {err}"))
+    serde_json::to_value(response)
+        .map_err(|err| format!("Serialize audio waveform response: {err}"))
 }
 
-fn get_audio_waveform(
-    request: &AudioWaveformRequest,
-) -> Result<AudioWaveformResponse, String> {
+fn get_audio_waveform(request: &AudioWaveformRequest) -> Result<AudioWaveformResponse, String> {
     let trimmed_path = request.path.trim();
     if trimmed_path.is_empty() {
         return Ok(AudioWaveformResponse {
@@ -139,12 +136,7 @@ fn load_source_envelope(path: &Path) -> Result<Arc<SourceWaveformEnvelope>, Stri
         .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
         .map(|duration| duration.as_secs())
         .unwrap_or(0);
-    let fingerprint = format!(
-        "{}|{}|{}",
-        normalize_path(path),
-        metadata.len(),
-        modified
-    );
+    let fingerprint = format!("{}|{}|{}", normalize_path(path), metadata.len(), modified);
     let cache_key = hex_digest(&fingerprint);
 
     if let Some(cached) = memory_cache().lock().get(&cache_key) {
@@ -164,7 +156,11 @@ fn load_source_envelope(path: &Path) -> Result<Arc<SourceWaveformEnvelope>, Stri
         .lock()
         .insert(cache_key.clone(), Arc::clone(&analyzed));
     if let Err(err) = save_envelope_to_disk(&cache_key, &analyzed) {
-        eprintln!("[Waveform] Failed to persist cache {}: {}", path.display(), err);
+        eprintln!(
+            "[Waveform] Failed to persist cache {}: {}",
+            path.display(),
+            err
+        );
     }
     Ok(analyzed)
 }
@@ -221,8 +217,8 @@ fn ingest_pcm_chunk(
         }
         mono /= channels as f32;
 
-        let bin_index = ((*frame_cursor) * SOURCE_BINS_PER_SECOND as u64 / sample_rate as u64)
-            as usize;
+        let bin_index =
+            ((*frame_cursor) * SOURCE_BINS_PER_SECOND as u64 / sample_rate as u64) as usize;
         if bin_index >= bins.len() {
             bins.resize(bin_index + 1, QuantizedWaveformBin::silent());
         }
@@ -252,8 +248,8 @@ fn resample_envelope(
         };
 
         let source_start = (target_start / source_bin_duration).floor() as usize;
-        let source_end = ((target_end / source_bin_duration).ceil() as usize)
-            .min(envelope.bins.len());
+        let source_end =
+            ((target_end / source_bin_duration).ceil() as usize).min(envelope.bins.len());
 
         let mut min = i16::MAX;
         let mut max = i16::MIN;
@@ -291,9 +287,7 @@ fn waveform_cache_path(cache_key: &str) -> Option<PathBuf> {
     waveform_cache_dir().map(|dir| dir.join(format!("{cache_key}.bin")))
 }
 
-fn load_envelope_from_disk(
-    cache_key: &str,
-) -> Result<Option<SourceWaveformEnvelope>, String> {
+fn load_envelope_from_disk(cache_key: &str) -> Result<Option<SourceWaveformEnvelope>, String> {
     let Some(path) = waveform_cache_path(cache_key) else {
         return Ok(None);
     };
@@ -345,10 +339,7 @@ fn load_envelope_from_disk(
     }))
 }
 
-fn save_envelope_to_disk(
-    cache_key: &str,
-    envelope: &SourceWaveformEnvelope,
-) -> Result<(), String> {
+fn save_envelope_to_disk(cache_key: &str, envelope: &SourceWaveformEnvelope) -> Result<(), String> {
     let Some(path) = waveform_cache_path(cache_key) else {
         return Ok(());
     };
@@ -408,10 +399,22 @@ mod tests {
         let envelope = SourceWaveformEnvelope {
             source_duration_sec: 1.0,
             bins: vec![
-                QuantizedWaveformBin { min: -1000, max: 2000 },
-                QuantizedWaveformBin { min: -5000, max: 3000 },
-                QuantizedWaveformBin { min: -4000, max: 12000 },
-                QuantizedWaveformBin { min: -300, max: 400 },
+                QuantizedWaveformBin {
+                    min: -1000,
+                    max: 2000,
+                },
+                QuantizedWaveformBin {
+                    min: -5000,
+                    max: 3000,
+                },
+                QuantizedWaveformBin {
+                    min: -4000,
+                    max: 12000,
+                },
+                QuantizedWaveformBin {
+                    min: -300,
+                    max: 400,
+                },
             ],
         };
 

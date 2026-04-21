@@ -15,9 +15,9 @@ use layout::{
 };
 use types::{
     ActiveEvent, DEFAULT_KEYSTROKE_OVERLAY_SCALE, DEFAULT_KEYSTROKE_OVERLAY_X,
-    DEFAULT_KEYSTROKE_OVERLAY_Y, KEYSTROKE_OVERLAY_MAX_SCALE, KEYSTROKE_OVERLAY_MIN_SCALE,
-    clamp01, find_active_events, get_keystroke_visual_state, get_speed,
-    get_text_visual_state, is_time_inside_segments,
+    DEFAULT_KEYSTROKE_OVERLAY_Y, KEYSTROKE_OVERLAY_MAX_SCALE, KEYSTROKE_OVERLAY_MIN_SCALE, clamp01,
+    find_active_events, get_keystroke_visual_state, get_speed, get_text_visual_state,
+    is_time_inside_segments,
 };
 pub use types::{KeystrokeAtlasEntry, OverlayAtlasMetadata};
 
