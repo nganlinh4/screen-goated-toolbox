@@ -75,9 +75,16 @@ const FIT_FONT_SCRIPT: &str = r#"
                     var winH = window.innerHeight;
                     var winW = body.clientWidth || window.innerWidth;
 
-                    // Get content and length early so the fit heuristic can reject pathological wraps.
-                    var text = body.innerText || body.textContent || '';
-                    var textLen = text.trim().length;
+                    // Use textContent (not innerText) so visibility:hidden
+                    // words contribute to length/wordcount heuristics. During
+                    // streaming the reveal queue holds words at
+                    // visibility:hidden — they still take layout space
+                    // (scrollHeight reflects them) but innerText excludes
+                    // them, which made hasPathologicalWrap trip on the
+                    // mismatch between "few visible chars" and "many laid
+                    // out lines" and forced bestSize down to minSize=6.
+                    var text = (body.textContent || '').trim();
+                    var textLen = text.length;
 
                     // Helper: body wdth is driven via font-stretch (inherits to
                     // headings), not via variation-settings.
@@ -243,6 +250,7 @@ const FIT_FONT_SCRIPT: &str = r#"
                             }
                         }
                         if (!foundFittingSize) {
+                            console.log('[SGT-fit] binary-search FLOOR (no size fit) minSize=' + minSize, 'textLen=' + textLen, 'scrollH=' + doc.scrollHeight, 'winH=' + winH);
                             bestSize = minSize;
                         }
                         body.style.fontSize = bestSize + 'px';
