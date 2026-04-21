@@ -174,17 +174,36 @@ pub fn current_qwen3_runtime_notice() -> Option<String> {
     LAST_QWEN3_RUNTIME_NOTICE.lock().ok()?.clone()
 }
 
+fn sync_runtime_badge(progress: f32) {
+    use crate::overlay::realtime_webview::state::REALTIME_STATE;
+
+    let (title, message) = if let Ok(state) = REALTIME_STATE.lock() {
+        let title = if state.download_title.trim().is_empty() {
+            "Downloading...".to_string()
+        } else {
+            state.download_title.clone()
+        };
+        (title, state.download_message.clone())
+    } else {
+        ("Downloading...".to_string(), String::new())
+    };
+
+    crate::overlay::auto_copy_badge::show_progress_notification(&title, &message, progress);
+}
+
+fn qwen3_runtime_dir_is_usable(dir: &std::path::Path) -> bool {
+    dir.join(QWEN3_RUNTIME_DLL).exists() && dir.join("torch_cpu.dll").exists()
+}
+
 /// Check if the runtime is installed in the managed (downloadable) private bin dir.
 /// Used by settings UI — doesn't count dev build paths.
 pub fn is_qwen3_runtime_managed_installed() -> bool {
-    crate::unpack_dlls::private_bin_dir()
-        .join(QWEN3_RUNTIME_DLL)
-        .exists()
+    qwen3_runtime_dir_is_usable(&crate::unpack_dlls::private_bin_dir())
 }
 
 pub fn qwen3_runtime_installed_size() -> u64 {
     let bin_dir = crate::unpack_dlls::private_bin_dir();
-    if !bin_dir.join(QWEN3_RUNTIME_DLL).exists() {
+    if !qwen3_runtime_dir_is_usable(&bin_dir) {
         return 0;
     }
     // Count only libtorch + runtime DLLs, not other SGT tools in the same dir
@@ -308,6 +327,9 @@ pub fn download_qwen3_runtime(
         state.download_progress = 0.0;
     }
     clear_runtime_notice();
+    if use_badge {
+        sync_runtime_badge(0.0);
+    }
 
     fn post_download_state() {
         use crate::overlay::realtime_webview::state::REALTIME_HWND;
@@ -333,14 +355,30 @@ pub fn download_qwen3_runtime(
         if !bin_dir.join(QWEN3_RUNTIME_DLL).exists() {
             if let Ok(mut state) = REALTIME_STATE.lock() {
                 state.download_message = format!("Downloading {}...", QWEN3_RUNTIME_DLL);
+                state.download_progress = 0.0;
             }
             post_download_state();
+            if use_badge {
+                sync_runtime_badge(0.0);
+            }
 
-            crate::api::realtime_audio::model_loader::download_file(
+            crate::api::realtime_audio::model_loader::download_file_with_progress(
                 RUNTIME_DLL_URL,
                 &bin_dir.join(QWEN3_RUNTIME_DLL),
                 &stop_signal,
-                use_badge,
+                |downloaded, total| {
+                    let progress = if total > 0 {
+                        (downloaded as f32 / total as f32) * 5.0
+                    } else {
+                        0.0
+                    };
+                    if let Ok(mut state) = REALTIME_STATE.lock() {
+                        state.download_progress = progress;
+                    }
+                    if use_badge {
+                        sync_runtime_badge(progress);
+                    }
+                },
             )?;
         }
 
@@ -401,9 +439,13 @@ pub fn download_qwen3_runtime(
                         let pct = (current_size as f64 / expected_size as f64 * 100.0).min(99.0);
                         let mb = current_size as f64 / 1_048_576.0;
                         let msg = format!("Downloading libtorch... {:.0} MB / ~2500 MB", mb);
+                        let progress = pct as f32;
                         if let Ok(mut state) = REALTIME_STATE.lock() {
                             state.download_message = msg.clone();
-                            state.download_progress = pct as f32;
+                            state.download_progress = progress;
+                        }
+                        if use_badge {
+                            sync_runtime_badge(progress);
                         }
                         post_download_state();
                         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -414,6 +456,9 @@ pub fn download_qwen3_runtime(
 
             if let Ok(mut state) = REALTIME_STATE.lock() {
                 state.download_message = "Extracting libtorch DLLs...".to_string();
+            }
+            if use_badge {
+                sync_runtime_badge(80.0);
             }
             post_download_state();
 
@@ -444,9 +489,13 @@ pub fn download_qwen3_runtime(
                                 extracted,
                                 file_name.to_string_lossy()
                             );
+                            let progress = 80.0 + (extracted as f32 / 50.0) * 20.0;
                             if let Ok(mut state) = REALTIME_STATE.lock() {
                                 state.download_message = msg.clone();
-                                state.download_progress = 80.0 + (extracted as f32 / 50.0) * 20.0;
+                                state.download_progress = progress;
+                            }
+                            if use_badge {
+                                sync_runtime_badge(progress);
                             }
                             post_download_state();
                             let output_path = bin_dir.join(file_name);
@@ -474,6 +523,9 @@ pub fn download_qwen3_runtime(
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = false;
     }
+    if use_badge {
+        crate::overlay::auto_copy_badge::hide_progress_notification();
+    }
     post_download_state();
 
     if let Err(err) = &result {
@@ -488,10 +540,8 @@ pub fn download_qwen3_runtime(
 }
 
 fn runtime_dll_path() -> Result<PathBuf> {
-    for path in runtime_dll_candidates()? {
-        if path.exists() {
-            return Ok(path);
-        }
+    if let Some(dir) = active_qwen3_runtime_dir() {
+        return Ok(dir.join(QWEN3_RUNTIME_DLL));
     }
 
     let exe = std::env::current_exe().map_err(|err| {
@@ -507,8 +557,8 @@ pub fn active_qwen3_runtime_dir() -> Option<PathBuf> {
     runtime_dll_candidates()
         .ok()?
         .into_iter()
-        .find(|path| path.exists())
-        .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+        .filter_map(|path| path.parent().map(|parent| parent.to_path_buf()))
+        .find(|dir| qwen3_runtime_dir_is_usable(dir))
 }
 
 pub fn has_discoverable_qwen3_runtime() -> bool {

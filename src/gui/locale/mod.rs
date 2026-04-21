@@ -289,6 +289,7 @@ pub struct LocaleText {
     pub parakeet_downloading_message: &'static str,
     pub parakeet_downloading_file: &'static str, // "Downloading {}..."
     pub qwen3_downloading_title: &'static str,
+    pub qwen3_1_7b_downloading_title: &'static str,
     pub qwen3_downloading_message: &'static str,
     pub qwen3_downloading_file: &'static str, // "Downloading {}..."
     pub qwen3_server_downloading_title: &'static str,
@@ -368,6 +369,7 @@ pub struct LocaleText {
     pub tool_deno: &'static str,
     pub tool_ffmpeg: &'static str,
     pub tool_status_installed: &'static str, // "Installed ({})"
+    pub tool_status_available_locally: &'static str, // "Available locally ({})"
     pub tool_status_missing: &'static str,
     pub tool_status_install_failed: &'static str,
     pub tool_status_unsupported: &'static str,
