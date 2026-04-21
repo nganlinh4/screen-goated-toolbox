@@ -82,6 +82,31 @@ export interface TextSegment {
 
 export type SubtitleSegment = TextSegment;
 
+export type SubtitleTrackKind = "original" | "translation";
+
+export interface SubtitleTrack {
+  id: string;
+  kind: SubtitleTrackKind;
+  slotLabel?: string | null;
+  targetLanguage?: string | null;
+  segments: SubtitleSegment[];
+}
+
+export interface SubtitleViewState {
+  kind: "track" | "custom";
+  trackId?: string | null;
+}
+
+export type SubtitleChainItem =
+  | {
+      type: "track";
+      trackId: string;
+    }
+  | {
+      type: "delimiter";
+      value: string;
+    };
+
 export interface CursorVisibilitySegment {
   id: string;
   startTime: number;
@@ -196,6 +221,9 @@ export interface VideoSegment {
   smoothMotionPath?: { time: number; x: number; y: number; zoom: number }[];
   zoomInfluencePoints?: { time: number; value: number }[];
   textSegments: TextSegment[];
+  subtitleTracks?: SubtitleTrack[];
+  activeSubtitleView?: SubtitleViewState;
+  subtitleCustomChain?: SubtitleChainItem[];
   subtitleSegments?: SubtitleSegment[];
   cursorVisibilitySegments?: CursorVisibilitySegment[];
   keystrokeMode?: KeystrokeMode;

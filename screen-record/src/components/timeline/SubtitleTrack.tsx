@@ -10,6 +10,7 @@ import {
   getHandlePriorityThresholdTime,
   isTimeNearRangeBoundary,
 } from './trackHoverUtils';
+import { getVisibleSubtitleSegments } from '@/lib/subtitleTracks';
 import { useTrackRangeSelect } from './useTrackRangeSelect';
 
 interface SubtitleTrackProps {
@@ -48,7 +49,7 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
   >(null);
 
   const safeDuration = Math.max(duration, 0.001);
-  const subtitles = segment.subtitleSegments ?? [];
+  const subtitles = getVisibleSubtitleSegments(segment);
 
   const {
     selectedIds, selectedRange, rangeSelect, activeDragMode, trackRef, isDraggingRange,

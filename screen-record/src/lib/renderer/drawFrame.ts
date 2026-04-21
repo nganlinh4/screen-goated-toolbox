@@ -24,6 +24,7 @@ import {
   drawTextOverlay,
 } from './overlayBaker';
 import type { RenderContext, RenderOptions } from './index';
+import { getVisibleSubtitleSegments } from '@/lib/subtitleTracks';
 import {
   getContainedRect,
   getLogicalCropSize,
@@ -535,7 +536,7 @@ export async function drawFrame(
     drawWebcamOverlay(ctx, zoomState, state, video, webcamVideo, segment, webcamConfig, canvasW, canvasH, webcamAspectRatio);
 
     const overlayTextSegments = [
-      ...(segment.subtitleSegments ?? []),
+      ...getVisibleSubtitleSegments(segment),
       ...(segment.textSegments ?? []),
     ];
     if (overlayTextSegments.length > 0) {

@@ -172,7 +172,9 @@ class VideoRenderer {
     this.textDragState = {
       isDraggingText: false,
       draggedTextId: null,
-      dragOffset: { x: 0, y: 0 },
+      draggedOverlayKind: null,
+      dragStartPointer: { x: 0, y: 0 },
+      dragTargets: [],
     };
   }
 
@@ -544,15 +546,23 @@ class VideoRenderer {
   // Text drag handlers (delegates to extracted overlayBaker)
   // ---------------------------------------------------------------------------
 
-  public handleMouseDown(e: MouseEvent, segment: VideoSegment, canvas: HTMLCanvasElement): string | null {
-    return textMouseDown(e, segment, canvas, this.textDragState);
+  public handleMouseDown(
+    e: MouseEvent,
+    segment: VideoSegment,
+    canvas: HTMLCanvasElement,
+    selection?: {
+      selectedTextIds?: readonly string[];
+      selectedSubtitleIds?: readonly string[];
+    },
+  ) {
+    return textMouseDown(e, segment, canvas, this.textDragState, selection);
   }
 
   public handleMouseMove(
     e: MouseEvent,
     _segment: VideoSegment,
     canvas: HTMLCanvasElement,
-    onTextMove: (id: string, x: number, y: number) => void
+    onTextMove: (moves: Array<{ kind: 'text' | 'subtitle'; id: string; x: number; y: number }>) => void
   ) {
     textMouseMove(e, _segment, canvas, onTextMove, this.textDragState);
   }

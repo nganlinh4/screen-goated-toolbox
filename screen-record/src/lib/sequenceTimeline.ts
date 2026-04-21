@@ -9,6 +9,13 @@ import {
   toCompactTime,
   toSourceTime,
 } from "@/lib/trimSegments";
+import {
+  appendProjectedSubtitleTrackState,
+  filterSubtitleTrackState,
+  projectSubtitleTrackState,
+  replaceProjectedSubtitleTrackState,
+} from "@/lib/sequenceSubtitleTracks";
+import { createSubtitleTrackStateFromSegments, normalizeSubtitleTrackState } from "@/lib/subtitleTracks";
 
 export interface SequenceTimelineClip {
   clipId: string;
@@ -147,6 +154,7 @@ export function projectClipSegmentToSequence(
 ): VideoSegment {
   const projectTime = (time: number) =>
     clipSourceTimeToSequenceTime(time, timelineClip);
+  const subtitleTrackState = projectSubtitleTrackState(segment, projectTime);
 
   return withSequenceBounds(
     {
@@ -177,11 +185,7 @@ export function projectClipSegmentToSequence(
         startTime: projectTime(textSegment.startTime),
         endTime: projectTime(textSegment.endTime),
       })),
-      subtitleSegments: (segment.subtitleSegments ?? []).map((subtitleSegment) => ({
-        ...subtitleSegment,
-        startTime: projectTime(subtitleSegment.startTime),
-        endTime: projectTime(subtitleSegment.endTime),
-      })),
+      ...subtitleTrackState,
       cursorVisibilitySegments: segment.cursorVisibilitySegments?.map(
         (range) => ({
           ...range,
@@ -240,6 +244,11 @@ export function projectSequenceSegmentToClip(
   const overlapsClip = (startTime: number, endTime: number) =>
     endTime > timelineClip.sequenceStart &&
     startTime < timelineClip.sequenceEnd;
+  const subtitleTrackState = filterSubtitleTrackState(
+    sequenceSegment,
+    overlapsClip,
+    toClipTime,
+  );
 
   return {
     ...sequenceSegment,
@@ -275,15 +284,7 @@ export function projectSequenceSegmentToClip(
         startTime: toClipTime(textSegment.startTime),
         endTime: toClipTime(textSegment.endTime),
       })),
-    subtitleSegments: (sequenceSegment.subtitleSegments ?? [])
-      .filter((subtitleSegment) =>
-        overlapsClip(subtitleSegment.startTime, subtitleSegment.endTime),
-      )
-      .map((subtitleSegment) => ({
-        ...subtitleSegment,
-        startTime: toClipTime(subtitleSegment.startTime),
-        endTime: toClipTime(subtitleSegment.endTime),
-      })),
+    ...subtitleTrackState,
     cursorVisibilitySegments: sequenceSegment.cursorVisibilitySegments
       ?.filter((range) => overlapsClip(range.startTime, range.endTime))
       .map((range) => ({
@@ -358,7 +359,7 @@ export function mergeCompositionSegmentsToSequence(
     smoothMotionPath: [],
     zoomInfluencePoints: [],
     textSegments: [],
-    subtitleSegments: [],
+    ...createSubtitleTrackStateFromSegments([]),
     cursorVisibilitySegments: [],
     webcamVisibilitySegments: [],
     keystrokeMode: "keyboardMouse",
@@ -385,7 +386,10 @@ export function mergeCompositionSegmentsToSequence(
     merged.smoothMotionPath?.push(...(projected.smoothMotionPath ?? []));
     merged.zoomInfluencePoints?.push(...(projected.zoomInfluencePoints ?? []));
     merged.textSegments.push(...projected.textSegments);
-    merged.subtitleSegments?.push(...(projected.subtitleSegments ?? []));
+    Object.assign(
+      merged,
+      appendProjectedSubtitleTrackState(merged, projected),
+    );
     merged.cursorVisibilitySegments?.push(
       ...(projected.cursorVisibilitySegments ?? []),
     );
@@ -427,7 +431,7 @@ export function mergeCompositionSegmentsToSequence(
     ];
   }
 
-  return merged;
+  return normalizeSubtitleTrackState(merged);
 }
 
 export function replaceSequenceClipSegmentInGlobal(
@@ -444,6 +448,11 @@ export function replaceSequenceClipSegmentInGlobal(
   const overlapsClip = (startTime: number, endTime: number) =>
     endTime > timelineClip.sequenceStart &&
     startTime < timelineClip.sequenceEnd;
+  const subtitleTrackState = replaceProjectedSubtitleTrackState(
+    globalSegment,
+    projectedClipSegment,
+    overlapsClip,
+  );
 
   return {
     ...globalSegment,
@@ -481,13 +490,7 @@ export function replaceSequenceClipSegmentInGlobal(
       ),
       ...projectedClipSegment.textSegments,
     ].sort((a, b) => a.startTime - b.startTime),
-    subtitleSegments: [
-      ...(globalSegment.subtitleSegments ?? []).filter(
-        (subtitleSegment) =>
-          !overlapsClip(subtitleSegment.startTime, subtitleSegment.endTime),
-      ),
-      ...(projectedClipSegment.subtitleSegments ?? []),
-    ].sort((a, b) => a.startTime - b.startTime),
+    ...subtitleTrackState,
     cursorVisibilitySegments: [
       ...(globalSegment.cursorVisibilitySegments ?? []).filter(
         (range) => !overlapsClip(range.startTime, range.endTime),

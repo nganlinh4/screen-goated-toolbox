@@ -114,3 +114,68 @@ pub struct CompactSubtitleSegment {
     pub end_time: f64,
     pub text: String,
 }
+
+#[derive(Clone, Deserialize)]
+pub struct SubtitleTranslationRequest {
+    #[serde(rename = "targetLanguage")]
+    pub target_language: String,
+    pub items: Vec<SubtitleTranslationItemRequest>,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct SubtitleTranslationItemRequest {
+    pub id: String,
+    #[serde(rename = "clipId")]
+    pub clip_id: Option<String>,
+    pub text: String,
+}
+
+#[derive(Clone, Serialize, Default)]
+pub struct SubtitleTranslationJobSnapshot {
+    pub state: String,
+    pub message: String,
+    #[serde(rename = "messageKey")]
+    pub message_key: Option<String>,
+    #[serde(rename = "messageParams")]
+    pub message_params: HashMap<String, String>,
+    pub progress: f64,
+    #[serde(rename = "currentModelId")]
+    pub current_model_id: Option<String>,
+    #[serde(rename = "currentModelLabel")]
+    pub current_model_label: Option<String>,
+    #[serde(rename = "currentChunkCount")]
+    pub current_chunk_count: usize,
+    #[serde(rename = "currentChunkIndex")]
+    pub current_chunk_index: usize,
+    #[serde(rename = "totalChunks")]
+    pub total_chunks: usize,
+    #[serde(rename = "targetLanguage")]
+    pub target_language: Option<String>,
+    pub results: Vec<SubtitleTranslationResultItem>,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SubtitleTranslationResultItem {
+    pub id: String,
+    #[serde(rename = "clipId")]
+    pub clip_id: Option<String>,
+    #[serde(rename = "translatedText")]
+    pub translated_text: String,
+}
+
+#[derive(Clone, Serialize)]
+pub struct SubtitleTranslationCapabilities {
+    pub available: bool,
+    pub reason: Option<String>,
+    pub models: Vec<SubtitleTranslationModelCapability>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct SubtitleTranslationModelCapability {
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+    #[serde(rename = "modelLabel")]
+    pub model_label: String,
+    pub provider: String,
+}

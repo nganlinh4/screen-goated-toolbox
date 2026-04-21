@@ -13,6 +13,7 @@ import {
 } from "./micAudio";
 import { getSpeedAtTime } from "./videoExporter";
 import { DEFAULT_BUILT_IN_BACKGROUND_ID } from "@/lib/backgroundPresets";
+import { createSubtitleTrackStateFromSegments } from "@/lib/subtitleTracks";
 
 // Split modules
 import type {
@@ -556,7 +557,7 @@ export class VideoController {
     return {
       trimStart: 0, trimEnd: dur,
       trimSegments: [{ id: crypto.randomUUID(), startTime: 0, endTime: dur }],
-      zoomKeyframes: [], textSegments: [], subtitleSegments: [],
+      zoomKeyframes: [], textSegments: [], ...createSubtitleTrackStateFromSegments([]),
       speedPoints: [{ time: 0, speed: 1 }, { time: dur, speed: 1 }],
       deviceAudioPoints: buildFlatDeviceAudioPoints(dur),
       micAudioPoints: buildFlatMicAudioPoints(dur),

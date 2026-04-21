@@ -30,6 +30,7 @@ import {
 import {
   buildFullWebcamVisibilitySegments,
 } from "@/lib/webcamVisibility";
+import { createSubtitleTrackStateFromSegments } from "@/lib/subtitleTracks";
 import {
   sanitizeRecordingAudioSelection,
   type RecordingAudioSelection,
@@ -288,7 +289,7 @@ export function useRecording(props: UseRecordingProps) {
           ],
           zoomKeyframes: [],
           textSegments: [],
-          subtitleSegments: [],
+          ...createSubtitleTrackStateFromSegments([]),
           speedPoints: [
             { time: 0, speed: 1 },
             { time: timelineDuration, speed: 1 },

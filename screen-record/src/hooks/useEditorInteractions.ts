@@ -48,8 +48,11 @@ export interface UseEditorInteractionsParams {
   setIsKeystrokeResizeHandleHover: (hover: boolean) => void;
   setIsKeystrokeOverlaySelected: (selected: boolean) => void;
   setEditingTextId: (id: string | null) => void;
+  setEditingSubtitleId: (id: string | null) => void;
   setActivePanel: (panel: ActivePanel) => void;
-  handleTextDragMove: (id: string, x: number, y: number) => void;
+  handleOverlayDragMove: (moves: Array<{ kind: 'text' | 'subtitle'; id: string; x: number; y: number }>) => void;
+  selectedTextIdsRef: MutableRefObject<string[]>;
+  selectedSubtitleIdsRef: MutableRefObject<string[]>;
   beginBatch: () => void;
   commitBatch: () => void;
 }
@@ -93,8 +96,11 @@ export function useEditorInteractions({
   setIsKeystrokeResizeHandleHover,
   setIsKeystrokeOverlaySelected,
   setEditingTextId,
+  setEditingSubtitleId,
   setActivePanel,
-  handleTextDragMove,
+  handleOverlayDragMove,
+  selectedTextIdsRef,
+  selectedSubtitleIdsRef,
   beginBatch,
   commitBatch,
 }: UseEditorInteractionsParams) {
@@ -162,8 +168,11 @@ export function useEditorInteractions({
     setIsKeystrokeResizeHandleHover,
     setIsKeystrokeOverlaySelected,
     setEditingTextId,
+    setEditingSubtitleId,
     setActivePanel,
-    handleTextDragMove,
+    handleOverlayDragMove,
+    selectedTextIdsRef,
+    selectedSubtitleIdsRef,
     beginBatch,
     commitBatch,
   });

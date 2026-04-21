@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import "./App.css";
 import {
   BackgroundConfig, Project, ProjectComposition,
@@ -34,6 +34,7 @@ import { useSubtitleGeneration } from "@/hooks/useSubtitleGeneration";
 import { EditorMain } from "@/components/EditorMain";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
 import { cloneWebcamConfig, DEFAULT_WEBCAM_CONFIG } from "@/lib/webcam";
+import { updateSubtitleStylesAcrossTracks } from "@/lib/subtitleTrackMutations";
 
 function App() {
   const settings = useSettingsProvider();
@@ -82,6 +83,8 @@ function App() {
   const restoreImageRef = useRef<string | null>(null);
   const projectsPreviewTargetSnapshotRef = useRef<ProjectsPreviewTargetSnapshot | null>(null);
   const segmentRef = useRef<VideoSegment | null>(null);
+  const selectedTextIdsRef = useRef<string[]>([]);
+  const selectedSubtitleIdsRef = useRef<string[]>([]);
   const isDraggingKeystrokeOverlayRef = useRef(false);
   const isResizingKeystrokeOverlayRef = useRef(false);
   const [isCanvasResizeDragging, setIsCanvasResizeDragging] = useState(false);
@@ -348,7 +351,6 @@ function App() {
     setEditingTextId,
     handleAddText,
     handleDeleteText,
-    handleTextDragMove,
     editingPointerId,
     setEditingPointerId,
     handleSmartPointerHiding,
@@ -411,6 +413,68 @@ function App() {
     beginBatch,
     commitBatch,
   });
+  const handleSelectedTextIdsChange = useCallback((ids: string[]) => {
+    selectedTextIdsRef.current = ids;
+  }, []);
+  const handleSelectedSubtitleIdsChange = useCallback((ids: string[]) => {
+    selectedSubtitleIdsRef.current = ids;
+  }, []);
+  const handleOverlayDragMove = useCallback((moves: Array<{ kind: 'text' | 'subtitle'; id: string; x: number; y: number }>) => {
+    const liveSegment = segmentRef.current;
+    if (!liveSegment || moves.length === 0) return;
+
+    const textMoves = new Map<string, { x: number; y: number }>();
+    const subtitleMoves = new Map<string, { x: number; y: number }>();
+    for (const move of moves) {
+      if (move.kind === 'subtitle') {
+        subtitleMoves.set(move.id, { x: move.x, y: move.y });
+      } else {
+        textMoves.set(move.id, { x: move.x, y: move.y });
+      }
+    }
+
+    let nextSegment = liveSegment;
+    if (textMoves.size > 0) {
+      nextSegment = {
+        ...nextSegment,
+        textSegments: (nextSegment.textSegments ?? []).map((text) => {
+          const move = textMoves.get(text.id);
+          return move
+            ? {
+                ...text,
+                style: {
+                  ...text.style,
+                  x: move.x,
+                  y: move.y,
+                },
+              }
+            : text;
+        }),
+      };
+    }
+
+    if (subtitleMoves.size > 0) {
+      nextSegment = updateSubtitleStylesAcrossTracks(
+        nextSegment,
+        new Set(subtitleMoves.keys()),
+        (subtitle) => {
+          const move = subtitleMoves.get(subtitle.id);
+          return move
+            ? {
+                ...subtitle,
+                style: {
+                  ...subtitle.style,
+                  x: move.x,
+                  y: move.y,
+                },
+              }
+            : subtitle;
+        },
+      );
+    }
+
+    setSegment(nextSegment);
+  }, [setSegment]);
   const {
     editingSubtitleId,
     setEditingSubtitleId,
@@ -617,8 +681,11 @@ function App() {
     setIsKeystrokeResizeHandleHover,
     setIsKeystrokeOverlaySelected,
     setEditingTextId,
+    setEditingSubtitleId,
     setActivePanel,
-    handleTextDragMove,
+    handleOverlayDragMove,
+    selectedTextIdsRef,
+    selectedSubtitleIdsRef,
     beginBatch,
     commitBatch,
   });
@@ -729,6 +796,8 @@ function App() {
           }
           segment={segment}
           setSegment={setSegment}
+          composition={composition}
+          setComposition={setComposition}
           handleToggleKeystrokeMode={handleToggleKeystrokeMode}
           handleKeystrokeDelayChange={handleKeystrokeDelayChange}
           mousePositionsLength={mousePositions.length}
@@ -765,6 +834,8 @@ function App() {
           subtitleGenerationIndicator={subtitleGenerationIndicator}
           handleGenerateSubtitles={handleGenerateSubtitles}
           handleCancelSubtitleGeneration={handleCancelSubtitleGeneration}
+          onSelectedTextIdsChange={handleSelectedTextIdsChange}
+          onSelectedSubtitleIdsChange={handleSelectedSubtitleIdsChange}
           currentRawVideoPath={currentRawVideoPath}
           currentRawMicAudioPath={currentRawMicAudioPath}
           currentProjectName={currentProjectData?.name ?? null}
