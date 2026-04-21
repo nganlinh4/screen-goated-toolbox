@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '@/lib/ipc';
 import { videoRenderer } from '@/lib/videoRenderer';
 import { createVideoController } from '@/lib/videoController';
 import { projectManager } from '@/lib/projectManager';

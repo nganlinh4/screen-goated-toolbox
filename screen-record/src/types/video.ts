@@ -206,6 +206,24 @@ export interface BakedKeystrokeOverlay {
   data: number[] | string;
 }
 
+export interface OverlayQuad {
+  x: number; y: number; w: number; h: number; // screen coords (pixels)
+  u: number; v: number; uw: number; vh: number; // atlas UVs (0..1)
+  alpha: number;
+}
+
+export interface OverlayFrame {
+  time: number;
+  quads: OverlayQuad[];
+}
+
+export interface BakedOverlayPayload {
+  atlasBase64: string;
+  atlasWidth: number;
+  atlasHeight: number;
+  frames: OverlayFrame[];
+}
+
 export interface ExportOptions {
   width: number;   // 0 = use original canvas dimensions
   height: number;  // 0 = use original canvas dimensions

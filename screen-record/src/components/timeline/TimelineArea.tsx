@@ -113,11 +113,11 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   return (
     <div className="timeline-area select-none mx-2">
       {/* Track container with label gutter + content area */}
-      <div className="timeline-tracks-row flex gap-3">
+      <div className="timeline-tracks-row flex gap-4">
         {/* Label gutter */}
-        <div className="timeline-label-gutter w-[3.5rem] flex-shrink-0 flex flex-col gap-[2px]">
-          <div className="timeline-label-zoom h-10 flex items-center gap-0.5">
-            <span className="text-[10px] font-medium text-[var(--outline)] leading-none">{t.trackZoom}</span>
+        <div className="timeline-label-gutter w-[4rem] flex-shrink-0 flex flex-col gap-[2px] border-r border-[var(--glass-border)] pr-2">
+          <div className="timeline-label-zoom h-10 flex items-center justify-between">
+            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">{t.trackZoom}</span>
             <button
               onClick={() => setShowDebug(v => !v)}
               className={`timeline-debug-btn w-3 h-3 rounded-sm text-[7px] font-bold leading-none flex items-center justify-center transition-colors ${
@@ -130,20 +130,20 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
           </div>
           {showDebug && (
             <div className="timeline-label-debug h-10 flex items-center">
-              <span className="text-[10px] font-medium text-[var(--outline)] leading-none opacity-50">dbg</span>
+              <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none opacity-50">dbg</span>
             </div>
           )}
           <div className="timeline-label-text h-7 flex items-center">
-            <span className="text-[10px] font-medium text-[var(--outline)] leading-none">{t.trackText}</span>
+            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">{t.trackText}</span>
           </div>
           <div className="timeline-label-keystrokes h-7 flex items-center">
-            <span className="text-[10px] font-medium text-[var(--outline)] leading-none">{keystrokeTrackLabel}</span>
+            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">{keystrokeTrackLabel}</span>
           </div>
           <div className="timeline-label-pointer h-7 flex items-center">
-            <span className="text-[10px] font-medium text-[var(--outline)] leading-none">{t.trackPointer}</span>
+            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">{t.trackPointer}</span>
           </div>
           <div className="timeline-label-video h-10 flex items-center">
-            <span className="text-[10px] font-medium text-[var(--outline)] leading-none">{t.trackVideo}</span>
+            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">{t.trackVideo}</span>
           </div>
         </div>
 
@@ -251,8 +251,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
       </div>
 
       {/* Time ruler */}
-      <div className="timeline-ruler-row flex gap-3 mt-0.5">
-        <div className="timeline-ruler-gutter w-[3.5rem] flex-shrink-0" />
+      <div className="timeline-ruler-row flex gap-4 mt-0.5">
+        <div className="timeline-ruler-gutter w-[4rem] flex-shrink-0" />
         <div className="timeline-ruler flex-1 relative h-4 select-none">
           {duration > 0 && (() => {
             const tickCount = duration <= 5 ? 5 : duration <= 15 ? 8 : duration <= 30 ? 10 : 12;

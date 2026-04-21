@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Video, Keyboard, Loader2, AlertCircle, X, FolderOpen, Copy, CheckCircle2 } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
+import { Keyboard, X, FolderOpen, Copy, CheckCircle2 } from 'lucide-react';
+import { invoke } from '@/lib/ipc';
 import { ExportOptions, VideoSegment, BackgroundConfig } from '@/types/video';
 import {
   computeResolutionOptions,
@@ -15,11 +15,11 @@ import {
 } from '@/lib/videoExporter';
 import { getTotalTrimDuration } from '@/lib/trimSegments';
 import { formatTime } from '@/utils/helpers';
-import { MonitorInfo, Hotkey, FfmpegInstallStatus } from '@/hooks/useAppHooks';
+import { MonitorInfo, Hotkey } from '@/hooks/useAppHooks';
 import { useSettings } from '@/hooks/useSettings';
 
 // Re-export types for backwards compatibility
-export type { MonitorInfo, Hotkey, FfmpegInstallStatus };
+export type { MonitorInfo, Hotkey };
 
 // ============================================================================
 // ProcessingOverlay
@@ -95,10 +95,10 @@ export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
         </div>
         <div className="progress-details flex justify-between text-[10px]">
           <span className="progress-percent text-[var(--on-surface-variant)] tabular-nums">{active ? `${pct}%` : ''}</span>
-          <span className="progress-eta text-[var(--outline)] tabular-nums">{etaStr ? `${etaStr} ${t.timeRemaining}` : ''}</span>
+          <span className="progress-eta text-[var(--on-surface-variant)] tabular-nums">{etaStr ? `${etaStr} ${t.timeRemaining}` : ''}</span>
         </div>
         {diagnosticsLine && (
-          <div className="processing-diagnostics mt-2 text-[10px] text-[var(--outline)] tabular-nums">
+          <div className="processing-diagnostics mt-2 text-[10px] text-[var(--on-surface-variant)] tabular-nums">
             {diagnosticsLine}
           </div>
         )}
@@ -242,50 +242,50 @@ export function ExportDialog({
   const backendStatus = (() => {
     if (!exportCapabilities && !capabilityProbeFailed) {
       return {
-        label: 'Đang nhận diện backend',
+        label: t.exportBackendDetecting,
         detail: '',
         tone: 'text-[var(--outline)]'
       };
     }
     if (capabilityProbeFailed) {
       return {
-        label: 'CPU x264',
-        detail: 'Probe thất bại, sẽ fallback an toàn',
-        tone: 'text-amber-300'
+        label: t.exportBackendCpuX264,
+        detail: t.exportBackendProbeFailedFallback,
+        tone: 'text-amber-700 dark:text-amber-400'
       };
     }
     if (!exportCapabilities) {
       return {
-        label: 'CPU x264',
-        detail: 'Không có dữ liệu capability',
-        tone: 'text-amber-300'
+        label: t.exportBackendCpuX264,
+        detail: t.exportBackendNoCapabilityData,
+        tone: 'text-amber-700 dark:text-amber-400'
+      };
+    }
+    if (exportCapabilities.pipeline === 'zero_copy_gpu') {
+      return {
+        label: t.exportBackendZeroCopyGpu,
+        detail: exportCapabilities.mfH264Available ? t.exportBackendMfH264Encode : t.hardwareEncode,
+        tone: 'text-emerald-700 dark:text-emerald-400'
       };
     }
     if (wantsTurbo) {
       if (exportCapabilities.nvencAvailable) {
         return {
-          label: `FFmpeg NVENC Turbo (${turboCodecLabel})`,
-          detail: 'Fallback CPU x264 nếu encoder lỗi',
-          tone: 'text-[var(--on-surface)]'
+          label: `${t.exportBackendNvencTurbo} (${turboCodecLabel})`,
+          detail: t.exportBackendNvencFallbackIfError,
+          tone: 'text-emerald-700 dark:text-emerald-400'
         };
       }
       return {
-        label: 'CPU x264',
-        detail: 'NVENC không khả dụng trên máy này',
-        tone: 'text-amber-300'
-      };
-    }
-    if (exportCapabilities.nvencAvailable) {
-      return {
-        label: 'FFmpeg NVENC',
-        detail: 'VBR hardware encode',
-        tone: 'text-[var(--on-surface)]'
+        label: t.exportBackendCpuX264,
+        detail: t.exportBackendNvencUnavailable,
+        tone: 'text-amber-700 dark:text-amber-400'
       };
     }
     return {
-      label: 'CPU x264',
-      detail: 'Software encode',
-      tone: 'text-amber-300'
+      label: t.exportBackendCpuX264,
+      detail: t.softwareEncode,
+      tone: 'text-amber-700 dark:text-amber-400'
     };
   })();
 
@@ -314,7 +314,7 @@ export function ExportDialog({
 
   return (
     <div className="export-dialog-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="export-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-[480px] w-full mx-4">
+      <div className="export-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-[500px] w-full mx-4">
         <div className="dialog-header flex items-center justify-between mb-4">
           <h3 className="dialog-title text-sm font-medium text-[var(--on-surface)]">{t.exportOptions}</h3>
           <button onClick={onClose} className="dialog-close-btn p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] transition-colors">
@@ -324,8 +324,8 @@ export function ExportDialog({
 
         <div className="export-options-form space-y-4 mb-6">
           <div className="export-resolution-field">
-            <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.resolution}</label>
-            <div className="resolution-options flex gap-2 flex-nowrap overflow-x-auto pb-1">
+            <label className="text-xs font-medium text-[var(--on-surface-variant)] mb-2 block">{t.resolution}</label>
+            <div className="resolution-options flex gap-2 flex-nowrap overflow-x-auto pb-2 thin-scrollbar">
               {resOptions.map((opt: ResolutionOption) => {
                 const key = `${opt.width}x${opt.height}`;
                 const isSelected = selectedKey === key || (exportOptions.width === 0 && exportOptions.height === 0 && opt === resOptions[0]);
@@ -333,10 +333,10 @@ export function ExportDialog({
                   <button
                     key={key}
                     onClick={() => setExportOptions(prev => ({ ...prev, width: opt.width, height: opt.height }))}
-                    className={`resolution-option py-1.5 px-3 rounded-lg text-xs font-medium transition-colors border whitespace-nowrap ${
+                    className={`resolution-option py-2 px-3.5 rounded-xl text-xs font-semibold transition-all border whitespace-nowrap shadow-sm ${
                       isSelected
-                        ? 'bg-[var(--primary-color)] text-white border-transparent'
-                        : 'bg-[var(--glass-bg)] text-[var(--on-surface)] border-[var(--glass-border)] hover:bg-[var(--glass-bg-hover)]'
+                        ? 'bg-[var(--primary-color)] text-white border-[var(--primary-color)] ring-2 ring-[var(--primary-color)]/20'
+                        : 'bg-[var(--surface)] text-[var(--on-surface)] border-[var(--glass-border)] hover:border-[var(--outline)] hover:bg-[var(--surface-container)]'
                     }`}
                   >
                     {opt.label}
@@ -372,7 +372,7 @@ export function ExportDialog({
                 <span className="text-sm text-[var(--on-surface)] tabular-nums">
                   {formatVideoBitrateKbps(targetVideoBitrateKbps)}
                 </span>
-                <span className="text-[10px] text-[var(--outline)] tabular-nums">
+                <span className="bitrate-range text-[10px] text-[var(--on-surface-variant)] tabular-nums">
                   {formatVideoBitrateKbps(bitrateBounds.minKbps)} - {formatVideoBitrateKbps(bitrateBounds.maxKbps)}
                 </span>
               </div>
@@ -389,11 +389,11 @@ export function ExportDialog({
               </div>
               <div className="bitrate-standard-marker relative mt-1 h-5">
                 <div
-                  className="bitrate-standard-line absolute top-0 h-2 w-px bg-[var(--outline)]"
+                  className="bitrate-standard-line absolute top-0 h-2 w-px bg-[var(--on-surface-variant)]/70"
                   style={{ left: `calc(${standardBitratePercent}% - 0.5px)` }}
                 />
                 <div
-                  className="bitrate-standard-label absolute top-[8px] -translate-x-1/2 text-[10px] text-[var(--outline)] whitespace-nowrap"
+                  className="bitrate-standard-label absolute top-[8px] -translate-x-1/2 text-[10px] text-[var(--on-surface-variant)] whitespace-nowrap"
                   style={{ left: `${standardBitratePercent}%` }}
                 >
                   {t.standard}
@@ -411,7 +411,7 @@ export function ExportDialog({
                     {formatTime(sizeEstimate.outputDurationSec)}
                   </span>
                   {trimmedDurationSec > 0 && exportOptions.speed !== 1 && (
-                    <span className={`text-xs ${exportOptions.speed > 1 ? 'text-red-400/90' : 'text-green-400/90'}`}>
+                    <span className={`text-xs ${exportOptions.speed > 1 ? 'text-red-600 dark:text-red-400/90' : 'text-emerald-700 dark:text-green-400/90'}`}>
                       {exportOptions.speed > 1 ? '↓' : '↑'}
                       {formatTime(Math.abs(trimmedDurationSec - sizeEstimate.outputDurationSec))}
                     </span>
@@ -420,7 +420,7 @@ export function ExportDialog({
                 <span className="text-sm font-medium text-[var(--on-surface)] tabular-nums">{Math.round(exportOptions.speed * 100)}%</span>
               </div>
               <div className="speed-slider-row flex items-center gap-3">
-                <span className="text-xs text-[var(--outline)] min-w-[36px]">{t.slower}</span>
+                <span className="speed-slider-label speed-slider-label-slower text-xs text-[var(--on-surface-variant)] min-w-[36px]">{t.slower}</span>
                 <input
                   type="range"
                   min="50"
@@ -430,7 +430,7 @@ export function ExportDialog({
                   onChange={(e) => setExportOptions(prev => ({ ...prev, speed: Number(e.target.value) / 100 }))}
                   className="flex-1 h-1 rounded"
                 />
-                <span className="text-xs text-[var(--outline)] min-w-[36px]">{t.faster}</span>
+                <span className="speed-slider-label speed-slider-label-faster text-xs text-[var(--on-surface-variant)] min-w-[36px]">{t.faster}</span>
               </div>
             </div>
           </div>
@@ -443,13 +443,13 @@ export function ExportDialog({
               </div>
             </div>
             <div className="export-backend-indicator-row mt-1.5 flex items-start justify-between gap-3">
-              <span className="export-backend-label text-[10px] text-[var(--outline)]">Backend Export</span>
+              <span className="export-backend-label text-[10px] text-[var(--on-surface-variant)]">{t.backendExport}</span>
               <div className="export-backend-value text-right">
                 <div className={`text-[10px] font-medium ${backendStatus.tone}`}>
                   {backendStatus.label}
                 </div>
                 {backendStatus.detail ? (
-                  <div className="text-[10px] text-[var(--outline)]">
+                  <div className="export-backend-detail text-[10px] text-[var(--on-surface-variant)]">
                     {backendStatus.detail}
                   </div>
                 ) : null}
@@ -646,91 +646,6 @@ export function HotkeyDialog({ show, onClose }: HotkeyDialogProps) {
           </button>
         </div>
         <p className="hotkey-hint text-[var(--outline)] text-xs">{t.pressKeysHint}</p>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// FfmpegSetupDialog
-// ============================================================================
-interface FfmpegSetupDialogProps {
-  show: boolean;
-  ffmpegInstallStatus: FfmpegInstallStatus;
-  onCancelInstall: () => void;
-}
-
-export function FfmpegSetupDialog({ show, ffmpegInstallStatus, onCancelInstall }: FfmpegSetupDialogProps) {
-  const { t } = useSettings();
-  if (!show) return null;
-
-  return (
-    <div className="ffmpeg-setup-backdrop fixed inset-0 bg-black/90 flex items-center justify-center z-[100]">
-      <div className="ffmpeg-setup-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-sm w-full mx-4">
-        <div className="setup-status-header flex items-center gap-2.5 mb-3">
-          {ffmpegInstallStatus.type === 'Error' ? (
-            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-          ) : ffmpegInstallStatus.type === 'Downloading' || ffmpegInstallStatus.type === 'Extracting' ? (
-            <Loader2 className="w-5 h-5 text-[var(--primary-color)] animate-spin flex-shrink-0" />
-          ) : (
-            <Video className="w-5 h-5 text-[var(--on-surface-variant)] flex-shrink-0" />
-          )}
-          <h3 className="text-sm font-medium text-[var(--on-surface)]">
-            {ffmpegInstallStatus.type === 'Downloading' ? t.downloadingDeps :
-              ffmpegInstallStatus.type === 'Extracting' ? t.settingUp :
-                ffmpegInstallStatus.type === 'Error' ? t.installFailed :
-                  ffmpegInstallStatus.type === 'Cancelled' ? t.installCancelled : t.preparingRecorder}
-          </h3>
-        </div>
-
-        <p className="setup-description text-[var(--outline)] mb-4 text-xs leading-relaxed">
-          {ffmpegInstallStatus.type === 'Downloading' ? t.ffmpegDesc :
-            ffmpegInstallStatus.type === 'Extracting' ? t.extractingDesc :
-              ffmpegInstallStatus.type === 'Error' ? ffmpegInstallStatus.message :
-                ffmpegInstallStatus.type === 'Cancelled' ? t.cancelledDesc : t.systemCheckDesc}
-        </p>
-
-        {(ffmpegInstallStatus.type === 'Downloading' || ffmpegInstallStatus.type === 'Extracting') && (
-          <div className="progress-section space-y-2 mb-4">
-            <div className="progress-bar-track h-1 w-full bg-[var(--glass-bg-hover)] rounded-full overflow-hidden">
-              <div
-                className="progress-bar-fill h-full bg-[var(--primary-color)] transition-all duration-300 ease-out"
-                style={{ width: `${ffmpegInstallStatus.type === 'Downloading' ? ffmpegInstallStatus.progress : 95}%` }}
-              />
-            </div>
-            {ffmpegInstallStatus.type === 'Downloading' && (
-              <div className="progress-details flex justify-between text-[10px]">
-                <span className="text-[var(--on-surface-variant)]">
-                  {Math.round(ffmpegInstallStatus.progress)}% {t.downloaded}
-                  {ffmpegInstallStatus.totalSize > 0 && ` of ${(ffmpegInstallStatus.totalSize / (1024 * 1024)).toFixed(1)} MB`}
-                </span>
-                <span className="text-[var(--outline)]">{t.ffmpegEssentials}</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="setup-actions flex flex-col gap-2">
-          {ffmpegInstallStatus.type === 'Error' || ffmpegInstallStatus.type === 'Cancelled' ? (
-            <Button onClick={() => window.location.reload()} className="w-full bg-[var(--primary-color)] hover:opacity-90 text-white rounded-lg text-xs h-9">
-              {t.tryAgain}
-            </Button>
-          ) : (
-            <Button
-              variant="ghost"
-              onClick={onCancelInstall}
-              disabled={ffmpegInstallStatus.type === 'Idle' || ffmpegInstallStatus.type === 'Extracting'}
-              className="w-full text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg)] rounded-lg border border-[var(--glass-border)] text-xs h-9"
-            >
-              {t.cancelInstallation}
-            </Button>
-          )}
-          {(ffmpegInstallStatus.type === 'Error' || ffmpegInstallStatus.type === 'Cancelled') && (
-            <Button variant="ghost" onClick={() => (window as any).ipc.postMessage('close_window')} className="w-full text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg text-xs h-9">
-              {t.closeApp}
-            </Button>
-          )}
-        </div>
       </div>
     </div>
   );

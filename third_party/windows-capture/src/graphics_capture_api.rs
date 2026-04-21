@@ -26,7 +26,8 @@ use crate::settings::{
     MinimumUpdateIntervalSettings, SecondaryWindowSettings,
 };
 
-const FRAME_POOL_BUFFER_COUNT: i32 = 3;
+// Extra frame-pool headroom prevents WGC starvation when the encoder has brief stalls.
+const FRAME_POOL_BUFFER_COUNT: i32 = 8;
 
 #[derive(thiserror::Error, Eq, PartialEq, Clone, Debug)]
 pub enum Error {

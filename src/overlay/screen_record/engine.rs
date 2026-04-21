@@ -8,7 +8,8 @@ use std::mem::zeroed;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 use windows::core::BOOL;
 use windows::Win32::Foundation::{LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{
@@ -90,6 +91,7 @@ const ENCODER_MAX_PENDING_FRAMES: usize = 12;
 const MAX_CATCHUP_SUBMITS_PER_CALLBACK: u32 = 6;
 const TIMESTAMP_RESYNC_THRESHOLD_100NS: i64 = 10_000_000;
 const CAPTURE_STATS_WINDOW_SECS: f64 = 1.0;
+const CURSOR_SAMPLE_INTERVAL_MS: u64 = 50;
 
 #[derive(Clone, Copy)]
 struct SystemCursorHandles {
@@ -111,7 +113,8 @@ pub struct CaptureHandler {
     target_fps: u32,
     frame_interval_100ns: i64,
     start: Instant,
-    last_mouse_capture: Instant,
+    cursor_sampler_stop: Arc<AtomicBool>,
+    cursor_sampler_thread: Option<JoinHandle<()>>,
     next_submit_timestamp_100ns: Option<i64>,
     last_pending_frames: usize,
     frame_count: u64,
@@ -340,11 +343,7 @@ fn cursor_signature(handle: windows::Win32::UI::WindowsAndMessaging::HCURSOR) ->
     }
 }
 
-fn sample_mouse_position(start: Instant, last_mouse_capture: &mut Instant) {
-    if last_mouse_capture.elapsed().as_millis() < 16 {
-        return;
-    }
-
+fn sample_mouse_position(start: Instant) {
     unsafe {
         let mut point = POINT::default();
         if GetCursorPos(&mut point).is_ok() {
@@ -361,7 +360,15 @@ fn sample_mouse_position(start: Instant, last_mouse_capture: &mut Instant) {
             MOUSE_POSITIONS.lock().push_back(mouse_pos);
         }
     }
-    *last_mouse_capture = Instant::now();
+}
+
+fn spawn_cursor_sampler(start: Instant, stop: Arc<AtomicBool>) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        while !stop.load(Ordering::Relaxed) {
+            sample_mouse_position(start);
+            std::thread::sleep(Duration::from_millis(CURSOR_SAMPLE_INTERVAL_MS));
+        }
+    })
 }
 
 impl GraphicsCaptureApiHandler for CaptureHandler {
@@ -398,16 +405,8 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 .as_millis()
         ));
 
-        let audio_path = app_data_dir.join(format!(
-            "recording_{}.wav",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis()
-        ));
-
         *VIDEO_PATH.lock().unwrap() = Some(video_path.to_string_lossy().to_string());
-        *AUDIO_PATH.lock().unwrap() = Some(audio_path.to_string_lossy().to_string());
+        *AUDIO_PATH.lock().unwrap() = Some(video_path.to_string_lossy().to_string());
 
         let monitor_hz = monitor.refresh_rate().unwrap_or(DEFAULT_TARGET_FPS).max(1);
         let target_fps = select_target_fps(monitor_hz);
@@ -425,15 +424,22 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         // Keep a quality floor while capping peak encoder pressure.
         let final_bitrate = target_bitrate.clamp(8_000_000, 80_000_000);
 
+        let (sample_rate, channels) = audio_engine::get_default_audio_config();
+
         let encoder = VideoEncoder::new(
             VideoSettingsBuilder::new(width, height)
                 .sub_type(VideoSettingsSubType::H264)
                 .bitrate(final_bitrate)
                 .frame_rate(target_fps),
-            AudioSettingsBuilder::new().disabled(true),
+            AudioSettingsBuilder::new()
+                .sample_rate(sample_rate)
+                .channel_count(channels)
+                .bitrate(192_000)
+                .disabled(false),
             ContainerSettingsBuilder::new(),
             &video_path,
         )?;
+        let audio_handle = encoder.create_audio_handle();
         println!(
             "Initializing VideoEncoder: {}x{} @ {}fps (monitor={}Hz), Codec: H264 (MediaFoundation {}), Bitrate: {} Mbps, Monitor Index: {}",
             width,
@@ -447,21 +453,26 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
         SHOULD_STOP_AUDIO.store(false, Ordering::SeqCst);
         AUDIO_ENCODING_FINISHED.store(false, Ordering::SeqCst);
+        let start = Instant::now();
         audio_engine::record_audio(
-            audio_path.to_string_lossy().to_string(),
+            audio_handle,
+            start,
             SHOULD_STOP_AUDIO.clone(),
             AUDIO_ENCODING_FINISHED.clone(),
         );
 
         ENCODER_ACTIVE.store(true, Ordering::SeqCst);
         ENCODING_FINISHED.store(false, Ordering::SeqCst);
+        let cursor_sampler_stop = Arc::new(AtomicBool::new(false));
+        let cursor_sampler_thread = Some(spawn_cursor_sampler(start, cursor_sampler_stop.clone()));
 
         Ok(Self {
             encoder: Some(encoder),
             target_fps,
             frame_interval_100ns,
-            start: Instant::now(),
-            last_mouse_capture: Instant::now(),
+            start,
+            cursor_sampler_stop,
+            cursor_sampler_thread,
             next_submit_timestamp_100ns: None,
             last_pending_frames: 0,
             frame_count: 0,
@@ -525,7 +536,6 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 // for those ticks instead of jumping timeline forward.
                 let mut remaining = frames_to_submit.max(1);
                 let mut submitted = 0u32;
-                let mut used_blocking_fallback = false;
                 while remaining > 0 {
                     if submitted >= MAX_CATCHUP_SUBMITS_PER_CALLBACK {
                         // Avoid long duplicate bursts in one callback after a hitch.
@@ -542,25 +552,8 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                             remaining -= 1;
                         }
                         Ok(false) => {
-                            // On transient queue-full pressure, wait once for encoder
-                            // consumption before dropping the remainder.
-                            if !used_blocking_fallback {
-                                used_blocking_fallback = true;
-                                match encoder.send_frame(frame) {
-                                    Ok(()) => {
-                                        self.window_enqueued =
-                                            self.window_enqueued.saturating_add(1);
-                                        submitted = submitted.saturating_add(1);
-                                        remaining -= 1;
-                                        continue;
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Encoder blocking fallback error: {}", e);
-                                    }
-                                }
-                            }
-
-                            // Sustained queue-full: preserve timeline for unsent tail
+                            // Queue full: drop immediately to avoid stalling the capture callback.
+                            // Preserve timeline for unsent tail
                             // so video duration stays aligned with audio duration.
                             encoder.skip_video_frames(remaining);
                             self.window_dropped = self.window_dropped.saturating_add(remaining);
@@ -618,11 +611,13 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             self.stats_window_start = Instant::now();
         }
 
-        sample_mouse_position(self.start, &mut self.last_mouse_capture);
-
         if SHOULD_STOP.load(Ordering::SeqCst) {
             ENCODER_ACTIVE.store(false, Ordering::SeqCst);
             SHOULD_STOP_AUDIO.store(true, Ordering::SeqCst);
+            self.cursor_sampler_stop.store(true, Ordering::SeqCst);
+            if let Some(handle) = self.cursor_sampler_thread.take() {
+                let _ = handle.join();
+            }
             if let Some(encoder) = self.encoder.take() {
                 std::thread::spawn(move || {
                     if let Err(error) = encoder.finish() {
@@ -638,6 +633,10 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
     }
 
     fn on_closed(&mut self) -> Result<(), Self::Error> {
+        self.cursor_sampler_stop.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.cursor_sampler_thread.take() {
+            let _ = handle.join();
+        }
         Ok(())
     }
 }

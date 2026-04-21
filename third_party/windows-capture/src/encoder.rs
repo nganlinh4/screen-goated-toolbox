@@ -24,6 +24,9 @@ use windows::Storage::Streams::{
     Buffer, DataReader, IRandomAccessStream, InMemoryRandomAccessStream, InputStreamOptions,
 };
 use windows::Storage::{FileAccessMode, StorageFile};
+use windows::Win32::System::Threading::{
+    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
+};
 use windows::core::{HSTRING, Interface};
 
 use crate::d3d11::SendDirectX;
@@ -153,6 +156,29 @@ pub enum VideoEncoderSource {
 /// The `AudioEncoderSource` enum represents all the types that can be sent to the encoder.
 pub enum AudioEncoderSource {
     Buffer((SendDirectX<*const u8>, usize)),
+    OwnedBuffer(Vec<u8>),
+}
+
+#[derive(Clone)]
+pub struct AudioEncoderHandle {
+    sender: mpsc::Sender<Option<(AudioEncoderSource, TimeSpan)>>,
+}
+
+impl AudioEncoderHandle {
+    #[inline]
+    pub fn send_audio_buffer(
+        &self,
+        buffer: Vec<u8>,
+        timestamp_100ns: i64,
+    ) -> Result<(), VideoEncoderError> {
+        self.sender.send(Some((
+            AudioEncoderSource::OwnedBuffer(buffer),
+            TimeSpan {
+                Duration: timestamp_100ns,
+            },
+        )))?;
+        Ok(())
+    }
 }
 
 /// The `VideoSettingsBuilder` struct is used to configure settings for the video encoder.
@@ -564,10 +590,10 @@ impl VideoEncoder {
         )?;
         let video_stream_descriptor = VideoStreamDescriptor::Create(&video_encoding_properties)?;
 
-        let audio_encoding_properties = AudioEncodingProperties::CreateAac(
+        let audio_encoding_properties = AudioEncodingProperties::CreatePcm(
             audio_encoding_properties.SampleRate()?,
             audio_encoding_properties.ChannelCount()?,
-            audio_encoding_properties.Bitrate()?,
+            16,
         )?;
         let audio_stream_descriptor = AudioStreamDescriptor::Create(&audio_encoding_properties)?;
 
@@ -644,6 +670,10 @@ impl VideoEncoder {
                                     let buffer =
                                         unsafe { slice::from_raw_parts(buffer.0, buffer_data.1) };
                                     let buffer = CryptographicBuffer::CreateFromByteArray(buffer)?;
+                                    MediaStreamSample::CreateFromBuffer(&buffer, timestamp)?
+                                }
+                                AudioEncoderSource::OwnedBuffer(buffer) => {
+                                    let buffer = CryptographicBuffer::CreateFromByteArray(&buffer)?;
                                     MediaStreamSample::CreateFromBuffer(&buffer, timestamp)?
                                 }
                             };
@@ -735,6 +765,9 @@ impl VideoEncoder {
             let error_notify = error_notify.clone();
 
             move || -> Result<(), VideoEncoderError> {
+                unsafe {
+                    let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+                }
                 let result = transcode.TranscodeAsync();
 
                 if result.is_err() {
@@ -809,10 +842,10 @@ impl VideoEncoder {
         )?;
         let video_stream_descriptor = VideoStreamDescriptor::Create(&video_encoding_properties)?;
 
-        let audio_encoding_properties = AudioEncodingProperties::CreateAac(
+        let audio_encoding_properties = AudioEncodingProperties::CreatePcm(
             audio_encoding_properties.SampleRate()?,
             audio_encoding_properties.ChannelCount()?,
-            audio_encoding_properties.Bitrate()?,
+            16,
         )?;
         let audio_stream_descriptor = AudioStreamDescriptor::Create(&audio_encoding_properties)?;
 
@@ -889,6 +922,10 @@ impl VideoEncoder {
                                     let buffer =
                                         unsafe { slice::from_raw_parts(buffer.0, buffer_data.1) };
                                     let buffer = CryptographicBuffer::CreateFromByteArray(buffer)?;
+                                    MediaStreamSample::CreateFromBuffer(&buffer, timestamp)?
+                                }
+                                AudioEncoderSource::OwnedBuffer(buffer) => {
+                                    let buffer = CryptographicBuffer::CreateFromByteArray(&buffer)?;
                                     MediaStreamSample::CreateFromBuffer(&buffer, timestamp)?
                                 }
                             };
@@ -971,6 +1008,9 @@ impl VideoEncoder {
             let error_notify = error_notify.clone();
 
             move || -> Result<(), VideoEncoderError> {
+                unsafe {
+                    let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+                }
                 let result = transcode.TranscodeAsync();
 
                 if result.is_err() {
@@ -1104,6 +1144,14 @@ impl VideoEncoder {
     #[inline]
     pub fn dropped_video_frames(&self) -> usize {
         self.dropped_video_frames.load(Ordering::Relaxed)
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn create_audio_handle(&self) -> AudioEncoderHandle {
+        AudioEncoderHandle {
+            sender: self.audio_sender.clone(),
+        }
     }
 
     /// Advances the internal video timeline without queueing a frame.

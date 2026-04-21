@@ -1,16 +1,35 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use hound::{SampleFormat, WavSpec, WavWriter};
 use ringbuf::traits::*;
 use ringbuf::HeapRb;
-use std::fs::File;
-use std::io::BufWriter;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use windows::Win32::System::Threading::{
+    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_HIGHEST,
+};
+use windows_capture::encoder::AudioEncoderHandle;
 
-pub fn record_audio(path: String, stop_signal: Arc<AtomicBool>, finished_signal: Arc<AtomicBool>) {
+pub fn get_default_audio_config() -> (u32, u32) {
+    let host = cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or_else(|_| cpal::default_host());
+    if let Some(device) = host.default_output_device() {
+        if let Ok(config) = device.default_output_config() {
+            return (config.sample_rate(), config.channels() as u32);
+        }
+    }
+    (48_000, 2)
+}
+
+pub fn record_audio(
+    audio_handle: AudioEncoderHandle,
+    start_time: Instant,
+    stop_signal: Arc<AtomicBool>,
+    finished_signal: Arc<AtomicBool>,
+) {
     thread::spawn(move || {
+        unsafe {
+            let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+        }
         let host = match cpal::host_from_id(cpal::HostId::Wasapi) {
             Ok(h) => h,
             Err(e) => {
@@ -37,18 +56,20 @@ pub fn record_audio(path: String, stop_signal: Arc<AtomicBool>, finished_signal:
             }
         };
 
-        // Create a ring buffer for audio data
-        let buffer_len = 4 * 1024 * 1024; // ~4 million samples
+        let buffer_len = 4 * 1024 * 1024;
         let rb = HeapRb::<f32>::new(buffer_len);
         let (mut producer, mut consumer) = rb.split();
 
         let stream_config: cpal::StreamConfig = config.clone().into();
-        let channels = stream_config.channels;
+        let channels = stream_config.channels as usize;
         let sample_rate = stream_config.sample_rate;
+        if channels == 0 {
+            eprintln!("Invalid loopback channel count: 0");
+            finished_signal.store(true, Ordering::SeqCst);
+            return;
+        }
 
         let err_fn = |err| eprintln!("Audio stream error: {}", err);
-
-        // Capture in float, but we will convert to 16-bit integer
         let stream = match device.build_input_stream(
             &stream_config,
             move |data: &[f32], _: &_| {
@@ -72,37 +93,12 @@ pub fn record_audio(path: String, stop_signal: Arc<AtomicBool>, finished_signal:
         }
 
         println!(
-            "Audio recording started (16-bit PCM): {} (Rate: {}, Channels: {})",
-            path, sample_rate, channels
+            "Audio recording started (Memory Muxing): {}Hz, {} channels",
+            sample_rate, channels
         );
 
-        // Use 16-bit Signed Integer (PCM) instead of Float.
-        // This is much more compatible and less prone to "static pops"
-        let spec = WavSpec {
-            channels: channels as u16,
-            sample_rate,
-            bits_per_sample: 16,
-            sample_format: SampleFormat::Int,
-        };
-
-        let file = match File::create(&path) {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("Failed to create audio file: {}", e);
-                return;
-            }
-        };
-
-        let buf_writer = BufWriter::new(file);
-        let mut writer = match WavWriter::new(buf_writer, spec) {
-            Ok(w) => w,
-            Err(e) => {
-                eprintln!("Failed to create WAV writer: {}", e);
-                return;
-            }
-        };
-
-        let mut chunk = vec![0.0f32; 16384];
+        let mut audio_output_100ns = (start_time.elapsed().as_nanos() / 100) as i64;
+        let mut chunk = vec![0.0f32; 16_384];
 
         while !stop_signal.load(Ordering::SeqCst) {
             if consumer.is_empty() {
@@ -112,42 +108,57 @@ pub fn record_audio(path: String, stop_signal: Arc<AtomicBool>, finished_signal:
 
             let count = consumer.pop_slice(&mut chunk);
             if count > 0 {
-                for i in 0..count {
-                    // Hard clamp to [-1.0, 1.0] and convert to i16
-                    // This eliminates floating point range issues causing pops
-                    let sample = chunk[i].clamp(-1.0, 1.0);
-                    let pcm_sample = (sample * 32767.0) as i16;
-
-                    if let Err(e) = writer.write_sample(pcm_sample) {
-                        eprintln!("WAV Write error: {}", e);
+                if let Some((bytes, duration_100ns)) =
+                    encode_pcm_chunk_i16(&chunk[..count], channels, sample_rate)
+                {
+                    if let Err(e) = audio_handle.send_audio_buffer(bytes, audio_output_100ns) {
+                        eprintln!("Audio mux send error: {}", e);
                         break;
                     }
+                    audio_output_100ns = audio_output_100ns.saturating_add(duration_100ns);
                 }
             }
         }
 
-        println!("Audio stop signal received. Flushing buffer...");
+        println!("Audio stop signal received. Flushing buffer into muxer...");
         drop(stream);
 
-        // Flush remainder
         loop {
             let count = consumer.pop_slice(&mut chunk);
             if count == 0 {
                 break;
             }
-            for i in 0..count {
-                let sample = chunk[i].clamp(-1.0, 1.0);
-                let pcm_sample = (sample * 32767.0) as i16;
-                let _ = writer.write_sample(pcm_sample);
+            if let Some((bytes, duration_100ns)) = encode_pcm_chunk_i16(&chunk[..count], channels, sample_rate)
+            {
+                if let Err(e) = audio_handle.send_audio_buffer(bytes, audio_output_100ns) {
+                    eprintln!("Audio mux flush send error: {}", e);
+                    break;
+                }
+                audio_output_100ns = audio_output_100ns.saturating_add(duration_100ns);
             }
-        }
-
-        if let Err(e) = writer.finalize() {
-            eprintln!("Failed to finalize WAV file: {}", e);
-        } else {
-            println!("Audio recording finished: {}", path);
         }
 
         finished_signal.store(true, Ordering::SeqCst);
     });
+}
+
+fn encode_pcm_chunk_i16(samples: &[f32], channels: usize, sample_rate: u32) -> Option<(Vec<u8>, i64)> {
+    if channels == 0 || sample_rate == 0 || samples.is_empty() {
+        return None;
+    }
+
+    let frame_count = samples.len() / channels;
+    if frame_count == 0 {
+        return None;
+    }
+
+    let sample_count = frame_count * channels;
+    let mut bytes = Vec::with_capacity(sample_count * 2);
+    for &sample in &samples[..sample_count] {
+        let pcm = (sample.clamp(-1.0, 1.0) * 32767.0) as i16;
+        bytes.extend_from_slice(&pcm.to_le_bytes());
+    }
+
+    let duration_100ns = ((frame_count as u128) * 10_000_000u128 / (sample_rate as u128)) as i64;
+    Some((bytes, duration_100ns))
 }
