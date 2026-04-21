@@ -291,6 +291,12 @@ pub fn handle_ipc_command(
         }
         "get_subtitle_generation_status" => subtitles::handle_get_subtitle_generation_status(&args),
         "cancel_subtitle_generation" => subtitles::handle_cancel_subtitle_generation(&args),
+        "start_subtitle_translation" => subtitles::handle_start_subtitle_translation(&args),
+        "get_subtitle_translation_capabilities" => {
+            subtitles::handle_get_subtitle_translation_capabilities(&args)
+        }
+        "get_subtitle_translation_status" => subtitles::handle_get_subtitle_translation_status(&args),
+        "cancel_subtitle_translation" => subtitles::handle_cancel_subtitle_translation(&args),
         "get_hotkeys" => hotkeys::handle_get_hotkeys(),
         "remove_hotkey" => hotkeys::handle_remove_hotkey(&args),
         "set_hotkey" => hotkeys::handle_set_hotkey(&args),

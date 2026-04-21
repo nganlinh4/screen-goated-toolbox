@@ -10,6 +10,14 @@ export interface PanelSelectOption {
   label: string;
   disabled?: boolean;
   keywords?: string[];
+  action?: {
+    label: string;
+    onClick: () => void;
+    icon?: React.ReactNode;
+    disabled?: boolean;
+    keepMenuOpen?: boolean;
+    tone?: 'default' | 'danger';
+  };
 }
 
 interface PanelSelectProps {
@@ -145,36 +153,71 @@ export function PanelSelect({
               {filteredOptions.length > 0 ? (
                 filteredOptions.map((option) => {
                   const isSelected = option.value === value;
+                  const optionAction = option.action;
+                  const rowClassName = option.disabled
+                    ? 'cursor-not-allowed opacity-40'
+                    : isSelected
+                      ? 'bg-[color-mix(in_srgb,var(--primary-color)_14%,var(--ui-surface-3))] text-[var(--primary-color)]'
+                      : 'cursor-pointer text-[var(--on-surface-variant)] hover:bg-[color-mix(in_srgb,var(--primary-color)_12%,var(--ui-surface-3))] hover:text-[var(--primary-color)]';
                   return (
-                    <button
+                    <div
                       key={option.value}
-                      type="button"
-                      disabled={option.disabled}
                       className={cn(
-                        'panel-select-option dropdown-menu-item relative flex w-full items-center rounded-md px-2 py-1.5 text-[11px] leading-tight outline-none transition-colors',
-                        option.disabled
-                          ? 'cursor-not-allowed opacity-40'
-                          : isSelected
-                            ? 'bg-[color-mix(in_srgb,var(--primary-color)_14%,var(--ui-surface-3))] text-[var(--primary-color)]'
-                            : 'cursor-pointer text-[var(--on-surface-variant)] hover:bg-[color-mix(in_srgb,var(--primary-color)_12%,var(--ui-surface-3))] hover:text-[var(--primary-color)]',
+                        'panel-select-option-row dropdown-menu-item relative flex w-full items-center rounded-md text-[11px] leading-tight outline-none transition-colors',
+                        rowClassName,
                       )}
-                      onClick={() => {
-                        if (option.disabled) {
-                          return;
-                        }
-                        onChange(option.value);
-                        setOpen(false);
-                      }}
                     >
-                      <span className="panel-select-option-check mr-2 flex h-3.5 w-3.5 items-center justify-center">
-                        {isSelected ? (
-                          <Check className="h-3.5 w-3.5 text-[var(--primary-color)]" />
-                        ) : null}
-                      </span>
-                      <span className="panel-select-option-label flex-1 text-left">
-                        {option.label}
-                      </span>
-                    </button>
+                      <button
+                        type="button"
+                        disabled={option.disabled}
+                        className="panel-select-option flex min-w-0 flex-1 items-center px-2 py-1.5 text-left"
+                        onClick={() => {
+                          if (option.disabled) {
+                            return;
+                          }
+                          onChange(option.value);
+                          setOpen(false);
+                        }}
+                      >
+                        <span className="panel-select-option-check mr-2 flex h-3.5 w-3.5 items-center justify-center">
+                          {isSelected ? (
+                            <Check className="h-3.5 w-3.5 text-[var(--primary-color)]" />
+                          ) : null}
+                        </span>
+                        <span className="panel-select-option-label flex-1 text-left">
+                          {option.label}
+                        </span>
+                      </button>
+                      {optionAction ? (
+                        <button
+                          type="button"
+                          disabled={optionAction.disabled}
+                          className={cn(
+                            'panel-select-option-action mr-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md transition-colors',
+                            optionAction.disabled
+                              ? 'cursor-not-allowed opacity-40'
+                              : optionAction.tone === 'danger'
+                                ? 'text-[var(--on-surface-variant)] hover:bg-[color-mix(in_srgb,#ef4444_14%,transparent)] hover:text-[#ef4444]'
+                                : 'text-[var(--on-surface-variant)] hover:bg-[color-mix(in_srgb,var(--primary-color)_12%,transparent)] hover:text-[var(--primary-color)]',
+                          )}
+                          title={optionAction.label}
+                          aria-label={optionAction.label}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            if (optionAction.disabled) {
+                              return;
+                            }
+                            optionAction.onClick();
+                            if (!optionAction.keepMenuOpen) {
+                              setOpen(false);
+                            }
+                          }}
+                        >
+                          {optionAction.icon}
+                        </button>
+                      ) : null}
+                    </div>
                   );
                 })
               ) : (

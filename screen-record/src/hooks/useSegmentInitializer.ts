@@ -3,6 +3,7 @@ import { VideoSegment, BackgroundConfig, MousePosition } from "@/types/video";
 import { videoRenderer } from "@/lib/videoRenderer";
 import { buildFlatDeviceAudioPoints } from "@/lib/deviceAudio";
 import { buildFlatMicAudioPoints } from "@/lib/micAudio";
+import { createSubtitleTrackStateFromSegments } from "@/lib/subtitleTracks";
 import { buildFullWebcamVisibilitySegments } from "@/lib/webcamVisibility";
 import { getSavedCropPref, getSavedKeystrokeLanguage } from "@/hooks/useVideoState";
 import {
@@ -50,7 +51,7 @@ export function useSegmentInitializer({
         ],
         zoomKeyframes: [],
         textSegments: [],
-        subtitleSegments: [],
+        ...createSubtitleTrackStateFromSegments([]),
         speedPoints: [
           { time: 0, speed: 1 },
           { time: duration, speed: 1 },

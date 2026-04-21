@@ -35,6 +35,7 @@ import {
   isManagedImportedVideoPath,
   writeBlobToTempMediaFile,
 } from "@/lib/mediaServer";
+import { normalizeSubtitleTrackState } from "@/lib/subtitleTracks";
 import {
   normalizeCropRect,
   normalizeTrackDelaySec,
@@ -301,6 +302,7 @@ export function useProjects(props: UseProjectsProps) {
       correctedSegment.subtitleSegments = Array.isArray(correctedSegment.subtitleSegments)
         ? correctedSegment.subtitleSegments
         : [];
+      correctedSegment = normalizeSubtitleTrackState(correctedSegment);
       correctedSegment.deviceAudioPoints = normalizeDeviceAudioPoints(
         correctedSegment.deviceAudioPoints,
         videoDuration,

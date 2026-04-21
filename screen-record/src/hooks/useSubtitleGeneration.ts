@@ -16,11 +16,11 @@ import {
 } from '@/lib/subtitleGenerationPlan';
 import { defaultSubtitleStyle } from '@/lib/subtitleDefaults';
 import {
-  replaceSegmentsInRanges,
   type TrackSelectionRange,
 } from '@/lib/timelineSegmentSelection';
 import type { Translations } from '@/i18n';
 import type { ProjectComposition, VideoSegment } from '@/types/video';
+import { replaceOriginalSubtitleSegments } from '@/lib/subtitleTrackMutations';
 
 export type SubtitleMethod =
   | 'groq-whisper-accurate'
@@ -286,7 +286,6 @@ export function useSubtitleGeneration({
   const applyResults = useCallback((results: SubtitleClipResult[], context: SubtitleJobContext | null) => {
     if (results.length === 0) return;
     const subtitleStyle = defaultSubtitleStyle();
-    const isRangeJob = context?.indicator.mode === 'range';
 
     if (!composition || getEffectiveCompositionMode(composition) === 'separate') {
       const rootResult = results[0];
@@ -301,14 +300,7 @@ export function useSubtitleGeneration({
           text: entry.text,
           style: subtitleStyle,
         }));
-        const subtitleSegments =
-          isRangeJob && replacementRanges.length > 0
-            ? replaceSegmentsInRanges(prev.subtitleSegments ?? [], replacementRanges, inserted)
-            : inserted;
-        return {
-          ...prev,
-          subtitleSegments,
-        };
+        return replaceOriginalSubtitleSegments(prev, inserted, replacementRanges);
       });
       return;
     }
@@ -330,17 +322,11 @@ export function useSubtitleGeneration({
           text: entry.text,
           style: subtitleStyle,
         }));
-        const updatedSegment = {
-          ...clip.segment,
-          subtitleSegments:
-            isRangeJob && replacementRanges.length > 0
-              ? replaceSegmentsInRanges(
-                  clip.segment.subtitleSegments ?? [],
-                  replacementRanges,
-                  inserted,
-                )
-              : inserted,
-        };
+        const updatedSegment = replaceOriginalSubtitleSegments(
+          clip.segment,
+          inserted,
+          replacementRanges,
+        );
 
         next = updateCompositionClip(next, clip.id, { segment: updatedSegment });
 

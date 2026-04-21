@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { VideoSegment, CursorVisibilitySegment } from '@/types/video';
 import { clampVisibilitySegmentsToDuration, mergePointerSegments } from '@/lib/cursorHiding';
 import { getKeystrokeVisibilitySegmentsForMode, withKeystrokeVisibilitySegmentsForMode } from '@/lib/keystrokeVisibility';
+import { updateSubtitleTimingAcrossTracks } from '@/lib/subtitleTrackMutations';
 
 interface UseTrackSegmentDragOptions {
   duration: number;
@@ -122,24 +123,22 @@ export function useTrackSegmentDrag({
     const newTime = getTimeFromClientX(clientX);
     if (newTime === null) return;
 
-    setSegment({
-      ...segment,
-      subtitleSegments: (segment.subtitleSegments ?? []).map((subtitle) => {
-        if (subtitle.id !== draggingSubtitleId) return subtitle;
-        if (isDraggingSubtitleStart) {
-          return { ...subtitle, startTime: Math.min(Math.max(0, newTime), subtitle.endTime - 0.1) };
-        } else if (isDraggingSubtitleEnd) {
-          return { ...subtitle, endTime: Math.max(Math.min(duration, newTime), subtitle.startTime + 0.1) };
-        } else if (isDraggingSubtitleBody) {
-          const dur = subtitle.endTime - subtitle.startTime;
-          let newStart = newTime - subtitleDragOffsetRef.current;
-          if (newStart < 0) newStart = 0;
-          if (newStart + dur > duration) newStart = duration - dur;
-          return { ...subtitle, startTime: newStart, endTime: newStart + dur };
-        }
-        return subtitle;
-      }),
-    });
+    setSegment(updateSubtitleTimingAcrossTracks(segment, draggingSubtitleId, (subtitle) => {
+      if (isDraggingSubtitleStart) {
+        return { ...subtitle, startTime: Math.min(Math.max(0, newTime), subtitle.endTime - 0.1) };
+      }
+      if (isDraggingSubtitleEnd) {
+        return { ...subtitle, endTime: Math.max(Math.min(duration, newTime), subtitle.startTime + 0.1) };
+      }
+      if (isDraggingSubtitleBody) {
+        const dur = subtitle.endTime - subtitle.startTime;
+        let newStart = newTime - subtitleDragOffsetRef.current;
+        if (newStart < 0) newStart = 0;
+        if (newStart + dur > duration) newStart = duration - dur;
+        return { ...subtitle, startTime: newStart, endTime: newStart + dur };
+      }
+      return subtitle;
+    }));
   }, [isDraggingSubtitleStart, isDraggingSubtitleEnd, isDraggingSubtitleBody, draggingSubtitleId, segment, getTimeFromClientX, setSegment, duration]);
 
   // Keystroke drag

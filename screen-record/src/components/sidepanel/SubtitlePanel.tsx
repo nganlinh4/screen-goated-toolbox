@@ -1,5 +1,5 @@
 import type { SubtitleMethod } from '@/hooks/useSubtitleGeneration';
-import { AlignCenter, AlignLeft, AlignRight } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, Trash2 } from 'lucide-react';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { SettingRow } from '@/components/layout/SettingRow';
 import { ColorPicker } from '@/components/ui/ColorPicker';
@@ -7,10 +7,17 @@ import { PanelSelect } from '@/components/ui/PanelSelect';
 import { Slider } from '@/components/ui/Slider';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useSettings } from '@/hooks/useSettings';
+import { useSubtitleTranslation } from '@/hooks/useSubtitleTranslation';
 import { SUBTITLE_LANGUAGE_OPTIONS } from '@/lib/subtitleLanguageOptions';
 import { normalizeTextStyle } from '@/lib/textStyleDefaults';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
+import {
+  updateSubtitleStylesAcrossTracks,
+  updateSubtitleTextsOnActiveTrack,
+} from '@/lib/subtitleTrackMutations';
+import { getSubtitleTrackLabel, ORIGINAL_SUBTITLE_TRACK_ID } from '@/lib/subtitleTracks';
 import { VideoSegment } from '@/types/video';
+import { SubtitleCustomChainEditor } from './subtitle-panel/SubtitleCustomChainEditor';
 
 function buildFontVariationCSS(vars?: NonNullable<VideoSegment['subtitleSegments']>[number]['style']['fontVariations']): string | undefined {
   const parts: string[] = [];
@@ -42,6 +49,7 @@ export interface SubtitlePanelProps {
   onCancel: () => void;
   canExportSrt: boolean;
   onExportSrt: () => void;
+  subtitleTranslation: ReturnType<typeof useSubtitleTranslation>;
   onUpdateSegment: (segment: VideoSegment) => void;
   beginBatch: () => void;
   commitBatch: () => void;
@@ -69,26 +77,31 @@ export function SubtitlePanel({
   onCancel,
   canExportSrt,
   onExportSrt,
+  subtitleTranslation,
   onUpdateSegment,
   beginBatch,
   commitBatch,
 }: SubtitlePanelProps) {
   const { t } = useSettings();
+  const visibleSubtitles = subtitleTranslation.visibleSubtitleSegments;
   const hasSelection = (selectedSubtitleIds?.length ?? 0) > 0;
   const selection = hasSelection ? new Set(selectedSubtitleIds) : null;
   const sourceId = hasSelection ? selectedSubtitleIds![0] : editingSubtitleId;
   const sourceSubtitle = sourceId
-    ? (segment?.subtitleSegments ?? []).find((subtitle) => subtitle.id === sourceId) ?? null
+    ? visibleSubtitles.find((subtitle) => subtitle.id === sourceId) ?? null
     : null;
   const resolvedStyle = sourceSubtitle ? normalizeTextStyle(sourceSubtitle.style) : null;
   const editableSubtitles = selection
-    ? (segment?.subtitleSegments ?? []).filter((subtitle) => selection.has(subtitle.id))
+    ? visibleSubtitles.filter((subtitle) => selection.has(subtitle.id))
     : sourceSubtitle
       ? [sourceSubtitle]
       : [];
   const hasSubtitleSource = canUseVideoSource || canUseMicSource;
-  const hasSubtitles = (segment?.subtitleSegments?.length ?? 0) > 0;
-  const subtitleActionDisabled = isGenerating || !hasSubtitleSource || !canUseSelectedMethod;
+  const hasSubtitles = visibleSubtitles.length > 0;
+  const subtitleActionDisabled = isGenerating
+    || !hasSubtitleSource
+    || !canUseSelectedMethod
+    || !subtitleTranslation.canGenerateSubtitlesFromCurrentView;
   const generateLabel = selectedSubtitleRange
     ? t.subtitleGenerateForRange
     : hasSubtitles
@@ -115,20 +128,16 @@ export function SubtitlePanel({
   const updateSelectedSubtitles = (updater: (subtitle: NonNullable<typeof sourceSubtitle>) => NonNullable<typeof sourceSubtitle>) => {
     if (!segment || !sourceSubtitle) return;
     const targetIds = selection ? selection : new Set([sourceSubtitle.id]);
-    const nextSubtitleSegments = (segment.subtitleSegments ?? []).map((subtitle) =>
-      targetIds.has(subtitle.id) ? updater(subtitle) : subtitle,
-    );
-    onUpdateSegment({
-      ...segment,
-      subtitleSegments: nextSubtitleSegments,
-    });
+    onUpdateSegment(updateSubtitleStylesAcrossTracks(segment, targetIds, updater));
   };
 
   const updateSubtitleText = (text: string) => {
-    updateSelectedSubtitles((subtitle) => ({
+    if (!segment || !sourceSubtitle || subtitleTranslation.isCustomSubtitleView) return;
+    const targetIds = selection ? selection : new Set([sourceSubtitle.id]);
+    onUpdateSegment(updateSubtitleTextsOnActiveTrack(segment, targetIds, (subtitle) => ({
       ...subtitle,
       text,
-    }));
+    })));
   };
 
   const subtitleSourceOptions = [
@@ -149,12 +158,55 @@ export function SubtitlePanel({
     label: getMethodLabel(method.method),
     disabled: !method.available,
   }));
+  const subtitleViewOptions = [
+    {
+      value: ORIGINAL_SUBTITLE_TRACK_ID,
+      label: t.subtitleTrackOriginal,
+    },
+    ...subtitleTranslation.subtitleTracks
+      .filter((track) => track.kind === 'translation')
+      .map((track) => ({
+        value: track.id,
+        label: getSubtitleTrackLabel(track),
+        action: {
+          label: t.subtitleTrackDelete,
+          icon: <Trash2 className="h-3.5 w-3.5" />,
+          tone: 'danger' as const,
+          onClick: () => subtitleTranslation.deleteSubtitleTrack(track.id),
+        },
+      })),
+    {
+      value: 'custom',
+      label: t.subtitleTrackCustom,
+    },
+  ];
   const supportsLanguageHint = selectedMethod !== 'gemini-live-3-1-flash-preview';
+  const subtitleStatusText = selectedMethodReason
+    ?? statusMessage
+    ?? (hasSubtitleSource ? t.subtitleIdleHint : t.subtitleUnavailableSource);
+  const translationStatusText = subtitleTranslation.subtitleTranslationStatusMessage
+    ?? subtitleTranslation.subtitleTranslationCapabilities?.reason
+    ?? t.subtitleTranslationHint;
 
   return (
     <PanelCard className="subtitle-panel">
       <div className="subtitle-panel-body space-y-3">
         <p className="subtitle-panel-hint text-[11px] leading-4 text-on-surface-variant">{t.subtitlePanelHint}</p>
+
+        <div className="subtitle-view-row flex items-center gap-2">
+          <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+            {t.subtitleTrackView}
+          </span>
+          <PanelSelect
+            value={subtitleTranslation.activeSubtitleView.kind === 'custom'
+              ? 'custom'
+              : subtitleTranslation.activeSubtitleView.trackId ?? ORIGINAL_SUBTITLE_TRACK_ID}
+            options={subtitleViewOptions}
+            onChange={subtitleTranslation.setSubtitleView}
+            triggerClassName="subtitle-view-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+            contentClassName="subtitle-view-menu"
+          />
+        </div>
 
         <div className="subtitle-source-row flex items-center gap-2">
           <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
@@ -232,8 +284,60 @@ export function SubtitlePanel({
         </div>
 
         <p className="subtitle-status-message text-[11px] leading-4 text-on-surface-variant">
-          {selectedMethodReason ?? statusMessage ?? (hasSubtitleSource ? t.subtitleIdleHint : t.subtitleUnavailableSource)}
+          {subtitleStatusText}
         </p>
+
+        <div className="subtitle-translation-language-row flex items-center gap-2">
+          <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+            {t.subtitleTranslationLanguage}
+          </span>
+          <PanelSelect
+            value={subtitleTranslation.subtitleTranslationTargetLanguage}
+            options={subtitleTranslation.subtitleTranslationLanguageOptions}
+            onChange={subtitleTranslation.setSubtitleTranslationTargetLanguage}
+            searchable
+            searchPlaceholder={t.subtitleLanguageSearchPlaceholder}
+            emptyStateLabel={t.subtitleLanguageSearchEmpty}
+            triggerClassName="subtitle-translation-language-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+            contentClassName="subtitle-translation-language-menu"
+          />
+        </div>
+
+        <div className="subtitle-translation-actions grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            disabled={!subtitleTranslation.canTranslateSubtitles || subtitleTranslation.isTranslatingSubtitles}
+            onClick={subtitleTranslation.handleTranslateSubtitles}
+            data-tone="primary"
+            className="subtitle-translate-button ui-action-button flex h-8 items-center justify-center rounded-lg px-2.5 text-[11px] font-medium leading-tight"
+          >
+            {subtitleTranslation.hasExistingTranslationForTargetLanguage
+              ? t.subtitleTranslateUpdate
+              : t.subtitleTranslate}
+          </button>
+          <button
+            type="button"
+            disabled={!subtitleTranslation.isTranslatingSubtitles}
+            onClick={subtitleTranslation.handleCancelSubtitleTranslation}
+            data-tone="danger"
+            className="subtitle-translate-cancel-button ui-action-button flex h-8 items-center justify-center rounded-lg px-2.5 text-[11px] font-medium leading-tight"
+          >
+            {t.subtitleCancelJob}
+          </button>
+        </div>
+
+        <p className="subtitle-translation-status text-[11px] leading-4 text-on-surface-variant">
+          {translationStatusText}
+        </p>
+
+        {subtitleTranslation.isCustomSubtitleView ? (
+          <SubtitleCustomChainEditor
+            t={t}
+            tracks={subtitleTranslation.subtitleTracks}
+            chain={subtitleTranslation.subtitleCustomChain}
+            onChange={subtitleTranslation.updateSubtitleCustomChain}
+          />
+        ) : null}
 
         {sourceSubtitle && editableSubtitles.length > 0 && resolvedStyle ? (
           <div className="subtitle-style-controls space-y-3">
@@ -262,6 +366,7 @@ export function SubtitlePanel({
               onBlur={commitBatch}
               onChange={(e) => updateSubtitleText(e.target.value)}
               className="subtitle-editor-input ui-input w-full rounded-xl px-3 py-2 text-sm text-on-surface thin-scrollbar subtle-resize"
+              disabled={subtitleTranslation.isCustomSubtitleView}
               style={{
                 fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif",
                 fontWeight: resolvedStyle.fontVariations?.wght ?? 400,
@@ -270,7 +375,9 @@ export function SubtitlePanel({
               rows={2}
             />
 
-            <p className="text-[10px] text-on-surface-variant">{t.dragTextHint}</p>
+            <p className="text-[10px] text-on-surface-variant">
+              {subtitleTranslation.isCustomSubtitleView ? t.subtitleCustomReadOnly : t.dragTextHint}
+            </p>
 
             <SettingRow label={t.fontSize} valueDisplay={`${resolvedStyle.fontSize}`}>
               <Slider

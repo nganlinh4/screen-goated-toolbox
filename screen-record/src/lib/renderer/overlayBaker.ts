@@ -26,6 +26,7 @@ import {
   DEFAULT_TEXT_LINE_HEIGHT,
   normalizeTextStyle,
 } from '@/lib/textStyleDefaults';
+import { getVisibleSubtitleSegments } from '@/lib/subtitleTracks';
 
 // ---------------------------------------------------------------------------
 // Text drag state
@@ -34,11 +35,35 @@ import {
 export interface TextDragState {
   isDraggingText: boolean;
   draggedTextId: string | null;
-  dragOffset: { x: number; y: number };
+  draggedOverlayKind: 'text' | 'subtitle' | null;
+  dragStartPointer: { x: number; y: number };
+  dragTargets: Array<{
+    kind: 'text' | 'subtitle';
+    id: string;
+    startX: number;
+    startY: number;
+  }>;
 }
 
 function getOverlayTextSegments(segment: VideoSegment): TextSegment[] {
-  return [...(segment.subtitleSegments ?? []), ...(segment.textSegments ?? [])];
+  return [...getVisibleSubtitleSegments(segment), ...(segment.textSegments ?? [])];
+}
+
+interface OverlayDragSelection {
+  selectedTextIds?: readonly string[];
+  selectedSubtitleIds?: readonly string[];
+}
+
+export interface OverlayDragHit {
+  kind: 'text' | 'subtitle';
+  id: string;
+}
+
+export interface OverlayDragMove {
+  kind: 'text' | 'subtitle';
+  id: string;
+  x: number;
+  y: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -504,23 +529,56 @@ export function handleMouseDown(
   e: MouseEvent,
   segment: VideoSegment,
   canvas: HTMLCanvasElement,
-  dragState: TextDragState
-): string | null {
+  dragState: TextDragState,
+  selection?: OverlayDragSelection,
+): OverlayDragHit | null {
   const rect = canvas.getBoundingClientRect();
   const x = (e.clientX - rect.left) * (canvas.width / rect.width);
   const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+  const overlays = [
+    ...getVisibleSubtitleSegments(segment).map((subtitle) => ({
+      kind: 'subtitle' as const,
+      segment: subtitle,
+    })),
+    ...(segment.textSegments ?? []).map((text) => ({
+      kind: 'text' as const,
+      segment: text,
+    })),
+  ];
 
-  for (const text of segment.textSegments) {
+  for (let index = overlays.length - 1; index >= 0; index -= 1) {
+    const overlay = overlays[index];
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
-    const hitArea = getTextHitArea(ctx, text, canvas.width, canvas.height);
+    const hitArea = getTextHitArea(ctx, overlay.segment, canvas.width, canvas.height);
     if (x >= hitArea.x && x <= hitArea.x + hitArea.width &&
       y >= hitArea.y && y <= hitArea.y + hitArea.height) {
+      const selectionIds = overlay.kind === 'text'
+        ? selection?.selectedTextIds
+        : selection?.selectedSubtitleIds;
+      const targetIds = selectionIds?.includes(overlay.segment.id)
+        ? selectionIds
+        : [overlay.segment.id];
+      const targetSet = new Set(targetIds);
+      const targetSource = overlay.kind === 'text'
+        ? (segment.textSegments ?? [])
+        : getVisibleSubtitleSegments(segment);
       dragState.isDraggingText = true;
-      dragState.draggedTextId = text.id;
-      dragState.dragOffset.x = x - (text.style.x / 100 * canvas.width);
-      dragState.dragOffset.y = y - (text.style.y / 100 * canvas.height);
-      return text.id;
+      dragState.draggedTextId = overlay.segment.id;
+      dragState.draggedOverlayKind = overlay.kind;
+      dragState.dragStartPointer = { x, y };
+      dragState.dragTargets = targetSource
+        .filter((item) => targetSet.has(item.id))
+        .map((item) => ({
+          kind: overlay.kind,
+          id: item.id,
+          startX: item.style.x,
+          startY: item.style.y,
+        }));
+      return {
+        kind: overlay.kind,
+        id: overlay.segment.id,
+      };
     }
   }
   return null;
@@ -530,24 +588,33 @@ export function handleMouseMove(
   e: MouseEvent,
   _segment: VideoSegment,
   canvas: HTMLCanvasElement,
-  onTextMove: (id: string, x: number, y: number) => void,
+  onTextMove: (moves: OverlayDragMove[]) => void,
   dragState: TextDragState
 ): void {
-  if (!dragState.isDraggingText || !dragState.draggedTextId) return;
+  if (!dragState.isDraggingText || dragState.dragTargets.length === 0) return;
 
   const rect = canvas.getBoundingClientRect();
   const x = (e.clientX - rect.left) * (canvas.width / rect.width);
   const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+  const dx = ((x - dragState.dragStartPointer.x) / canvas.width) * 100;
+  const dy = ((y - dragState.dragStartPointer.y) / canvas.height) * 100;
 
-  const newX = Math.max(0, Math.min(100, ((x - dragState.dragOffset.x) / canvas.width) * 100));
-  const newY = Math.max(0, Math.min(100, ((y - dragState.dragOffset.y) / canvas.height) * 100));
-
-  onTextMove(dragState.draggedTextId, newX, newY);
+  onTextMove(
+    dragState.dragTargets.map((target) => ({
+      kind: target.kind,
+      id: target.id,
+      x: Math.max(0, Math.min(100, target.startX + dx)),
+      y: Math.max(0, Math.min(100, target.startY + dy)),
+    })),
+  );
 }
 
 export function handleMouseUp(dragState: TextDragState): void {
   dragState.isDraggingText = false;
   dragState.draggedTextId = null;
+  dragState.draggedOverlayKind = null;
+  dragState.dragStartPointer = { x: 0, y: 0 };
+  dragState.dragTargets = [];
 }
 
 // ---------------------------------------------------------------------------

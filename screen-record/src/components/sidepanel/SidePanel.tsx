@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { VideoSegment, BackgroundConfig } from '@/types/video';
 import { useSettings } from '@/hooks/useSettings';
 import type { SubtitleMethod } from '@/hooks/useSubtitleGeneration';
+import { useSubtitleTranslation } from '@/hooks/useSubtitleTranslation';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
 import { ZoomPanel } from './ZoomPanel';
 import { CameraPanel } from './CameraPanel';
@@ -133,6 +134,7 @@ interface SidePanelProps {
   onCancelSubtitleGeneration: () => void;
   canExportSubtitleSrt: boolean;
   onExportSubtitleSrt: () => void;
+  subtitleTranslation: ReturnType<typeof useSubtitleTranslation>;
   selectedTextIds?: string[];
   hasMouseData?: boolean;
   onUpdateSegment: (segment: VideoSegment) => void;
@@ -179,6 +181,7 @@ export function SidePanel({
   onCancelSubtitleGeneration,
   canExportSubtitleSrt,
   onExportSubtitleSrt,
+  subtitleTranslation,
   selectedTextIds,
   hasMouseData,
   onUpdateSegment,
@@ -293,6 +296,7 @@ export function SidePanel({
           onCancel={onCancelSubtitleGeneration}
           canExportSrt={canExportSubtitleSrt}
           onExportSrt={onExportSubtitleSrt}
+          subtitleTranslation={subtitleTranslation}
           onUpdateSegment={onUpdateSegment}
           beginBatch={beginBatch}
           commitBatch={commitBatch}

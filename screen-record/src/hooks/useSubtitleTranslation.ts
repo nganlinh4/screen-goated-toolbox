@@ -1,0 +1,530 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { invoke } from '@/lib/ipc';
+import {
+  getEffectiveCompositionMode,
+  updateCompositionClip,
+} from '@/lib/projectComposition';
+import {
+  buildSequenceTimeline,
+  getSequenceClipById,
+  replaceSequenceClipSegmentInGlobal,
+} from '@/lib/sequenceTimeline';
+import { SUBTITLE_LANGUAGE_OPTIONS } from '@/lib/subtitleLanguageOptions';
+import {
+  collectSubtitleIdsForTranslation,
+  ensureTranslatedTrack,
+  isOriginalSubtitleTrackActive,
+  patchSubtitleTrackTexts,
+} from '@/lib/subtitleTrackMutations';
+import {
+  getActiveSubtitleView,
+  findTranslationTrackByLanguage,
+  getSubtitleTrackLabel,
+  getSubtitleTracks,
+  getVisibleSubtitleSegments,
+  ORIGINAL_SUBTITLE_TRACK_ID,
+  removeSubtitleTrack,
+  setActiveSubtitleCustomView,
+  setActiveSubtitleTrackView,
+  setSubtitleCustomChain,
+} from '@/lib/subtitleTracks';
+import type { Translations } from '@/i18n';
+import type {
+  ProjectComposition,
+  SubtitleChainItem,
+  VideoSegment,
+} from '@/types/video';
+
+const SUBTITLE_TRANSLATION_LANGUAGE_KEY = 'screen-record-subtitle-translation-language-v1';
+
+interface SubtitleTranslationResultItem {
+  id: string;
+  clipId?: string | null;
+  translatedText: string;
+}
+
+interface SubtitleTranslationJobStatus {
+  state: 'queued' | 'running' | 'completed' | 'cancelled' | 'error';
+  message: string;
+  messageKey?: string | null;
+  messageParams?: Record<string, string> | null;
+  progress: number;
+  currentModelId?: string | null;
+  currentModelLabel?: string | null;
+  currentChunkCount: number;
+  currentChunkIndex: number;
+  totalChunks: number;
+  targetLanguage?: string | null;
+  results: SubtitleTranslationResultItem[];
+  error?: string | null;
+}
+
+interface SubtitleTranslationCapabilities {
+  available: boolean;
+  reason?: string | null;
+  models: Array<{
+    modelId: string;
+    modelLabel: string;
+    provider: string;
+  }>;
+}
+
+interface SubtitleTranslationJobContext {
+  targetLanguage: string;
+  targetTrackId: string | null;
+}
+
+interface UseSubtitleTranslationParams {
+  t: Translations;
+  segment: VideoSegment | null;
+  setSegment: (
+    segment:
+      | VideoSegment
+      | null
+      | ((prev: VideoSegment | null) => VideoSegment | null),
+  ) => void;
+  composition: ProjectComposition | null;
+  setComposition: (
+    composition:
+      | ProjectComposition
+      | null
+      | ((prev: ProjectComposition | null) => ProjectComposition | null),
+  ) => void;
+  selectedSubtitleIds: string[];
+  editingSubtitleId: string | null;
+  setActivePanel: (
+    panel: 'zoom' | 'background' | 'cursor' | 'text' | 'subtitles',
+  ) => void;
+}
+
+function getInitialTranslationLanguage(): string {
+  try {
+    const raw = localStorage.getItem(SUBTITLE_TRANSLATION_LANGUAGE_KEY);
+    if (raw && raw.trim()) {
+      return raw;
+    }
+  } catch {
+    // ignore persistence failures
+  }
+  return 'en';
+}
+
+function formatTemplate(template: string, params?: Record<string, string> | null) {
+  let formatted = template;
+  for (const [key, value] of Object.entries(params ?? {})) {
+    formatted = formatted.split(`{${key}}`).join(value);
+  }
+  return formatted;
+}
+
+function localizeStatus(
+  t: Translations,
+  status: Pick<SubtitleTranslationJobStatus, 'message' | 'messageKey' | 'messageParams'> | null,
+) {
+  if (!status) return null;
+  const key = status.messageKey;
+  if (key && key in t) {
+    return formatTemplate(t[key as keyof Translations] as string, status.messageParams);
+  }
+  return status.message;
+}
+
+function buildTranslationItems(
+  segment: VideoSegment | null,
+  selectedSubtitleIds: readonly string[],
+  editingSubtitleId: string | null,
+) {
+  if (!segment) return [];
+  const targetIds = new Set(
+    collectSubtitleIdsForTranslation(segment, selectedSubtitleIds, editingSubtitleId),
+  );
+  const tracks = getSubtitleTracks(segment);
+  const originalTrack = tracks.find((track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID);
+  return (originalTrack?.segments ?? [])
+    .filter((subtitle) => targetIds.has(subtitle.id))
+    .map((subtitle) => ({
+      id: subtitle.id,
+      clipId: 'root',
+      text: subtitle.text,
+    }));
+}
+
+function buildCompositionTranslationItems(
+  composition: ProjectComposition,
+  selectedSubtitleIds: readonly string[],
+  editingSubtitleId: string | null,
+) {
+  const targetIds = new Set<string>(
+    selectedSubtitleIds.length > 0
+      ? selectedSubtitleIds
+      : editingSubtitleId
+        ? [editingSubtitleId]
+        : composition.clips.flatMap((clip) =>
+            (getSubtitleTracks(clip.segment).find((track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID)?.segments ?? [])
+              .map((subtitle) => subtitle.id),
+          ),
+  );
+
+  return composition.clips.flatMap((clip) => {
+    const originalTrack = getSubtitleTracks(clip.segment).find(
+      (track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID,
+    );
+    return (originalTrack?.segments ?? [])
+      .filter((subtitle) => targetIds.has(subtitle.id))
+      .map((subtitle) => ({
+        id: subtitle.id,
+        clipId: clip.id,
+        text: subtitle.text,
+      }));
+  });
+}
+
+function applyTranslationResultsToSegment(
+  segment: VideoSegment,
+  results: SubtitleTranslationResultItem[],
+  context: SubtitleTranslationJobContext,
+) {
+  const patches = new Map(results.map((result) => [result.id, result.translatedText]));
+  const ensured = ensureTranslatedTrack(
+    segment,
+    context.targetLanguage,
+    context.targetTrackId,
+  );
+  return setActiveSubtitleTrackView(
+    patchSubtitleTrackTexts(ensured.segment, ensured.track.id, patches),
+    ensured.track.id,
+  );
+}
+
+function updateSubtitleViewAcrossComposition(
+  composition: ProjectComposition,
+  updater: (segment: VideoSegment) => VideoSegment,
+) {
+  return {
+    ...composition,
+    clips: composition.clips.map((clip) => ({
+      ...clip,
+      segment: updater(clip.segment),
+    })),
+    globalSegment: composition.globalSegment
+      ? updater(composition.globalSegment)
+      : composition.globalSegment,
+  };
+}
+
+export function useSubtitleTranslation({
+  t,
+  segment,
+  setSegment,
+  composition,
+  setComposition,
+  selectedSubtitleIds,
+  editingSubtitleId,
+  setActivePanel,
+}: UseSubtitleTranslationParams) {
+  const [targetLanguage, setTargetLanguage] = useState(getInitialTranslationLanguage);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobContext, setJobContext] = useState<SubtitleTranslationJobContext | null>(null);
+  const [status, setStatus] = useState<SubtitleTranslationJobStatus | null>(null);
+  const [capabilities, setCapabilities] = useState<SubtitleTranslationCapabilities | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SUBTITLE_TRANSLATION_LANGUAGE_KEY, targetLanguage);
+    } catch {
+      // ignore persistence failures
+    }
+  }, [targetLanguage]);
+
+  const refreshCapabilities = useCallback(async () => {
+    const next = await invoke<SubtitleTranslationCapabilities>(
+      'get_subtitle_translation_capabilities',
+      {},
+    );
+    setCapabilities(next);
+    return next;
+  }, []);
+
+  useEffect(() => {
+    void refreshCapabilities().catch(() => {
+      setCapabilities(null);
+    });
+  }, [refreshCapabilities]);
+
+  const subtitleTracks = useMemo(() => getSubtitleTracks(segment), [segment]);
+  const activeSubtitleView = useMemo(() => getActiveSubtitleView(segment), [segment]);
+  const activeTrack = useMemo(
+    () => subtitleTracks.find((track) => track.id === activeSubtitleView.trackId) ?? null,
+    [activeSubtitleView.trackId, subtitleTracks],
+  );
+  const isCustomView = activeSubtitleView.kind === 'custom';
+  const isOriginalView = activeSubtitleView.kind === 'track' && activeSubtitleView.trackId === ORIGINAL_SUBTITLE_TRACK_ID;
+  const canTranslate = capabilities?.available ?? true;
+  const translationLanguageOptions = useMemo(
+    () => SUBTITLE_LANGUAGE_OPTIONS.filter((option) => option.value !== 'auto'),
+    [],
+  );
+  const targetLanguageTrack = useMemo(
+    () => findTranslationTrackByLanguage(segment, targetLanguage),
+    [segment, targetLanguage],
+  );
+
+  const updateCurrentSegment = useCallback((updater: (segment: VideoSegment) => VideoSegment) => {
+    if (!segment) return;
+    if (!composition || getEffectiveCompositionMode(composition) === 'separate') {
+      setSegment((prev) => (prev ? updater(prev) : prev));
+      return;
+    }
+
+    setComposition((prev) => {
+      if (!prev) return prev;
+      return updateSubtitleViewAcrossComposition(prev, updater);
+    });
+  }, [composition, segment, setComposition, setSegment]);
+
+  const deleteSubtitleTrackById = useCallback((trackId: string) => {
+    updateCurrentSegment((currentSegment) => removeSubtitleTrack(currentSegment, trackId));
+  }, [updateCurrentSegment]);
+
+  const subtitleViewOptions = useMemo(() => ([
+    {
+      value: ORIGINAL_SUBTITLE_TRACK_ID,
+      label: t.subtitleTrackOriginal,
+    },
+    ...subtitleTracks
+      .filter((track) => track.kind === 'translation')
+      .map((track) => ({
+        value: track.id,
+        label: getSubtitleTrackLabel(track),
+      })),
+    {
+      value: 'custom',
+      label: t.subtitleTrackCustom,
+    },
+  ]), [subtitleTracks, t.subtitleTrackCustom, t.subtitleTrackOriginal]);
+
+  const setSubtitleView = useCallback((value: string) => {
+    setActivePanel('subtitles');
+    updateCurrentSegment((currentSegment) =>
+      value === 'custom'
+        ? setActiveSubtitleCustomView(currentSegment)
+        : setActiveSubtitleTrackView(currentSegment, value),
+    );
+  }, [setActivePanel, updateCurrentSegment]);
+
+  const updateCustomChain = useCallback((chain: SubtitleChainItem[]) => {
+    updateCurrentSegment((currentSegment) => setSubtitleCustomChain(currentSegment, chain));
+  }, [updateCurrentSegment]);
+
+  const selectedTranslationItems = useMemo(() => {
+    if (!segment) return [];
+    if (!composition || getEffectiveCompositionMode(composition) === 'separate') {
+      return buildTranslationItems(segment, selectedSubtitleIds, editingSubtitleId);
+    }
+    return buildCompositionTranslationItems(composition, selectedSubtitleIds, editingSubtitleId);
+  }, [composition, editingSubtitleId, segment, selectedSubtitleIds]);
+
+  useEffect(() => {
+    if (!jobId || !jobContext) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const nextStatus = await invoke<SubtitleTranslationJobStatus>(
+          'get_subtitle_translation_status',
+          { jobId },
+        );
+        if (cancelled) return;
+        setStatus(nextStatus);
+        if (nextStatus.state === 'completed') {
+          if (!composition || getEffectiveCompositionMode(composition) === 'separate') {
+            setSegment((prev) =>
+              prev ? applyTranslationResultsToSegment(prev, nextStatus.results, jobContext) : prev,
+            );
+          } else {
+            setComposition((prev) => {
+              if (!prev) return prev;
+              const timeline = buildSequenceTimeline(prev);
+              let next = prev;
+              const resultsByClipId = new Map<string, SubtitleTranslationResultItem[]>();
+              for (const result of nextStatus.results) {
+                const clipId = result.clipId ?? 'root';
+                const bucket = resultsByClipId.get(clipId) ?? [];
+                bucket.push(result);
+                resultsByClipId.set(clipId, bucket);
+              }
+
+              for (const clip of next.clips) {
+                const clipResults = resultsByClipId.get(clip.id) ?? [];
+                const updatedSegment = applyTranslationResultsToSegment(
+                  clip.segment,
+                  clipResults,
+                  jobContext,
+                );
+                next = updateCompositionClip(next, clip.id, { segment: updatedSegment });
+                if (next.globalSegment && timeline) {
+                  const timelineClip = getSequenceClipById(timeline, clip.id);
+                  if (timelineClip) {
+                    next = {
+                      ...next,
+                      globalSegment: replaceSequenceClipSegmentInGlobal(
+                        next.globalSegment,
+                        updatedSegment,
+                        timelineClip,
+                        timeline.totalDuration,
+                      ),
+                    };
+                  }
+                }
+              }
+
+              return next;
+            });
+          }
+
+          setJobId(null);
+          setJobContext(null);
+          setActivePanel('subtitles');
+          return;
+        }
+        if (nextStatus.state === 'cancelled' || nextStatus.state === 'error') {
+          setJobId(null);
+          setJobContext(null);
+          return;
+        }
+        window.setTimeout(poll, 450);
+      } catch (error) {
+        if (cancelled) return;
+        setStatus({
+          state: 'error',
+          message: error instanceof Error ? error.message : t.subtitleTranslationStatusFailed,
+          progress: 0,
+          currentChunkCount: 0,
+          currentChunkIndex: 0,
+          totalChunks: 0,
+          results: [],
+          error: error instanceof Error ? error.message : String(error),
+        });
+        setJobId(null);
+        setJobContext(null);
+      }
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+    };
+  }, [composition, jobContext, jobId, setActivePanel, setComposition, setSegment, t.subtitleTranslationStatusFailed]);
+
+  const handleTranslateSubtitles = useCallback(async () => {
+    if (!segment) return;
+    const latestCapabilities = await refreshCapabilities().catch(() => capabilities);
+    if (latestCapabilities?.available === false) {
+      const message = latestCapabilities.reason ?? t.subtitleTranslationUnavailable;
+      setStatus({
+        state: 'error',
+        message,
+        messageKey: 'subtitleTranslationUnavailable',
+        progress: 0,
+        currentChunkCount: 0,
+        currentChunkIndex: 0,
+        totalChunks: 0,
+        results: [],
+        error: message,
+      });
+      return;
+    }
+
+    const items = selectedTranslationItems;
+    if (items.length === 0) {
+      const message = t.subtitleTranslationNoSource;
+      setStatus({
+        state: 'error',
+        message,
+        messageKey: 'subtitleTranslationNoSource',
+        progress: 0,
+        currentChunkCount: 0,
+        currentChunkIndex: 0,
+        totalChunks: 0,
+        results: [],
+        error: message,
+      });
+      return;
+    }
+
+    setJobContext({
+      targetLanguage,
+      targetTrackId: targetLanguageTrack?.id ?? null,
+    });
+    setActivePanel('subtitles');
+    const result = await invoke<{ jobId: string }>('start_subtitle_translation', {
+      targetLanguage,
+      trackId: targetLanguageTrack?.id ?? null,
+      items,
+    });
+    setStatus({
+      state: 'queued',
+      message: t.subtitleTranslationStatusStarting,
+      messageKey: 'subtitleTranslationStatusStarting',
+      progress: 0,
+      currentChunkCount: 0,
+      currentChunkIndex: 0,
+      totalChunks: 0,
+      targetLanguage,
+      results: [],
+      error: null,
+    });
+    setJobId(result.jobId);
+  }, [
+    capabilities,
+    refreshCapabilities,
+    segment,
+    selectedTranslationItems,
+    setActivePanel,
+    targetLanguageTrack,
+    t.subtitleTranslationNoSource,
+    t.subtitleTranslationStatusStarting,
+    t.subtitleTranslationUnavailable,
+    targetLanguage,
+  ]);
+
+  const handleCancelSubtitleTranslation = useCallback(async () => {
+    if (!jobId) return;
+    await invoke('cancel_subtitle_translation', { jobId });
+    setStatus((prev) => (prev ? {
+      ...prev,
+      state: 'cancelled',
+      message: t.subtitleTranslationStatusCancelled,
+      messageKey: 'subtitleTranslationStatusCancelled',
+      messageParams: {},
+    } : prev));
+    setJobId(null);
+    setJobContext(null);
+  }, [jobId, t.subtitleTranslationStatusCancelled]);
+
+  return {
+    subtitleTracks,
+    activeSubtitleView,
+    activeTrack,
+    subtitleViewOptions,
+    subtitleCustomChain: segment?.subtitleCustomChain ?? [],
+    visibleSubtitleSegments: getVisibleSubtitleSegments(segment),
+    isCustomSubtitleView: isCustomView,
+    isOriginalSubtitleView: isOriginalView,
+    canGenerateSubtitlesFromCurrentView: isOriginalSubtitleTrackActive(segment),
+    canCreateManualSubtitles: isOriginalSubtitleTrackActive(segment),
+    subtitleTranslationTargetLanguage: targetLanguage,
+    setSubtitleTranslationTargetLanguage: setTargetLanguage,
+    subtitleTranslationLanguageOptions: translationLanguageOptions,
+    subtitleTranslationCapabilities: capabilities,
+    canTranslateSubtitles: canTranslate && selectedTranslationItems.length > 0,
+    hasExistingTranslationForTargetLanguage: !!targetLanguageTrack,
+    subtitleTranslationStatusMessage: localizeStatus(t, status),
+    isTranslatingSubtitles: !!jobId,
+    setSubtitleView,
+    updateSubtitleCustomChain: updateCustomChain,
+    deleteSubtitleTrack: deleteSubtitleTrackById,
+    handleTranslateSubtitles,
+    handleCancelSubtitleTranslation,
+  };
+}

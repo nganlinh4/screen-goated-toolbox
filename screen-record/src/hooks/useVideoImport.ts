@@ -3,6 +3,7 @@ import { projectManager } from "@/lib/projectManager";
 import { importVideoToManagedMediaFile, getMediaServerUrl } from "@/lib/mediaServer";
 import { buildFlatDeviceAudioPoints } from "@/lib/deviceAudio";
 import { DEFAULT_BACKGROUND_CONFIG } from "@/lib/appUtils";
+import { createSubtitleTrackStateFromSegments } from "@/lib/subtitleTracks";
 import type { VideoSegment, Project } from "@/types/video";
 
 export interface UseVideoImportResult {
@@ -40,7 +41,7 @@ export function useVideoImport(opts: {
         trimSegments: [{ id: crypto.randomUUID(), startTime: 0, endTime: duration }],
         zoomKeyframes: [],
         textSegments: [],
-        subtitleSegments: [],
+        ...createSubtitleTrackStateFromSegments([]),
         speedPoints: [
           { time: 0, speed: 1 },
           { time: duration, speed: 1 },

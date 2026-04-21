@@ -24,6 +24,11 @@ import {
   mergePointerSegments,
 } from "@/lib/cursorHiding";
 import { buildTextSplitPreview } from "@/lib/textSplitPreview";
+import {
+  deleteSubtitleIdsAcrossTracks,
+  splitSubtitleAcrossTracks,
+} from "@/lib/subtitleTrackMutations";
+import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
 
 const TIMELINE_TRACK_GAP_PX = 2;
 const TIMELINE_TRACK_HEIGHTS = {
@@ -330,7 +335,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   const handleSubtitleSplit = useCallback((id: string, splitTime: number) => {
     if (!segment) return;
     beginBatch();
-    const subtitles = segment.subtitleSegments ?? [];
+    const subtitles = getVisibleSubtitleSegments(segment);
     const target = subtitles.find((subtitle) => subtitle.id === id);
     if (!target || splitTime <= target.startTime + 0.1 || splitTime >= target.endTime - 0.1) {
       commitBatch();
@@ -346,30 +351,15 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
       commitBatch();
       return;
     }
-    const left = {
-      ...target,
-      endTime: splitTime - 0.01,
-      text: preview.leftText,
-    };
-    const right = {
-      ...target,
-      id: crypto.randomUUID(),
-      startTime: splitTime + 0.01,
-      text: preview.rightText,
-    };
-    setSegment({
-      ...segment,
-      subtitleSegments: subtitles.map((subtitle) => subtitle.id === id ? left : subtitle).concat(right),
-    });
+    const result = splitSubtitleAcrossTracks(segment, id, splitTime);
+    setSegment(result.segment);
     commitBatch();
   }, [segment, setSegment, beginBatch, commitBatch]);
 
   const handleDeleteSubtitleSegments = useCallback((ids: string[]) => {
     if (!segment) return;
     beginBatch();
-    const idSet = new Set(ids);
-    const remaining = (segment.subtitleSegments ?? []).filter((subtitle) => !idSet.has(subtitle.id));
-    setSegment({ ...segment, subtitleSegments: remaining });
+    setSegment(deleteSubtitleIdsAcrossTracks(segment, ids));
     commitBatch();
   }, [segment, setSegment, beginBatch, commitBatch]);
 

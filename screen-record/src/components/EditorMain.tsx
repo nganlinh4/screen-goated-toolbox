@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState, type MutableRefObject, type RefObject } from "react";
 import {
   BackgroundConfig,
-  SubtitleSegment,
+  ProjectComposition,
   TextSegment,
   VideoSegment,
   WebcamConfig,
@@ -14,6 +14,7 @@ import { TimelineArea } from "@/components/timeline";
 import type { CanvasModeToggleProps } from "@/components/CanvasModeToggle";
 import { useSettings } from "@/hooks/useSettings";
 import type { SubtitleMethod } from "@/hooks/useSubtitleGeneration";
+import { useSubtitleTranslation } from "@/hooks/useSubtitleTranslation";
 import { createManualSubtitleSegment } from "@/lib/subtitleDefaults";
 import { saveSubtitleSrt } from "@/lib/subtitleSrt";
 import type { SubtitleGenerationIndicator } from "@/lib/subtitleGenerationPlan";
@@ -22,6 +23,12 @@ import {
   mergeTextSegmentsInRange,
   type TrackSelectionRange,
 } from "@/lib/timelineSegmentSelection";
+import {
+  addSubtitleAcrossTracks,
+  isOriginalSubtitleTrackActive,
+  mergeSubtitleSelectionAcrossTracks,
+} from "@/lib/subtitleTrackMutations";
+import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
 
 export interface EditorMainProps {
   // Error
@@ -79,6 +86,13 @@ export interface EditorMainProps {
   isAutoCanvasDisabled?: boolean;
   segment: VideoSegment | null;
   setSegment: (s: VideoSegment | null) => void;
+  composition: ProjectComposition | null;
+  setComposition: (
+    composition:
+      | ProjectComposition
+      | null
+      | ((prev: ProjectComposition | null) => ProjectComposition | null),
+  ) => void;
   handleToggleKeystrokeMode: () => void;
   handleKeystrokeDelayChange: (delay: number) => void;
   mousePositionsLength: number;
@@ -116,6 +130,8 @@ export interface EditorMainProps {
   subtitleGenerationIndicator?: SubtitleGenerationIndicator | null;
   handleGenerateSubtitles: (selectedRange?: TrackSelectionRange | null) => void;
   handleCancelSubtitleGeneration: () => void;
+  onSelectedTextIdsChange?: (ids: string[]) => void;
+  onSelectedSubtitleIdsChange?: (ids: string[]) => void;
   currentRawVideoPath: string;
   currentRawMicAudioPath: string;
   currentProjectName?: string | null;
@@ -187,6 +203,8 @@ export function EditorMain({
   isAutoCanvasDisabled,
   segment,
   setSegment,
+  composition,
+  setComposition,
   handleToggleKeystrokeMode,
   handleKeystrokeDelayChange,
   mousePositionsLength,
@@ -223,6 +241,8 @@ export function EditorMain({
   subtitleGenerationIndicator,
   handleGenerateSubtitles,
   handleCancelSubtitleGeneration,
+  onSelectedTextIdsChange,
+  onSelectedSubtitleIdsChange,
   currentRawVideoPath,
   currentRawMicAudioPath,
   currentProjectName,
@@ -262,15 +282,27 @@ export function EditorMain({
   const [selectedKeystrokeIds, setSelectedKeystrokeIds] = useState<string[]>([]);
   const [selectedWebcamIds, setSelectedWebcamIds] = useState<string[]>([]);
   const exportSubtitleSrtInFlightRef = React.useRef(false);
+  const subtitleTranslation = useSubtitleTranslation({
+    t,
+    segment,
+    setSegment: setSegment as (segment: VideoSegment | null | ((prev: VideoSegment | null) => VideoSegment | null)) => void,
+    composition,
+    setComposition,
+    selectedSubtitleIds,
+    editingSubtitleId,
+    setActivePanel,
+  });
 
   const handleTextSelectionChange = useCallback((ids: string[]) => {
     setSelectedTextIds(ids);
+    onSelectedTextIdsChange?.(ids);
     if (ids.length > 0) setActivePanel('text');
-  }, [setActivePanel]);
+  }, [onSelectedTextIdsChange, setActivePanel]);
   const handleSubtitleSelectionChange = useCallback((ids: string[]) => {
     setSelectedSubtitleIds(ids);
+    onSelectedSubtitleIdsChange?.(ids);
     if (ids.length > 0) setActivePanel('subtitles');
-  }, [setActivePanel]);
+  }, [onSelectedSubtitleIdsChange, setActivePanel]);
   const handleSubtitleRangeChange = useCallback((range: TrackSelectionRange | null) => {
     setSelectedSubtitleRange(range);
     if (range) setActivePanel('subtitles');
@@ -284,20 +316,22 @@ export function EditorMain({
   const clearAllSelections = useCallback(() => {
     setSelectedTextIds([]);
     setSelectedSubtitleIds([]);
+    onSelectedTextIdsChange?.([]);
+    onSelectedSubtitleIdsChange?.([]);
     setSelectedSubtitleRange(null);
     setSelectedPointerIds([]);
     setSelectedKeystrokeIds([]);
     setSelectedWebcamIds([]);
     setClearSignal(c => c + 1);
-  }, []);
+  }, [onSelectedSubtitleIdsChange, onSelectedTextIdsChange]);
 
   const textMergeRange = useMemo(
     () => deriveSelectionRangeFromIds(selectedTextIds, segment?.textSegments ?? []),
     [segment?.textSegments, selectedTextIds],
   );
   const subtitleMergeRange = useMemo(
-    () => deriveSelectionRangeFromIds(selectedSubtitleIds, segment?.subtitleSegments ?? []),
-    [segment?.subtitleSegments, selectedSubtitleIds],
+    () => deriveSelectionRangeFromIds(selectedSubtitleIds, getVisibleSubtitleSegments(segment)),
+    [segment, selectedSubtitleIds],
   );
 
   const mergeTarget = useMemo(() => {
@@ -330,17 +364,10 @@ export function EditorMain({
     }
 
     if (mergeTarget === 'subtitles' && subtitleMergeRange) {
-      const result = mergeTextSegmentsInRange<SubtitleSegment>(
-        segment.subtitleSegments ?? [],
-        subtitleMergeRange,
-        ' ',
-      );
-      if (!result.merged) return;
-      setSegment({
-        ...segment,
-        subtitleSegments: result.segments,
-      });
-      setEditingSubtitleId(result.merged.id);
+      const result = mergeSubtitleSelectionAcrossTracks(segment, subtitleMergeRange);
+      if (!result.mergedId) return;
+      setSegment(result.segment);
+      setEditingSubtitleId(result.mergedId);
       setActivePanel('subtitles');
       clearAllSelections();
     }
@@ -358,24 +385,26 @@ export function EditorMain({
 
   const handleAddSubtitle = useCallback((atTime?: number) => {
     if (!segment) return;
+    if (!isOriginalSubtitleTrackActive(segment)) return;
     const subtitle = createManualSubtitleSegment(atTime ?? currentTime, duration);
-    setSegment({
-      ...segment,
-      subtitleSegments: [...(segment.subtitleSegments ?? []), subtitle],
-    });
+    setSegment(addSubtitleAcrossTracks(segment, subtitle));
     setEditingSubtitleId(subtitle.id);
     setActivePanel('subtitles');
   }, [currentTime, duration, segment, setActivePanel, setEditingSubtitleId, setSegment]);
 
-  const canExportSubtitleSrt = (segment?.subtitleSegments?.length ?? 0) > 0;
+  const visibleSubtitleSegments = useMemo(
+    () => getVisibleSubtitleSegments(segment),
+    [segment],
+  );
+  const canExportSubtitleSrt = visibleSubtitleSegments.length > 0;
 
   const handleExportSubtitleSrt = useCallback(async () => {
-    if (!segment?.subtitleSegments?.length) return;
+    if (!visibleSubtitleSegments.length) return;
     if (exportSubtitleSrtInFlightRef.current) return;
     exportSubtitleSrtInFlightRef.current = true;
     try {
       await saveSubtitleSrt(
-        segment.subtitleSegments,
+        visibleSubtitleSegments,
         selectedSubtitleRange,
         currentProjectName
           ? `${currentProjectName}${selectedSubtitleRange ? '-subtitles-range' : '-subtitles'}`
@@ -389,7 +418,7 @@ export function EditorMain({
     } finally {
       exportSubtitleSrtInFlightRef.current = false;
     }
-  }, [currentProjectName, segment?.subtitleSegments, selectedSubtitleRange, t.subtitleSrtSavedTo]);
+  }, [currentProjectName, selectedSubtitleRange, t.subtitleSrtSavedTo, visibleSubtitleSegments]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -540,6 +569,7 @@ export function EditorMain({
             onCancelSubtitleGeneration={handleCancelSubtitleGeneration}
             canExportSubtitleSrt={canExportSubtitleSrt}
             onExportSubtitleSrt={handleExportSubtitleSrt}
+            subtitleTranslation={subtitleTranslation}
             selectedTextIds={selectedTextIds}
             hasMouseData={mousePositionsLength > 0}
             onUpdateSegment={setSegment as (segment: VideoSegment) => void}
@@ -578,7 +608,7 @@ export function EditorMain({
           onSeek={seek}
           onSeekEnd={flushSeek}
           onAddText={handleAddText}
-          onAddSubtitle={handleAddSubtitle}
+          onAddSubtitle={subtitleTranslation.canCreateManualSubtitles ? handleAddSubtitle : undefined}
           onAddKeystrokeSegment={handleAddKeystrokeSegment}
           onAddPointerSegment={handleAddPointerSegment}
           isPlaying={isPlaying}

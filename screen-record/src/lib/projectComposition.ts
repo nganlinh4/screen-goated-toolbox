@@ -9,9 +9,12 @@ import type {
   VideoSegment,
   WebcamConfig,
 } from "@/types/video";
+import { normalizeSubtitleTrackState } from "@/lib/subtitleTracks";
 
 function cloneSegment(segment: VideoSegment): VideoSegment {
-  return JSON.parse(JSON.stringify(segment)) as VideoSegment;
+  return normalizeSubtitleTrackState(
+    JSON.parse(JSON.stringify(segment)) as VideoSegment,
+  );
 }
 
 function cloneBackgroundConfig(

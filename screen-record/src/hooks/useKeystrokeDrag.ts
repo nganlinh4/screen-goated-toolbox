@@ -1,4 +1,4 @@
-import { useEffect, type RefObject, type MutableRefObject } from "react";
+import { useEffect, useRef, type RefObject, type MutableRefObject } from "react";
 import { videoRenderer } from '@/lib/videoRenderer';
 import { VideoSegment } from '@/types/video';
 import type { ActivePanel } from '@/components/sidepanel/index';
@@ -29,8 +29,11 @@ export interface UseKeystrokeDragParams {
   setIsKeystrokeResizeHandleHover: (hover: boolean) => void;
   setIsKeystrokeOverlaySelected: (selected: boolean) => void;
   setEditingTextId: (id: string | null) => void;
+  setEditingSubtitleId: (id: string | null) => void;
   setActivePanel: (panel: ActivePanel) => void;
-  handleTextDragMove: (id: string, x: number, y: number) => void;
+  handleOverlayDragMove: (moves: Array<{ kind: 'text' | 'subtitle'; id: string; x: number; y: number }>) => void;
+  selectedTextIdsRef: MutableRefObject<string[]>;
+  selectedSubtitleIdsRef: MutableRefObject<string[]>;
   beginBatch: () => void;
   commitBatch: () => void;
 }
@@ -50,11 +53,16 @@ export function useKeystrokeDrag({
   setIsKeystrokeResizeHandleHover,
   setIsKeystrokeOverlaySelected,
   setEditingTextId,
+  setEditingSubtitleId,
   setActivePanel,
-  handleTextDragMove,
+  handleOverlayDragMove,
+  selectedTextIdsRef,
+  selectedSubtitleIdsRef,
   beginBatch,
   commitBatch,
 }: UseKeystrokeDragParams) {
+  const isDraggingOverlayRef = useRef(false);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !segment) return;
@@ -110,12 +118,24 @@ export function useKeystrokeDrag({
           }
         }
       }
-      const hitId = videoRenderer.handleMouseDown(e, segment, canvas);
-      if (hitId) {
+      const hit = videoRenderer.handleMouseDown(e, liveSegment, canvas, {
+        selectedTextIds: selectedTextIdsRef.current,
+        selectedSubtitleIds: selectedSubtitleIdsRef.current,
+      });
+      if (hit) {
         e.stopPropagation();
         e.preventDefault();
-        setEditingTextId(hitId);
-        setActivePanel('text');
+        beginBatch();
+        isDraggingOverlayRef.current = true;
+        if (hit.kind === 'subtitle') {
+          setEditingSubtitleId(hit.id);
+          setEditingTextId(null);
+          setActivePanel('subtitles');
+        } else {
+          setEditingTextId(hit.id);
+          setEditingSubtitleId(null);
+          setActivePanel('text');
+        }
         setIsPreviewDragging(true);
         setIsKeystrokeOverlaySelected(false);
       } else {
@@ -184,17 +204,19 @@ export function useKeystrokeDrag({
         }
         return;
       }
-      videoRenderer.handleMouseMove(e, segment, canvas, handleTextDragMove);
+      videoRenderer.handleMouseMove(e, segment, canvas, handleOverlayDragMove);
     };
     const onUp = () => {
       const wasOverlayEditing = isDraggingKeystrokeOverlayRef.current || isResizingKeystrokeOverlayRef.current;
+      const wasDraggingOverlay = isDraggingOverlayRef.current;
       isDraggingKeystrokeOverlayRef.current = false;
       isResizingKeystrokeOverlayRef.current = false;
+      isDraggingOverlayRef.current = false;
       keystrokeOverlayDragStartRef.current = null;
       setIsPreviewDragging(false);
       setIsKeystrokeResizeDragging(false);
       setIsKeystrokeResizeHandleHover(false);
-      if (wasOverlayEditing) commitBatch();
+      if (wasOverlayEditing || wasDraggingOverlay) commitBatch();
       videoRenderer.handleMouseUp();
     };
     canvas.addEventListener('mousedown', onDown);
@@ -205,5 +227,5 @@ export function useKeystrokeDrag({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [segment, handleTextDragMove, canvasRef, setEditingTextId, setActivePanel, beginBatch, commitBatch, currentTime, getKeystrokeTimelineDuration, setSegment, segmentRef, isDraggingKeystrokeOverlayRef, isResizingKeystrokeOverlayRef, keystrokeOverlayDragStartRef, setIsPreviewDragging, setIsKeystrokeResizeDragging, setIsKeystrokeResizeHandleHover, setIsKeystrokeOverlaySelected]);
+  }, [segment, handleOverlayDragMove, canvasRef, setEditingTextId, setEditingSubtitleId, setActivePanel, beginBatch, commitBatch, currentTime, getKeystrokeTimelineDuration, setSegment, segmentRef, isDraggingKeystrokeOverlayRef, isResizingKeystrokeOverlayRef, keystrokeOverlayDragStartRef, setIsPreviewDragging, setIsKeystrokeResizeDragging, setIsKeystrokeResizeHandleHover, setIsKeystrokeOverlaySelected, selectedTextIdsRef, selectedSubtitleIdsRef]);
 }
