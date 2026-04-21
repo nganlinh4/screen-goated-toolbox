@@ -338,7 +338,7 @@ fn update_stream_markdown_content_ex(
         if (revealState.queue.length > 0) {{
             revealState.queue.forEach(function(item) {{
                 if (item.el && item.el.isConnected) {{
-                    item.el.style.display = '';
+                    item.el.style.visibility = 'visible';
                     item.el.style.opacity = '1';
                     item.el.style.filter = 'blur(0)';
                     item.el.style.transform = 'translateY(0)';
@@ -350,10 +350,14 @@ fn update_stream_markdown_content_ex(
         revealState.lastRevealedIndex = newWordCount - 1;
         revealState.credits = 0;
     }} else {{
-        // Word-centric hide: display:none removes the word from LAYOUT
-        // entirely so scrollHeight reflects only REVEALED content. This lets
-        // font-size shrink gradually per-word as the reveal progresses,
-        // instead of snapping per-chunk to fit hidden-but-allocated words.
+        // Word-centric hide: visibility:hidden keeps the word IN LAYOUT (so
+        // scrollHeight reflects the FULL final paragraph as soon as the
+        // chunk is parsed), but the word is invisible until revealed. This
+        // lets the per-chunk fit measure the real final height and commit
+        // a correct font-size up front — preventing the "fast single
+        // mega-chunk" overshoot where display:none used to leave queued
+        // words out of layout and the fit undersized the content.
+        //
         // innerHTML was just replaced — any pre-existing queue entries hold
         // stale DOM refs. Rebuild from fresh refs starting at the first word
         // past lastRevealedIndex, which includes any the previous chunk
@@ -363,7 +367,7 @@ fn update_stream_markdown_content_ex(
         for (var rv = revealStart; rv < newWordCount; rv++) {{
             var rw = words[rv];
             if (!rw) continue;
-            rw.style.display = 'none';
+            rw.style.visibility = 'hidden';
             rw.style.opacity = '0';
             rw.style.filter = 'blur(3px)';
             rw.style.transform = 'translateY(14px)';
@@ -400,11 +404,10 @@ fn update_stream_markdown_content_ex(
                 while (revealState.credits >= 1 && q.length > 0 && emitted < BATCH_CAP) {{
                     var item = q.shift();
                     if (item.el && item.el.isConnected) {{
-                        // Bring word INTO layout (display:none → default inline)
-                        // then force reflow so the browser commits the display
-                        // change before the opacity/transform transitions kick in.
-                        item.el.style.display = '';
-                        void item.el.offsetWidth;
+                        // Word is already in layout (visibility:hidden) —
+                        // flip to visible and trigger the transform/opacity
+                        // transitions for the rise-from-below reveal.
+                        item.el.style.visibility = 'visible';
                         item.el.style.opacity = '1';
                         item.el.style.filter = 'blur(0)';
                         item.el.style.transform = 'translateY(0)';

@@ -374,15 +374,20 @@ internal fun presetResultJavascriptCore(): String {
                 revealState.lastRevealedIndex = newWordCount - 1;
                 revealState.credits = 0;
             } else {
-                // Word-centric hide: display:none removes the word from LAYOUT
-                // entirely so scrollHeight reflects only REVEALED content. This
-                // lets font-size shrink gradually per-word as reveal progresses.
+                // Word-centric hide: visibility:hidden keeps the word IN
+                // LAYOUT (scrollHeight reflects the FULL final paragraph as
+                // soon as innerHTML is parsed), but the word is invisible
+                // until revealed. The per-chunk fit therefore measures the
+                // real final height up front and commits a correct font
+                // size — preventing the fast-single-mega-chunk overshoot
+                // where display:none used to leave queued words out of
+                // layout and the fit undersized the content.
                 revealState.queue = [];
                 const revealStart = Math.max(0, revealState.lastRevealedIndex + 1);
                 for (let rv = revealStart; rv < newWordCount; rv += 1) {
                     const rw = words[rv];
                     if (!rw) continue;
-                    rw.style.display = 'none';
+                    rw.style.visibility = 'hidden';
                     rw.style.opacity = '0';
                     rw.style.filter = 'blur(3px)';
                     rw.style.transform = 'translateY(14px)';
@@ -414,8 +419,7 @@ internal fun presetResultJavascriptCore(): String {
                         while (revealState.credits >= 1 && q.length > 0 && emitted < BATCH_CAP) {
                             const item = q.shift();
                             if (item.el && item.el.isConnected) {
-                                item.el.style.display = '';
-                                void item.el.offsetWidth;
+                                item.el.style.visibility = 'visible';
                                 item.el.style.opacity = '1';
                                 item.el.style.filter = 'blur(0)';
                                 item.el.style.transform = 'translateY(0)';
