@@ -274,6 +274,15 @@ internal fun presetResultJavascriptCore(): String {
 
             const minSize = (textLen < 200) ? 6 : 14;
 
+            // Only run inline sizing on the FIRST streaming update. The very
+            // first chunk needs a sync commit so the user doesn't see a
+            // 1-frame 14px flash before the fit runs on the next rAF. For
+            // every subsequent chunk we skip the inline binary search — it
+            // was pre-writing body.fontSize to the size the fit was about
+            // to compute, so the fit's 280ms animation degenerated into a
+            // snap. Leaving body at the previous chunk's size for ~32ms
+            // until the fit animates to the new target restores smooth
+            // scaling during streaming.
             if (isNewSession) {
                 const maxPossible = Math.min(isConstrainedWindow ? 84 : 110, winH);
                 const estimated = Math.sqrt((winW * winH) / (textLen + 1));
@@ -325,27 +334,6 @@ internal fun presetResultJavascriptCore(): String {
                         }
                     }
                     body.style.fontSize = settleBest + 'px';
-                }
-            } else {
-                const hasOverflow = !fitsVertically();
-                if (hasOverflow) {
-                    const currentSize = parseFloat(body.style.fontSize) || 14;
-                    if (currentSize > minSize) {
-                        let low = minSize;
-                        let high = currentSize;
-                        let best = minSize;
-                        while (low <= high) {
-                            const mid = Math.floor((low + high) / 2);
-                            body.style.fontSize = mid + 'px';
-                            if (fitsVertically()) {
-                                best = mid;
-                                low = mid + 1;
-                            } else {
-                                high = mid - 1;
-                            }
-                        }
-                        body.style.fontSize = best + 'px';
-                    }
                 }
             }
 
