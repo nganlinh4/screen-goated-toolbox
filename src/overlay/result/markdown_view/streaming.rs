@@ -230,80 +230,67 @@ fn update_stream_markdown_content_ex(
 
     var minSize = (textLen < 200) ? 6 : 14;
 
-    if (shouldRunInlineSizing) {{
-        if (isNewSession) {{
-            var maxPossible = Math.min(isConstrainedWindow ? 84 : 110, winH);
-            var estimated = Math.sqrt((winW * winH) / (textLen + 1));
-            var low = Math.max(minSize, Math.floor(estimated * 0.5));
-            var high = Math.min(maxPossible, Math.ceil(estimated * 1.15));
-            if (low > high) low = high;
+    // Only run inline sizing on the FIRST streaming update (isNewSession).
+    // The very first chunk needs a synchronous size commit so the user
+    // doesn't see a 1-frame flash of 14px default before fit_font_to_window
+    // runs on the next rAF. For every subsequent chunk we deliberately skip
+    // the inline binary search — it was pre-writing body.fontSize to the
+    // same size the fit was about to compute, so by the time the fit ran
+    // fsDelta was ~0 and its 280ms rAF animation degenerated into a SNAP.
+    // Letting body sit at the previous chunk's size for ~32ms until the fit
+    // animates to the new target is the trade that restores the smooth
+    // scaling-during-streaming the user remembers.
+    if (shouldRunInlineSizing && isNewSession) {{
+        var maxPossible = Math.min(isConstrainedWindow ? 84 : 110, winH);
+        var estimated = Math.sqrt((winW * winH) / (textLen + 1));
+        var low = Math.max(minSize, Math.floor(estimated * 0.5));
+        var high = Math.min(maxPossible, Math.ceil(estimated * 1.15));
+        if (low > high) low = high;
 
-            body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
-            body.style.letterSpacing = '0px';
-            body.style.wordSpacing = '0px';
-            body.style.lineHeight = '1.5';
-            body.style.paddingTop = '0';
-            body.style.paddingBottom = '0';
+        body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+        body.style.letterSpacing = '0px';
+        body.style.wordSpacing = '0px';
+        body.style.lineHeight = '1.5';
+        body.style.paddingTop = '0';
+        body.style.paddingBottom = '0';
 
-            var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
-            for (var i = 0; i < blocks.length; i++) {{
-                blocks[i].style.marginBottom = '0.5em';
-                blocks[i].style.paddingBottom = '0';
+        var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
+        for (var i = 0; i < blocks.length; i++) {{
+            blocks[i].style.marginBottom = '0.5em';
+            blocks[i].style.paddingBottom = '0';
+        }}
+
+        void body.offsetHeight;
+        var best = low;
+        while (low <= high) {{
+            var mid = Math.floor((low + high) / 2);
+            body.style.fontSize = mid + 'px';
+            if (fitsVertically()) {{
+                best = mid;
+                low = mid + 1;
+            }} else {{
+                high = mid - 1;
             }}
+        }}
+        if (best < minSize) best = minSize;
+        body.style.fontSize = best + 'px';
 
+        if (isConstrainedShortContent) {{
             void body.offsetHeight;
-            var best = low;
-            while (low <= high) {{
-                var mid = Math.floor((low + high) / 2);
-                body.style.fontSize = mid + 'px';
+            var settleLow = minSize;
+            var settleHigh = best;
+            var settleBest = minSize;
+            while (settleLow <= settleHigh) {{
+                var settleMid = Math.floor((settleLow + settleHigh) / 2);
+                body.style.fontSize = settleMid + 'px';
                 if (fitsVertically()) {{
-                    best = mid;
-                    low = mid + 1;
+                    settleBest = settleMid;
+                    settleLow = settleMid + 1;
                 }} else {{
-                    high = mid - 1;
+                    settleHigh = settleMid - 1;
                 }}
             }}
-            if (best < minSize) best = minSize;
-            body.style.fontSize = best + 'px';
-
-            if (isConstrainedShortContent) {{
-                void body.offsetHeight;
-                var settleLow = minSize;
-                var settleHigh = best;
-                var settleBest = minSize;
-                while (settleLow <= settleHigh) {{
-                    var settleMid = Math.floor((settleLow + settleHigh) / 2);
-                    body.style.fontSize = settleMid + 'px';
-                    if (fitsVertically()) {{
-                        settleBest = settleMid;
-                        settleLow = settleMid + 1;
-                    }} else {{
-                        settleHigh = settleMid - 1;
-                    }}
-                }}
-                body.style.fontSize = settleBest + 'px';
-            }}
-        }} else {{
-            var hasOverflow = !fitsVertically();
-            if (hasOverflow) {{
-                var currentSize = parseFloat(body.style.fontSize) || 14;
-                if (currentSize > minSize) {{
-                    var low = minSize;
-                    var high = currentSize;
-                    var best = minSize;
-                    while (low <= high) {{
-                        var mid = Math.floor((low + high) / 2);
-                        body.style.fontSize = mid + 'px';
-                        if (fitsVertically()) {{
-                            best = mid;
-                            low = mid + 1;
-                        }} else {{
-                            high = mid - 1;
-                        }}
-                    }}
-                    body.style.fontSize = best + 'px';
-                }}
-            }}
+            body.style.fontSize = settleBest + 'px';
         }}
     }}
 
