@@ -6,7 +6,7 @@ export interface TrackSelectionRange {
   source: "selection" | "drag";
 }
 
-function overlapsRange(
+export function overlapsRange(
   segment: { startTime: number; endTime: number },
   range: Pick<TrackSelectionRange, "startTime" | "endTime">,
 ) {

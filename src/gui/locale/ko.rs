@@ -342,7 +342,7 @@ pub fn get() -> LocaleText {
         tool_desc_qwen3_1_7b: "고정밀 음성 인식 (52개 언어)",
         tool_qwen3_runtime: "Qwen3-ASR CUDA 런타임",
         tool_desc_qwen3_runtime: "Qwen3-ASR 모델 실행에 필요",
-        tool_desc_qwen3_server: "Qwen Local 자막용 독립형 Qwen3-ASR 레퍼런스 서버 실행 파일입니다. 공용 Qwen3 런타임을 사용합니다.",
+        tool_desc_qwen3_server: "독립형 Qwen3-ASR 레퍼런스 서버 실행 파일입니다. 공용 Qwen3 런타임을 사용합니다.",
         tool_desc_ytdlp: "미디어 다운로드 기능에서 사용됨",
         tool_desc_deno: "yt-dlp의 JavaScript 런타임으로 사용됨 (YouTube 챌린지 해결)",
         tool_desc_ffmpeg: "미디어 다운로드 기능에서 사용됨",

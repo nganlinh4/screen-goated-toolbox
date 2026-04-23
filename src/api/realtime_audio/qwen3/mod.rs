@@ -1,11 +1,11 @@
 pub mod assets;
-pub mod reference;
 pub mod runtime;
 pub mod server;
 
 use super::capture::{start_device_loopback_capture, start_mic_capture, start_per_app_capture};
 use super::state::{SharedRealtimeState, TranscriptionMethod};
-use super::utils::{append_history_segment, join_transcript_segments, update_overlay_text};
+use super::transcript_state::MonotonicTranscriptState;
+use super::utils::update_overlay_text;
 use super::{REALTIME_RMS, WM_VOLUME_UPDATE};
 use crate::config::Preset;
 use anyhow::Result;
@@ -102,7 +102,7 @@ pub fn run_qwen3_transcription_variant(
     let pause_signal = Arc::new(AtomicBool::new(false));
     let _stream = start_audio_capture(audio_buffer.clone(), stop_signal.clone(), pause_signal)?;
 
-    let mut committed_history = String::new();
+    let mut transcript_state = MonotonicTranscriptState::default();
     let mut session_sample_count = 0usize;
     let mut last_request_sample_count = 0usize;
     let mut last_request_at = Instant::now() - Duration::from_millis(TRANSCRIBE_INTERVAL_MS);
@@ -154,12 +154,18 @@ pub fn run_qwen3_transcription_variant(
         ) {
             session.append_pcm16(&[], true)?;
             let finalized = session.step()?;
-            let finalized_text = runtime_final_text(&finalized);
-            append_history_segment(&mut committed_history, &finalized_text);
+            let finalized_snapshot = transcript_state.ingest(&finalized);
             session_sample_count = 0;
             last_request_sample_count = 0;
-            session.reset()?;
-            publish_transcript(&state, overlay_hwnd, &committed_history, "");
+            last_draft_text.clear();
+            last_draft_change = Instant::now();
+            drop(session);
+            session = runtime.create_session(
+                STREAMING_CHUNK_MS,
+                STREAMING_UNFIXED_CHUNKS,
+                STREAMING_UNFIXED_TOKENS,
+            )?;
+            publish_transcript(&state, overlay_hwnd, &finalized_snapshot.committed_text, "");
         }
 
         let should_request = session_sample_count >= MIN_TRANSCRIBE_SAMPLES
@@ -177,7 +183,8 @@ pub fn run_qwen3_transcription_variant(
             last_request_at = Instant::now();
 
             let _detected_language = &transcript.language;
-            let (fixed_text, draft_text) = runtime_live_segments(&transcript);
+            let snapshot = transcript_state.ingest(&transcript);
+            let draft_text = snapshot.draft_text.clone();
             if draft_text != last_draft_text {
                 last_draft_change = Instant::now();
                 last_draft_text = draft_text.clone();
@@ -192,8 +199,12 @@ pub fn run_qwen3_transcription_variant(
             } else {
                 draft_text
             };
-            let live_committed = join_transcript_segments(&committed_history, &fixed_text);
-            publish_transcript(&state, overlay_hwnd, &live_committed, &draft_to_publish);
+            publish_transcript(
+                &state,
+                overlay_hwnd,
+                &snapshot.committed_text,
+                &draft_to_publish,
+            );
         }
 
         std::thread::sleep(Duration::from_millis(100));
@@ -280,34 +291,6 @@ fn should_commit_on_silence(
     has_pending_session_audio
         && current_audio_len > 0
         && last_voice_activity.elapsed() >= Duration::from_millis(SILENCE_COMMIT_MS)
-}
-
-fn runtime_live_segments(result: &runtime::RuntimeTranscriptionResult) -> (String, String) {
-    if result.fixed_text.is_empty() && result.draft_text.is_empty() {
-        (String::new(), strip_trailing_sentence_marks(&result.text))
-    } else {
-        (
-            result.fixed_text.clone(),
-            strip_trailing_sentence_marks(&result.draft_text),
-        )
-    }
-}
-
-fn runtime_final_text(result: &runtime::RuntimeTranscriptionResult) -> String {
-    if !result.text.is_empty() {
-        result.text.clone()
-    } else {
-        join_transcript_segments(&result.fixed_text, &result.draft_text)
-    }
-}
-
-fn strip_trailing_sentence_marks(text: &str) -> String {
-    let trimmed = text.trim_end();
-    if trimmed.ends_with(['.', '?', '!']) {
-        trimmed.trim_end_matches(['.', '?', '!']).to_string()
-    } else {
-        text.to_string()
-    }
 }
 
 fn publish_transcript(

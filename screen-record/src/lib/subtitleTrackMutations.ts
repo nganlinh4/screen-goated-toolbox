@@ -1,6 +1,7 @@
 import { buildTextSplitPreview } from '@/lib/textSplitPreview';
 import {
   mergeTextSegmentsInRange,
+  overlapsRange,
   replaceSegmentsInRanges,
   type TrackSelectionRange,
 } from '@/lib/timelineSegmentSelection';
@@ -45,6 +46,27 @@ function mapConcreteTracks(
 function sortSubtitleSegments(segments: readonly SubtitleSegment[]): SubtitleSegment[] {
   return [...segments].sort((left, right) => left.startTime - right.startTime);
 }
+
+function summarizeSubtitleTail(segments: readonly SubtitleSegment[]) {
+  return sortSubtitleSegments(segments)
+    .slice(-3)
+    .map((segment) => ({
+      id: segment.id,
+      startTime: Number(segment.startTime.toFixed(3)),
+      endTime: Number(segment.endTime.toFixed(3)),
+      text: segment.text.slice(0, 32),
+    }));
+}
+
+function formatSubtitleTail(segments: readonly SubtitleSegment[]) {
+  const tail = summarizeSubtitleTail(segments);
+  if (tail.length === 0) return 'none';
+  return tail.map((segment) =>
+    `${segment.id.slice(-8)}@${segment.startTime.toFixed(2)}-${segment.endTime.toFixed(2)}:${segment.text.replace(/\s+/g, ' ')}`,
+  ).join(' || ');
+}
+
+const PARTIAL_TAIL_RETAIN_SEC = 2.0;
 
 export function getEditableSubtitleTrack(segment: VideoSegment | null | undefined): SubtitleTrack | null {
   const activeView = getActiveSubtitleView(segment);
@@ -209,6 +231,59 @@ export function replaceOriginalSubtitleSegments(
     const nextSegments = replacementRanges.length > 0
       ? replaceSegmentsInRanges(track.segments, replacementRanges, clonedInserted)
       : clonedInserted;
+    return {
+      ...track,
+      segments: nextSegments,
+    };
+  });
+}
+
+export function mergePartialOriginalSubtitleSegments(
+  segment: VideoSegment,
+  inserted: readonly SubtitleSegment[],
+  replacementRanges: ReadonlyArray<Pick<TrackSelectionRange, 'startTime' | 'endTime'>> = [],
+): VideoSegment {
+  return mapConcreteTracks(segment, (track) => {
+    const clonedInserted = cloneSubtitleSegments(inserted);
+    if (replacementRanges.length === 0) {
+      console.log(
+        `[SubtitleGen][Webview][merge-partial] full-replace before=${track.segments.length} inserted=${clonedInserted.length} beforeTail=${formatSubtitleTail(track.segments)} insertedTail=${formatSubtitleTail(clonedInserted)}`,
+      );
+      return {
+        ...track,
+        segments: clonedInserted,
+      };
+    }
+
+    const insertedById = new Map(clonedInserted.map((subtitle) => [subtitle.id, subtitle]));
+    const insertedCoverageEnd = clonedInserted.reduce(
+      (maxEnd, subtitle) => Math.max(maxEnd, subtitle.endTime),
+      Number.NEGATIVE_INFINITY,
+    );
+    const retainTailFrom = Number.isFinite(insertedCoverageEnd)
+      ? insertedCoverageEnd - PARTIAL_TAIL_RETAIN_SEC
+      : Number.NEGATIVE_INFINITY;
+    const overlappedExisting = track.segments.filter((existing) =>
+      replacementRanges.some((range) => overlapsRange(existing, range)),
+    );
+    const retained = track.segments.filter((existing) =>
+      !replacementRanges.some((range) => overlapsRange(existing, range))
+      || (
+        !insertedById.has(existing.id)
+        && (
+          clonedInserted.length === 0
+          || existing.endTime >= retainTailFrom
+        )
+      ),
+    );
+    const nextSegments = sortSubtitleSegments(retained.concat([...insertedById.values()]));
+
+    const firstRange = replacementRanges[0];
+    const lastRange = replacementRanges[replacementRanges.length - 1];
+    console.log(
+      `[SubtitleGen][Webview][merge-partial] ranges=${replacementRanges.length} window=${firstRange?.startTime.toFixed(2) ?? 'na'}-${lastRange?.endTime.toFixed(2) ?? 'na'} before=${track.segments.length} overlap=${overlappedExisting.length} inserted=${clonedInserted.length} retained=${retained.length} next=${nextSegments.length} beforeTail=${formatSubtitleTail(track.segments)} insertedTail=${formatSubtitleTail(clonedInserted)} nextTail=${formatSubtitleTail(nextSegments)}`,
+    );
+
     return {
       ...track,
       segments: nextSegments,

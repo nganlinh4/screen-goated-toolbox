@@ -312,6 +312,11 @@ pub fn internal_create_tag_thread() {
         if let Some(webview) = final_webview {
             let init_script = format!("updateTheme({});", initial_is_dark);
             let _ = webview.evaluate_script(&init_script);
+            crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
+                "text-selection-badge",
+                hwnd,
+                &webview,
+            );
             SELECTION_STATE.lock().unwrap().webview = Some(webview);
         } else {
             let _ = DestroyWindow(hwnd);

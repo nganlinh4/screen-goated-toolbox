@@ -95,6 +95,8 @@ pub unsafe extern "system" fn result_wnd_proc(
                 LRESULT(0)
             }
             msg if msg == misc::WM_DOWNLOAD_CLICK => misc::handle_download_click(hwnd),
+            msg if msg == misc::WM_BROOM_DRAG_START => misc::handle_broom_drag_start(hwnd),
+            msg if msg == misc::WM_CLOSE_GROUP_CLICK => misc::handle_close_group_click(hwnd),
 
             WM_WINDOWPOSCHANGED => {
                 // Update button canvas position when window moves/resizes

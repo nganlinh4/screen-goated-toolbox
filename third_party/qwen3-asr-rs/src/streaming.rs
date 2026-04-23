@@ -14,6 +14,7 @@ pub struct StreamingConfig {
     pub chunk_size_ms: u32,
     pub unfixed_chunk_num: usize,
     pub unfixed_token_num: usize,
+    pub initial_text: String,
 }
 
 impl Default for StreamingConfig {
@@ -22,6 +23,7 @@ impl Default for StreamingConfig {
             chunk_size_ms: DEFAULT_CHUNK_SIZE_MS,
             unfixed_chunk_num: DEFAULT_UNFIXED_CHUNK_NUM,
             unfixed_token_num: DEFAULT_UNFIXED_TOKEN_NUM,
+            initial_text: String::new(),
         }
     }
 }
@@ -130,6 +132,7 @@ impl StreamingState {
         self.cached_base_prefix = None;
         self.cached_base_language = None;
         self.audio_prefix_cache = None;
+        self.config.initial_text.clear();
         self.ab_compared = false;
         self.recent_backend_logs.clear();
     }
@@ -293,7 +296,7 @@ impl StreamingState {
 
     fn build_prefix_text(&self, model: &AsrInference) -> Result<String> {
         if self.chunk_id < self.config.unfixed_chunk_num || self.raw_decoded.is_empty() {
-            return Ok(String::new());
+            return Ok(normalize_punctuation_spacing(&self.config.initial_text));
         }
 
         let token_ids = model.encode_text_tokens(&self.raw_decoded)?;
@@ -465,6 +468,7 @@ mod tests {
             chunk_size_ms,
             unfixed_chunk_num,
             unfixed_token_num,
+            initial_text: String::new(),
         })
     }
 

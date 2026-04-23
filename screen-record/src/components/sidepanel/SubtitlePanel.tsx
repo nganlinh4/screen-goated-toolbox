@@ -111,8 +111,6 @@ export function SubtitlePanel({
 
   const getMethodLabel = (method: SubtitleMethod) => {
     switch (method) {
-      case 'gemini-live-3-1-flash-preview':
-        return t.subtitleMethodGeminiLive3_1FlashPreview;
       case 'groq-whisper-large-v3-turbo':
         return t.subtitleMethodGroqWhisperLargeV3Turbo;
       case 'qwen-local-1-7b':
@@ -184,7 +182,6 @@ export function SubtitlePanel({
       label: t.subtitleTrackCustom,
     },
   ];
-  const supportsLanguageHint = selectedMethod !== 'gemini-live-3-1-flash-preview';
   const subtitleStatusText = selectedMethodReason
     ?? statusMessage
     ?? (hasSubtitleSource ? t.subtitleIdleHint : t.subtitleUnavailableSource);
@@ -238,23 +235,21 @@ export function SubtitlePanel({
           />
         </div>
 
-        {supportsLanguageHint ? (
-          <div className="subtitle-language-row flex items-center gap-2">
-            <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
-              {t.subtitleLanguageHint}
-            </span>
-            <PanelSelect
-              value={languageHint}
-              options={SUBTITLE_LANGUAGE_OPTIONS}
-              onChange={onLanguageHintChange}
-              searchable
-              searchPlaceholder={t.subtitleLanguageSearchPlaceholder}
-              emptyStateLabel={t.subtitleLanguageSearchEmpty}
-              triggerClassName="subtitle-language-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
-              contentClassName="subtitle-language-menu"
-            />
-          </div>
-        ) : null}
+        <div className="subtitle-language-row flex items-center gap-2">
+          <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+            {t.subtitleLanguageHint}
+          </span>
+          <PanelSelect
+            value={languageHint}
+            options={SUBTITLE_LANGUAGE_OPTIONS}
+            onChange={onLanguageHintChange}
+            searchable
+            searchPlaceholder={t.subtitleLanguageSearchPlaceholder}
+            emptyStateLabel={t.subtitleLanguageSearchEmpty}
+            triggerClassName="subtitle-language-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+            contentClassName="subtitle-language-menu"
+          />
+        </div>
 
         <div className="subtitle-actions grid grid-cols-3 gap-1.5">
           <button

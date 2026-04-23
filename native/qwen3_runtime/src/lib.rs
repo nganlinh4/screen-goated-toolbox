@@ -8,9 +8,14 @@ use qwen3_asr_rs::text_decoder::KvCacheMode;
 use serde::Deserialize;
 use serde_json::json;
 use std::ffi::{c_char, c_void};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+mod protocol;
+use self::protocol::{
+    compute_resume_prefix_text, error_payload, result_payload, SessionConfig, RUNTIME_ABI_VERSION,
+};
 
 const STATUS_OK: i32 = 0;
 const STATUS_ERROR: i32 = 1;
@@ -36,20 +41,6 @@ struct RuntimeConfig {
     streaming_mode: String,
 }
 
-#[derive(Deserialize, Default)]
-struct SessionConfig {
-    #[serde(default = "default_sample_rate_hz")]
-    sample_rate_hz: u32,
-    #[serde(default = "default_chunk_ms")]
-    chunk_size_ms: u32,
-    #[serde(default = "default_unfixed_chunks")]
-    unfixed_chunk_num: usize,
-    #[serde(default = "default_unfixed_tokens")]
-    unfixed_token_num: usize,
-    #[serde(default)]
-    language: String,
-}
-
 struct RuntimeHandle {
     kind: u32,
     model: Arc<AsrInference>,
@@ -57,6 +48,7 @@ struct RuntimeHandle {
     quant_mode: String,
     kv_cache_mode: String,
     streaming_mode: String,
+    next_session_epoch: u64,
 }
 
 struct SessionHandle {
@@ -66,50 +58,10 @@ struct SessionHandle {
     last_error_json: String,
     last_payload_json: String,
     language: Option<String>,
+    context_prefix_text: String,
+    session_epoch: u64,
     final_pending: bool,
     audio_samples_total: usize,
-}
-
-fn default_sample_rate_hz() -> u32 {
-    16_000
-}
-
-fn default_chunk_ms() -> u32 {
-    2_000
-}
-
-fn default_unfixed_chunks() -> usize {
-    2
-}
-
-fn default_unfixed_tokens() -> usize {
-    5
-}
-
-fn error_payload(message: impl AsRef<str>) -> String {
-    json!({ "error": message.as_ref() }).to_string()
-}
-
-fn result_payload(
-    transcript: &StreamingTranscript,
-    audio_samples: usize,
-    is_final: bool,
-    latency_ms: u128,
-    kv_cache_bytes: usize,
-    kv_cache_dense_bytes: usize,
-) -> String {
-    json!({
-        "language": transcript.language,
-        "text": transcript.text,
-        "fixed_text": transcript.fixed_text,
-        "draft_text": transcript.draft_text,
-        "latency_ms": latency_ms,
-        "audio_samples": audio_samples,
-        "is_final": is_final,
-        "kv_cache_bytes": kv_cache_bytes,
-        "kv_cache_dense_bytes": kv_cache_dense_bytes,
-    })
-    .to_string()
 }
 
 fn kv_cache_mode_from_config(mode: &str) -> anyhow::Result<KvCacheMode> {
@@ -216,9 +168,21 @@ fn transcript_from_step(session: &mut SessionHandle) -> anyhow::Result<Streaming
     }
 }
 
+fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| {
+            payload
+                .downcast_ref::<&'static str>()
+                .map(|message| (*message).to_string())
+        })
+        .unwrap_or_else(|| "unknown panic payload".to_string())
+}
+
 #[no_mangle]
 pub extern "C" fn sgt_qwen3_runtime_version() -> u32 {
-    1
+    RUNTIME_ABI_VERSION
 }
 
 #[no_mangle]
@@ -313,6 +277,7 @@ pub extern "C" fn sgt_qwen3_create_runtime(
         } else {
             config.streaming_mode
         },
+        next_session_epoch: 1,
     });
 
     unsafe {
@@ -409,6 +374,8 @@ pub extern "C" fn sgt_qwen3_create_session(
     }
 
     let language = (!session_config.language.trim().is_empty()).then(|| session_config.language);
+    let session_epoch = runtime.next_session_epoch;
+    runtime.next_session_epoch = runtime.next_session_epoch.saturating_add(1);
     let handle = Box::new(SessionHandle {
         kind: HANDLE_KIND_SESSION,
         model: Arc::clone(&runtime.model),
@@ -416,10 +383,13 @@ pub extern "C" fn sgt_qwen3_create_session(
             chunk_size_ms: session_config.chunk_size_ms,
             unfixed_chunk_num: session_config.unfixed_chunk_num,
             unfixed_token_num: session_config.unfixed_token_num,
+            initial_text: session_config.resume_prefix_text.clone(),
         }),
         last_error_json: error_payload("No Qwen3 session error recorded."),
         last_payload_json: String::new(),
         language,
+        context_prefix_text: session_config.resume_prefix_text,
+        session_epoch,
         final_pending: false,
         audio_samples_total: 0,
     });
@@ -485,11 +455,13 @@ pub extern "C" fn sgt_qwen3_step(
 
     let is_final = session.final_pending;
     let started_at = Instant::now();
-    match transcript_from_step(session) {
-        Ok(transcript) => {
+    match catch_unwind(AssertUnwindSafe(|| transcript_from_step(session))) {
+        Ok(Ok(transcript)) => {
             let latency_ms = started_at.elapsed().as_millis();
             session.last_payload_json = result_payload(
                 &transcript,
+                &session.context_prefix_text,
+                session.session_epoch,
                 session.audio_samples_total,
                 is_final,
                 latency_ms,
@@ -499,20 +471,51 @@ pub extern "C" fn sgt_qwen3_step(
             write_out_string(&session.last_payload_json, out_json, out_len);
             STATUS_OK
         }
-        Err(err) => {
+        Ok(Err(err)) => {
             let latency_ms = started_at.elapsed().as_millis();
-            update_session_error(session, err.to_string());
+            let error_message = err.to_string();
+            update_session_error(session, &error_message);
             session.last_payload_json = json!({
                 "language": "",
                 "text": "",
                 "fixed_text": "",
                 "draft_text": "",
+                "session_epoch": session.session_epoch,
+                "context_prefix_text": session.context_prefix_text,
+                "resume_prefix_text": compute_resume_prefix_text(&session.context_prefix_text),
                 "latency_ms": latency_ms,
                 "audio_samples": session.audio_samples_total,
                 "is_final": is_final,
                 "kv_cache_bytes": session.state.kv_cache_bytes(),
                 "kv_cache_dense_bytes": session.state.kv_cache_dense_bytes(),
-                "error": err.to_string(),
+                "error": error_message,
+            })
+            .to_string();
+            write_out_string(&session.last_payload_json, out_json, out_len);
+            STATUS_ERROR
+        }
+        Err(payload) => {
+            let latency_ms = started_at.elapsed().as_millis();
+            let message = format!(
+                "Qwen3 runtime panic during step: {}",
+                panic_message(payload)
+            );
+            session.final_pending = false;
+            update_session_error(session, &message);
+            session.last_payload_json = json!({
+                "language": "",
+                "text": "",
+                "fixed_text": "",
+                "draft_text": "",
+                "session_epoch": session.session_epoch,
+                "context_prefix_text": session.context_prefix_text,
+                "resume_prefix_text": compute_resume_prefix_text(&session.context_prefix_text),
+                "latency_ms": latency_ms,
+                "audio_samples": session.audio_samples_total,
+                "is_final": is_final,
+                "kv_cache_bytes": session.state.kv_cache_bytes(),
+                "kv_cache_dense_bytes": session.state.kv_cache_dense_bytes(),
+                "error": message,
             })
             .to_string();
             write_out_string(&session.last_payload_json, out_json, out_len);
@@ -535,6 +538,8 @@ pub extern "C" fn sgt_qwen3_reset_session(session: *mut c_void) -> i32 {
     session.audio_samples_total = 0;
     session.last_payload_json.clear();
     session.last_error_json = error_payload("No Qwen3 session error recorded.");
+    session.context_prefix_text.clear();
+    session.session_epoch = session.session_epoch.saturating_add(1);
     STATUS_OK
 }
 

@@ -45,13 +45,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 fn parse_json_with_path<T: DeserializeOwned>(args: serde_json::Value) -> Result<T, String> {
     let json = serde_json::to_string(&args).map_err(|e| format!("Serialize export args: {e}"))?;
     let mut deserializer = serde_json::Deserializer::from_str(&json);
-    serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
-        format!(
-            "{} at {}",
-            error.inner(),
-            error.path()
-        )
-    })
+    serde_path_to_error::deserialize(&mut deserializer)
+        .map_err(|error| format!("{} at {}", error.inner(), error.path()))
 }
 
 pub(crate) fn run_native_export_with_staged(

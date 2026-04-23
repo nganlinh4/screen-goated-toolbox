@@ -71,12 +71,36 @@ fn get_dpi_scale() -> f64 {
     dpi as f64 / 96.0
 }
 
+fn valid_canvas_hwnd() -> Option<HWND> {
+    let hwnd_val = CANVAS_HWND.load(Ordering::SeqCst);
+    if hwnd_val == 0 {
+        return None;
+    }
+
+    let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+    unsafe {
+        if IsWindow(Some(hwnd)).as_bool() {
+            Some(hwnd)
+        } else {
+            CANVAS_HWND.store(0, Ordering::SeqCst);
+            IS_WARMED_UP.store(false, Ordering::SeqCst);
+            None
+        }
+    }
+}
+
 /// Register a markdown window for button overlay
 pub fn register_markdown_window(hwnd: HWND) {
     let hwnd_key = hwnd.0 as isize;
+    unsafe {
+        if !IsWindow(Some(hwnd)).as_bool() {
+            return;
+        }
+    }
+    let canvas_ready = valid_canvas_hwnd().is_some();
 
     // Initialize on-demand if not warmed up
-    if !IS_WARMED_UP.load(Ordering::SeqCst) && CANVAS_HWND.load(Ordering::SeqCst) == 0 {
+    if !IS_WARMED_UP.load(Ordering::SeqCst) && !canvas_ready {
         if !IS_INITIALIZING.swap(true, Ordering::SeqCst) {
             std::thread::spawn(|| {
                 create_canvas_window();
@@ -145,6 +169,16 @@ pub fn update_window_position(hwnd: HWND) {
 
 fn update_window_position_internal(hwnd: HWND, notify: bool) {
     let hwnd_key = hwnd.0 as isize;
+    unsafe {
+        if !IsWindow(Some(hwnd)).as_bool() {
+            let mut windows = MARKDOWN_WINDOWS.lock().unwrap();
+            windows.remove(&hwnd_key);
+            if notify {
+                update_canvas();
+            }
+            return;
+        }
+    }
 
     let rect = unsafe {
         let mut r = RECT::default();
@@ -193,11 +227,10 @@ pub fn send_refine_text_update(hwnd: HWND, text: &str, is_insert: bool) {
     }
 
     // Notify canvas thread
-    let canvas_hwnd = CANVAS_HWND.load(Ordering::SeqCst);
-    if canvas_hwnd != 0 {
+    if let Some(hwnd) = valid_canvas_hwnd() {
         unsafe {
             let _ = PostMessageW(
-                Some(HWND(canvas_hwnd as *mut _)),
+                Some(hwnd),
                 WM_APP_SEND_REFINE_TEXT,
                 WPARAM(hwnd_key as usize),
                 LPARAM(if is_insert { 1 } else { 0 }),
@@ -213,8 +246,7 @@ pub fn is_dragging() -> bool {
 
 /// Check if a point is within any registered result window bounds
 pub fn is_point_over_result_window(x: i32, y: i32) -> bool {
-    let canvas_hwnd = CANVAS_HWND.load(Ordering::SeqCst);
-    if canvas_hwnd == 0 {
+    if valid_canvas_hwnd().is_none() {
         return false;
     }
 
@@ -234,11 +266,9 @@ pub fn is_point_over_result_window(x: i32, y: i32) -> bool {
 
 /// Set drag mode (temporarily disable region clipping to prevent UI cutoff)
 pub fn set_drag_mode(active: bool) {
-    let canvas_hwnd = CANVAS_HWND.load(Ordering::SeqCst);
-    if canvas_hwnd == 0 {
+    let Some(hwnd) = valid_canvas_hwnd() else {
         return;
-    }
-    let hwnd = HWND(canvas_hwnd as *mut std::ffi::c_void);
+    };
 
     if active {
         IS_DRAGGING_EXTERNAL.store(true, Ordering::SeqCst);
@@ -259,9 +289,7 @@ pub fn set_drag_mode(active: bool) {
 
 /// Update canvas with current window positions
 pub fn update_canvas() {
-    let canvas_hwnd = CANVAS_HWND.load(Ordering::SeqCst);
-    if canvas_hwnd != 0 {
-        let hwnd = HWND(canvas_hwnd as *mut std::ffi::c_void);
+    if let Some(hwnd) = valid_canvas_hwnd() {
         unsafe {
             let _ = PostMessageW(Some(hwnd), WM_APP_UPDATE_WINDOWS, WPARAM(0), LPARAM(0));
         }
@@ -270,9 +298,7 @@ pub fn update_canvas() {
 
 /// Show the canvas
 fn show_canvas() {
-    let canvas_hwnd = CANVAS_HWND.load(Ordering::SeqCst);
-    if canvas_hwnd != 0 {
-        let hwnd = HWND(canvas_hwnd as *mut std::ffi::c_void);
+    if let Some(hwnd) = valid_canvas_hwnd() {
         unsafe {
             let _ = PostMessageW(Some(hwnd), WM_APP_SHOW_CANVAS, WPARAM(0), LPARAM(0));
         }
@@ -281,9 +307,7 @@ fn show_canvas() {
 
 /// Hide the canvas
 fn hide_canvas() {
-    let canvas_hwnd = CANVAS_HWND.load(Ordering::SeqCst);
-    if canvas_hwnd != 0 {
-        let hwnd = HWND(canvas_hwnd as *mut std::ffi::c_void);
+    if let Some(hwnd) = valid_canvas_hwnd() {
         unsafe {
             let _ = PostMessageW(Some(hwnd), WM_APP_HIDE_CANVAS, WPARAM(0), LPARAM(0));
         }

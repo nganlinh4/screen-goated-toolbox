@@ -203,6 +203,11 @@ pub fn create_markdown_webview_ex(
                 "[Markdown] WebView success for Parent HWND: {:?}",
                 parent_hwnd
             );
+            crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
+                "result-markdown",
+                parent_hwnd,
+                &webview,
+            );
             WEBVIEWS.with(|webviews| {
                 webviews.borrow_mut().insert(hwnd_key, webview);
             });

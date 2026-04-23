@@ -2,17 +2,26 @@ use anyhow::{Context, Result, anyhow, bail};
 use libloading::Library;
 use serde::Deserialize;
 use serde_json::json;
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::ffi::{c_char, c_void};
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 lazy_static::lazy_static! {
     static ref LAST_QWEN3_RUNTIME_NOTICE: Mutex<Option<String>> = Mutex::new(None);
+    static ref QWEN3_RUNTIME_ABI_CACHE: Mutex<HashMap<PathBuf, RuntimeAbiProbe>> =
+        Mutex::new(HashMap::new());
 }
 
 const QWEN3_RUNTIME_DLL: &str = "sgt_qwen3_runtime.dll";
-const QWEN3_RUNTIME_ABI_VERSION: u32 = 1;
+const QWEN3_RUNTIME_MANIFEST: &str = "sgt_qwen3_runtime.manifest.json";
+const QWEN3_RUNTIME_ABI_VERSION: u32 = 2;
 const RUNTIME_DLL_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/qwen3_runtime/dist/sgt_qwen3_runtime.dll";
+const RUNTIME_MANIFEST_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/qwen3_runtime/dist/sgt_qwen3_runtime.manifest.json";
 const LIBTORCH_URL: &str =
     "https://download.pytorch.org/libtorch/cu128/libtorch-win-shared-with-deps-2.7.1%2Bcu128.zip";
 const NATIVE_IMPLEMENTATION: &str = "reference_rust";
@@ -20,6 +29,18 @@ const SGT_QWEN3_STATUS_OK: i32 = 0;
 const KV_CACHE_MODE_DENSE_APPEND: &str = "dense_append";
 const KV_CACHE_MODE_EXPERIMENTAL_TURBOQUANT: &str = "experimental_turboquant";
 const KV_CACHE_MODE_LEGACY_PAGED_INT8: &str = "paged_int8";
+const QWEN3_RUNTIME_REQUIRED_DLLS: &[&str] = &[
+    QWEN3_RUNTIME_DLL,
+    "torch_cpu.dll",
+    "torch_cuda.dll",
+    "c10.dll",
+    "c10_cuda.dll",
+];
+const QWEN3_LIBTORCH_REQUIRED_DLLS: &[&str] =
+    &["torch_cpu.dll", "torch_cuda.dll", "c10.dll", "c10_cuda.dll"];
+
+pub const QWEN3_RUNTIME_KV_MODE_EXPERIMENTAL_TURBOQUANT: &str =
+    KV_CACHE_MODE_EXPERIMENTAL_TURBOQUANT;
 
 type RuntimeVersionFn = unsafe extern "C" fn() -> u32;
 type ProbeCudaFn = unsafe extern "C" fn(*mut *const c_char, *mut usize) -> i32;
@@ -29,7 +50,6 @@ type CreateSessionFn = unsafe extern "C" fn(*mut c_void, *const u8, usize, *mut 
 type DestroySessionFn = unsafe extern "C" fn(*mut c_void) -> i32;
 type AppendPcm16Fn = unsafe extern "C" fn(*mut c_void, *const i16, usize, i32) -> i32;
 type StepFn = unsafe extern "C" fn(*mut c_void, *mut *const c_char, *mut usize) -> i32;
-type ResetSessionFn = unsafe extern "C" fn(*mut c_void) -> i32;
 type LastErrorFn = unsafe extern "C" fn(*mut c_void, *mut *const c_char, *mut usize) -> i32;
 
 #[derive(Clone, Copy)]
@@ -42,7 +62,6 @@ struct RuntimeExports {
     destroy_session: DestroySessionFn,
     append_pcm16: AppendPcm16Fn,
     step: StepFn,
-    reset_session: ResetSessionFn,
     last_error: LastErrorFn,
 }
 
@@ -54,11 +73,11 @@ struct RuntimeInner {
 }
 
 pub struct Qwen3Runtime {
-    inner: Arc<RuntimeInner>,
+    inner: Rc<RuntimeInner>,
 }
 
 pub struct Qwen3Session {
-    inner: Arc<RuntimeInner>,
+    inner: Rc<RuntimeInner>,
     handle: *mut c_void,
 }
 
@@ -73,11 +92,21 @@ pub struct RuntimeTranscriptionResult {
     #[serde(default)]
     pub draft_text: String,
     #[serde(default)]
+    pub session_epoch: u64,
+    #[serde(default)]
+    pub context_prefix_text: String,
+    #[serde(default)]
+    pub resume_prefix_text: String,
+    #[serde(default)]
     pub latency_ms: u64,
     #[serde(default)]
     pub audio_samples: usize,
     #[serde(default)]
     pub is_final: bool,
+    #[serde(default)]
+    pub kv_cache_bytes: usize,
+    #[serde(default)]
+    pub kv_cache_dense_bytes: usize,
     #[serde(default)]
     pub error: String,
 }
@@ -98,29 +127,59 @@ struct ProbeResponse {
     cuda_devices: usize,
 }
 
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+struct RuntimeDownloadManifest {
+    sha256: String,
+    abi_version: u32,
+    size: u64,
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeAbiProbe {
+    size: u64,
+    modified: Option<SystemTime>,
+    abi_version: Option<u32>,
+}
+
 impl Drop for RuntimeInner {
     fn drop(&mut self) {
+        crate::log_info!("[Qwen3Runtime] RuntimeInner drop begin");
         if !self.handle.is_null() {
+            crate::log_info!("[Qwen3Runtime] destroy_runtime begin");
             unsafe {
                 let _ = (self.exports.destroy_runtime)(self.handle);
             }
+            self.handle = std::ptr::null_mut();
+            crate::log_info!("[Qwen3Runtime] destroy_runtime complete");
+        }
+        let aggressive_cuda_reset = should_aggressively_reset_cuda_on_drop();
+        if aggressive_cuda_reset {
+            crate::log_info!("[Qwen3Runtime] aggressive cudaDeviceReset enabled for teardown");
+            reset_cuda_device();
+            crate::log_info!("[Qwen3Runtime] aggressive cudaDeviceReset complete");
+        } else {
+            crate::log_info!("[Qwen3Runtime] skipping cudaDeviceReset on drop");
         }
         let (c10_cuda, torch_cuda) = (self._preloaded_cuda.0.take(), self._preloaded_cuda.1.take());
         let library = self.library.take();
+        crate::log_info!("[Qwen3Runtime] unloading qwen runtime libraries");
         drop(c10_cuda);
         drop(torch_cuda);
         drop(library);
-        reset_cuda_device();
+        crate::log_info!("[Qwen3Runtime] RuntimeInner drop complete");
     }
 }
 
 impl Drop for Qwen3Session {
     fn drop(&mut self) {
+        crate::log_info!("[Qwen3Runtime] destroy_session begin");
         if !self.handle.is_null() {
             unsafe {
                 let _ = (self.inner.exports.destroy_session)(self.handle);
             }
+            self.handle = std::ptr::null_mut();
         }
+        crate::log_info!("[Qwen3Runtime] destroy_session complete");
     }
 }
 
@@ -166,6 +225,13 @@ fn reset_cuda_device() {
 #[cfg(not(target_os = "windows"))]
 fn reset_cuda_device() {}
 
+fn should_aggressively_reset_cuda_on_drop() -> bool {
+    std::env::var("SGT_QWEN3_AGGRESSIVE_CUDA_RESET_ON_DROP")
+        .ok()
+        .or_else(|| std::env::var("QWEN3_AGGRESSIVE_CUDA_RESET_ON_DROP").ok())
+        .is_some_and(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
+}
+
 fn clear_runtime_notice() {
     *LAST_QWEN3_RUNTIME_NOTICE.lock().unwrap() = None;
 }
@@ -191,8 +257,163 @@ fn sync_runtime_badge(progress: f32) {
     crate::overlay::auto_copy_badge::show_progress_notification(&title, &message, progress);
 }
 
-fn qwen3_runtime_dir_is_usable(dir: &std::path::Path) -> bool {
-    dir.join(QWEN3_RUNTIME_DLL).exists() && dir.join("torch_cpu.dll").exists()
+fn qwen3_runtime_dir_is_usable(dir: &Path) -> bool {
+    qwen3_runtime_required_files_present(dir)
+        && qwen3_runtime_abi_version(dir.join(QWEN3_RUNTIME_DLL).as_path())
+            == Some(QWEN3_RUNTIME_ABI_VERSION)
+        && if dir == crate::unpack_dlls::private_bin_dir().as_path() {
+            qwen3_runtime_managed_manifest_is_usable(dir)
+        } else {
+            true
+        }
+}
+
+fn qwen3_runtime_required_files_present(dir: &Path) -> bool {
+    QWEN3_RUNTIME_REQUIRED_DLLS
+        .iter()
+        .all(|name| dir.join(name).is_file())
+}
+
+fn qwen3_libtorch_required_files_present(dir: &Path) -> bool {
+    QWEN3_LIBTORCH_REQUIRED_DLLS
+        .iter()
+        .all(|name| dir.join(name).is_file())
+}
+
+fn runtime_manifest_path(dir: &Path) -> PathBuf {
+    dir.join(QWEN3_RUNTIME_MANIFEST)
+}
+
+fn qwen3_runtime_managed_manifest_is_usable(dir: &Path) -> bool {
+    let manifest_path = runtime_manifest_path(dir);
+    let runtime_dll_path = dir.join(QWEN3_RUNTIME_DLL);
+    read_runtime_download_manifest(&manifest_path)
+        .and_then(|manifest| verify_runtime_dll_against_manifest(&runtime_dll_path, &manifest))
+        .is_ok()
+}
+
+fn read_runtime_download_manifest(path: &Path) -> Result<RuntimeDownloadManifest> {
+    let body = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read runtime manifest '{}'", path.display()))?;
+    let manifest: RuntimeDownloadManifest = serde_json::from_str(&body)
+        .with_context(|| format!("Failed to parse runtime manifest '{}'", path.display()))?;
+    if manifest.abi_version != QWEN3_RUNTIME_ABI_VERSION {
+        bail!(
+            "Runtime manifest ABI mismatch: expected {}, got {}",
+            QWEN3_RUNTIME_ABI_VERSION,
+            manifest.abi_version
+        );
+    }
+    if manifest.sha256.trim().is_empty() {
+        bail!("Runtime manifest sha256 was empty");
+    }
+    Ok(manifest)
+}
+
+fn fetch_runtime_download_manifest() -> Result<RuntimeDownloadManifest> {
+    let response = ureq::get(RUNTIME_MANIFEST_URL)
+        .header("User-Agent", "ScreenGoatedToolbox")
+        .call()
+        .map_err(|err| anyhow!("Failed to fetch Qwen3 runtime manifest: {err}"))?;
+    let mut reader = response.into_body().into_reader();
+    let mut body = String::new();
+    reader.read_to_string(&mut body)?;
+    let manifest: RuntimeDownloadManifest = serde_json::from_str(&body)
+        .map_err(|err| anyhow!("Failed to parse Qwen3 runtime manifest: {err}"))?;
+    if manifest.abi_version != QWEN3_RUNTIME_ABI_VERSION {
+        bail!(
+            "Qwen3 runtime manifest ABI mismatch: expected {}, got {}",
+            QWEN3_RUNTIME_ABI_VERSION,
+            manifest.abi_version
+        );
+    }
+    if manifest.sha256.trim().is_empty() {
+        bail!("Qwen3 runtime manifest sha256 was empty");
+    }
+    Ok(manifest)
+}
+
+fn sha256_hex(path: &Path) -> Result<String> {
+    let mut file = std::fs::File::open(path)
+        .with_context(|| format!("Failed to open '{}' for hashing", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn verify_runtime_dll_against_manifest(
+    runtime_dll_path: &Path,
+    manifest: &RuntimeDownloadManifest,
+) -> Result<()> {
+    let metadata = std::fs::metadata(runtime_dll_path)
+        .with_context(|| format!("Failed to inspect '{}'", runtime_dll_path.display()))?;
+    if metadata.len() != manifest.size {
+        bail!(
+            "Runtime DLL size mismatch: expected {} bytes, got {} bytes",
+            manifest.size,
+            metadata.len()
+        );
+    }
+    let actual_sha256 = sha256_hex(runtime_dll_path)?;
+    if actual_sha256 != manifest.sha256.to_ascii_lowercase() {
+        bail!(
+            "Runtime DLL checksum mismatch: expected {}, got {}",
+            manifest.sha256,
+            actual_sha256
+        );
+    }
+    let actual_abi = qwen3_runtime_abi_version(runtime_dll_path).unwrap_or_default();
+    if actual_abi != manifest.abi_version {
+        bail!(
+            "Runtime DLL ABI mismatch: expected {}, got {}",
+            manifest.abi_version,
+            actual_abi
+        );
+    }
+    Ok(())
+}
+
+fn qwen3_runtime_abi_version(runtime_dll_path: &Path) -> Option<u32> {
+    let metadata = std::fs::metadata(runtime_dll_path).ok()?;
+    let probe = RuntimeAbiProbe {
+        size: metadata.len(),
+        modified: metadata.modified().ok(),
+        abi_version: None,
+    };
+
+    if let Ok(cache) = QWEN3_RUNTIME_ABI_CACHE.lock()
+        && let Some(cached) = cache.get(runtime_dll_path)
+        && cached.size == probe.size
+        && cached.modified == probe.modified
+    {
+        return cached.abi_version;
+    }
+
+    let abi_version = unsafe {
+        let library = Library::new(runtime_dll_path).ok()?;
+        let version = *library
+            .get::<RuntimeVersionFn>(b"sgt_qwen3_runtime_version\0")
+            .ok()?;
+        Some(version())
+    };
+
+    if let Ok(mut cache) = QWEN3_RUNTIME_ABI_CACHE.lock() {
+        cache.insert(
+            runtime_dll_path.to_path_buf(),
+            RuntimeAbiProbe {
+                abi_version,
+                ..probe
+            },
+        );
+    }
+    abi_version
 }
 
 /// Check if the runtime is installed in the managed (downloadable) private bin dir.
@@ -249,6 +470,7 @@ pub fn remove_qwen3_runtime() -> anyhow::Result<()> {
     for name in runtime_dll_names {
         let _ = std::fs::remove_file(bin_dir.join(name));
     }
+    let _ = std::fs::remove_file(runtime_manifest_path(&bin_dir));
     // Remove all libtorch-related DLLs (cuda*, cudnn*, nvrtc*, caffe2*, etc.)
     if let Ok(entries) = std::fs::read_dir(&bin_dir) {
         for entry in entries.flatten() {
@@ -268,6 +490,10 @@ pub fn remove_qwen3_runtime() -> anyhow::Result<()> {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
+    }
+    let _ = std::fs::remove_file(bin_dir.join("libtorch-download.zip"));
+    if let Ok(mut cache) = QWEN3_RUNTIME_ABI_CACHE.lock() {
+        cache.retain(|path, _| !path.starts_with(&bin_dir));
     }
     clear_runtime_notice();
     Ok(())
@@ -323,7 +549,8 @@ pub fn download_qwen3_runtime(
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
         state.download_title = "Downloading Qwen3-ASR CUDA Runtime".to_string();
-        state.download_message = "Please wait... this is a large download (~800 MB).".to_string();
+        state.download_message =
+            "Please wait... runtime install may download/extract ~2.5 GB.".to_string();
         state.download_progress = 0.0;
     }
     clear_runtime_notice();
@@ -350,9 +577,14 @@ pub fn download_qwen3_runtime(
     let result: anyhow::Result<()> = (|| {
         let bin_dir = crate::unpack_dlls::private_bin_dir();
         std::fs::create_dir_all(&bin_dir)?;
+        let runtime_dll_path = bin_dir.join(QWEN3_RUNTIME_DLL);
+        let runtime_manifest = fetch_runtime_download_manifest()?;
+        let local_manifest_path = runtime_manifest_path(&bin_dir);
 
         // Step 1: Download our DLL from the repo
-        if !bin_dir.join(QWEN3_RUNTIME_DLL).exists() {
+        if verify_runtime_dll_against_manifest(&runtime_dll_path, &runtime_manifest).is_err() {
+            let _ = std::fs::remove_file(&runtime_dll_path);
+            let _ = std::fs::remove_file(&local_manifest_path);
             if let Ok(mut state) = REALTIME_STATE.lock() {
                 state.download_message = format!("Downloading {}...", QWEN3_RUNTIME_DLL);
                 state.download_progress = 0.0;
@@ -364,7 +596,7 @@ pub fn download_qwen3_runtime(
 
             crate::api::realtime_audio::model_loader::download_file_with_progress(
                 RUNTIME_DLL_URL,
-                &bin_dir.join(QWEN3_RUNTIME_DLL),
+                &runtime_dll_path,
                 &stop_signal,
                 |downloaded, total| {
                     let progress = if total > 0 {
@@ -380,6 +612,16 @@ pub fn download_qwen3_runtime(
                     }
                 },
             )?;
+            verify_runtime_dll_against_manifest(&runtime_dll_path, &runtime_manifest)?;
+            std::fs::write(
+                &local_manifest_path,
+                serde_json::to_vec_pretty(&runtime_manifest)?,
+            )?;
+        } else if !local_manifest_path.exists() {
+            std::fs::write(
+                &local_manifest_path,
+                serde_json::to_vec_pretty(&runtime_manifest)?,
+            )?;
         }
 
         if stop_signal.load(std::sync::atomic::Ordering::Relaxed) {
@@ -387,8 +629,7 @@ pub fn download_qwen3_runtime(
         }
 
         // Step 2: Download libtorch from pytorch.org if needed
-        let libtorch_marker = bin_dir.join("torch_cpu.dll");
-        if !libtorch_marker.exists() {
+        if !qwen3_libtorch_required_files_present(&bin_dir) {
             if let Ok(mut state) = REALTIME_STATE.lock() {
                 state.download_message =
                     "Downloading libtorch CUDA runtime (~2.5 GB)...".to_string();
@@ -480,39 +721,39 @@ pub fn download_qwen3_runtime(
                     continue;
                 }
                 let name_str = name.to_string_lossy();
-                if name_str.contains("/lib/") || name_str.contains("\\lib\\") {
-                    if let Some(file_name) = name.file_name() {
-                        if file_name.to_string_lossy().ends_with(".dll") {
-                            extracted += 1;
-                            let msg = format!(
-                                "Extracting DLL {}/~50: {}",
-                                extracted,
-                                file_name.to_string_lossy()
-                            );
-                            let progress = 80.0 + (extracted as f32 / 50.0) * 20.0;
-                            if let Ok(mut state) = REALTIME_STATE.lock() {
-                                state.download_message = msg.clone();
-                                state.download_progress = progress;
-                            }
-                            if use_badge {
-                                sync_runtime_badge(progress);
-                            }
-                            post_download_state();
-                            let output_path = bin_dir.join(file_name);
-                            let mut output = std::fs::File::create(&output_path)?;
-                            std::io::copy(&mut entry, &mut output)?;
-                        }
+                if (name_str.contains("/lib/") || name_str.contains("\\lib\\"))
+                    && let Some(file_name) = name.file_name()
+                    && file_name.to_string_lossy().ends_with(".dll")
+                {
+                    extracted += 1;
+                    let msg = format!(
+                        "Extracting DLL {}/~50: {}",
+                        extracted,
+                        file_name.to_string_lossy()
+                    );
+                    let progress = 80.0 + (extracted as f32 / 50.0) * 20.0;
+                    if let Ok(mut state) = REALTIME_STATE.lock() {
+                        state.download_message = msg.clone();
+                        state.download_progress = progress;
                     }
+                    if use_badge {
+                        sync_runtime_badge(progress);
+                    }
+                    post_download_state();
+                    let output_path = bin_dir.join(file_name);
+                    let mut output = std::fs::File::create(&output_path)?;
+                    std::io::copy(&mut entry, &mut output)?;
                 }
             }
             let _ = std::fs::remove_file(libtorch_zip_path);
         }
 
-        if !bin_dir.join(QWEN3_RUNTIME_DLL).exists() {
-            return Err(anyhow!("Runtime DLL not found after download"));
-        }
-        if !bin_dir.join("torch_cpu.dll").exists() {
-            return Err(anyhow!("libtorch DLLs not found after extraction"));
+        if !qwen3_runtime_dir_is_usable(&bin_dir)
+            || verify_runtime_dll_against_manifest(&runtime_dll_path, &runtime_manifest).is_err()
+        {
+            return Err(anyhow!(
+                "Qwen3 runtime install is incomplete or ABI-incompatible after download"
+            ));
         }
 
         Ok(())
@@ -684,11 +925,17 @@ fn status_to_result(
     Err(anyhow!(message))
 }
 
-fn requested_kv_cache_mode() -> Result<String> {
-    let requested = std::env::var("SGT_QWEN3_RUNTIME_KV_MODE")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
+fn resolve_requested_kv_cache_mode(requested_override: Option<&str>) -> Result<String> {
+    let requested = requested_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            std::env::var("SGT_QWEN3_RUNTIME_KV_MODE")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        });
 
     match requested.as_deref() {
         None | Some(KV_CACHE_MODE_DENSE_APPEND) => Ok(KV_CACHE_MODE_DENSE_APPEND.to_string()),
@@ -722,12 +969,20 @@ fn runtime_config_json(model_dir: &std::path::Path, kv_cache_mode: &str) -> Stri
     .to_string()
 }
 
-fn session_config_json(chunk_ms: u32, unfixed_chunks: usize, unfixed_tokens: usize) -> String {
+fn session_config_json(
+    chunk_ms: u32,
+    unfixed_chunks: usize,
+    unfixed_tokens: usize,
+    language: Option<&str>,
+    resume_prefix_text: Option<&str>,
+) -> String {
     json!({
         "sample_rate_hz": 16_000,
         "chunk_size_ms": chunk_ms,
         "unfixed_chunk_num": unfixed_chunks,
-        "unfixed_token_num": unfixed_tokens
+        "unfixed_token_num": unfixed_tokens,
+        "language": language.unwrap_or_default(),
+        "resume_prefix_text": resume_prefix_text.unwrap_or_default(),
     })
     .to_string()
 }
@@ -781,10 +1036,7 @@ fn validate_probe_capabilities(probe: &ProbeResponse, requested_kv_cache_mode: &
         set_runtime_notice(&message);
         return Err(anyhow!(message));
     }
-    if !supported_kv_cache_modes
-        .iter()
-        .any(|mode| *mode == requested_kv_cache_mode)
-    {
+    if !supported_kv_cache_modes.contains(&requested_kv_cache_mode) {
         let message = format!(
             "Qwen3 runtime does not support kv_cache_mode '{}'. Runtime supports [{}].",
             requested_kv_cache_mode,
@@ -803,6 +1055,13 @@ fn validate_probe_capabilities(probe: &ProbeResponse, requested_kv_cache_mode: &
 
 impl Qwen3Runtime {
     pub fn load(model_dir: &std::path::Path) -> Result<Self> {
+        Self::load_with_kv_cache_mode(model_dir, None)
+    }
+
+    pub fn load_with_kv_cache_mode(
+        model_dir: &std::path::Path,
+        kv_cache_mode_override: Option<&str>,
+    ) -> Result<Self> {
         if let Err(err) = ensure_cuda_driver_loaded() {
             set_runtime_notice(
                 "NVIDIA CUDA driver not available. Qwen3 requires an NVIDIA GPU on Windows.",
@@ -810,7 +1069,8 @@ impl Qwen3Runtime {
             return Err(err);
         }
 
-        let requested_kv_cache_mode = match requested_kv_cache_mode() {
+        let requested_kv_cache_mode = match resolve_requested_kv_cache_mode(kv_cache_mode_override)
+        {
             Ok(mode) => mode,
             Err(err) => {
                 let message = err.to_string();
@@ -869,7 +1129,6 @@ impl Qwen3Runtime {
             destroy_session: load_symbol(&library, b"sgt_qwen3_destroy_session\0")?,
             append_pcm16: load_symbol(&library, b"sgt_qwen3_append_pcm16\0")?,
             step: load_symbol(&library, b"sgt_qwen3_step\0")?,
-            reset_session: load_symbol(&library, b"sgt_qwen3_reset_session\0")?,
             last_error: load_symbol(&library, b"sgt_qwen3_last_error\0")?,
         };
 
@@ -917,7 +1176,7 @@ impl Qwen3Runtime {
 
         clear_runtime_notice();
         Ok(Self {
-            inner: Arc::new(RuntimeInner {
+            inner: Rc::new(RuntimeInner {
                 library: Some(library),
                 _preloaded_cuda,
                 exports,
@@ -932,7 +1191,46 @@ impl Qwen3Runtime {
         unfixed_chunks: usize,
         unfixed_tokens: usize,
     ) -> Result<Qwen3Session> {
-        let config_json = session_config_json(chunk_ms, unfixed_chunks, unfixed_tokens);
+        self.create_session_with_language_and_prefix(
+            chunk_ms,
+            unfixed_chunks,
+            unfixed_tokens,
+            None,
+            None,
+        )
+    }
+
+    pub fn create_session_with_language(
+        &self,
+        chunk_ms: u32,
+        unfixed_chunks: usize,
+        unfixed_tokens: usize,
+        language: Option<&str>,
+    ) -> Result<Qwen3Session> {
+        self.create_session_with_language_and_prefix(
+            chunk_ms,
+            unfixed_chunks,
+            unfixed_tokens,
+            language,
+            None,
+        )
+    }
+
+    pub fn create_session_with_language_and_prefix(
+        &self,
+        chunk_ms: u32,
+        unfixed_chunks: usize,
+        unfixed_tokens: usize,
+        language: Option<&str>,
+        resume_prefix_text: Option<&str>,
+    ) -> Result<Qwen3Session> {
+        let config_json = session_config_json(
+            chunk_ms,
+            unfixed_chunks,
+            unfixed_tokens,
+            language,
+            resume_prefix_text,
+        );
         let mut session_handle = std::ptr::null_mut();
         let status = unsafe {
             (self.inner.exports.create_session)(
@@ -950,7 +1248,7 @@ impl Qwen3Runtime {
         )?;
 
         Ok(Qwen3Session {
-            inner: Arc::clone(&self.inner),
+            inner: Rc::clone(&self.inner),
             handle: session_handle,
         })
     }
@@ -997,15 +1295,5 @@ impl Qwen3Session {
             bail!(message);
         }
         Ok(result)
-    }
-
-    pub fn reset(&mut self) -> Result<()> {
-        let status = unsafe { (self.inner.exports.reset_session)(self.handle) };
-        status_to_result(
-            status,
-            &self.inner.exports,
-            self.handle,
-            "Failed to reset Qwen3 session",
-        )
     }
 }

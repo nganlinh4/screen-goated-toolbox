@@ -1,11 +1,11 @@
 mod audio;
 mod job;
+mod postprocess;
 mod providers;
 mod qwen_local;
 mod translation;
 mod translation_providers;
 mod types;
-mod wav_chunks;
 
 pub use job::{
     handle_cancel_subtitle_generation, handle_get_subtitle_generation_capabilities,

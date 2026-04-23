@@ -54,6 +54,7 @@ pub fn internal_create_recording_window() {
             };
             RegisterClassW(&wc);
         });
+        RECORDING_HWND_VAL.store(0, Ordering::SeqCst);
 
         let (ui_width, ui_height) = get_ui_dimensions();
 
@@ -179,7 +180,13 @@ pub fn internal_create_recording_window() {
 
         // Cleanup on FULL EXIT
         RECORDING_WEBVIEW.with(|cell| *cell.borrow_mut() = None);
+        RECORDING_HWND_VAL.store(0, Ordering::SeqCst);
         RECORDING_STATE.store(0, Ordering::SeqCst);
+        AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
+        AUDIO_ABORT_SIGNAL.store(true, Ordering::SeqCst);
+        AUDIO_PAUSE_SIGNAL.store(false, Ordering::SeqCst);
+        AUDIO_WARMUP_COMPLETE.store(false, Ordering::SeqCst);
+        CURRENT_RMS.store(0, Ordering::Relaxed);
 
         CoUninitialize();
     }
@@ -188,6 +195,11 @@ pub fn internal_create_recording_window() {
 /// Handle IPC messages from WebView
 fn handle_ipc_message(hwnd_val: usize, body: &str) {
     let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+    unsafe {
+        if !IsWindow(Some(hwnd)).as_bool() {
+            return;
+        }
+    }
     match body {
         "pause_toggle" => {
             let paused = AUDIO_PAUSE_SIGNAL.load(Ordering::SeqCst);

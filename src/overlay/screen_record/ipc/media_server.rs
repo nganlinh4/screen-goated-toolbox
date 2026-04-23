@@ -32,11 +32,7 @@ fn normalize_imported_video(
     import_normalize::normalize_imported_video_mf(input_path, output_path, trace_id)
 }
 
-fn managed_import_path(
-    recordings_dir: &Path,
-    ts: u128,
-    extension: &str,
-) -> PathBuf {
+fn managed_import_path(recordings_dir: &Path, ts: u128, extension: &str) -> PathBuf {
     recordings_dir.join(format!("imported-{ts}.{extension}"))
 }
 
@@ -264,7 +260,10 @@ pub fn start_global_media_server() -> Result<u16, String> {
                             &normalize_output_path,
                             &trace_id,
                         )?;
-                        return Ok((normalize_output_path.to_string_lossy().to_string(), has_audio));
+                        return Ok((
+                            normalize_output_path.to_string_lossy().to_string(),
+                            has_audio,
+                        ));
                     }
 
                     std::fs::rename(&input_path, &output_path).or_else(|rename_error| {

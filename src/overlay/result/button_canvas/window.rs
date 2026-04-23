@@ -157,6 +157,11 @@ pub fn create_canvas_window() {
         match webview {
             Ok(wv) => {
                 crate::log_info!("[ButtonCanvas] WebView created successfully!");
+                crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
+                    "result-button-canvas",
+                    hwnd,
+                    &wv,
+                );
                 CANVAS_WEBVIEW.with(|cell| {
                     *cell.borrow_mut() = Some(wv);
                 });

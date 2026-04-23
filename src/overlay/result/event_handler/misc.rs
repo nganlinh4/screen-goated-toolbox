@@ -19,6 +19,8 @@ pub const WM_BACK_CLICK: u32 = WM_USER + 214;
 pub const WM_FORWARD_CLICK: u32 = WM_USER + 215;
 pub const WM_SPEAKER_CLICK: u32 = WM_USER + 216;
 pub const WM_DOWNLOAD_CLICK: u32 = WM_USER + 217;
+pub const WM_BROOM_DRAG_START: u32 = WM_USER + 218;
+pub const WM_CLOSE_GROUP_CLICK: u32 = WM_USER + 219;
 
 pub unsafe fn handle_erase_bkgnd(_hwnd: HWND, _wparam: WPARAM) -> LRESULT {
     LRESULT(1)
@@ -221,5 +223,25 @@ pub unsafe fn handle_download_click(hwnd: HWND) -> LRESULT {
     if !text.is_empty() {
         markdown_view::save_html_file(&text);
     }
+    LRESULT(0)
+}
+
+pub unsafe fn handle_broom_drag_start(hwnd: HWND) -> LRESULT {
+    unsafe {
+        use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
+
+        let _ = ReleaseCapture();
+        let _ = PostMessageW(
+            Some(hwnd),
+            WM_SYSCOMMAND,
+            WPARAM(0xF012), // SC_MOVE (0xF010) + HTCAPTION (2)
+            LPARAM(0),
+        );
+        LRESULT(0)
+    }
+}
+
+pub unsafe fn handle_close_group_click(hwnd: HWND) -> LRESULT {
+    crate::overlay::result::trigger_close_group(hwnd);
     LRESULT(0)
 }

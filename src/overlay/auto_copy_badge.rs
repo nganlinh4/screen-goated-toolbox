@@ -29,6 +29,7 @@ static IS_WARMED_UP: AtomicBool = AtomicBool::new(false);
 const WM_APP_PROCESS_QUEUE: u32 = WM_USER + 201;
 const WM_APP_UPDATE_PROGRESS: u32 = WM_USER + 202;
 const WM_APP_HIDE_PROGRESS: u32 = WM_USER + 203;
+const WM_APP_HIDE_BADGE: u32 = WM_USER + 204;
 
 /// Notification themes
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -244,8 +245,13 @@ fn ensure_window_and_post(msg: u32) {
     let hwnd = HWND(hwnd_val as *mut _);
     if hwnd_val != 0 && !hwnd.is_invalid() {
         unsafe {
-            let res = PostMessageW(Some(hwnd), msg, WPARAM(0), LPARAM(0));
-            println!("[Badge] PostMessage Result: {:?}", res);
+            if IsWindow(Some(hwnd)).as_bool() {
+                let res = PostMessageW(Some(hwnd), msg, WPARAM(0), LPARAM(0));
+                println!("[Badge] PostMessage Result: {:?}", res);
+            } else {
+                BADGE_HWND.store(0, Ordering::SeqCst);
+                IS_WARMED_UP.store(false, Ordering::SeqCst);
+            }
         }
     } else {
         println!("[Badge] Invalid HWND: {:?}", hwnd);
@@ -375,7 +381,8 @@ fn internal_create_window_loop() {
                     .with_ipc_handler(move |msg: wry::http::Request<String>| {
                         let body = msg.body();
                         if body == "finished" {
-                            let _ = ShowWindow(hwnd, SW_HIDE);
+                            let _ =
+                                PostMessageW(Some(hwnd), WM_APP_HIDE_BADGE, WPARAM(0), LPARAM(0));
                         } else if body.starts_with("error:") {
                             crate::log_info!("[BadgeJS] {}", body);
                         }
@@ -392,6 +399,11 @@ fn internal_create_window_loop() {
 
         if let Ok(wv) = webview {
             crate::log_info!("[Badge] WebView initialization SUCCESSFUL");
+            crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
+                "auto-copy-badge",
+                hwnd,
+                &wv,
+            );
             BADGE_WEBVIEW.with(|cell| {
                 *cell.borrow_mut() = Some(wv);
             });
@@ -565,6 +577,10 @@ unsafe extern "system" fn badge_wnd_proc(
                         let _ = webview.evaluate_script("window.removeProgressNotification();");
                     }
                 });
+                LRESULT(0)
+            }
+            WM_APP_HIDE_BADGE => {
+                let _ = ShowWindow(hwnd, SW_HIDE);
                 LRESULT(0)
             }
             WM_DESTROY => {

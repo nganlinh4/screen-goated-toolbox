@@ -3,6 +3,8 @@
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use crate::overlay::result::event_handler::misc::{WM_BROOM_DRAG_START, WM_COPY_CLICK};
+
 /// Handle IPC messages from markdown WebView
 pub fn handle_markdown_ipc(hwnd: HWND, msg: &str) {
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg)
@@ -10,24 +12,13 @@ pub fn handle_markdown_ipc(hwnd: HWND, msg: &str) {
     {
         match action {
             "copy" => {
-                crate::overlay::result::trigger_copy(hwnd);
+                post_result_window_message(hwnd, WM_COPY_CLICK);
             }
             "close" | "broom_click" => {
-                crate::overlay::result::trigger_close_window(hwnd);
+                post_result_window_message(hwnd, WM_CLOSE);
             }
             "broom_drag_start" => {
-                unsafe {
-                    // Native Window Drag
-                    // ReleaseCapture required before SC_MOVE
-                    use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
-                    let _ = ReleaseCapture();
-                    let _ = PostMessageW(
-                        Some(hwnd),
-                        WM_SYSCOMMAND,
-                        WPARAM(0xF012), // SC_MOVE (0xF010) + HTCAPTION (2)
-                        LPARAM(0),
-                    );
-                }
+                post_result_window_message(hwnd, WM_BROOM_DRAG_START);
             }
             "fit_debug" => {
                 crate::log_info!("[MarkdownFitDebug] hwnd={:?} payload={}", hwnd, json);
@@ -36,6 +27,14 @@ pub fn handle_markdown_ipc(hwnd: HWND, msg: &str) {
                 crate::log_info!("[MarkdownDiag] hwnd={:?} payload={}", hwnd, json);
             }
             _ => {}
+        }
+    }
+}
+
+fn post_result_window_message(hwnd: HWND, msg: u32) {
+    unsafe {
+        if IsWindow(Some(hwnd)).as_bool() {
+            let _ = PostMessageW(Some(hwnd), msg, WPARAM(0), LPARAM(0));
         }
     }
 }

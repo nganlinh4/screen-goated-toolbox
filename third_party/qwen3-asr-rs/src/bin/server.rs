@@ -378,6 +378,7 @@ async fn create_streaming_session_handler(
         chunk_size_ms: request.chunk_size_ms.unwrap_or(400),
         unfixed_chunk_num: request.unfixed_chunk_num.unwrap_or(2),
         unfixed_token_num: request.unfixed_token_num.unwrap_or(5),
+        initial_text: String::new(),
     };
     let streaming_state = {
         let model = state

@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
 
-use crate::api::realtime_audio::qwen3::{Qwen3ModelVariant, assets, reference, runtime, server};
+use crate::api::realtime_audio::qwen3::{Qwen3ModelVariant, assets, runtime};
 
 use super::providers;
 use super::types::SubtitleGenerationMethod;
@@ -73,8 +73,7 @@ pub fn handle_prepare_qwen_local_subtitles(
         Qwen3ModelVariant::Large => !assets::is_qwen3_1_7b_model_downloaded(),
     };
     let missing_runtime = !runtime::has_discoverable_qwen3_runtime();
-    let missing_server = !reference::has_discoverable_server();
-    let started_downloads = missing_model || missing_runtime || missing_server;
+    let started_downloads = missing_model || missing_runtime;
 
     if started_downloads
         && QWEN_LOCAL_PREPARE_IN_PROGRESS
@@ -98,9 +97,6 @@ pub fn handle_prepare_qwen_local_subtitles(
                 }
                 if missing_runtime {
                     runtime::download_qwen3_runtime(stop_signal.clone(), true)?;
-                }
-                if missing_server {
-                    server::download_qwen3_server(stop_signal.clone(), true)?;
                 }
                 Ok(())
             })();
