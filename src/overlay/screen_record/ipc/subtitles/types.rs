@@ -6,10 +6,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "kebab-case")]
 pub enum SubtitleGenerationMethod {
     #[default]
+    #[serde(alias = "gemini-live-3-1-flash-preview")]
     GroqWhisperAccurate,
     GroqWhisperLargeV3Turbo,
-    #[serde(rename = "gemini-live-3-1-flash-preview")]
-    GeminiLive3_1FlashPreview,
     #[serde(rename = "qwen-local-0-6b", alias = "qwen-local")]
     QwenLocal0_6B,
     #[serde(rename = "qwen-local-1-7b")]
@@ -66,6 +65,8 @@ pub struct SubtitleJobSnapshot {
     pub total_clips: usize,
     #[serde(rename = "completedClips")]
     pub completed_clips: usize,
+    #[serde(rename = "resultsRevision")]
+    pub results_revision: usize,
     pub results: Vec<SubtitleClipResult>,
     pub skipped: Vec<SubtitleSkippedClip>,
     pub error: Option<String>,

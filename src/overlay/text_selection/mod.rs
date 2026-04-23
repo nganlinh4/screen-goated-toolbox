@@ -15,6 +15,25 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 pub use clipboard::try_instant_process;
 pub use state::TAG_ABORT_SIGNAL;
 
+fn valid_tag_hwnd() -> Option<HWND> {
+    let hwnd_val = TAG_HWND.load(Ordering::SeqCst);
+    if hwnd_val == 0 {
+        return None;
+    }
+
+    let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+    unsafe {
+        if IsWindow(Some(hwnd)).as_bool() {
+            Some(hwnd)
+        } else {
+            TAG_HWND.store(0, Ordering::SeqCst);
+            IS_WARMED_UP.store(false, Ordering::SeqCst);
+            IS_WARMING_UP.store(false, Ordering::SeqCst);
+            None
+        }
+    }
+}
+
 // --- PUBLIC API ---
 
 pub fn is_active() -> bool {
@@ -33,10 +52,8 @@ pub fn is_hotkey_held() -> bool {
 
 /// Update the badge text to show continuous mode suffix
 pub fn update_badge_for_continuous_mode() {
-    let hwnd_val = TAG_HWND.load(Ordering::SeqCst);
-    if hwnd_val != 0 {
+    if let Some(hwnd) = valid_tag_hwnd() {
         unsafe {
-            let hwnd = HWND(hwnd_val as *mut _);
             let _ = PostMessageW(Some(hwnd), WM_APP_UPDATE_CONTINUOUS, WPARAM(0), LPARAM(0));
         }
     }
@@ -44,10 +61,8 @@ pub fn update_badge_for_continuous_mode() {
 
 /// Hide all badges SYNCHRONOUSLY before screen capture.
 pub fn hide_all_badges_for_capture() {
-    let hwnd_val = TAG_HWND.load(Ordering::SeqCst);
-    if hwnd_val != 0 {
+    if let Some(hwnd) = valid_tag_hwnd() {
         unsafe {
-            let hwnd = HWND(hwnd_val as *mut _);
             let _ = ShowWindow(hwnd, SW_HIDE);
         }
     }
@@ -55,10 +70,8 @@ pub fn hide_all_badges_for_capture() {
 
 /// Restore badges after screen capture is complete.
 pub fn restore_badges_after_capture() {
-    let hwnd_val = TAG_HWND.load(Ordering::SeqCst);
-    if hwnd_val != 0 {
+    if let Some(hwnd) = valid_tag_hwnd() {
         unsafe {
-            let hwnd = HWND(hwnd_val as *mut _);
             let _ = PostMessageW(
                 Some(hwnd),
                 WM_APP_RESTORE_AFTER_CAPTURE,
@@ -72,11 +85,13 @@ pub fn restore_badges_after_capture() {
 pub fn cancel_selection() {
     crate::log_info!("[Badge] cancel_selection() called");
     reset_selection_internal_state();
-    let hwnd_val = TAG_HWND.load(Ordering::SeqCst);
-    crate::log_info!("[Badge] cancel_selection: hwnd_val={}", hwnd_val);
-    if hwnd_val != 0 {
+    let hwnd = valid_tag_hwnd();
+    crate::log_info!(
+        "[Badge] cancel_selection: hwnd_val={}",
+        hwnd.map(|h| h.0 as usize).unwrap_or(0)
+    );
+    if let Some(hwnd) = hwnd {
         unsafe {
-            let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
             crate::log_info!("[Badge] cancel_selection: posting WM_APP_HIDE");
             let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
         }
@@ -91,7 +106,7 @@ pub fn set_image_continuous_badge(visible: bool) {
     }
     IMAGE_CONTINUOUS_BADGE_VISIBLE.store(visible, Ordering::SeqCst);
 
-    if !IS_WARMED_UP.load(Ordering::SeqCst) {
+    if valid_tag_hwnd().is_none() && !IS_WARMED_UP.load(Ordering::SeqCst) {
         if visible {
             IMAGE_CONTINUOUS_PENDING_SHOW.store(true, Ordering::SeqCst);
         }
@@ -99,10 +114,8 @@ pub fn set_image_continuous_badge(visible: bool) {
         return;
     }
 
-    let hwnd_val = TAG_HWND.load(Ordering::SeqCst);
-    if hwnd_val != 0 {
+    if let Some(hwnd) = valid_tag_hwnd() {
         unsafe {
-            let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
             if visible {
                 let mut pt = POINT::default();
                 let _ = GetCursorPos(&mut pt);
@@ -119,7 +132,8 @@ pub fn set_image_continuous_badge(visible: bool) {
 }
 
 pub fn warmup() {
-    if IS_WARMED_UP.load(Ordering::SeqCst) {
+    if valid_tag_hwnd().is_some() {
+        IS_WARMED_UP.store(true, Ordering::SeqCst);
         return;
     }
     if IS_WARMING_UP
@@ -129,6 +143,8 @@ pub fn warmup() {
         return;
     }
 
+    TAG_HWND.store(0, Ordering::SeqCst);
+    IS_WARMED_UP.store(false, Ordering::SeqCst);
     std::thread::spawn(|| {
         window::internal_create_tag_thread();
     });
@@ -151,7 +167,7 @@ pub fn show_text_selection_tag(preset_idx: usize) {
     LAST_BADGE_PRESET_IDX.store(preset_idx, Ordering::SeqCst);
 
     // Ensure Warmed Up / Trigger Warmup
-    if !IS_WARMED_UP.load(Ordering::SeqCst) {
+    if valid_tag_hwnd().is_none() && !IS_WARMED_UP.load(Ordering::SeqCst) {
         PENDING_SHOW_ON_WARMUP.store(true, Ordering::SeqCst);
         warmup();
     }
@@ -185,11 +201,8 @@ pub fn show_text_selection_tag(preset_idx: usize) {
     }
 
     // Signal Show
-    let hwnd_val = TAG_HWND.load(Ordering::SeqCst);
-    if hwnd_val != 0 {
+    if let Some(hwnd) = valid_tag_hwnd() {
         unsafe {
-            let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
             let target_x = pt.x + OFFSET_X;

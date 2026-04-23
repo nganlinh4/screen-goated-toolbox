@@ -194,11 +194,24 @@ fn handle_speaker(hwnd: HWND) {
 }
 
 fn handle_broom_click(hwnd: HWND) {
-    crate::overlay::result::trigger_close_window(hwnd);
+    unsafe {
+        if IsWindow(Some(hwnd)).as_bool() {
+            let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
+    }
 }
 
 fn handle_broom_right(hwnd: HWND) {
-    crate::overlay::result::trigger_close_group(hwnd);
+    unsafe {
+        if IsWindow(Some(hwnd)).as_bool() {
+            let _ = PostMessageW(
+                Some(hwnd),
+                super::super::event_handler::misc::WM_CLOSE_GROUP_CLICK,
+                WPARAM(0),
+                LPARAM(0),
+            );
+        }
+    }
 }
 
 fn handle_broom_drag_start(hwnd: HWND, is_group: bool, is_all: bool) {

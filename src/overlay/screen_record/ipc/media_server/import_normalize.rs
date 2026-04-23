@@ -4,9 +4,9 @@ use std::time::Instant;
 
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::audio::{Channels, Layout};
-use symphonia::core::codecs::CodecRegistry;
 use symphonia::core::codecs::CODEC_TYPE_NULL;
 use symphonia::core::codecs::CODEC_TYPE_OPUS;
+use symphonia::core::codecs::CodecRegistry;
 use symphonia::core::codecs::DecoderOptions;
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::{FormatOptions, FormatReader};
@@ -79,7 +79,10 @@ impl SymphoniaImportAudioDecoder {
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
         let mut hint = Hint::new();
-        if let Some(ext) = Path::new(file_path).extension().and_then(|ext| ext.to_str()) {
+        if let Some(ext) = Path::new(file_path)
+            .extension()
+            .and_then(|ext| ext.to_str())
+        {
             hint.with_extension(ext);
         }
 
@@ -213,7 +216,10 @@ impl SymphoniaImportAudioDecoder {
                 ((samples_per_channel as i64) * 10_000_000 / self.sample_rate as i64).max(1);
             self.next_pts_100ns = timestamp_100ns + duration_100ns;
 
-            return Ok(Some((bytemuck::cast_slice(samples).to_vec(), timestamp_100ns)));
+            return Ok(Some((
+                bytemuck::cast_slice(samples).to_vec(),
+                timestamp_100ns,
+            )));
         }
     }
 }
@@ -244,8 +250,7 @@ pub(super) fn normalize_imported_video_mf(
     let nominal_fps = ((fps_num as f64 / fps_den as f64).round() as u32).max(1);
     let bitrate_kbps =
         compute_default_video_bitrate_kbps(metadata.width, metadata.height, nominal_fps);
-    let nominal_frame_duration_100ns =
-        ((10_000_000i64 * fps_den as i64) / fps_num as i64).max(1);
+    let nominal_frame_duration_100ns = ((10_000_000i64 * fps_den as i64) / fps_num as i64).max(1);
 
     crate::log_info!(
         "[VideoImport:{}][Normalize][MF] start input=\"{}\" output=\"{}\" {}x{} fps={}/{} bitrate_kbps={}",
@@ -324,8 +329,11 @@ pub(super) fn normalize_imported_video_mf(
     let mut video_frames_encoded = 0u64;
 
     loop {
-        let next_frame =
-            next_video_frame_in_presentation_order(&video_decoder, &mut reorder_queue, &mut video_eof)?;
+        let next_frame = next_video_frame_in_presentation_order(
+            &video_decoder,
+            &mut reorder_queue,
+            &mut video_eof,
+        )?;
         let Some(next_frame) = next_frame else {
             break;
         };
@@ -417,7 +425,10 @@ pub(super) fn probe_media_has_audio(path: &Path) -> Result<bool, String> {
     probe_has_audio_track(&path.to_string_lossy())
 }
 
-fn open_import_audio_decoder(file_path: &str, trace_id: &str) -> Result<ImportAudioDecoder, String> {
+fn open_import_audio_decoder(
+    file_path: &str,
+    trace_id: &str,
+) -> Result<ImportAudioDecoder, String> {
     match MfAudioDecoder::new_with_preferred_output_format(
         file_path,
         Some(NORMALIZED_IMPORT_AUDIO_SAMPLE_RATE),
@@ -480,7 +491,11 @@ fn select_symphonia_audio_track<'a>(
                     || params.channel_layout.is_some()
                     || params.codec == CODEC_TYPE_OPUS)
         })
-        .or_else(|| tracks.iter().find(|track| track.codec_params.codec != CODEC_TYPE_NULL))
+        .or_else(|| {
+            tracks
+                .iter()
+                .find(|track| track.codec_params.codec != CODEC_TYPE_NULL)
+        })
 }
 
 fn backfill_opus_codec_params(
@@ -700,7 +715,9 @@ fn drain_audio_until_target(
     loop {
         let should_write = pending_audio_sample
             .as_ref()
-            .map(|(_, timestamp_100ns)| (*timestamp_100ns - base_pts_100ns).max(0) <= target_timestamp_100ns)
+            .map(|(_, timestamp_100ns)| {
+                (*timestamp_100ns - base_pts_100ns).max(0) <= target_timestamp_100ns
+            })
             .unwrap_or(false);
         if !should_write {
             break;

@@ -24,6 +24,22 @@ pub fn is_recording_overlay_active() -> bool {
     RECORDING_STATE.load(Ordering::SeqCst) == 2
 }
 
+fn valid_recording_hwnd() -> Option<HWND> {
+    let hwnd_val = RECORDING_HWND_VAL.load(Ordering::SeqCst);
+    if hwnd_val == 0 {
+        return None;
+    }
+    let hwnd = HWND(hwnd_val as *mut _);
+    unsafe {
+        if IsWindow(Some(hwnd)).as_bool() {
+            Some(hwnd)
+        } else {
+            RECORDING_HWND_VAL.store(0, Ordering::SeqCst);
+            None
+        }
+    }
+}
+
 pub fn stop_recording_and_submit() {
     if is_recording_overlay_active() {
         let was_stopped = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
@@ -31,9 +47,7 @@ pub fn stop_recording_and_submit() {
         // If already stopped (processing) or aborted, hitting this again should FORCE CLOSE
         if was_stopped {
             AUDIO_ABORT_SIGNAL.store(true, Ordering::SeqCst);
-            let hwnd_val = RECORDING_HWND_VAL.load(Ordering::SeqCst);
-            if hwnd_val != 0 {
-                let hwnd = HWND(hwnd_val as *mut _);
+            if let Some(hwnd) = valid_recording_hwnd() {
                 unsafe {
                     let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
                 }
@@ -42,9 +56,7 @@ pub fn stop_recording_and_submit() {
             // First time: Just stop and let it process
             AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
             // Force update UI to "Processing"
-            let hwnd_val = RECORDING_HWND_VAL.load(Ordering::SeqCst);
-            if hwnd_val != 0 {
-                let hwnd = HWND(hwnd_val as *mut _);
+            if let Some(hwnd) = valid_recording_hwnd() {
                 unsafe {
                     let _ = PostMessageW(Some(hwnd), WM_APP_UPDATE_STATE, WPARAM(0), LPARAM(0));
                 }
@@ -59,6 +71,7 @@ pub fn warmup_recording_overlay() {
         .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
     {
+        RECORDING_HWND_VAL.store(0, Ordering::SeqCst);
         std::thread::spawn(|| {
             window::internal_create_recording_window();
         });
@@ -67,9 +80,10 @@ pub fn warmup_recording_overlay() {
 
 pub fn show_recording_overlay(preset_idx: usize) {
     let current = RECORDING_STATE.load(Ordering::SeqCst);
+    let hwnd = valid_recording_hwnd();
 
     // If state is 0 (not started) or 1 (stuck warming up), trigger recovery and auto-show
-    if current == 0 || (current == 1 && RECORDING_HWND_VAL.load(Ordering::SeqCst) == 0) {
+    if current == 0 || (current == 1 && hwnd.is_none()) {
         // Reset state if stuck
         if current == 1 {
             RECORDING_STATE.store(0, Ordering::SeqCst);
@@ -88,10 +102,9 @@ pub fn show_recording_overlay(preset_idx: usize) {
             // Poll for up to 5 seconds
             for _ in 0..50 {
                 std::thread::sleep(std::time::Duration::from_millis(100));
-                if RECORDING_HWND_VAL.load(Ordering::SeqCst) != 0 {
+                if let Some(hwnd) = valid_recording_hwnd() {
                     // Ready! Trigger show
                     unsafe {
-                        let hwnd = HWND(RECORDING_HWND_VAL.load(Ordering::SeqCst) as *mut _);
                         let _ =
                             PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(preset_idx), LPARAM(0));
                     }
@@ -104,9 +117,7 @@ pub fn show_recording_overlay(preset_idx: usize) {
     }
 
     // Wait for HWND to be valid (state is 1 or 2)
-    let hwnd_val = RECORDING_HWND_VAL.load(Ordering::SeqCst);
-
-    if hwnd_val != 0 {
+    if let Some(hwnd) = hwnd {
         // Reset Signals
         AUDIO_STOP_SIGNAL.store(false, Ordering::SeqCst);
         AUDIO_PAUSE_SIGNAL.store(false, Ordering::SeqCst);
@@ -115,12 +126,7 @@ pub fn show_recording_overlay(preset_idx: usize) {
         CURRENT_RMS.store(0, Ordering::Relaxed);
 
         unsafe {
-            let _ = PostMessageW(
-                Some(HWND(hwnd_val as *mut _)),
-                WM_APP_SHOW,
-                WPARAM(preset_idx),
-                LPARAM(0),
-            );
+            let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(preset_idx), LPARAM(0));
         }
     } else {
         // HWND not ready yet, reset state and try again

@@ -420,7 +420,7 @@ pub fn get() -> LocaleText {
         tool_desc_qwen3_1_7b: "Higher accuracy speech-to-text (52 languages)",
         tool_qwen3_runtime: "Qwen3-ASR CUDA Runtime",
         tool_desc_qwen3_runtime: "Required to run Qwen3-ASR models",
-        tool_desc_qwen3_server: "Standalone Qwen3-ASR reference server executable for Qwen Local subtitles. Uses the shared Qwen3 runtime.",
+        tool_desc_qwen3_server: "Standalone Qwen3-ASR reference server executable. Uses the shared Qwen3 runtime.",
         tool_desc_ytdlp: "Used in Media Download feature",
         tool_desc_deno: "Used as JavaScript runtime for yt-dlp (YouTube challenge solving)",
         tool_desc_ffmpeg: "Used in Media Download feature",

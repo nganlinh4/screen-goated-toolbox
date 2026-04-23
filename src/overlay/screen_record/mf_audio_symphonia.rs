@@ -33,7 +33,10 @@ impl SymphoniaAudioDecoder {
         let file = File::open(file_path).map_err(|e| format!("Open audio source: {e}"))?;
         let media_source = MediaSourceStream::new(Box::new(file), Default::default());
         let mut hint = Hint::new();
-        if let Some(ext) = Path::new(file_path).extension().and_then(|ext| ext.to_str()) {
+        if let Some(ext) = Path::new(file_path)
+            .extension()
+            .and_then(|ext| ext.to_str())
+        {
             hint.with_extension(ext);
         }
 
@@ -219,7 +222,9 @@ impl SymphoniaAudioDecoder {
     }
 }
 
-fn select_audio_track(tracks: &[symphonia::core::formats::Track]) -> Option<&symphonia::core::formats::Track> {
+fn select_audio_track(
+    tracks: &[symphonia::core::formats::Track],
+) -> Option<&symphonia::core::formats::Track> {
     tracks.iter().find(|track| {
         let codec = track.codec_params.codec;
         codec != CODEC_TYPE_NULL
@@ -230,7 +235,10 @@ fn select_audio_track(tracks: &[symphonia::core::formats::Track]) -> Option<&sym
     })
 }
 
-fn backfill_opus_codec_params(file_path: &str, codec_params: &mut symphonia::core::codecs::CodecParameters) {
+fn backfill_opus_codec_params(
+    file_path: &str,
+    codec_params: &mut symphonia::core::codecs::CodecParameters,
+) {
     if codec_params.codec != CODEC_TYPE_OPUS {
         return;
     }
@@ -365,9 +373,7 @@ fn remap_channels(samples: &[f32], source_channels: usize, target_channels: usiz
             _ => {
                 remapped.extend_from_slice(frame);
                 let fill = *frame.last().unwrap_or(&0.0);
-                remapped.extend(
-                    std::iter::repeat(fill).take(target_channels - source_channels),
-                );
+                remapped.extend(std::iter::repeat(fill).take(target_channels - source_channels));
             }
         }
     }
@@ -389,9 +395,10 @@ fn resample_interleaved_f32(
         return samples.to_vec();
     }
 
-    let target_frames =
-        (((source_frames as u128) * (target_sample_rate as u128) + (source_sample_rate as u128) - 1)
-            / source_sample_rate as u128) as usize;
+    let target_frames = (((source_frames as u128) * (target_sample_rate as u128)
+        + (source_sample_rate as u128)
+        - 1)
+        / source_sample_rate as u128) as usize;
     let mut output = Vec::with_capacity(target_frames * channels);
     let ratio = source_sample_rate as f64 / target_sample_rate as f64;
 

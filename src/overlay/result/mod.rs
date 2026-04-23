@@ -15,7 +15,7 @@ pub use window::{ResultWindowParams, create_result_window, get_chain_color, upda
 
 // Trigger functions for button canvas IPC
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
+use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageW, WM_CLOSE};
 
 // Helper to check if any window is currently refining/editing
 pub fn is_any_refine_active() -> bool {
@@ -84,7 +84,12 @@ pub fn trigger_copy(hwnd: HWND) {
                 }
             }
             // Update canvas after dropping lock
-            button_canvas::update_window_position(HWND(hwnd_val as *mut std::ffi::c_void));
+            let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+            unsafe {
+                if IsWindow(Some(hwnd)).as_bool() {
+                    button_canvas::update_window_position(hwnd);
+                }
+            }
         });
     }
 }

@@ -352,6 +352,7 @@ fn main() -> Result<()> {
         chunk_size_ms: args.chunk_size_ms,
         unfixed_chunk_num: args.unfixed_chunk_num,
         unfixed_token_num: args.unfixed_token_num,
+        initial_text: String::new(),
     };
     let chunk_samples = ((config.chunk_size_ms as usize) * SAMPLE_RATE / 1000).max(1);
     let mut dense_state = StreamingState::new(config.clone());

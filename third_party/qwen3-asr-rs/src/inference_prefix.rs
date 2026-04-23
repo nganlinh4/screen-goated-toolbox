@@ -270,21 +270,6 @@ impl AsrInference {
         })
     }
 
-    pub(crate) fn continue_transcription_from_generation_cache(
-        &self,
-        generation_prefix_cache: PromptPrefixCache,
-        language_forced: bool,
-        sample_count: usize,
-        max_new_tokens: usize,
-    ) -> Result<TranscribeResult> {
-        self.transcribe_from_owned_generation_prefix_cache(
-            generation_prefix_cache,
-            language_forced,
-            sample_count,
-            max_new_tokens,
-        )
-    }
-
     fn ensure_rope_capacity(
         &self,
         prefix_cache: &mut PromptPrefixCache,

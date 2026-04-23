@@ -65,75 +65,89 @@ pub fn download_file_with_progress(
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
+    let temp_path = path.with_extension("tmp");
+    let _ = fs::remove_file(&temp_path);
 
     use std::io::Write;
 
-    println!("Downloading file from: {}", url);
-    let response = ureq::get(url)
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-        .call()
-        .map_err(|e| anyhow!("Download failed: {}", e))?;
+    let result = (|| -> Result<()> {
+        println!("Downloading file from: {}", url);
+        let response = ureq::get(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+            .call()
+            .map_err(|e| anyhow!("Download failed: {}", e))?;
 
-    let total_size = response
-        .headers()
-        .get("content-length")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(0);
+        let total_size = response
+            .headers()
+            .get("content-length")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
 
-    let mut reader = response.into_body().into_reader();
-    let mut file = fs::File::create(path)?;
+        let mut reader = response.into_body().into_reader();
+        let mut file = fs::File::create(&temp_path)?;
 
-    let mut buffer = [0; 8192];
-    let mut downloaded: u64 = 0;
+        let mut buffer = [0; 8192];
+        let mut downloaded: u64 = 0;
 
-    let update_interval = std::time::Duration::from_millis(100);
-    let mut last_update = std::time::Instant::now();
+        let update_interval = std::time::Duration::from_millis(100);
+        let mut last_update = std::time::Instant::now();
 
-    loop {
-        if stop_signal.load(std::sync::atomic::Ordering::Relaxed) {
-            let _ = fs::remove_file(path);
-            return Err(anyhow!("Download cancelled"));
-        }
+        loop {
+            if stop_signal.load(std::sync::atomic::Ordering::Relaxed) {
+                return Err(anyhow!("Download cancelled"));
+            }
 
-        let bytes_read = reader.read(&mut buffer)?;
-        if bytes_read == 0 {
-            break;
-        }
-        file.write_all(&buffer[..bytes_read])?;
-        downloaded += bytes_read as u64;
+            let bytes_read = reader.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+            file.write_all(&buffer[..bytes_read])?;
+            downloaded += bytes_read as u64;
 
-        if last_update.elapsed() >= update_interval {
-            on_progress(downloaded, total_size);
+            if last_update.elapsed() >= update_interval {
+                on_progress(downloaded, total_size);
 
-            if total_size > 0 {
-                let progress = (downloaded as f32 / total_size as f32) * 100.0;
-                use crate::overlay::realtime_webview::state::REALTIME_STATE;
-                if let Ok(mut state) = REALTIME_STATE.lock() {
-                    state.download_progress = progress;
+                if total_size > 0 {
+                    let progress = (downloaded as f32 / total_size as f32) * 100.0;
+                    use crate::overlay::realtime_webview::state::REALTIME_STATE;
+                    if let Ok(mut state) = REALTIME_STATE.lock() {
+                        state.download_progress = progress;
+                    }
+                }
+                last_update = std::time::Instant::now();
+
+                use super::WM_DOWNLOAD_PROGRESS;
+                use crate::overlay::realtime_webview::state::REALTIME_HWND;
+                use windows::Win32::Foundation::{LPARAM, WPARAM};
+                use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
+
+                unsafe {
+                    if !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {
+                        let _ = PostMessageW(
+                            Some(REALTIME_HWND),
+                            WM_DOWNLOAD_PROGRESS,
+                            WPARAM(0),
+                            LPARAM(0),
+                        );
+                    }
                 }
             }
-            last_update = std::time::Instant::now();
-
-            use super::WM_DOWNLOAD_PROGRESS;
-            use crate::overlay::realtime_webview::state::REALTIME_HWND;
-            use windows::Win32::Foundation::{LPARAM, WPARAM};
-            use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
-
-            unsafe {
-                if !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {
-                    let _ = PostMessageW(
-                        Some(REALTIME_HWND),
-                        WM_DOWNLOAD_PROGRESS,
-                        WPARAM(0),
-                        LPARAM(0),
-                    );
-                }
-            }
         }
+
+        file.flush()?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&temp_path, path)?;
+        on_progress(total_size.max(downloaded), total_size.max(downloaded));
+        Ok(())
+    })();
+
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
     }
 
-    Ok(())
+    result
 }
 
 fn sync_download_badge(progress: f32) {

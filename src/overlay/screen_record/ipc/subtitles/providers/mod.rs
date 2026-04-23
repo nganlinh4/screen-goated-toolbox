@@ -1,9 +1,7 @@
-mod gemini;
 mod groq;
 mod qwen;
 
-use crate::APP;
-use crate::api::realtime_audio::qwen3::{Qwen3ModelVariant, assets, reference, runtime};
+use crate::api::realtime_audio::qwen3::{Qwen3ModelVariant, assets, runtime};
 use crate::runtime_support::{RuntimeArch, environment_info};
 
 use super::types::{CompactSubtitleSegment, SubtitleGenerationMethod, SubtitleMethodCapability};
@@ -25,16 +23,13 @@ pub trait SubtitleBackend {
 
 pub fn create_backend(
     method: SubtitleGenerationMethod,
-) -> Result<Box<dyn SubtitleBackend + Send>, String> {
+) -> Result<Box<dyn SubtitleBackend>, String> {
     match method {
         SubtitleGenerationMethod::GroqWhisperAccurate => {
             Ok(Box::new(groq::GroqSubtitleBackend::new(method)?))
         }
         SubtitleGenerationMethod::GroqWhisperLargeV3Turbo => {
             Ok(Box::new(groq::GroqSubtitleBackend::new(method)?))
-        }
-        SubtitleGenerationMethod::GeminiLive3_1FlashPreview => {
-            Ok(Box::new(gemini::GeminiLiveSubtitleBackend::new()?))
         }
         SubtitleGenerationMethod::QwenLocal0_6B => Ok(Box::new(qwen::QwenSubtitleBackend::new(
             Qwen3ModelVariant::Small,
@@ -57,7 +52,6 @@ pub fn capabilities() -> Vec<SubtitleMethodCapability> {
             available: true,
             reason: None,
         },
-        gemini_live_capability(),
         qwen_local_capability(
             SubtitleGenerationMethod::QwenLocal0_6B,
             Qwen3ModelVariant::Small,
@@ -126,41 +120,6 @@ pub fn join_word_tokens(tokens: &[&str]) -> String {
     result
 }
 
-fn gemini_live_capability() -> SubtitleMethodCapability {
-    let app = match APP.lock() {
-        Ok(app) => app,
-        Err(_) => {
-            return SubtitleMethodCapability {
-                method: SubtitleGenerationMethod::GeminiLive3_1FlashPreview,
-                available: false,
-                reason: Some("Gemini Live subtitles are unavailable right now.".to_string()),
-            };
-        }
-    };
-
-    if !app.config.use_gemini {
-        return SubtitleMethodCapability {
-            method: SubtitleGenerationMethod::GeminiLive3_1FlashPreview,
-            available: false,
-            reason: Some("Enable Gemini in settings to use Gemini Live subtitles.".to_string()),
-        };
-    }
-
-    if app.config.gemini_api_key.trim().is_empty() {
-        return SubtitleMethodCapability {
-            method: SubtitleGenerationMethod::GeminiLive3_1FlashPreview,
-            available: false,
-            reason: Some("Add a Gemini API key to use Gemini Live subtitles.".to_string()),
-        };
-    }
-
-    SubtitleMethodCapability {
-        method: SubtitleGenerationMethod::GeminiLive3_1FlashPreview,
-        available: true,
-        reason: None,
-    }
-}
-
 fn qwen_local_capability(
     method: SubtitleGenerationMethod,
     variant: Qwen3ModelVariant,
@@ -211,17 +170,6 @@ fn qwen_local_capability(
             ),
         };
     }
-    if !reference::has_discoverable_server() {
-        return SubtitleMethodCapability {
-            method,
-            available: false,
-            reason: Some(
-                "Install the Qwen3-ASR reference server from Downloaded Tools to use Qwen Local subtitles."
-                    .to_string(),
-            ),
-        };
-    }
-
     SubtitleMethodCapability {
         method,
         available: true,

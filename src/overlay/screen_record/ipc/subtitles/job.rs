@@ -2,8 +2,10 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 
 use super::audio::{MIN_SUBTITLE_DURATION_SEC, build_trimmed_wav, compact_to_source_time};
+use super::postprocess::sanitize_segments;
 use super::providers;
 use super::types::{
     SubtitleClipResult, SubtitleGenerationCapabilities, SubtitleGenerationRequest,
@@ -22,11 +24,26 @@ fn subtitle_jobs() -> &'static Mutex<HashMap<String, SubtitleJobHandle>> {
     SUBTITLE_JOBS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn find_active_subtitle_job_id(jobs: &HashMap<String, SubtitleJobHandle>) -> Option<String> {
+    jobs.iter().find_map(|(job_id, handle)| {
+        let snapshot = handle.snapshot.lock().ok()?;
+        matches!(snapshot.state.as_str(), "queued" | "running").then(|| job_id.clone())
+    })
+}
+
 pub fn handle_start_subtitle_generation(
     args: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let request: SubtitleGenerationRequest = serde_json::from_value(args.clone())
         .map_err(|e| format!("Invalid subtitle request: {e}"))?;
+    let mut jobs = subtitle_jobs()
+        .lock()
+        .map_err(|_| "Subtitle jobs lock poisoned".to_string())?;
+    if let Some(active_job_id) = find_active_subtitle_job_id(&jobs) {
+        return Err(format!(
+            "Subtitle generation already running (job={active_job_id})"
+        ));
+    }
     let job_id = uuid();
     let snapshot = Arc::new(Mutex::new(SubtitleJobSnapshot {
         state: "queued".to_string(),
@@ -36,18 +53,28 @@ pub fn handle_start_subtitle_generation(
         ..SubtitleJobSnapshot::default()
     }));
     let cancelled = Arc::new(AtomicBool::new(false));
-    subtitle_jobs()
-        .lock()
-        .map_err(|_| "Subtitle jobs lock poisoned".to_string())?
-        .insert(
-            job_id.clone(),
-            SubtitleJobHandle {
-                snapshot: snapshot.clone(),
-                cancelled: cancelled.clone(),
-            },
-        );
+    jobs.insert(
+        job_id.clone(),
+        SubtitleJobHandle {
+            snapshot: snapshot.clone(),
+            cancelled: cancelled.clone(),
+        },
+    );
+    drop(jobs);
 
-    std::thread::spawn(move || run_subtitle_generation(request, snapshot, cancelled));
+    crate::log_info!(
+        "[SubtitleGen][job={}] queued method={:?} clips={} source_type={} language_hint={:?}",
+        job_id,
+        request.subtitle_method,
+        request.clips.len(),
+        request.source_type,
+        request.language_hint
+    );
+
+    let thread_job_id = job_id.clone();
+    std::thread::spawn(move || {
+        run_subtitle_generation(&thread_job_id, request, snapshot, cancelled)
+    });
 
     Ok(serde_json::json!({ "jobId": job_id }))
 }
@@ -56,17 +83,21 @@ pub fn handle_get_subtitle_generation_status(
     args: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let job_id = args["jobId"].as_str().ok_or("Missing jobId")?;
+    let known_results_revision = args["knownResultsRevision"].as_u64().unwrap_or(0) as usize;
     let jobs = subtitle_jobs()
         .lock()
         .map_err(|_| "Subtitle jobs lock poisoned".to_string())?;
     let handle = jobs
         .get(job_id)
         .ok_or_else(|| format!("Unknown subtitle job: {job_id}"))?;
-    let snapshot = handle
+    let mut snapshot = handle
         .snapshot
         .lock()
         .map_err(|_| "Subtitle snapshot lock poisoned".to_string())?
         .clone();
+    if snapshot.results_revision == known_results_revision {
+        snapshot.results.clear();
+    }
     serde_json::to_value(snapshot).map_err(|e| format!("Serialize subtitle status: {e}"))
 }
 
@@ -101,11 +132,13 @@ pub fn handle_cancel_subtitle_generation(
 }
 
 fn run_subtitle_generation(
+    job_id: &str,
     request: SubtitleGenerationRequest,
     snapshot: Arc<Mutex<SubtitleJobSnapshot>>,
     cancelled: Arc<AtomicBool>,
 ) {
-    let result = run_subtitle_generation_inner(&request, &snapshot, &cancelled);
+    let started_at = Instant::now();
+    let result = run_subtitle_generation_inner(job_id, &request, &snapshot, &cancelled);
     let mut locked = match snapshot.lock() {
         Ok(locked) => locked,
         Err(_) => return,
@@ -120,6 +153,13 @@ fn run_subtitle_generation(
     }
     match result {
         Ok(()) => {
+            crate::log_info!(
+                "[SubtitleGen][job={}] completed in {:.3}s clips={} skipped={}",
+                job_id,
+                started_at.elapsed().as_secs_f64(),
+                request.clips.len(),
+                locked.skipped.len()
+            );
             locked.state = "completed".to_string();
             locked.progress = 1.0;
             locked.active_clip_id = None;
@@ -138,6 +178,12 @@ fn run_subtitle_generation(
             }
         }
         Err(error) => {
+            crate::log_info!(
+                "[SubtitleGen][job={}] failed after {:.3}s: {}",
+                job_id,
+                started_at.elapsed().as_secs_f64(),
+                error
+            );
             locked.state = "error".to_string();
             locked.message = error.clone();
             locked.error = Some(error);
@@ -149,11 +195,18 @@ fn run_subtitle_generation(
 }
 
 fn run_subtitle_generation_inner(
+    job_id: &str,
     request: &SubtitleGenerationRequest,
     snapshot: &Arc<Mutex<SubtitleJobSnapshot>>,
     cancelled: &Arc<AtomicBool>,
 ) -> Result<(), String> {
     let mut backend = providers::create_backend(request.subtitle_method)?;
+    crate::log_info!(
+        "[SubtitleGen][job={}] running method={:?} clips={}",
+        job_id,
+        request.subtitle_method,
+        request.clips.len()
+    );
 
     if let Ok(mut locked) = snapshot.lock() {
         locked.state = "running".to_string();
@@ -164,10 +217,27 @@ fn run_subtitle_generation_inner(
 
     for (index, clip) in request.clips.iter().enumerate() {
         if cancelled.load(Ordering::SeqCst) {
+            crate::log_info!(
+                "[SubtitleGen][job={}] cancelled before clip {}/{} id={} name={:?}",
+                job_id,
+                index + 1,
+                request.clips.len(),
+                clip.clip_id,
+                clip.clip_name
+            );
             return Ok(());
         }
 
         if clip.source_path.trim().is_empty() || !Path::new(&clip.source_path).exists() {
+            crate::log_info!(
+                "[SubtitleGen][job={}] skipping clip {}/{} id={} name={:?}: missing {} source",
+                job_id,
+                index + 1,
+                request.clips.len(),
+                clip.clip_id,
+                clip.clip_name,
+                request.source_type
+            );
             push_skipped(
                 snapshot,
                 &clip.clip_id,
@@ -184,12 +254,37 @@ fn run_subtitle_generation_inner(
         )?;
         upsert_clip_result(snapshot, &clip.clip_id, Vec::new(), true)?;
 
+        let clip_started_at = Instant::now();
+        crate::log_info!(
+            "[SubtitleGen][job={}][clip={}][{}/{}] start name={:?} source_duration_sec={:.3} trim_segments={} mic_offset_sec={:?}",
+            job_id,
+            clip.clip_id,
+            index + 1,
+            request.clips.len(),
+            clip.clip_name,
+            clip.source_duration,
+            clip.trim_segments.len(),
+            clip.mic_audio_offset_sec
+        );
+
+        let wav_started_at = Instant::now();
         let wav_data = build_trimmed_wav(
             &clip.source_path,
             &clip.trim_segments,
             clip.mic_audio_offset_sec.unwrap_or(0.0),
             request.source_type == "mic",
         )?;
+        crate::log_info!(
+            "[SubtitleGen][job={}][clip={}] prepared-audio {:.3}s wav_bytes={} wav_sec={:.3}",
+            job_id,
+            clip.clip_id,
+            wav_started_at.elapsed().as_secs_f64(),
+            wav_data.len(),
+            clip.trim_segments
+                .iter()
+                .map(|segment| (segment.end_time - segment.start_time).max(0.0))
+                .sum::<f64>()
+        );
         let mut publish_progress =
             |progress: providers::SubtitleBackendProgress| -> Result<(), String> {
                 publish_clip_progress(
@@ -214,6 +309,23 @@ fn run_subtitle_generation_inner(
         );
 
         upsert_clip_result(snapshot, &clip.clip_id, mapped_segments, false)?;
+        crate::log_info!(
+            "[SubtitleGen][job={}][clip={}] finished in {:.3}s segments={}",
+            job_id,
+            clip.clip_id,
+            clip_started_at.elapsed().as_secs_f64(),
+            snapshot
+                .lock()
+                .ok()
+                .and_then(|locked| {
+                    locked
+                        .results
+                        .iter()
+                        .find(|result| result.clip_id == clip.clip_id)
+                        .map(|result| result.segments.len())
+                })
+                .unwrap_or(0)
+        );
 
         let mut locked = snapshot
             .lock()
@@ -283,6 +395,7 @@ fn publish_clip_progress(
             segments: mapped_segments,
         });
     }
+    locked.results_revision += 1;
     Ok(())
 }
 
@@ -291,20 +404,23 @@ fn map_segments_to_source_time(
     trim_segments: &[super::types::SubtitleTrimSegment],
     source_duration: f64,
 ) -> Vec<SubtitleSegmentResult> {
-    compact_segments
-        .into_iter()
-        .map(|segment| {
-            let start_time =
-                compact_to_source_time(segment.start_time, trim_segments, source_duration);
-            let end_time = compact_to_source_time(segment.end_time, trim_segments, source_duration)
-                .max(start_time + MIN_SUBTITLE_DURATION_SEC);
-            SubtitleSegmentResult {
-                start_time,
-                end_time,
-                text: segment.text,
-            }
-        })
-        .collect()
+    sanitize_segments(
+        compact_segments
+            .into_iter()
+            .map(|segment| {
+                let start_time =
+                    compact_to_source_time(segment.start_time, trim_segments, source_duration);
+                let end_time =
+                    compact_to_source_time(segment.end_time, trim_segments, source_duration)
+                        .max(start_time + MIN_SUBTITLE_DURATION_SEC);
+                SubtitleSegmentResult {
+                    start_time,
+                    end_time,
+                    text: segment.text,
+                }
+            })
+            .collect(),
+    )
 }
 
 fn update_progress(
@@ -345,6 +461,7 @@ fn upsert_clip_result(
             segments,
         });
     }
+    locked.results_revision += 1;
     Ok(())
 }
 

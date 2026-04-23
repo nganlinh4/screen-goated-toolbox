@@ -421,7 +421,7 @@ pub fn get() -> LocaleText {
         tool_desc_qwen3_1_7b: "Nhận dạng giọng nói độ chính xác cao (52 ngôn ngữ)",
         tool_qwen3_runtime: "Runtime CUDA Qwen3-ASR",
         tool_desc_qwen3_runtime: "Cần thiết để chạy mô hình Qwen3-ASR",
-        tool_desc_qwen3_server: "File thực thi server tham chiếu Qwen3-ASR độc lập cho phụ đề Qwen Local. Dùng chung runtime Qwen3 đã cài.",
+        tool_desc_qwen3_server: "File thực thi server tham chiếu Qwen3-ASR độc lập. Dùng chung runtime Qwen3 đã cài.",
         tool_desc_ytdlp: "Dùng trong tính năng Tải media",
         tool_desc_deno: "Dùng làm JavaScript runtime cho yt-dlp (giải challenge YouTube)",
         tool_desc_ffmpeg: "Dùng trong tính năng Tải media",

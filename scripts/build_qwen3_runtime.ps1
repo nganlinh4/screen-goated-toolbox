@@ -17,6 +17,10 @@ $nativeDir = Join-Path $RepoRoot "native\qwen3_runtime"
 if (!(Test-Path $nativeDir)) {
     throw "Native Qwen3 runtime source not found at $nativeDir"
 }
+$repoRuntimeDistDir = Join-Path $nativeDir "dist"
+$repoRuntimeDll = Join-Path $repoRuntimeDistDir "sgt_qwen3_runtime.dll"
+$repoRuntimeManifest = Join-Path $repoRuntimeDistDir "sgt_qwen3_runtime.manifest.json"
+$protocolPath = Join-Path $nativeDir "src\protocol.rs"
 
 $distRoot = Join-Path $RepoRoot "dist"
 $bundleDir = Join-Path $distRoot $AssetName
@@ -118,6 +122,45 @@ function Resolve-LibtorchRoot {
     return $VariantDir
 }
 
+function Get-QwenRuntimeAbiVersion {
+    param([string]$ProtocolFile)
+
+    if (!(Test-Path $ProtocolFile)) {
+        throw "Qwen3 runtime protocol file not found at $ProtocolFile"
+    }
+
+    $content = Get-Content -Path $ProtocolFile -Raw
+    $match = [regex]::Match($content, 'RUNTIME_ABI_VERSION:\s*u32\s*=\s*(\d+)')
+    if (!$match.Success) {
+        throw "Could not resolve Qwen3 runtime ABI version from $ProtocolFile"
+    }
+    return [int]$match.Groups[1].Value
+}
+
+function Write-QwenRuntimeManifest {
+    param(
+        [string]$RuntimeDllPath,
+        [string[]]$OutputPaths,
+        [int]$AbiVersion
+    )
+
+    $runtimeInfo = Get-Item -LiteralPath $RuntimeDllPath
+    $sha256 = (Get-FileHash -LiteralPath $RuntimeDllPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $manifest = [ordered]@{
+        sha256 = $sha256
+        abi_version = $AbiVersion
+        size = [int64]$runtimeInfo.Length
+    } | ConvertTo-Json
+
+    foreach ($outputPath in $OutputPaths) {
+        $parent = Split-Path -Parent $outputPath
+        if ($parent) {
+            New-Item -ItemType Directory -Force -Path $parent | Out-Null
+        }
+        Set-Content -Path $outputPath -Value $manifest
+    }
+}
+
 $resolvedRuntime = Resolve-QwenRuntimeVariant -RequestedRuntime $Runtime
 $libtorchUrl = Get-LibtorchUrl -Variant $resolvedRuntime
 $libtorchZip = Join-Path $cacheDir "libtorch-$resolvedRuntime.zip"
@@ -188,10 +231,18 @@ $runtimeDll = Join-Path $nativeDir "target\release\sgt_qwen3_runtime.dll"
 if (!(Test-Path $runtimeDll)) {
     throw "Expected built runtime DLL at $runtimeDll"
 }
+$runtimeAbiVersion = Get-QwenRuntimeAbiVersion -ProtocolFile $protocolPath
 
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $bundleDir
 New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
+New-Item -ItemType Directory -Force -Path $repoRuntimeDistDir | Out-Null
 Copy-Item $runtimeDll (Join-Path $bundleDir "sgt_qwen3_runtime.dll") -Force
+Copy-Item $runtimeDll $repoRuntimeDll -Force
+
+Write-QwenRuntimeManifest -RuntimeDllPath $runtimeDll -OutputPaths @(
+    (Join-Path $bundleDir "sgt_qwen3_runtime.manifest.json"),
+    $repoRuntimeManifest
+) -AbiVersion $runtimeAbiVersion
 
 foreach ($dllPath in Get-ChildItem -Path (Join-Path $libtorchRoot "lib\*.dll") -File) {
     Copy-Item $dllPath.FullName (Join-Path $bundleDir $dllPath.Name) -Force
@@ -205,7 +256,7 @@ foreach ($metadataName in @("build-version", "build-hash")) {
 }
 
 if ($CopyToPrivateBin) {
-    $privateBin = Join-Path $env:LOCALAPPDATA "screen-goated-toolbox\bin"
+    $privateBin = Join-Path $env:LOCALAPPDATA "screen-goated-toolbox\bin\x64"
     New-Item -ItemType Directory -Force -Path $privateBin | Out-Null
     Copy-Item (Join-Path $bundleDir "*") $privateBin -Recurse -Force
     Write-Host "Copied Qwen3 runtime bundle into $privateBin"

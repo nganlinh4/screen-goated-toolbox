@@ -6,8 +6,8 @@ mod mf_audio_symphonia;
 
 use parking_lot::Mutex;
 
-use super::mf_decode;
 use self::mf_audio_symphonia::SymphoniaAudioDecoder;
+use super::mf_decode;
 use windows::Win32::Media::MediaFoundation::*;
 
 /// Configuration for audio processing.
@@ -224,63 +224,63 @@ impl MfAudioDecoder {
 }
 
 fn read_samples_mf(backend: &MfBackend) -> Result<Option<(Vec<u8>, i64)>, String> {
-        let mut stream_flags: u32 = 0;
-        let mut timestamp: i64 = 0;
-        let mut sample: Option<IMFSample> = None;
+    let mut stream_flags: u32 = 0;
+    let mut timestamp: i64 = 0;
+    let mut sample: Option<IMFSample> = None;
 
-        unsafe {
-            backend
-                .reader
-                .ReadSample(
-                    backend.audio_stream_index,
-                    0,
-                    None,
-                    Some(&mut stream_flags),
-                    Some(&mut timestamp),
-                    Some(&mut sample),
-                )
-                .map_err(|e| format!("ReadSample audio: {e}"))?;
-        }
-
-        if (stream_flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32) != 0 {
-            return Ok(None);
-        }
-
-        let sample = match sample {
-            Some(s) => s,
-            None => return Ok(None),
-        };
-
-        // Convert to contiguous buffer and copy out
-        let buffer = unsafe {
-            sample
-                .ConvertToContiguousBuffer()
-                .map_err(|e| format!("ConvertToContiguousBuffer: {e}"))?
-        };
-
-        let mut data_ptr: *mut u8 = std::ptr::null_mut();
-        let mut length: u32 = 0;
-        unsafe {
-            buffer
-                .Lock(&mut data_ptr, None, Some(&mut length))
-                .map_err(|e| format!("Lock buffer: {e}"))?;
-        }
-
-        let data = unsafe { std::slice::from_raw_parts(data_ptr, length as usize).to_vec() };
-
-        unsafe {
-            let _ = buffer.Unlock();
-        }
-
-        let normalized = match backend.output_format {
-            AudioOutputFormat::Float32 => data,
-            AudioOutputFormat::PcmInteger { bits_per_sample } => {
-                pcm_integer_bytes_to_f32le_bytes(&data, bits_per_sample)
-            }
-        };
-
-        Ok(Some((normalized, timestamp)))
+    unsafe {
+        backend
+            .reader
+            .ReadSample(
+                backend.audio_stream_index,
+                0,
+                None,
+                Some(&mut stream_flags),
+                Some(&mut timestamp),
+                Some(&mut sample),
+            )
+            .map_err(|e| format!("ReadSample audio: {e}"))?;
     }
+
+    if (stream_flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32) != 0 {
+        return Ok(None);
+    }
+
+    let sample = match sample {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    // Convert to contiguous buffer and copy out
+    let buffer = unsafe {
+        sample
+            .ConvertToContiguousBuffer()
+            .map_err(|e| format!("ConvertToContiguousBuffer: {e}"))?
+    };
+
+    let mut data_ptr: *mut u8 = std::ptr::null_mut();
+    let mut length: u32 = 0;
+    unsafe {
+        buffer
+            .Lock(&mut data_ptr, None, Some(&mut length))
+            .map_err(|e| format!("Lock buffer: {e}"))?;
+    }
+
+    let data = unsafe { std::slice::from_raw_parts(data_ptr, length as usize).to_vec() };
+
+    unsafe {
+        let _ = buffer.Unlock();
+    }
+
+    let normalized = match backend.output_format {
+        AudioOutputFormat::Float32 => data,
+        AudioOutputFormat::PcmInteger { bits_per_sample } => {
+            pcm_integer_bytes_to_f32le_bytes(&data, bits_per_sample)
+        }
+    };
+
+    Ok(Some((normalized, timestamp)))
+}
 
 fn seek_mf(backend: &MfBackend, position_100ns: i64) -> Result<(), String> {
     let propvar = super::mf_decode::make_i64_propvariant(position_100ns);
@@ -472,8 +472,8 @@ fn pcm16_bytes_to_f32le_bytes(bytes: &[u8]) -> Vec<u8> {
 fn pcm24_bytes_to_f32le_bytes(bytes: &[u8]) -> Vec<u8> {
     let mut floats = Vec::with_capacity((bytes.len() / 3) * 4);
     for chunk in bytes.chunks_exact(3) {
-        let sample = ((chunk[2] as i32) << 24 | (chunk[1] as i32) << 16 | (chunk[0] as i32) << 8)
-            >> 8;
+        let sample =
+            ((chunk[2] as i32) << 24 | (chunk[1] as i32) << 16 | (chunk[0] as i32) << 8) >> 8;
         let normalized = sample as f32 / 8_388_608.0;
         floats.extend_from_slice(&normalized.clamp(-1.0, 1.0).to_le_bytes());
     }
@@ -483,8 +483,8 @@ fn pcm24_bytes_to_f32le_bytes(bytes: &[u8]) -> Vec<u8> {
 fn pcm32_bytes_to_f32le_bytes(bytes: &[u8]) -> Vec<u8> {
     let mut floats = Vec::with_capacity(bytes.len());
     for chunk in bytes.chunks_exact(4) {
-        let sample = i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as f32
-            / i32::MAX as f32;
+        let sample =
+            i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as f32 / i32::MAX as f32;
         floats.extend_from_slice(&sample.clamp(-1.0, 1.0).to_le_bytes());
     }
     floats

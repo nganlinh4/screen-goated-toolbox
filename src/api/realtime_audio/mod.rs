@@ -14,6 +14,7 @@ pub mod sherpa_onnx;
 mod state;
 #[cfg(test)]
 mod state_tests;
+pub(crate) mod transcript_state;
 mod transcription;
 mod translation;
 mod utils;
