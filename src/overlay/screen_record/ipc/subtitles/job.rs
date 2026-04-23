@@ -4,7 +4,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
-use super::audio::{MIN_SUBTITLE_DURATION_SEC, build_trimmed_wav, compact_to_source_time};
+use super::audio::{MIN_SUBTITLE_DURATION_SEC, compact_to_source_time};
+use super::media::prepare_clip_media;
 use super::postprocess::sanitize_segments;
 use super::providers;
 use super::types::{
@@ -95,7 +96,26 @@ pub fn handle_get_subtitle_generation_status(
         .lock()
         .map_err(|_| "Subtitle snapshot lock poisoned".to_string())?
         .clone();
-    if snapshot.results_revision == known_results_revision {
+    let latest_results_revision = snapshot.results_revision;
+    if latest_results_revision == known_results_revision {
+        snapshot.results.clear();
+    } else if let Some(next_event) = snapshot
+        .result_events
+        .iter()
+        .find(|event| event.revision > known_results_revision)
+    {
+        snapshot.results = vec![next_event.result.clone()];
+        snapshot.results_revision = next_event.revision;
+        if next_event.revision < latest_results_revision
+            && matches!(snapshot.state.as_str(), "completed" | "cancelled" | "error")
+        {
+            snapshot.state = "running".to_string();
+            snapshot.message = "Streaming subtitles…".to_string();
+            snapshot.message_key = Some("subtitleGenerating".to_string());
+            snapshot.message_params.clear();
+            snapshot.error = None;
+        }
+    } else {
         snapshot.results.clear();
     }
     serde_json::to_value(snapshot).map_err(|e| format!("Serialize subtitle status: {e}"))
@@ -252,7 +272,7 @@ fn run_subtitle_generation_inner(
             index,
             request.clips.len(),
         )?;
-        upsert_clip_result(snapshot, &clip.clip_id, Vec::new(), true)?;
+        upsert_clip_result(snapshot, &clip.clip_id, Vec::new(), true, false)?;
 
         let clip_started_at = Instant::now();
         crate::log_info!(
@@ -267,23 +287,17 @@ fn run_subtitle_generation_inner(
             clip.mic_audio_offset_sec
         );
 
-        let wav_started_at = Instant::now();
-        let wav_data = build_trimmed_wav(
-            &clip.source_path,
-            &clip.trim_segments,
-            clip.mic_audio_offset_sec.unwrap_or(0.0),
-            request.source_type == "mic",
-        )?;
+        let media_started_at = Instant::now();
+        let prepared_media =
+            prepare_clip_media(request.subtitle_method, &request.source_type, clip)?;
         crate::log_info!(
-            "[SubtitleGen][job={}][clip={}] prepared-audio {:.3}s wav_bytes={} wav_sec={:.3}",
+            "[SubtitleGen][job={}][clip={}] prepared-media {:.3}s mime_type={} bytes={} compact_sec={:.3}",
             job_id,
             clip.clip_id,
-            wav_started_at.elapsed().as_secs_f64(),
-            wav_data.len(),
-            clip.trim_segments
-                .iter()
-                .map(|segment| (segment.end_time - segment.start_time).max(0.0))
-                .sum::<f64>()
+            media_started_at.elapsed().as_secs_f64(),
+            prepared_media.mime_type,
+            prepared_media.bytes.len(),
+            prepared_media.duration_sec
         );
         let mut publish_progress =
             |progress: providers::SubtitleBackendProgress| -> Result<(), String> {
@@ -298,8 +312,10 @@ fn run_subtitle_generation_inner(
                 )
             };
         let compact_segments = backend.transcribe_clip(
-            wav_data,
-            request.language_hint.as_deref(),
+            providers::SubtitleBackendRequest {
+                media: prepared_media,
+                language_hint: request.language_hint.clone(),
+            },
             &mut publish_progress,
         )?;
         let mapped_segments = map_segments_to_source_time(
@@ -308,7 +324,7 @@ fn run_subtitle_generation_inner(
             clip.source_duration,
         );
 
-        upsert_clip_result(snapshot, &clip.clip_id, mapped_segments, false)?;
+        upsert_clip_result(snapshot, &clip.clip_id, mapped_segments, false, true)?;
         crate::log_info!(
             "[SubtitleGen][job={}][clip={}] finished in {:.3}s segments={}",
             job_id,
@@ -386,16 +402,33 @@ fn publish_clip_progress(
         .iter_mut()
         .find(|result| result.clip_id == clip.clip_id)
     {
+        if existing.segments == mapped_segments && existing.is_partial == is_partial {
+            return Ok(());
+        }
         existing.segments = mapped_segments;
         existing.is_partial = is_partial;
+        let event_result = existing.clone();
+        locked.results_revision += 1;
+        let revision = locked.results_revision;
+        locked
+            .result_events
+            .push(super::types::SubtitleClipResultEvent {
+                revision,
+                result: event_result,
+            });
     } else {
-        locked.results.push(SubtitleClipResult {
+        let result = SubtitleClipResult {
             clip_id: clip.clip_id.clone(),
             is_partial,
             segments: mapped_segments,
-        });
+        };
+        locked.results.push(result.clone());
+        locked.results_revision += 1;
+        let revision = locked.results_revision;
+        locked
+            .result_events
+            .push(super::types::SubtitleClipResultEvent { revision, result });
     }
-    locked.results_revision += 1;
     Ok(())
 }
 
@@ -442,6 +475,7 @@ fn upsert_clip_result(
     clip_id: &str,
     segments: Vec<SubtitleSegmentResult>,
     is_partial: bool,
+    emit_event: bool,
 ) -> Result<(), String> {
     let mut locked = snapshot
         .lock()
@@ -452,16 +486,37 @@ fn upsert_clip_result(
         .iter_mut()
         .find(|result| result.clip_id == clip_id)
     {
+        if existing.segments == segments && existing.is_partial == is_partial {
+            return Ok(());
+        }
         existing.segments = segments;
         existing.is_partial = is_partial;
+        if emit_event {
+            let event_result = existing.clone();
+            locked.results_revision += 1;
+            let revision = locked.results_revision;
+            locked
+                .result_events
+                .push(super::types::SubtitleClipResultEvent {
+                    revision,
+                    result: event_result,
+                });
+        }
     } else {
-        locked.results.push(SubtitleClipResult {
+        let result = SubtitleClipResult {
             clip_id: clip_id.to_string(),
             is_partial,
             segments,
-        });
+        };
+        locked.results.push(result.clone());
+        if emit_event {
+            locked.results_revision += 1;
+            let revision = locked.results_revision;
+            locked
+                .result_events
+                .push(super::types::SubtitleClipResultEvent { revision, result });
+        }
     }
-    locked.results_revision += 1;
     Ok(())
 }
 

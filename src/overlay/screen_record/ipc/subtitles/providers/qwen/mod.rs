@@ -5,7 +5,8 @@ use crate::api::realtime_audio::transcript_state::MonotonicTranscriptState;
 use crate::overlay::screen_record::ipc::subtitles::types::CompactSubtitleSegment;
 
 use super::{
-    SubtitleBackend, SubtitleBackendProgress, normalize_qwen_language_hint, normalize_subtitle_text,
+    SubtitleBackend, SubtitleBackendProgress, SubtitleBackendRequest, normalize_qwen_language_hint,
+    normalize_subtitle_text,
 };
 mod streaming;
 
@@ -79,17 +80,24 @@ impl QwenSubtitleBackend {
 impl SubtitleBackend for QwenSubtitleBackend {
     fn transcribe_clip(
         &mut self,
-        audio_data: Vec<u8>,
-        language_hint: Option<&str>,
+        request: SubtitleBackendRequest,
         on_progress: &mut dyn FnMut(SubtitleBackendProgress) -> Result<(), String>,
     ) -> Result<Vec<CompactSubtitleSegment>, String> {
-        let samples = extract_pcm_from_wav(&audio_data)
+        if request.media.mime_type != "audio/wav" {
+            return Err(format!(
+                "Qwen Local subtitles require audio/wav input, got {}",
+                request.media.mime_type
+            ));
+        }
+
+        let samples = extract_pcm_from_wav(&request.media.bytes)
             .map_err(|err| format!("Extract WAV PCM for Qwen Local subtitles: {err}"))?;
         if samples.is_empty() {
             return Ok(Vec::new());
         }
 
-        let normalized_language_hint = normalize_qwen_language_hint(language_hint);
+        let normalized_language_hint =
+            normalize_qwen_language_hint(request.language_hint.as_deref());
         let total_samples = samples.len();
         let total_steps = total_samples.div_ceil(FEED_CHUNK_SAMPLES);
         crate::log_info!(

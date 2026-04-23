@@ -157,7 +157,10 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
           key={subtitle.id}
           onPointerDown={(e) => {
             if (e.shiftKey || e.ctrlKey) return;
-            addSegmentSelection(subtitle.id);
+            const preserveGroupDrag = selectedIds.has(subtitle.id) && selectedIds.size > 1;
+            if (!preserveGroupDrag) {
+              addSegmentSelection(subtitle.id);
+            }
             e.stopPropagation();
             onSegmentPointerDown();
             const rect = e.currentTarget.parentElement!.getBoundingClientRect();

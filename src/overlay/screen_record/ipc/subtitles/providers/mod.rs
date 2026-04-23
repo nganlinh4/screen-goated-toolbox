@@ -1,9 +1,15 @@
+mod gemini;
+mod gemini_segments;
+mod gemini_stream;
 mod groq;
 mod qwen;
 
+use crate::APP;
 use crate::api::realtime_audio::qwen3::{Qwen3ModelVariant, assets, runtime};
+use crate::model_config::get_model_by_id;
 use crate::runtime_support::{RuntimeArch, environment_info};
 
+use super::media::PreparedSubtitleMedia;
 use super::types::{CompactSubtitleSegment, SubtitleGenerationMethod, SubtitleMethodCapability};
 
 pub struct SubtitleBackendProgress {
@@ -12,11 +18,15 @@ pub struct SubtitleBackendProgress {
     pub segments: Vec<CompactSubtitleSegment>,
 }
 
+pub struct SubtitleBackendRequest {
+    pub media: PreparedSubtitleMedia,
+    pub language_hint: Option<String>,
+}
+
 pub trait SubtitleBackend {
     fn transcribe_clip(
         &mut self,
-        audio_data: Vec<u8>,
-        language_hint: Option<&str>,
+        request: SubtitleBackendRequest,
         on_progress: &mut dyn FnMut(SubtitleBackendProgress) -> Result<(), String>,
     ) -> Result<Vec<CompactSubtitleSegment>, String>;
 }
@@ -30,6 +40,9 @@ pub fn create_backend(
         }
         SubtitleGenerationMethod::GroqWhisperLargeV3Turbo => {
             Ok(Box::new(groq::GroqSubtitleBackend::new(method)?))
+        }
+        SubtitleGenerationMethod::Gemini3_1FlashLite => {
+            Ok(Box::new(gemini::GeminiSubtitleBackend::new()?))
         }
         SubtitleGenerationMethod::QwenLocal0_6B => Ok(Box::new(qwen::QwenSubtitleBackend::new(
             Qwen3ModelVariant::Small,
@@ -52,6 +65,7 @@ pub fn capabilities() -> Vec<SubtitleMethodCapability> {
             available: true,
             reason: None,
         },
+        gemini_subtitle_capability(),
         qwen_local_capability(
             SubtitleGenerationMethod::QwenLocal0_6B,
             Qwen3ModelVariant::Small,
@@ -172,6 +186,45 @@ fn qwen_local_capability(
     }
     SubtitleMethodCapability {
         method,
+        available: true,
+        reason: None,
+    }
+}
+
+fn gemini_subtitle_capability() -> SubtitleMethodCapability {
+    let app = match APP.lock() {
+        Ok(app) => app,
+        Err(_) => {
+            return SubtitleMethodCapability {
+                method: SubtitleGenerationMethod::Gemini3_1FlashLite,
+                available: false,
+                reason: Some("APP lock poisoned".to_string()),
+            };
+        }
+    };
+    if !app.config.use_gemini {
+        return SubtitleMethodCapability {
+            method: SubtitleGenerationMethod::Gemini3_1FlashLite,
+            available: false,
+            reason: Some("Enable Gemini in Settings to use Gemini subtitles.".to_string()),
+        };
+    }
+    if app.config.gemini_api_key.trim().is_empty() {
+        return SubtitleMethodCapability {
+            method: SubtitleGenerationMethod::Gemini3_1FlashLite,
+            available: false,
+            reason: Some("Add a Gemini API key in Settings to use Gemini subtitles.".to_string()),
+        };
+    }
+    if get_model_by_id("gemini-audio-3.1-flash-lite").is_none() {
+        return SubtitleMethodCapability {
+            method: SubtitleGenerationMethod::Gemini3_1FlashLite,
+            available: false,
+            reason: Some("Gemini 3.1 Flash Lite subtitle model config is missing.".to_string()),
+        };
+    }
+    SubtitleMethodCapability {
+        method: SubtitleGenerationMethod::Gemini3_1FlashLite,
         available: true,
         reason: None,
     }

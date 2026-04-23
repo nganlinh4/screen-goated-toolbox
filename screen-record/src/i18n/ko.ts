@@ -157,6 +157,7 @@ const ko: Translations = {
   subtitleMethod: '방식',
   subtitleMethodGroqWhisperAccurate: 'Groq Whisper Large v3',
   subtitleMethodGroqWhisperLargeV3Turbo: 'Groq Whisper Large v3 Turbo',
+  subtitleMethodGemini3_1FlashLite: 'Gemini 3.1 Flash Lite',
   subtitleMethodQwenLocal0_6B: 'Qwen Local 0.6B',
   subtitleMethodQwenLocal1_7B: 'Qwen Local 1.7B',
   subtitleLanguageHint: '언어 힌트',

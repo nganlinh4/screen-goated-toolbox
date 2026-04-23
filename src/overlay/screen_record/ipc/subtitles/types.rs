@@ -6,9 +6,10 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "kebab-case")]
 pub enum SubtitleGenerationMethod {
     #[default]
-    #[serde(alias = "gemini-live-3-1-flash-preview")]
     GroqWhisperAccurate,
     GroqWhisperLargeV3Turbo,
+    #[serde(rename = "gemini-3-1-flash-lite")]
+    Gemini3_1FlashLite,
     #[serde(rename = "qwen-local-0-6b", alias = "qwen-local")]
     QwenLocal0_6B,
     #[serde(rename = "qwen-local-1-7b")]
@@ -68,11 +69,19 @@ pub struct SubtitleJobSnapshot {
     #[serde(rename = "resultsRevision")]
     pub results_revision: usize,
     pub results: Vec<SubtitleClipResult>,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub result_events: Vec<SubtitleClipResultEvent>,
     pub skipped: Vec<SubtitleSkippedClip>,
     pub error: Option<String>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+pub struct SubtitleClipResultEvent {
+    pub revision: usize,
+    pub result: SubtitleClipResult,
+}
+
+#[derive(Clone, Serialize, PartialEq)]
 pub struct SubtitleClipResult {
     #[serde(rename = "clipId")]
     pub clip_id: String,
@@ -81,7 +90,7 @@ pub struct SubtitleClipResult {
     pub segments: Vec<SubtitleSegmentResult>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, PartialEq)]
 pub struct SubtitleSegmentResult {
     #[serde(rename = "startTime")]
     pub start_time: f64,
@@ -109,7 +118,7 @@ pub struct SubtitleMethodCapability {
     pub reason: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CompactSubtitleSegment {
     pub start_time: f64,
     pub end_time: f64,

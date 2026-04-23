@@ -6,8 +6,8 @@ use crate::model_config::get_model_by_id;
 use crate::overlay::screen_record::ipc::subtitles::types::SubtitleGenerationMethod;
 
 use super::{
-    SubtitleBackend, SubtitleBackendProgress, ends_sentence, join_word_tokens,
-    normalize_groq_language_hint, normalize_subtitle_text,
+    SubtitleBackend, SubtitleBackendProgress, SubtitleBackendRequest, ends_sentence,
+    join_word_tokens, normalize_groq_language_hint, normalize_subtitle_text,
 };
 use crate::overlay::screen_record::ipc::subtitles::audio::MIN_SUBTITLE_DURATION_SEC;
 use crate::overlay::screen_record::ipc::subtitles::types::CompactSubtitleSegment;
@@ -47,15 +47,20 @@ impl GroqSubtitleBackend {
 impl SubtitleBackend for GroqSubtitleBackend {
     fn transcribe_clip(
         &mut self,
-        audio_data: Vec<u8>,
-        language_hint: Option<&str>,
+        request: SubtitleBackendRequest,
         _on_progress: &mut dyn FnMut(SubtitleBackendProgress) -> Result<(), String>,
     ) -> Result<Vec<CompactSubtitleSegment>, String> {
+        if request.media.mime_type != "audio/wav" {
+            return Err(format!(
+                "Groq subtitles require audio/wav input, got {}",
+                request.media.mime_type
+            ));
+        }
         let response = transcribe_with_groq_verbose(
             &self.api_key,
             &self.model_name,
-            audio_data,
-            language_hint,
+            request.media.bytes,
+            request.language_hint.as_deref(),
         )?;
         Ok(build_sentence_blocks(&response))
     }
