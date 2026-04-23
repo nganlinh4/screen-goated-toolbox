@@ -80,6 +80,8 @@ interface TimelineAreaProps {
   currentRawMicAudioPath: string;
   beginBatch: () => void;
   commitBatch: () => void;
+  selectedTextIds: string[];
+  selectedSubtitleIds: string[];
   onTextSelectionChange?: (ids: string[]) => void;
   onSubtitleSelectionChange?: (ids: string[]) => void;
   onSubtitleRangeChange?: (range: TrackSelectionRange | null) => void;
@@ -126,6 +128,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   currentRawMicAudioPath,
   beginBatch,
   commitBatch,
+  selectedTextIds,
+  selectedSubtitleIds,
   onTextSelectionChange,
   onSubtitleSelectionChange,
   onSubtitleRangeChange,
@@ -250,6 +254,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     setEditingKeystrokeId: setEditingKeystrokeSegmentId,
     setEditingPointerId,
     setActivePanel,
+    selectedTextIds,
+    selectedSubtitleIds,
     onSeek,
     onSeekEnd,
     beginBatch,

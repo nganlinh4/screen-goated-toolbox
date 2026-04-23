@@ -118,7 +118,10 @@ export const TextTrack: React.FC<TextTrackProps> = ({
           key={text.id}
           onPointerDown={(e) => {
             if (e.shiftKey || e.ctrlKey) return;
-            addSegmentSelection(text.id);
+            const preserveGroupDrag = selectedIds.has(text.id) && selectedIds.size > 1;
+            if (!preserveGroupDrag) {
+              addSegmentSelection(text.id);
+            }
             e.stopPropagation();
             onSegmentPointerDown();
             const rect = e.currentTarget.parentElement!.getBoundingClientRect();

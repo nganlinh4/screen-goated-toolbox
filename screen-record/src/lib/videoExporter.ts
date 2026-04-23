@@ -529,7 +529,9 @@ export class VideoExporter {
       const segment = prepared.normalizedSegment
         ? sanitizeNativeExportValue(prepared.normalizedSegment)
         : prepared.normalizedSegment;
-      const exportConfig = {
+      // Older recordings/projects can still carry nullable optional fields in
+      // IPC-shaped data. Strip those nulls so Rust-side serde defaults apply.
+      const exportConfig = sanitizeNativeExportValue({
         width: prepared.width,
         height: prepared.height,
         sourceWidth: prepared.sourceWidth,
@@ -550,7 +552,7 @@ export class VideoExporter {
         backgroundConfig,
         webcamConfig: context.webcamConfig,
         mousePositions,
-      };
+      });
       const exportNullPaths = collectNullPaths(exportConfig, '$');
       if (exportNullPaths.length > 0) {
         throw new Error(

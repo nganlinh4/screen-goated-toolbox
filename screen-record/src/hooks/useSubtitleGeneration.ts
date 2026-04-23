@@ -28,6 +28,7 @@ import {
 export type SubtitleMethod =
   | 'groq-whisper-accurate'
   | 'groq-whisper-large-v3-turbo'
+  | 'gemini-3-1-flash-lite'
   | 'qwen-local-0-6b'
   | 'qwen-local-1-7b';
 
@@ -38,6 +39,7 @@ const DEFAULT_SUBTITLE_METHOD_CAPABILITIES: Array<{
 }> = [
   { method: 'groq-whisper-accurate', available: true, reason: null },
   { method: 'groq-whisper-large-v3-turbo', available: true, reason: null },
+  { method: 'gemini-3-1-flash-lite', available: false, reason: null },
   { method: 'qwen-local-0-6b', available: false, reason: null },
   { method: 'qwen-local-1-7b', available: false, reason: null },
 ];
@@ -62,15 +64,13 @@ function isSubtitleMethod(value: string): value is SubtitleMethod {
   return (
     value === 'groq-whisper-accurate' ||
     value === 'groq-whisper-large-v3-turbo' ||
+    value === 'gemini-3-1-flash-lite' ||
     value === 'qwen-local-0-6b' ||
     value === 'qwen-local-1-7b'
   );
 }
 
 function normalizeStoredSubtitleMethod(value: string | null): SubtitleMethod | null {
-  if (value === 'gemini-live-3-1-flash-preview') {
-    return 'groq-whisper-accurate';
-  }
   return value && isSubtitleMethod(value) ? value : null;
 }
 
@@ -396,21 +396,21 @@ export function useSubtitleGeneration({
     const subtitleStyle = defaultSubtitleStyle();
 
     if (!composition || getEffectiveCompositionMode(composition) === 'separate') {
-      const rootResult = results[0];
-      if (!rootResult) return;
-      const replacementRanges = context?.replacementRangesByClip[rootResult.clipId] ?? [];
       setSegment((prev) => {
         if (!prev) return prev;
-        const inserted = rootResult.segments.map((entry, index) => ({
-          id: buildSubtitleId(rootResult.clipId, entry, index),
-          startTime: entry.startTime,
-          endTime: entry.endTime,
-          text: entry.text,
-          style: subtitleStyle,
-        }));
-        return rootResult.isPartial
-          ? mergePartialOriginalSubtitleSegments(prev, inserted, replacementRanges)
-          : replaceOriginalSubtitleSegments(prev, inserted, replacementRanges);
+        return results.reduce((nextSegment, result) => {
+          const replacementRanges = context?.replacementRangesByClip[result.clipId] ?? [];
+          const inserted = result.segments.map((entry, index) => ({
+            id: buildSubtitleId(result.clipId, entry, index),
+            startTime: entry.startTime,
+            endTime: entry.endTime,
+            text: entry.text,
+            style: subtitleStyle,
+          }));
+          return result.isPartial
+            ? mergePartialOriginalSubtitleSegments(nextSegment, inserted, replacementRanges)
+            : replaceOriginalSubtitleSegments(nextSegment, inserted, replacementRanges);
+        }, prev);
       });
       console.log(
         `[SubtitleGen][Webview][apply-results] queued mode=separate elapsedMs=${(performance.now() - startedAt).toFixed(2)} clips=${formatResultSummary(results)}`,
@@ -530,7 +530,7 @@ export function useSubtitleGeneration({
           setJobContext(null);
           return;
         }
-        window.setTimeout(poll, 400);
+        window.setTimeout(poll, nextStatus.results.length > 0 ? 120 : 250);
       } catch (error) {
         if (cancelled) return;
         setStatus({

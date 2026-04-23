@@ -620,6 +620,8 @@ export function EditorMain({
           currentRawMicAudioPath={currentRawMicAudioPath}
           beginBatch={beginBatch}
           commitBatch={commitBatch}
+          selectedTextIds={selectedTextIds}
+          selectedSubtitleIds={selectedSubtitleIds}
           onTextSelectionChange={handleTextSelectionChange}
           onSubtitleSelectionChange={handleSubtitleSelectionChange}
           onSubtitleRangeChange={handleSubtitleRangeChange}

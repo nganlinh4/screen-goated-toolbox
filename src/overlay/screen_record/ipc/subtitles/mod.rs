@@ -1,5 +1,6 @@
 mod audio;
 mod job;
+mod media;
 mod postprocess;
 mod providers;
 mod qwen_local;

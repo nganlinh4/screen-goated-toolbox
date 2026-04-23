@@ -1,8 +1,10 @@
 import { useState, useCallback, useRef } from 'react';
-import { VideoSegment, CursorVisibilitySegment } from '@/types/video';
+import { VideoSegment, CursorVisibilitySegment, SubtitleSegment } from '@/types/video';
 import { clampVisibilitySegmentsToDuration, mergePointerSegments } from '@/lib/cursorHiding';
 import { getKeystrokeVisibilitySegmentsForMode, withKeystrokeVisibilitySegmentsForMode } from '@/lib/keystrokeVisibility';
-import { updateSubtitleTimingAcrossTracks } from '@/lib/subtitleTrackMutations';
+import { updateSubtitleTimingAcrossTracks, updateSubtitleTimingsAcrossTracks } from '@/lib/subtitleTrackMutations';
+import { getVisibleSubtitleSegments } from '@/lib/subtitleTracks';
+import { computeGroupDragDelta, snapshotSegmentBounds, type DragOriginalBounds } from './trackDragUtils';
 
 interface UseTrackSegmentDragOptions {
   duration: number;
@@ -13,6 +15,8 @@ interface UseTrackSegmentDragOptions {
   setEditingKeystrokeId?: (id: string | null) => void;
   setEditingPointerId?: (id: string | null) => void;
   setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text' | 'subtitles') => void;
+  selectedTextIds: readonly string[];
+  selectedSubtitleIds: readonly string[];
   getTimeFromClientX: (clientX: number) => number | null;
   beginBatch: () => void;
   commitBatch: () => void;
@@ -27,6 +31,8 @@ export function useTrackSegmentDrag({
   setEditingKeystrokeId,
   setEditingPointerId,
   setActivePanel,
+  selectedTextIds,
+  selectedSubtitleIds,
   getTimeFromClientX,
   beginBatch,
   commitBatch,
@@ -53,6 +59,10 @@ export function useTrackSegmentDrag({
   const [draggingWebcamId, setDraggingWebcamId] = useState<string | null>(null);
   const textDragOffsetRef = useRef(0);
   const subtitleDragOffsetRef = useRef(0);
+  const textDragIdsRef = useRef<string[]>([]);
+  const subtitleDragIdsRef = useRef<string[]>([]);
+  const textDragOriginalsRef = useRef<Map<string, DragOriginalBounds> | null>(null);
+  const subtitleDragOriginalsRef = useRef<Map<string, DragOriginalBounds> | null>(null);
   const keystrokeDragOffsetRef = useRef(0);
   const pointerDragOffsetRef = useRef(0);
   const webcamDragOffsetRef = useRef(0);
@@ -63,6 +73,17 @@ export function useTrackSegmentDrag({
   const pointerDragDidMove = useRef(false);
   const webcamDragDidMove = useRef(false);
 
+  const resolveActiveDragIds = useCallback((
+    id: string,
+    selectedIds: readonly string[],
+    availableIds: readonly string[],
+  ): string[] => {
+    if (!selectedIds.includes(id)) return [id];
+    const availableSet = new Set(availableIds);
+    const resolved = selectedIds.filter((selectedId) => availableSet.has(selectedId));
+    return resolved.length > 0 ? resolved : [id];
+  }, []);
+
   // Text drag
   const handleTextDragStart = useCallback((id: string, type: 'start' | 'end' | 'body', offset?: number) => {
     beginBatch();
@@ -70,33 +91,67 @@ export function useTrackSegmentDrag({
     setEditingKeystrokeId?.(null);
     setActivePanel('text');
     setDraggingTextId(id);
+    textDragIdsRef.current = [id];
+    textDragOriginalsRef.current = null;
     if (type === 'start') setIsDraggingTextStart(true);
     else if (type === 'end') setIsDraggingTextEnd(true);
     else if (type === 'body') {
       setIsDraggingTextBody(true);
       if (offset !== undefined) textDragOffsetRef.current = offset;
+      if (segment) {
+        const activeIds = resolveActiveDragIds(
+          id,
+          selectedTextIds,
+          segment.textSegments.map((text) => text.id),
+        );
+        textDragIdsRef.current = activeIds;
+        textDragOriginalsRef.current = snapshotSegmentBounds(segment.textSegments, activeIds);
+      }
     }
-  }, [beginBatch, setEditingTextId, setEditingKeystrokeId, setActivePanel]);
+  }, [beginBatch, resolveActiveDragIds, segment, selectedTextIds, setEditingTextId, setEditingKeystrokeId, setActivePanel]);
 
   const handleTextDrag = useCallback((clientX: number) => {
     if ((!isDraggingTextStart && !isDraggingTextEnd && !isDraggingTextBody) || !draggingTextId || !segment) return;
     const newTime = getTimeFromClientX(clientX);
     if (newTime === null) return;
+    const activeTextIds = new Set(textDragIdsRef.current);
 
     setSegment({
       ...segment,
       textSegments: segment.textSegments.map(text => {
-        if (text.id !== draggingTextId) return text;
+        if (isDraggingTextBody) {
+          if (!activeTextIds.has(text.id)) return text;
+        } else if (text.id !== draggingTextId) {
+          return text;
+        }
         if (isDraggingTextStart) {
           return { ...text, startTime: Math.min(Math.max(0, newTime), text.endTime - 0.1) };
         } else if (isDraggingTextEnd) {
           return { ...text, endTime: Math.max(Math.min(duration, newTime), text.startTime + 0.1) };
         } else if (isDraggingTextBody) {
-          const dur = text.endTime - text.startTime;
-          let newStart = newTime - textDragOffsetRef.current;
-          if (newStart < 0) newStart = 0;
-          if (newStart + dur > duration) newStart = duration - dur;
-          return { ...text, startTime: newStart, endTime: newStart + dur };
+          const originals = textDragOriginalsRef.current;
+          const activeIds = textDragIdsRef.current;
+          if (!originals || activeIds.length === 0) {
+            const dur = text.endTime - text.startTime;
+            let newStart = newTime - textDragOffsetRef.current;
+            if (newStart < 0) newStart = 0;
+            if (newStart + dur > duration) newStart = duration - dur;
+            return { ...text, startTime: newStart, endTime: newStart + dur };
+          }
+          const original = originals.get(text.id);
+          const delta = computeGroupDragDelta(
+            originals,
+            draggingTextId,
+            textDragOffsetRef.current,
+            newTime,
+            duration,
+          );
+          if (!original || delta === null) return text;
+          return {
+            ...text,
+            startTime: original.startTime + delta,
+            endTime: original.endTime + delta,
+          };
         }
         return text;
       }),
@@ -110,20 +165,34 @@ export function useTrackSegmentDrag({
     setEditingKeystrokeId?.(null);
     setActivePanel('subtitles');
     setDraggingSubtitleId(id);
+    subtitleDragIdsRef.current = [id];
+    subtitleDragOriginalsRef.current = null;
     if (type === 'start') setIsDraggingSubtitleStart(true);
     else if (type === 'end') setIsDraggingSubtitleEnd(true);
     else if (type === 'body') {
       setIsDraggingSubtitleBody(true);
       if (offset !== undefined) subtitleDragOffsetRef.current = offset;
+      if (segment) {
+        const activeIds = resolveActiveDragIds(
+          id,
+          selectedSubtitleIds,
+          getVisibleSubtitleSegments(segment).map((subtitle) => subtitle.id),
+        );
+        subtitleDragIdsRef.current = activeIds;
+        subtitleDragOriginalsRef.current = snapshotSegmentBounds(
+          getVisibleSubtitleSegments(segment),
+          activeIds,
+        );
+      }
     }
-  }, [beginBatch, setEditingSubtitleId, setEditingTextId, setEditingKeystrokeId, setActivePanel]);
+  }, [beginBatch, resolveActiveDragIds, segment, selectedSubtitleIds, setEditingSubtitleId, setEditingTextId, setEditingKeystrokeId, setActivePanel]);
 
   const handleSubtitleDrag = useCallback((clientX: number) => {
     if ((!isDraggingSubtitleStart && !isDraggingSubtitleEnd && !isDraggingSubtitleBody) || !draggingSubtitleId || !segment) return;
     const newTime = getTimeFromClientX(clientX);
     if (newTime === null) return;
 
-    setSegment(updateSubtitleTimingAcrossTracks(segment, draggingSubtitleId, (subtitle) => {
+    const updater = (subtitle: SubtitleSegment) => {
       if (isDraggingSubtitleStart) {
         return { ...subtitle, startTime: Math.min(Math.max(0, newTime), subtitle.endTime - 0.1) };
       }
@@ -131,14 +200,38 @@ export function useTrackSegmentDrag({
         return { ...subtitle, endTime: Math.max(Math.min(duration, newTime), subtitle.startTime + 0.1) };
       }
       if (isDraggingSubtitleBody) {
-        const dur = subtitle.endTime - subtitle.startTime;
-        let newStart = newTime - subtitleDragOffsetRef.current;
-        if (newStart < 0) newStart = 0;
-        if (newStart + dur > duration) newStart = duration - dur;
-        return { ...subtitle, startTime: newStart, endTime: newStart + dur };
+        const originals = subtitleDragOriginalsRef.current;
+        const activeIds = subtitleDragIdsRef.current;
+        if (!originals || activeIds.length === 0) {
+          const dur = subtitle.endTime - subtitle.startTime;
+          let newStart = newTime - subtitleDragOffsetRef.current;
+          if (newStart < 0) newStart = 0;
+          if (newStart + dur > duration) newStart = duration - dur;
+          return { ...subtitle, startTime: newStart, endTime: newStart + dur };
+        }
+        const original = originals.get(subtitle.id);
+        const delta = computeGroupDragDelta(
+          originals,
+          draggingSubtitleId,
+          subtitleDragOffsetRef.current,
+          newTime,
+          duration,
+        );
+        if (!original || delta === null) return subtitle;
+        return {
+          ...subtitle,
+          startTime: original.startTime + delta,
+          endTime: original.endTime + delta,
+        };
       }
       return subtitle;
-    }));
+    };
+
+    setSegment(
+      isDraggingSubtitleBody
+        ? updateSubtitleTimingsAcrossTracks(segment, subtitleDragIdsRef.current, updater)
+        : updateSubtitleTimingAcrossTracks(segment, draggingSubtitleId, updater),
+    );
   }, [isDraggingSubtitleStart, isDraggingSubtitleEnd, isDraggingSubtitleBody, draggingSubtitleId, segment, getTimeFromClientX, setSegment, duration]);
 
   // Keystroke drag
@@ -440,6 +533,10 @@ export function useTrackSegmentDrag({
     setIsDraggingWebcamBody(false);
     setDraggingTextId(null);
     setDraggingSubtitleId(null);
+    textDragIdsRef.current = [];
+    subtitleDragIdsRef.current = [];
+    textDragOriginalsRef.current = null;
+    subtitleDragOriginalsRef.current = null;
     setDraggingKeystrokeId(null);
     setDraggingPointerId(null);
     setDraggingWebcamId(null);

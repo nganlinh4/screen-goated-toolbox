@@ -41,6 +41,8 @@ export interface UseTimelineDragOptions {
   setEditingKeystrokeId?: (id: string | null) => void;
   setEditingPointerId?: (id: string | null) => void;
   setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text' | 'subtitles') => void;
+  selectedTextIds: readonly string[];
+  selectedSubtitleIds: readonly string[];
   onSeek?: (time: number) => void;
   onSeekEnd?: () => void;
   beginBatch: () => void;

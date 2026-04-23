@@ -108,11 +108,14 @@ export function SubtitlePanel({
       ? t.subtitleRegenerate
       : t.subtitleGenerate;
   const isMultiSelect = (selectedSubtitleIds?.length ?? 0) >= 2;
+  const usesLanguageHint = selectedMethod !== 'gemini-3-1-flash-lite';
 
   const getMethodLabel = (method: SubtitleMethod) => {
     switch (method) {
       case 'groq-whisper-large-v3-turbo':
         return t.subtitleMethodGroqWhisperLargeV3Turbo;
+      case 'gemini-3-1-flash-lite':
+        return t.subtitleMethodGemini3_1FlashLite;
       case 'qwen-local-1-7b':
         return t.subtitleMethodQwenLocal1_7B;
       case 'qwen-local-0-6b':
@@ -235,21 +238,23 @@ export function SubtitlePanel({
           />
         </div>
 
-        <div className="subtitle-language-row flex items-center gap-2">
-          <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
-            {t.subtitleLanguageHint}
-          </span>
-          <PanelSelect
-            value={languageHint}
-            options={SUBTITLE_LANGUAGE_OPTIONS}
-            onChange={onLanguageHintChange}
-            searchable
-            searchPlaceholder={t.subtitleLanguageSearchPlaceholder}
-            emptyStateLabel={t.subtitleLanguageSearchEmpty}
-            triggerClassName="subtitle-language-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
-            contentClassName="subtitle-language-menu"
-          />
-        </div>
+        {usesLanguageHint && (
+          <div className="subtitle-language-row flex items-center gap-2">
+            <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+              {t.subtitleLanguageHint}
+            </span>
+            <PanelSelect
+              value={languageHint}
+              options={SUBTITLE_LANGUAGE_OPTIONS}
+              onChange={onLanguageHintChange}
+              searchable
+              searchPlaceholder={t.subtitleLanguageSearchPlaceholder}
+              emptyStateLabel={t.subtitleLanguageSearchEmpty}
+              triggerClassName="subtitle-language-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+              contentClassName="subtitle-language-menu"
+            />
+          </div>
+        )}
 
         <div className="subtitle-actions grid grid-cols-3 gap-1.5">
           <button
