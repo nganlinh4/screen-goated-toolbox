@@ -25,7 +25,6 @@ import {
 } from "@/lib/timelineSegmentSelection";
 import {
   addSubtitleAcrossTracks,
-  isOriginalSubtitleTrackActive,
   mergeSubtitleSelectionAcrossTracks,
 } from "@/lib/subtitleTrackMutations";
 import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
@@ -125,6 +124,10 @@ export interface EditorMainProps {
   selectedSubtitleMethodReason?: string | null;
   subtitleLanguageHint: string;
   onSubtitleLanguageHintChange: (value: string) => void;
+  subtitleGeminiPrompt: string;
+  onSubtitleGeminiPromptChange: (value: string) => void;
+  subtitleGroqVocabulary: string[];
+  onSubtitleGroqVocabularyChange: (value: string[]) => void;
   isGeneratingSubtitles: boolean;
   subtitleStatusMessage?: string | null;
   subtitleGenerationIndicator?: SubtitleGenerationIndicator | null;
@@ -132,6 +135,7 @@ export interface EditorMainProps {
   handleCancelSubtitleGeneration: () => void;
   onSelectedTextIdsChange?: (ids: string[]) => void;
   onSelectedSubtitleIdsChange?: (ids: string[]) => void;
+  projectResetKey?: string | null;
   currentRawVideoPath: string;
   currentRawMicAudioPath: string;
   currentProjectName?: string | null;
@@ -236,6 +240,10 @@ export function EditorMain({
   selectedSubtitleMethodReason,
   subtitleLanguageHint,
   onSubtitleLanguageHintChange,
+  subtitleGeminiPrompt,
+  onSubtitleGeminiPromptChange,
+  subtitleGroqVocabulary,
+  onSubtitleGroqVocabularyChange,
   isGeneratingSubtitles,
   subtitleStatusMessage,
   subtitleGenerationIndicator,
@@ -243,6 +251,7 @@ export function EditorMain({
   handleCancelSubtitleGeneration,
   onSelectedTextIdsChange,
   onSelectedSubtitleIdsChange,
+  projectResetKey,
   currentRawVideoPath,
   currentRawMicAudioPath,
   currentProjectName,
@@ -284,6 +293,7 @@ export function EditorMain({
   const exportSubtitleSrtInFlightRef = React.useRef(false);
   const subtitleTranslation = useSubtitleTranslation({
     t,
+    projectResetKey,
     segment,
     setSegment: setSegment as (segment: VideoSegment | null | ((prev: VideoSegment | null) => VideoSegment | null)) => void,
     composition,
@@ -324,6 +334,30 @@ export function EditorMain({
     setSelectedWebcamIds([]);
     setClearSignal(c => c + 1);
   }, [onSelectedSubtitleIdsChange, onSelectedTextIdsChange]);
+  const lastProjectResetKeyRef = React.useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const nextKey = projectResetKey ?? null;
+    if (lastProjectResetKeyRef.current === undefined) {
+      lastProjectResetKeyRef.current = nextKey;
+      return;
+    }
+    if (lastProjectResetKeyRef.current === nextKey) {
+      return;
+    }
+    lastProjectResetKeyRef.current = nextKey;
+    clearAllSelections();
+    setEditingTextId(null);
+    setEditingSubtitleId(null);
+    setEditingKeystrokeSegmentId(null);
+    setEditingPointerId(null);
+  }, [
+    clearAllSelections,
+    projectResetKey,
+    setEditingKeystrokeSegmentId,
+    setEditingPointerId,
+    setEditingSubtitleId,
+    setEditingTextId,
+  ]);
 
   const textMergeRange = useMemo(
     () => deriveSelectionRangeFromIds(selectedTextIds, segment?.textSegments ?? []),
@@ -385,7 +419,6 @@ export function EditorMain({
 
   const handleAddSubtitle = useCallback((atTime?: number) => {
     if (!segment) return;
-    if (!isOriginalSubtitleTrackActive(segment)) return;
     const subtitle = createManualSubtitleSegment(atTime ?? currentTime, duration);
     setSegment(addSubtitleAcrossTracks(segment, subtitle));
     setEditingSubtitleId(subtitle.id);
@@ -396,6 +429,20 @@ export function EditorMain({
     () => getVisibleSubtitleSegments(segment),
     [segment],
   );
+  useEffect(() => {
+    const visibleIds = new Set(visibleSubtitleSegments.map((subtitle) => subtitle.id));
+    setSelectedSubtitleIds((prev) => {
+      const next = prev.filter((id) => visibleIds.has(id));
+      if (next.length === prev.length) {
+        return prev;
+      }
+      onSelectedSubtitleIdsChange?.(next);
+      return next;
+    });
+    if (editingSubtitleId && !visibleIds.has(editingSubtitleId)) {
+      setEditingSubtitleId(null);
+    }
+  }, [editingSubtitleId, onSelectedSubtitleIdsChange, setEditingSubtitleId, visibleSubtitleSegments]);
   const canExportSubtitleSrt = visibleSubtitleSegments.length > 0;
 
   const handleExportSubtitleSrt = useCallback(async () => {
@@ -561,6 +608,10 @@ export function EditorMain({
             selectedSubtitleMethodReason={selectedSubtitleMethodReason}
             subtitleLanguageHint={subtitleLanguageHint}
             onSubtitleLanguageHintChange={onSubtitleLanguageHintChange}
+            subtitleGeminiPrompt={subtitleGeminiPrompt}
+            onSubtitleGeminiPromptChange={onSubtitleGeminiPromptChange}
+            subtitleGroqVocabulary={subtitleGroqVocabulary}
+            onSubtitleGroqVocabularyChange={onSubtitleGroqVocabularyChange}
             isGeneratingSubtitles={isGeneratingSubtitles}
             subtitleStatusMessage={subtitleStatusMessage}
             canUseVideoSubtitleSource={segment?.deviceAudioAvailable !== false}
@@ -631,6 +682,7 @@ export function EditorMain({
           clearSelectionSignal={clearSignal}
           hasMouseData={mousePositionsLength > 0}
           subtitleGenerationIndicator={subtitleGenerationIndicator}
+          subtitleTranslationChunkPreview={subtitleTranslation.subtitleTranslationChunkPreview}
         />
         {isOverlayMode && (
           <div className="timeline-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />

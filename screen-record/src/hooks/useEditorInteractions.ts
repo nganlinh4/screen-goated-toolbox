@@ -20,10 +20,12 @@ export interface UseEditorInteractionsParams {
   isModalOpen: boolean;
   editingKeyframeId: number | null;
   editingTextId: string | null;
+  editingSubtitleId: string | null;
   editingKeystrokeSegmentId: string | null;
   editingPointerId: string | null;
   setEditingKeyframeId: (id: number | null) => void;
   handleDeleteText: () => void;
+  handleDeleteSubtitle: () => void;
   handleDeleteKeystrokeSegment: () => void;
   handleDeletePointerSegment: () => void;
   canUndo: boolean;
@@ -70,10 +72,12 @@ export function useEditorInteractions({
   isModalOpen,
   editingKeyframeId,
   editingTextId,
+  editingSubtitleId,
   editingKeystrokeSegmentId,
   editingPointerId,
   setEditingKeyframeId,
   handleDeleteText,
+  handleDeleteSubtitle,
   handleDeleteKeystrokeSegment,
   handleDeletePointerSegment,
   canUndo,
@@ -124,12 +128,14 @@ export function useEditorInteractions({
     isModalOpen,
     editingKeyframeId,
     editingTextId,
+    editingSubtitleId,
     editingKeystrokeSegmentId,
     editingPointerId,
     segment,
     setSegment,
     setEditingKeyframeId,
     handleDeleteText,
+    handleDeleteSubtitle,
     handleDeleteKeystrokeSegment,
     handleDeletePointerSegment,
     canUndo,

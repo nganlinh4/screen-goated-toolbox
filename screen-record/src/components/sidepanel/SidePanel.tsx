@@ -126,6 +126,10 @@ interface SidePanelProps {
   selectedSubtitleMethodReason?: string | null;
   subtitleLanguageHint: string;
   onSubtitleLanguageHintChange: (value: string) => void;
+  subtitleGeminiPrompt: string;
+  onSubtitleGeminiPromptChange: (value: string) => void;
+  subtitleGroqVocabulary: string[];
+  onSubtitleGroqVocabularyChange: (value: string[]) => void;
   isGeneratingSubtitles: boolean;
   subtitleStatusMessage?: string | null;
   canUseVideoSubtitleSource: boolean;
@@ -173,6 +177,10 @@ export function SidePanel({
   selectedSubtitleMethodReason,
   subtitleLanguageHint,
   onSubtitleLanguageHintChange,
+  subtitleGeminiPrompt,
+  onSubtitleGeminiPromptChange,
+  subtitleGroqVocabulary,
+  onSubtitleGroqVocabularyChange,
   isGeneratingSubtitles,
   subtitleStatusMessage,
   canUseVideoSubtitleSource,
@@ -288,6 +296,10 @@ export function SidePanel({
           selectedMethodReason={selectedSubtitleMethodReason}
           languageHint={subtitleLanguageHint}
           onLanguageHintChange={onSubtitleLanguageHintChange}
+          geminiPrompt={subtitleGeminiPrompt}
+          onGeminiPromptChange={onSubtitleGeminiPromptChange}
+          groqVocabulary={subtitleGroqVocabulary}
+          onGroqVocabularyChange={onSubtitleGroqVocabularyChange}
           isGenerating={isGeneratingSubtitles}
           statusMessage={subtitleStatusMessage}
           canUseVideoSource={canUseVideoSubtitleSource}

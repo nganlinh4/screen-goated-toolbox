@@ -10,6 +10,8 @@ pub enum SubtitleGenerationMethod {
     GroqWhisperLargeV3Turbo,
     #[serde(rename = "gemini-3-1-flash-lite")]
     Gemini3_1FlashLite,
+    #[serde(rename = "gemini-3-flash-preview")]
+    Gemini3FlashPreview,
     #[serde(rename = "qwen-local-0-6b", alias = "qwen-local")]
     QwenLocal0_6B,
     #[serde(rename = "qwen-local-1-7b")]
@@ -22,6 +24,10 @@ pub struct SubtitleGenerationRequest {
     pub source_type: String,
     #[serde(rename = "languageHint")]
     pub language_hint: Option<String>,
+    #[serde(rename = "geminiPrompt")]
+    pub gemini_prompt: Option<String>,
+    #[serde(rename = "groqVocabulary", default)]
+    pub groq_vocabulary: Vec<String>,
     #[serde(rename = "subtitleMethod", default)]
     pub subtitle_method: SubtitleGenerationMethod,
     pub clips: Vec<SubtitleClipRequest>,
@@ -129,6 +135,11 @@ pub struct CompactSubtitleSegment {
 pub struct SubtitleTranslationRequest {
     #[serde(rename = "targetLanguage")]
     pub target_language: String,
+    #[serde(rename = "chunkMode")]
+    pub chunk_mode: Option<String>,
+    #[serde(rename = "chunkCount")]
+    pub chunk_count: Option<usize>,
+    pub instructions: Option<String>,
     pub items: Vec<SubtitleTranslationItemRequest>,
 }
 

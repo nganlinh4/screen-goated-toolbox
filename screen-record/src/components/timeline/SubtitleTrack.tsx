@@ -26,7 +26,22 @@ interface SubtitleTrackProps {
   onRangeChange?: (range: TrackSelectionRange | null) => void;
   clearSignal?: number;
   generationIndicator?: SubtitleGenerationIndicator | null;
+  translationChunkPreview?: {
+    groups: Record<string, number>;
+    groupCount: number;
+  } | null;
 }
+
+const TRANSLATION_CHUNK_COLORS = [
+  '#2563eb',
+  '#0f9f8d',
+  '#d97706',
+  '#8b5cf6',
+  '#e11d48',
+  '#0891b2',
+  '#65a30d',
+  '#f97316',
+];
 
 export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
   segment,
@@ -41,6 +56,7 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
   onRangeChange,
   clearSignal,
   generationIndicator,
+  translationChunkPreview,
 }) => {
   const [hoverState, setHoverState] = useState<
     | { type: 'split'; x: number; time: number; seg: SubtitleSegment; preview: { leftText: string; rightText: string } | null }
@@ -152,7 +168,12 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
         />
       )}
 
-      {subtitles.map((subtitle) => (
+      {subtitles.map((subtitle) => {
+        const chunkIndex = translationChunkPreview?.groups[subtitle.id];
+        const chunkColor = typeof chunkIndex === 'number'
+          ? TRANSLATION_CHUNK_COLORS[chunkIndex % TRANSLATION_CHUNK_COLORS.length]
+          : null;
+        return (
         <div
           key={subtitle.id}
           onPointerDown={(e) => {
@@ -183,6 +204,13 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
           style={{
             left: `${(subtitle.startTime / safeDuration) * 100}%`,
             width: `${((subtitle.endTime - subtitle.startTime) / safeDuration) * 100}%`,
+            ...(chunkColor
+              ? {
+                  background: `color-mix(in srgb, ${chunkColor} 28%, var(--ui-surface-3))`,
+                  borderColor: `color-mix(in srgb, ${chunkColor} 62%, var(--timeline-lane-border))`,
+                  boxShadow: `0 0 0 1px color-mix(in srgb, ${chunkColor} 38%, transparent), 0 0 10px color-mix(in srgb, ${chunkColor} 24%, transparent)`,
+                }
+              : {}),
           }}
         >
           <div className="subtitle-segment-content absolute inset-0 flex items-center justify-center overflow-hidden px-1">
@@ -207,7 +235,8 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
             <div className="subtitle-handle-bar timeline-handle-pill" />
           </div>
         </div>
-      ))}
+      );
+      })}
 
       {rangeSelect && rangeWidth > 2 && activeDragMode === 'ctrl-range' && (
         <div className={`subtitle-time-range-drawer ${rangePillClassName} z-[6]`}

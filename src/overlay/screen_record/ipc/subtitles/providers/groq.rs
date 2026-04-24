@@ -61,6 +61,7 @@ impl SubtitleBackend for GroqSubtitleBackend {
             &self.model_name,
             request.media.bytes,
             request.language_hint.as_deref(),
+            &request.groq_vocabulary,
         )?;
         Ok(build_sentence_blocks(&response))
     }
@@ -91,6 +92,7 @@ fn transcribe_with_groq_verbose(
     model_name: &str,
     audio_data: Vec<u8>,
     language_hint: Option<&str>,
+    vocabulary: &[String],
 ) -> Result<GroqVerboseResponse, String> {
     let boundary = format!("----SGTSubtitle{}", chrono::Utc::now().timestamp_millis());
     let mut body = Vec::new();
@@ -105,6 +107,9 @@ fn transcribe_with_groq_verbose(
     add_multipart_field(&mut body, &boundary, "timestamp_granularities[]", b"word");
     if let Some(language) = normalize_groq_language_hint(language_hint) {
         add_multipart_field(&mut body, &boundary, "language", language.as_bytes());
+    }
+    if let Some(prompt) = build_groq_vocabulary_prompt(vocabulary) {
+        add_multipart_field(&mut body, &boundary, "prompt", prompt.as_bytes());
     }
     body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
     body.extend_from_slice(
@@ -130,6 +135,23 @@ fn transcribe_with_groq_verbose(
         .read_json()
         .map_err(|e| format!("Parse Groq subtitle response: {e}"))?;
     serde_json::from_value(json).map_err(|e| format!("Decode Groq verbose response: {e}"))
+}
+
+fn build_groq_vocabulary_prompt(vocabulary: &[String]) -> Option<String> {
+    let terms: Vec<String> = vocabulary
+        .iter()
+        .map(|entry| entry.trim())
+        .filter(|entry| !entry.is_empty())
+        .take(80)
+        .map(ToOwned::to_owned)
+        .collect();
+    if terms.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "Use these spellings and domain terms when heard: {}.",
+        terms.join(", ")
+    ))
 }
 
 fn add_multipart_field(body: &mut Vec<u8>, boundary: &str, name: &str, value: &[u8]) {

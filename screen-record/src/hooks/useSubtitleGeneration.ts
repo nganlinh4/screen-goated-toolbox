@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@/lib/ipc';
 import {
   getEffectiveCompositionMode,
@@ -24,11 +24,19 @@ import {
   mergePartialOriginalSubtitleSegments,
   replaceOriginalSubtitleSegments,
 } from '@/lib/subtitleTrackMutations';
+import {
+  getSubtitleTracks,
+  getVisibleSubtitleSegments,
+} from '@/lib/subtitleTracks';
+import { DEFAULT_GEMINI_SUBTITLE_PROMPT } from '@/lib/geminiSubtitlePrompt';
+import { getSubtitleLanguageOptionsForMethod } from '@/lib/subtitleLanguageOptions';
+import { markFrontendPerfEvent } from '@/lib/frontendPerfDiagnostics';
 
 export type SubtitleMethod =
   | 'groq-whisper-accurate'
   | 'groq-whisper-large-v3-turbo'
   | 'gemini-3-1-flash-lite'
+  | 'gemini-3-flash-preview'
   | 'qwen-local-0-6b'
   | 'qwen-local-1-7b';
 
@@ -40,6 +48,7 @@ const DEFAULT_SUBTITLE_METHOD_CAPABILITIES: Array<{
   { method: 'groq-whisper-accurate', available: true, reason: null },
   { method: 'groq-whisper-large-v3-turbo', available: true, reason: null },
   { method: 'gemini-3-1-flash-lite', available: false, reason: null },
+  { method: 'gemini-3-flash-preview', available: false, reason: null },
   { method: 'qwen-local-0-6b', available: false, reason: null },
   { method: 'qwen-local-1-7b', available: false, reason: null },
 ];
@@ -47,6 +56,11 @@ const DEFAULT_SUBTITLE_METHOD_CAPABILITIES: Array<{
 const SUBTITLE_SOURCE_KEY = 'screen-record-subtitle-source-v1';
 const SUBTITLE_METHOD_KEY = 'screen-record-subtitle-method-v1';
 const SUBTITLE_LANGUAGE_HINT_KEY = 'screen-record-subtitle-language-hint-v1';
+const SUBTITLE_GEMINI_PROMPT_KEY = 'screen-record-subtitle-gemini-prompt-v1';
+const SUBTITLE_GROQ_VOCABULARY_KEY = 'screen-record-subtitle-groq-vocabulary-v1';
+const SUBTITLE_PARTIAL_APPLY_INTERVAL_MS = 2500;
+const SUBTITLE_PARTIAL_TEXT_REFRESH_MS = 5000;
+const SUBTITLE_APPLY_PERF_LOG_INTERVAL_MS = 1000;
 
 function getInitialSubtitleSource(): 'video' | 'mic' {
   try {
@@ -65,6 +79,7 @@ function isSubtitleMethod(value: string): value is SubtitleMethod {
     value === 'groq-whisper-accurate' ||
     value === 'groq-whisper-large-v3-turbo' ||
     value === 'gemini-3-1-flash-lite' ||
+    value === 'gemini-3-flash-preview' ||
     value === 'qwen-local-0-6b' ||
     value === 'qwen-local-1-7b'
   );
@@ -100,6 +115,31 @@ function getInitialSubtitleLanguageHint(): string {
     // ignore persistence failures
   }
   return 'auto';
+}
+
+function getInitialGeminiPrompt(): string {
+  try {
+    const storedPrompt = localStorage.getItem(SUBTITLE_GEMINI_PROMPT_KEY);
+    return storedPrompt?.trim() ? storedPrompt : DEFAULT_GEMINI_SUBTITLE_PROMPT;
+  } catch {
+    // ignore persistence failures
+  }
+  return DEFAULT_GEMINI_SUBTITLE_PROMPT;
+}
+
+function getInitialGroqVocabulary(): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SUBTITLE_GROQ_VOCABULARY_KEY) ?? '[]');
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+  } catch {
+    // ignore persistence failures
+  }
+  return [];
 }
 
 interface SubtitleClipResult {
@@ -156,12 +196,14 @@ interface SubtitleJobContext {
 
 interface UseSubtitleGenerationParams {
   t: Translations;
+  projectResetKey?: string | null;
   segment: VideoSegment | null;
   setSegment: (
     segment:
       | VideoSegment
       | null
       | ((prev: VideoSegment | null) => VideoSegment | null),
+    withHistory?: boolean,
   ) => void;
   composition: ProjectComposition | null;
   setComposition: (
@@ -223,7 +265,6 @@ function buildSubtitleStatusViewKey(status: SubtitleJobViewStatus): string {
     status.activeClipId ?? '',
     status.totalClips,
     status.completedClips,
-    status.resultsRevision,
     status.skipped.length,
     status.error ?? '',
     JSON.stringify(status.messageParams ?? {}),
@@ -246,19 +287,85 @@ function buildAppliedResultsKey(results: SubtitleClipResult[]): string {
   ].join('/')).join('||');
 }
 
-function formatResultSummary(results: SubtitleClipResult[]) {
-  if (results.length === 0) return 'none';
-  return results.map((result) => {
-    const tail = result.segments[result.segments.length - 1];
-    const tailSummary = tail
-      ? `${tail.startTime.toFixed(2)}-${tail.endTime.toFixed(2)}:${tail.text.slice(0, 24).replace(/\s+/g, ' ')}`
-      : 'none';
-    return `${result.clipId}:${result.isPartial ? 'partial' : 'final'}:${result.segments.length}:${tailSummary}`;
-  }).join(' | ');
+function hasFinalSubtitleResult(results: SubtitleClipResult[]) {
+  return results.some((result) => !result.isPartial);
+}
+
+function summarizeSubtitleRanges(
+  segments: ReadonlyArray<{ startTime: number; endTime: number; text: string }>,
+) {
+  const first = segments[0];
+  const last = segments[segments.length - 1];
+  const invalid = segments.filter((subtitle) => (
+    !Number.isFinite(subtitle.startTime)
+    || !Number.isFinite(subtitle.endTime)
+    || subtitle.endTime <= subtitle.startTime
+  )).length;
+  const emptyText = segments.filter((subtitle) => !subtitle.text.trim()).length;
+  const maxEnd = segments.reduce((max, subtitle) => Math.max(max, subtitle.endTime), 0);
+  return [
+    `count=${segments.length}`,
+    `range=${first ? `${first.startTime.toFixed(2)}-${last?.endTime.toFixed(2)}` : 'none'}`,
+    `maxEnd=${maxEnd.toFixed(2)}`,
+    `invalid=${invalid}`,
+    `empty=${emptyText}`,
+    `first="${(first?.text ?? '').slice(0, 32)}"`,
+    `last="${(last?.text ?? '').slice(0, 32)}"`,
+  ].join(' ');
+}
+
+function logSubtitleApplyDiagnostics(
+  phase: string,
+  result: SubtitleClipResult,
+  before: VideoSegment | null,
+  after: VideoSegment | null,
+  replacementRanges: ReadonlyArray<Pick<TrackSelectionRange, 'startTime' | 'endTime'>>,
+) {
+  const beforeVisible = before ? getVisibleSubtitleSegments(before) : [];
+  const afterVisible = after ? getVisibleSubtitleSegments(after) : [];
+  const afterTracks = after ? getSubtitleTracks(after) : [];
+  const activeView = after?.activeSubtitleView;
+  const trackSummary = afterTracks
+    .map((track) => `${track.id}:${track.segments.length}`)
+    .join(',');
+  const replacementSummary = replacementRanges
+    .map((range) => `${range.startTime.toFixed(2)}-${range.endTime.toFixed(2)}`)
+    .join(',');
+  console.log(
+    `[SubtitleGen][Diag][${phase}] clip=${result.clipId} partial=${result.isPartial ? 1 : 0} `
+    + `incoming(${summarizeSubtitleRanges(result.segments)}) `
+    + `visibleBefore=${beforeVisible.length} visibleAfter=${afterVisible.length} `
+    + `active=${activeView?.kind ?? 'none'}:${activeView?.trackId ?? 'none'} `
+    + `tracks=${trackSummary || 'none'} replacement=${replacementSummary || 'all'}`,
+  );
+}
+
+function coalesceSubtitleClipResults(
+  current: SubtitleClipResult[],
+  incoming: SubtitleClipResult[],
+) {
+  const byClipId = new Map(current.map((result) => [result.clipId, result]));
+  for (const result of incoming) {
+    const existing = byClipId.get(result.clipId);
+    if (!existing || !result.isPartial || existing.isPartial) {
+      byClipId.set(result.clipId, result);
+    }
+  }
+  return Array.from(byClipId.values());
+}
+
+function partialApplySignature(result: SubtitleClipResult) {
+  const tail = result.segments[result.segments.length - 1] ?? null;
+  return [
+    result.clipId,
+    result.segments.length,
+    tail ? Math.round(tail.startTime * 10) : 'none',
+  ].join(':');
 }
 
 export function useSubtitleGeneration({
   t,
+  projectResetKey,
   segment,
   setSegment,
   composition,
@@ -274,6 +381,8 @@ export function useSubtitleGeneration({
   const [subtitleMethod, setSubtitleMethodState] = useState<SubtitleMethod>(getInitialSubtitleMethod);
   const [subtitleMethodNotice, setSubtitleMethodNotice] = useState<string | null>(null);
   const [languageHint, setLanguageHint] = useState(getInitialSubtitleLanguageHint);
+  const [geminiPrompt, setGeminiPrompt] = useState(getInitialGeminiPrompt);
+  const [groqVocabulary, setGroqVocabulary] = useState<string[]>(getInitialGroqVocabulary);
   const [jobId, setJobId] = useState<string | null>(null);
   const [isStartingSubtitleJob, setIsStartingSubtitleJob] = useState(false);
   const [jobContext, setJobContext] = useState<SubtitleJobContext | null>(null);
@@ -282,6 +391,25 @@ export function useSubtitleGeneration({
   const lastAppliedResultsKeyRef = useRef('');
   const lastKnownResultsRevisionRef = useRef(0);
   const lastStatusViewKeyRef = useRef('');
+  const activeJobIdRef = useRef<string | null>(null);
+  const lastProjectResetKeyRef = useRef<string | null | undefined>(undefined);
+  const pendingSubtitleResultsRef = useRef<SubtitleClipResult[]>([]);
+  const pendingSubtitleApplyTimerRef = useRef<number | null>(null);
+  const jobContextRef = useRef<SubtitleJobContext | null>(null);
+  const lastSubtitleApplyPerfLogRef = useRef(0);
+  const partialApplyStateRef = useRef(new Map<string, { signature: string; appliedAt: number }>());
+
+  useEffect(() => {
+    jobContextRef.current = jobContext;
+  }, [jobContext]);
+
+  const clearQueuedSubtitleResults = useCallback(() => {
+    if (pendingSubtitleApplyTimerRef.current !== null) {
+      window.clearTimeout(pendingSubtitleApplyTimerRef.current);
+      pendingSubtitleApplyTimerRef.current = null;
+    }
+    pendingSubtitleResultsRef.current = [];
+  }, []);
 
   useEffect(() => {
     try {
@@ -306,6 +434,60 @@ export function useSubtitleGeneration({
       // ignore persistence failures
     }
   }, [languageHint]);
+
+  useEffect(() => {
+    const languageOptions = getSubtitleLanguageOptionsForMethod(subtitleMethod);
+    if (!languageOptions.some((option) => option.value === languageHint)) {
+      setLanguageHint('auto');
+    }
+  }, [languageHint, subtitleMethod]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SUBTITLE_GEMINI_PROMPT_KEY, geminiPrompt);
+    } catch {
+      // ignore persistence failures
+    }
+  }, [geminiPrompt]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SUBTITLE_GROQ_VOCABULARY_KEY, JSON.stringify(groqVocabulary));
+    } catch {
+      // ignore persistence failures
+    }
+  }, [groqVocabulary]);
+
+  useEffect(() => {
+    activeJobIdRef.current = jobId;
+  }, [jobId]);
+
+  useEffect(() => {
+    const nextKey = projectResetKey ?? null;
+    if (lastProjectResetKeyRef.current === undefined) {
+      lastProjectResetKeyRef.current = nextKey;
+      return;
+    }
+    if (lastProjectResetKeyRef.current === nextKey) {
+      return;
+    }
+    lastProjectResetKeyRef.current = nextKey;
+
+    const activeJobId = activeJobIdRef.current;
+    if (activeJobId) {
+      void invoke('cancel_subtitle_generation', { jobId: activeJobId }).catch(() => {});
+    }
+    setEditingSubtitleId(null);
+    setJobId(null);
+    setIsStartingSubtitleJob(false);
+    setJobContext(null);
+    setStatus(null);
+    setSubtitleMethodNotice(null);
+    lastAppliedResultsKeyRef.current = '';
+    lastKnownResultsRevisionRef.current = 0;
+    lastStatusViewKeyRef.current = '';
+    clearQueuedSubtitleResults();
+  }, [clearQueuedSubtitleResults, projectResetKey]);
 
   const canUseVideoSource = useMemo(() => {
     if (composition && getEffectiveCompositionMode(composition) === 'unified') {
@@ -389,36 +571,45 @@ export function useSubtitleGeneration({
   const applyResults = useCallback((results: SubtitleClipResult[], context: SubtitleJobContext | null) => {
     if (results.length === 0) return;
     const startedAt = performance.now();
-    const mode = !composition || getEffectiveCompositionMode(composition) === 'separate' ? 'separate' : 'unified';
-    console.log(
-      `[SubtitleGen][Webview][apply-results] start mode=${mode} results=${results.length} partial=${results.filter((result) => result.isPartial).length} final=${results.filter((result) => !result.isPartial).length} clips=${formatResultSummary(results)}`,
-    );
     const subtitleStyle = defaultSubtitleStyle();
-
+    const saveUndoHistory = results.some((result) => !result.isPartial);
     if (!composition || getEffectiveCompositionMode(composition) === 'separate') {
-      setSegment((prev) => {
+      const applySegmentUpdate = () => setSegment((prev) => {
         if (!prev) return prev;
         return results.reduce((nextSegment, result) => {
           const replacementRanges = context?.replacementRangesByClip[result.clipId] ?? [];
-          const inserted = result.segments.map((entry, index) => ({
-            id: buildSubtitleId(result.clipId, entry, index),
-            startTime: entry.startTime,
-            endTime: entry.endTime,
-            text: entry.text,
-            style: subtitleStyle,
-          }));
-          return result.isPartial
+        const inserted = result.segments.map((entry, index) => ({
+          id: buildSubtitleId(result.clipId, entry, index),
+          startTime: entry.startTime,
+          endTime: entry.endTime,
+          text: entry.text,
+          style: subtitleStyle,
+        }));
+          const updatedSegment = result.isPartial
             ? mergePartialOriginalSubtitleSegments(nextSegment, inserted, replacementRanges)
             : replaceOriginalSubtitleSegments(nextSegment, inserted, replacementRanges);
+          logSubtitleApplyDiagnostics('apply-separate', result, nextSegment, updatedSegment, replacementRanges);
+          return updatedSegment;
         }, prev);
-      });
-      console.log(
-        `[SubtitleGen][Webview][apply-results] queued mode=separate elapsedMs=${(performance.now() - startedAt).toFixed(2)} clips=${formatResultSummary(results)}`,
-      );
+      }, saveUndoHistory);
+      if (saveUndoHistory) {
+        applySegmentUpdate();
+      } else {
+        startTransition(applySegmentUpdate);
+      }
+      const elapsedMs = performance.now() - startedAt;
+      const now = performance.now();
+      if (elapsedMs > 8 && now - lastSubtitleApplyPerfLogRef.current > SUBTITLE_APPLY_PERF_LOG_INTERVAL_MS) {
+        lastSubtitleApplyPerfLogRef.current = now;
+        const segmentCount = results.reduce((count, result) => count + result.segments.length, 0);
+        console.log(
+          `[SubtitleGen][Perf] apply mode=separate ms=${elapsedMs.toFixed(1)} results=${results.length} segments=${segmentCount} partial=${results.filter((result) => result.isPartial).length} final=${results.filter((result) => !result.isPartial).length}`,
+        );
+      }
       return;
     }
 
-    setComposition((prev) => {
+    const applyCompositionUpdate = () => setComposition((prev) => {
       if (!prev) return prev;
       const timeline = buildSequenceTimeline(prev);
       if (!timeline) return prev;
@@ -446,6 +637,7 @@ export function useSubtitleGeneration({
               inserted,
               replacementRanges,
             );
+        logSubtitleApplyDiagnostics('apply-composition', result, clip.segment, updatedSegment, replacementRanges);
 
         next = updateCompositionClip(next, clip.id, { segment: updatedSegment });
 
@@ -466,10 +658,86 @@ export function useSubtitleGeneration({
       }
       return next;
     });
-    console.log(
-      `[SubtitleGen][Webview][apply-results] queued mode=unified elapsedMs=${(performance.now() - startedAt).toFixed(2)} clips=${formatResultSummary(results)}`,
-    );
+    if (saveUndoHistory) {
+      applyCompositionUpdate();
+    } else {
+      startTransition(applyCompositionUpdate);
+    }
+    const elapsedMs = performance.now() - startedAt;
+    const now = performance.now();
+    if (elapsedMs > 8 && now - lastSubtitleApplyPerfLogRef.current > SUBTITLE_APPLY_PERF_LOG_INTERVAL_MS) {
+      lastSubtitleApplyPerfLogRef.current = now;
+      const segmentCount = results.reduce((count, result) => count + result.segments.length, 0);
+      console.log(
+        `[SubtitleGen][Perf] apply mode=unified ms=${elapsedMs.toFixed(1)} results=${results.length} segments=${segmentCount} partial=${results.filter((result) => result.isPartial).length} final=${results.filter((result) => !result.isPartial).length}`,
+      );
+    }
   }, [composition, setComposition, setSegment]);
+
+  const applyResultsRef = useRef(applyResults);
+
+  useEffect(() => {
+    applyResultsRef.current = applyResults;
+  }, [applyResults]);
+
+  const flushQueuedSubtitleResults = useCallback(() => {
+    if (pendingSubtitleApplyTimerRef.current !== null) {
+      window.clearTimeout(pendingSubtitleApplyTimerRef.current);
+      pendingSubtitleApplyTimerRef.current = null;
+    }
+    const results = pendingSubtitleResultsRef.current;
+    pendingSubtitleResultsRef.current = [];
+    if (results.length > 0) {
+      const segmentCount = results.reduce((count, result) => count + result.segments.length, 0);
+      const partialCount = results.filter((result) => result.isPartial).length;
+      markFrontendPerfEvent(`subtitle-flush-start results=${results.length} segments=${segmentCount} partial=${partialCount}`);
+      applyResultsRef.current(results, jobContextRef.current);
+      markFrontendPerfEvent(`subtitle-flush-end results=${results.length} segments=${segmentCount}`);
+    }
+  }, []);
+
+  const queueSubtitleResults = useCallback((results: SubtitleClipResult[], immediate: boolean) => {
+    if (results.length === 0) return;
+    const segmentCount = results.reduce((count, result) => count + result.segments.length, 0);
+    markFrontendPerfEvent(`subtitle-queue results=${results.length} segments=${segmentCount} immediate=${immediate ? 1 : 0}`);
+    if (!immediate && results.every((result) => result.isPartial)) {
+      const now = performance.now();
+      const shouldApply = results.some((result) => {
+        const signature = partialApplySignature(result);
+        const previous = partialApplyStateRef.current.get(result.clipId);
+        return !previous
+          || previous.signature !== signature
+          || now - previous.appliedAt >= SUBTITLE_PARTIAL_TEXT_REFRESH_MS;
+      });
+      if (!shouldApply) {
+        markFrontendPerfEvent(`subtitle-partial-skip-stable results=${results.length} segments=${segmentCount}`);
+        return;
+      }
+      for (const result of results) {
+        partialApplyStateRef.current.set(result.clipId, {
+          signature: partialApplySignature(result),
+          appliedAt: now,
+        });
+      }
+    }
+    if (immediate) {
+      partialApplyStateRef.current.clear();
+    }
+    pendingSubtitleResultsRef.current = coalesceSubtitleClipResults(
+      pendingSubtitleResultsRef.current,
+      results,
+    );
+    if (immediate) {
+      flushQueuedSubtitleResults();
+      return;
+    }
+    if (pendingSubtitleApplyTimerRef.current === null) {
+      pendingSubtitleApplyTimerRef.current = window.setTimeout(
+        flushQueuedSubtitleResults,
+        SUBTITLE_PARTIAL_APPLY_INTERVAL_MS,
+      );
+    }
+  }, [flushQueuedSubtitleResults]);
 
   useEffect(() => {
     if (!composition || getEffectiveCompositionMode(composition) === 'separate') return;
@@ -501,19 +769,28 @@ export function useSubtitleGeneration({
           setStatus(nextViewStatus);
         }
         const nextAppliedResultsKey = buildAppliedResultsKey(nextStatus.results);
+        if (nextStatus.results.length > 0 || nextStatus.state === 'completed') {
+          const resultSummary = nextStatus.results
+            .map((result) => `${result.clipId}:${result.isPartial ? 'p' : 'f'}:${summarizeSubtitleRanges(result.segments)}`)
+            .join(' | ');
+          console.log(
+            `[SubtitleGen][Diag][poll] state=${nextStatus.state} rev=${nextStatus.resultsRevision} known=${lastKnownResultsRevisionRef.current} `
+            + `results=${nextStatus.results.length} ${resultSummary || 'empty-results'}`,
+          );
+        }
         if (
           nextStatus.results.length > 0
           && nextAppliedResultsKey !== lastAppliedResultsKeyRef.current
         ) {
-          console.log(
-            `[SubtitleGen][Webview][poll-results] knownRev=${lastKnownResultsRevisionRef.current} nextRev=${nextStatus.resultsRevision} results=${nextStatus.results.length} clips=${formatResultSummary(nextStatus.results)}`,
-          );
+          if (nextStatus.state === 'completed') {
+            clearQueuedSubtitleResults();
+          }
           lastKnownResultsRevisionRef.current = nextStatus.resultsRevision;
           lastAppliedResultsKeyRef.current = nextAppliedResultsKey;
-          applyResults(nextStatus.results, jobContext);
+          queueSubtitleResults(nextStatus.results, hasFinalSubtitleResult(nextStatus.results));
         }
         if (nextStatus.state === 'completed') {
-          applyResults(nextStatus.results, jobContext);
+          flushQueuedSubtitleResults();
           lastAppliedResultsKeyRef.current = '';
           lastKnownResultsRevisionRef.current = 0;
           lastStatusViewKeyRef.current = '';
@@ -523,6 +800,7 @@ export function useSubtitleGeneration({
           return;
         }
         if (nextStatus.state === 'cancelled' || nextStatus.state === 'error') {
+          clearQueuedSubtitleResults();
           lastAppliedResultsKeyRef.current = '';
           lastKnownResultsRevisionRef.current = 0;
           lastStatusViewKeyRef.current = '';
@@ -547,6 +825,7 @@ export function useSubtitleGeneration({
         lastAppliedResultsKeyRef.current = '';
         lastKnownResultsRevisionRef.current = 0;
         lastStatusViewKeyRef.current = '';
+        clearQueuedSubtitleResults();
         setJobId(null);
         setJobContext(null);
       }
@@ -556,7 +835,14 @@ export function useSubtitleGeneration({
     return () => {
       cancelled = true;
     };
-  }, [applyResults, jobContext, jobId, setActivePanel]);
+  }, [
+    clearQueuedSubtitleResults,
+    flushQueuedSubtitleResults,
+    jobId,
+    queueSubtitleResults,
+    setActivePanel,
+    t.subtitleStatusFailed,
+  ]);
 
   const handleGenerateSubtitles = useCallback(async (selectedRange?: TrackSelectionRange | null) => {
     if (jobId || isStartingSubtitleJob) {
@@ -615,6 +901,7 @@ export function useSubtitleGeneration({
     }
 
     setActivePanel('subtitles');
+    clearQueuedSubtitleResults();
     setJobContext({
       replacementRangesByClip: plan.replacementRangesByClip,
       indicator: plan.indicator,
@@ -624,6 +911,8 @@ export function useSubtitleGeneration({
       sourceType,
       subtitleMethod,
       languageHint: languageHint.trim() || 'auto',
+      geminiPrompt: geminiPrompt.trim() || null,
+      groqVocabulary,
       clips: plan.clips,
     });
 
@@ -663,12 +952,15 @@ export function useSubtitleGeneration({
   }, [
     activeClipId,
     capabilities,
+    clearQueuedSubtitleResults,
     composition,
     currentRawMicAudioPath,
     currentRawVideoPath,
     duration,
     isStartingSubtitleJob,
     jobId,
+    geminiPrompt,
+    groqVocabulary,
     languageHint,
     refreshSubtitleCapabilities,
     segment,
@@ -680,6 +972,7 @@ export function useSubtitleGeneration({
   const handleCancelSubtitleGeneration = useCallback(async () => {
     if (!jobId) return;
     await invoke('cancel_subtitle_generation', { jobId });
+    clearQueuedSubtitleResults();
     setStatus((prev) => (prev ? {
       ...prev,
       state: 'cancelled',
@@ -692,7 +985,9 @@ export function useSubtitleGeneration({
     lastStatusViewKeyRef.current = '';
     setJobId(null);
     setJobContext(null);
-  }, [jobId]);
+  }, [clearQueuedSubtitleResults, jobId, t.subtitleStatusCancelled]);
+
+  useEffect(() => clearQueuedSubtitleResults, [clearQueuedSubtitleResults]);
 
   return {
     editingSubtitleId,
@@ -706,6 +1001,10 @@ export function useSubtitleGeneration({
     selectedSubtitleMethodReason,
     subtitleLanguageHint: languageHint,
     setSubtitleLanguageHint: setLanguageHint,
+    subtitleGeminiPrompt: geminiPrompt,
+    setSubtitleGeminiPrompt: setGeminiPrompt,
+    subtitleGroqVocabulary: groqVocabulary,
+    setSubtitleGroqVocabulary: setGroqVocabulary,
     isGeneratingSubtitles: !!jobId || isStartingSubtitleJob,
     subtitleStatusMessage: localizeSubtitleStatus(t, status),
     subtitleActiveClipId: status?.activeClipId ?? null,

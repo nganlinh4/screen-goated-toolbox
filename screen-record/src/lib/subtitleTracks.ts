@@ -197,6 +197,12 @@ export function normalizeSubtitleTrackState(segment: VideoSegment): VideoSegment
 
 export function getSubtitleTracks(segment: VideoSegment | null | undefined): SubtitleTrack[] {
   if (!segment) return [];
+  if (
+    Array.isArray(segment.subtitleTracks) &&
+    segment.subtitleTracks.some((track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID)
+  ) {
+    return segment.subtitleTracks;
+  }
   return normalizeSubtitleTrackState(segment).subtitleTracks ?? [];
 }
 
@@ -226,6 +232,9 @@ export function getActiveSubtitleView(segment: VideoSegment | null | undefined):
   if (!segment) {
     return { kind: 'track', trackId: ORIGINAL_SUBTITLE_TRACK_ID };
   }
+  if (segment.activeSubtitleView) {
+    return segment.activeSubtitleView;
+  }
   return normalizeSubtitleTrackState(segment).activeSubtitleView ?? {
     kind: 'track',
     trackId: ORIGINAL_SUBTITLE_TRACK_ID,
@@ -240,6 +249,9 @@ export function getActiveSubtitleTrack(segment: VideoSegment | null | undefined)
 
 export function getVisibleSubtitleSegments(segment: VideoSegment | null | undefined): SubtitleSegment[] {
   if (!segment) return [];
+  if (Array.isArray(segment.subtitleSegments)) {
+    return segment.subtitleSegments;
+  }
   return normalizeSubtitleTrackState(segment).subtitleSegments ?? [];
 }
 

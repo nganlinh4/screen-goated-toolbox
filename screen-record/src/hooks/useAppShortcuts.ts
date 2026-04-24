@@ -12,12 +12,14 @@ export interface UseAppShortcutsParams {
   isModalOpen?: boolean;
   editingKeyframeId: number | null;
   editingTextId: string | null;
+  editingSubtitleId: string | null;
   editingKeystrokeSegmentId: string | null;
   editingPointerId: string | null;
   segment: VideoSegment | null;
   setSegment: (segment: VideoSegment) => void;
   setEditingKeyframeId: (id: number | null) => void;
   handleDeleteText: () => void;
+  handleDeleteSubtitle: () => void;
   handleDeleteKeystrokeSegment: () => void;
   handleDeletePointerSegment: () => void;
   canUndo: boolean;
@@ -38,12 +40,14 @@ export function useAppShortcuts({
   isModalOpen = false,
   editingKeyframeId,
   editingTextId,
+  editingSubtitleId,
   editingKeystrokeSegmentId,
   editingPointerId,
   segment,
   setSegment,
   setEditingKeyframeId,
   handleDeleteText,
+  handleDeleteSubtitle,
   handleDeleteKeystrokeSegment,
   handleDeletePointerSegment,
   canUndo,
@@ -63,12 +67,14 @@ export function useAppShortcuts({
     isModalOpen,
     editingKeyframeId,
     editingTextId,
+    editingSubtitleId,
     editingKeystrokeSegmentId,
     editingPointerId,
     segment,
     setSegment,
     setEditingKeyframeId,
     handleDeleteText,
+    handleDeleteSubtitle,
     handleDeleteKeystrokeSegment,
     handleDeletePointerSegment,
     canUndo,
@@ -88,12 +94,14 @@ export function useAppShortcuts({
     isModalOpen,
     editingKeyframeId,
     editingTextId,
+    editingSubtitleId,
     editingKeystrokeSegmentId,
     editingPointerId,
     segment,
     setSegment,
     setEditingKeyframeId,
     handleDeleteText,
+    handleDeleteSubtitle,
     handleDeleteKeystrokeSegment,
     handleDeletePointerSegment,
     canUndo,
@@ -129,12 +137,14 @@ export function useAppShortcuts({
         isModalOpen = false,
         editingKeyframeId,
         editingTextId,
+        editingSubtitleId,
         editingKeystrokeSegmentId,
         editingPointerId,
         segment,
         setSegment,
         setEditingKeyframeId,
         handleDeleteText,
+        handleDeleteSubtitle,
         handleDeleteKeystrokeSegment,
         handleDeletePointerSegment,
         canUndo,
@@ -175,6 +185,8 @@ export function useAppShortcuts({
           handleDeleteKeystrokeSegment();
         } else if (editingPointerId) {
           handleDeletePointerSegment();
+        } else if (editingSubtitleId) {
+          handleDeleteSubtitle();
         } else if (editingTextId && !editingKeyframeId) {
           handleDeleteText();
         } else if (

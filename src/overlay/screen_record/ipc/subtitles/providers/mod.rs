@@ -4,6 +4,9 @@ mod gemini_stream;
 mod groq;
 mod qwen;
 
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use crate::APP;
 use crate::api::realtime_audio::qwen3::{Qwen3ModelVariant, assets, runtime};
 use crate::model_config::get_model_by_id;
@@ -21,6 +24,9 @@ pub struct SubtitleBackendProgress {
 pub struct SubtitleBackendRequest {
     pub media: PreparedSubtitleMedia,
     pub language_hint: Option<String>,
+    pub gemini_prompt: Option<String>,
+    pub groq_vocabulary: Vec<String>,
+    pub cancel_token: Arc<AtomicBool>,
 }
 
 pub trait SubtitleBackend {
@@ -42,7 +48,10 @@ pub fn create_backend(
             Ok(Box::new(groq::GroqSubtitleBackend::new(method)?))
         }
         SubtitleGenerationMethod::Gemini3_1FlashLite => {
-            Ok(Box::new(gemini::GeminiSubtitleBackend::new()?))
+            Ok(Box::new(gemini::GeminiSubtitleBackend::new(method)?))
+        }
+        SubtitleGenerationMethod::Gemini3FlashPreview => {
+            Ok(Box::new(gemini::GeminiSubtitleBackend::new(method)?))
         }
         SubtitleGenerationMethod::QwenLocal0_6B => Ok(Box::new(qwen::QwenSubtitleBackend::new(
             Qwen3ModelVariant::Small,
@@ -65,7 +74,8 @@ pub fn capabilities() -> Vec<SubtitleMethodCapability> {
             available: true,
             reason: None,
         },
-        gemini_subtitle_capability(),
+        gemini_subtitle_capability(SubtitleGenerationMethod::Gemini3_1FlashLite),
+        gemini_subtitle_capability(SubtitleGenerationMethod::Gemini3FlashPreview),
         qwen_local_capability(
             SubtitleGenerationMethod::QwenLocal0_6B,
             Qwen3ModelVariant::Small,
@@ -94,12 +104,19 @@ pub fn normalize_subtitle_text(text: &str) -> String {
 }
 
 pub fn normalize_groq_language_hint(language_hint: Option<&str>) -> Option<String> {
-    normalize_language_alias(language_hint).map(|entry| entry.groq_code.to_string())
+    if let Some(entry) = normalize_language_alias(language_hint) {
+        return Some(entry.groq_code.to_string());
+    }
+    let primary = normalized_language_primary(language_hint)?;
+    is_groq_whisper_language_code(&primary).then_some(primary)
 }
 
 pub fn normalize_qwen_language_hint(language_hint: Option<&str>) -> Option<String> {
-    normalize_language_alias(language_hint)
-        .map(|entry| entry.qwen_name.to_string())
+    normalize_qwen_supported_language(language_hint)
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            normalize_language_alias(language_hint).map(|entry| entry.qwen_name.to_string())
+        })
         .or_else(|| trimmed_language_hint(language_hint).map(ToOwned::to_owned))
 }
 
@@ -191,12 +208,12 @@ fn qwen_local_capability(
     }
 }
 
-fn gemini_subtitle_capability() -> SubtitleMethodCapability {
+fn gemini_subtitle_capability(method: SubtitleGenerationMethod) -> SubtitleMethodCapability {
     let app = match APP.lock() {
         Ok(app) => app,
         Err(_) => {
             return SubtitleMethodCapability {
-                method: SubtitleGenerationMethod::Gemini3_1FlashLite,
+                method,
                 available: false,
                 reason: Some("APP lock poisoned".to_string()),
             };
@@ -204,27 +221,33 @@ fn gemini_subtitle_capability() -> SubtitleMethodCapability {
     };
     if !app.config.use_gemini {
         return SubtitleMethodCapability {
-            method: SubtitleGenerationMethod::Gemini3_1FlashLite,
+            method,
             available: false,
             reason: Some("Enable Gemini in Settings to use Gemini subtitles.".to_string()),
         };
     }
     if app.config.gemini_api_key.trim().is_empty() {
         return SubtitleMethodCapability {
-            method: SubtitleGenerationMethod::Gemini3_1FlashLite,
+            method,
             available: false,
             reason: Some("Add a Gemini API key in Settings to use Gemini subtitles.".to_string()),
         };
     }
-    if get_model_by_id("gemini-audio-3.1-flash-lite").is_none() {
+    let model_id = gemini::gemini_subtitle_model_id(method);
+    if get_model_by_id(model_id).is_none() {
+        let model_label = match method {
+            SubtitleGenerationMethod::Gemini3_1FlashLite => "Gemini 3.1 Flash Lite",
+            SubtitleGenerationMethod::Gemini3FlashPreview => "Gemini 3 Flash Preview",
+            _ => "Gemini",
+        };
         return SubtitleMethodCapability {
-            method: SubtitleGenerationMethod::Gemini3_1FlashLite,
+            method,
             available: false,
-            reason: Some("Gemini 3.1 Flash Lite subtitle model config is missing.".to_string()),
+            reason: Some(format!("{model_label} subtitle model config is missing.")),
         };
     }
     SubtitleMethodCapability {
-        method: SubtitleGenerationMethod::Gemini3_1FlashLite,
+        method,
         available: true,
         reason: None,
     }
@@ -250,6 +273,189 @@ fn should_attach_without_space(token: &str, previous: Option<&str>) -> bool {
 struct LanguageAlias {
     groq_code: &'static str,
     qwen_name: &'static str,
+}
+
+fn normalized_language_primary(language_hint: Option<&str>) -> Option<String> {
+    let normalized = trimmed_language_hint(language_hint)?
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', "-");
+    Some(normalized.split('-').next().unwrap_or("").to_string())
+}
+
+fn is_groq_whisper_language_code(code: &str) -> bool {
+    matches!(
+        code,
+        "af" | "am"
+            | "ar"
+            | "as"
+            | "az"
+            | "ba"
+            | "be"
+            | "bg"
+            | "bn"
+            | "bo"
+            | "br"
+            | "bs"
+            | "ca"
+            | "cs"
+            | "cy"
+            | "da"
+            | "de"
+            | "el"
+            | "en"
+            | "es"
+            | "et"
+            | "eu"
+            | "fa"
+            | "fi"
+            | "fo"
+            | "fr"
+            | "gl"
+            | "gu"
+            | "ha"
+            | "haw"
+            | "he"
+            | "hi"
+            | "hr"
+            | "ht"
+            | "hu"
+            | "hy"
+            | "id"
+            | "is"
+            | "it"
+            | "ja"
+            | "jw"
+            | "ka"
+            | "kk"
+            | "km"
+            | "kn"
+            | "ko"
+            | "la"
+            | "lb"
+            | "ln"
+            | "lo"
+            | "lt"
+            | "lv"
+            | "mg"
+            | "mi"
+            | "mk"
+            | "ml"
+            | "mn"
+            | "mr"
+            | "ms"
+            | "mt"
+            | "my"
+            | "ne"
+            | "nl"
+            | "nn"
+            | "no"
+            | "oc"
+            | "pa"
+            | "pl"
+            | "ps"
+            | "pt"
+            | "ro"
+            | "ru"
+            | "sa"
+            | "sd"
+            | "si"
+            | "sk"
+            | "sl"
+            | "sn"
+            | "so"
+            | "sq"
+            | "sr"
+            | "su"
+            | "sv"
+            | "sw"
+            | "ta"
+            | "te"
+            | "tg"
+            | "th"
+            | "tk"
+            | "tl"
+            | "tr"
+            | "tt"
+            | "uk"
+            | "ur"
+            | "uz"
+            | "vi"
+            | "yi"
+            | "yo"
+            | "yue"
+            | "zh"
+    )
+}
+
+fn normalize_qwen_supported_language(language_hint: Option<&str>) -> Option<&'static str> {
+    let normalized = trimmed_language_hint(language_hint)?
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', "-");
+    match normalized.as_str() {
+        "qwen-dialect-anhui" | "anhui" => return Some("Anhui"),
+        "qwen-dialect-dongbei" | "dongbei" => return Some("Dongbei"),
+        "qwen-dialect-fujian" | "fujian" => return Some("Fujian"),
+        "qwen-dialect-gansu" | "gansu" => return Some("Gansu"),
+        "qwen-dialect-guizhou" | "guizhou" => return Some("Guizhou"),
+        "qwen-dialect-hebei" | "hebei" => return Some("Hebei"),
+        "qwen-dialect-henan" | "henan" => return Some("Henan"),
+        "qwen-dialect-hubei" | "hubei" => return Some("Hubei"),
+        "qwen-dialect-hunan" | "hunan" => return Some("Hunan"),
+        "qwen-dialect-jiangxi" | "jiangxi" => return Some("Jiangxi"),
+        "qwen-dialect-ningxia" | "ningxia" => return Some("Ningxia"),
+        "qwen-dialect-shandong" | "shandong" => return Some("Shandong"),
+        "qwen-dialect-shaanxi" | "shaanxi" => return Some("Shaanxi"),
+        "qwen-dialect-shanxi" | "shanxi" => return Some("Shanxi"),
+        "qwen-dialect-sichuan" | "sichuan" => return Some("Sichuan"),
+        "qwen-dialect-tianjin" | "tianjin" => return Some("Tianjin"),
+        "qwen-dialect-yunnan" | "yunnan" => return Some("Yunnan"),
+        "qwen-dialect-zhejiang" | "zhejiang" => return Some("Zhejiang"),
+        "qwen-dialect-cantonese-hk" | "cantonese-hk" | "hong-kong-cantonese" => {
+            return Some("Cantonese (Hong Kong)");
+        }
+        "qwen-dialect-cantonese-gd" | "cantonese-gd" | "guangdong-cantonese" => {
+            return Some("Cantonese (Guangdong)");
+        }
+        "qwen-dialect-wu" | "wu" | "shanghainese" => return Some("Wu language"),
+        "qwen-dialect-minnan" | "minnan" | "hokkien" => return Some("Minnan language"),
+        _ => {}
+    }
+    let primary = normalized.split('-').next().unwrap_or("");
+    Some(match primary {
+        "ar" | "ara" | "arabic" => "Arabic",
+        "cs" | "ces" | "cze" | "czech" => "Czech",
+        "da" | "dan" | "danish" => "Danish",
+        "de" | "deu" | "ger" | "german" => "German",
+        "el" | "ell" | "gre" | "greek" => "Greek",
+        "en" | "eng" | "english" => "English",
+        "es" | "spa" | "spanish" => "Spanish",
+        "fa" | "pes" | "per" | "fas" | "persian" | "farsi" => "Persian",
+        "fi" | "fin" | "finnish" => "Finnish",
+        "fil" | "tl" | "tgl" | "tagalog" | "filipino" => "Filipino",
+        "fr" | "fra" | "fre" | "french" => "French",
+        "hi" | "hin" | "hindi" => "Hindi",
+        "hu" | "hun" | "hungarian" => "Hungarian",
+        "id" | "ind" | "indonesian" => "Indonesian",
+        "it" | "ita" | "italian" => "Italian",
+        "ja" | "jpn" | "japanese" => "Japanese",
+        "ko" | "kor" | "korean" => "Korean",
+        "mk" | "mkd" | "macedonian" => "Macedonian",
+        "ms" | "msa" | "may" | "malay" => "Malay",
+        "nl" | "nld" | "dut" | "dutch" => "Dutch",
+        "pl" | "pol" | "polish" => "Polish",
+        "pt" | "por" | "portuguese" => "Portuguese",
+        "ro" | "ron" | "rum" | "romanian" => "Romanian",
+        "ru" | "rus" | "russian" => "Russian",
+        "sv" | "swe" | "swedish" => "Swedish",
+        "th" | "tha" | "thai" => "Thai",
+        "tr" | "tur" | "turkish" => "Turkish",
+        "vi" | "vie" | "vietnamese" => "Vietnamese",
+        "yue" | "cantonese" => "Cantonese",
+        "zh" | "zho" | "cmn" | "chinese" | "mandarin" => "Chinese",
+        _ => return None,
+    })
 }
 
 fn normalize_language_alias(language_hint: Option<&str>) -> Option<LanguageAlias> {
@@ -429,7 +635,7 @@ fn normalize_language_alias(language_hint: Option<&str>) -> Option<LanguageAlias
         },
         "nb" | "nob" | "bokmal" | "bokmål" | "norwegian bokmal" | "norwegian bokmål" => {
             LanguageAlias {
-                groq_code: "nb",
+                groq_code: "no",
                 qwen_name: "Norwegian Bokmål",
             }
         }

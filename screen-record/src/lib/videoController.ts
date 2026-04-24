@@ -13,7 +13,11 @@ import {
 } from "./micAudio";
 import { getSpeedAtTime } from "./videoExporter";
 import { DEFAULT_BUILT_IN_BACKGROUND_ID } from "@/lib/backgroundPresets";
-import { createSubtitleTrackStateFromSegments } from "@/lib/subtitleTracks";
+import {
+  createSubtitleTrackStateFromSegments,
+  getSubtitleTracks,
+  getVisibleSubtitleSegments,
+} from "@/lib/subtitleTracks";
 
 // Split modules
 import type {
@@ -69,6 +73,7 @@ import {
   generateThumbnail,
   renderImmediate,
 } from "./videoControllerRendering";
+import { markFrontendPerfEvent } from "./frontendPerfDiagnostics";
 
 // Re-export public types so consumers can keep importing from this file
 export type { VideoControllerOptions, VideoState, RenderOptions };
@@ -96,6 +101,7 @@ export class VideoController {
   private webcamVideoPlayPromise: Promise<void> | null = null;
   private deviceAudioPlayPromise: Promise<void> | null = null;
   private micAudioPlayPromise: Promise<void> | null = null;
+  private lastRenderOptionsSubtitleDiagSignature = "";
 
   private stallState: StallState;
   private recoveryState: RecoveryState;
@@ -462,6 +468,33 @@ export class VideoController {
   public updateRenderOptions(options: RenderOptions) {
     this.renderOptions = options;
     this.applyAudioTrackVolumes(this.video.currentTime);
+    const subtitleCount = options.segment.subtitleSegments?.length
+      ?? options.segment.subtitleTracks?.reduce((count, track) => count + track.segments.length, 0)
+      ?? 0;
+    markFrontendPerfEvent(`render-options subtitles=${subtitleCount} text=${options.segment.textSegments?.length ?? 0}`);
+    const tracks = getSubtitleTracks(options.segment);
+    const visibleSubtitles = getVisibleSubtitleSegments(options.segment);
+    const first = visibleSubtitles[0];
+    const last = visibleSubtitles[visibleSubtitles.length - 1];
+    const activeView = options.segment.activeSubtitleView;
+    const trackSummary = tracks.map((track) => `${track.id}:${track.segments.length}`).join(",");
+    const diagSignature = [
+      subtitleCount,
+      visibleSubtitles.length,
+      first?.startTime.toFixed(2) ?? "none",
+      last?.endTime.toFixed(2) ?? "none",
+      activeView?.kind ?? "none",
+      activeView?.trackId ?? "none",
+      trackSummary,
+    ].join("|");
+    if (diagSignature !== this.lastRenderOptionsSubtitleDiagSignature) {
+      this.lastRenderOptionsSubtitleDiagSignature = diagSignature;
+      console.log(
+        `[SubtitleRender][Options] raw=${subtitleCount} visible=${visibleSubtitles.length} `
+        + `range=${first ? `${first.startTime.toFixed(2)}-${last?.endTime.toFixed(2)}` : "none"} `
+        + `active=${activeView?.kind ?? "none"}:${activeView?.trackId ?? "none"} tracks=${trackSummary || "none"}`,
+      );
+    }
     if (this.renderTimeout === null) {
       this.renderTimeout = requestAnimationFrame(() => { this.doRenderFrame(); this.renderTimeout = null; });
     }
