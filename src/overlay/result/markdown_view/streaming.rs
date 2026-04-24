@@ -335,7 +335,7 @@ fn update_stream_markdown_content_ex(
                 if (item.el && item.el.isConnected) {{
                     item.el.style.visibility = 'visible';
                     item.el.style.opacity = '1';
-                    item.el.style.filter = 'blur(0)';
+                    item.el.style.fontVariationSettings = "'slnt' 0, 'ROND' 100, 'GRAD' 0";
                 }}
             }});
             revealState.queue = [];
@@ -361,17 +361,21 @@ fn update_stream_markdown_content_ex(
         for (var rv = revealStart; rv < newWordCount; rv++) {{
             var rw = words[rv];
             if (!rw) continue;
-            // NO transform on hidden state — Chromium includes transformed
-            // overflow in scrollHeight, so translateY(14px) on every queued
-            // word was inflating the fit's measurement by ~14px and forcing
-            // it to land on a smaller font than the final DOM (which has
-            // no transforms) would measure. That's why streaming settled
-            // at 32 but the final fit found 40 — same content, different
-            // scrollHeight because of the transforms on hidden words.
+            // Zero-layout-shift reveal: fade opacity AND interpolate the
+            // GRAD variable-font axis. GRAD changes stroke thickness
+            // without altering glyph advance width or vertical metrics,
+            // so scrollHeight stays identical whether a word is mid-
+            // reveal or fully settled — unlike filter:blur (which
+            // didn't affect layout but rendered outside bounds) or
+            // transform:translateY (which WAS the measurement-bug
+            // culprit). 1.2s transition is long enough that ~40-50
+            // words stay mid-transition simultaneously during fast
+            // streaming, producing a cinematic trailing wave rather
+            // than a per-word pop.
             rw.style.visibility = 'hidden';
             rw.style.opacity = '0';
-            rw.style.filter = 'blur(3px)';
-            rw.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out';
+            rw.style.fontVariationSettings = "'slnt' 0, 'ROND' 100, 'GRAD' -150";
+            rw.style.transition = 'opacity 1.0s ease-out, font-variation-settings 1.2s ease-out';
             revealState.queue.push({{ el: rw, index: rv }});
         }}
 
@@ -405,12 +409,13 @@ fn update_stream_markdown_content_ex(
                     var item = q.shift();
                     if (item.el && item.el.isConnected) {{
                         // Word was kept in layout via visibility:hidden —
-                        // flip to visible and let the CSS transition fade
-                        // opacity/filter in. No transform rise (see comment
-                        // above where words are queued).
+                        // flip to visible and let the CSS transitions on
+                        // opacity + GRAD axis fade it in over ~1.2s. Zero
+                        // layout shift, and slow enough that many words in
+                        // a row are mid-transition at once (cinematic wave).
                         item.el.style.visibility = 'visible';
                         item.el.style.opacity = '1';
-                        item.el.style.filter = 'blur(0)';
+                        item.el.style.fontVariationSettings = "'slnt' 0, 'ROND' 100, 'GRAD' 0";
                     }}
                     revealState.lastRevealedIndex = item.index;
                     revealState.credits -= 1;
