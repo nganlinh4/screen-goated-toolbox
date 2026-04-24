@@ -419,10 +419,14 @@ internal fun presetResultJavascriptCore(): String {
                     // translateY on every queued word was inflating the
                     // fit's measurement by ~14px and forcing it to a
                     // smaller font than the final (no-transform) DOM.
+                    // Zero-layout-shift reveal using the GRAD variable-font
+                    // axis (stroke weight without glyph advance change) +
+                    // opacity. Longer 1.2s transition keeps many words
+                    // mid-reveal simultaneously for a cinematic wave.
                     rw.style.visibility = 'hidden';
                     rw.style.opacity = '0';
-                    rw.style.filter = 'blur(3px)';
-                    rw.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out';
+                    rw.style.fontVariationSettings = "'slnt' 0, 'ROND' 100, 'GRAD' -150";
+                    rw.style.transition = 'opacity 1.0s ease-out, font-variation-settings 1.2s ease-out';
                     revealState.queue.push({ el: rw, index: rv });
                 }
 
@@ -452,7 +456,7 @@ internal fun presetResultJavascriptCore(): String {
                             if (item.el && item.el.isConnected) {
                                 item.el.style.visibility = 'visible';
                                 item.el.style.opacity = '1';
-                                item.el.style.filter = 'blur(0)';
+                                item.el.style.fontVariationSettings = "'slnt' 0, 'ROND' 100, 'GRAD' 0";
                             }
                             revealState.lastRevealedIndex = item.index;
                             revealState.credits -= 1;
