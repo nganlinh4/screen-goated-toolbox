@@ -1,5 +1,6 @@
 import type { SubtitleMethod } from '@/hooks/useSubtitleGeneration';
-import { AlignCenter, AlignLeft, AlignRight, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { AlignCenter, AlignLeft, AlignRight, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { SettingRow } from '@/components/layout/SettingRow';
 import { ColorPicker } from '@/components/ui/ColorPicker';
@@ -8,7 +9,12 @@ import { Slider } from '@/components/ui/Slider';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useSettings } from '@/hooks/useSettings';
 import { useSubtitleTranslation } from '@/hooks/useSubtitleTranslation';
-import { SUBTITLE_LANGUAGE_OPTIONS } from '@/lib/subtitleLanguageOptions';
+import {
+  DEFAULT_GEMINI_SUBTITLE_PROMPT,
+  GEMINI_SUBTITLE_PROMPT_PRESETS,
+  GEMINI_SUBTITLE_OUTPUT_CONTRACT_PREVIEW,
+} from '@/lib/geminiSubtitlePrompt';
+import { getSubtitleLanguageOptionsForMethod } from '@/lib/subtitleLanguageOptions';
 import { normalizeTextStyle } from '@/lib/textStyleDefaults';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
 import {
@@ -41,6 +47,10 @@ export interface SubtitlePanelProps {
   selectedMethodReason?: string | null;
   languageHint: string;
   onLanguageHintChange: (value: string) => void;
+  geminiPrompt: string;
+  onGeminiPromptChange: (value: string) => void;
+  groqVocabulary: string[];
+  onGroqVocabularyChange: (value: string[]) => void;
   isGenerating: boolean;
   statusMessage?: string | null;
   canUseVideoSource: boolean;
@@ -69,6 +79,10 @@ export function SubtitlePanel({
   selectedMethodReason,
   languageHint,
   onLanguageHintChange,
+  geminiPrompt,
+  onGeminiPromptChange,
+  groqVocabulary,
+  onGroqVocabularyChange,
   isGenerating,
   statusMessage,
   canUseVideoSource,
@@ -108,7 +122,17 @@ export function SubtitlePanel({
       ? t.subtitleRegenerate
       : t.subtitleGenerate;
   const isMultiSelect = (selectedSubtitleIds?.length ?? 0) >= 2;
-  const usesLanguageHint = selectedMethod !== 'gemini-3-1-flash-lite';
+  const usesLanguageHint = !(
+    selectedMethod === 'gemini-3-1-flash-lite'
+    || selectedMethod === 'gemini-3-flash-preview'
+  );
+  const usesGeminiPrompt = !usesLanguageHint;
+  const usesGroqVocabulary = (
+    selectedMethod === 'groq-whisper-accurate'
+    || selectedMethod === 'groq-whisper-large-v3-turbo'
+  );
+  const languageOptions = getSubtitleLanguageOptionsForMethod(selectedMethod);
+  const [pendingGroqVocabulary, setPendingGroqVocabulary] = useState('');
 
   const getMethodLabel = (method: SubtitleMethod) => {
     switch (method) {
@@ -116,6 +140,8 @@ export function SubtitlePanel({
         return t.subtitleMethodGroqWhisperLargeV3Turbo;
       case 'gemini-3-1-flash-lite':
         return t.subtitleMethodGemini3_1FlashLite;
+      case 'gemini-3-flash-preview':
+        return t.subtitleMethodGemini3FlashPreview;
       case 'qwen-local-1-7b':
         return t.subtitleMethodQwenLocal1_7B;
       case 'qwen-local-0-6b':
@@ -192,6 +218,20 @@ export function SubtitlePanel({
     ?? subtitleTranslation.subtitleTranslationCapabilities?.reason
     ?? t.subtitleTranslationHint;
 
+  const addGroqVocabulary = () => {
+    const value = pendingGroqVocabulary.trim();
+    if (!value) return;
+    const exists = groqVocabulary.some((entry) => entry.toLocaleLowerCase() === value.toLocaleLowerCase());
+    if (!exists) {
+      onGroqVocabularyChange([...groqVocabulary, value]);
+    }
+    setPendingGroqVocabulary('');
+  };
+
+  const removeGroqVocabulary = (value: string) => {
+    onGroqVocabularyChange(groqVocabulary.filter((entry) => entry !== value));
+  };
+
   return (
     <PanelCard className="subtitle-panel">
       <div className="subtitle-panel-body space-y-3">
@@ -245,7 +285,7 @@ export function SubtitlePanel({
             </span>
             <PanelSelect
               value={languageHint}
-              options={SUBTITLE_LANGUAGE_OPTIONS}
+              options={languageOptions}
               onChange={onLanguageHintChange}
               searchable
               searchPlaceholder={t.subtitleLanguageSearchPlaceholder}
@@ -253,6 +293,104 @@ export function SubtitlePanel({
               triggerClassName="subtitle-language-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
               contentClassName="subtitle-language-menu"
             />
+          </div>
+        )}
+
+        {usesGeminiPrompt && (
+          <div className="subtitle-gemini-prompt-row space-y-2.5">
+            <div className="subtitle-gemini-prompt-header flex items-center justify-between gap-2">
+              <div className="subtitle-gemini-prompt-label text-[11px] font-medium text-on-surface-variant">
+                {t.subtitleGeminiPrompt}
+              </div>
+              <button
+                type="button"
+                onClick={() => onGeminiPromptChange(DEFAULT_GEMINI_SUBTITLE_PROMPT)}
+                className="subtitle-gemini-prompt-reset ui-chip-button inline-flex h-6 items-center gap-1 rounded-md px-2 text-[10px] font-medium"
+                title={t.subtitleGeminiPromptReset}
+              >
+                <RotateCcw className="h-3 w-3" />
+                {t.subtitleGeminiPromptReset}
+              </button>
+            </div>
+            <div className="subtitle-gemini-prompt-presets flex flex-wrap gap-1.5">
+              {GEMINI_SUBTITLE_PROMPT_PRESETS.map((preset) => {
+                const isActive = geminiPrompt.trim() === preset.prompt.trim();
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => onGeminiPromptChange(preset.prompt)}
+                    className={`subtitle-gemini-prompt-preset ui-chip-button rounded-full px-2 py-1 text-[10px] font-medium ${
+                      isActive ? 'ui-chip-button-active' : ''
+                    }`}
+                  >
+                    {t[preset.labelKey]}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="subtitle-gemini-prompt-editor ui-input thin-scrollbar overflow-hidden rounded-xl p-0">
+              <textarea
+                value={geminiPrompt}
+                onChange={(event) => onGeminiPromptChange(event.target.value)}
+                placeholder={t.subtitleGeminiPromptPlaceholder}
+                rows={7}
+                className="subtitle-gemini-prompt-input subtle-resize min-h-[132px] w-full resize-y border-0 bg-transparent px-3 py-2.5 text-[11px] leading-4 text-on-surface outline-none"
+              />
+              <div
+                aria-readonly="true"
+                className="subtitle-gemini-prompt-contract whitespace-pre-wrap border-t border-outline/25 bg-surface-container-highest/45 px-3 py-2.5 text-[10px] leading-4 text-on-surface-variant opacity-65"
+              >
+                {GEMINI_SUBTITLE_OUTPUT_CONTRACT_PREVIEW}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {usesGroqVocabulary && (
+          <div className="subtitle-groq-vocabulary-row space-y-2">
+            <div className="subtitle-groq-vocabulary-label text-[11px] font-medium text-on-surface-variant">
+              {t.subtitleGroqVocabulary}
+            </div>
+            <div className="subtitle-groq-vocabulary-input-row flex items-center gap-1.5">
+              <input
+                type="text"
+                value={pendingGroqVocabulary}
+                onChange={(event) => setPendingGroqVocabulary(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    addGroqVocabulary();
+                  }
+                }}
+                placeholder={t.subtitleGroqVocabularyPlaceholder}
+                className="subtitle-groq-vocabulary-input ui-input h-8 min-w-0 flex-1 rounded-lg px-2.5 text-[11px]"
+              />
+              <button
+                type="button"
+                onClick={addGroqVocabulary}
+                className="subtitle-groq-vocabulary-add ui-chip-button flex h-8 w-8 items-center justify-center rounded-lg"
+                title={t.subtitleGroqVocabularyAdd}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {groqVocabulary.length > 0 && (
+              <div className="subtitle-groq-vocabulary-tags flex flex-wrap gap-1.5">
+                {groqVocabulary.map((entry) => (
+                  <button
+                    key={entry}
+                    type="button"
+                    onClick={() => removeGroqVocabulary(entry)}
+                    className="subtitle-groq-vocabulary-tag ui-chip-button inline-flex max-w-full items-center gap-1 rounded-full px-2 py-1 text-[10px]"
+                    title={t.subtitleGroqVocabularyRemove}
+                  >
+                    <span className="subtitle-groq-vocabulary-tag-text truncate">{entry}</span>
+                    <X className="h-3 w-3 flex-shrink-0" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -304,6 +442,43 @@ export function SubtitlePanel({
             emptyStateLabel={t.subtitleLanguageSearchEmpty}
             triggerClassName="subtitle-translation-language-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
             contentClassName="subtitle-translation-language-menu"
+          />
+        </div>
+
+        <div className="subtitle-translation-chunk-row space-y-1.5">
+          <div className="subtitle-translation-chunk-header flex items-center justify-between gap-2">
+            <span className="text-[11px] font-medium text-on-surface-variant">
+              {t.subtitleTranslationChunking}
+            </span>
+            <span className="subtitle-translation-chunk-value text-[10px] font-semibold text-on-surface-variant">
+              {subtitleTranslation.subtitleTranslationChunkCount}/{subtitleTranslation.subtitleTranslationChunkMax}
+            </span>
+          </div>
+          <Slider
+            min={1}
+            max={subtitleTranslation.subtitleTranslationChunkMax}
+            step={1}
+            value={subtitleTranslation.subtitleTranslationChunkCount}
+            onChange={subtitleTranslation.setSubtitleTranslationChunkCount}
+            onPointerDown={() => subtitleTranslation.setSubtitleTranslationChunkDragging(true)}
+            onPointerUp={() => subtitleTranslation.setSubtitleTranslationChunkDragging(false)}
+            onPointerCancel={() => subtitleTranslation.setSubtitleTranslationChunkDragging(false)}
+            onBlur={() => subtitleTranslation.setSubtitleTranslationChunkDragging(false)}
+            className="subtitle-translation-chunk-slider"
+            disabled={subtitleTranslation.subtitleTranslationChunkMax <= 1}
+          />
+        </div>
+
+        <div className="subtitle-translation-instructions-row space-y-1.5">
+          <div className="subtitle-translation-instructions-label text-[11px] font-medium text-on-surface-variant">
+            {t.subtitleTranslationInstructions}
+          </div>
+          <textarea
+            value={subtitleTranslation.subtitleTranslationInstructions}
+            onChange={(event) => subtitleTranslation.setSubtitleTranslationInstructions(event.target.value)}
+            placeholder={t.subtitleTranslationInstructionsPlaceholder}
+            rows={4}
+            className="subtitle-translation-instructions-input ui-input thin-scrollbar subtle-resize min-h-[96px] w-full rounded-xl px-3 py-2.5 text-[11px] leading-4 text-on-surface"
           />
         </div>
 

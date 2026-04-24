@@ -42,27 +42,34 @@ function mapConcreteTracks(
   });
 }
 
+function mapOriginalTrack(
+  segment: VideoSegment,
+  updater: (track: SubtitleTrack) => SubtitleTrack,
+): VideoSegment {
+  const normalized = normalizeSubtitleTrackState(segment);
+  const subtitleTracks = normalized.subtitleTracks ?? [];
+  const activeView = normalized.activeSubtitleView;
+  const nextTracks = subtitleTracks.map((track) =>
+    track.id === ORIGINAL_SUBTITLE_TRACK_ID
+      ? updater({
+          ...track,
+          segments: cloneSubtitleSegments(track.segments ?? []),
+        })
+      : track,
+  );
+  const originalTrack = nextTracks.find((track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID) ?? null;
+  return {
+    ...normalized,
+    subtitleTracks: nextTracks,
+    subtitleSegments:
+      activeView?.kind === 'track' && activeView.trackId === ORIGINAL_SUBTITLE_TRACK_ID
+        ? cloneSubtitleSegments(originalTrack?.segments ?? [])
+        : normalized.subtitleSegments,
+  };
+}
+
 function sortSubtitleSegments(segments: readonly SubtitleSegment[]): SubtitleSegment[] {
   return [...segments].sort((left, right) => left.startTime - right.startTime);
-}
-
-function summarizeSubtitleTail(segments: readonly SubtitleSegment[]) {
-  return sortSubtitleSegments(segments)
-    .slice(-3)
-    .map((segment) => ({
-      id: segment.id,
-      startTime: Number(segment.startTime.toFixed(3)),
-      endTime: Number(segment.endTime.toFixed(3)),
-      text: segment.text.slice(0, 32),
-    }));
-}
-
-function formatSubtitleTail(segments: readonly SubtitleSegment[]) {
-  const tail = summarizeSubtitleTail(segments);
-  if (tail.length === 0) return 'none';
-  return tail.map((segment) =>
-    `${segment.id.slice(-8)}@${segment.startTime.toFixed(2)}-${segment.endTime.toFixed(2)}:${segment.text.replace(/\s+/g, ' ')}`,
-  ).join(' || ');
 }
 
 const PARTIAL_TAIL_RETAIN_SEC = 2.0;
@@ -332,7 +339,7 @@ export function replaceOriginalSubtitleSegments(
   inserted: readonly SubtitleSegment[],
   replacementRanges: ReadonlyArray<Pick<TrackSelectionRange, 'startTime' | 'endTime'>> = [],
 ): VideoSegment {
-  return mapConcreteTracks(segment, (track) => {
+  return mapOriginalTrack(segment, (track) => {
     const clonedInserted = cloneSubtitleSegments(inserted);
     const nextSegments = replacementRanges.length > 0
       ? sortSubtitleSegments(
@@ -351,12 +358,9 @@ export function mergePartialOriginalSubtitleSegments(
   inserted: readonly SubtitleSegment[],
   replacementRanges: ReadonlyArray<Pick<TrackSelectionRange, 'startTime' | 'endTime'>> = [],
 ): VideoSegment {
-  return mapConcreteTracks(segment, (track) => {
+  return mapOriginalTrack(segment, (track) => {
     const clonedInserted = cloneSubtitleSegments(inserted);
     if (replacementRanges.length === 0) {
-      console.log(
-        `[SubtitleGen][Webview][merge-partial] full-replace before=${track.segments.length} inserted=${clonedInserted.length} beforeTail=${formatSubtitleTail(track.segments)} insertedTail=${formatSubtitleTail(clonedInserted)}`,
-      );
       return {
         ...track,
         segments: clonedInserted,
@@ -372,9 +376,6 @@ export function mergePartialOriginalSubtitleSegments(
       ? insertedCoverageEnd - PARTIAL_TAIL_RETAIN_SEC
       : Number.NEGATIVE_INFINITY;
     const preservedOutside = preserveSubtitleSegmentsOutsideRanges(track.segments, replacementRanges);
-    const overlappedExisting = track.segments.filter((existing) =>
-      replacementRanges.some((range) => overlapsRange(existing, range)),
-    );
     const retainedInsideTail = track.segments.flatMap((existing) => {
       if (!replacementRanges.some((range) => overlapsRange(existing, range))) {
         return [];
@@ -391,12 +392,6 @@ export function mergePartialOriginalSubtitleSegments(
     });
     const retained = preservedOutside.concat(retainedInsideTail);
     const nextSegments = sortSubtitleSegments(retained.concat([...insertedById.values()]));
-
-    const firstRange = replacementRanges[0];
-    const lastRange = replacementRanges[replacementRanges.length - 1];
-    console.log(
-      `[SubtitleGen][Webview][merge-partial] ranges=${replacementRanges.length} window=${firstRange?.startTime.toFixed(2) ?? 'na'}-${lastRange?.endTime.toFixed(2) ?? 'na'} before=${track.segments.length} overlap=${overlappedExisting.length} inserted=${clonedInserted.length} retained=${retained.length} next=${nextSegments.length} beforeTail=${formatSubtitleTail(track.segments)} insertedTail=${formatSubtitleTail(clonedInserted)} nextTail=${formatSubtitleTail(nextSegments)}`,
-    );
 
     return {
       ...track,

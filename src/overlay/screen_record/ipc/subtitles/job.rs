@@ -97,8 +97,12 @@ pub fn handle_get_subtitle_generation_status(
         .map_err(|_| "Subtitle snapshot lock poisoned".to_string())?
         .clone();
     let latest_results_revision = snapshot.results_revision;
-    if latest_results_revision == known_results_revision {
+    if snapshot.state == "completed" {
+        snapshot.results_revision = latest_results_revision;
+    } else if latest_results_revision == known_results_revision {
         snapshot.results.clear();
+    } else if matches!(snapshot.state.as_str(), "cancelled" | "error") {
+        snapshot.results_revision = latest_results_revision;
     } else if let Some(next_event) = snapshot
         .result_events
         .iter()
@@ -106,15 +110,6 @@ pub fn handle_get_subtitle_generation_status(
     {
         snapshot.results = vec![next_event.result.clone()];
         snapshot.results_revision = next_event.revision;
-        if next_event.revision < latest_results_revision
-            && matches!(snapshot.state.as_str(), "completed" | "cancelled" | "error")
-        {
-            snapshot.state = "running".to_string();
-            snapshot.message = "Streaming subtitles…".to_string();
-            snapshot.message_key = Some("subtitleGenerating".to_string());
-            snapshot.message_params.clear();
-            snapshot.error = None;
-        }
     } else {
         snapshot.results.clear();
     }
@@ -315,6 +310,9 @@ fn run_subtitle_generation_inner(
             providers::SubtitleBackendRequest {
                 media: prepared_media,
                 language_hint: request.language_hint.clone(),
+                gemini_prompt: request.gemini_prompt.clone(),
+                groq_vocabulary: request.groq_vocabulary.clone(),
+                cancel_token: cancelled.clone(),
             },
             &mut publish_progress,
         )?;
@@ -437,20 +435,25 @@ fn map_segments_to_source_time(
     trim_segments: &[super::types::SubtitleTrimSegment],
     source_duration: f64,
 ) -> Vec<SubtitleSegmentResult> {
+    const MIN_SEGMENT_EPSILON_SEC: f64 = 0.0001;
     sanitize_segments(
         compact_segments
             .into_iter()
-            .map(|segment| {
+            .filter_map(|segment| {
                 let start_time =
-                    compact_to_source_time(segment.start_time, trim_segments, source_duration);
+                    compact_to_source_time(segment.start_time, trim_segments, source_duration)
+                        .clamp(0.0, source_duration);
                 let end_time =
                     compact_to_source_time(segment.end_time, trim_segments, source_duration)
-                        .max(start_time + MIN_SUBTITLE_DURATION_SEC);
-                SubtitleSegmentResult {
-                    start_time,
-                    end_time,
-                    text: segment.text,
+                        .clamp(start_time, source_duration);
+                if end_time - start_time <= MIN_SEGMENT_EPSILON_SEC {
+                    return None;
                 }
+                Some(SubtitleSegmentResult {
+                    start_time,
+                    end_time: end_time.max(start_time + MIN_SUBTITLE_DURATION_SEC),
+                    text: segment.text,
+                })
             })
             .collect(),
     )

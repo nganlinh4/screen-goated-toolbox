@@ -50,6 +50,7 @@ export function useTrackRangeSelect<T extends { id: string; startTime: number; e
   const [rangeSelect, setRangeSelect] = useState<RangeSelectState | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const isDraggingRange = useRef(false);
+  const isPointerInsideTrack = useRef(false);
   const preDragSnapshot = useRef<Set<string>>(new Set());
   const dragMode = useRef<'sweep-select' | 'ctrl-range' | null>(null);
 
@@ -110,17 +111,42 @@ export function useTrackRangeSelect<T extends { id: string; startTime: number; e
     onRangeChange?.(selectedRange);
   }, [selectedRange, onRangeChange]);
 
-  // Delete key handler
   useEffect(() => {
-    if (selectedIds.size === 0) return;
+    const track = trackRef.current;
+    if (!track) return undefined;
+    const handlePointerEnter = () => {
+      isPointerInsideTrack.current = true;
+    };
+    const handlePointerLeave = () => {
+      isPointerInsideTrack.current = false;
+    };
+    track.addEventListener('pointerenter', handlePointerEnter);
+    track.addEventListener('pointerleave', handlePointerLeave);
+    return () => {
+      track.removeEventListener('pointerenter', handlePointerEnter);
+      track.removeEventListener('pointerleave', handlePointerLeave);
+    };
+  }, []);
+
+  // Keyboard handler for selected segment tracks.
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyA' && isPointerInsideTrack.current && segments.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        setSelectedIds(new Set(segments.map((segment) => segment.id)));
+        setSelectedRange(null);
+        return;
+      }
       if ((e.code === 'Delete' || e.code === 'Backspace') && selectedIds.size > 0) {
         e.preventDefault();
         e.stopPropagation();
+        e.stopImmediatePropagation();
         onDeleteSelected?.(Array.from(selectedIds));
         setSelectedIds(new Set());
+        return;
       }
       if (e.code === 'Escape') {
         setSelectedIds(new Set());
@@ -129,7 +155,7 @@ export function useTrackRangeSelect<T extends { id: string; startTime: number; e
     };
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [selectedIds, onDeleteSelected]);
+  }, [segments, selectedIds, onDeleteSelected]);
 
   const handleTrackPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const isCtrlRangeGesture = allowCtrlDragAnywhere && e.ctrlKey;

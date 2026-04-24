@@ -10,6 +10,14 @@ const MAX_SHORT_FRAGMENT_WORDS: usize = 5;
 const MAX_SHORT_FRAGMENT_CHARS: usize = 32;
 const MAX_MERGED_SEGMENT_SEC: f64 = 8.50;
 const MAX_MERGED_SEGMENT_CHARS: usize = 170;
+const MIN_LONG_SEGMENT_TEXT_SEC: f64 = 2.5;
+const LONG_SEGMENT_SEC_PER_WORD: f64 = 0.7;
+const MAX_FRAGMENT_CHAIN_GAP_SEC: f64 = 0.50;
+const MAX_FRAGMENT_CHAIN_DURATION_SEC: f64 = 14.0;
+const MAX_FRAGMENT_CHAIN_WORDS: usize = 8;
+const MAX_FRAGMENT_CHAIN_CHARS: usize = 90;
+const LOW_WORD_FRAGMENT_SEC_PER_WORD: f64 = 0.55;
+const LOW_WORD_FRAGMENT_BASE_SEC: f64 = 0.45;
 
 pub(super) fn sanitize_segments(
     segments: Vec<SubtitleSegmentResult>,
@@ -56,11 +64,111 @@ pub(super) fn sanitize_segments(
             continue;
         }
 
-        sanitized.push(segment);
+        sanitized.push(cap_implausibly_long_segment(segment));
         index += 1;
     }
 
-    sanitized
+    normalize_fragment_chains(sanitized)
+}
+
+fn cap_implausibly_long_segment(mut segment: SubtitleSegmentResult) -> SubtitleSegmentResult {
+    if duration(&segment) <= MAX_MERGED_SEGMENT_SEC {
+        return segment;
+    }
+    let text = segment.text.trim();
+    if text.is_empty() {
+        return segment;
+    }
+    let estimated_duration = (word_count(text) as f64 * LONG_SEGMENT_SEC_PER_WORD)
+        .max(MIN_LONG_SEGMENT_TEXT_SEC)
+        .min(MAX_MERGED_SEGMENT_SEC);
+    segment.start_time = (segment.end_time - estimated_duration).max(segment.start_time);
+    segment
+}
+
+fn normalize_fragment_chains(segments: Vec<SubtitleSegmentResult>) -> Vec<SubtitleSegmentResult> {
+    let mut merged: Vec<SubtitleSegmentResult> = Vec::with_capacity(segments.len());
+    for segment in segments {
+        if let Some(previous) = merged.last_mut()
+            && should_merge_fragment_chain(previous, &segment)
+        {
+            previous.text = join_text(&previous.text, &segment.text);
+            previous.end_time = previous.end_time.max(segment.end_time);
+            continue;
+        }
+        merged.push(segment);
+    }
+
+    let mut normalized: Vec<SubtitleSegmentResult> = Vec::with_capacity(merged.len());
+    for segment in merged {
+        if let Some(previous) = normalized.last_mut()
+            && segment.start_time < previous.end_time
+        {
+            if should_merge_fragment_chain(previous, &segment) {
+                previous.text = join_text(&previous.text, &segment.text);
+                previous.end_time = previous.end_time.max(segment.end_time);
+                *previous = cap_low_word_fragment_duration(previous.clone());
+            } else {
+                let mut adjusted = segment;
+                adjusted.start_time = previous.end_time;
+                if adjusted.end_time > adjusted.start_time {
+                    normalized.push(adjusted);
+                }
+            }
+            continue;
+        }
+        normalized.push(cap_low_word_fragment_duration(segment));
+    }
+    normalized
+}
+
+fn should_merge_fragment_chain(
+    previous: &SubtitleSegmentResult,
+    segment: &SubtitleSegmentResult,
+) -> bool {
+    if segment.start_time - previous.end_time > MAX_FRAGMENT_CHAIN_GAP_SEC {
+        return false;
+    }
+    let combined_words = word_count(&previous.text) + word_count(&segment.text);
+    let combined_chars = visible_char_count(&previous.text) + visible_char_count(&segment.text);
+    if combined_words > MAX_FRAGMENT_CHAIN_WORDS || combined_chars > MAX_FRAGMENT_CHAIN_CHARS {
+        return false;
+    }
+    let combined_duration = segment.end_time.max(previous.end_time) - previous.start_time;
+    if combined_duration > MAX_FRAGMENT_CHAIN_DURATION_SEC {
+        return false;
+    }
+    is_low_word_stretched(previous)
+        || is_low_word_stretched(segment)
+        || segment.start_time < previous.end_time
+}
+
+fn is_low_word_stretched(segment: &SubtitleSegmentResult) -> bool {
+    let words = word_count(&segment.text);
+    words > 0
+        && words <= MAX_FRAGMENT_CHAIN_WORDS
+        && visible_char_count(&segment.text) <= MAX_FRAGMENT_CHAIN_CHARS
+        && duration(segment) > expected_low_word_duration(words) + 0.75
+}
+
+fn cap_low_word_fragment_duration(mut segment: SubtitleSegmentResult) -> SubtitleSegmentResult {
+    let words = word_count(&segment.text);
+    if words == 0
+        || words > MAX_FRAGMENT_CHAIN_WORDS
+        || visible_char_count(&segment.text) > MAX_FRAGMENT_CHAIN_CHARS
+    {
+        return segment;
+    }
+    let expected = expected_low_word_duration(words);
+    if duration(&segment) > expected + 0.75 {
+        segment.end_time = (segment.start_time + expected).max(segment.start_time + 0.5);
+    }
+    segment
+}
+
+fn expected_low_word_duration(words: usize) -> f64 {
+    (LOW_WORD_FRAGMENT_BASE_SEC + words as f64 * LOW_WORD_FRAGMENT_SEC_PER_WORD)
+        .max(MIN_LONG_SEGMENT_TEXT_SEC)
 }
 
 fn should_merge_micro_fragment(segment: &SubtitleSegmentResult) -> bool {
@@ -308,5 +416,42 @@ mod tests {
             sanitized[1].text,
             "Another longer standalone sentence lands."
         );
+    }
+
+    #[test]
+    fn caps_tiny_text_that_spans_implausibly_long_duration() {
+        let sanitized = sanitize_segments(vec![SubtitleSegmentResult {
+            start_time: 72.0,
+            end_time: 132.0,
+            text: "meeting you as well.".to_string(),
+        }]);
+        assert_eq!(sanitized.len(), 1);
+        assert!(sanitized[0].start_time >= 129.0);
+        assert_eq!(sanitized[0].end_time, 132.0);
+    }
+
+    #[test]
+    fn merges_qwen_tail_fragment_chain() {
+        let sanitized = sanitize_segments(vec![
+            SubtitleSegmentResult {
+                start_time: 118.874,
+                end_time: 121.5,
+                text: "It".to_string(),
+            },
+            SubtitleSegmentResult {
+                start_time: 121.5,
+                end_time: 127.5,
+                text: "was a pleasure".to_string(),
+            },
+            SubtitleSegmentResult {
+                start_time: 126.0,
+                end_time: 132.0,
+                text: "meeting you as well.".to_string(),
+            },
+        ]);
+        assert_eq!(sanitized.len(), 1);
+        assert_eq!(sanitized[0].text, "It was a pleasure meeting you as well.");
+        assert_eq!(sanitized[0].start_time, 118.874);
+        assert!(sanitized[0].end_time < 124.0);
     }
 }

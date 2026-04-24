@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@/lib/ipc';
 import {
   getEffectiveCompositionMode,
@@ -13,7 +13,6 @@ import { SUBTITLE_LANGUAGE_OPTIONS } from '@/lib/subtitleLanguageOptions';
 import {
   collectSubtitleIdsForTranslation,
   ensureTranslatedTrack,
-  isOriginalSubtitleTrackActive,
   patchSubtitleTrackTexts,
 } from '@/lib/subtitleTrackMutations';
 import {
@@ -36,6 +35,8 @@ import type {
 } from '@/types/video';
 
 const SUBTITLE_TRANSLATION_LANGUAGE_KEY = 'screen-record-subtitle-translation-language-v1';
+const SUBTITLE_TRANSLATION_CHUNK_COUNT_KEY = 'screen-record-subtitle-translation-chunk-count-v1';
+const SUBTITLE_TRANSLATION_INSTRUCTIONS_KEY = 'screen-record-subtitle-translation-instructions-v1';
 
 interface SubtitleTranslationResultItem {
   id: string;
@@ -76,6 +77,7 @@ interface SubtitleTranslationJobContext {
 
 interface UseSubtitleTranslationParams {
   t: Translations;
+  projectResetKey?: string | null;
   segment: VideoSegment | null;
   setSegment: (
     segment:
@@ -107,6 +109,27 @@ function getInitialTranslationLanguage(): string {
     // ignore persistence failures
   }
   return 'en';
+}
+
+function getInitialTranslationChunkCount(): number {
+  try {
+    const raw = Number(localStorage.getItem(SUBTITLE_TRANSLATION_CHUNK_COUNT_KEY));
+    if (Number.isFinite(raw) && raw >= 1) {
+      return Math.round(raw);
+    }
+  } catch {
+    // ignore persistence failures
+  }
+  return 1;
+}
+
+function getInitialTranslationInstructions(): string {
+  try {
+    return localStorage.getItem(SUBTITLE_TRANSLATION_INSTRUCTIONS_KEY) ?? '';
+  } catch {
+    // ignore persistence failures
+  }
+  return '';
 }
 
 function formatTemplate(template: string, params?: Record<string, string> | null) {
@@ -179,6 +202,29 @@ function buildCompositionTranslationItems(
   });
 }
 
+function clampTranslationChunkCount(value: number, itemCount: number) {
+  return Math.max(1, Math.min(Math.max(1, itemCount), Math.round(value)));
+}
+
+function buildTranslationChunkPreview(
+  items: Array<{ id: string; clipId?: string | null }>,
+  chunkCount: number,
+) {
+  const safeChunkCount = clampTranslationChunkCount(chunkCount, items.length);
+  const groups: Record<string, number> = {};
+  for (let chunkIndex = 0; chunkIndex < safeChunkCount; chunkIndex += 1) {
+    const start = Math.floor((chunkIndex * items.length) / safeChunkCount);
+    const end = Math.floor(((chunkIndex + 1) * items.length) / safeChunkCount);
+    for (const item of items.slice(start, end)) {
+      groups[item.id] = chunkIndex;
+    }
+  }
+  return {
+    groups,
+    groupCount: safeChunkCount,
+  };
+}
+
 function applyTranslationResultsToSegment(
   segment: VideoSegment,
   results: SubtitleTranslationResultItem[],
@@ -214,6 +260,7 @@ function updateSubtitleViewAcrossComposition(
 
 export function useSubtitleTranslation({
   t,
+  projectResetKey,
   segment,
   setSegment,
   composition,
@@ -223,10 +270,15 @@ export function useSubtitleTranslation({
   setActivePanel,
 }: UseSubtitleTranslationParams) {
   const [targetLanguage, setTargetLanguage] = useState(getInitialTranslationLanguage);
+  const [chunkCount, setChunkCount] = useState(getInitialTranslationChunkCount);
+  const [isChunkSliderDragging, setIsChunkSliderDragging] = useState(false);
+  const [instructions, setInstructions] = useState(getInitialTranslationInstructions);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobContext, setJobContext] = useState<SubtitleTranslationJobContext | null>(null);
   const [status, setStatus] = useState<SubtitleTranslationJobStatus | null>(null);
   const [capabilities, setCapabilities] = useState<SubtitleTranslationCapabilities | null>(null);
+  const activeJobIdRef = useRef<string | null>(null);
+  const lastProjectResetKeyRef = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
     try {
@@ -235,6 +287,46 @@ export function useSubtitleTranslation({
       // ignore persistence failures
     }
   }, [targetLanguage]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SUBTITLE_TRANSLATION_CHUNK_COUNT_KEY, String(chunkCount));
+    } catch {
+      // ignore persistence failures
+    }
+  }, [chunkCount]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SUBTITLE_TRANSLATION_INSTRUCTIONS_KEY, instructions);
+    } catch {
+      // ignore persistence failures
+    }
+  }, [instructions]);
+
+  useEffect(() => {
+    activeJobIdRef.current = jobId;
+  }, [jobId]);
+
+  useEffect(() => {
+    const nextKey = projectResetKey ?? null;
+    if (lastProjectResetKeyRef.current === undefined) {
+      lastProjectResetKeyRef.current = nextKey;
+      return;
+    }
+    if (lastProjectResetKeyRef.current === nextKey) {
+      return;
+    }
+    lastProjectResetKeyRef.current = nextKey;
+
+    const activeJobId = activeJobIdRef.current;
+    if (activeJobId) {
+      void invoke('cancel_subtitle_translation', { jobId: activeJobId }).catch(() => {});
+    }
+    setJobId(null);
+    setJobContext(null);
+    setStatus(null);
+  }, [projectResetKey]);
 
   const refreshCapabilities = useCallback(async () => {
     const next = await invoke<SubtitleTranslationCapabilities>(
@@ -323,6 +415,19 @@ export function useSubtitleTranslation({
     }
     return buildCompositionTranslationItems(composition, selectedSubtitleIds, editingSubtitleId);
   }, [composition, editingSubtitleId, segment, selectedSubtitleIds]);
+  const subtitleTranslationChunkMax = Math.max(1, selectedTranslationItems.length);
+  const effectiveChunkCount = clampTranslationChunkCount(chunkCount, subtitleTranslationChunkMax);
+  const subtitleTranslationChunkPreview = useMemo(
+    () => (
+      isChunkSliderDragging
+        ? buildTranslationChunkPreview(selectedTranslationItems, effectiveChunkCount)
+        : null
+    ),
+    [effectiveChunkCount, isChunkSliderDragging, selectedTranslationItems],
+  );
+  const setSubtitleTranslationChunkCount = useCallback((value: number) => {
+    setChunkCount(clampTranslationChunkCount(value, subtitleTranslationChunkMax));
+  }, [subtitleTranslationChunkMax]);
 
   useEffect(() => {
     if (!jobId || !jobContext) return;
@@ -460,6 +565,8 @@ export function useSubtitleTranslation({
     const result = await invoke<{ jobId: string }>('start_subtitle_translation', {
       targetLanguage,
       trackId: targetLanguageTrack?.id ?? null,
+      chunkCount: effectiveChunkCount,
+      instructions: instructions.trim() || null,
       items,
     });
     setStatus({
@@ -482,6 +589,8 @@ export function useSubtitleTranslation({
     selectedTranslationItems,
     setActivePanel,
     targetLanguageTrack,
+    effectiveChunkCount,
+    instructions,
     t.subtitleTranslationNoSource,
     t.subtitleTranslationStatusStarting,
     t.subtitleTranslationUnavailable,
@@ -511,10 +620,17 @@ export function useSubtitleTranslation({
     visibleSubtitleSegments: getVisibleSubtitleSegments(segment),
     isCustomSubtitleView: isCustomView,
     isOriginalSubtitleView: isOriginalView,
-    canGenerateSubtitlesFromCurrentView: isOriginalSubtitleTrackActive(segment),
-    canCreateManualSubtitles: isOriginalSubtitleTrackActive(segment),
+    canGenerateSubtitlesFromCurrentView: !!segment,
+    canCreateManualSubtitles: !!segment,
     subtitleTranslationTargetLanguage: targetLanguage,
     setSubtitleTranslationTargetLanguage: setTargetLanguage,
+    subtitleTranslationChunkCount: effectiveChunkCount,
+    subtitleTranslationChunkMax,
+    setSubtitleTranslationChunkCount,
+    setSubtitleTranslationChunkDragging: setIsChunkSliderDragging,
+    subtitleTranslationChunkPreview,
+    subtitleTranslationInstructions: instructions,
+    setSubtitleTranslationInstructions: setInstructions,
     subtitleTranslationLanguageOptions: translationLanguageOptions,
     subtitleTranslationCapabilities: capabilities,
     canTranslateSubtitles: canTranslate && selectedTranslationItems.length > 0,

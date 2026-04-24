@@ -8,16 +8,31 @@ use crate::APP;
 use crate::api::client::UREQ_AGENT;
 use crate::model_config::get_model_by_id;
 use crate::overlay::screen_record::ipc::subtitles::media::PreparedSubtitleMedia;
-use crate::overlay::screen_record::ipc::subtitles::types::CompactSubtitleSegment;
+use crate::overlay::screen_record::ipc::subtitles::types::{
+    CompactSubtitleSegment, SubtitleGenerationMethod,
+};
 
 use super::gemini_segments::{parse_gemini_segments_from_text, parse_streamed_segment_prefix};
 use super::gemini_stream::stream_gemini_text_chunks;
 use super::{SubtitleBackend, SubtitleBackendProgress, SubtitleBackendRequest};
 
-const GEMINI_SUBTITLE_MODEL_ID: &str = "gemini-audio-3.1-flash-lite";
 const GEMINI_INLINE_WAV_LIMIT_BYTES: usize = 14 * 1024 * 1024;
 const GEMINI_FILE_PROCESSING_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const GEMINI_FILE_PROCESSING_TIMEOUT: Duration = Duration::from_secs(120);
+const DEFAULT_GEMINI_SUBTITLE_TASK_PROMPT: &str = "Transcribe all spoken content in this media.\n\
+Return the original spoken language. Do not translate.\n\
+Create concise, readable subtitle segments.\n\
+Keep punctuation natural.\n\
+Do not add speaker labels, summaries, notes, markdown, or commentary.\n\
+Do not invent text that is not present in the audio.";
+
+const GEMINI_SUBTITLE_OUTPUT_CONTRACT_PROMPT: &str = "Hidden output contract:\n\
+- Generate subtitle segments for this media clip.\n\
+- Return JSON only and match the provided schema exactly.\n\
+- Use integer millisecond timestamps relative to the start of the clip.\n\
+- Segments must be sorted by start_ms, non-overlapping, and strictly increasing.\n\
+- Each text field should contain the user-requested media-derived content for that time range.\n\
+- No markdown, prose wrapper, or commentary outside the JSON schema.";
 
 pub struct GeminiSubtitleBackend {
     api_key: String,
@@ -25,7 +40,7 @@ pub struct GeminiSubtitleBackend {
 }
 
 impl GeminiSubtitleBackend {
-    pub fn new() -> Result<Self, String> {
+    pub fn new(method: SubtitleGenerationMethod) -> Result<Self, String> {
         let app = APP.lock().map_err(|_| "APP lock poisoned".to_string())?;
         if !app.config.use_gemini {
             return Err("PROVIDER_DISABLED:google".to_string());
@@ -33,12 +48,21 @@ impl GeminiSubtitleBackend {
         if app.config.gemini_api_key.trim().is_empty() {
             return Err("NO_API_KEY:google".to_string());
         }
-        let model = get_model_by_id(GEMINI_SUBTITLE_MODEL_ID)
-            .ok_or_else(|| format!("{GEMINI_SUBTITLE_MODEL_ID} model config missing"))?;
+        let model_id = gemini_subtitle_model_id(method);
+        let model =
+            get_model_by_id(model_id).ok_or_else(|| format!("{model_id} model config missing"))?;
         Ok(Self {
             api_key: app.config.gemini_api_key.clone(),
             model_name: model.full_name,
         })
+    }
+}
+
+pub fn gemini_subtitle_model_id(method: SubtitleGenerationMethod) -> &'static str {
+    match method {
+        SubtitleGenerationMethod::Gemini3_1FlashLite => "gemini-audio-3.1-flash-lite",
+        SubtitleGenerationMethod::Gemini3FlashPreview => "gemini-audio-3.0-flash",
+        _ => "gemini-audio-3.1-flash-lite",
     }
 }
 
@@ -49,7 +73,7 @@ impl SubtitleBackend for GeminiSubtitleBackend {
         on_progress: &mut dyn FnMut(SubtitleBackendProgress) -> Result<(), String>,
     ) -> Result<Vec<CompactSubtitleSegment>, String> {
         let clip_duration_sec = request.media.duration_sec;
-        let prompt = build_gemini_subtitle_prompt();
+        let prompt = build_gemini_subtitle_prompt(request.gemini_prompt.as_deref());
         let segments = transcribe_with_gemini_structured(
             &self.api_key,
             &self.model_name,
@@ -75,21 +99,12 @@ struct UploadedGeminiFile {
     state: Option<String>,
 }
 
-fn build_gemini_subtitle_prompt() -> String {
-    format!(
-        "Generate subtitle segments for this media clip.\n\
-Detect the spoken language automatically and transcribe it verbatim. Do not translate.\n\
-\n\
-Rules:\n\
-- Return JSON only and match the provided schema exactly.\n\
-- Use integer millisecond timestamps relative to the start of the clip.\n\
-- Segments must be sorted by start_ms, non-overlapping, and strictly increasing.\n\
-- Each segment should be a short readable subtitle phrase or sentence, not a paragraph.\n\
-- Keep punctuation natural.\n\
-- Do not add speaker labels, summaries, notes, markdown, or commentary.\n\
-- Do not invent text that is not present in the audio.\n\
-- Avoid ultra-short fragments unless the audio itself is that brief.\n"
-    )
+fn build_gemini_subtitle_prompt(user_prompt: Option<&str>) -> String {
+    let task_prompt = user_prompt
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_GEMINI_SUBTITLE_TASK_PROMPT);
+    format!("User task instructions:\n{task_prompt}\n\n{GEMINI_SUBTITLE_OUTPUT_CONTRACT_PROMPT}")
 }
 
 fn transcribe_with_gemini_structured(

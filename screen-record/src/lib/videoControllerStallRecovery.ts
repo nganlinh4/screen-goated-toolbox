@@ -11,6 +11,7 @@ import {
 } from "./trimSegments";
 import type { VideoSegment } from "@/types/video";
 import { PLAYBACK_RESET_LOG_DEDUPE_MS, PLAYBACK_RESET_DEBUG } from "./videoControllerTypes";
+import { markFrontendPerfEvent } from "./frontendPerfDiagnostics";
 
 // ---------------------------------------------------------------------------
 // Stall detection (waiting / network stall)
@@ -39,6 +40,7 @@ export function handleWaitingEvent(
   if (isGeneratingThumbnail) return;
   stall.waitingStartedAt = performance.now();
   stall.waitingRecoveryAttempts = 0;
+  markFrontendPerfEvent(`video-waiting t=${video.currentTime.toFixed(2)} ready=${video.readyState} network=${video.networkState}`);
   onBufferingChange?.(true);
   console.warn(
     `[VideoController] WAITING started: readyState=${video.readyState} ` +
@@ -111,6 +113,7 @@ export function handlePlayingEvent(
 ): void {
   if (stall.waitingStartedAt > 0) {
     const recoveryMs = (performance.now() - stall.waitingStartedAt).toFixed(0);
+    markFrontendPerfEvent(`video-recovered ms=${recoveryMs}`);
     console.log(
       `[VideoController] RECOVERED from waiting in ${recoveryMs}ms` +
       `${stall.waitingRecoveryAttempts > 0 ? ` (after ${stall.waitingRecoveryAttempts} recovery attempt(s))` : ""}: ` +

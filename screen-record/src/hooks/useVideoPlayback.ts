@@ -60,6 +60,40 @@ export function useVideoPlayback({
   const thumbnailRequestIdRef = useRef(0);
   const thumbnailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thumbnailCacheRef = useRef<Map<string, string[]>>(new Map());
+  const lastPlaybackStructureSignatureRef = useRef("");
+  const lastLoopStructureSignatureRef = useRef("");
+  const lastSubtitleRenderSyncAtRef = useRef(0);
+
+  const getPlaybackStructureSignature = useCallback((nextSegment: VideoSegment) => JSON.stringify({
+    trimStart: nextSegment.trimStart,
+    trimEnd: nextSegment.trimEnd,
+    trimSegments: (nextSegment.trimSegments ?? []).map((trimSegment) => [
+      trimSegment.startTime,
+      trimSegment.endTime,
+    ]),
+    crop: nextSegment.crop ?? null,
+    zoomKeyframes: nextSegment.zoomKeyframes.map((keyframe) => [
+      keyframe.time,
+      keyframe.zoomFactor,
+      keyframe.positionX,
+      keyframe.positionY,
+    ]),
+    speedPoints: (nextSegment.speedPoints ?? []).map((point) => [
+      point.time,
+      point.speed,
+    ]),
+    textSegments: (nextSegment.textSegments ?? []).map((textSegment) => [
+      textSegment.id,
+      textSegment.startTime,
+      textSegment.endTime,
+      textSegment.text,
+    ]),
+    keystrokeOverlay: nextSegment.keystrokeOverlay ?? null,
+    cursorVisibilitySegments: nextSegment.cursorVisibilitySegments ?? [],
+    useCustomCursor: nextSegment.useCustomCursor,
+    micAudioOffsetSec: nextSegment.micAudioOffsetSec,
+    webcamOffsetSec: nextSegment.webcamOffsetSec,
+  }), []);
 
   const getRequestedThumbnailCount = useCallback(
     (thumbnailSegment: VideoSegment | null | undefined) => {
@@ -323,6 +357,16 @@ export function useVideoPlayback({
   // renders the correct view (e.g. after seeked events, thumbnail generation).
   useEffect(() => {
     if (!segment || !videoControllerRef.current) return;
+    const video = videoRef.current;
+    const nextStructureSignature = getPlaybackStructureSignature(segment);
+    const isSubtitleOnlyChange =
+      lastPlaybackStructureSignatureRef.current !== "" &&
+      lastPlaybackStructureSignatureRef.current === nextStructureSignature;
+    lastPlaybackStructureSignatureRef.current = nextStructureSignature;
+
+    if (isSubtitleOnlyChange && video && !video.paused) {
+      return;
+    }
 
     const renderSegment = isCropping
       ? {
@@ -357,7 +401,14 @@ export function useVideoPlayback({
       mousePositions: mousePositionsRef.current,
       interactiveBackgroundPreview,
     });
-  }, [segment, backgroundConfig, webcamConfig, interactiveBackgroundPreview, isCropping]);
+  }, [
+    segment,
+    backgroundConfig,
+    webcamConfig,
+    interactiveBackgroundPreview,
+    isCropping,
+    getPlaybackStructureSignature,
+  ]);
 
   // Render context sync — update the running animation loop's context when
   // segment/backgroundConfig/isCropping change, WITHOUT restarting the loop.
@@ -366,6 +417,19 @@ export function useVideoPlayback({
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !segment) return;
+    const nextStructureSignature = getPlaybackStructureSignature(segment);
+    const isSubtitleOnlyChange =
+      lastLoopStructureSignatureRef.current !== "" &&
+      lastLoopStructureSignatureRef.current === nextStructureSignature;
+    lastLoopStructureSignatureRef.current = nextStructureSignature;
+
+    if (isSubtitleOnlyChange && !video.paused) {
+      const now = performance.now();
+      if (now - lastSubtitleRenderSyncAtRef.current < 1500) {
+        return;
+      }
+      lastSubtitleRenderSyncAtRef.current = now;
+    }
 
     const loopSegment = isCropping
       ? {
@@ -410,7 +474,15 @@ export function useVideoPlayback({
     if (video.paused) {
       renderFrame();
     }
-  }, [segment, backgroundConfig, webcamConfig, interactiveBackgroundPreview, isCropping]);
+  }, [
+    segment,
+    backgroundConfig,
+    webcamConfig,
+    interactiveBackgroundPreview,
+    isCropping,
+    getPlaybackStructureSignature,
+    renderFrame,
+  ]);
 
   // Cleanup URLs
   useEffect(() => {

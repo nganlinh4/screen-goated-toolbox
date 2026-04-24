@@ -23,7 +23,12 @@ pub fn prepare_clip_media(
     clip: &SubtitleClipRequest,
 ) -> Result<PreparedSubtitleMedia, String> {
     let duration_sec = compact_duration_sec(&clip.trim_segments);
-    if matches!(method, SubtitleGenerationMethod::Gemini3_1FlashLite) && source_type == "video" {
+    if matches!(
+        method,
+        SubtitleGenerationMethod::Gemini3_1FlashLite
+            | SubtitleGenerationMethod::Gemini3FlashPreview
+    ) && source_type == "video"
+    {
         let bytes = build_trimmed_video_mp4_bytes(&clip.source_path, &clip.trim_segments)?;
         return Ok(PreparedSubtitleMedia {
             bytes,

@@ -290,10 +290,10 @@ impl AudioPlayer {
             let buffer_size = client.GetBufferSize()?;
             let render_client: IAudioRenderClient = client.GetService()?;
 
-            client.Start()?;
+            let mut client_started = false;
 
             eprintln!(
-                "[TTS WASAPI] Audio client started successfully (buffer size: {})",
+                "[TTS WASAPI] Audio client initialized successfully (buffer size: {})",
                 buffer_size
             );
 
@@ -330,6 +330,22 @@ impl AudioPlayer {
                 let available = buffer_size.saturating_sub(padding);
 
                 if available > 0 {
+                    let has_audio = shared_buffer
+                        .lock()
+                        .map(|deck| !deck.is_empty())
+                        .unwrap_or(false);
+                    if !has_audio {
+                        if client_started && padding == 0 {
+                            client.Stop()?;
+                            client_started = false;
+                        }
+                        std::thread::sleep(Duration::from_millis(20));
+                        continue;
+                    }
+                    if !client_started {
+                        client.Start()?;
+                        client_started = true;
+                    }
                     let buffer_ptr = render_client.GetBuffer(available)?;
 
                     // Lock inner buffer
@@ -379,7 +395,9 @@ impl AudioPlayer {
                 std::thread::sleep(Duration::from_millis(10));
             }
 
-            client.Stop()?;
+            if client_started {
+                client.Stop()?;
+            }
             Ok(())
         }
     }

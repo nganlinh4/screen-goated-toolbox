@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
 import {
   BackgroundConfig, Project, ProjectComposition,
@@ -34,9 +34,17 @@ import { useSubtitleGeneration } from "@/hooks/useSubtitleGeneration";
 import { EditorMain } from "@/components/EditorMain";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
 import { cloneWebcamConfig, DEFAULT_WEBCAM_CONFIG } from "@/lib/webcam";
-import { updateSubtitleStylesAcrossTracks } from "@/lib/subtitleTrackMutations";
+import {
+  deleteSubtitleIdsAcrossTracks,
+  updateSubtitleStylesAcrossTracks,
+} from "@/lib/subtitleTrackMutations";
+import { installFrontendPerfDiagnostics } from "@/lib/frontendPerfDiagnostics";
 
 function App() {
+  useEffect(() => {
+    installFrontendPerfDiagnostics();
+  }, []);
+
   const settings = useSettingsProvider();
   const {
     state: segment,
@@ -487,6 +495,10 @@ function App() {
     selectedSubtitleMethodReason,
     subtitleLanguageHint,
     setSubtitleLanguageHint,
+    subtitleGeminiPrompt,
+    setSubtitleGeminiPrompt,
+    subtitleGroqVocabulary,
+    setSubtitleGroqVocabulary,
     isGeneratingSubtitles,
     subtitleStatusMessage,
     subtitleGenerationIndicator,
@@ -494,8 +506,12 @@ function App() {
     handleCancelSubtitleGeneration,
   } = useSubtitleGeneration({
     t: settings.t,
+    projectResetKey: currentProjectData?.id ?? null,
     segment,
-    setSegment: setSegment as (segment: VideoSegment | null | ((prev: VideoSegment | null) => VideoSegment | null)) => void,
+    setSegment: setSegment as (
+      segment: VideoSegment | null | ((prev: VideoSegment | null) => VideoSegment | null),
+      withHistory?: boolean,
+    ) => void,
     composition,
     setComposition,
     activeClipId,
@@ -504,6 +520,13 @@ function App() {
     duration,
     setActivePanel,
   });
+  const handleDeleteSubtitle = useCallback(() => {
+    if (!segment || !editingSubtitleId) return;
+    beginBatch();
+    setSegment(deleteSubtitleIdsAcrossTracks(segment, [editingSubtitleId]));
+    setEditingSubtitleId(null);
+    commitBatch();
+  }, [beginBatch, commitBatch, editingSubtitleId, segment, setSegment, setEditingSubtitleId]);
   const isOverlayMode = projects.showProjectsDialog || isCropping;
 
   const {
@@ -655,10 +678,12 @@ function App() {
     isModalOpen: showRawVideoDialog || exportHook.showExportSuccessDialog,
     editingKeyframeId,
     editingTextId,
+    editingSubtitleId,
     editingKeystrokeSegmentId,
     editingPointerId,
     setEditingKeyframeId,
     handleDeleteText,
+    handleDeleteSubtitle,
     handleDeleteKeystrokeSegment,
     handleDeletePointerSegment,
     canUndo,
@@ -829,6 +854,10 @@ function App() {
           selectedSubtitleMethodReason={selectedSubtitleMethodReason}
           subtitleLanguageHint={subtitleLanguageHint}
           onSubtitleLanguageHintChange={setSubtitleLanguageHint}
+          subtitleGeminiPrompt={subtitleGeminiPrompt}
+          onSubtitleGeminiPromptChange={setSubtitleGeminiPrompt}
+          subtitleGroqVocabulary={subtitleGroqVocabulary}
+          onSubtitleGroqVocabularyChange={setSubtitleGroqVocabulary}
           isGeneratingSubtitles={isGeneratingSubtitles}
           subtitleStatusMessage={subtitleStatusMessage}
           subtitleGenerationIndicator={subtitleGenerationIndicator}
@@ -836,6 +865,7 @@ function App() {
           handleCancelSubtitleGeneration={handleCancelSubtitleGeneration}
           onSelectedTextIdsChange={handleSelectedTextIdsChange}
           onSelectedSubtitleIdsChange={handleSelectedSubtitleIdsChange}
+          projectResetKey={currentProjectData?.id ?? null}
           currentRawVideoPath={currentRawVideoPath}
           currentRawMicAudioPath={currentRawMicAudioPath}
           currentProjectName={currentProjectData?.name ?? null}

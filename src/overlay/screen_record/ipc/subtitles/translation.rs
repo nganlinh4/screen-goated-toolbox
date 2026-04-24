@@ -185,7 +185,12 @@ fn run_subtitle_translation_inner(
         "Subtitle translation failed because every model attempt returned invalid output."
             .to_string();
 
-    for chunk_count in 1..=request.items.len() {
+    let initial_chunk_count = initial_translation_chunk_count(
+        request.chunk_count,
+        &request.chunk_mode,
+        request.items.len(),
+    );
+    for chunk_count in initial_chunk_count..=request.items.len() {
         if cancelled.load(Ordering::SeqCst) {
             return Ok(Vec::new());
         }
@@ -229,6 +234,7 @@ fn run_subtitle_translation_inner(
                     &config,
                     model,
                     &request.target_language,
+                    request.instructions.as_deref(),
                     chunk,
                     &history,
                 ) {
@@ -254,6 +260,28 @@ fn run_subtitle_translation_inner(
     }
 
     Err(last_error)
+}
+
+fn initial_translation_chunk_count(
+    chunk_count: Option<usize>,
+    chunk_mode: &Option<String>,
+    item_count: usize,
+) -> usize {
+    if item_count <= 1 {
+        return 1;
+    }
+    if let Some(chunk_count) = chunk_count {
+        return chunk_count.max(1).min(item_count);
+    }
+
+    let items_per_chunk = match chunk_mode.as_deref() {
+        Some("small") => 25,
+        Some("tiny") => 10,
+        _ => item_count,
+    };
+    ((item_count + items_per_chunk - 1) / items_per_chunk)
+        .max(1)
+        .min(item_count)
 }
 
 fn split_translation_items(

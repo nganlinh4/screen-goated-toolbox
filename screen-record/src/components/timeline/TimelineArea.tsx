@@ -91,6 +91,10 @@ interface TimelineAreaProps {
   clearSelectionSignal?: number;
   hasMouseData?: boolean;
   subtitleGenerationIndicator?: SubtitleGenerationIndicator | null;
+  subtitleTranslationChunkPreview?: {
+    groups: Record<string, number>;
+    groupCount: number;
+  } | null;
 }
 
 export const TimelineArea: React.FC<TimelineAreaProps> = ({
@@ -139,6 +143,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   clearSelectionSignal,
   hasMouseData = true,
   subtitleGenerationIndicator,
+  subtitleTranslationChunkPreview,
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
@@ -689,6 +694,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       onRangeChange={onSubtitleRangeChange}
                       clearSignal={clearSelectionSignal}
                       generationIndicator={subtitleGenerationIndicator}
+                      translationChunkPreview={subtitleTranslationChunkPreview}
                     />
                   ) : (
                     <div className="subtitle-track-empty timeline-track-empty h-7" />

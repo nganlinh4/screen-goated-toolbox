@@ -4,6 +4,30 @@
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::*;
+use winreg::RegKey;
+use winreg::enums::{HKEY_CURRENT_USER, KEY_WRITE};
+
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
+#[cfg(windows)]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(windows)]
+use windows::Win32::Foundation::{
+    EXCEPTION_ACCESS_VIOLATION, EXCEPTION_ILLEGAL_INSTRUCTION, EXCEPTION_STACK_OVERFLOW, HANDLE,
+};
+#[cfg(windows)]
+use windows::Win32::System::Diagnostics::Debug::{
+    AddVectoredExceptionHandler, EXCEPTION_CONTINUE_SEARCH, EXCEPTION_EXECUTE_HANDLER,
+    EXCEPTION_POINTERS, MINIDUMP_EXCEPTION_INFORMATION, MiniDumpWithFullMemory,
+    MiniDumpWithHandleData, MiniDumpWithThreadInfo, MiniDumpWriteDump, SetUnhandledExceptionFilter,
+};
+#[cfg(windows)]
+use windows::Win32::System::Threading::{
+    GetCurrentProcess, GetCurrentProcessId, GetCurrentThreadId,
+};
+
+#[cfg(windows)]
+static CRASH_DUMP_WRITTEN: AtomicBool = AtomicBool::new(false);
 
 /// Enable dark mode for Win32 native menus (context menus, tray menus).
 /// Uses undocumented SetPreferredAppMode API from uxtheme.dll.
@@ -115,6 +139,9 @@ pub fn apply_pending_updates() {
 
 /// Set up crash handler to show message box on panic.
 pub fn setup_crash_handler() {
+    setup_windows_error_reporting_dumps();
+    setup_unhandled_exception_dump_writer();
+
     std::panic::set_hook(Box::new(|panic_info| {
         // 1. Format the error message
         let location = if let Some(location) = panic_info.location() {
@@ -152,6 +179,177 @@ pub fn setup_crash_handler() {
             );
         }
     }));
+}
+
+#[cfg(windows)]
+fn crash_dump_dir() -> std::path::PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("screen-goated-toolbox")
+        .join("crash-dumps")
+}
+
+#[cfg(not(windows))]
+fn crash_dump_dir() -> std::path::PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("screen-goated-toolbox")
+        .join("crash-dumps")
+}
+
+#[cfg(windows)]
+fn setup_unhandled_exception_dump_writer() {
+    unsafe {
+        AddVectoredExceptionHandler(1, Some(vectored_exception_dump_handler));
+        SetUnhandledExceptionFilter(Some(unhandled_exception_dump_filter));
+    }
+    crate::log_info!("[CrashDiag] native unhandled-exception dump writer enabled");
+}
+
+#[cfg(not(windows))]
+fn setup_unhandled_exception_dump_writer() {}
+
+#[cfg(windows)]
+unsafe extern "system" fn vectored_exception_dump_handler(
+    exception_info: *mut EXCEPTION_POINTERS,
+) -> i32 {
+    unsafe {
+        write_crash_dump_for_exception(exception_info);
+    }
+    EXCEPTION_CONTINUE_SEARCH
+}
+
+#[cfg(windows)]
+unsafe extern "system" fn unhandled_exception_dump_filter(
+    exception_info: *const EXCEPTION_POINTERS,
+) -> i32 {
+    unsafe {
+        write_crash_dump_for_exception(exception_info as *mut EXCEPTION_POINTERS);
+    }
+    EXCEPTION_EXECUTE_HANDLER
+}
+
+#[cfg(windows)]
+unsafe fn write_crash_dump_for_exception(exception_info: *mut EXCEPTION_POINTERS) {
+    if exception_info.is_null() {
+        return;
+    }
+    let exception_record = unsafe { (*exception_info).ExceptionRecord };
+    if exception_record.is_null() {
+        return;
+    }
+    let exception_code = unsafe { (*exception_record).ExceptionCode };
+    let is_crash = exception_code == EXCEPTION_ACCESS_VIOLATION
+        || exception_code == EXCEPTION_ILLEGAL_INSTRUCTION
+        || exception_code == EXCEPTION_STACK_OVERFLOW;
+    if !is_crash || CRASH_DUMP_WRITTEN.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    let dump_dir = crash_dump_dir();
+    if let Err(error) = std::fs::create_dir_all(&dump_dir) {
+        crate::log_info!(
+            "[CrashDiag] failed to create native dump directory {}: {}",
+            dump_dir.display(),
+            error
+        );
+        return;
+    }
+
+    let pid = unsafe { GetCurrentProcessId() };
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let dump_path = dump_dir.join(format!(
+        "screen-goated-toolbox-native-{}-{}.dmp",
+        timestamp_ms, pid
+    ));
+
+    let file = match std::fs::File::create(&dump_path) {
+        Ok(file) => file,
+        Err(error) => {
+            crate::log_info!(
+                "[CrashDiag] failed to create native dump {}: {}",
+                dump_path.display(),
+                error
+            );
+            return;
+        }
+    };
+
+    let mut exception = MINIDUMP_EXCEPTION_INFORMATION {
+        ThreadId: unsafe { GetCurrentThreadId() },
+        ExceptionPointers: exception_info,
+        ClientPointers: false.into(),
+    };
+    let dump_type = MiniDumpWithFullMemory | MiniDumpWithHandleData | MiniDumpWithThreadInfo;
+    let result = unsafe {
+        MiniDumpWriteDump(
+            GetCurrentProcess(),
+            pid,
+            HANDLE(file.as_raw_handle()),
+            dump_type,
+            Some(&mut exception),
+            None,
+            None,
+        )
+    };
+    match result {
+        Ok(()) => crate::log_info!("[CrashDiag] native dump written {}", dump_path.display()),
+        Err(error) => crate::log_info!(
+            "[CrashDiag] native dump failed {}: {}",
+            dump_path.display(),
+            error
+        ),
+    }
+}
+
+fn setup_windows_error_reporting_dumps() {
+    let exe_name = std::env::current_exe()
+        .ok()
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().to_string())
+        })
+        .unwrap_or_else(|| "screen-goated-toolbox.exe".to_string());
+    let dump_dir = crash_dump_dir();
+    if let Err(error) = std::fs::create_dir_all(&dump_dir) {
+        crate::log_info!(
+            "[CrashDiag] failed to create dump directory {}: {}",
+            dump_dir.display(),
+            error
+        );
+        return;
+    }
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let local_dumps_path = format!(
+        r"Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\{}",
+        exe_name
+    );
+    match hkcu.create_subkey_with_flags(&local_dumps_path, KEY_WRITE) {
+        Ok((key, _)) => {
+            let dump_folder = dump_dir.to_string_lossy().to_string();
+            let dump_count = 10u32;
+            let dump_type = 2u32; // full user-mode dump
+            let _ = key.set_value("DumpFolder", &dump_folder);
+            let _ = key.set_value("DumpCount", &dump_count);
+            let _ = key.set_value("DumpType", &dump_type);
+            crate::log_info!(
+                "[CrashDiag] WER LocalDumps enabled for {} at {}",
+                exe_name,
+                dump_dir.display()
+            );
+        }
+        Err(error) => {
+            crate::log_info!(
+                "[CrashDiag] failed to configure WER LocalDumps for {}: {}",
+                exe_name,
+                error
+            );
+        }
+    }
 }
 
 /// Initialize COM and set DPI awareness.

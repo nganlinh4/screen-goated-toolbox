@@ -35,23 +35,60 @@ pub fn translate_subtitle_chunk(
     config: &Config,
     model: &ModelConfig,
     target_language: &str,
+    instructions: Option<&str>,
     items: &[SubtitleTranslationItemRequest],
     history: &[TranslationConversationTurn],
 ) -> Result<ValidatedSubtitleTranslationResponse, String> {
     let user_payload = build_user_payload(target_language, items);
     let assistant_payload = match model.provider.as_str() {
-        "google" => translate_with_google(config, model, target_language, &user_payload, history)?,
-        "gemini-live" => {
-            translate_with_gemini_live(config, model, target_language, &user_payload, history)?
-        }
-        "cerebras" => {
-            translate_with_cerebras(config, model, target_language, &user_payload, history)?
-        }
-        "openrouter" => {
-            translate_with_openrouter(config, model, target_language, &user_payload, history)?
-        }
-        "ollama" => translate_with_ollama(config, model, target_language, &user_payload, history)?,
-        _ => translate_with_groq(config, model, target_language, &user_payload, history)?,
+        "google" => translate_with_google(
+            config,
+            model,
+            target_language,
+            instructions,
+            &user_payload,
+            history,
+        )?,
+        "gemini-live" => translate_with_gemini_live(
+            config,
+            model,
+            target_language,
+            instructions,
+            &user_payload,
+            history,
+        )?,
+        "cerebras" => translate_with_cerebras(
+            config,
+            model,
+            target_language,
+            instructions,
+            &user_payload,
+            history,
+        )?,
+        "openrouter" => translate_with_openrouter(
+            config,
+            model,
+            target_language,
+            instructions,
+            &user_payload,
+            history,
+        )?,
+        "ollama" => translate_with_ollama(
+            config,
+            model,
+            target_language,
+            instructions,
+            &user_payload,
+            history,
+        )?,
+        _ => translate_with_groq(
+            config,
+            model,
+            target_language,
+            instructions,
+            &user_payload,
+            history,
+        )?,
     };
     let validated = validate_translation_payload(&assistant_payload, items)?;
     Ok(ValidatedSubtitleTranslationResponse {
@@ -61,8 +98,8 @@ pub fn translate_subtitle_chunk(
     })
 }
 
-fn build_system_instruction(target_language: &str) -> String {
-    format!(
+fn build_system_instruction(target_language: &str, instructions: Option<&str>) -> String {
+    let mut prompt = format!(
         "You are translating subtitle segments inside one continuous conversation.\n\
 Keep wording, terminology, named entities, tone, and references consistent with prior chunks.\n\
 Translate every item into {target_language}.\n\
@@ -73,7 +110,15 @@ Rules:\n\
 - Do not add commentary or markdown.\n\
 - translatedText must never be empty.\n\
 - Preserve natural subtitle phrasing and punctuation."
-    )
+    );
+    if let Some(instructions) = instructions
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        prompt.push_str("\n\nUser translation instructions:\n");
+        prompt.push_str(instructions);
+    }
+    prompt
 }
 
 fn build_user_payload(target_language: &str, items: &[SubtitleTranslationItemRequest]) -> String {
@@ -97,13 +142,14 @@ Current chunk:\n{}",
 
 fn build_chat_messages(
     target_language: &str,
+    instructions: Option<&str>,
     user_payload: &str,
     history: &[TranslationConversationTurn],
 ) -> Vec<serde_json::Value> {
     let mut messages = Vec::new();
     messages.push(serde_json::json!({
         "role": "system",
-        "content": build_system_instruction(target_language),
+        "content": build_system_instruction(target_language, instructions),
     }));
     for turn in history {
         messages.push(serde_json::json!({
@@ -181,6 +227,7 @@ fn translate_with_google(
     config: &Config,
     model: &ModelConfig,
     target_language: &str,
+    instructions: Option<&str>,
     user_payload: &str,
     history: &[TranslationConversationTurn],
 ) -> Result<String, String> {
@@ -206,7 +253,7 @@ fn translate_with_google(
 
     let payload = serde_json::json!({
         "systemInstruction": {
-            "parts": [{ "text": build_system_instruction(target_language) }]
+            "parts": [{ "text": build_system_instruction(target_language, instructions) }]
         },
         "contents": contents,
         "generationConfig": {
@@ -248,6 +295,7 @@ fn translate_with_groq(
     config: &Config,
     model: &ModelConfig,
     target_language: &str,
+    instructions: Option<&str>,
     user_payload: &str,
     history: &[TranslationConversationTurn],
 ) -> Result<String, String> {
@@ -256,7 +304,7 @@ fn translate_with_groq(
     }
     let payload = serde_json::json!({
         "model": model.full_name,
-        "messages": build_chat_messages(target_language, user_payload, history),
+        "messages": build_chat_messages(target_language, instructions, user_payload, history),
         "stream": false,
         "response_format": { "type": "json_object" },
     });
@@ -312,6 +360,7 @@ fn translate_with_cerebras(
     config: &Config,
     model: &ModelConfig,
     target_language: &str,
+    instructions: Option<&str>,
     user_payload: &str,
     history: &[TranslationConversationTurn],
 ) -> Result<String, String> {
@@ -320,7 +369,7 @@ fn translate_with_cerebras(
     }
     let payload = serde_json::json!({
         "model": model.full_name,
-        "messages": build_chat_messages(target_language, user_payload, history),
+        "messages": build_chat_messages(target_language, instructions, user_payload, history),
         "stream": false,
         "response_format": cerebras_response_format(),
     });
@@ -351,6 +400,7 @@ fn translate_with_openrouter(
     config: &Config,
     model: &ModelConfig,
     target_language: &str,
+    instructions: Option<&str>,
     user_payload: &str,
     history: &[TranslationConversationTurn],
 ) -> Result<String, String> {
@@ -359,7 +409,7 @@ fn translate_with_openrouter(
     }
     let payload = serde_json::json!({
         "model": model.full_name,
-        "messages": build_chat_messages(target_language, user_payload, history),
+        "messages": build_chat_messages(target_language, instructions, user_payload, history),
         "stream": false,
         "response_format": { "type": "json_object" },
     });
@@ -391,6 +441,7 @@ fn translate_with_gemini_live(
     config: &Config,
     model: &ModelConfig,
     target_language: &str,
+    instructions: Option<&str>,
     user_payload: &str,
     history: &[TranslationConversationTurn],
 ) -> Result<String, String> {
@@ -419,7 +470,7 @@ fn translate_with_gemini_live(
     gemini_live_generate(
         model.full_name.clone(),
         prompt,
-        build_system_instruction(target_language),
+        build_system_instruction(target_language, instructions),
         None,
         None,
         false,
@@ -433,13 +484,14 @@ fn translate_with_ollama(
     config: &Config,
     model: &ModelConfig,
     target_language: &str,
+    instructions: Option<&str>,
     user_payload: &str,
     history: &[TranslationConversationTurn],
 ) -> Result<String, String> {
     let prompt = if history.is_empty() {
         format!(
             "{}\n\n{}",
-            build_system_instruction(target_language),
+            build_system_instruction(target_language, instructions),
             user_payload
         )
     } else {
@@ -459,7 +511,7 @@ fn translate_with_ollama(
             .join("\n\n");
         format!(
             "{}\n\n{}\n\nCurrent chunk request:\n{}",
-            build_system_instruction(target_language),
+            build_system_instruction(target_language, instructions),
             history_block,
             user_payload
         )

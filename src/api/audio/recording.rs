@@ -346,7 +346,12 @@ pub fn record_audio_and_transcribe(
         }
     }
 
+    if let Err(err) = stream.pause() {
+        eprintln!("[Recording] Failed to pause audio stream before drop: {err}");
+    }
+    std::thread::sleep(std::time::Duration::from_millis(80));
     drop(stream);
+    std::thread::sleep(std::time::Duration::from_millis(40));
 
     if abort_signal.load(Ordering::SeqCst) {
         unsafe {
