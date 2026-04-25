@@ -1,6 +1,7 @@
 use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::download_manager::DownloadManager;
 use eframe::egui;
+use std::time::{Duration, Instant};
 
 mod ai_runtime;
 mod backgrounds;
@@ -17,6 +18,43 @@ use self::{
     video_downloader::render_video_downloader_card,
     zipformer::render_zipformer_section,
 };
+
+const SECTION_TIMING_WARN_MS: f64 = 12.0;
+const SECTION_TIMING_LOG_INTERVAL: Duration = Duration::from_secs(2);
+
+fn timing_log_state() -> &'static std::sync::Mutex<std::collections::HashMap<&'static str, Instant>>
+{
+    static STATE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<&'static str, Instant>>,
+    > = std::sync::OnceLock::new();
+    STATE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn time_downloaded_tools_section(label: &'static str, render: impl FnOnce()) {
+    let started_at = Instant::now();
+    render();
+    let elapsed = started_at.elapsed();
+    if elapsed.as_secs_f64() * 1000.0 < SECTION_TIMING_WARN_MS {
+        return;
+    }
+
+    let now = Instant::now();
+    if let Ok(mut state) = timing_log_state().lock() {
+        let should_log = state
+            .get(label)
+            .is_none_or(|last| now.duration_since(*last) >= SECTION_TIMING_LOG_INTERVAL);
+        if !should_log {
+            return;
+        }
+        state.insert(label, now);
+    }
+
+    crate::log_info!(
+        "[DownloadedToolsPerf] section={} ms={:.1}",
+        label,
+        elapsed.as_secs_f64() * 1000.0
+    );
+}
 
 pub fn render_downloaded_tools_modal(
     ctx: &egui::Context,
@@ -44,19 +82,31 @@ pub fn render_downloaded_tools_modal(
 
                         ui.columns(2, |columns| {
                             columns[0].vertical(|ui| {
-                                render_parakeet_card(ui, text);
+                                time_downloaded_tools_section("parakeet-card", || {
+                                    render_parakeet_card(ui, text)
+                                });
                                 ui.add_space(8.0);
-                                render_qwen3_card(ui, text);
+                                time_downloaded_tools_section("qwen3-card", || {
+                                    render_qwen3_card(ui, text)
+                                });
                                 ui.add_space(8.0);
-                                render_background_downloads_section(ui, text);
+                                time_downloaded_tools_section("backgrounds", || {
+                                    render_background_downloads_section(ui, text)
+                                });
                                 ui.add_space(8.0);
-                                render_pointer_pack_downloads_section(ui, text);
+                                time_downloaded_tools_section("pointer-packs", || {
+                                    render_pointer_pack_downloads_section(ui, text)
+                                });
                             });
 
                             columns[1].vertical(|ui| {
-                                render_video_downloader_card(ui, download_manager, text);
+                                time_downloaded_tools_section("video-downloader", || {
+                                    render_video_downloader_card(ui, download_manager, text)
+                                });
                                 ui.add_space(8.0);
-                                render_zipformer_section(ui, download_manager, text);
+                                time_downloaded_tools_section("zipformer", || {
+                                    render_zipformer_section(ui, download_manager, text)
+                                });
                             });
                         });
                     });

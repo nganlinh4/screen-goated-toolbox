@@ -3,7 +3,9 @@ use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::download_manager::{DownloadManager, InstallStatus};
 use eframe::egui;
 
-use super::utils::{format_size, get_dir_size};
+use super::utils::{cached_probe, format_size, get_dir_size, invalidate_probe_cache};
+
+const PROBE_ZIPFORMER_DLLS: &str = "downloaded-tools:zipformer-dlls";
 
 const ALL_LANGUAGES: &[ZipformerLanguage] = &[
     ZipformerLanguage::English,
@@ -35,7 +37,10 @@ pub(super) fn render_zipformer_section(
 
         // Sync disk state → status (when not actively downloading)
         {
-            let disk_ok = sherpa_onnx::dlls::is_sherpa_dlls_installed();
+            let disk_ok = cached_probe(
+                PROBE_ZIPFORMER_DLLS,
+                sherpa_onnx::dlls::is_sherpa_dlls_installed,
+            );
             let mut s = download_manager.zipformer_dlls_status.lock().unwrap();
             let in_dl = matches!(*s, InstallStatus::Downloading(_));
             if !in_dl {
@@ -68,6 +73,7 @@ pub(super) fn render_zipformer_section(
                             )
                             .clicked()
                         {
+                            invalidate_probe_cache(PROBE_ZIPFORMER_DLLS);
                             let _ = std::fs::remove_dir_all(sherpa_onnx::dlls::sherpa_bin_dir());
                             *download_manager.zipformer_dlls_status.lock().unwrap() =
                                 InstallStatus::Missing;
@@ -113,7 +119,9 @@ pub(super) fn render_zipformer_section(
         for &lang in ALL_LANGUAGES {
             // Sync disk → status
             {
-                let disk_ok = sherpa_onnx::is_model_downloaded(lang);
+                let disk_ok = cached_probe(zipformer_probe_key(lang), move || {
+                    sherpa_onnx::is_model_downloaded(lang)
+                });
                 let mut s = download_manager.zipformer_lang_statuses[&lang]
                     .lock()
                     .unwrap();
@@ -148,6 +156,7 @@ pub(super) fn render_zipformer_section(
                                 )
                                 .clicked()
                             {
+                                invalidate_probe_cache(zipformer_probe_key(lang));
                                 let _ = std::fs::remove_dir_all(model_dir(lang));
                                 *download_manager.zipformer_lang_statuses[&lang]
                                     .lock()
@@ -182,4 +191,17 @@ pub(super) fn render_zipformer_section(
             });
         }
     });
+}
+
+fn zipformer_probe_key(lang: ZipformerLanguage) -> &'static str {
+    match lang {
+        ZipformerLanguage::English => "downloaded-tools:zipformer-en",
+        ZipformerLanguage::Korean => "downloaded-tools:zipformer-ko",
+        ZipformerLanguage::Chinese => "downloaded-tools:zipformer-zh",
+        ZipformerLanguage::French => "downloaded-tools:zipformer-fr",
+        ZipformerLanguage::German => "downloaded-tools:zipformer-de",
+        ZipformerLanguage::Spanish => "downloaded-tools:zipformer-es",
+        ZipformerLanguage::Russian => "downloaded-tools:zipformer-ru",
+        ZipformerLanguage::All8Lang => "downloaded-tools:zipformer-all8",
+    }
 }

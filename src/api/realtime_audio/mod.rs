@@ -9,6 +9,7 @@
 mod capture;
 pub mod model_loader;
 pub mod parakeet;
+pub mod parakeet_tdt_assets;
 pub mod qwen3;
 pub mod sherpa_onnx;
 mod state;

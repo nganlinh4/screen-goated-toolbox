@@ -125,8 +125,12 @@ export function SubtitlePanel({
   const usesLanguageHint = !(
     selectedMethod === 'gemini-3-1-flash-lite'
     || selectedMethod === 'gemini-3-flash-preview'
+    || selectedMethod === 'parakeet-tdt-0-6b-v3'
   );
-  const usesGeminiPrompt = !usesLanguageHint;
+  const usesGeminiPrompt = (
+    selectedMethod === 'gemini-3-1-flash-lite'
+    || selectedMethod === 'gemini-3-flash-preview'
+  );
   const usesGroqVocabulary = (
     selectedMethod === 'groq-whisper-accurate'
     || selectedMethod === 'groq-whisper-large-v3-turbo'
@@ -146,6 +150,8 @@ export function SubtitlePanel({
         return t.subtitleMethodQwenLocal1_7B;
       case 'qwen-local-0-6b':
         return t.subtitleMethodQwenLocal0_6B;
+      case 'parakeet-tdt-0-6b-v3':
+        return t.subtitleMethodParakeetTdt0_6BV3;
       case 'groq-whisper-accurate':
       default:
         return t.subtitleMethodGroqWhisperAccurate;
@@ -185,7 +191,11 @@ export function SubtitlePanel({
     label: getMethodLabel(method.method),
     disabled: !method.available
       && !(
-        (method.method === 'qwen-local-0-6b' || method.method === 'qwen-local-1-7b')
+        (
+          method.method === 'qwen-local-0-6b'
+          || method.method === 'qwen-local-1-7b'
+          || method.method === 'parakeet-tdt-0-6b-v3'
+        )
         && method.reason?.includes('Downloaded Tools')
       ),
   }));

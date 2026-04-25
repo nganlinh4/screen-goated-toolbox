@@ -429,6 +429,59 @@ export function useSubtitleTranslation({
     setChunkCount(clampTranslationChunkCount(value, subtitleTranslationChunkMax));
   }, [subtitleTranslationChunkMax]);
 
+  const applySubtitleTranslationResults = useCallback((
+    results: SubtitleTranslationResultItem[],
+    context: SubtitleTranslationJobContext,
+  ) => {
+    if (results.length === 0) return;
+    if (!composition || getEffectiveCompositionMode(composition) === 'separate') {
+      setSegment((prev) =>
+        prev ? applyTranslationResultsToSegment(prev, results, context) : prev,
+      );
+      return;
+    }
+
+    setComposition((prev) => {
+      if (!prev) return prev;
+      const timeline = buildSequenceTimeline(prev);
+      let next = prev;
+      const resultsByClipId = new Map<string, SubtitleTranslationResultItem[]>();
+      for (const result of results) {
+        const clipId = result.clipId ?? 'root';
+        const bucket = resultsByClipId.get(clipId) ?? [];
+        bucket.push(result);
+        resultsByClipId.set(clipId, bucket);
+      }
+
+      for (const clip of next.clips) {
+        const clipResults = resultsByClipId.get(clip.id) ?? [];
+        if (clipResults.length === 0) continue;
+        const updatedSegment = applyTranslationResultsToSegment(
+          clip.segment,
+          clipResults,
+          context,
+        );
+        next = updateCompositionClip(next, clip.id, { segment: updatedSegment });
+        if (next.globalSegment && timeline) {
+          const timelineClip = getSequenceClipById(timeline, clip.id);
+          if (timelineClip) {
+            next = {
+              ...next,
+              globalSegment: replaceSequenceClipSegmentInGlobal(
+                next.globalSegment,
+                updatedSegment,
+                timelineClip,
+                timeline.totalDuration,
+              ),
+            };
+          }
+        }
+      }
+
+      return next;
+    });
+  }, [composition, setComposition, setSegment]);
+
   useEffect(() => {
     if (!jobId || !jobContext) return;
     let cancelled = false;
@@ -442,57 +495,17 @@ export function useSubtitleTranslation({
         if (cancelled) return;
         setStatus(nextStatus);
         if (nextStatus.state === 'completed') {
-          if (!composition || getEffectiveCompositionMode(composition) === 'separate') {
-            setSegment((prev) =>
-              prev ? applyTranslationResultsToSegment(prev, nextStatus.results, jobContext) : prev,
-            );
-          } else {
-            setComposition((prev) => {
-              if (!prev) return prev;
-              const timeline = buildSequenceTimeline(prev);
-              let next = prev;
-              const resultsByClipId = new Map<string, SubtitleTranslationResultItem[]>();
-              for (const result of nextStatus.results) {
-                const clipId = result.clipId ?? 'root';
-                const bucket = resultsByClipId.get(clipId) ?? [];
-                bucket.push(result);
-                resultsByClipId.set(clipId, bucket);
-              }
-
-              for (const clip of next.clips) {
-                const clipResults = resultsByClipId.get(clip.id) ?? [];
-                const updatedSegment = applyTranslationResultsToSegment(
-                  clip.segment,
-                  clipResults,
-                  jobContext,
-                );
-                next = updateCompositionClip(next, clip.id, { segment: updatedSegment });
-                if (next.globalSegment && timeline) {
-                  const timelineClip = getSequenceClipById(timeline, clip.id);
-                  if (timelineClip) {
-                    next = {
-                      ...next,
-                      globalSegment: replaceSequenceClipSegmentInGlobal(
-                        next.globalSegment,
-                        updatedSegment,
-                        timelineClip,
-                        timeline.totalDuration,
-                      ),
-                    };
-                  }
-                }
-              }
-
-              return next;
-            });
-          }
-
+          applySubtitleTranslationResults(nextStatus.results, jobContext);
           setJobId(null);
           setJobContext(null);
           setActivePanel('subtitles');
           return;
         }
         if (nextStatus.state === 'cancelled' || nextStatus.state === 'error') {
+          if (nextStatus.state === 'error' && nextStatus.results.length > 0) {
+            applySubtitleTranslationResults(nextStatus.results, jobContext);
+            setActivePanel('subtitles');
+          }
           setJobId(null);
           setJobContext(null);
           return;
@@ -519,7 +532,7 @@ export function useSubtitleTranslation({
     return () => {
       cancelled = true;
     };
-  }, [composition, jobContext, jobId, setActivePanel, setComposition, setSegment, t.subtitleTranslationStatusFailed]);
+  }, [applySubtitleTranslationResults, jobContext, jobId, setActivePanel, t.subtitleTranslationStatusFailed]);
 
   const handleTranslateSubtitles = useCallback(async () => {
     if (!segment) return;

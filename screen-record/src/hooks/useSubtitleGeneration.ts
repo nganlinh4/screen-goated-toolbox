@@ -21,12 +21,15 @@ import {
 import type { Translations } from '@/i18n';
 import type { ProjectComposition, VideoSegment } from '@/types/video';
 import {
+  clearDerivedSubtitleTracks,
   mergePartialOriginalSubtitleSegments,
   replaceOriginalSubtitleSegments,
 } from '@/lib/subtitleTrackMutations';
 import {
   getSubtitleTracks,
   getVisibleSubtitleSegments,
+  ORIGINAL_SUBTITLE_TRACK_ID,
+  setActiveSubtitleTrackView,
 } from '@/lib/subtitleTracks';
 import { DEFAULT_GEMINI_SUBTITLE_PROMPT } from '@/lib/geminiSubtitlePrompt';
 import { getSubtitleLanguageOptionsForMethod } from '@/lib/subtitleLanguageOptions';
@@ -38,7 +41,8 @@ export type SubtitleMethod =
   | 'gemini-3-1-flash-lite'
   | 'gemini-3-flash-preview'
   | 'qwen-local-0-6b'
-  | 'qwen-local-1-7b';
+  | 'qwen-local-1-7b'
+  | 'parakeet-tdt-0-6b-v3';
 
 const DEFAULT_SUBTITLE_METHOD_CAPABILITIES: Array<{
   method: SubtitleMethod;
@@ -51,6 +55,7 @@ const DEFAULT_SUBTITLE_METHOD_CAPABILITIES: Array<{
   { method: 'gemini-3-flash-preview', available: false, reason: null },
   { method: 'qwen-local-0-6b', available: false, reason: null },
   { method: 'qwen-local-1-7b', available: false, reason: null },
+  { method: 'parakeet-tdt-0-6b-v3', available: false, reason: null },
 ];
 
 const SUBTITLE_SOURCE_KEY = 'screen-record-subtitle-source-v1';
@@ -81,7 +86,8 @@ function isSubtitleMethod(value: string): value is SubtitleMethod {
     value === 'gemini-3-1-flash-lite' ||
     value === 'gemini-3-flash-preview' ||
     value === 'qwen-local-0-6b' ||
-    value === 'qwen-local-1-7b'
+    value === 'qwen-local-1-7b' ||
+    value === 'parakeet-tdt-0-6b-v3'
   );
 }
 
@@ -91,6 +97,10 @@ function normalizeStoredSubtitleMethod(value: string | null): SubtitleMethod | n
 
 function isQwenLocalSubtitleMethod(method: SubtitleMethod) {
   return method === 'qwen-local-0-6b' || method === 'qwen-local-1-7b';
+}
+
+function isParakeetTdtSubtitleMethod(method: SubtitleMethod) {
+  return method === 'parakeet-tdt-0-6b-v3';
 }
 
 function getInitialSubtitleMethod(): SubtitleMethod {
@@ -164,6 +174,12 @@ interface SubtitleGenerationCapabilities {
 }
 
 interface PrepareQwenLocalResult {
+  available: boolean;
+  startedDownloads: boolean;
+  reason?: string | null;
+}
+
+interface PrepareParakeetTdtResult {
   available: boolean;
   startedDownloads: boolean;
   reason?: string | null;
@@ -535,7 +551,7 @@ export function useSubtitleGeneration({
   const setSubtitleMethod = useCallback(async (nextMethod: SubtitleMethod) => {
     if (nextMethod === subtitleMethod) return;
     setSubtitleMethodNotice(null);
-    if (!isQwenLocalSubtitleMethod(nextMethod)) {
+    if (!isQwenLocalSubtitleMethod(nextMethod) && !isParakeetTdtSubtitleMethod(nextMethod)) {
       setSubtitleMethodState(nextMethod);
       return;
     }
@@ -548,9 +564,13 @@ export function useSubtitleGeneration({
     }
 
     try {
-      const result = await invoke<PrepareQwenLocalResult>('prepare_qwen_local_subtitles', {
-        subtitleMethod: nextMethod,
-      });
+      const result = isParakeetTdtSubtitleMethod(nextMethod)
+        ? await invoke<PrepareParakeetTdtResult>('prepare_parakeet_tdt_subtitles', {
+            subtitleMethod: nextMethod,
+          })
+        : await invoke<PrepareQwenLocalResult>('prepare_qwen_local_subtitles', {
+            subtitleMethod: nextMethod,
+          });
       if (result.available) {
         setSubtitleMethodState(nextMethod);
         return;
@@ -585,9 +605,13 @@ export function useSubtitleGeneration({
           text: entry.text,
           style: subtitleStyle,
         }));
-          const updatedSegment = result.isPartial
+          const replacedSegment = result.isPartial
             ? mergePartialOriginalSubtitleSegments(nextSegment, inserted, replacementRanges)
             : replaceOriginalSubtitleSegments(nextSegment, inserted, replacementRanges);
+          const updatedSegment = setActiveSubtitleTrackView(
+            clearDerivedSubtitleTracks(replacedSegment),
+            ORIGINAL_SUBTITLE_TRACK_ID,
+          );
           logSubtitleApplyDiagnostics('apply-separate', result, nextSegment, updatedSegment, replacementRanges);
           return updatedSegment;
         }, prev);
@@ -626,7 +650,7 @@ export function useSubtitleGeneration({
           text: entry.text,
           style: subtitleStyle,
         }));
-        const updatedSegment = result.isPartial
+        const replacedSegment = result.isPartial
           ? mergePartialOriginalSubtitleSegments(
               clip.segment,
               inserted,
@@ -637,6 +661,10 @@ export function useSubtitleGeneration({
               inserted,
               replacementRanges,
             );
+        const updatedSegment = setActiveSubtitleTrackView(
+          clearDerivedSubtitleTracks(replacedSegment),
+          ORIGINAL_SUBTITLE_TRACK_ID,
+        );
         logSubtitleApplyDiagnostics('apply-composition', result, clip.segment, updatedSegment, replacementRanges);
 
         next = updateCompositionClip(next, clip.id, { segment: updatedSegment });

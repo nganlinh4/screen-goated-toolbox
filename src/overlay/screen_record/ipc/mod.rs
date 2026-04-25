@@ -290,6 +290,7 @@ pub fn handle_ipc_command(
             subtitles::handle_get_subtitle_generation_capabilities(&args)
         }
         "prepare_qwen_local_subtitles" => subtitles::handle_prepare_qwen_local_subtitles(&args),
+        "prepare_parakeet_tdt_subtitles" => subtitles::handle_prepare_parakeet_tdt_subtitles(&args),
         "get_subtitle_generation_status" => subtitles::handle_get_subtitle_generation_status(&args),
         "cancel_subtitle_generation" => subtitles::handle_cancel_subtitle_generation(&args),
         "start_subtitle_translation" => subtitles::handle_start_subtitle_translation(&args),

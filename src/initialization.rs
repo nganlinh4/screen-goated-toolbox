@@ -16,6 +16,8 @@ use windows::Win32::Foundation::{
     EXCEPTION_ACCESS_VIOLATION, EXCEPTION_ILLEGAL_INSTRUCTION, EXCEPTION_STACK_OVERFLOW, HANDLE,
 };
 #[cfg(windows)]
+use windows::Win32::System::Console::SetConsoleCtrlHandler;
+#[cfg(windows)]
 use windows::Win32::System::Diagnostics::Debug::{
     AddVectoredExceptionHandler, EXCEPTION_CONTINUE_SEARCH, EXCEPTION_EXECUTE_HANDLER,
     EXCEPTION_POINTERS, MINIDUMP_EXCEPTION_INFORMATION, MiniDumpWithFullMemory,
@@ -23,11 +25,15 @@ use windows::Win32::System::Diagnostics::Debug::{
 };
 #[cfg(windows)]
 use windows::Win32::System::Threading::{
-    GetCurrentProcess, GetCurrentProcessId, GetCurrentThreadId,
+    ExitProcess, GetCurrentProcess, GetCurrentProcessId, GetCurrentThreadId,
 };
+#[cfg(windows)]
+use windows_core::BOOL;
 
 #[cfg(windows)]
 static CRASH_DUMP_WRITTEN: AtomicBool = AtomicBool::new(false);
+#[cfg(windows)]
+static CONSOLE_EXIT_STARTED: AtomicBool = AtomicBool::new(false);
 
 /// Enable dark mode for Win32 native menus (context menus, tray menus).
 /// Uses undocumented SetPreferredAppMode API from uxtheme.dll.
@@ -141,6 +147,7 @@ pub fn apply_pending_updates() {
 pub fn setup_crash_handler() {
     setup_windows_error_reporting_dumps();
     setup_unhandled_exception_dump_writer();
+    setup_console_ctrl_handler();
 
     std::panic::set_hook(Box::new(|panic_info| {
         // 1. Format the error message
@@ -208,6 +215,59 @@ fn setup_unhandled_exception_dump_writer() {
 
 #[cfg(not(windows))]
 fn setup_unhandled_exception_dump_writer() {}
+
+#[cfg(windows)]
+fn setup_console_ctrl_handler() {
+    unsafe {
+        if SetConsoleCtrlHandler(Some(console_ctrl_handler), true).is_ok() {
+            crate::log_info!("[Shutdown] console Ctrl handler enabled");
+        } else {
+            crate::log_info!("[Shutdown] console Ctrl handler unavailable");
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn setup_console_ctrl_handler() {}
+
+#[cfg(windows)]
+unsafe extern "system" fn console_ctrl_handler(ctrl_type: u32) -> BOOL {
+    const CTRL_C_EVENT: u32 = 0;
+    const CTRL_BREAK_EVENT: u32 = 1;
+    const CTRL_CLOSE_EVENT: u32 = 2;
+    const CTRL_LOGOFF_EVENT: u32 = 5;
+    const CTRL_SHUTDOWN_EVENT: u32 = 6;
+
+    if !matches!(
+        ctrl_type,
+        CTRL_C_EVENT
+            | CTRL_BREAK_EVENT
+            | CTRL_CLOSE_EVENT
+            | CTRL_LOGOFF_EVENT
+            | CTRL_SHUTDOWN_EVENT
+    ) {
+        return BOOL(0);
+    }
+
+    if CONSOLE_EXIT_STARTED.swap(true, Ordering::SeqCst) {
+        unsafe {
+            ExitProcess(130);
+        }
+    }
+
+    std::thread::spawn(move || {
+        crate::log_info!(
+            "[Shutdown] console control event {} received; using bounded hard-exit path",
+            ctrl_type
+        );
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        unsafe {
+            ExitProcess(130);
+        }
+    });
+
+    BOOL(1)
+}
 
 #[cfg(windows)]
 unsafe extern "system" fn vectored_exception_dump_handler(

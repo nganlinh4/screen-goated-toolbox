@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 use crate::APP;
 use crate::config::Config;
@@ -17,6 +18,9 @@ use super::types::{
     SubtitleTranslationJobSnapshot, SubtitleTranslationModelCapability, SubtitleTranslationRequest,
     SubtitleTranslationResultItem,
 };
+
+const TRANSLATION_MODEL_ATTEMPTS: usize = 3;
+const TRANSLATION_RETRY_BASE_DELAY_MS: u64 = 3_000;
 
 #[derive(Clone)]
 struct SubtitleTranslationJobHandle {
@@ -181,85 +185,227 @@ fn run_subtitle_translation_inner(
         locked.target_language = Some(request.target_language.clone());
     })?;
 
-    let mut last_error =
-        "Subtitle translation failed because every model attempt returned invalid output."
-            .to_string();
-
     let initial_chunk_count = initial_translation_chunk_count(
         request.chunk_count,
         &request.chunk_mode,
         request.items.len(),
     );
-    for chunk_count in initial_chunk_count..=request.items.len() {
+    let chunks = split_translation_items(&request.items, initial_chunk_count);
+    let mut history: Vec<TranslationConversationTurn> = Vec::new();
+    let mut translated_results: Vec<SubtitleTranslationResultItem> = Vec::new();
+    let mut total_groups = chunks.len();
+    let mut completed_groups = 0usize;
+
+    for chunk in chunks {
+        translate_group_with_retry(TranslateGroupRequest {
+            config: &config,
+            candidate_models: &candidate_models,
+            target_language: &request.target_language,
+            instructions: request.instructions.as_deref(),
+            group: chunk,
+            history: &mut history,
+            translated_results: &mut translated_results,
+            snapshot,
+            cancelled,
+            total_items: request.items.len(),
+            total_groups: &mut total_groups,
+            completed_groups: &mut completed_groups,
+        })?;
+    }
+
+    if translated_results.len() == request.items.len() {
+        Ok(translated_results)
+    } else {
+        Err(format!(
+            "Subtitle translation produced {} item(s) for {} requested subtitle(s)",
+            translated_results.len(),
+            request.items.len()
+        ))
+    }
+}
+
+struct TranslateGroupRequest<'a> {
+    config: &'a Config,
+    candidate_models: &'a [ModelConfig],
+    target_language: &'a str,
+    instructions: Option<&'a str>,
+    group: Vec<SubtitleTranslationItemRequest>,
+    history: &'a mut Vec<TranslationConversationTurn>,
+    translated_results: &'a mut Vec<SubtitleTranslationResultItem>,
+    snapshot: &'a Arc<Mutex<SubtitleTranslationJobSnapshot>>,
+    cancelled: &'a Arc<AtomicBool>,
+    total_items: usize,
+    total_groups: &'a mut usize,
+    completed_groups: &'a mut usize,
+}
+
+fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), String> {
+    let TranslateGroupRequest {
+        config,
+        candidate_models,
+        target_language,
+        instructions,
+        mut group,
+        history,
+        translated_results,
+        snapshot,
+        cancelled,
+        total_items,
+        total_groups,
+        completed_groups,
+    } = request;
+
+    if group.is_empty() || cancelled.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+
+    let mut last_error =
+        "Subtitle translation failed because every model attempt returned invalid output."
+            .to_string();
+
+    for model in candidate_models {
         if cancelled.load(Ordering::SeqCst) {
-            return Ok(Vec::new());
+            return Ok(());
         }
-        let chunks = split_translation_items(&request.items, chunk_count);
-        for model in &candidate_models {
+
+        let model_label = localized_model_label(model, &config.ui_language);
+        update_translation_snapshot(snapshot, |locked| {
+            locked.current_model_id = Some(model.id.clone());
+            locked.current_model_label = Some(model_label.clone());
+            locked.current_chunk_count = *total_groups;
+            locked.current_chunk_index = *completed_groups + 1;
+            locked.total_chunks = *total_groups;
+            locked.progress = translated_results.len() as f64 / total_items.max(1) as f64;
+            locked.results = translated_results.clone();
+            locked.message = format!(
+                "Translating subtitles with {} ({}/{})",
+                model_label,
+                *completed_groups + 1,
+                *total_groups
+            );
+            locked.message_key = Some("subtitleTranslationStatusChunk".to_string());
+            locked.message_params = HashMap::from([
+                ("model".to_string(), model_label.clone()),
+                ("current".to_string(), (*completed_groups + 1).to_string()),
+                ("total".to_string(), total_groups.to_string()),
+            ]);
+        })?;
+
+        for attempt_index in 0..TRANSLATION_MODEL_ATTEMPTS {
             if cancelled.load(Ordering::SeqCst) {
-                return Ok(Vec::new());
+                return Ok(());
             }
-
-            let mut history: Vec<TranslationConversationTurn> = Vec::new();
-            let mut translated_results: Vec<SubtitleTranslationResultItem> = Vec::new();
-            let mut model_failed = false;
-
-            for (chunk_index, chunk) in chunks.iter().enumerate() {
+            if attempt_index > 0 {
+                let delay = translation_retry_delay(attempt_index);
                 update_translation_snapshot(snapshot, |locked| {
-                    locked.current_model_id = Some(model.id.clone());
-                    locked.current_model_label =
-                        Some(localized_model_label(model, &config.ui_language));
-                    locked.current_chunk_count = chunk_count;
-                    locked.current_chunk_index = chunk_index + 1;
-                    locked.total_chunks = chunks.len();
-                    locked.progress = chunk_index as f64 / chunks.len().max(1) as f64;
                     locked.message = format!(
-                        "Translating subtitles with {} ({}/{})",
-                        localized_model_label(model, &config.ui_language),
-                        chunk_index + 1,
-                        chunks.len()
+                        "Retrying subtitle translation with {} ({}/{}, attempt {}/{})",
+                        model_label,
+                        *completed_groups + 1,
+                        *total_groups,
+                        attempt_index + 1,
+                        TRANSLATION_MODEL_ATTEMPTS
                     );
-                    locked.message_key = Some("subtitleTranslationStatusChunk".to_string());
+                    locked.message_key = Some("subtitleTranslationStatusRetry".to_string());
                     locked.message_params = HashMap::from([
+                        ("model".to_string(), model_label.clone()),
+                        ("current".to_string(), (*completed_groups + 1).to_string()),
+                        ("total".to_string(), total_groups.to_string()),
+                        ("attempt".to_string(), (attempt_index + 1).to_string()),
                         (
-                            "model".to_string(),
-                            localized_model_label(model, &config.ui_language),
+                            "attempts".to_string(),
+                            TRANSLATION_MODEL_ATTEMPTS.to_string(),
                         ),
-                        ("current".to_string(), (chunk_index + 1).to_string()),
-                        ("total".to_string(), chunks.len().to_string()),
                     ]);
                 })?;
-
-                match translate_subtitle_chunk(
-                    &config,
-                    model,
-                    &request.target_language,
-                    request.instructions.as_deref(),
-                    chunk,
-                    &history,
-                ) {
-                    Ok(response) => {
-                        history.push(TranslationConversationTurn {
-                            user_payload: response.user_payload,
-                            assistant_payload: response.assistant_payload,
-                        });
-                        translated_results.extend(response.items);
-                    }
-                    Err(error) => {
-                        last_error = error;
-                        model_failed = true;
-                        break;
-                    }
+                sleep_cancelable(cancelled, delay);
+                if cancelled.load(Ordering::SeqCst) {
+                    return Ok(());
                 }
             }
 
-            if !model_failed && translated_results.len() == request.items.len() {
-                return Ok(translated_results);
+            match translate_subtitle_chunk(
+                config,
+                model,
+                target_language,
+                instructions,
+                &group,
+                history,
+            ) {
+                Ok(response) => {
+                    history.push(TranslationConversationTurn {
+                        user_payload: response.user_payload,
+                        assistant_payload: response.assistant_payload,
+                    });
+                    translated_results.extend(response.items);
+                    *completed_groups += 1;
+                    update_translation_snapshot(snapshot, |locked| {
+                        locked.progress =
+                            translated_results.len() as f64 / total_items.max(1) as f64;
+                        locked.results = translated_results.clone();
+                    })?;
+                    return Ok(());
+                }
+                Err(error) => {
+                    last_error = error;
+                }
             }
         }
     }
 
+    if group.len() > 1 {
+        let midpoint = group.len() / 2;
+        let right = group.split_off(midpoint);
+        let left = group;
+        *total_groups += 1;
+        translate_group_with_retry(TranslateGroupRequest {
+            config,
+            candidate_models,
+            target_language,
+            instructions,
+            group: left,
+            history,
+            translated_results,
+            snapshot,
+            cancelled,
+            total_items,
+            total_groups,
+            completed_groups,
+        })?;
+        translate_group_with_retry(TranslateGroupRequest {
+            config,
+            candidate_models,
+            target_language,
+            instructions,
+            group: right,
+            history,
+            translated_results,
+            snapshot,
+            cancelled,
+            total_items,
+            total_groups,
+            completed_groups,
+        })?;
+        return Ok(());
+    }
+
     Err(last_error)
+}
+
+fn translation_retry_delay(attempt_index: usize) -> Duration {
+    let multiplier = 1u64 << attempt_index.saturating_sub(1).min(4);
+    Duration::from_millis(TRANSLATION_RETRY_BASE_DELAY_MS * multiplier)
+}
+
+fn sleep_cancelable(cancelled: &AtomicBool, duration: Duration) {
+    let step = Duration::from_millis(100);
+    let mut slept = Duration::ZERO;
+    while slept < duration && !cancelled.load(Ordering::SeqCst) {
+        let remaining = duration.saturating_sub(slept);
+        let next = remaining.min(step);
+        std::thread::sleep(next);
+        slept += next;
+    }
 }
 
 fn initial_translation_chunk_count(

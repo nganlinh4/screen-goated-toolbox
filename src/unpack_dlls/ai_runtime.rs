@@ -7,11 +7,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const INSTALL_TITLE: &str = "Installing local AI runtime";
-const ONNX_RUNTIME_VERSION: &str = "1.22.0";
+const ONNX_RUNTIME_VERSION: &str = "1.24.2";
 const DIRECTML_VERSION: &str = "1.15.4";
-const ONNX_PACKAGE_URL: &str = "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.22.0/microsoft.ml.onnxruntime.directml.1.22.0.nupkg";
+const ONNX_PACKAGE_URL: &str = "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.24.2/microsoft.ml.onnxruntime.directml.1.24.2.nupkg";
 const DIRECTML_PACKAGE_URL: &str = "https://api.nuget.org/v3-flatcontainer/microsoft.ai.directml/1.15.4/microsoft.ai.directml.1.15.4.nupkg";
-const ONNX_ARCHIVE_NAME: &str = "onnxruntime-directml-1.22.0.nupkg";
+const ONNX_ARCHIVE_NAME: &str = "onnxruntime-directml-1.24.2.nupkg";
 const DIRECTML_ARCHIVE_NAME: &str = "directml-1.15.4.nupkg";
 const ONNX_DLL: &str = "onnxruntime.dll";
 const ONNX_SHARED_DLL: &str = "onnxruntime_providers_shared.dll";
