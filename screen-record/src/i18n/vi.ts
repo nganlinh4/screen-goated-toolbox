@@ -388,6 +388,8 @@ const vi: Translations = {
   trackSpeed: 'Tốc Độ',
   trackDeviceAudio: 'Âm Thanh Thiết Bị',
   trackMicAudio: 'Mic',
+  trackAudio: 'Âm Thanh',
+  addAudioFile: 'Thêm tệp âm thanh',
   trackWebcam: 'Webcam',
   resetSpeed: 'Đặt lại tốc độ',
 
@@ -406,6 +408,15 @@ const vi: Translations = {
   orImportVideo: 'hoặc chọn video từ máy',
   importingVideo: 'Đang nhập video...',
   importedVideoHint: 'Video nhập — tính năng con trỏ và phím không khả dụng',
+
+  // Audio import
+  importAudio: 'Chọn Âm Thanh Từ Máy (Hoặc kéo thả âm thanh vào đây)',
+  dropAudioHere: 'Thả âm thanh vào đây',
+  dropMediaHere: 'Thả video hoặc âm thanh vào đây',
+  importingAudio: 'Đang nhập âm thanh...',
+  audioOnlyProjectHint: 'Dự án chỉ có âm thanh — chỉ có tab Phụ Đề khả dụng',
+  audioDropAddToRecord: 'Thêm vào SGT Record',
+  audioDropUsePreset: 'Dùng cấu hình âm thanh',
 
   // Export presets
   presetBalanced: 'Cân Bằng (Khuyến Nghị)',

@@ -386,6 +386,8 @@ const en = {
   trackSpeed: 'Speed',
   trackDeviceAudio: 'Device Audio',
   trackMicAudio: 'Mic',
+  trackAudio: 'Audio',
+  addAudioFile: 'Add audio file',
   trackWebcam: 'Webcam',
   resetSpeed: 'Reset Speed',
 
@@ -404,6 +406,15 @@ const en = {
   orImportVideo: 'or import a video',
   importingVideo: 'Importing video...',
   importedVideoHint: 'Imported video — cursor and keystroke features are unavailable',
+
+  // Audio import
+  importAudio: 'Import Audio (Or drag and drop audio here)',
+  dropAudioHere: 'Drop audio here',
+  dropMediaHere: 'Drop video or audio here',
+  importingAudio: 'Importing audio...',
+  audioOnlyProjectHint: 'Audio-only project — only the Subtitles tab is available',
+  audioDropAddToRecord: 'Add to SGT Record',
+  audioDropUsePreset: 'Use audio preset',
 
   // Export presets
   presetBalanced: 'Balanced (Recommended)',

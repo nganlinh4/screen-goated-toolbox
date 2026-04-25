@@ -388,6 +388,8 @@ const ko: Translations = {
   trackSpeed: '속도',
   trackDeviceAudio: '기기 오디오',
   trackMicAudio: '마이크',
+  trackAudio: '음악',
+  addAudioFile: '오디오 파일 추가',
   trackWebcam: '웹캠',
   resetSpeed: '속도 초기화',
 
@@ -406,6 +408,15 @@ const ko: Translations = {
   orImportVideo: '또는 비디오 가져오기',
   importingVideo: '비디오 가져오는 중...',
   importedVideoHint: '가져온 비디오 — 커서 및 키 입력 기능 사용 불가',
+
+  // Audio import
+  importAudio: '오디오 가져오기 (또는 여기에 드래그 앤 드롭)',
+  dropAudioHere: '여기에 오디오를 놓으세요',
+  dropMediaHere: '비디오 또는 오디오를 여기에 놓으세요',
+  importingAudio: '오디오 가져오는 중...',
+  audioOnlyProjectHint: '오디오 전용 프로젝트 — 자막 탭만 사용할 수 있습니다',
+  audioDropAddToRecord: 'SGT Record에 추가',
+  audioDropUsePreset: '오디오 프리셋 사용',
 
   // Export presets
   presetBalanced: '균형 (권장)',
