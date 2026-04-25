@@ -349,6 +349,7 @@ const vi: Translations = {
   sequenceOriginalTitle: 'Clip gốc',
   sequenceSharedLookSourceTitle: 'Clip nguồn giao diện chung',
   sequenceSource: 'Nguồn',
+  closeProject: 'Đóng dự án',
 
   // Dialogs - Monitor Select
   selectMonitor: 'Chọn Màn Hình',

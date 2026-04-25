@@ -1,4 +1,4 @@
-import { Link2, Plus, X, Check, Minus } from "lucide-react";
+import { Link2, Plus, X, Check, Minus, LogOut } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import type { ProjectComposition, ProjectCompositionClip, ProjectCompositionMode } from "@/types/video";
 import { motion, AnimatePresence } from "framer-motion";
@@ -12,6 +12,7 @@ interface SequencePillChainProps {
   onInsertClip: (clipId: string | null, placement: "before" | "after") => void;
   onRemoveClip: (clipId: string) => void;
   onModeChange: (mode: ProjectCompositionMode) => void;
+  onCloseProject?: () => void;
 }
 
 export function SequencePillChain({
@@ -22,6 +23,7 @@ export function SequencePillChain({
   onInsertClip,
   onRemoveClip,
   onModeChange,
+  onCloseProject,
 }: SequencePillChainProps) {
   const { t } = useSettings();
   const isMultiClip = composition.clips.length > 1;
@@ -305,7 +307,35 @@ export function SequencePillChain({
             })}
           </div>
           </>}
-          <ClipMetadataList clip={(hoveredClipId ? composition.clips.find(c => c.id === hoveredClipId) : isSingleClip ? composition.clips[0] : undefined)} t={t} />
+          {(() => {
+            const popoverClip = hoveredClipId
+              ? composition.clips.find((c) => c.id === hoveredClipId)
+              : isSingleClip
+                ? composition.clips[0]
+                : undefined;
+            const showCloseProject = !!onCloseProject
+              && !!popoverClip
+              && (isSingleClip || popoverClip.role === "root");
+            return (
+              <>
+                <ClipMetadataList clip={popoverClip} t={t} />
+                {showCloseProject && (
+                  <div className="sequence-mode-popover-footer mt-2 pt-2 border-t border-[var(--ui-border)]">
+                    <button
+                      type="button"
+                      onClick={onCloseProject}
+                      className="sequence-close-project-btn ui-chip-button flex w-full items-center justify-center gap-1.5 rounded-md px-2.5 py-1 text-[10px] font-semibold text-[var(--on-surface-variant)] hover:bg-red-500/10 hover:text-red-500"
+                      title={t.closeProject}
+                      aria-label={t.closeProject}
+                    >
+                      <LogOut className="h-2.5 w-2.5" />
+                      <span>{t.closeProject}</span>
+                    </button>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
     </div>

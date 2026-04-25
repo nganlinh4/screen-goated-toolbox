@@ -780,6 +780,44 @@ function App() {
     isProcessing: exportHook.isProcessing,
   });
 
+  const handleCloseProject = useCallback(() => {
+    if (isRecording || exportHook.isProcessing) return;
+    [currentVideo, currentAudio, currentMicAudio, currentWebcamVideo].forEach((url) => {
+      if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+    });
+    setCurrentVideo(null);
+    setCurrentAudio(null);
+    setCurrentMicAudio(null);
+    setCurrentWebcamVideo(null);
+    setSegment(null);
+    setThumbnails([]);
+    setMousePositions([]);
+    setCurrentTime(0);
+    setPreviewDuration(0);
+    setLoadedClipId(null);
+    setComposition(null);
+    setCurrentProjectData(null);
+    projects.setCurrentProjectId(null);
+  }, [
+    isRecording,
+    exportHook.isProcessing,
+    currentVideo,
+    currentAudio,
+    currentMicAudio,
+    currentWebcamVideo,
+    setCurrentVideo,
+    setCurrentAudio,
+    setCurrentMicAudio,
+    setCurrentWebcamVideo,
+    setSegment,
+    setThumbnails,
+    setMousePositions,
+    setCurrentTime,
+    setPreviewDuration,
+    setLoadedClipId,
+    projects,
+  ]);
+
   // Keyboard shortcuts, segment initializer, and keystroke drag
   useEditorInteractions({
     segment,
@@ -878,6 +916,7 @@ function App() {
                 onInsertClip={handleOpenInsertProjectPicker}
                 onRemoveClip={(clipId) => { void handleRemoveSequenceClip(clipId); }}
                 onModeChange={(mode) => { void handleSequenceModeChange(mode); }}
+                onCloseProject={handleCloseProject}
               />
             ) : undefined
           }

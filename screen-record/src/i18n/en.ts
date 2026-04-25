@@ -347,6 +347,7 @@ const en = {
   sequenceOriginalTitle: 'Original clip',
   sequenceSharedLookSourceTitle: 'Shared look source',
   sequenceSource: 'Source',
+  closeProject: 'Close project',
 
   // Dialogs - Monitor Select
   selectMonitor: 'Select Monitor',
