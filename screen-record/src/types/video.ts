@@ -177,6 +177,27 @@ export interface AudioGainPoint {
 
 export type DeviceAudioPoint = AudioGainPoint;
 export type MicAudioPoint = AudioGainPoint;
+export type MusicAudioGainPoint = AudioGainPoint;
+
+/**
+ * A music/sfx file placed on the project-level Audio track. Distinct from
+ * device audio (screen capture) and mic audio (microphone capture) — these
+ * are user-supplied background music or sound effects.
+ *
+ * `startTime` is in **timeline seconds** (project-wide), not per-clip seconds.
+ * Reordering clips does NOT auto-shift music — by design.
+ */
+export interface MusicAudioSegment {
+  id: string;
+  rawAudioPath: string;
+  name: string;
+  duration: number;
+  startTime: number;
+  inPoint: number;
+  outPoint: number;
+  volumePoints?: MusicAudioGainPoint[];
+  addedAt: number;
+}
 
 export type RecordingMode = "withoutCursor" | "withCursor" | "imported";
 
@@ -283,6 +304,17 @@ export interface ProjectComposition {
   globalPresentationConfig?: BackgroundConfig;
   globalSegment?: VideoSegment;
   globalBackgroundConfig?: BackgroundConfig;
+  /**
+   * User-supplied music/sfx files placed on the project-wide Audio track.
+   * Empty/undefined means no Audio track is rendered.
+   */
+  musicSegments?: MusicAudioSegment[];
+  /**
+   * Set true when the project was created from an audio file with no video.
+   * Cleared the moment a video clip is added. Drives audio-only side-panel
+   * gating and the audio-only preview placeholder.
+   */
+  audioOnly?: boolean;
 }
 
 export interface BackgroundConfig {

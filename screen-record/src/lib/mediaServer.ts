@@ -86,6 +86,59 @@ export async function importVideoPathToManagedMediaFile(
   return { path: data.path, hasAudio: data.hasAudio !== false };
 }
 
+export async function importAudioToManagedMediaFile(
+  blob: Blob,
+  fileName?: string,
+  traceId?: string,
+): Promise<{ path: string; duration: number }> {
+  const port = await getMediaServerPort();
+  const params = new URLSearchParams();
+  if (fileName) {
+    params.set("filename", fileName);
+  }
+  if (traceId) {
+    params.set("traceId", traceId);
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  const response = await fetch(`http://127.0.0.1:${port}/import-audio${suffix}`, {
+    method: "POST",
+    body: blob,
+  });
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
+    throw new Error(message || `Failed to import audio (${response.status})`);
+  }
+  const data = (await response.json()) as { path?: string; duration?: number };
+  if (!data.path) {
+    throw new Error("Imported audio path missing");
+  }
+  return { path: data.path, duration: data.duration ?? 0 };
+}
+
+export async function importAudioPathToManagedMediaFile(
+  path: string,
+  traceId?: string,
+): Promise<{ path: string; duration: number }> {
+  const data = await invoke<{ path?: string; duration?: number }>("import_audio_path", {
+    path,
+    traceId,
+  });
+  if (!data.path) {
+    throw new Error("Imported audio path missing");
+  }
+  return { path: data.path, duration: data.duration ?? 0 };
+}
+
+export function isManagedImportedAudioPath(
+  path: string | null | undefined,
+): boolean {
+  if (!path) return false;
+  const normalizedPath = path.replace(/\\/g, "/").toLowerCase();
+  return normalizedPath.includes(
+    "/screen-goated-toolbox/recordings/imported-audio-",
+  );
+}
+
 export function isManagedImportedVideoPath(
   path: string | null | undefined,
 ): boolean {

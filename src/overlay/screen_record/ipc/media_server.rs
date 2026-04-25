@@ -36,6 +36,75 @@ fn managed_import_path(recordings_dir: &Path, ts: u128, extension: &str) -> Path
     recordings_dir.join(format!("imported-{ts}.{extension}"))
 }
 
+fn managed_import_audio_path(recordings_dir: &Path, ts: u128, extension: &str) -> PathBuf {
+    recordings_dir.join(format!("imported-audio-{ts}.{extension}"))
+}
+
+const SUPPORTED_AUDIO_EXTENSIONS: &[&str] = &[
+    "wav", "mp3", "flac", "ogg", "m4a", "aac", "alac", "aiff", "aif", "wma", "opus", "mka",
+];
+
+fn normalized_audio_extension(raw: &str) -> &'static str {
+    let lower = raw.to_ascii_lowercase();
+    SUPPORTED_AUDIO_EXTENSIONS
+        .iter()
+        .copied()
+        .find(|candidate| *candidate == lower.as_str())
+        .unwrap_or("mp3")
+}
+
+pub fn import_audio_path_to_managed_media_file(
+    source_path: &Path,
+    trace_id: &str,
+) -> Result<(String, f64), String> {
+    if !source_path.exists() || !source_path.is_file() {
+        return Err(format!("Audio file not found: {}", source_path.display()));
+    }
+
+    let recordings_dir = recordings_dir();
+    std::fs::create_dir_all(&recordings_dir)
+        .map_err(|error| format!("Create recordings dir: {error}"))?;
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let raw_ext = source_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .filter(|ext| !ext.is_empty())
+        .unwrap_or("mp3");
+    let extension = normalized_audio_extension(raw_ext);
+    let output_path = managed_import_audio_path(&recordings_dir, ts, extension);
+    let started_at = Instant::now();
+
+    std::fs::copy(source_path, &output_path).map_err(|error| {
+        format!(
+            "Copy imported audio failed from '{}' to '{}': {error}",
+            source_path.display(),
+            output_path.display()
+        )
+    })?;
+    let duration_sec = import_normalize::probe_audio_duration_seconds(&output_path)
+        .unwrap_or_else(|err| {
+            crate::log_info!(
+                "[AudioImport:{}][Path] duration probe failed: {} — falling back to 0",
+                trace_id,
+                err
+            );
+            0.0
+        });
+    crate::log_info!(
+        "[AudioImport:{}][Path] complete total {:.3}s file=\"{}\" output=\"{}\" duration={:.3}s",
+        trace_id,
+        started_at.elapsed().as_secs_f64(),
+        source_path.display(),
+        output_path.display(),
+        duration_sec
+    );
+
+    Ok((output_path.to_string_lossy().to_string(), duration_sec))
+}
+
 pub fn import_video_path_to_managed_media_file(
     source_path: &Path,
     trace_id: &str,
@@ -367,6 +436,105 @@ pub fn start_global_media_server() -> Result<u16, String> {
                 continue;
             }
 
+            if request.method() == &tiny_http::Method::Post
+                && request.url().starts_with("/import-audio")
+            {
+                let cors =
+                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
+                        .unwrap();
+                let recordings_dir = recordings_dir();
+                let _ = std::fs::create_dir_all(&recordings_dir);
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis();
+                let url = request.url().to_string();
+                let file_name = url
+                    .split_once('?')
+                    .map(|(_, query)| query)
+                    .unwrap_or("")
+                    .split('&')
+                    .find_map(|kv| kv.strip_prefix("filename="))
+                    .and_then(|value| urlencoding::decode(value).ok())
+                    .map(|value| value.into_owned())
+                    .unwrap_or_else(|| "upload.mp3".to_string());
+                let trace_id = url
+                    .split_once('?')
+                    .map(|(_, query)| query)
+                    .unwrap_or("")
+                    .split('&')
+                    .find_map(|kv| kv.strip_prefix("traceId="))
+                    .and_then(|value| urlencoding::decode(value).ok())
+                    .map(|value| value.into_owned())
+                    .unwrap_or_else(|| format!("audio-import-{ts}"));
+                let raw_ext = Path::new(&file_name)
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .filter(|ext| !ext.is_empty())
+                    .unwrap_or("mp3");
+                let extension = normalized_audio_extension(raw_ext);
+                let output_path = managed_import_audio_path(&recordings_dir, ts, extension);
+                let mut body = Vec::new();
+                let request_started_at = Instant::now();
+
+                let result = (|| -> Result<(String, f64), String> {
+                    request
+                        .as_reader()
+                        .read_to_end(&mut body)
+                        .map_err(|e| format!("Read import audio body: {e}"))?;
+                    if body.is_empty() {
+                        return Err("Uploaded audio is empty".to_string());
+                    }
+                    std::fs::write(&output_path, &body)
+                        .map_err(|e| format!("Write imported audio file: {e}"))?;
+                    let duration_sec = import_normalize::probe_audio_duration_seconds(&output_path)
+                        .unwrap_or(0.0);
+                    Ok((output_path.to_string_lossy().to_string(), duration_sec))
+                })();
+
+                match result {
+                    Ok((path, duration_sec)) => {
+                        crate::log_info!(
+                            "[AudioImport:{}][HTTP] complete total {:.3}s size_mb={:.2} file=\"{}\" output=\"{}\" duration={:.3}s",
+                            trace_id,
+                            request_started_at.elapsed().as_secs_f64(),
+                            body.len() as f64 / (1024.0 * 1024.0),
+                            file_name,
+                            path,
+                            duration_sec
+                        );
+                        let json = format!(
+                            "{{\"path\":{},\"duration\":{}}}",
+                            serde_json::json!(path),
+                            duration_sec
+                        );
+                        let mut res = Response::from_string(json).with_status_code(200);
+                        res.add_header(cors);
+                        res.add_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Content-Type"[..],
+                                &b"application/json"[..],
+                            )
+                            .unwrap(),
+                        );
+                        let _ = request.respond(res);
+                    }
+                    Err(error) => {
+                        crate::log_info!(
+                            "[AudioImport:{}][HTTP] failed after {:.3}s: {}",
+                            trace_id,
+                            request_started_at.elapsed().as_secs_f64(),
+                            error
+                        );
+                        let _ = std::fs::remove_file(&output_path);
+                        let mut res = Response::from_string(error).with_status_code(500);
+                        res.add_header(cors);
+                        let _ = request.respond(res);
+                    }
+                }
+                continue;
+            }
+
             let url = request.url();
             let media_path_str = if let Some(idx) = url.find("?path=") {
                 let encoded = &url[idx + 6..];
@@ -397,6 +565,13 @@ pub fn start_global_media_server() -> Result<u16, String> {
                 "mp3" => "audio/mpeg",
                 "m4a" => "audio/mp4",
                 "aac" => "audio/aac",
+                "flac" => "audio/flac",
+                "ogg" | "oga" => "audio/ogg",
+                "opus" => "audio/ogg",
+                "aiff" | "aif" => "audio/aiff",
+                "wma" => "audio/x-ms-wma",
+                "alac" => "audio/mp4",
+                "mka" => "audio/x-matroska",
                 "gif" => "image/gif",
                 _ => "video/mp4",
             }

@@ -148,6 +148,17 @@ pub fn handle_ipc_command(
             )?;
             Ok(serde_json::json!({ "path": path, "hasAudio": has_audio }))
         }
+        "import_audio_path" => {
+            let path = args["path"].as_str().ok_or("Missing path")?;
+            let trace_id = args["traceId"]
+                .as_str()
+                .unwrap_or("audio-import-native-path");
+            let (path, duration) = media_server::import_audio_path_to_managed_media_file(
+                std::path::Path::new(path),
+                trace_id,
+            )?;
+            Ok(serde_json::json!({ "path": path, "duration": duration }))
+        }
         "take_pending_video_drop_actions" => Ok(serde_json::to_value(
             super::take_pending_video_drop_actions(),
         )
