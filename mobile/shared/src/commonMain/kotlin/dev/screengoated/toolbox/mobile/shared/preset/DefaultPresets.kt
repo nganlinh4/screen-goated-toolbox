@@ -864,7 +864,7 @@ object DefaultPresets {
             blocks = listOf(
                 audioBlock(PRESET_AUDIO_TRANSCRIBE_MODEL_ID),
                 textBlock(
-                    "google-gemma",
+                    "gemma-4-26b-a4b",
                     "",
                     "language1" to "Vietnamese",
                 ),
