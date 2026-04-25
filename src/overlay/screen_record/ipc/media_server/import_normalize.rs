@@ -425,6 +425,44 @@ pub(super) fn probe_media_has_audio(path: &Path) -> Result<bool, String> {
     probe_has_audio_track(&path.to_string_lossy())
 }
 
+/// Probe an audio file's duration in seconds without decoding any samples.
+/// Uses symphonia which already covers every audio extension we accept
+/// (mp3, wav, m4a, flac, ogg, aac, alac, aiff, opus, …).
+pub(super) fn probe_audio_duration_seconds(path: &Path) -> Result<f64, String> {
+    let file = File::open(path).map_err(|e| format!("Open audio source: {e}"))?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
+        hint.with_extension(ext);
+    }
+
+    let probed = symphonia::default::get_probe()
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .map_err(|e| format!("Symphonia probe: {e}"))?;
+
+    let track = select_symphonia_audio_track(probed.format.tracks())
+        .ok_or_else(|| "Symphonia: no decodable audio track found".to_string())?;
+
+    let params = &track.codec_params;
+    if let (Some(n_frames), Some(sr)) = (params.n_frames, params.sample_rate)
+        && sr > 0
+    {
+        return Ok(n_frames as f64 / sr as f64);
+    }
+    if let (Some(time_base), Some(n_frames)) = (params.time_base, params.n_frames) {
+        let time = time_base.calc_time(n_frames);
+        return Ok(time.seconds as f64 + time.frac);
+    }
+
+    Err("Symphonia: cannot determine audio duration".to_string())
+}
+
 fn open_import_audio_decoder(
     file_path: &str,
     trace_id: &str,

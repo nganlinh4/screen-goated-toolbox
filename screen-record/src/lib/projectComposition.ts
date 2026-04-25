@@ -54,6 +54,20 @@ export function getEffectiveCompositionMode(
   return composition.clips.length <= 1 ? "separate" : composition.mode;
 }
 
+export function hasMusicSegments(
+  composition: Pick<ProjectComposition, "musicSegments"> | null | undefined,
+): boolean {
+  return (composition?.musicSegments?.length ?? 0) > 0;
+}
+
+export function isAudioOnlyComposition(
+  composition: ProjectComposition | null | undefined,
+): boolean {
+  if (!composition) return false;
+  if (composition.audioOnly !== true) return false;
+  return composition.clips.every((clip) => !clip.rawVideoPath);
+}
+
 export function extractCanvasConfig(
   backgroundConfig: BackgroundConfig,
 ): ProjectCanvasConfig {
