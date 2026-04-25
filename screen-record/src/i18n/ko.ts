@@ -349,6 +349,7 @@ const ko: Translations = {
   sequenceOriginalTitle: '원본 클립',
   sequenceSharedLookSourceTitle: '공유 룩 기준 클립',
   sequenceSource: '기준',
+  closeProject: '프로젝트 닫기',
 
   // Dialogs - Monitor Select
   selectMonitor: '모니터 선택',
