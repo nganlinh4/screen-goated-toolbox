@@ -446,19 +446,6 @@
       "quota_en": "Unlimited"
     },
     {
-      "id": "google-gemma",
-      "provider": "google",
-      "name_vi": "Gemma",
-      "name_ko": "Gemma",
-      "name_en": "Gemma",
-      "full_name": "gemma-4-26b-a4b-it",
-      "model_type": "Text",
-      "enabled": true,
-      "quota_vi": "Không giới hạn",
-      "quota_ko": "무제한",
-      "quota_en": "Unlimited"
-    },
-    {
       "id": "text_gemini_flash_lite",
       "provider": "google",
       "name_vi": "Chính xác hơn",
