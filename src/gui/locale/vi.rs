@@ -264,6 +264,8 @@ pub fn get() -> LocaleText {
         cannot_type_no_caret: "Dùng tự động dán/ghi nhưng chưa chọn chỗ để ghi!",
         // --- DROP OVERLAY VI ---
         drop_overlay_text: "Thả vào đây để xử lý",
+        video_drop_work_record: "Làm việc với SGT Record",
+        video_drop_generate_subtitles: "Tạo phụ đề ngay",
         // --- REALTIME EGUI SPECIFIC VI ---
         device_mode_warning: "⚠ Đã chọn âm thanh thiết bị nhưng chưa chọn ứng dụng",
         select_app_btn: "Chọn ứng dụng",

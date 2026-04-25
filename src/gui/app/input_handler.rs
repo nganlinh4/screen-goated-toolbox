@@ -6,7 +6,7 @@
 // 3. Triggers the processing pipeline with the selected preset
 
 use crate::APP;
-use crate::overlay::preset_wheel::show_preset_wheel;
+use crate::overlay::preset_wheel::{show_custom_wheel, show_preset_wheel};
 use crate::overlay::process::pipeline::{
     start_processing_pipeline, start_processing_pipeline_parallel, start_text_processing,
 };
@@ -31,6 +31,12 @@ const AUDIO_EXTENSIONS: &[&str] = &[
     "wav", "mp3", "flac", "ogg", "m4a", "aac", "alac", "aiff", "aif", "wma", "opus",
 ];
 
+/// Video file extensions routed to SGT Record.
+const VIDEO_EXTENSIONS: &[&str] = &[
+    "mp4", "mov", "mkv", "webm", "avi", "m4v", "wmv", "flv", "mpeg", "mpg", "3gp", "ts", "mts",
+    "m2ts",
+];
+
 /// Check if a file extension is an image type
 fn is_image_extension(ext: &str) -> bool {
     IMAGE_EXTENSIONS.contains(&ext.to_lowercase().as_str())
@@ -39,6 +45,11 @@ fn is_image_extension(ext: &str) -> bool {
 /// Check if a file extension is an audio type
 fn is_audio_extension(ext: &str) -> bool {
     AUDIO_EXTENSIONS.contains(&ext.to_lowercase().as_str())
+}
+
+/// Check if a file extension is a video type
+fn is_video_extension(ext: &str) -> bool {
+    VIDEO_EXTENSIONS.contains(&ext.to_lowercase().as_str())
 }
 
 /// Load a text file content
@@ -296,6 +307,52 @@ fn process_audio_parallel(rx: mpsc::Receiver<Option<Vec<u8>>>) {
     }
 }
 
+fn open_video_in_screen_record(path: &Path, action: &str) {
+    let path = path.to_string_lossy().to_string();
+    let action = action.to_string();
+    crate::overlay::screen_record::queue_video_drop_action(path, action);
+    crate::overlay::screen_record::show_screen_record();
+    std::thread::spawn(move || {
+        let script = "window.dispatchEvent(new CustomEvent('sgt-video-drop-pending'));".to_string();
+        for _ in 0..80 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if crate::overlay::screen_record::post_script(script.clone()) {
+                return;
+            }
+        }
+        crate::log_info!("[VideoDrop] Failed to dispatch video action to SGT Record");
+    });
+}
+
+fn process_video_path(path: &Path) {
+    const ACTION_WORK_RECORD: usize = 0;
+    const ACTION_GENERATE_SUBTITLES: usize = 1;
+
+    let cursor_pos = get_cursor_pos();
+    let (work_label, subtitle_label) = {
+        let app = APP.lock().unwrap();
+        let locale = crate::gui::locale::LocaleText::get(&app.config.ui_language);
+        (
+            locale.video_drop_work_record.to_string(),
+            locale.video_drop_generate_subtitles.to_string(),
+        )
+    };
+
+    let selected = show_custom_wheel(
+        vec![
+            (ACTION_WORK_RECORD, work_label),
+            (ACTION_GENERATE_SUBTITLES, subtitle_label),
+        ],
+        cursor_pos,
+    );
+
+    match selected {
+        Some(ACTION_WORK_RECORD) => open_video_in_screen_record(path, "work-record"),
+        Some(ACTION_GENERATE_SUBTITLES) => open_video_in_screen_record(path, "generate-subtitles"),
+        _ => {}
+    }
+}
+
 /// Process a single file path (public for context menu usage)
 pub fn process_file_path(path: &Path) {
     crate::log_info!("Processing file path: {:?}", path);
@@ -305,7 +362,10 @@ pub fn process_file_path(path: &Path) {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     crate::log_info!("Detected extension: '{}'", ext);
 
-    if is_image_extension(ext) {
+    if is_video_extension(ext) {
+        crate::log_info!("Type detected: VIDEO");
+        process_video_path(path);
+    } else if is_image_extension(ext) {
         crate::log_info!("Type detected: IMAGE");
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {

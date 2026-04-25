@@ -10,6 +10,7 @@ export interface PanelSelectOption {
   label: string;
   disabled?: boolean;
   keywords?: string[];
+  trailing?: React.ReactNode;
   action?: {
     label: string;
     onClick: () => void;
@@ -188,6 +189,20 @@ export function PanelSelect({
                           {option.label}
                         </span>
                       </button>
+                      {option.trailing ? (
+                        <div
+                          className="panel-select-option-trailing mr-1 flex h-6 flex-shrink-0 items-center justify-center"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                          }}
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                          }}
+                        >
+                          {option.trailing}
+                        </div>
+                      ) : null}
                       {optionAction ? (
                         <button
                           type="button"

@@ -48,6 +48,15 @@ pub fn show_preset_wheel(
     show_entries(entries, center_pos, &ui_lang)
 }
 
+pub fn show_custom_wheel(entries: Vec<(usize, String)>, center_pos: POINT) -> Option<usize> {
+    let ui_lang = APP.lock().unwrap().config.ui_language.clone();
+    let entries = entries
+        .into_iter()
+        .map(|(selection_id, label)| WheelEntry::new(selection_id, label))
+        .collect();
+    show_entries(entries, center_pos, &ui_lang)
+}
+
 pub fn dismiss_wheel() {
     unsafe {
         let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);

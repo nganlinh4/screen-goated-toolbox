@@ -39,6 +39,12 @@ import {
   updateSubtitleStylesAcrossTracks,
 } from "@/lib/subtitleTrackMutations";
 import { installFrontendPerfDiagnostics } from "@/lib/frontendPerfDiagnostics";
+import { invoke } from "@/lib/ipc";
+
+type PendingVideoDropAction = {
+  path?: string;
+  action?: string;
+};
 
 function App() {
   useEffect(() => {
@@ -318,6 +324,8 @@ function App() {
 
   // FPS of the most-recent recording (set on stop, cleared when a different project loads).
   const [lastCaptureFps, setLastCaptureFps] = useState<number | null>(null);
+  const [pendingAutoSubtitleProjectId, setPendingAutoSubtitleProjectId] = useState<string | null>(null);
+  const [pendingAutoSubtitleArmed, setPendingAutoSubtitleArmed] = useState(false);
 
   const exportHook = useExport({
     videoRef,
@@ -682,17 +690,74 @@ function App() {
   ]);
 
   // Video import (external/non-recorded videos)
-  const { isImporting, importVideo } = useVideoImport({
-    onProjectCreated: (project) => {
+  const { isImporting, importVideo, importVideoPath } = useVideoImport({
+    onProjectCreated: async (project) => {
       // Close projects dialog first (if open), then load the imported project directly.
       // Don't use handleLoadProjectFromGrid — it activates the interaction shield
       // which requires the FLIP animation to release. Import bypasses the FLIP.
       projects.setShowProjectsDialog(false);
-      void projects.loadProjects().then(() => {
-        void projects.handleLoadProject(project.id);
-      });
+      await projects.loadProjects();
+      await projects.handleLoadProject(project.id);
     },
   });
+
+  useEffect(() => {
+    let isDraining = false;
+    const drainPendingVideoDropActions = () => {
+      if (isDraining) return;
+      isDraining = true;
+      void (async () => {
+        try {
+          const actions = await invoke<PendingVideoDropAction[]>(
+            "take_pending_video_drop_actions",
+            {},
+          );
+          for (const action of actions) {
+            const filePath = action.path?.trim();
+            if (!filePath) continue;
+            const project = await importVideoPath(filePath);
+            if (project && action.action === "generate-subtitles") {
+              setPendingAutoSubtitleProjectId(project.id);
+            }
+          }
+        } catch (error) {
+          console.warn("[VideoDrop] Failed to drain pending video actions", error);
+        } finally {
+          isDraining = false;
+        }
+      })();
+    };
+
+    window.addEventListener("sgt-video-drop-pending", drainPendingVideoDropActions);
+    drainPendingVideoDropActions();
+    return () => {
+      window.removeEventListener("sgt-video-drop-pending", drainPendingVideoDropActions);
+    };
+  }, [importVideoPath]);
+
+  useEffect(() => {
+    if (!pendingAutoSubtitleProjectId) return;
+    if (projects.currentProjectId !== pendingAutoSubtitleProjectId) return;
+    if (!currentRawVideoPath || isGeneratingSubtitles) return;
+    setPendingAutoSubtitleProjectId(null);
+    setActivePanel("subtitles");
+    setSubtitleSource("video");
+    setPendingAutoSubtitleArmed(true);
+  }, [
+    currentRawVideoPath,
+    isGeneratingSubtitles,
+    pendingAutoSubtitleProjectId,
+    projects.currentProjectId,
+    setSubtitleSource,
+  ]);
+
+  useEffect(() => {
+    if (!pendingAutoSubtitleArmed || subtitleSource !== "video") return;
+    setPendingAutoSubtitleArmed(false);
+    window.setTimeout(() => {
+      void handleGenerateSubtitles();
+    }, 150);
+  }, [handleGenerateSubtitles, pendingAutoSubtitleArmed, subtitleSource]);
 
   // App-level effects (persistence, background config cache, auto-save, toggle recording)
   useAppEffects({

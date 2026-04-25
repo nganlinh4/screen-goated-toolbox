@@ -1,11 +1,12 @@
 import type { SubtitleMethod } from '@/hooks/useSubtitleGeneration';
 import { useState } from 'react';
-import { AlignCenter, AlignLeft, AlignRight, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, HelpCircle, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { SettingRow } from '@/components/layout/SettingRow';
 import { ColorPicker } from '@/components/ui/ColorPicker';
 import { PanelSelect } from '@/components/ui/PanelSelect';
 import { Slider } from '@/components/ui/Slider';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useSettings } from '@/hooks/useSettings';
 import { useSubtitleTranslation } from '@/hooks/useSubtitleTranslation';
@@ -25,12 +26,77 @@ import { getSubtitleTrackLabel, ORIGINAL_SUBTITLE_TRACK_ID } from '@/lib/subtitl
 import { VideoSegment } from '@/types/video';
 import { SubtitleCustomChainEditor } from './subtitle-panel/SubtitleCustomChainEditor';
 
+const METHOD_LANGUAGE_PREVIEW_LIMIT = 14;
+
+const LOCAL_SUBTITLE_METHODS = new Set<SubtitleMethod>([
+  'qwen-local-0-6b',
+  'qwen-local-1-7b',
+  'parakeet-tdt-0-6b-v3',
+]);
+
+const PARAKEET_TDT_0_6B_V3_LANGUAGES = [
+  'Bulgarian',
+  'Croatian',
+  'Czech',
+  'Danish',
+  'Dutch',
+  'English',
+  'Estonian',
+  'Finnish',
+  'French',
+  'German',
+  'Greek',
+  'Hungarian',
+  'Italian',
+  'Latvian',
+  'Lithuanian',
+  'Maltese',
+  'Polish',
+  'Portuguese',
+  'Romanian',
+  'Slovak',
+  'Slovenian',
+  'Spanish',
+  'Swedish',
+  'Russian',
+  'Ukrainian',
+];
+
 function buildFontVariationCSS(vars?: NonNullable<VideoSegment['subtitleSegments']>[number]['style']['fontVariations']): string | undefined {
   const parts: string[] = [];
   if (vars?.wdth !== undefined && vars.wdth !== 100) parts.push(`'wdth' ${vars.wdth}`);
   if (vars?.slnt !== undefined && vars.slnt !== 0) parts.push(`'slnt' ${vars.slnt}`);
   if (vars?.ROND !== undefined && vars.ROND !== 0) parts.push(`'ROND' ${vars.ROND}`);
   return parts.length > 0 ? parts.join(', ') : undefined;
+}
+
+function summarizeLanguageSupport(
+  method: SubtitleMethod,
+  t: ReturnType<typeof useSettings>['t'],
+): string {
+  if (method === 'gemini-3-1-flash-lite' || method === 'gemini-3-flash-preview') {
+    return t.subtitleMethodHelpGeminiLanguages;
+  }
+
+  if (method === 'parakeet-tdt-0-6b-v3') {
+    return `${t.subtitleMethodHelpParakeetLanguages}: ${PARAKEET_TDT_0_6B_V3_LANGUAGES.join(', ')}`;
+  }
+
+  const languageLabels = getSubtitleLanguageOptionsForMethod(method)
+    .filter((option) => option.value !== 'auto')
+    .map((option) => option.label);
+  const preview = languageLabels.slice(0, METHOD_LANGUAGE_PREVIEW_LIMIT).join(', ');
+  const remaining = languageLabels.length - METHOD_LANGUAGE_PREVIEW_LIMIT;
+
+  if (remaining <= 0) {
+    return preview || t.subtitleMethodHelpUnknownLanguages;
+  }
+
+  const prefix = method === 'qwen-local-0-6b' || method === 'qwen-local-1-7b'
+    ? t.subtitleMethodHelpQwenLanguages
+    : t.subtitleMethodHelpGroqLanguages;
+
+  return `${prefix}: ${preview}, ${t.subtitleMethodHelpMoreLanguages.replace('{count}', String(remaining))}`;
 }
 
 export interface SubtitlePanelProps {
@@ -138,7 +204,7 @@ export function SubtitlePanel({
   const languageOptions = getSubtitleLanguageOptionsForMethod(selectedMethod);
   const [pendingGroqVocabulary, setPendingGroqVocabulary] = useState('');
 
-  const getMethodLabel = (method: SubtitleMethod) => {
+  function getMethodLabel(method: SubtitleMethod) {
     switch (method) {
       case 'groq-whisper-large-v3-turbo':
         return t.subtitleMethodGroqWhisperLargeV3Turbo;
@@ -156,7 +222,27 @@ export function SubtitlePanel({
       default:
         return t.subtitleMethodGroqWhisperAccurate;
     }
-  };
+  }
+
+  function getMethodHelpContent(method: SubtitleMethod) {
+    const runtime = LOCAL_SUBTITLE_METHODS.has(method)
+      ? t.subtitleMethodHelpRuntimeLocal
+      : t.subtitleMethodHelpRuntimeCloud;
+
+    return (
+      <div className="subtitle-method-help-tooltip max-w-[280px] space-y-1 text-left leading-4">
+        <div className="font-semibold text-[var(--on-surface)]">{getMethodLabel(method)}</div>
+        <div>
+          <span className="text-[var(--on-surface-variant)]">{t.subtitleMethodHelpRuntime}: </span>
+          <span>{runtime}</span>
+        </div>
+        <div>
+          <span className="text-[var(--on-surface-variant)]">{t.subtitleMethodHelpLanguages}: </span>
+          <span>{summarizeLanguageSupport(method, t)}</span>
+        </div>
+      </div>
+    );
+  }
 
   const updateSelectedSubtitles = (updater: (subtitle: NonNullable<typeof sourceSubtitle>) => NonNullable<typeof sourceSubtitle>) => {
     if (!segment || !sourceSubtitle) return;
@@ -189,6 +275,17 @@ export function SubtitlePanel({
   const subtitleMethodOptions = methodCapabilities.map((method) => ({
     value: method.method,
     label: getMethodLabel(method.method),
+    trailing: (
+      <Tooltip content={getMethodHelpContent(method.method)} side="left" delayDuration={150}>
+        <button
+          type="button"
+          className="subtitle-method-option-help flex h-6 w-6 items-center justify-center rounded-md text-on-surface-variant transition-colors hover:bg-[color-mix(in_srgb,var(--primary-color)_12%,transparent)] hover:text-[var(--primary-color)]"
+          aria-label={`${t.subtitleMethodHelpLabel}: ${getMethodLabel(method.method)}`}
+        >
+          <HelpCircle className="h-3.5 w-3.5" />
+        </button>
+      </Tooltip>
+    ),
     disabled: !method.available
       && !(
         (

@@ -72,6 +72,20 @@ export async function importVideoToManagedMediaFile(
   return { path: data.path, hasAudio: data.hasAudio !== false };
 }
 
+export async function importVideoPathToManagedMediaFile(
+  path: string,
+  traceId?: string,
+): Promise<{ path: string; hasAudio: boolean }> {
+  const data = await invoke<{ path?: string; hasAudio?: boolean }>("import_video_path", {
+    path,
+    traceId,
+  });
+  if (!data.path) {
+    throw new Error("Imported video path missing");
+  }
+  return { path: data.path, hasAudio: data.hasAudio !== false };
+}
+
 export function isManagedImportedVideoPath(
   path: string | null | undefined,
 ): boolean {
