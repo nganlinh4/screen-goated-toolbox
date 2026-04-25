@@ -9,9 +9,9 @@ use windows_capture::{
 };
 
 use super::types::{
-    DEFAULT_TARGET_FPS, ENCODER_MAX_PENDING_FRAMES, MF_HW_ACCEL_AUTO_PIXELS_PER_SEC_THRESHOLD,
-    WINDOW_CAPTURE_MAX_PENDING_FRAMES, WINDOW_CAPTURE_QUEUE_TARGET_MS,
-    WINDOW_CAPTURE_VRAM_POOL_MAX_FRAMES, WINDOW_CAPTURE_VRAM_POOL_MIN_FRAMES,
+    DEFAULT_TARGET_FPS, ENCODER_MAX_PENDING_FRAMES, WINDOW_CAPTURE_MAX_PENDING_FRAMES,
+    WINDOW_CAPTURE_QUEUE_TARGET_MS, WINDOW_CAPTURE_VRAM_POOL_MAX_FRAMES,
+    WINDOW_CAPTURE_VRAM_POOL_MIN_FRAMES,
 };
 
 pub(crate) fn clone_wc_interface_to_app<TFrom, TTo>(src: &TFrom) -> Result<TTo, String>
@@ -80,20 +80,16 @@ pub(crate) fn mf_hw_accel_override() -> Option<bool> {
 }
 
 pub(crate) fn should_prefer_mf_hw_accel(
-    target_type: &str,
-    target_fps: u32,
-    width: u32,
-    height: u32,
+    _target_type: &str,
+    _target_fps: u32,
+    _width: u32,
+    _height: u32,
 ) -> bool {
-    if let Some(explicit) = mf_hw_accel_override() {
-        return explicit;
-    }
-
-    let pixels_per_sec = (width as u64)
-        .saturating_mul(height as u64)
-        .saturating_mul(target_fps.max(1) as u64);
-
-    target_type == "window" || pixels_per_sec >= MF_HW_ACCEL_AUTO_PIXELS_PER_SEC_THRESHOLD
+    // Default to HW (NVENC / QuickSync / AMF) for every capture target.
+    // The SW fallback in `create_video_encoder_with_canvas_fallback` still
+    // engages automatically if HW init fails on a given machine.
+    // Set SCREEN_RECORD_MF_HW_ACCEL=0 to force SW for debugging.
+    mf_hw_accel_override().unwrap_or(true)
 }
 
 pub(crate) struct ScopedMfHwAccelEnv {

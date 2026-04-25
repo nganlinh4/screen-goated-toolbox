@@ -130,7 +130,6 @@ pub(crate) const CURSOR_SAMPLE_MIN_FPS: u32 = 30;
 pub(crate) const CURSOR_SAMPLE_MAX_FPS: u32 = 120;
 pub(crate) const CURSOR_GRAB_LEARN_WINDOW_MS: u64 = 1_000;
 pub(crate) const NO_READY_VRAM_FRAME: usize = usize::MAX;
-pub(crate) const MF_HW_ACCEL_AUTO_PIXELS_PER_SEC_THRESHOLD: u64 = 120_000_000;
 pub(crate) const MIN_VALID_WINDOW_FRAME_DIM: u32 = 300;
 pub(crate) const WINDOW_CAPTURE_QUEUE_TARGET_MS: usize = 350;
 pub(crate) const WINDOW_CAPTURE_MAX_PENDING_FRAMES: usize = 48;
