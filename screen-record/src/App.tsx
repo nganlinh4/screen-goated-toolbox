@@ -30,6 +30,7 @@ import { type PersistOptions } from "@/hooks/useSequenceComposition";
 import { EditorOverlays } from "@/components/EditorOverlays";
 import { DragDropOverlay } from "@/components/DragDropOverlay";
 import { useVideoImport } from "@/hooks/useVideoImport";
+import { useMusicAudioImport } from "@/hooks/useMusicAudioImport";
 import { useSubtitleGeneration } from "@/hooks/useSubtitleGeneration";
 import { EditorMain } from "@/components/EditorMain";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
@@ -701,6 +702,24 @@ function App() {
     },
   });
 
+  // Music/SFX audio import — creates an audio-only project when nothing is
+  // open, otherwise appends to composition.musicSegments on the current one.
+  const { isImporting: isImportingAudio, importAudio } = useMusicAudioImport({
+    getCurrentProjectId: () => projects.currentProjectId,
+    onAttachToCurrentProject: (segment) => {
+      setComposition((prev) => {
+        if (!prev) return prev;
+        const existing = prev.musicSegments ?? [];
+        return { ...prev, musicSegments: [...existing, segment] };
+      });
+    },
+    onCreateAudioOnlyProject: async (project) => {
+      projects.setShowProjectsDialog(false);
+      await projects.loadProjects();
+      await projects.handleLoadProject(project.id);
+    },
+  });
+
   useEffect(() => {
     let isDraining = false;
     const drainPendingVideoDropActions = () => {
@@ -872,7 +891,11 @@ function App() {
   return (
     <SettingsContext.Provider value={settings}>
       <div className="app-container min-h-screen bg-[var(--surface)]">
-        <DragDropOverlay disabled={isRecording || isImporting} onDropVideo={importVideo} />
+        <DragDropOverlay
+          disabled={isRecording || isImporting || isImportingAudio}
+          onDropVideo={importVideo}
+          onDropAudio={importAudio}
+        />
         <ResizeBorders />
         <Header
           isRecording={isRecording}
@@ -1056,6 +1079,7 @@ function App() {
           armProjectInteractionShieldRelease={armProjectInteractionShieldRelease}
           onPickProject={handlePickProjectForSequence}
           onImportVideo={importVideo}
+          onImportAudio={importAudio}
           isProjectInteractionShieldVisible={isProjectInteractionShieldVisible}
           isCropping={isCropping}
           currentVideo={currentVideo}

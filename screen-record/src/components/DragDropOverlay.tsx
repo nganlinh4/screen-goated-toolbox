@@ -1,28 +1,61 @@
 import { useEffect, useState, useCallback } from "react";
-import { Film } from "lucide-react";
+import { Film, Music } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
+
+type DragKind = "video" | "audio" | "either" | "none";
 
 interface DragDropOverlayProps {
   disabled?: boolean;
   onDropVideo: (file: File) => void;
+  onDropAudio?: (file: File) => void;
 }
 
-export function DragDropOverlay({ disabled, onDropVideo }: DragDropOverlayProps) {
+const AUDIO_EXT_RE = /\.(mp3|wav|m4a|flac|ogg|oga|aac|alac|aiff|aif|wma|opus|mka)$/i;
+
+function fileLooksLikeAudio(file: File): boolean {
+  if (file.type.startsWith("audio/")) return true;
+  return AUDIO_EXT_RE.test(file.name);
+}
+
+function classifyDragItems(items: DataTransferItemList | undefined): DragKind {
+  if (!items || items.length === 0) return "none";
+  let sawVideo = false;
+  let sawAudio = false;
+  for (let i = 0; i < items.length; i += 1) {
+    const it = items[i];
+    if (it.kind !== "file") continue;
+    if (it.type.startsWith("video/")) sawVideo = true;
+    else if (it.type.startsWith("audio/")) sawAudio = true;
+  }
+  if (sawVideo && sawAudio) return "either";
+  if (sawVideo) return "video";
+  if (sawAudio) return "audio";
+  // Browsers can leave .type empty for some audio files (e.g. m4a). Defer
+  // discrimination until drop, where we have the filename to inspect.
+  return "either";
+}
+
+export function DragDropOverlay({ disabled, onDropVideo, onDropAudio }: DragDropOverlayProps) {
   const { t } = useSettings();
   const [dragCount, setDragCount] = useState(0);
+  const [dragKind, setDragKind] = useState<DragKind>("none");
   const isVisible = dragCount > 0 && !disabled;
 
   const handleDragEnter = useCallback((e: DragEvent) => {
     e.preventDefault();
     if (disabled) return;
-    if (e.dataTransfer?.types.includes("Files")) {
-      setDragCount(c => c + 1);
-    }
+    if (!e.dataTransfer?.types.includes("Files")) return;
+    setDragCount(c => c + 1);
+    setDragKind(classifyDragItems(e.dataTransfer?.items));
   }, [disabled]);
 
   const handleDragLeave = useCallback((e: DragEvent) => {
     e.preventDefault();
-    setDragCount(c => Math.max(0, c - 1));
+    setDragCount(c => {
+      const next = Math.max(0, c - 1);
+      if (next === 0) setDragKind("none");
+      return next;
+    });
   }, []);
 
   const handleDragOver = useCallback((e: DragEvent) => {
@@ -33,18 +66,29 @@ export function DragDropOverlay({ disabled, onDropVideo }: DragDropOverlayProps)
   const handleDrop = useCallback((e: DragEvent) => {
     e.preventDefault();
     setDragCount(0);
+    setDragKind("none");
     if (disabled) return;
 
     const files = e.dataTransfer?.files;
     if (!files) return;
 
-    for (let i = 0; i < files.length; i++) {
-      if (files[i].type.startsWith("video/")) {
-        onDropVideo(files[i]);
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+      if (file.type.startsWith("video/")) {
+        onDropVideo(file);
         return;
       }
     }
-  }, [disabled, onDropVideo]);
+    if (onDropAudio) {
+      for (let i = 0; i < files.length; i += 1) {
+        const file = files[i];
+        if (fileLooksLikeAudio(file)) {
+          onDropAudio(file);
+          return;
+        }
+      }
+    }
+  }, [disabled, onDropVideo, onDropAudio]);
 
   useEffect(() => {
     window.addEventListener("dragenter", handleDragEnter);
@@ -61,11 +105,25 @@ export function DragDropOverlay({ disabled, onDropVideo }: DragDropOverlayProps)
 
   if (!isVisible) return null;
 
+  const audioCapable = !!onDropAudio;
+  const showAudio = audioCapable && (dragKind === "audio" || dragKind === "either");
+  const showVideo = dragKind === "video" || dragKind === "either" || !audioCapable;
+  const cta = audioCapable
+    ? dragKind === "audio"
+      ? t.dropAudioHere
+      : dragKind === "video"
+        ? t.dropVideoHere
+        : t.dropMediaHere
+    : t.dropVideoHere;
+
   return (
     <div className="drag-drop-overlay fixed inset-0 z-[200] flex items-center justify-center" style={{ background: 'color-mix(in srgb, var(--surface) 70%, transparent)', backdropFilter: 'blur(8px)' }}>
       <div className="drag-drop-content flex flex-col items-center gap-3 p-8 rounded-2xl border-2 border-dashed" style={{ borderColor: 'var(--primary-color)', background: 'color-mix(in srgb, var(--surface) 90%, transparent)' }}>
-        <Film className="w-10 h-10" style={{ color: 'var(--primary-color)' }} />
-        <p className="text-sm font-medium" style={{ color: 'var(--on-surface)' }}>{t.dropVideoHere}</p>
+        <div className="drag-drop-icons flex items-center gap-3">
+          {showVideo && <Film className="w-10 h-10" style={{ color: 'var(--primary-color)' }} />}
+          {showAudio && <Music className="w-10 h-10" style={{ color: 'var(--primary-color)' }} />}
+        </div>
+        <p className="text-sm font-medium" style={{ color: 'var(--on-surface)' }}>{cta}</p>
       </div>
     </div>
   );

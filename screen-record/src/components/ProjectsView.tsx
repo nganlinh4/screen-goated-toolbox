@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Video, Trash2, Play, X, Upload } from "lucide-react";
+import { Video, Trash2, Play, X, Upload, Music } from "lucide-react";
 import { Project } from "@/types/video";
 import { projectManager } from "@/lib/projectManager";
 import { useSettings } from "@/hooks/useSettings";
@@ -25,6 +25,7 @@ interface ProjectsViewProps {
   pickerMode?: "load" | "insertBefore" | "insertAfter";
   onPickProject?: (projectId: string) => void | Promise<void>;
   onImportVideo?: (file: File) => void;
+  onImportAudio?: (file: File) => void;
 }
 
 export function ProjectsView({
@@ -39,6 +40,7 @@ export function ProjectsView({
   pickerMode = "load",
   onPickProject,
   onImportVideo,
+  onImportAudio,
 }: ProjectsViewProps) {
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -140,6 +142,17 @@ export function ProjectsView({
                 <input type="file" accept="video/*" className="hidden" onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) onImportVideo(file);
+                  e.target.value = "";
+                }} />
+              </label>
+            )}
+            {!isPickerMode && onImportAudio && (
+              <label className="projects-import-audio-btn ui-chip-button rounded-lg px-2.5 py-1 text-xs font-medium cursor-pointer flex items-center gap-1.5 text-[var(--primary-color)] hover:text-[var(--primary-color)]">
+                <Music className="w-3 h-3" />
+                {t.importAudio}
+                <input type="file" accept="audio/*" className="hidden" onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onImportAudio(file);
                   e.target.value = "";
                 }} />
               </label>

@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from "react";
-import type { VideoSegment } from "@/types/video";
+import type { MusicAudioSegment, VideoSegment } from "@/types/video";
 import { useSettings } from "@/hooks/useSettings";
 import type { SubtitleGenerationIndicator } from "@/lib/subtitleGenerationPlan";
 import type { TrackSelectionRange } from "@/lib/timelineSegmentSelection";
 import { KeystrokeTrack } from "./KeystrokeTrack";
 import { MicTrack } from "./MicTrack";
+import { MusicAudioTrack } from "./MusicAudioTrack";
 import { Playhead } from "./Playhead";
 import { PointerTrack } from "./PointerTrack";
 import { DeviceAudioTrack } from "./DeviceAudioTrack";
@@ -35,6 +36,7 @@ const TIMELINE_TRACK_HEIGHTS = {
   zoom: 40,
   debug: 40,
   speed: 40,
+  musicAudio: 40,
   deviceAudio: 40,
   micAudio: 40,
   webcam: 28,
@@ -95,6 +97,9 @@ interface TimelineAreaProps {
     groups: Record<string, number>;
     groupCount: number;
   } | null;
+  musicSegments?: MusicAudioSegment[];
+  onAddMusicSegment?: () => void;
+  onSelectMusicSegment?: (id: string) => void;
 }
 
 export const TimelineArea: React.FC<TimelineAreaProps> = ({
@@ -144,6 +149,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   hasMouseData = true,
   subtitleGenerationIndicator,
   subtitleTranslationChunkPreview,
+  musicSegments,
+  onAddMusicSegment,
+  onSelectMusicSegment,
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
@@ -208,11 +216,13 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   const showMicAudio = isMicAudioAvailable;
   const showWebcam = isWebcamAvailable;
   const showKeystroke = (segment?.keystrokeMode ?? 'off') !== 'off';
+  const showMusicAudio = (musicSegments?.length ?? 0) > 0;
 
   const trackHeightsBeforeTrim = [
     TIMELINE_TRACK_HEIGHTS.zoom,
     ...(showDebug ? [TIMELINE_TRACK_HEIGHTS.debug] : []),
     TIMELINE_TRACK_HEIGHTS.speed,
+    ...(showMusicAudio ? [TIMELINE_TRACK_HEIGHTS.musicAudio] : []),
     ...(showDeviceAudio ? [TIMELINE_TRACK_HEIGHTS.deviceAudio] : []),
     ...(showMicAudio ? [TIMELINE_TRACK_HEIGHTS.micAudio] : []),
     ...(showWebcam ? [TIMELINE_TRACK_HEIGHTS.webcam] : []),
@@ -483,6 +493,13 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 R
               </button>
             </div>
+            {showMusicAudio && (
+              <div className="timeline-label-music-audio h-10 flex items-center">
+                <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+                  {t.trackAudio}
+                </span>
+              </div>
+            )}
             {showDeviceAudio && (
               <div className="timeline-label-device-audio h-10 flex items-center">
                 <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
@@ -606,6 +623,15 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     />
                   ) : (
                     <div className="speed-track-empty timeline-track-empty h-10" />
+                  )}
+
+                  {showMusicAudio && (
+                    <MusicAudioTrack
+                      segments={musicSegments ?? []}
+                      duration={duration}
+                      onAddSegment={onAddMusicSegment}
+                      onSelectSegment={onSelectMusicSegment}
+                    />
                   )}
 
                   {showDeviceAudio && (segment ? (

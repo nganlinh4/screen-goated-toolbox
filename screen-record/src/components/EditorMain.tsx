@@ -683,6 +683,7 @@ export function EditorMain({
           hasMouseData={mousePositionsLength > 0}
           subtitleGenerationIndicator={subtitleGenerationIndicator}
           subtitleTranslationChunkPreview={subtitleTranslation.subtitleTranslationChunkPreview}
+          musicSegments={composition?.musicSegments}
         />
         {isOverlayMode && (
           <div className="timeline-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />
