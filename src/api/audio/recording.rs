@@ -78,6 +78,7 @@ pub fn record_and_stream_parakeet(
     if let Err(e) = res {
         eprintln!("[ParakeetStream] Error: {:?}", e);
     }
+    crate::overlay::screen_record::notify_external_audio_capture_released("parakeet-stream");
 
     // Check for abort
     if abort_signal.load(Ordering::SeqCst) {
@@ -351,6 +352,7 @@ pub fn record_audio_and_transcribe(
     }
     std::thread::sleep(std::time::Duration::from_millis(80));
     drop(stream);
+    crate::overlay::screen_record::notify_external_audio_capture_released("record-then-process");
     std::thread::sleep(std::time::Duration::from_millis(40));
 
     if abort_signal.load(Ordering::SeqCst) {

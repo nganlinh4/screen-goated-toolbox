@@ -298,6 +298,7 @@ pub fn record_and_stream_gemini_live(
     });
 
     drop(stream);
+    crate::overlay::screen_record::notify_external_audio_capture_released("gemini-live-stream");
     println!("[GeminiLiveStream] Stopped, waiting for tail...");
 
     if !abort_signal.load(Ordering::SeqCst) {

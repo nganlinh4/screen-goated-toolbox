@@ -2,15 +2,18 @@ mod gemini;
 mod gemini_segments;
 mod gemini_stream;
 mod groq;
+mod parakeet_tdt;
 mod qwen;
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use crate::APP;
+use crate::api::realtime_audio::parakeet_tdt_assets;
 use crate::api::realtime_audio::qwen3::{Qwen3ModelVariant, assets, runtime};
 use crate::model_config::get_model_by_id;
 use crate::runtime_support::{RuntimeArch, environment_info};
+use crate::unpack_dlls::{self, AiRuntimeStatus};
 
 use super::media::PreparedSubtitleMedia;
 use super::types::{CompactSubtitleSegment, SubtitleGenerationMethod, SubtitleMethodCapability};
@@ -59,6 +62,9 @@ pub fn create_backend(
         SubtitleGenerationMethod::QwenLocal1_7B => Ok(Box::new(qwen::QwenSubtitleBackend::new(
             Qwen3ModelVariant::Large,
         )?)),
+        SubtitleGenerationMethod::ParakeetTdt0_6BV3 => {
+            Ok(Box::new(parakeet_tdt::ParakeetTdtSubtitleBackend::new()))
+        }
     }
 }
 
@@ -84,6 +90,7 @@ pub fn capabilities() -> Vec<SubtitleMethodCapability> {
             SubtitleGenerationMethod::QwenLocal1_7B,
             Qwen3ModelVariant::Large,
         ),
+        parakeet_tdt_capability(),
     ]
 }
 
@@ -197,6 +204,48 @@ fn qwen_local_capability(
             available: false,
             reason: Some(
                 "Install the Qwen3-ASR CUDA Runtime from Downloaded Tools to use Qwen Local subtitles."
+                    .to_string(),
+            ),
+        };
+    }
+    SubtitleMethodCapability {
+        method,
+        available: true,
+        reason: None,
+    }
+}
+
+fn parakeet_tdt_capability() -> SubtitleMethodCapability {
+    let method = SubtitleGenerationMethod::ParakeetTdt0_6BV3;
+    let env = environment_info();
+    if env.process_arch != RuntimeArch::X64 {
+        return SubtitleMethodCapability {
+            method,
+            available: false,
+            reason: Some(
+                "Parakeet TDT subtitles currently require the x64 Windows build.".to_string(),
+            ),
+        };
+    }
+    if !parakeet_tdt_assets::is_parakeet_tdt_model_downloaded() {
+        return SubtitleMethodCapability {
+            method,
+            available: false,
+            reason: Some(
+                "Install the Parakeet TDT 0.6B v3 model from Downloaded Tools to use Parakeet subtitles."
+                    .to_string(),
+            ),
+        };
+    }
+    if !matches!(
+        unpack_dlls::current_ai_runtime_status(),
+        AiRuntimeStatus::Installed { .. }
+    ) {
+        return SubtitleMethodCapability {
+            method,
+            available: false,
+            reason: Some(
+                "Install the local AI runtime from Downloaded Tools to use Parakeet subtitles."
                     .to_string(),
             ),
         };

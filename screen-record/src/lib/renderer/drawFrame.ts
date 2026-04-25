@@ -37,10 +37,6 @@ import {
   updateSquishAnimation,
 } from './drawFrameCursor';
 
-const PREVIEW_FRAME_BUDGET_MS = 1000 / 60;
-const PREVIEW_SLOW_FRAME_LOG_MS = 28;
-const PREVIEW_PERF_LOG_INTERVAL_MS = 1000;
-
 // ---------------------------------------------------------------------------
 // RendererState - all mutable state needed by drawFrame
 // ---------------------------------------------------------------------------
@@ -80,12 +76,6 @@ export interface RendererState {
   isDrawing: boolean;
   lastDrawTime: number;
   latestElapsed: number;
-  skippedPreviewDrawCount: number;
-  lastPreviewSkipLogTime: number;
-  slowPreviewFrameCount: number;
-  lastPreviewPerfLogTime: number;
-  lastSubtitleVisibilityLogTime: number;
-  lastSubtitleVisibilitySignature: string;
 
   // Cursor processing cache
   processedCursorPositions: MousePosition[] | null;
@@ -120,17 +110,7 @@ export async function drawFrame(
 ): Promise<void> {
   const isExportMode = options.exportMode || false;
   if (state.isDrawing) {
-    if (!isExportMode) {
-      state.skippedPreviewDrawCount += 1;
-      const now = performance.now();
-      if (now - state.lastPreviewSkipLogTime > PREVIEW_PERF_LOG_INTERVAL_MS) {
-        console.log(
-          `[PreviewPerf] skipped-draw count=${state.skippedPreviewDrawCount} reason=renderer-busy`,
-        );
-        state.skippedPreviewDrawCount = 0;
-        state.lastPreviewSkipLogTime = now;
-      }
-    }
+    void isExportMode;
     return;
   }
 
@@ -159,16 +139,7 @@ export async function drawFrame(
   state.isDrawing = true;
   ctx.imageSmoothingQuality = quality as ImageSmoothingQuality;
 
-  const frameStart = performance.now();
-  let baseMs = 0;
-  let webcamMs = 0;
-  let overlayMs = 0;
-  let keystrokeMs = 0;
-  let visibleSubtitleCount = 0;
-  let activeOverlayCount = 0;
-  let supersample = 1;
-  let blurSamples = 1;
-  const now = frameStart;
+  const now = performance.now();
   state.latestElapsed = state.lastDrawTime === 0 ? 1000 / 60 : now - state.lastDrawTime;
   state.lastDrawTime = now;
 
@@ -259,8 +230,6 @@ export async function drawFrame(
         }
       }
     }
-    supersample = ss;
-
     // --- Prepare tempCanvas (video + shadow + border radius) ---
     const tempW = Math.round(canvasW * ss);
     const tempH = Math.round(canvasH * ss);
@@ -565,54 +534,9 @@ export async function drawFrame(
       // --- NO BLUR PATH: single draw ---
       drawSubFrame(ctx, zoomState, interpolatedPosition);
     }
-    const baseEnd = performance.now();
-    baseMs = baseEnd - frameStart;
-
-    const webcamStart = performance.now();
     drawWebcamOverlay(ctx, zoomState, state, video, webcamVideo, segment, webcamConfig, canvasW, canvasH, webcamAspectRatio);
-    webcamMs = performance.now() - webcamStart;
 
-    const overlayStart = performance.now();
     const visibleSubtitles = getVisibleSubtitleSegments(segment);
-    visibleSubtitleCount = visibleSubtitles.length;
-    const activeSubtitleCount = visibleSubtitles.filter(
-      (subtitle) => video.currentTime >= subtitle.startTime && video.currentTime <= subtitle.endTime,
-    ).length;
-    if (visibleSubtitleCount > 0 && !isExportMode) {
-      const now = performance.now();
-      const firstSubtitle = visibleSubtitles[0];
-      const lastSubtitle = visibleSubtitles[visibleSubtitles.length - 1];
-      const nextSubtitle = visibleSubtitles.find((subtitle) => subtitle.startTime > video.currentTime);
-      let previousSubtitle = null as typeof firstSubtitle | null;
-      for (const subtitle of visibleSubtitles) {
-        if (subtitle.startTime <= video.currentTime) {
-          previousSubtitle = subtitle;
-        } else {
-          break;
-        }
-      }
-      const timeBucket = Math.floor(video.currentTime / 5);
-      const signature = [
-        visibleSubtitleCount,
-        activeSubtitleCount,
-        timeBucket,
-        firstSubtitle?.startTime.toFixed(1) ?? 'none',
-        lastSubtitle?.endTime.toFixed(1) ?? 'none',
-      ].join(':');
-      if (
-        signature !== state.lastSubtitleVisibilitySignature
-        && now - state.lastSubtitleVisibilityLogTime > 1000
-      ) {
-        state.lastSubtitleVisibilitySignature = signature;
-        state.lastSubtitleVisibilityLogTime = now;
-        console.log(
-          `[SubtitleRender][Diag] t=${video.currentTime.toFixed(2)} visible=${visibleSubtitleCount} active=${activeSubtitleCount} `
-          + `range=${firstSubtitle?.startTime.toFixed(2) ?? 'none'}-${lastSubtitle?.endTime.toFixed(2) ?? 'none'} `
-          + `prev=${previousSubtitle ? `${previousSubtitle.startTime.toFixed(2)}-${previousSubtitle.endTime.toFixed(2)}` : 'none'} `
-          + `next=${nextSubtitle ? `${nextSubtitle.startTime.toFixed(2)}-${nextSubtitle.endTime.toFixed(2)}` : 'none'}`,
-        );
-      }
-    }
     const overlayTextSegments = [
       ...visibleSubtitles,
       ...(segment.textSegments ?? []),
@@ -621,7 +545,6 @@ export async function drawFrame(
       const FADE_DURATION = 0.3;
       for (const textSegment of overlayTextSegments) {
         if (video.currentTime >= textSegment.startTime && video.currentTime <= textSegment.endTime) {
-          activeOverlayCount += 1;
           let fadeAlpha = 1.0;
           const elapsed = video.currentTime - textSegment.startTime;
           const remaining = textSegment.endTime - video.currentTime;
@@ -632,7 +555,6 @@ export async function drawFrame(
       }
       canvas.style.fontVariationSettings = 'normal';
     }
-    overlayMs = performance.now() - overlayStart;
 
     const segmentDuration = Math.max(
       segment.trimEnd,
@@ -648,22 +570,8 @@ export async function drawFrame(
       canvas.height,
       segmentDuration
     );
-    keystrokeMs = performance.now() - overlayStart - overlayMs;
-    blurSamples = N;
 
   } finally {
-    const totalMs = performance.now() - frameStart;
-    if (!isExportMode && totalMs > PREVIEW_SLOW_FRAME_LOG_MS) {
-      state.slowPreviewFrameCount += 1;
-      const logNow = performance.now();
-      if (logNow - state.lastPreviewPerfLogTime > PREVIEW_PERF_LOG_INTERVAL_MS) {
-        console.log(
-          `[PreviewPerf] slow-frame total=${totalMs.toFixed(1)} budget=${PREVIEW_FRAME_BUDGET_MS.toFixed(1)} base=${baseMs.toFixed(1)} webcam=${webcamMs.toFixed(1)} overlay=${overlayMs.toFixed(1)} keystroke=${keystrokeMs.toFixed(1)} dt=${state.latestElapsed.toFixed(1)} t=${video.currentTime.toFixed(2)} paused=${video.paused ? 1 : 0} canvas=${canvas.width}x${canvas.height} ss=${supersample.toFixed(2)} blur=${blurSamples} subtitles=${visibleSubtitleCount} activeOverlays=${activeOverlayCount} slowCount=${state.slowPreviewFrameCount}`,
-        );
-        state.slowPreviewFrameCount = 0;
-        state.lastPreviewPerfLogTime = logNow;
-      }
-    }
     state.isDrawing = false;
     ctx.restore();
   }

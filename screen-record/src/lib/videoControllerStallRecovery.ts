@@ -42,11 +42,6 @@ export function handleWaitingEvent(
   stall.waitingRecoveryAttempts = 0;
   markFrontendPerfEvent(`video-waiting t=${video.currentTime.toFixed(2)} ready=${video.readyState} network=${video.networkState}`);
   onBufferingChange?.(true);
-  console.warn(
-    `[VideoController] WAITING started: readyState=${video.readyState} ` +
-    `currentTime=${video.currentTime.toFixed(3)} paused=${video.paused} ` +
-    `networkState=${video.networkState}`,
-  );
   if (stall.waitingStallTimer !== null) clearTimeout(stall.waitingStallTimer);
   scheduleStallCheck(video, stall, 3000);
 }
@@ -114,11 +109,6 @@ export function handlePlayingEvent(
   if (stall.waitingStartedAt > 0) {
     const recoveryMs = (performance.now() - stall.waitingStartedAt).toFixed(0);
     markFrontendPerfEvent(`video-recovered ms=${recoveryMs}`);
-    console.log(
-      `[VideoController] RECOVERED from waiting in ${recoveryMs}ms` +
-      `${stall.waitingRecoveryAttempts > 0 ? ` (after ${stall.waitingRecoveryAttempts} recovery attempt(s))` : ""}: ` +
-      `readyState (see video element)`,
-    );
     stall.waitingStartedAt = 0;
     stall.waitingRecoveryAttempts = 0;
   }

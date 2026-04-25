@@ -47,6 +47,7 @@ const WM_APP_SHOW: u32 = WM_USER + 110;
 const WM_APP_TOGGLE: u32 = WM_USER + 111;
 const WM_APP_RUN_SCRIPT: u32 = WM_USER + 112;
 const WM_APP_UPDATE_SETTINGS: u32 = WM_USER + 113;
+const EXTERNAL_AUDIO_CAPTURE_RESET_DELAY_MS: u64 = 7000;
 
 // --- STATE ---
 static REGISTER_SR_CLASS: Once = Once::new();
@@ -261,6 +262,43 @@ pub fn update_settings() {
             let _ = PostMessageW(Some(hwnd.0), WM_APP_UPDATE_SETTINGS, WPARAM(0), LPARAM(0));
         }
     }
+}
+
+pub fn post_script(script: String) {
+    unsafe {
+        let hwnd = std::ptr::addr_of!(SR_HWND).read();
+        if hwnd.is_invalid() {
+            println!("[ScreenRecord][MediaReset] dispatch skipped: screen-record window not ready");
+            return;
+        }
+
+        let raw_script = Box::into_raw(Box::new(script));
+        if let Err(error) = PostMessageW(
+            Some(hwnd.0),
+            WM_APP_RUN_SCRIPT,
+            WPARAM(0),
+            LPARAM(raw_script as isize),
+        ) {
+            println!("[ScreenRecord][MediaReset] dispatch failed: {error:?}");
+            let _ = Box::from_raw(raw_script);
+        }
+    }
+}
+
+pub fn notify_external_audio_capture_released(reason: &str) {
+    let reason = reason.to_string();
+    println!("[ScreenRecord][MediaReset] scheduling after external audio capture: {reason}");
+    std::thread::spawn(move || {
+        let delay_ms = EXTERNAL_AUDIO_CAPTURE_RESET_DELAY_MS;
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        let reason_json = serde_json::to_string(&reason)
+            .unwrap_or_else(|_| "\"external-audio-capture\"".to_string());
+        println!("[ScreenRecord][MediaReset] dispatch reason={reason} delay_ms={delay_ms}");
+        post_script(format!(
+            "window.dispatchEvent(new CustomEvent('sr-reset-media-pipeline', {{ detail: {{ reason: {}, delayMs: {} }} }}));",
+            reason_json, delay_ms
+        ));
+    });
 }
 
 /// Best-effort cleanup used before process exit or when the recorder UI is

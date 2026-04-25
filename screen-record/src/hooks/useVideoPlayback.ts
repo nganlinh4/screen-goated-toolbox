@@ -106,7 +106,7 @@ export function useVideoPlayback({
   useEffect(() => {
     if (!videoRef.current || !canvasRef.current) return;
 
-    videoControllerRef.current = createVideoController({
+    const controller = createVideoController({
       videoRef: videoRef.current,
       webcamVideoRef: webcamVideoRef.current || undefined,
       deviceAudioRef: audioRef.current || undefined,
@@ -123,9 +123,13 @@ export function useVideoPlayback({
         // Segment update handled in App.tsx via useUndoRedo
       },
     });
+    videoControllerRef.current = controller;
 
     return () => {
-      videoControllerRef.current?.destroy();
+      controller.destroy();
+      if (videoControllerRef.current === controller) {
+        videoControllerRef.current = undefined;
+      }
     };
   }, []);
 

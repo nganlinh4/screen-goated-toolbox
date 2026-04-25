@@ -630,6 +630,57 @@ function App() {
   // Wire onProjectLoaded into the ref so useProjects can always call the latest implementation.
   onProjectLoadedRef.current = onProjectLoaded;
 
+  const mediaRecoveryInFlightRef = useRef(false);
+  useEffect(() => {
+    const handleMediaPipelineReset = (event: Event) => {
+      const detail = (event as CustomEvent<{ reason?: string; delayMs?: number }>).detail;
+      if (mediaRecoveryInFlightRef.current) return;
+      const projectId = projects.currentProjectId;
+      if (!projectId) {
+        console.log("[ScreenRecord][MediaReset] project reload skipped: no active project");
+        return;
+      }
+      mediaRecoveryInFlightRef.current = true;
+      const resumeTime = currentTime;
+      const shouldResume = isPlaying;
+      console.log(
+        `[ScreenRecord][MediaReset] project reload start project=${projectId} `
+        + `reason=${detail?.reason ?? "unknown"} delay=${detail?.delayMs ?? "unknown"}ms `
+        + `t=${resumeTime.toFixed(3)} playing=${shouldResume}`,
+      );
+      void (async () => {
+        try {
+          await persistRef.current?.({ refreshList: false, includeMedia: false });
+          await projects.handleLoadProject(projectId);
+          requestAnimationFrame(() => {
+            seek(resumeTime);
+            if (shouldResume) {
+              window.setTimeout(() => videoControllerRef.current?.play(), 250);
+            }
+          });
+          console.log("[ScreenRecord][MediaReset] project reload complete");
+        } catch (error) {
+          console.warn("[ScreenRecord][MediaReset] project reload failed", error);
+        } finally {
+          window.setTimeout(() => {
+            mediaRecoveryInFlightRef.current = false;
+          }, 5000);
+        }
+      })();
+    };
+    window.addEventListener("sr-reset-media-pipeline", handleMediaPipelineReset);
+    return () => {
+      window.removeEventListener("sr-reset-media-pipeline", handleMediaPipelineReset);
+    };
+  }, [
+    currentTime,
+    isPlaying,
+    persistRef,
+    projects,
+    seek,
+    videoControllerRef,
+  ]);
+
   // Video import (external/non-recorded videos)
   const { isImporting, importVideo } = useVideoImport({
     onProjectCreated: (project) => {

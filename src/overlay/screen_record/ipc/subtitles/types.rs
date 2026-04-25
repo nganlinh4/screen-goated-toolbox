@@ -16,6 +16,8 @@ pub enum SubtitleGenerationMethod {
     QwenLocal0_6B,
     #[serde(rename = "qwen-local-1-7b")]
     QwenLocal1_7B,
+    #[serde(rename = "parakeet-tdt-0-6b-v3")]
+    ParakeetTdt0_6BV3,
 }
 
 #[derive(Clone, Deserialize)]

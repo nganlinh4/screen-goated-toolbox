@@ -616,7 +616,7 @@ export function EditorMain({
             subtitleStatusMessage={subtitleStatusMessage}
             canUseVideoSubtitleSource={segment?.deviceAudioAvailable !== false}
             canUseMicSubtitleSource={Boolean(segment?.micAudioAvailable)}
-            onGenerateSubtitles={() => handleGenerateSubtitles(selectedSubtitleRange)}
+            onGenerateSubtitles={() => handleGenerateSubtitles(null)}
             onCancelSubtitleGeneration={handleCancelSubtitleGeneration}
             canExportSubtitleSrt={canExportSubtitleSrt}
             onExportSubtitleSrt={handleExportSubtitleSrt}

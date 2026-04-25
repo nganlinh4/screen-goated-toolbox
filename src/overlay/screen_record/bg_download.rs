@@ -79,23 +79,12 @@ pub fn downloadable_background_summary() -> DownloadableBackgroundSummary {
     let mut downloading_count = 0usize;
     let mut downloaded_bytes = 0u64;
     let backgrounds = downloadable_backgrounds();
-    let dir = backgrounds_dir();
 
     for bg in backgrounds {
-        if download_info(&bg.id).is_some() {
+        if let Some(path) = downloaded_background_file(&bg.id) {
             downloaded_count += 1;
-            for ext in &["png", "jpg", "jpeg", "webp"] {
-                let path = dir.join(format!("{}.{ext}", bg.id));
-                if path.exists() {
-                    if !is_valid_image_file(&path, ext) {
-                        let _ = std::fs::remove_file(&path);
-                        continue;
-                    }
-                    if let Ok(meta) = std::fs::metadata(path) {
-                        downloaded_bytes += meta.len();
-                    }
-                    break;
-                }
+            if let Ok(meta) = std::fs::metadata(path) {
+                downloaded_bytes += meta.len();
             }
         }
         if matches!(
@@ -112,6 +101,17 @@ pub fn downloadable_background_summary() -> DownloadableBackgroundSummary {
         downloading_count,
         downloaded_bytes,
     }
+}
+
+fn downloaded_background_file(id: &str) -> Option<PathBuf> {
+    let dir = backgrounds_dir();
+    for ext in &["png", "jpg", "jpeg", "webp"] {
+        let path = dir.join(format!("{id}.{ext}"));
+        if path.exists() {
+            return Some(path);
+        }
+    }
+    None
 }
 
 pub fn start_download_all_missing() -> usize {

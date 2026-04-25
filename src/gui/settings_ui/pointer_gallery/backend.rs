@@ -45,6 +45,7 @@ struct PointerSummaryDiskSnapshot {
 struct PointerSummaryCache {
     last_scan: Option<Instant>,
     snapshot: PointerSummaryDiskSnapshot,
+    scanning: bool,
 }
 
 const SUMMARY_CACHE_TTL: Duration = Duration::from_millis(1500);
@@ -80,6 +81,7 @@ fn summary_cache() -> &'static Mutex<PointerSummaryCache> {
                 total_count: catalog_collections().len(),
                 downloaded_bytes: 0,
             },
+            scanning: false,
         })
     })
 }
@@ -87,6 +89,7 @@ fn summary_cache() -> &'static Mutex<PointerSummaryCache> {
 fn invalidate_summary_cache() {
     if let Ok(mut cache) = summary_cache().lock() {
         cache.last_scan = None;
+        cache.scanning = false;
     }
 }
 
@@ -184,9 +187,17 @@ pub(crate) fn pointer_collection_summary() -> PointerCollectionSummary {
         let needs_refresh = cache
             .last_scan
             .is_none_or(|last| now.duration_since(last) >= SUMMARY_CACHE_TTL);
-        if needs_refresh {
-            cache.snapshot = compute_pointer_summary_disk(&root);
-            cache.last_scan = Some(now);
+        if needs_refresh && !cache.scanning {
+            cache.scanning = true;
+            let root_for_thread = root.clone();
+            thread::spawn(move || {
+                let snapshot = compute_pointer_summary_disk(&root_for_thread);
+                if let Ok(mut cache) = summary_cache().lock() {
+                    cache.snapshot = snapshot;
+                    cache.last_scan = Some(Instant::now());
+                    cache.scanning = false;
+                }
+            });
         }
         cache.snapshot
     };

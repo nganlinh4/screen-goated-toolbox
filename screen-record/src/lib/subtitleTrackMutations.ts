@@ -353,6 +353,21 @@ export function replaceOriginalSubtitleSegments(
   });
 }
 
+export function clearDerivedSubtitleTracks(segment: VideoSegment): VideoSegment {
+  const normalized = normalizeSubtitleTrackState(segment);
+  return normalizeSubtitleTrackState({
+    ...normalized,
+    subtitleTracks: (normalized.subtitleTracks ?? []).filter(
+      (track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID,
+    ),
+    activeSubtitleView: {
+      kind: 'track',
+      trackId: ORIGINAL_SUBTITLE_TRACK_ID,
+    },
+    subtitleCustomChain: undefined,
+  });
+}
+
 export function mergePartialOriginalSubtitleSegments(
   segment: VideoSegment,
   inserted: readonly SubtitleSegment[],
