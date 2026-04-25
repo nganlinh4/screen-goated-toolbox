@@ -137,6 +137,21 @@ pub fn handle_ipc_command(
             }
             Ok(serde_json::json!(port))
         }
+        "import_video_path" => {
+            let path = args["path"].as_str().ok_or("Missing path")?;
+            let trace_id = args["traceId"]
+                .as_str()
+                .unwrap_or("video-import-native-path");
+            let (path, has_audio) = media_server::import_video_path_to_managed_media_file(
+                std::path::Path::new(path),
+                trace_id,
+            )?;
+            Ok(serde_json::json!({ "path": path, "hasAudio": has_audio }))
+        }
+        "take_pending_video_drop_actions" => Ok(serde_json::to_value(
+            super::take_pending_video_drop_actions(),
+        )
+        .unwrap_or_else(|_| serde_json::json!([]))),
         "generate_thumbnails" => {
             let path = args["path"].as_str().ok_or("Missing path")?;
             let count = args["count"].as_u64().unwrap_or(20) as u32;

@@ -1,6 +1,10 @@
 import { useCallback, useRef, useState } from "react";
 import { projectManager } from "@/lib/projectManager";
-import { importVideoToManagedMediaFile, getMediaServerUrl } from "@/lib/mediaServer";
+import {
+  getMediaServerUrl,
+  importVideoPathToManagedMediaFile,
+  importVideoToManagedMediaFile,
+} from "@/lib/mediaServer";
 import { buildFlatDeviceAudioPoints } from "@/lib/deviceAudio";
 import { DEFAULT_BACKGROUND_CONFIG } from "@/lib/appUtils";
 import { createSubtitleTrackStateFromSegments } from "@/lib/subtitleTracks";
@@ -9,6 +13,7 @@ import type { VideoSegment, Project } from "@/types/video";
 export interface UseVideoImportResult {
   isImporting: boolean;
   importVideo: (file: File) => Promise<void>;
+  importVideoPath: (filePath: string) => Promise<Project | null>;
 }
 
 function buildVideoImportTraceId() {
@@ -16,10 +21,53 @@ function buildVideoImportTraceId() {
 }
 
 export function useVideoImport(opts: {
-  onProjectCreated: (project: Project) => void;
+  onProjectCreated: (project: Project) => void | Promise<void>;
 }): UseVideoImportResult {
   const [isImporting, setIsImporting] = useState(false);
   const isImportingRef = useRef(false);
+
+  const createImportedVideoProject = useCallback(async (
+    rawVideoPath: string,
+    hasAudio: boolean,
+    fileName: string,
+  ): Promise<Project> => {
+    const videoUrl = await getMediaServerUrl(rawVideoPath);
+    const { duration, thumbnail } = await probeVideo(videoUrl);
+
+    const segment: VideoSegment = {
+      trimStart: 0,
+      trimEnd: duration,
+      trimSegments: [{ id: crypto.randomUUID(), startTime: 0, endTime: duration }],
+      zoomKeyframes: [],
+      textSegments: [],
+      ...createSubtitleTrackStateFromSegments([]),
+      speedPoints: [
+        { time: 0, speed: 1 },
+        { time: duration, speed: 1 },
+      ],
+      deviceAudioPoints: buildFlatDeviceAudioPoints(duration),
+      deviceAudioAvailable: hasAudio,
+      micAudioAvailable: false,
+      webcamAvailable: false,
+      useCustomCursor: false,
+      keystrokeMode: "off",
+      keystrokeEvents: [],
+      keyboardVisibilitySegments: [],
+      keyboardMouseVisibilitySegments: [],
+    };
+
+    const name = fileName.replace(/\.[^.]+$/, "") || "Imported Video";
+    return projectManager.saveProject({
+      name,
+      segment,
+      backgroundConfig: { ...DEFAULT_BACKGROUND_CONFIG },
+      mousePositions: [],
+      thumbnail,
+      recordingMode: "imported",
+      rawVideoPath,
+      duration,
+    });
+  }, []);
 
   const importVideo = useCallback(async (file: File) => {
     if (!file.type.startsWith("video/")) return;
@@ -36,56 +84,42 @@ export function useVideoImport(opts: {
         traceId,
       );
 
-      // 2. Probe duration + generate thumbnail via temporary video element
-      const videoUrl = await getMediaServerUrl(rawVideoPath);
-      const { duration, thumbnail } = await probeVideo(videoUrl);
-
-      // 3. Build minimal segment
-      const segment: VideoSegment = {
-        trimStart: 0,
-        trimEnd: duration,
-        trimSegments: [{ id: crypto.randomUUID(), startTime: 0, endTime: duration }],
-        zoomKeyframes: [],
-        textSegments: [],
-        ...createSubtitleTrackStateFromSegments([]),
-        speedPoints: [
-          { time: 0, speed: 1 },
-          { time: duration, speed: 1 },
-        ],
-        deviceAudioPoints: buildFlatDeviceAudioPoints(duration),
-        deviceAudioAvailable: hasAudio,
-        micAudioAvailable: false,
-        webcamAvailable: false,
-        useCustomCursor: false,
-        keystrokeMode: "off",
-        keystrokeEvents: [],
-        keyboardVisibilitySegments: [],
-        keyboardMouseVisibilitySegments: [],
-      };
-
-      // 4. Save project
-      const name = file.name.replace(/\.[^.]+$/, "") || "Imported Video";
-      const project = await projectManager.saveProject({
-        name,
-        segment,
-        backgroundConfig: { ...DEFAULT_BACKGROUND_CONFIG },
-        mousePositions: [],
-        thumbnail,
-        recordingMode: "imported",
-        rawVideoPath,
-        duration,
-      });
-
-      opts.onProjectCreated(project);
+      const project = await createImportedVideoProject(rawVideoPath, hasAudio, file.name);
+      await opts.onProjectCreated(project);
     } catch (err) {
       console.error(`[VideoImport:${traceId}] failed`, err);
     } finally {
       isImportingRef.current = false;
       setIsImporting(false);
     }
-  }, [opts]);
+  }, [createImportedVideoProject, opts]);
 
-  return { isImporting, importVideo };
+  const importVideoPath = useCallback(async (filePath: string): Promise<Project | null> => {
+    if (!filePath.trim()) return null;
+    if (isImportingRef.current) return null;
+
+    isImportingRef.current = true;
+    setIsImporting(true);
+    const traceId = buildVideoImportTraceId();
+    try {
+      const { path: rawVideoPath, hasAudio } = await importVideoPathToManagedMediaFile(
+        filePath,
+        traceId,
+      );
+      const fileName = filePath.split(/[\\/]/).pop() || "Imported Video";
+      const project = await createImportedVideoProject(rawVideoPath, hasAudio, fileName);
+      await opts.onProjectCreated(project);
+      return project;
+    } catch (err) {
+      console.error(`[VideoImport:${traceId}] failed`, err);
+      return null;
+    } finally {
+      isImportingRef.current = false;
+      setIsImporting(false);
+    }
+  }, [createImportedVideoProject, opts]);
+
+  return { isImporting, importVideo, importVideoPath };
 }
 
 function probeVideo(

@@ -264,6 +264,8 @@ pub fn get() -> LocaleText {
         cannot_type_no_caret: "자동 붙여넣기/쓰기가 활성화되었지만 텍스트 입력이 선택되지 않았습니다!",
         // --- DROP OVERLAY KO ---
         drop_overlay_text: "여기에 드롭하여 처리",
+        video_drop_work_record: "SGT Record에서 작업",
+        video_drop_generate_subtitles: "지금 자막 생성",
         // --- REALTIME EGUI SPECIFIC KO ---
         device_mode_warning: "⚠ 장치 오디오가 선택되었지만 앱이 선택되지 않았습니다",
         select_app_btn: "앱 선택",

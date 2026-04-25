@@ -11,7 +11,7 @@ mod window_proc;
 use raw_window_handle::{
     HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::num::NonZeroIsize;
 use std::path::{Path, PathBuf};
@@ -65,6 +65,13 @@ thread_local! {
 
 lazy_static::lazy_static! {
     pub static ref SERVER_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+    static ref PENDING_VIDEO_DROP_ACTIONS: std::sync::Mutex<Vec<VideoDropAction>> = std::sync::Mutex::new(Vec::new());
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct VideoDropAction {
+    pub path: String,
+    pub action: String,
 }
 
 static REPO_ROOT_CACHE: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -241,6 +248,17 @@ pub fn show_screen_record() {
     }
 }
 
+pub fn queue_video_drop_action(path: String, action: String) {
+    PENDING_VIDEO_DROP_ACTIONS
+        .lock()
+        .unwrap()
+        .push(VideoDropAction { path, action });
+}
+
+pub(crate) fn take_pending_video_drop_actions() -> Vec<VideoDropAction> {
+    std::mem::take(&mut *PENDING_VIDEO_DROP_ACTIONS.lock().unwrap())
+}
+
 pub fn toggle_recording() {
     unsafe {
         let hwnd_wrapper = std::ptr::addr_of!(SR_HWND).read();
@@ -264,12 +282,11 @@ pub fn update_settings() {
     }
 }
 
-pub fn post_script(script: String) {
+pub fn post_script(script: String) -> bool {
     unsafe {
         let hwnd = std::ptr::addr_of!(SR_HWND).read();
         if hwnd.is_invalid() {
-            println!("[ScreenRecord][MediaReset] dispatch skipped: screen-record window not ready");
-            return;
+            return false;
         }
 
         let raw_script = Box::into_raw(Box::new(script));
@@ -281,7 +298,9 @@ pub fn post_script(script: String) {
         ) {
             println!("[ScreenRecord][MediaReset] dispatch failed: {error:?}");
             let _ = Box::from_raw(raw_script);
+            return false;
         }
+        true
     }
 }
 
@@ -294,7 +313,7 @@ pub fn notify_external_audio_capture_released(reason: &str) {
         let reason_json = serde_json::to_string(&reason)
             .unwrap_or_else(|_| "\"external-audio-capture\"".to_string());
         println!("[ScreenRecord][MediaReset] dispatch reason={reason} delay_ms={delay_ms}");
-        post_script(format!(
+        let _ = post_script(format!(
             "window.dispatchEvent(new CustomEvent('sr-reset-media-pipeline', {{ detail: {{ reason: {}, delayMs: {} }} }}));",
             reason_json, delay_ms
         ));

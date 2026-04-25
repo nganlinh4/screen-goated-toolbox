@@ -263,6 +263,8 @@ pub fn get() -> LocaleText {
         cannot_type_no_caret: "Auto paste/write active but no text input selected!",
         // --- DROP OVERLAY EN ---
         drop_overlay_text: "Drop here to process",
+        video_drop_work_record: "Work with SGT Record",
+        video_drop_generate_subtitles: "Generate subtitles now",
         // --- REALTIME EGUI SPECIFIC EN ---
         device_mode_warning: "⚠ Device audio selected but no app chosen",
         select_app_btn: "Select App",

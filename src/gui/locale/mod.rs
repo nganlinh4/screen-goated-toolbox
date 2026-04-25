@@ -221,6 +221,8 @@ pub struct LocaleText {
     pub cannot_type_no_caret: &'static str,
     // --- DROP OVERLAY ---
     pub drop_overlay_text: &'static str,
+    pub video_drop_work_record: &'static str,
+    pub video_drop_generate_subtitles: &'static str,
     // --- REALTIME EGUI SPECIFIC ---
     pub device_mode_warning: &'static str,
     pub select_app_btn: &'static str,

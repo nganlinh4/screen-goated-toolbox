@@ -8,4 +8,4 @@ mod state;
 mod styles;
 mod window;
 
-pub use window::{dismiss_wheel, is_wheel_active, show_preset_wheel};
+pub use window::{dismiss_wheel, is_wheel_active, show_custom_wheel, show_preset_wheel};

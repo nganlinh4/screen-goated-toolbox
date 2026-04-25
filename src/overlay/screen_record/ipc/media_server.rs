@@ -36,6 +36,49 @@ fn managed_import_path(recordings_dir: &Path, ts: u128, extension: &str) -> Path
     recordings_dir.join(format!("imported-{ts}.{extension}"))
 }
 
+pub fn import_video_path_to_managed_media_file(
+    source_path: &Path,
+    trace_id: &str,
+) -> Result<(String, bool), String> {
+    if !source_path.exists() || !source_path.is_file() {
+        return Err(format!("Video file not found: {}", source_path.display()));
+    }
+
+    let recordings_dir = recordings_dir();
+    std::fs::create_dir_all(&recordings_dir)
+        .map_err(|error| format!("Create recordings dir: {error}"))?;
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let extension = source_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .filter(|ext| !ext.is_empty())
+        .unwrap_or("mp4");
+    let output_path = managed_import_path(&recordings_dir, ts, extension);
+    let started_at = Instant::now();
+
+    std::fs::copy(source_path, &output_path).map_err(|error| {
+        format!(
+            "Copy imported video failed from '{}' to '{}': {error}",
+            source_path.display(),
+            output_path.display()
+        )
+    })?;
+    let has_audio = import_normalize::probe_media_has_audio(&output_path)?;
+    crate::log_info!(
+        "[VideoImport:{}][Path] complete total {:.3}s file=\"{}\" output=\"{}\" has_audio={}",
+        trace_id,
+        started_at.elapsed().as_secs_f64(),
+        source_path.display(),
+        output_path.display(),
+        has_audio
+    );
+
+    Ok((output_path.to_string_lossy().to_string(), has_audio))
+}
+
 pub fn start_global_media_server() -> Result<u16, String> {
     let mut port = 8000;
     let server = loop {
