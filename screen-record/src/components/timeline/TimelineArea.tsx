@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Music, Plus } from "lucide-react";
 import type { MusicAudioSegment, VideoSegment } from "@/types/video";
 import { useSettings } from "@/hooks/useSettings";
 import type { SubtitleGenerationIndicator } from "@/lib/subtitleGenerationPlan";
@@ -98,8 +99,9 @@ interface TimelineAreaProps {
     groupCount: number;
   } | null;
   musicSegments?: MusicAudioSegment[];
-  onAddMusicSegment?: () => void;
+  onPickMusicAudioFile?: (file: File) => void;
   onSelectMusicSegment?: (id: string) => void;
+  onUpdateMusicSegment?: (id: string, patch: Partial<MusicAudioSegment>) => void;
 }
 
 export const TimelineArea: React.FC<TimelineAreaProps> = ({
@@ -150,8 +152,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   subtitleGenerationIndicator,
   subtitleTranslationChunkPreview,
   musicSegments,
-  onAddMusicSegment,
+  onPickMusicAudioFile,
   onSelectMusicSegment,
+  onUpdateMusicSegment,
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
@@ -217,6 +220,19 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   const showWebcam = isWebcamAvailable;
   const showKeystroke = (segment?.keystrokeMode ?? 'off') !== 'off';
   const showMusicAudio = (musicSegments?.length ?? 0) > 0;
+
+  const musicAudioFileInputRef = useRef<HTMLInputElement>(null);
+  const handleTriggerMusicAudioPicker = useCallback(() => {
+    musicAudioFileInputRef.current?.click();
+  }, []);
+  const handleMusicAudioFilePicked = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (file && onPickMusicAudioFile) onPickMusicAudioFile(file);
+    },
+    [onPickMusicAudioFile],
+  );
 
   const trackHeightsBeforeTrim = [
     TIMELINE_TRACK_HEIGHTS.zoom,
@@ -443,6 +459,13 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
 
   return (
     <div className="timeline-area select-none mx-2">
+      <input
+        ref={musicAudioFileInputRef}
+        type="file"
+        accept="audio/*"
+        className="hidden"
+        onChange={handleMusicAudioFilePicked}
+      />
       <div className="timeline-shell flex gap-4">
         <div className="timeline-side-column w-[4rem] flex-shrink-0">
           <div className="timeline-label-gutter flex flex-col gap-[2px] border-r border-[var(--ui-border)] pr-2">
@@ -501,10 +524,24 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               </div>
             )}
             {showDeviceAudio && (
-              <div className="timeline-label-device-audio h-10 flex items-center">
+              <div className="timeline-label-device-audio group relative h-10 flex items-center">
                 <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                   {t.trackDeviceAudio}
                 </span>
+                {onPickMusicAudioFile && (
+                  <button
+                    type="button"
+                    onClick={handleTriggerMusicAudioPicker}
+                    className="add-music-track-btn ui-chip-button absolute -top-3 left-1/2 -translate-x-1/2 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--ui-border)] bg-[var(--surface)] text-[var(--primary-color)] opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-visible:opacity-100"
+                    title={t.addAudioFile}
+                    aria-label={t.addAudioFile}
+                  >
+                    <span className="relative flex h-3 w-3 items-center justify-center">
+                      <Music className="h-3 w-3" strokeWidth={2.25} />
+                      <Plus className="absolute -right-1 -top-1 h-2 w-2" strokeWidth={3} />
+                    </span>
+                  </button>
+                )}
               </div>
             )}
             {showMicAudio && renderTrackDelayLabel({
@@ -629,8 +666,11 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     <MusicAudioTrack
                       segments={musicSegments ?? []}
                       duration={duration}
-                      onAddSegment={onAddMusicSegment}
+                      onAddSegment={
+                        onPickMusicAudioFile ? handleTriggerMusicAudioPicker : undefined
+                      }
                       onSelectSegment={onSelectMusicSegment}
+                      onUpdateSegment={onUpdateMusicSegment}
                     />
                   )}
 

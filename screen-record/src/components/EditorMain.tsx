@@ -155,6 +155,12 @@ export interface EditorMainProps {
   handleAddKeystrokeSegment: (atTime?: number) => void;
   handleAddPointerSegment: (atTime?: number) => void;
   setTimelineCanvasWidthPx: (width: number) => void;
+  // Music/SFX track
+  onPickMusicAudioFile?: (file: File) => void;
+  onUpdateMusicSegment?: (
+    id: string,
+    patch: Partial<import("@/types/video").MusicAudioSegment>,
+  ) => void;
 }
 
 export function EditorMain({
@@ -270,6 +276,8 @@ export function EditorMain({
   handleAddKeystrokeSegment,
   handleAddPointerSegment,
   setTimelineCanvasWidthPx,
+  onPickMusicAudioFile,
+  onUpdateMusicSegment,
 }: EditorMainProps) {
   const { t } = useSettings();
   const showPlaybackControls = Boolean(
@@ -688,6 +696,8 @@ export function EditorMain({
           subtitleGenerationIndicator={subtitleGenerationIndicator}
           subtitleTranslationChunkPreview={subtitleTranslation.subtitleTranslationChunkPreview}
           musicSegments={composition?.musicSegments}
+          onPickMusicAudioFile={onPickMusicAudioFile}
+          onUpdateMusicSegment={onUpdateMusicSegment}
         />
         {isOverlayMode && (
           <div className="timeline-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />
