@@ -273,6 +273,44 @@ export function addSubtitleAcrossTracks(
   }));
 }
 
+export function duplicateSubtitleAcrossTracks(
+  segment: VideoSegment,
+  subtitleId: string,
+  duration: number,
+): { segment: VideoSegment; newSubtitleId: string | null } {
+  const newSubtitleId = crypto.randomUUID();
+  let didDuplicate = false;
+  const safeDuration = Math.max(duration, 0);
+  const nextSegment = mapConcreteTracks(segment, (track) => {
+    const source = track.segments.find((subtitle) => subtitle.id === subtitleId);
+    if (!source) return track;
+    const length = source.endTime - source.startTime;
+    if (length <= 0) return track;
+    const next = track.segments
+      .filter((subtitle) => subtitle.startTime > source.endTime)
+      .sort((a, b) => a.startTime - b.startTime)[0];
+    const desiredStart = source.endTime;
+    const maxEnd = next ? next.startTime - 0.01 : safeDuration > 0 ? safeDuration : desiredStart + length;
+    const clampedEnd = Math.min(desiredStart + length, maxEnd);
+    if (clampedEnd - desiredStart < 0.05) return track;
+    didDuplicate = true;
+    const duplicate: SubtitleSegment = {
+      ...cloneSubtitleSegment(source),
+      id: newSubtitleId,
+      startTime: desiredStart,
+      endTime: clampedEnd,
+    };
+    return {
+      ...track,
+      segments: sortSubtitleSegments([...track.segments, duplicate]),
+    };
+  });
+  return {
+    segment: didDuplicate ? nextSegment : normalizeSubtitleTrackState(segment),
+    newSubtitleId: didDuplicate ? newSubtitleId : null,
+  };
+}
+
 export function splitSubtitleAcrossTracks(
   segment: VideoSegment,
   subtitleId: string,

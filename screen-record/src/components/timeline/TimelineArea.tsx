@@ -28,6 +28,7 @@ import {
 import { buildTextSplitPreview } from "@/lib/textSplitPreview";
 import {
   deleteSubtitleIdsAcrossTracks,
+  duplicateSubtitleAcrossTracks,
   splitSubtitleAcrossTracks,
 } from "@/lib/subtitleTrackMutations";
 import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
@@ -368,6 +369,40 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     setSegment({ ...segment, textSegments: remaining });
     commitBatch();
   }, [segment, setSegment, beginBatch, commitBatch]);
+
+  const handleDuplicateText = useCallback((id: string) => {
+    if (!segment) return;
+    const texts = segment.textSegments ?? [];
+    const source = texts.find((t) => t.id === id);
+    if (!source) return;
+    const length = source.endTime - source.startTime;
+    if (length <= 0) return;
+    const next = texts
+      .filter((t) => t.startTime > source.endTime)
+      .sort((a, b) => a.startTime - b.startTime)[0];
+    const desiredStart = source.endTime;
+    const maxEnd = next ? next.startTime - 0.01 : duration;
+    const clampedEnd = Math.min(desiredStart + length, maxEnd);
+    if (clampedEnd - desiredStart < 0.05) return;
+    const duplicate = {
+      ...JSON.parse(JSON.stringify(source)),
+      id: crypto.randomUUID(),
+      startTime: desiredStart,
+      endTime: clampedEnd,
+    };
+    beginBatch();
+    setSegment({ ...segment, textSegments: [...texts, duplicate] });
+    commitBatch();
+  }, [segment, duration, setSegment, beginBatch, commitBatch]);
+
+  const handleDuplicateSubtitle = useCallback((id: string) => {
+    if (!segment) return;
+    const result = duplicateSubtitleAcrossTracks(segment, id, duration);
+    if (!result.newSubtitleId) return;
+    beginBatch();
+    setSegment(result.segment);
+    commitBatch();
+  }, [segment, duration, setSegment, beginBatch, commitBatch]);
 
   const handleSubtitleSplit = useCallback((id: string, splitTime: number) => {
     if (!segment) return;
@@ -753,6 +788,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       editingSubtitleId={editingSubtitleId}
                       onSubtitleClick={handleSubtitleClick}
                       onSubtitleSplit={handleSubtitleSplit}
+                      onSubtitleDuplicate={handleDuplicateSubtitle}
                       onHandleDragStart={handleSubtitleDragStart}
                       onAddSubtitle={onAddSubtitle}
                       onDeleteSubtitleSegments={handleDeleteSubtitleSegments}
@@ -773,6 +809,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       editingTextId={editingTextId}
                       onTextClick={handleTextClick}
                       onTextSplit={handleTextSplit}
+                      onTextDuplicate={handleDuplicateText}
                       onHandleDragStart={handleTextDragStart}
                       onAddText={onAddText}
                       onDeleteTextSegments={handleDeleteTextSegments}

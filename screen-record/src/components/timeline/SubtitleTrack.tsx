@@ -19,6 +19,7 @@ interface SubtitleTrackProps {
   editingSubtitleId: string | null;
   onSubtitleClick: (id: string) => void;
   onSubtitleSplit?: (id: string, splitTime: number) => void;
+  onSubtitleDuplicate?: (id: string) => void;
   onHandleDragStart: (id: string, type: 'start' | 'end' | 'body', offset?: number) => void;
   onAddSubtitle?: (atTime?: number) => void;
   onDeleteSubtitleSegments?: (ids: string[]) => void;
@@ -49,6 +50,7 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
   editingSubtitleId,
   onSubtitleClick,
   onSubtitleSplit,
+  onSubtitleDuplicate,
   onHandleDragStart,
   onAddSubtitle,
   onDeleteSubtitleSegments,
@@ -196,6 +198,10 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
               addSegmentSelection(subtitle.id, { shiftKey: true });
             }
             onSubtitleClick(subtitle.id);
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            onSubtitleDuplicate?.(subtitle.id);
           }}
           className="subtitle-segment timeline-block absolute h-full cursor-move group"
           data-tone="accent"
