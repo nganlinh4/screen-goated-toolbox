@@ -1062,6 +1062,18 @@ function App() {
           handleAddKeystrokeSegment={handleAddKeystrokeSegment}
           handleAddPointerSegment={handleAddPointerSegment}
           setTimelineCanvasWidthPx={setTimelineCanvasWidthPx}
+          onPickMusicAudioFile={importAudio}
+          onUpdateMusicSegment={(id, patch) => {
+            setComposition((prev) => {
+              if (!prev?.musicSegments) return prev;
+              return {
+                ...prev,
+                musicSegments: prev.musicSegments.map((s) =>
+                  s.id === id ? { ...s, ...patch } : s,
+                ),
+              };
+            });
+          }}
         />
 
         <EditorOverlays
