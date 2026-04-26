@@ -704,7 +704,7 @@ function App() {
 
   // Music/SFX audio import — creates an audio-only project when nothing is
   // open, otherwise appends to composition.musicSegments on the current one.
-  const { isImporting: isImportingAudio, importAudio } = useMusicAudioImport({
+  const { isImporting: isImportingAudio, importAudio, importAudioPath } = useMusicAudioImport({
     getCurrentProjectId: () => projects.currentProjectId,
     onAttachToCurrentProject: (segment) => {
       setComposition((prev) => {
@@ -719,6 +719,39 @@ function App() {
       await projects.handleLoadProject(project.id);
     },
   });
+
+  // Drain pending audio-drop actions queued from the main SGT egui app
+  // (file dropped onto the desktop tool, "Add to SGT Record" picked).
+  useEffect(() => {
+    let isDraining = false;
+    const drainPendingAudioDropActions = () => {
+      if (isDraining) return;
+      isDraining = true;
+      void (async () => {
+        try {
+          const actions = await invoke<{ path: string }[]>(
+            "take_pending_audio_drop_actions",
+            {},
+          );
+          for (const action of actions) {
+            const filePath = action.path?.trim();
+            if (!filePath) continue;
+            await importAudioPath(filePath);
+          }
+        } catch (error) {
+          console.warn("[AudioDrop] Failed to drain pending audio actions", error);
+        } finally {
+          isDraining = false;
+        }
+      })();
+    };
+
+    window.addEventListener("sgt-audio-drop-pending", drainPendingAudioDropActions);
+    drainPendingAudioDropActions();
+    return () => {
+      window.removeEventListener("sgt-audio-drop-pending", drainPendingAudioDropActions);
+    };
+  }, [importAudioPath]);
 
   useEffect(() => {
     let isDraining = false;

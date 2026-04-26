@@ -266,6 +266,8 @@ pub fn get() -> LocaleText {
         drop_overlay_text: "여기에 드롭하여 처리",
         video_drop_work_record: "SGT Record에서 작업",
         video_drop_generate_subtitles: "지금 자막 생성",
+        audio_drop_add_to_record: "SGT Record에 추가",
+        audio_drop_use_preset: "오디오 프리셋 사용",
         // --- REALTIME EGUI SPECIFIC KO ---
         device_mode_warning: "⚠ 장치 오디오가 선택되었지만 앱이 선택되지 않았습니다",
         select_app_btn: "앱 선택",

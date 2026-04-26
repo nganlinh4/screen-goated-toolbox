@@ -266,6 +266,8 @@ pub fn get() -> LocaleText {
         drop_overlay_text: "Thả vào đây để xử lý",
         video_drop_work_record: "Làm việc với SGT Record",
         video_drop_generate_subtitles: "Tạo phụ đề ngay",
+        audio_drop_add_to_record: "Thêm vào SGT Record",
+        audio_drop_use_preset: "Dùng cấu hình âm thanh",
         // --- REALTIME EGUI SPECIFIC VI ---
         device_mode_warning: "⚠ Đã chọn âm thanh thiết bị nhưng chưa chọn ứng dụng",
         select_app_btn: "Chọn ứng dụng",
