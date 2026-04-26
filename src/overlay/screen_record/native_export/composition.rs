@@ -222,6 +222,10 @@ fn build_single_clip_config(
         baked_path: None,
         baked_cursor_path: None,
         mouse_positions: clip.mouse_positions.clone(),
+        // Music segments are project-level, not per-clip; the per-clip
+        // composition export path doesn't carry them. Music mixdown for
+        // composition exports is wired at the composition layer (TODO).
+        music_segments: Vec::new(),
     }
 }
 

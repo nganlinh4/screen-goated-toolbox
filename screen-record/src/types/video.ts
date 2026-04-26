@@ -494,6 +494,8 @@ export interface ExportOptions {
   bakedCursorPath?: BakedCursorFrame[];
   bakedKeystrokeOverlays?: BakedKeystrokeOverlay[];
   bakedWebcamFrames?: BakedWebcamFrame[];
+  /** User-supplied music/sfx files placed on the project-wide Audio track. */
+  musicSegments?: MusicAudioSegment[];
 }
 
 export type ExportArtifactFormat = "mp4" | "gif";

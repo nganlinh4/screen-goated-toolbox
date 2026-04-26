@@ -434,6 +434,7 @@ export class VideoExporter {
     videoFilePath?: string;
     audio?: HTMLAudioElement | null;
     micAudio?: HTMLAudioElement | null;
+    musicSegments?: import("@/types/video").MusicAudioSegment[];
   }) {
     if (this.isExporting) {
       throw new Error('Export already in progress');
@@ -552,6 +553,7 @@ export class VideoExporter {
         backgroundConfig,
         webcamConfig: context.webcamConfig,
         mousePositions,
+        musicSegments: options.musicSegments ?? [],
       });
       const exportNullPaths = collectNullPaths(exportConfig, '$');
       if (exportNullPaths.length > 0) {

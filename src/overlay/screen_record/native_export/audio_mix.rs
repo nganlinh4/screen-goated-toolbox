@@ -16,7 +16,12 @@ const MIXER_INTEGRATION_STEP_SEC: f64 = 0.005;
 pub struct ExportAudioSource {
     pub path: String,
     pub volume_points: Vec<DeviceAudioPoint>,
+    /// Where on the project timeline this source begins playing.
     pub start_offset_sec: f64,
+    /// Optional source-internal trim — read from the source starting at
+    /// `source_in_sec` (default 0) and stop at `source_out_sec` (default end).
+    pub source_in_sec: Option<f64>,
+    pub source_out_sec: Option<f64>,
 }
 
 fn normalized_trim_segments(
@@ -174,6 +179,8 @@ fn try_build_single_source_ffmpeg_wav(
     if source.start_offset_sec.abs() > 0.0001
         || !volume_curve_is_flat_unity(&source.volume_points)
         || trim_segments.len() != 1
+        || source.source_in_sec.is_some()
+        || source.source_out_sec.is_some()
     {
         return Ok(None);
     }
@@ -421,9 +428,14 @@ fn mix_source_into_raw_file(
 
     let mut mapper = OutputTimeMapper::new(trim_segments.to_vec(), speed_points.to_vec());
     let mut segment_idx = 0usize;
-    if trim_segments[0].start_time > 0.0 {
-        let _ = decoder.seek((trim_segments[0].start_time * 10_000_000.0) as i64);
+    let initial_seek_sec = match source.source_in_sec {
+        Some(in_sec) if in_sec > 0.0 => in_sec,
+        _ => trim_segments[0].start_time.max(0.0),
+    };
+    if initial_seek_sec > 0.0 {
+        let _ = decoder.seek((initial_seek_sec * 10_000_000.0) as i64);
     }
+    let source_out_sec = source.source_out_sec.filter(|out| out.is_finite());
 
     let channels = decoder.channels() as usize;
     let mut stretcher =
@@ -437,6 +449,11 @@ fn mix_source_into_raw_file(
             break;
         };
         let decoded_time = ts_100ns as f64 / 10_000_000.0;
+        if let Some(out_sec) = source_out_sec {
+            if decoded_time >= out_sec {
+                break;
+            }
+        }
         let chunk_time = decoded_time + source.start_offset_sec;
         let Some(segment) = trim_segments.get(segment_idx) else {
             break;
@@ -554,9 +571,14 @@ fn build_single_source_preprocessed_wav(
     let mut writer = create_wav_writer(wav_path)?;
     let mut mapper = OutputTimeMapper::new(trim_segments.to_vec(), speed_points.to_vec());
     let mut segment_idx = 0usize;
-    if trim_segments[0].start_time > 0.0 {
-        let _ = decoder.seek((trim_segments[0].start_time * 10_000_000.0) as i64);
+    let initial_seek_sec = match source.source_in_sec {
+        Some(in_sec) if in_sec > 0.0 => in_sec,
+        _ => trim_segments[0].start_time.max(0.0),
+    };
+    if initial_seek_sec > 0.0 {
+        let _ = decoder.seek((initial_seek_sec * 10_000_000.0) as i64);
     }
+    let source_out_sec = source.source_out_sec.filter(|out| out.is_finite());
 
     let channels = decoder.channels() as usize;
     let mut stretcher =
@@ -570,6 +592,11 @@ fn build_single_source_preprocessed_wav(
             break;
         };
         let decoded_time = ts_100ns as f64 / 10_000_000.0;
+        if let Some(out_sec) = source_out_sec {
+            if decoded_time >= out_sec {
+                break;
+            }
+        }
         let chunk_time = decoded_time + source.start_offset_sec;
         let Some(segment) = trim_segments.get(segment_idx) else {
             break;
