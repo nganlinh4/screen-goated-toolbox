@@ -182,13 +182,47 @@ export function buildSubtitleGenerationPlan(params: {
   currentRawVideoPath: string;
   currentRawMicAudioPath: string;
   duration: number;
-  sourceType: 'video' | 'mic';
+  sourceType: 'video' | 'mic' | 'music';
   selectedRange?: TrackSelectionRange | null;
 }): SubtitleGenerationPlan {
   const indicator: SubtitleGenerationIndicator = {
     mode: params.selectedRange ? 'range' : 'full',
     range: params.selectedRange ?? null,
   };
+
+  // Music source: bypass per-clip composition logic and feed Gemini the
+  // raw audio file(s) directly. v1 uses the first segment only; multi-
+  // segment concat lands later. The MP4 export is never sent for music.
+  if (params.sourceType === 'music') {
+    const segments = params.composition?.musicSegments ?? [];
+    if (segments.length === 0) {
+      return { clips: [], replacementRangesByClip: {}, indicator };
+    }
+    const first = segments[0];
+    const trimmedDuration = Math.max(
+      first.outPoint - first.inPoint,
+      0.05,
+    );
+    if (!first.rawAudioPath) {
+      return { clips: [], replacementRangesByClip: {}, indicator };
+    }
+    return buildSingleClipPayload({
+      clipId: 'music',
+      clipName: first.name || 'Music',
+      sourcePath: first.rawAudioPath,
+      sourceDuration: trimmedDuration,
+      segment: {
+        ...(params.segment ?? ({} as VideoSegment)),
+        trimStart: 0,
+        trimEnd: trimmedDuration,
+        trimSegments: [
+          { id: 'music-range', startTime: 0, endTime: trimmedDuration },
+        ],
+      } as VideoSegment,
+      selectedRange: params.selectedRange,
+    });
+  }
+
   const effectiveMode = getEffectiveCompositionMode(params.composition);
 
   if (!params.composition || effectiveMode === 'separate') {
@@ -219,6 +253,7 @@ export function buildSubtitleGenerationPlan(params: {
 
   const replacementRangesByClip: SubtitleGenerationPlan['replacementRangesByClip'] = {};
   const clips = timeline.clips.flatMap((timelineClip) => {
+    // 'music' source was already handled at the top of this function.
     const sourcePath =
       params.sourceType === 'mic'
         ? timelineClip.clip.rawMicAudioPath ?? ''

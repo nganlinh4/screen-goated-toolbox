@@ -109,6 +109,7 @@ interface NativeCompositionExportRequest {
   outputDir: string;
   format: "mp4" | "gif" | "both";
   clips: NativeCompositionExportClipJob[];
+  musicSegments?: import("@/types/video").MusicAudioSegment[];
 }
 
 interface NativeCompositionExportResponse {
@@ -478,6 +479,7 @@ export async function exportCompositionAndDownload(
         outputDir: exportOptions.outputDir || "",
         format: exportOptions.format || "mp4",
         clips: clipJobs,
+        musicSegments: context.composition.musicSegments,
       } satisfies NativeCompositionExportRequest,
     );
   } finally {

@@ -140,6 +140,7 @@ function App() {
     duration,
     setDuration: setPreviewDuration,
     isPlaying,
+    setIsPlaying,
     isBuffering,
     isVideoReady,
     thumbnails,
@@ -243,7 +244,7 @@ function App() {
     hasSequenceChain,
     selectedClipId,
     activeClipId,
-    handleTogglePlayPause,
+    handleTogglePlayPause: handleVideoTogglePlayPause,
     handleOpenInsertProjectPicker,
     handlePickProjectForSequence,
     handleSelectSequenceClip,
@@ -322,6 +323,60 @@ function App() {
     loadedClipId,
     selectedClipId,
   });
+
+  // Virtual playback clock for audio-only projects — drives currentTime
+  // forward when isPlaying is true and there's no <video> element to tick
+  // the timeline. Deactivates the moment a video clip is loaded.
+  const isAudioOnlyPlayback = composition?.audioOnly === true && !currentVideo;
+  const audioOnlyClockTickRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!isAudioOnlyPlayback) return;
+    if (!isPlaying) return;
+    if (duration <= 0) return;
+
+    let rafId = 0;
+    let lastTick = performance.now();
+    const tick = () => {
+      const now = performance.now();
+      const dtSec = (now - lastTick) / 1000;
+      lastTick = now;
+      const next = currentTime + dtSec;
+      if (next >= duration) {
+        setCurrentTime(duration);
+        setIsPlaying(false);
+        return;
+      }
+      setCurrentTime(next);
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    audioOnlyClockTickRef.current = rafId;
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAudioOnlyPlayback, isPlaying, duration]);
+
+  const handleTogglePlayPause = useCallback(() => {
+    if (isAudioOnlyPlayback && duration > 0) {
+      setIsPlaying((prev) => {
+        // Restart from beginning if we're parked at the end.
+        if (!prev && currentTime >= duration - 0.05) {
+          setCurrentTime(0);
+        }
+        return !prev;
+      });
+      return;
+    }
+    handleVideoTogglePlayPause();
+  }, [
+    isAudioOnlyPlayback,
+    duration,
+    currentTime,
+    setIsPlaying,
+    setCurrentTime,
+    handleVideoTogglePlayPause,
+  ]);
 
   // FPS of the most-recent recording (set on stop, cleared when a different project loads).
   const [lastCaptureFps, setLastCaptureFps] = useState<number | null>(null);
@@ -701,6 +756,16 @@ function App() {
       await projects.handleLoadProject(project.id);
     },
   });
+
+  // Auto-pick the 'music' subtitle source whenever an audio-only project is
+  // active, so generation hits the raw audio file (not the rendered MP4).
+  useEffect(() => {
+    if (composition?.audioOnly && (composition.musicSegments?.length ?? 0) > 0) {
+      if (subtitleSource !== "music") {
+        setSubtitleSource("music");
+      }
+    }
+  }, [composition?.audioOnly, composition?.musicSegments, subtitleSource, setSubtitleSource]);
 
   // Music/SFX audio import — creates an audio-only project when nothing is
   // open, otherwise appends to composition.musicSegments on the current one.

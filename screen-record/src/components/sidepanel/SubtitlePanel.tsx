@@ -104,8 +104,8 @@ export interface SubtitlePanelProps {
   editingSubtitleId: string | null;
   selectedSubtitleIds?: string[];
   selectedSubtitleRange?: TrackSelectionRange | null;
-  selectedSource: 'video' | 'mic';
-  onSourceChange: (value: 'video' | 'mic') => void;
+  selectedSource: 'video' | 'mic' | 'music';
+  onSourceChange: (value: 'video' | 'mic' | 'music') => void;
   selectedMethod: SubtitleMethod;
   onMethodChange: (value: SubtitleMethod) => void;
   methodCapabilities: Array<{ method: SubtitleMethod; available: boolean; reason?: string | null }>;
@@ -121,6 +121,7 @@ export interface SubtitlePanelProps {
   statusMessage?: string | null;
   canUseVideoSource: boolean;
   canUseMicSource: boolean;
+  canUseMusicSource: boolean;
   onGenerate: () => void;
   onCancel: () => void;
   canExportSrt: boolean;
@@ -153,6 +154,7 @@ export function SubtitlePanel({
   statusMessage,
   canUseVideoSource,
   canUseMicSource,
+  canUseMusicSource,
   onGenerate,
   onCancel,
   canExportSrt,
@@ -176,7 +178,7 @@ export function SubtitlePanel({
     : sourceSubtitle
       ? [sourceSubtitle]
       : [];
-  const hasSubtitleSource = canUseVideoSource || canUseMicSource;
+  const hasSubtitleSource = canUseVideoSource || canUseMicSource || canUseMusicSource;
   const hasSubtitles = visibleSubtitles.length > 0;
   const subtitleActionDisabled = isGenerating
     || !hasSubtitleSource
@@ -269,6 +271,11 @@ export function SubtitlePanel({
       value: 'mic',
       label: t.subtitleSourceMic,
       disabled: !canUseMicSource,
+    },
+    {
+      value: 'music',
+      label: t.subtitleSourceMusic,
+      disabled: !canUseMusicSource,
     },
   ];
 
@@ -366,7 +373,7 @@ export function SubtitlePanel({
           <PanelSelect
             value={selectedSource}
             options={subtitleSourceOptions}
-            onChange={(value) => onSourceChange(value as 'video' | 'mic')}
+            onChange={(value) => onSourceChange(value as 'video' | 'mic' | 'music')}
             triggerClassName="subtitle-source-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
             contentClassName="subtitle-source-menu"
           />

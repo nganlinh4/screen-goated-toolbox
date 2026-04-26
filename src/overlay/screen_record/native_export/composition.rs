@@ -7,7 +7,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::de::DeserializeOwned;
 use serde_json::json;
 
-use super::config::{CompositionExportClipJob, CompositionExportConfig, ExportConfig};
+use super::config::{
+    CompositionExportClipJob, CompositionExportConfig, ExportConfig, MusicAudioSegmentConfig,
+};
 use super::progress::{ExportProgressUpdate, push_export_progress_update};
 use super::staging;
 
@@ -199,6 +201,7 @@ fn build_single_clip_config(
     export: &CompositionExportConfig,
     clip: &CompositionExportClipJob,
     temp_output_dir: &Path,
+    project_clip_start_sec: f64,
 ) -> ExportConfig {
     ExportConfig {
         width: export.width,
@@ -222,11 +225,54 @@ fn build_single_clip_config(
         baked_path: None,
         baked_cursor_path: None,
         mouse_positions: clip.mouse_positions.clone(),
-        // Music segments are project-level, not per-clip; the per-clip
-        // composition export path doesn't carry them. Music mixdown for
-        // composition exports is wired at the composition layer (TODO).
-        music_segments: Vec::new(),
+        music_segments: slice_music_for_clip(
+            &export.music_segments,
+            project_clip_start_sec,
+            clip.duration,
+        ),
     }
+}
+
+/// Convert project-relative music segments to clip-relative ones for the
+/// clip occupying `[clip_start, clip_start + clip_duration]` on the project
+/// timeline. Music segments fully outside the clip are dropped; partial
+/// overlaps are trimmed to the clip range with adjusted in/out points.
+fn slice_music_for_clip(
+    project_segments: &[MusicAudioSegmentConfig],
+    clip_start: f64,
+    clip_duration: f64,
+) -> Vec<MusicAudioSegmentConfig> {
+    if clip_duration <= 0.0 || project_segments.is_empty() {
+        return Vec::new();
+    }
+    let clip_end = clip_start + clip_duration;
+    let mut out = Vec::new();
+    for seg in project_segments {
+        let trimmed_len = (seg.out_point - seg.in_point).max(0.0);
+        if trimmed_len <= 0.0 || seg.raw_audio_path.trim().is_empty() {
+            continue;
+        }
+        let seg_proj_start = seg.start_time;
+        let seg_proj_end = seg_proj_start + trimmed_len;
+        let overlap_start = seg_proj_start.max(clip_start);
+        let overlap_end = seg_proj_end.min(clip_end);
+        if overlap_end - overlap_start <= 0.0001 {
+            continue;
+        }
+        let local_start = overlap_start - clip_start;
+        let in_offset = overlap_start - seg_proj_start;
+        let local_in = seg.in_point + in_offset.max(0.0);
+        let local_out = local_in + (overlap_end - overlap_start);
+        out.push(MusicAudioSegmentConfig {
+            raw_audio_path: seg.raw_audio_path.clone(),
+            duration: seg.duration,
+            start_time: local_start,
+            in_point: local_in,
+            out_point: local_out,
+            volume_points: seg.volume_points.clone(),
+        });
+    }
+    out
 }
 
 fn cleanup_file(path: &Path) {
@@ -278,6 +324,10 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
     });
 
     let result = (|| -> Result<serde_json::Value, String> {
+        // Track cumulative project time so each clip knows where it sits on
+        // the global timeline and can receive its slice of the project-wide
+        // music track.
+        let mut project_clip_start_sec = 0.0_f64;
         for (index, clip) in export.clips.iter().enumerate() {
             if !Path::new(&clip.source_video_path).exists() {
                 return Err(format!(
@@ -287,7 +337,9 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
             }
 
             let staged = staging::take_staged_for(&export.session_id, &clip.job_id);
-            let temp_clip_config = build_single_clip_config(&export, clip, &temp_root);
+            let temp_clip_config =
+                build_single_clip_config(&export, clip, &temp_root, project_clip_start_sec);
+            project_clip_start_sec += clip.duration.max(0.0);
             let clip_index = index as u32 + 1;
             let clip_name = clip.clip_name.clone();
             let render_start_pct = render_phase_end * index as f64 / clip_count as f64;

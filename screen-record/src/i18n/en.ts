@@ -152,6 +152,7 @@ const en = {
   subtitleSource: 'Source',
   subtitleSourceVideo: 'Video / System Audio',
   subtitleSourceMic: 'Mic Audio',
+  subtitleSourceMusic: 'Music',
   subtitleMethod: 'Method',
   subtitleMethodGroqWhisperAccurate: 'Groq Whisper Large v3',
   subtitleMethodGroqWhisperLargeV3Turbo: 'Groq Whisper Large v3 Turbo',
