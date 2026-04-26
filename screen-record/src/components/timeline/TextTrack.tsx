@@ -22,6 +22,7 @@ interface TextTrackProps {
   editingTextId: string | null;
   onTextClick: (id: string) => void;
   onTextSplit?: (id: string, splitTime: number) => void;
+  onTextDuplicate?: (id: string) => void;
   onHandleDragStart: (id: string, type: 'start' | 'end' | 'body', offset?: number) => void;
   onAddText?: (atTime?: number) => void;
   onDeleteTextSegments?: (ids: string[]) => void;
@@ -35,6 +36,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
   editingTextId,
   onTextClick,
   onTextSplit,
+  onTextDuplicate,
   onHandleDragStart,
   onAddText,
   onDeleteTextSegments,
@@ -135,6 +137,10 @@ export const TextTrack: React.FC<TextTrackProps> = ({
               addSegmentSelection(text.id, { shiftKey: true });
             }
             onTextClick(text.id);
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            onTextDuplicate?.(text.id);
           }}
           className="text-segment timeline-block absolute h-full cursor-move group"
           data-tone="accent"
