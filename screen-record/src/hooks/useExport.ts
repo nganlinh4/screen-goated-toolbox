@@ -303,6 +303,7 @@ export function useExport(props: UseExportProps) {
       micAudioFilePath: props.micAudioFilePath || "",
       webcamVideoFilePath: props.webcamVideoFilePath || "",
       videoFilePath: sourceVideoPath,
+      musicSegments: props.composition?.musicSegments,
     }),
     [
       exportOptions.width,
@@ -326,6 +327,7 @@ export function useExport(props: UseExportProps) {
       props.micAudioFilePath,
       props.webcamVideoRef,
       props.webcamVideoFilePath,
+      props.composition,
     ],
   );
 

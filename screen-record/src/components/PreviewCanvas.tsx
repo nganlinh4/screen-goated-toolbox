@@ -195,6 +195,7 @@ export function PreviewCanvas({
               loadingProgress={loadingProgress}
               isRecording={isRecording}
               recordingDuration={recordingDuration}
+              musicSegments={musicSegments}
             />
           )}
 

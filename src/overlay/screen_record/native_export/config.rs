@@ -37,6 +37,9 @@ pub struct ExportConfig {
     /// Raw mouse positions sent from frontend; Rust generates baked cursor path from these.
     #[serde(default)]
     pub mouse_positions: Vec<MousePosition>,
+    /// User-supplied music/sfx files placed on the project-wide Audio track.
+    #[serde(default)]
+    pub music_segments: Vec<MusicAudioSegmentConfig>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -117,6 +120,20 @@ pub struct SpeedPoint {
 pub struct DeviceAudioPoint {
     pub time: f64,
     pub volume: f64,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicAudioSegmentConfig {
+    pub raw_audio_path: String,
+    pub duration: f64,
+    pub start_time: f64,
+    #[serde(default)]
+    pub in_point: f64,
+    #[serde(default)]
+    pub out_point: f64,
+    #[serde(default)]
+    pub volume_points: Vec<DeviceAudioPoint>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
