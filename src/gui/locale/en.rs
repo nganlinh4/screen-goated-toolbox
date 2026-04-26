@@ -265,6 +265,8 @@ pub fn get() -> LocaleText {
         drop_overlay_text: "Drop here to process",
         video_drop_work_record: "Work with SGT Record",
         video_drop_generate_subtitles: "Generate subtitles now",
+        audio_drop_add_to_record: "Add to SGT Record",
+        audio_drop_use_preset: "Use audio preset",
         // --- REALTIME EGUI SPECIFIC EN ---
         device_mode_warning: "⚠ Device audio selected but no app chosen",
         select_app_btn: "Select App",

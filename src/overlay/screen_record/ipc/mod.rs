@@ -163,6 +163,10 @@ pub fn handle_ipc_command(
             super::take_pending_video_drop_actions(),
         )
         .unwrap_or_else(|_| serde_json::json!([]))),
+        "take_pending_audio_drop_actions" => Ok(serde_json::to_value(
+            super::take_pending_audio_drop_actions(),
+        )
+        .unwrap_or_else(|_| serde_json::json!([]))),
         "generate_thumbnails" => {
             let path = args["path"].as_str().ok_or("Missing path")?;
             let count = args["count"].as_u64().unwrap_or(20) as u32;

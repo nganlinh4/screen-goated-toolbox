@@ -66,6 +66,12 @@ thread_local! {
 lazy_static::lazy_static! {
     pub static ref SERVER_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
     static ref PENDING_VIDEO_DROP_ACTIONS: std::sync::Mutex<Vec<VideoDropAction>> = std::sync::Mutex::new(Vec::new());
+    static ref PENDING_AUDIO_DROP_ACTIONS: std::sync::Mutex<Vec<AudioDropAction>> = std::sync::Mutex::new(Vec::new());
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct AudioDropAction {
+    pub path: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -257,6 +263,17 @@ pub fn queue_video_drop_action(path: String, action: String) {
 
 pub(crate) fn take_pending_video_drop_actions() -> Vec<VideoDropAction> {
     std::mem::take(&mut *PENDING_VIDEO_DROP_ACTIONS.lock().unwrap())
+}
+
+pub fn queue_audio_drop_action(path: String) {
+    PENDING_AUDIO_DROP_ACTIONS
+        .lock()
+        .unwrap()
+        .push(AudioDropAction { path });
+}
+
+pub(crate) fn take_pending_audio_drop_actions() -> Vec<AudioDropAction> {
+    std::mem::take(&mut *PENDING_AUDIO_DROP_ACTIONS.lock().unwrap())
 }
 
 pub fn toggle_recording() {

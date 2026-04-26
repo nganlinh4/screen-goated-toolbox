@@ -353,6 +353,58 @@ fn process_video_path(path: &Path) {
     }
 }
 
+fn open_audio_in_screen_record(path: &Path) {
+    let path = path.to_string_lossy().to_string();
+    crate::overlay::screen_record::queue_audio_drop_action(path);
+    crate::overlay::screen_record::show_screen_record();
+    std::thread::spawn(move || {
+        let script = "window.dispatchEvent(new CustomEvent('sgt-audio-drop-pending'));".to_string();
+        for _ in 0..80 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if crate::overlay::screen_record::post_script(script.clone()) {
+                return;
+            }
+        }
+        crate::log_info!("[AudioDrop] Failed to dispatch audio action to SGT Record");
+    });
+}
+
+fn process_audio_path(path: &Path) {
+    const ACTION_ADD_TO_RECORD: usize = 0;
+    const ACTION_USE_PRESET: usize = 1;
+
+    let cursor_pos = get_cursor_pos();
+    let (record_label, preset_label) = {
+        let app = APP.lock().unwrap();
+        let locale = crate::gui::locale::LocaleText::get(&app.config.ui_language);
+        (
+            locale.audio_drop_add_to_record.to_string(),
+            locale.audio_drop_use_preset.to_string(),
+        )
+    };
+
+    let selected = show_custom_wheel(
+        vec![
+            (ACTION_ADD_TO_RECORD, record_label),
+            (ACTION_USE_PRESET, preset_label),
+        ],
+        cursor_pos,
+    );
+
+    match selected {
+        Some(ACTION_ADD_TO_RECORD) => open_audio_in_screen_record(path),
+        Some(ACTION_USE_PRESET) => {
+            let path_clone = path.to_path_buf();
+            let (tx, rx) = mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(load_audio_file(&path_clone));
+            });
+            process_audio_parallel(rx);
+        }
+        _ => {}
+    }
+}
+
 /// Process a single file path (public for context menu usage)
 pub fn process_file_path(path: &Path) {
     crate::log_info!("Processing file path: {:?}", path);
@@ -381,11 +433,7 @@ pub fn process_file_path(path: &Path) {
         process_image_parallel(rx);
     } else if is_audio_extension(ext) {
         crate::log_info!("Type detected: AUDIO");
-        let (tx, rx) = mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = tx.send(load_audio_file(&path_clone));
-        });
-        process_audio_parallel(rx);
+        process_audio_path(path);
     } else {
         crate::log_info!("Type detected: TEXT (Default)");
         // Default to Text (covers text files and unknown extensions)
