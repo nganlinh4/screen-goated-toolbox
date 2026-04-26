@@ -67,10 +67,10 @@ const SUBTITLE_PARTIAL_APPLY_INTERVAL_MS = 2500;
 const SUBTITLE_PARTIAL_TEXT_REFRESH_MS = 5000;
 const SUBTITLE_APPLY_PERF_LOG_INTERVAL_MS = 1000;
 
-function getInitialSubtitleSource(): 'video' | 'mic' {
+function getInitialSubtitleSource(): 'video' | 'mic' | 'music' {
   try {
     const raw = localStorage.getItem(SUBTITLE_SOURCE_KEY);
-    if (raw === 'video' || raw === 'mic') {
+    if (raw === 'video' || raw === 'mic' || raw === 'music') {
       return raw;
     }
   } catch {
@@ -393,7 +393,7 @@ export function useSubtitleGeneration({
   setActivePanel,
 }: UseSubtitleGenerationParams) {
   const [editingSubtitleId, setEditingSubtitleId] = useState<string | null>(null);
-  const [sourceType, setSourceType] = useState<'video' | 'mic'>(getInitialSubtitleSource);
+  const [sourceType, setSourceType] = useState<'video' | 'mic' | 'music'>(getInitialSubtitleSource);
   const [subtitleMethod, setSubtitleMethodState] = useState<SubtitleMethod>(getInitialSubtitleMethod);
   const [subtitleMethodNotice, setSubtitleMethodNotice] = useState<string | null>(null);
   const [languageHint, setLanguageHint] = useState(getInitialSubtitleLanguageHint);
@@ -518,6 +518,10 @@ export function useSubtitleGeneration({
     }
     return !!currentRawMicAudioPath;
   }, [composition, currentRawMicAudioPath]);
+
+  const canUseMusicSource = useMemo(() => {
+    return (composition?.musicSegments?.length ?? 0) > 0;
+  }, [composition]);
 
   const refreshSubtitleCapabilities = useCallback(async () => {
     const nextCapabilities = await invoke<SubtitleGenerationCapabilities>(
@@ -1039,6 +1043,7 @@ export function useSubtitleGeneration({
     subtitleGenerationIndicator: jobContext?.indicator ?? null,
     canUseVideoSubtitleSource: canUseVideoSource,
     canUseMicSubtitleSource: canUseMicSource,
+    canUseMusicSubtitleSource: canUseMusicSource,
     handleGenerateSubtitles,
     handleCancelSubtitleGeneration,
   };

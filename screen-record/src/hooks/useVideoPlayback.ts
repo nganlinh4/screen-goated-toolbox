@@ -528,6 +528,7 @@ export function useVideoPlayback({
     duration,
     setDuration,
     isPlaying,
+    setIsPlaying,
     isBuffering,
     isVideoReady,
     setIsVideoReady,

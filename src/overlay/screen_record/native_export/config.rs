@@ -86,6 +86,10 @@ pub struct CompositionExportConfig {
     pub format: String,
     #[serde(default)]
     pub clips: Vec<CompositionExportClipJob>,
+    /// Project-wide music segments. Each clip in the composition gets a
+    /// per-clip slice of these computed at export time.
+    #[serde(default)]
+    pub music_segments: Vec<MusicAudioSegmentConfig>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

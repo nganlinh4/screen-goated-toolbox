@@ -117,8 +117,8 @@ interface SidePanelProps {
   editingSubtitleId: string | null;
   selectedSubtitleIds?: string[];
   selectedSubtitleRange?: TrackSelectionRange | null;
-  subtitleSource: 'video' | 'mic';
-  onSubtitleSourceChange: (value: 'video' | 'mic') => void;
+  subtitleSource: 'video' | 'mic' | 'music';
+  onSubtitleSourceChange: (value: 'video' | 'mic' | 'music') => void;
   subtitleMethod: SubtitleMethod;
   onSubtitleMethodChange: (value: SubtitleMethod) => void;
   subtitleMethodCapabilities: Array<{ method: SubtitleMethod; available: boolean; reason?: string | null }>;
@@ -134,6 +134,7 @@ interface SidePanelProps {
   subtitleStatusMessage?: string | null;
   canUseVideoSubtitleSource: boolean;
   canUseMicSubtitleSource: boolean;
+  canUseMusicSubtitleSource: boolean;
   onGenerateSubtitles: () => void;
   onCancelSubtitleGeneration: () => void;
   canExportSubtitleSrt: boolean;
@@ -190,6 +191,7 @@ export function SidePanel({
   subtitleStatusMessage,
   canUseVideoSubtitleSource,
   canUseMicSubtitleSource,
+  canUseMusicSubtitleSource,
   onGenerateSubtitles,
   onCancelSubtitleGeneration,
   canExportSubtitleSrt,
@@ -319,6 +321,7 @@ export function SidePanel({
           statusMessage={subtitleStatusMessage}
           canUseVideoSource={canUseVideoSubtitleSource}
           canUseMicSource={canUseMicSubtitleSource}
+          canUseMusicSource={canUseMusicSubtitleSource}
           onGenerate={onGenerateSubtitles}
           onCancel={onCancelSubtitleGeneration}
           canExportSrt={canExportSubtitleSrt}

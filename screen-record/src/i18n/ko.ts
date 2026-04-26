@@ -154,6 +154,7 @@ const ko: Translations = {
   subtitleSource: '소스',
   subtitleSourceVideo: '비디오 / 시스템 오디오',
   subtitleSourceMic: '마이크',
+  subtitleSourceMusic: '음악',
   subtitleMethod: '방식',
   subtitleMethodGroqWhisperAccurate: 'Groq Whisper Large v3',
   subtitleMethodGroqWhisperLargeV3Turbo: 'Groq Whisper Large v3 Turbo',

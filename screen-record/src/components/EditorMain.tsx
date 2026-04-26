@@ -115,8 +115,8 @@ export interface EditorMainProps {
   isBackgroundUploadProcessing: boolean;
   editingTextId: string | null;
   editingSubtitleId: string | null;
-  subtitleSource: 'video' | 'mic';
-  onSubtitleSourceChange: (value: 'video' | 'mic') => void;
+  subtitleSource: 'video' | 'mic' | 'music';
+  onSubtitleSourceChange: (value: 'video' | 'mic' | 'music') => void;
   subtitleMethod: SubtitleMethod;
   onSubtitleMethodChange: (value: SubtitleMethod) => void;
   subtitleMethodCapabilities: Array<{ method: SubtitleMethod; available: boolean; reason?: string | null }>;
@@ -627,6 +627,7 @@ export function EditorMain({
             subtitleStatusMessage={subtitleStatusMessage}
             canUseVideoSubtitleSource={segment?.deviceAudioAvailable !== false}
             canUseMicSubtitleSource={Boolean(segment?.micAudioAvailable)}
+            canUseMusicSubtitleSource={(composition?.musicSegments?.length ?? 0) > 0}
             onGenerateSubtitles={() => handleGenerateSubtitles(null)}
             onCancelSubtitleGeneration={handleCancelSubtitleGeneration}
             canExportSubtitleSrt={canExportSubtitleSrt}

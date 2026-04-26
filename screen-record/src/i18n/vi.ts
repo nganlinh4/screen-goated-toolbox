@@ -154,6 +154,7 @@ const vi: Translations = {
   subtitleSource: 'Nguồn',
   subtitleSourceVideo: 'Video / Âm Thanh Hệ Thống',
   subtitleSourceMic: 'Mic',
+  subtitleSourceMusic: 'Nhạc',
   subtitleMethod: 'Phương Thức',
   subtitleMethodGroqWhisperAccurate: 'Groq Whisper Large v3',
   subtitleMethodGroqWhisperLargeV3Turbo: 'Groq Whisper Large v3 Turbo',
