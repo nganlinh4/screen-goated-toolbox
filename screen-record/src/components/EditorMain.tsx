@@ -534,6 +534,9 @@ export function EditorMain({
             onCanvasResizeDragStateChange={setIsCanvasResizeDragging}
             seekIndicatorDir={seekIndicatorDir}
             seekIndicatorKey={seekIndicatorKey}
+            musicSegments={composition?.musicSegments}
+            currentTime={currentTime}
+            isPlaying={isPlaying}
           />
 
           <PlaybackControlsRow
@@ -623,6 +626,7 @@ export function EditorMain({
             subtitleTranslation={subtitleTranslation}
             selectedTextIds={selectedTextIds}
             hasMouseData={mousePositionsLength > 0}
+            isAudioOnlyProject={composition?.audioOnly === true}
             onUpdateSegment={setSegment as (segment: VideoSegment) => void}
             beginBatch={beginBatch}
             commitBatch={commitBatch}

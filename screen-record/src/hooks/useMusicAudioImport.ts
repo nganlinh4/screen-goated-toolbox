@@ -98,6 +98,7 @@ export function useMusicAudioImport(
     async (segment: MusicAudioSegment): Promise<Project> => {
       const safeDuration = segment.duration > 0 ? segment.duration : 1;
       const videoSegment = buildAudioOnlySegment(safeDuration);
+      const rootClipId = "root";
       return projectManager.saveProject({
         name: segment.name,
         segment: videoSegment,
@@ -107,9 +108,20 @@ export function useMusicAudioImport(
         duration: safeDuration,
         composition: {
           mode: "separate",
-          selectedClipId: null,
-          focusedClipId: null,
-          clips: [],
+          selectedClipId: rootClipId,
+          focusedClipId: rootClipId,
+          clips: [
+            {
+              id: rootClipId,
+              role: "root",
+              name: segment.name,
+              duration: safeDuration,
+              segment: videoSegment,
+              backgroundConfig: { ...DEFAULT_BACKGROUND_CONFIG },
+              mousePositions: [],
+              recordingMode: "imported",
+            },
+          ],
           musicSegments: [segment],
           audioOnly: true,
         },

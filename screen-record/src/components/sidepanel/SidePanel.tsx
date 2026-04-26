@@ -141,6 +141,11 @@ interface SidePanelProps {
   subtitleTranslation: ReturnType<typeof useSubtitleTranslation>;
   selectedTextIds?: string[];
   hasMouseData?: boolean;
+  /**
+   * When true, hides every tab except Subtitles. Set when the project was
+   * created from a music drop and has no video clip.
+   */
+  isAudioOnlyProject?: boolean;
   onUpdateSegment: (segment: VideoSegment) => void;
   beginBatch: () => void;
   commitBatch: () => void;
@@ -192,6 +197,7 @@ export function SidePanel({
   subtitleTranslation,
   selectedTextIds,
   hasMouseData,
+  isAudioOnlyProject = false,
   onUpdateSegment,
   beginBatch,
   commitBatch
@@ -206,6 +212,15 @@ export function SidePanel({
   if (!hasZoomFocus) hiddenTabs.add('zoom');
   if (!hasTextFocus) hiddenTabs.add('text');
   if (!hasSubtitlePanel) hiddenTabs.add('subtitles');
+  // Audio-only projects (created from a music drop) only expose Subtitles.
+  if (isAudioOnlyProject) {
+    hiddenTabs.add('zoom');
+    hiddenTabs.add('camera');
+    hiddenTabs.add('background');
+    hiddenTabs.add('cursor');
+    hiddenTabs.add('blur');
+    hiddenTabs.add('text');
+  }
   const visiblePanelOrder = PANEL_TAB_ORDER.filter((id) => !hiddenTabs.has(id));
   // If active panel got hidden, fall back to first visible tab
   const effectivePanel = hiddenTabs.has(activePanel) ? (visiblePanelOrder[0] ?? 'background') : activePanel;
