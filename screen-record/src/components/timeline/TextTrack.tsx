@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Scissors } from 'lucide-react';
 import { VideoSegment, TextSegment } from '@/types/video';
 import {
@@ -51,6 +51,8 @@ export const TextTrack: React.FC<TextTrackProps> = ({
 
   const safeDuration = Math.max(duration, 0.001);
   const texts = segment.textSegments ?? [];
+  const lastClickRef = useRef<{ id: string | null; time: number }>({ id: null, time: 0 });
+  const DOUBLE_CLICK_MS = 350;
 
   const {
     selectedIds, rangeSelect, trackRef, isDraggingRange,
@@ -120,6 +122,23 @@ export const TextTrack: React.FC<TextTrackProps> = ({
           key={text.id}
           onPointerDown={(e) => {
             if (e.shiftKey || e.ctrlKey) return;
+            // Manual double-click detection on pointerdown — pointerdown
+            // fires synchronously before any drag-state cascade, so it's
+            // robust against the body-drag taking over the click chain.
+            const now = performance.now();
+            const last = lastClickRef.current;
+            const isDouble =
+              !!onTextDuplicate
+              && last.id === text.id
+              && now - last.time < DOUBLE_CLICK_MS;
+            if (isDouble) {
+              e.stopPropagation();
+              e.preventDefault();
+              lastClickRef.current = { id: null, time: 0 };
+              onTextDuplicate?.(text.id);
+              return;
+            }
+            lastClickRef.current = { id: text.id, time: now };
             const preserveGroupDrag = selectedIds.has(text.id) && selectedIds.size > 1;
             if (!preserveGroupDrag) {
               addSegmentSelection(text.id);
@@ -137,10 +156,6 @@ export const TextTrack: React.FC<TextTrackProps> = ({
               addSegmentSelection(text.id, { shiftKey: true });
             }
             onTextClick(text.id);
-          }}
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            onTextDuplicate?.(text.id);
           }}
           className="text-segment timeline-block absolute h-full cursor-move group"
           data-tone="accent"

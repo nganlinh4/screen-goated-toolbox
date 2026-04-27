@@ -531,16 +531,26 @@ export function handleMouseDown(
   canvas: HTMLCanvasElement,
   dragState: TextDragState,
   selection?: OverlayDragSelection,
+  currentTime?: number,
 ): OverlayDragHit | null {
   const rect = canvas.getBoundingClientRect();
   const x = (e.clientX - rect.left) * (canvas.width / rect.width);
   const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+  // Subtitles are already time-filtered by getVisibleSubtitleSegments.
+  // Text segments must be filtered too — otherwise hit-testing iterates
+  // every text in the project and the cursor often lands on the *last*
+  // text in the array (default-centered), not the one currently visible.
+  const visibleTexts = currentTime !== undefined
+    ? (segment.textSegments ?? []).filter(
+        (text) => currentTime >= text.startTime && currentTime <= text.endTime,
+      )
+    : (segment.textSegments ?? []);
   const overlays = [
     ...getVisibleSubtitleSegments(segment).map((subtitle) => ({
       kind: 'subtitle' as const,
       segment: subtitle,
     })),
-    ...(segment.textSegments ?? []).map((text) => ({
+    ...visibleTexts.map((text) => ({
       kind: 'text' as const,
       segment: text,
     })),
