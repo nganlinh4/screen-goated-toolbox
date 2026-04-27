@@ -554,8 +554,9 @@ class VideoRenderer {
       selectedTextIds?: readonly string[];
       selectedSubtitleIds?: readonly string[];
     },
+    currentTime?: number,
   ) {
-    return textMouseDown(e, segment, canvas, this.textDragState, selection);
+    return textMouseDown(e, segment, canvas, this.textDragState, selection, currentTime);
   }
 
   public handleMouseMove(

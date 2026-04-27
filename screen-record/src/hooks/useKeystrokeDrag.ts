@@ -118,10 +118,16 @@ export function useKeystrokeDrag({
           }
         }
       }
-      const hit = videoRenderer.handleMouseDown(e, liveSegment, canvas, {
-        selectedTextIds: selectedTextIdsRef.current,
-        selectedSubtitleIds: selectedSubtitleIdsRef.current,
-      });
+      const hit = videoRenderer.handleMouseDown(
+        e,
+        liveSegment,
+        canvas,
+        {
+          selectedTextIds: selectedTextIdsRef.current,
+          selectedSubtitleIds: selectedSubtitleIdsRef.current,
+        },
+        currentTime,
+      );
       if (hit) {
         e.stopPropagation();
         e.preventDefault();

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Scissors } from 'lucide-react';
 import { SubtitleSegment, VideoSegment } from '@/types/video';
 import type {
@@ -68,6 +68,8 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
 
   const safeDuration = Math.max(duration, 0.001);
   const subtitles = getVisibleSubtitleSegments(segment);
+  const lastClickRef = useRef<{ id: string | null; time: number }>({ id: null, time: 0 });
+  const DOUBLE_CLICK_MS = 350;
 
   const {
     selectedIds, selectedRange, rangeSelect, activeDragMode, trackRef, isDraggingRange,
@@ -180,6 +182,20 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
           key={subtitle.id}
           onPointerDown={(e) => {
             if (e.shiftKey || e.ctrlKey) return;
+            const now = performance.now();
+            const last = lastClickRef.current;
+            const isDouble =
+              !!onSubtitleDuplicate
+              && last.id === subtitle.id
+              && now - last.time < DOUBLE_CLICK_MS;
+            if (isDouble) {
+              e.stopPropagation();
+              e.preventDefault();
+              lastClickRef.current = { id: null, time: 0 };
+              onSubtitleDuplicate?.(subtitle.id);
+              return;
+            }
+            lastClickRef.current = { id: subtitle.id, time: now };
             const preserveGroupDrag = selectedIds.has(subtitle.id) && selectedIds.size > 1;
             if (!preserveGroupDrag) {
               addSegmentSelection(subtitle.id);
@@ -198,10 +214,6 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
               addSegmentSelection(subtitle.id, { shiftKey: true });
             }
             onSubtitleClick(subtitle.id);
-          }}
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            onSubtitleDuplicate?.(subtitle.id);
           }}
           className="subtitle-segment timeline-block absolute h-full cursor-move group"
           data-tone="accent"
