@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Video, Trash2, Play, X, Upload, Music } from "lucide-react";
+import { Video, Trash2, Play, X, Upload, AudioLines } from "lucide-react";
 import { Project } from "@/types/video";
 import { projectManager } from "@/lib/projectManager";
 import { useSettings } from "@/hooks/useSettings";
@@ -148,7 +148,7 @@ export function ProjectsView({
             )}
             {!isPickerMode && onImportAudio && (
               <label className="projects-import-audio-btn ui-chip-button rounded-lg px-2.5 py-1 text-xs font-medium cursor-pointer flex items-center gap-1.5 text-[var(--primary-color)] hover:text-[var(--primary-color)]">
-                <Music className="w-3 h-3" />
+                <AudioLines className="w-3 h-3" />
                 {t.importAudio}
                 <input type="file" accept="audio/*" className="hidden" onChange={(e) => {
                   const file = e.target.files?.[0];

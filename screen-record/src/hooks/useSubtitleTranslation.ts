@@ -11,6 +11,11 @@ import {
 } from '@/lib/sequenceTimeline';
 import { SUBTITLE_LANGUAGE_OPTIONS } from '@/lib/subtitleLanguageOptions';
 import {
+  getSubtitleSourceGroupId,
+  subtitleOverlapsSourceGroup,
+  type SubtitleSourceGroupId,
+} from '@/lib/subtitleSourceGroups';
+import {
   collectSubtitleIdsForTranslation,
   ensureTranslatedTrack,
   patchSubtitleTrackTexts,
@@ -37,6 +42,9 @@ import type {
 const SUBTITLE_TRANSLATION_LANGUAGE_KEY = 'screen-record-subtitle-translation-language-v1';
 const SUBTITLE_TRANSLATION_CHUNK_COUNT_KEY = 'screen-record-subtitle-translation-chunk-count-v1';
 const SUBTITLE_TRANSLATION_INSTRUCTIONS_KEY = 'screen-record-subtitle-translation-instructions-v1';
+const SUBTITLE_TRANSLATION_SOURCE_KEY = 'screen-record-subtitle-translation-source-v1';
+
+export type SubtitleTranslationSource = 'current' | Exclude<SubtitleSourceGroupId, 'unassigned'>;
 
 interface SubtitleTranslationResultItem {
   id: string;
@@ -132,6 +140,24 @@ function getInitialTranslationInstructions(): string {
   return '';
 }
 
+function getInitialTranslationSource(): SubtitleTranslationSource {
+  try {
+    const raw = localStorage.getItem(SUBTITLE_TRANSLATION_SOURCE_KEY);
+    if (
+      raw === 'current' ||
+      raw === 'video' ||
+      raw === 'mic' ||
+      raw === 'audio' ||
+      raw?.startsWith('audio:')
+    ) {
+      return raw as SubtitleTranslationSource;
+    }
+  } catch {
+    // ignore persistence failures
+  }
+  return 'current';
+}
+
 function formatTemplate(template: string, params?: Record<string, string> | null) {
   let formatted = template;
   for (const [key, value] of Object.entries(params ?? {})) {
@@ -156,6 +182,7 @@ function buildTranslationItems(
   segment: VideoSegment | null,
   selectedSubtitleIds: readonly string[],
   editingSubtitleId: string | null,
+  source: SubtitleTranslationSource,
 ) {
   if (!segment) return [];
   const targetIds = new Set(
@@ -165,10 +192,21 @@ function buildTranslationItems(
   const originalTrack = tracks.find((track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID);
   return (originalTrack?.segments ?? [])
     .filter((subtitle) => targetIds.has(subtitle.id))
+    .filter((subtitle) => source === 'current' || subtitleOverlapsSourceGroup(subtitle, source))
+    .sort((left, right) => {
+      if (source !== 'audio') return left.startTime - right.startTime;
+      const groupCompare = getSubtitleSourceGroupId(left).localeCompare(getSubtitleSourceGroupId(right));
+      return groupCompare || left.startTime - right.startTime;
+    })
     .map((subtitle) => ({
       id: subtitle.id,
       clipId: 'root',
       text: subtitle.text,
+      sourceGroupId:
+        source === 'current' || source === 'audio'
+          ? getSubtitleSourceGroupId(subtitle)
+          : source,
+      sourceName: subtitle.sourceGroup?.sourceName ?? subtitle.provenance?.sourceName ?? null,
     }));
 }
 
@@ -176,6 +214,7 @@ function buildCompositionTranslationItems(
   composition: ProjectComposition,
   selectedSubtitleIds: readonly string[],
   editingSubtitleId: string | null,
+  source: SubtitleTranslationSource,
 ) {
   const targetIds = new Set<string>(
     selectedSubtitleIds.length > 0
@@ -194,10 +233,21 @@ function buildCompositionTranslationItems(
     );
     return (originalTrack?.segments ?? [])
       .filter((subtitle) => targetIds.has(subtitle.id))
+      .filter((subtitle) => source === 'current' || subtitleOverlapsSourceGroup(subtitle, source))
+      .sort((left, right) => {
+        if (source !== 'audio') return left.startTime - right.startTime;
+        const groupCompare = getSubtitleSourceGroupId(left).localeCompare(getSubtitleSourceGroupId(right));
+        return groupCompare || left.startTime - right.startTime;
+      })
       .map((subtitle) => ({
         id: subtitle.id,
         clipId: clip.id,
         text: subtitle.text,
+        sourceGroupId:
+          source === 'current' || source === 'audio'
+            ? getSubtitleSourceGroupId(subtitle)
+            : source,
+        sourceName: subtitle.sourceGroup?.sourceName ?? subtitle.provenance?.sourceName ?? null,
       }));
   });
 }
@@ -273,6 +323,7 @@ export function useSubtitleTranslation({
   const [chunkCount, setChunkCount] = useState(getInitialTranslationChunkCount);
   const [isChunkSliderDragging, setIsChunkSliderDragging] = useState(false);
   const [instructions, setInstructions] = useState(getInitialTranslationInstructions);
+  const [translationSource, setTranslationSource] = useState<SubtitleTranslationSource>(getInitialTranslationSource);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobContext, setJobContext] = useState<SubtitleTranslationJobContext | null>(null);
   const [status, setStatus] = useState<SubtitleTranslationJobStatus | null>(null);
@@ -305,6 +356,14 @@ export function useSubtitleTranslation({
   }, [instructions]);
 
   useEffect(() => {
+    try {
+      localStorage.setItem(SUBTITLE_TRANSLATION_SOURCE_KEY, translationSource);
+    } catch {
+      // ignore persistence failures
+    }
+  }, [translationSource]);
+
+  useEffect(() => {
     activeJobIdRef.current = jobId;
   }, [jobId]);
 
@@ -323,9 +382,10 @@ export function useSubtitleTranslation({
     if (activeJobId) {
       void invoke('cancel_subtitle_translation', { jobId: activeJobId }).catch(() => {});
     }
-    setJobId(null);
-    setJobContext(null);
-    setStatus(null);
+      setJobId(null);
+      setJobContext(null);
+      setStatus(null);
+      setTranslationSource('current');
   }, [projectResetKey]);
 
   const refreshCapabilities = useCallback(async () => {
@@ -411,9 +471,29 @@ export function useSubtitleTranslation({
   const selectedTranslationItems = useMemo(() => {
     if (!segment) return [];
     if (!composition || getEffectiveCompositionMode(composition) === 'separate') {
-      return buildTranslationItems(segment, selectedSubtitleIds, editingSubtitleId);
+      return buildTranslationItems(segment, selectedSubtitleIds, editingSubtitleId, translationSource);
     }
-    return buildCompositionTranslationItems(composition, selectedSubtitleIds, editingSubtitleId);
+    return buildCompositionTranslationItems(composition, selectedSubtitleIds, editingSubtitleId, translationSource);
+  }, [composition, editingSubtitleId, segment, selectedSubtitleIds, translationSource]);
+  const subtitleTranslationSourceCounts = useMemo(() => {
+    const sources = new Set<SubtitleTranslationSource>([
+      'current',
+      'audio',
+      'video',
+      'mic',
+    ]);
+    for (const audioSegment of composition?.audioSegments ?? []) {
+      sources.add(`audio:${audioSegment.id}`);
+    }
+    const entries = [...sources].map((source) => {
+      const items = !segment
+        ? []
+        : !composition || getEffectiveCompositionMode(composition) === 'separate'
+          ? buildTranslationItems(segment, selectedSubtitleIds, editingSubtitleId, source)
+          : buildCompositionTranslationItems(composition, selectedSubtitleIds, editingSubtitleId, source);
+      return [source, items.length] as const;
+    });
+    return Object.fromEntries(entries) as Partial<Record<SubtitleTranslationSource, number>>;
   }, [composition, editingSubtitleId, segment, selectedSubtitleIds]);
   const subtitleTranslationChunkMax = Math.max(1, selectedTranslationItems.length);
   const effectiveChunkCount = clampTranslationChunkCount(chunkCount, subtitleTranslationChunkMax);
@@ -644,6 +724,9 @@ export function useSubtitleTranslation({
     subtitleTranslationChunkPreview,
     subtitleTranslationInstructions: instructions,
     setSubtitleTranslationInstructions: setInstructions,
+    subtitleTranslationSource: translationSource,
+    setSubtitleTranslationSource: setTranslationSource,
+    subtitleTranslationSourceCounts,
     subtitleTranslationLanguageOptions: translationLanguageOptions,
     subtitleTranslationCapabilities: capabilities,
     canTranslateSubtitles: canTranslate && selectedTranslationItems.length > 0,

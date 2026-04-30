@@ -159,6 +159,14 @@ pub fn handle_ipc_command(
             )?;
             Ok(serde_json::json!({ "path": path, "duration": duration }))
         }
+        "create_audio_placeholder_video" => {
+            let duration = args["duration"].as_f64().ok_or("Missing duration")?;
+            let trace_id = args["traceId"]
+                .as_str()
+                .unwrap_or("audio-placeholder-video");
+            let path = media_server::create_audio_placeholder_video(duration, trace_id)?;
+            Ok(serde_json::json!({ "path": path }))
+        }
         "take_pending_video_drop_actions" => Ok(serde_json::to_value(
             super::take_pending_video_drop_actions(),
         )

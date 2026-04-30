@@ -1,11 +1,11 @@
 import React, { type MutableRefObject, type RefObject } from "react";
-import { BackgroundConfig, type MusicAudioSegment } from "@/types/video";
+import { BackgroundConfig, type ImportedAudioSegment } from "@/types/video";
 import {
   Placeholder,
   CanvasResizeOverlay,
   SeekIndicator,
 } from "@/components/VideoPreview";
-import { MusicAudioPlayers } from "@/components/MusicAudioPlayers";
+import { ImportedAudioPlayers } from "@/components/ImportedAudioPlayers";
 
 export interface KeystrokeEditFrame {
   left: number;
@@ -57,9 +57,9 @@ export interface PreviewCanvasProps {
   // Seek indicator
   seekIndicatorDir: "left" | "right" | null;
   seekIndicatorKey: number;
-  // Music audio segments — rendered as hidden <audio> elements synced with
+  // Imported audio segments — rendered as hidden <audio> elements synced with
   // the timeline. Each plays independently when its time-range is active.
-  musicSegments?: MusicAudioSegment[];
+  audioSegments?: ImportedAudioSegment[];
   currentTime: number;
   isPlaying: boolean;
 }
@@ -97,7 +97,7 @@ export function PreviewCanvas({
   onCanvasResizeDragStateChange,
   seekIndicatorDir,
   seekIndicatorKey,
-  musicSegments,
+  audioSegments,
   currentTime,
   isPlaying,
 }: PreviewCanvasProps) {
@@ -151,8 +151,8 @@ export function PreviewCanvas({
           />
           <audio ref={nextPreloadAudioRef as React.RefObject<HTMLAudioElement>} className="hidden" />
 
-          <MusicAudioPlayers
-            segments={musicSegments}
+          <ImportedAudioPlayers
+            segments={audioSegments}
             currentTime={currentTime}
             isPlaying={isPlaying}
           />
@@ -195,7 +195,7 @@ export function PreviewCanvas({
               loadingProgress={loadingProgress}
               isRecording={isRecording}
               recordingDuration={recordingDuration}
-              musicSegments={musicSegments}
+              audioSegments={audioSegments}
             />
           )}
 

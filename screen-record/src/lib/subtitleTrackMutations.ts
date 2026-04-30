@@ -4,7 +4,7 @@ import {
   overlapsRange,
   type TrackSelectionRange,
 } from '@/lib/timelineSegmentSelection';
-import type { SubtitleSegment, SubtitleTrack, VideoSegment } from '@/types/video';
+import type { SubtitleSegment, SubtitleSourceGroup, SubtitleTrack, VideoSegment } from '@/types/video';
 import {
   findTranslationTrackByLanguage,
   ORIGINAL_SUBTITLE_TRACK_ID,
@@ -19,6 +19,9 @@ function cloneSubtitleSegment(segment: SubtitleSegment): SubtitleSegment {
   return {
     ...segment,
     style: JSON.parse(JSON.stringify(segment.style)),
+    sourceGroup: segment.sourceGroup
+      ? JSON.parse(JSON.stringify(segment.sourceGroup))
+      : undefined,
   };
 }
 
@@ -231,6 +234,24 @@ export function updateSubtitleTimingAcrossTracks(
   return updateSubtitleTimingsAcrossTracks(segment, [subtitleId], updater);
 }
 
+export function updateSubtitleSourceGroupAcrossTracks(
+  segment: VideoSegment,
+  targetIds: ReadonlySet<string>,
+  sourceGroup: SubtitleSourceGroup,
+): VideoSegment {
+  return mapConcreteTracks(segment, (track) => ({
+    ...track,
+    segments: track.segments.map((subtitle) =>
+      targetIds.has(subtitle.id)
+        ? {
+            ...subtitle,
+            sourceGroup,
+          }
+        : subtitle,
+    ),
+  }));
+}
+
 export function updateSubtitleTimingsAcrossTracks(
   segment: VideoSegment,
   subtitleIds: readonly string[],
@@ -270,6 +291,40 @@ export function addSubtitleAcrossTracks(
   return mapConcreteTracks(segment, (track) => ({
     ...track,
     segments: sortSubtitleSegments([...track.segments, cloneSubtitleSegment(clonedSubtitle)]),
+  }));
+}
+
+export function replaceAudioSubtitlesOnOriginalTrack(
+  segment: VideoSegment,
+  audioSegmentIds: ReadonlySet<string>,
+  replacementRanges: ReadonlyArray<Pick<TrackSelectionRange, 'startTime' | 'endTime'>>,
+  inserted: readonly SubtitleSegment[],
+): VideoSegment {
+  const ranges = normalizeReplacementRanges(replacementRanges);
+  return mapOriginalTrack(segment, (track) => ({
+    ...track,
+    segments: sortSubtitleSegments([
+      ...track.segments.filter((subtitle) => {
+        const provenance = subtitle.provenance;
+        const inReplacementRange = ranges.length === 0
+          || ranges.some((range) => overlapsRange(subtitle, range));
+        return !(
+          (
+            (
+              subtitle.sourceGroup?.kind === 'audio'
+              && subtitle.sourceGroup.audioSegmentId
+              && audioSegmentIds.has(subtitle.sourceGroup.audioSegmentId)
+            )
+            || (
+              provenance?.sourceKind === 'audio'
+              && audioSegmentIds.has(provenance.audioSegmentId)
+            )
+          )
+          && inReplacementRange
+        );
+      }),
+      ...cloneSubtitleSegments(inserted),
+    ]),
   }));
 }
 

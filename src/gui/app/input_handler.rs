@@ -6,7 +6,9 @@
 // 3. Triggers the processing pipeline with the selected preset
 
 use crate::APP;
-use crate::overlay::preset_wheel::{show_custom_wheel, show_preset_wheel};
+use crate::overlay::preset_wheel::{
+    show_custom_wheel, show_preset_wheel, show_preset_wheel_with_extra,
+};
 use crate::overlay::process::pipeline::{
     start_processing_pipeline, start_processing_pipeline_parallel, start_text_processing,
 };
@@ -287,24 +289,18 @@ fn process_text_parallel(rx: mpsc::Receiver<Option<String>>) {
     }
 }
 
-/// Process audio content in parallel
-fn process_audio_parallel(rx: mpsc::Receiver<Option<Vec<u8>>>) {
-    let cursor_pos = get_cursor_pos();
-    let selected = show_preset_wheel("audio", None, cursor_pos);
+fn process_audio_parallel_with_preset(rx: mpsc::Receiver<Option<Vec<u8>>>, preset_idx: usize) {
+    let preset = {
+        let mut app = APP.lock().unwrap();
+        app.config.active_preset_idx = preset_idx;
+        app.config.presets[preset_idx].clone()
+    };
 
-    if let Some(preset_idx) = selected {
-        let preset = {
-            let mut app = APP.lock().unwrap();
-            app.config.active_preset_idx = preset_idx;
-            app.config.presets[preset_idx].clone()
-        };
-
-        std::thread::spawn(move || {
-            if let Ok(Some(wav_data)) = rx.recv() {
-                crate::api::audio::process_audio_file_request(preset, wav_data);
-            }
-        });
-    }
+    std::thread::spawn(move || {
+        if let Ok(Some(wav_data)) = rx.recv() {
+            crate::api::audio::process_audio_file_request(preset, wav_data);
+        }
+    });
 }
 
 fn open_video_in_screen_record(path: &Path, action: &str) {
@@ -354,8 +350,13 @@ fn process_video_path(path: &Path) {
 }
 
 fn open_audio_in_screen_record(path: &Path) {
-    let path = path.to_string_lossy().to_string();
-    crate::overlay::screen_record::queue_audio_drop_action(path);
+    open_audio_paths_in_screen_record(&[path.to_path_buf()]);
+}
+
+fn open_audio_paths_in_screen_record(paths: &[std::path::PathBuf]) {
+    for path in paths {
+        crate::overlay::screen_record::queue_audio_drop_action(path.to_string_lossy().to_string());
+    }
     crate::overlay::screen_record::show_screen_record();
     std::thread::spawn(move || {
         let script = "window.dispatchEvent(new CustomEvent('sgt-audio-drop-pending'));".to_string();
@@ -369,37 +370,56 @@ fn open_audio_in_screen_record(path: &Path) {
     });
 }
 
-fn process_audio_path(path: &Path) {
-    const ACTION_ADD_TO_RECORD: usize = 0;
-    const ACTION_USE_PRESET: usize = 1;
+fn process_audio_paths(paths: &[std::path::PathBuf]) {
+    if paths.len() == 1 {
+        process_audio_path(&paths[0]);
+        return;
+    }
 
+    const ACTION_ADD_TO_RECORD: usize = 1_000_000;
     let cursor_pos = get_cursor_pos();
-    let (record_label, preset_label) = {
+    let record_label = {
         let app = APP.lock().unwrap();
         let locale = crate::gui::locale::LocaleText::get(&app.config.ui_language);
-        (
-            locale.audio_drop_add_to_record.to_string(),
-            locale.audio_drop_use_preset.to_string(),
-        )
+        locale.audio_drop_add_to_record.to_string()
+    };
+    let selected = show_preset_wheel_with_extra(
+        "audio",
+        None,
+        cursor_pos,
+        vec![(ACTION_ADD_TO_RECORD, record_label)],
+    );
+    if selected == Some(ACTION_ADD_TO_RECORD) {
+        open_audio_paths_in_screen_record(paths);
+    }
+}
+
+fn process_audio_path(path: &Path) {
+    const ACTION_ADD_TO_RECORD: usize = 1_000_000;
+
+    let cursor_pos = get_cursor_pos();
+    let record_label = {
+        let app = APP.lock().unwrap();
+        let locale = crate::gui::locale::LocaleText::get(&app.config.ui_language);
+        locale.audio_drop_add_to_record.to_string()
     };
 
-    let selected = show_custom_wheel(
-        vec![
-            (ACTION_ADD_TO_RECORD, record_label),
-            (ACTION_USE_PRESET, preset_label),
-        ],
+    let selected = show_preset_wheel_with_extra(
+        "audio",
+        None,
         cursor_pos,
+        vec![(ACTION_ADD_TO_RECORD, record_label)],
     );
 
     match selected {
         Some(ACTION_ADD_TO_RECORD) => open_audio_in_screen_record(path),
-        Some(ACTION_USE_PRESET) => {
+        Some(preset_idx) => {
             let path_clone = path.to_path_buf();
             let (tx, rx) = mpsc::channel();
             std::thread::spawn(move || {
                 let _ = tx.send(load_audio_file(&path_clone));
             });
-            process_audio_parallel(rx);
+            process_audio_parallel_with_preset(rx, preset_idx);
         }
         _ => {}
     }
@@ -451,6 +471,22 @@ pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
 
     if dropped_files.is_empty() {
         return false;
+    }
+
+    let audio_paths: Vec<_> = dropped_files
+        .iter()
+        .filter_map(|file| file.path.clone())
+        .filter(|path| {
+            path.extension()
+                .and_then(|ext| ext.to_str())
+                .map(is_audio_extension)
+                .unwrap_or(false)
+        })
+        .collect();
+    if !audio_paths.is_empty() && audio_paths.len() == dropped_files.len() {
+        crate::log_info!("Handling dropped audio files: {}", audio_paths.len());
+        process_audio_paths(&audio_paths);
+        return true;
     }
 
     // Process the first dropped file

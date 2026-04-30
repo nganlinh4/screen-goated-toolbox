@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import type { MusicAudioSegment } from "@/types/video";
+import type { ImportedAudioSegment } from "@/types/video";
 import { getMediaServerUrl } from "@/lib/mediaServer";
 
-interface MusicAudioPlayersProps {
-  segments: MusicAudioSegment[] | undefined;
+interface ImportedAudioPlayersProps {
+  segments: ImportedAudioSegment[] | undefined;
   currentTime: number;
   isPlaying: boolean;
 }
@@ -11,15 +11,15 @@ interface MusicAudioPlayersProps {
 const SEEK_DRIFT_THRESHOLD_SEC = 0.15;
 
 /**
- * Renders a hidden `<audio>` element per music segment and keeps each one
+ * Renders a hidden `<audio>` element per audio segment and keeps each one
  * play/pause/seek-synced with the timeline. Multiple overlapping segments are
  * allowed — each plays independently.
  */
-export function MusicAudioPlayers({
+export function ImportedAudioPlayers({
   segments,
   currentTime,
   isPlaying,
-}: MusicAudioPlayersProps) {
+}: ImportedAudioPlayersProps) {
   if (!segments || segments.length === 0) return null;
   return (
     <>
@@ -36,7 +36,7 @@ export function MusicAudioPlayers({
 }
 
 interface MusicSegmentAudioProps {
-  segment: MusicAudioSegment;
+  segment: ImportedAudioSegment;
   currentTime: number;
   isPlaying: boolean;
 }
@@ -56,7 +56,7 @@ function MusicSegmentAudio({
         const next = await getMediaServerUrl(segment.rawAudioPath);
         if (!cancelled) setUrl(next);
       } catch (err) {
-        console.warn("[MusicAudio] failed to resolve URL", err);
+        console.warn("[ImportedAudio] failed to resolve URL", err);
       }
     })();
     return () => {
@@ -106,7 +106,7 @@ function MusicSegmentAudio({
     <audio
       ref={audioRef}
       src={url ?? undefined}
-      className="hidden music-audio-element"
+      className="hidden imported-audio-element"
       preload="auto"
     />
   );

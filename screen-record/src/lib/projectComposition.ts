@@ -11,6 +11,16 @@ import type {
 } from "@/types/video";
 import { normalizeSubtitleTrackState } from "@/lib/subtitleTracks";
 
+function getLegacyCompatibleAudioSegments(
+  composition: ProjectComposition | null | undefined,
+) {
+  if (!composition) return [];
+  const legacy = composition as ProjectComposition & {
+    musicSegments?: ProjectComposition["audioSegments"];
+  };
+  return composition.audioSegments ?? legacy.musicSegments ?? [];
+}
+
 function cloneSegment(segment: VideoSegment): VideoSegment {
   return normalizeSubtitleTrackState(
     JSON.parse(JSON.stringify(segment)) as VideoSegment,
@@ -54,18 +64,10 @@ export function getEffectiveCompositionMode(
   return composition.clips.length <= 1 ? "separate" : composition.mode;
 }
 
-export function hasMusicSegments(
-  composition: Pick<ProjectComposition, "musicSegments"> | null | undefined,
+export function hasAudioSegments(
+  composition: Pick<ProjectComposition, "audioSegments"> | null | undefined,
 ): boolean {
-  return (composition?.musicSegments?.length ?? 0) > 0;
-}
-
-export function isAudioOnlyComposition(
-  composition: ProjectComposition | null | undefined,
-): boolean {
-  if (!composition) return false;
-  if (composition.audioOnly !== true) return false;
-  return composition.clips.every((clip) => !clip.rawVideoPath);
+  return getLegacyCompatibleAudioSegments(composition as ProjectComposition | null | undefined).length > 0;
 }
 
 export function extractCanvasConfig(
@@ -245,10 +247,18 @@ export function ensureProjectComposition(
     normalizedClips.some((clip) => clip.id === existing.focusedClipId)
       ? existing.focusedClipId
       : selectedClipId;
-  const canvasConfig = cloneCanvasConfig(
+  let canvasConfig = cloneCanvasConfig(
     existing?.globalCanvasConfig ??
       extractCanvasConfig(project.backgroundConfig),
   );
+  if (existing?.placeholderVideoForAudio) {
+    canvasConfig = {
+      canvasMode: "custom",
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+      autoSourceClipId: null,
+    };
+  }
   const hasValidAutoSource =
     !!canvasConfig.autoSourceClipId &&
     normalizedClips.some((clip) => clip.id === canvasConfig.autoSourceClipId);
@@ -283,6 +293,8 @@ export function ensureProjectComposition(
       globalBackgroundConfig: existing?.globalBackgroundConfig
         ? cloneBackgroundConfig(existing.globalBackgroundConfig)
         : cloneBackgroundConfig(project.backgroundConfig),
+      audioSegments: getLegacyCompatibleAudioSegments(existing).map((segment) => ({ ...segment })),
+      placeholderVideoForAudio: existing?.placeholderVideoForAudio,
     },
     {
       ...canvasConfig,

@@ -109,7 +109,7 @@ interface NativeCompositionExportRequest {
   outputDir: string;
   format: "mp4" | "gif" | "both";
   clips: NativeCompositionExportClipJob[];
-  musicSegments?: import("@/types/video").MusicAudioSegment[];
+  audioSegments?: import("@/types/video").ImportedAudioSegment[];
 }
 
 interface NativeCompositionExportResponse {
@@ -452,7 +452,8 @@ export async function exportCompositionAndDownload(
         clipId: clip.id,
         clipName: clip.name,
         sourceVideoPath,
-        deviceAudioPath: sourceVideoPath,
+        deviceAudioPath:
+          normalizedSegment.deviceAudioAvailable === false ? "" : sourceVideoPath,
         micAudioPath,
         webcamVideoPath,
         sourceWidth: metadata.width,
@@ -479,7 +480,7 @@ export async function exportCompositionAndDownload(
         outputDir: exportOptions.outputDir || "",
         format: exportOptions.format || "mp4",
         clips: clipJobs,
-        musicSegments: context.composition.musicSegments,
+        audioSegments: context.composition.audioSegments,
       } satisfies NativeCompositionExportRequest,
     );
   } finally {

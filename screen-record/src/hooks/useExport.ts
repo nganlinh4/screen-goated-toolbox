@@ -299,11 +299,14 @@ export function useExport(props: UseExportProps) {
       audio: props.audioRef.current || undefined,
       micAudio: props.micAudioRef.current || undefined,
       webcamVideo: props.webcamVideoRef.current || undefined,
-      audioFilePath: props.audioFilePath || sourceVideoPath,
+      audioFilePath:
+        segment.deviceAudioAvailable === false
+          ? ""
+          : props.audioFilePath || sourceVideoPath,
       micAudioFilePath: props.micAudioFilePath || "",
       webcamVideoFilePath: props.webcamVideoFilePath || "",
       videoFilePath: sourceVideoPath,
-      musicSegments: props.composition?.musicSegments,
+      audioSegments: props.composition?.audioSegments,
     }),
     [
       exportOptions.width,

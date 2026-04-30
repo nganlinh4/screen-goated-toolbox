@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { VideoSegment, BackgroundConfig } from '@/types/video';
+import type { VideoSegment, BackgroundConfig, ImportedAudioSegment } from '@/types/video';
 import { useSettings } from '@/hooks/useSettings';
 import type { SubtitleMethod } from '@/hooks/useSubtitleGeneration';
+import type { SubtitleSource } from '@/lib/subtitleGenerationPlan';
 import { useSubtitleTranslation } from '@/hooks/useSubtitleTranslation';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
 import { ZoomPanel } from './ZoomPanel';
@@ -117,8 +118,8 @@ interface SidePanelProps {
   editingSubtitleId: string | null;
   selectedSubtitleIds?: string[];
   selectedSubtitleRange?: TrackSelectionRange | null;
-  subtitleSource: 'video' | 'mic' | 'music';
-  onSubtitleSourceChange: (value: 'video' | 'mic' | 'music') => void;
+  subtitleSource: SubtitleSource;
+  onSubtitleSourceChange: (value: SubtitleSource) => void;
   subtitleMethod: SubtitleMethod;
   onSubtitleMethodChange: (value: SubtitleMethod) => void;
   subtitleMethodCapabilities: Array<{ method: SubtitleMethod; available: boolean; reason?: string | null }>;
@@ -134,19 +135,17 @@ interface SidePanelProps {
   subtitleStatusMessage?: string | null;
   canUseVideoSubtitleSource: boolean;
   canUseMicSubtitleSource: boolean;
-  canUseMusicSubtitleSource: boolean;
+  canUseAudioSubtitleSource: boolean;
+  audioSegments?: ImportedAudioSegment[];
   onGenerateSubtitles: () => void;
   onCancelSubtitleGeneration: () => void;
   canExportSubtitleSrt: boolean;
   onExportSubtitleSrt: () => void;
+  canExportAudioSubtitleSrt: boolean;
+  onExportMusicSubtitleSrt: () => void;
   subtitleTranslation: ReturnType<typeof useSubtitleTranslation>;
   selectedTextIds?: string[];
   hasMouseData?: boolean;
-  /**
-   * When true, hides every tab except Subtitles. Set when the project was
-   * created from a music drop and has no video clip.
-   */
-  isAudioOnlyProject?: boolean;
   onUpdateSegment: (segment: VideoSegment) => void;
   beginBatch: () => void;
   commitBatch: () => void;
@@ -191,15 +190,17 @@ export function SidePanel({
   subtitleStatusMessage,
   canUseVideoSubtitleSource,
   canUseMicSubtitleSource,
-  canUseMusicSubtitleSource,
+  canUseAudioSubtitleSource,
+  audioSegments,
   onGenerateSubtitles,
   onCancelSubtitleGeneration,
   canExportSubtitleSrt,
   onExportSubtitleSrt,
+  canExportAudioSubtitleSrt,
+  onExportMusicSubtitleSrt,
   subtitleTranslation,
   selectedTextIds,
   hasMouseData,
-  isAudioOnlyProject = false,
   onUpdateSegment,
   beginBatch,
   commitBatch
@@ -214,15 +215,6 @@ export function SidePanel({
   if (!hasZoomFocus) hiddenTabs.add('zoom');
   if (!hasTextFocus) hiddenTabs.add('text');
   if (!hasSubtitlePanel) hiddenTabs.add('subtitles');
-  // Audio-only projects (created from a music drop) only expose Subtitles.
-  if (isAudioOnlyProject) {
-    hiddenTabs.add('zoom');
-    hiddenTabs.add('camera');
-    hiddenTabs.add('background');
-    hiddenTabs.add('cursor');
-    hiddenTabs.add('blur');
-    hiddenTabs.add('text');
-  }
   const visiblePanelOrder = PANEL_TAB_ORDER.filter((id) => !hiddenTabs.has(id));
   // If active panel got hidden, fall back to first visible tab
   const effectivePanel = hiddenTabs.has(activePanel) ? (visiblePanelOrder[0] ?? 'background') : activePanel;
@@ -321,11 +313,14 @@ export function SidePanel({
           statusMessage={subtitleStatusMessage}
           canUseVideoSource={canUseVideoSubtitleSource}
           canUseMicSource={canUseMicSubtitleSource}
-          canUseMusicSource={canUseMusicSubtitleSource}
+          canUseAudioSource={canUseAudioSubtitleSource}
+          audioSegments={audioSegments}
           onGenerate={onGenerateSubtitles}
           onCancel={onCancelSubtitleGeneration}
           canExportSrt={canExportSubtitleSrt}
           onExportSrt={onExportSubtitleSrt}
+          canExportAudioSrt={canExportAudioSubtitleSrt}
+          onExportAudioSrt={onExportMusicSubtitleSrt}
           subtitleTranslation={subtitleTranslation}
           onUpdateSegment={onUpdateSegment}
           beginBatch={beginBatch}

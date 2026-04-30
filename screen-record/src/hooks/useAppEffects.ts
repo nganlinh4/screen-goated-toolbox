@@ -82,8 +82,7 @@ export function useAppEffects({
   // resurrect stale custom-canvas settings from an older autosave.
   useEffect(() => {
     if (!currentProjectId || !segment) return;
-    // Audio-only projects have no video, so allow saves without `currentVideo`.
-    if (!currentVideo && composition?.audioOnly !== true) return;
+    if (!currentVideo) return;
     const timer = setTimeout(() => {
       void persistRef.current?.({ refreshList: false, includeMedia: false });
     }, 500);
@@ -111,7 +110,7 @@ export function useAppEffects({
   // Auto-save — debounced, skips during playback/export/recording to avoid jank
   useEffect(() => {
     if (!currentProjectId || !segment) return;
-    if (!currentVideo && composition?.audioOnly !== true) return;
+    if (!currentVideo) return;
     const timer = setTimeout(() => {
       // Skip save during activities that need smooth performance
       if (videoRef.current && !videoRef.current.paused) return;

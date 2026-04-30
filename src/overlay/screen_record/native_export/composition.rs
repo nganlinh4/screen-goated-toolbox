@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 use serde_json::json;
 
 use super::config::{
-    CompositionExportClipJob, CompositionExportConfig, ExportConfig, MusicAudioSegmentConfig,
+    CompositionExportClipJob, CompositionExportConfig, ExportConfig, ImportedAudioSegmentConfig,
 };
 use super::progress::{ExportProgressUpdate, push_export_progress_update};
 use super::staging;
@@ -225,23 +225,23 @@ fn build_single_clip_config(
         baked_path: None,
         baked_cursor_path: None,
         mouse_positions: clip.mouse_positions.clone(),
-        music_segments: slice_music_for_clip(
-            &export.music_segments,
+        audio_segments: slice_audio_for_clip(
+            &export.audio_segments,
             project_clip_start_sec,
             clip.duration,
         ),
     }
 }
 
-/// Convert project-relative music segments to clip-relative ones for the
+/// Convert project-relative audio segments to clip-relative ones for the
 /// clip occupying `[clip_start, clip_start + clip_duration]` on the project
-/// timeline. Music segments fully outside the clip are dropped; partial
+/// timeline. Audio segments fully outside the clip are dropped; partial
 /// overlaps are trimmed to the clip range with adjusted in/out points.
-fn slice_music_for_clip(
-    project_segments: &[MusicAudioSegmentConfig],
+fn slice_audio_for_clip(
+    project_segments: &[ImportedAudioSegmentConfig],
     clip_start: f64,
     clip_duration: f64,
-) -> Vec<MusicAudioSegmentConfig> {
+) -> Vec<ImportedAudioSegmentConfig> {
     if clip_duration <= 0.0 || project_segments.is_empty() {
         return Vec::new();
     }
@@ -263,7 +263,7 @@ fn slice_music_for_clip(
         let in_offset = overlap_start - seg_proj_start;
         let local_in = seg.in_point + in_offset.max(0.0);
         let local_out = local_in + (overlap_end - overlap_start);
-        out.push(MusicAudioSegmentConfig {
+        out.push(ImportedAudioSegmentConfig {
             raw_audio_path: seg.raw_audio_path.clone(),
             duration: seg.duration,
             start_time: local_start,
@@ -326,7 +326,7 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
     let result = (|| -> Result<serde_json::Value, String> {
         // Track cumulative project time so each clip knows where it sits on
         // the global timeline and can receive its slice of the project-wide
-        // music track.
+        // audio track.
         let mut project_clip_start_sec = 0.0_f64;
         for (index, clip) in export.clips.iter().enumerate() {
             if !Path::new(&clip.source_video_path).exists() {

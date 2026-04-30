@@ -22,7 +22,7 @@ Keep the visible text exact when possible.`,
     id: 'focus-lyrics',
     labelKey: 'subtitleGeminiPresetLyrics',
     prompt: `Extract only sung lyrics from this media.
-Ignore spoken dialogue, narration, and instrumental music.
+Ignore spoken dialogue, narration, and instrumental audio.
 Create concise, readable timed lyric segments.
 Keep the lyrics verbatim.`,
   },

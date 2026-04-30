@@ -60,6 +60,9 @@ function cloneSubtitleSegment(segment: SubtitleSegment): SubtitleSegment {
   return {
     ...segment,
     style: JSON.parse(JSON.stringify(segment.style)),
+    sourceGroup: segment.sourceGroup
+      ? JSON.parse(JSON.stringify(segment.sourceGroup))
+      : undefined,
   };
 }
 

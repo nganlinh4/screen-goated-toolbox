@@ -9,3 +9,7 @@ export const invoke = <T>(cmd: string, args?: Record<string, unknown>): Promise<
   }
   return Promise.reject(new Error('IPC not available'));
 };
+
+export const logToHost = (message: string): void => {
+  void invoke("log_message", { message }).catch(() => {});
+};

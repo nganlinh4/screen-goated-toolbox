@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Scissors } from 'lucide-react';
-import { SubtitleSegment, VideoSegment } from '@/types/video';
+import { ImportedAudioSegment, SubtitleSegment, SubtitleSourceGroup, VideoSegment } from '@/types/video';
 import type {
   SubtitleGenerationIndicator,
 } from '@/lib/subtitleGenerationPlan';
@@ -12,6 +12,12 @@ import {
 } from './trackHoverUtils';
 import { getVisibleSubtitleSegments } from '@/lib/subtitleTracks';
 import { useTrackRangeSelect } from './useTrackRangeSelect';
+import {
+  getSubtitleSourceGroup,
+  getSubtitleSourceGroupColor,
+  getSubtitleSourceGroupId,
+  makeSubtitleSourceGroup,
+} from '@/lib/subtitleSourceGroups';
 
 interface SubtitleTrackProps {
   segment: VideoSegment;
@@ -31,6 +37,10 @@ interface SubtitleTrackProps {
     groups: Record<string, number>;
     groupCount: number;
   } | null;
+  audioSegments?: ImportedAudioSegment[];
+  isDeviceAudioAvailable?: boolean;
+  isMicAudioAvailable?: boolean;
+  onAssignSubtitleSourceGroup?: (ids: string[], sourceGroup: SubtitleSourceGroup) => void;
 }
 
 const TRANSLATION_CHUNK_COLORS = [
@@ -59,12 +69,21 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
   clearSignal,
   generationIndicator,
   translationChunkPreview,
+  audioSegments = [],
+  isDeviceAudioAvailable = false,
+  isMicAudioAvailable = false,
+  onAssignSubtitleSourceGroup,
 }) => {
   const [hoverState, setHoverState] = useState<
     | { type: 'split'; x: number; time: number; seg: SubtitleSegment; preview: { leftText: string; rightText: string } | null }
     | { type: 'add'; x: number }
     | null
   >(null);
+  const [sourceMenu, setSourceMenu] = useState<{
+    x: number;
+    y: number;
+    subtitleId: string;
+  } | null>(null);
 
   const safeDuration = Math.max(duration, 0.001);
   const subtitles = getVisibleSubtitleSegments(segment);
@@ -140,6 +159,15 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
     : '100%';
   const rangePillClassName = "pointer-events-none absolute inset-y-0 overflow-hidden rounded-md border border-[color:color-mix(in_srgb,var(--primary-color)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--primary-color)_18%,transparent)]";
 
+  const assignSourceGroup = (sourceGroup: SubtitleSourceGroup) => {
+    if (!sourceMenu || !onAssignSubtitleSourceGroup) return;
+    const targetIds = selectedIds.has(sourceMenu.subtitleId) && selectedIds.size > 1
+      ? [...selectedIds]
+      : [sourceMenu.subtitleId];
+    onAssignSubtitleSourceGroup(targetIds, sourceGroup);
+    setSourceMenu(null);
+  };
+
   return (
     <div
       ref={trackRef}
@@ -177,9 +205,26 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
         const chunkColor = typeof chunkIndex === 'number'
           ? TRANSLATION_CHUNK_COLORS[chunkIndex % TRANSLATION_CHUNK_COLORS.length]
           : null;
+        const sourceGroupId = getSubtitleSourceGroupId(subtitle);
+        const sourceColor = getSubtitleSourceGroupColor(sourceGroupId);
+        const isUnassignedSource = getSubtitleSourceGroup(subtitle).kind === 'unassigned';
+        const accentColor = chunkColor ?? sourceColor;
         return (
         <div
           key={subtitle.id}
+          onContextMenu={(e) => {
+            if (!onAssignSubtitleSourceGroup) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (!selectedIds.has(subtitle.id)) {
+              addSegmentSelection(subtitle.id);
+            }
+            setSourceMenu({
+              x: e.clientX,
+              y: e.clientY,
+              subtitleId: subtitle.id,
+            });
+          }}
           onPointerDown={(e) => {
             if (e.shiftKey || e.ctrlKey) return;
             const now = performance.now();
@@ -219,14 +264,21 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
           data-tone="accent"
           data-active={editingSubtitleId === subtitle.id ? 'true' : 'false'}
           data-selected={selectedIds.has(subtitle.id) ? 'true' : undefined}
+          data-source-unassigned={isUnassignedSource ? 'true' : undefined}
           style={{
             left: `${(subtitle.startTime / safeDuration) * 100}%`,
             width: `${((subtitle.endTime - subtitle.startTime) / safeDuration) * 100}%`,
-            ...(chunkColor
+            ...(accentColor
               ? {
-                  background: `color-mix(in srgb, ${chunkColor} 28%, var(--ui-surface-3))`,
-                  borderColor: `color-mix(in srgb, ${chunkColor} 62%, var(--timeline-lane-border))`,
-                  boxShadow: `0 0 0 1px color-mix(in srgb, ${chunkColor} 38%, transparent), 0 0 10px color-mix(in srgb, ${chunkColor} 24%, transparent)`,
+                  background: `color-mix(in srgb, ${accentColor} 28%, var(--ui-surface-3))`,
+                  borderColor: `color-mix(in srgb, ${accentColor} 62%, var(--timeline-lane-border))`,
+                  boxShadow: `0 0 0 1px color-mix(in srgb, ${accentColor} 38%, transparent), 0 0 10px color-mix(in srgb, ${accentColor} 24%, transparent)`,
+                }
+              : {}),
+            ...(isUnassignedSource
+              ? {
+                  borderStyle: 'dashed',
+                  borderColor: 'color-mix(in srgb, var(--on-surface-variant) 58%, var(--timeline-lane-border))',
                 }
               : {}),
           }}
@@ -255,6 +307,55 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
         </div>
       );
       })}
+
+      {sourceMenu && (
+        <div
+          className="subtitle-source-menu ui-surface-elevated fixed z-[110] min-w-[190px] rounded-lg p-1.5 text-[11px]"
+          style={{ left: sourceMenu.x, top: sourceMenu.y }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseLeave={() => setSourceMenu(null)}
+        >
+          <button
+            type="button"
+            className="subtitle-source-menu-item flex w-full items-center rounded-md px-2 py-1.5 text-left text-[var(--on-surface-variant)] hover:bg-[var(--ui-surface-3)] hover:text-[var(--on-surface)]"
+            onClick={() => assignSourceGroup({ kind: 'unassigned', assignment: 'manual' })}
+          >
+            Unassigned
+          </button>
+          {isDeviceAudioAvailable && (
+            <button
+              type="button"
+              className="subtitle-source-menu-item flex w-full items-center rounded-md px-2 py-1.5 text-left text-[var(--on-surface-variant)] hover:bg-[var(--ui-surface-3)] hover:text-[var(--on-surface)]"
+              onClick={() => assignSourceGroup({ kind: 'video', assignment: 'manual' })}
+            >
+              Device audio
+            </button>
+          )}
+          {isMicAudioAvailable && (
+            <button
+              type="button"
+              className="subtitle-source-menu-item flex w-full items-center rounded-md px-2 py-1.5 text-left text-[var(--on-surface-variant)] hover:bg-[var(--ui-surface-3)] hover:text-[var(--on-surface)]"
+              onClick={() => assignSourceGroup({ kind: 'mic', assignment: 'manual' })}
+            >
+              Microphone
+            </button>
+          )}
+          {audioSegments.map((audioSegment) => (
+            <button
+              key={audioSegment.id}
+              type="button"
+              className="subtitle-source-menu-item flex w-full items-center rounded-md px-2 py-1.5 text-left text-[var(--on-surface-variant)] hover:bg-[var(--ui-surface-3)] hover:text-[var(--on-surface)]"
+              onClick={() => assignSourceGroup(makeSubtitleSourceGroup({
+                kind: 'audio',
+                assignment: 'manual',
+                audioSegment,
+              }))}
+            >
+              {audioSegment.name || 'Audio'}
+            </button>
+          ))}
+        </div>
+      )}
 
       {rangeSelect && rangeWidth > 2 && activeDragMode === 'ctrl-range' && (
         <div className={`subtitle-time-range-drawer ${rangePillClassName} z-[6]`}

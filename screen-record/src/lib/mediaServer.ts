@@ -129,6 +129,20 @@ export async function importAudioPathToManagedMediaFile(
   return { path: data.path, duration: data.duration ?? 0 };
 }
 
+export async function createAudioPlaceholderVideo(
+  duration: number,
+  traceId?: string,
+): Promise<{ path: string }> {
+  const data = await invoke<{ path?: string }>("create_audio_placeholder_video", {
+    duration,
+    traceId,
+  });
+  if (!data.path) {
+    throw new Error("Audio placeholder video path missing");
+  }
+  return { path: data.path };
+}
+
 export function isManagedImportedAudioPath(
   path: string | null | undefined,
 ): boolean {
@@ -144,7 +158,12 @@ export function isManagedImportedVideoPath(
 ): boolean {
   if (!path) return false;
   const normalizedPath = path.replace(/\\/g, "/").toLowerCase();
-  return normalizedPath.includes("/screen-goated-toolbox/recordings/imported-");
+  return (
+    normalizedPath.includes("/screen-goated-toolbox/recordings/imported-") ||
+    normalizedPath.includes(
+      "/screen-goated-toolbox/recordings/imported-audio-placeholder-",
+    )
+  );
 }
 
 export function isManagedCompositionSnapshotPath(
