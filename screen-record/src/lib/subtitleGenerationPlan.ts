@@ -6,7 +6,18 @@ import {
 import { getEffectiveCompositionMode } from '@/lib/projectComposition';
 import { getTrimSegments } from '@/lib/trimSegments';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
-import type { ProjectComposition, VideoSegment } from '@/types/video';
+import type { ImportedAudioSegment, ProjectComposition, VideoSegment } from '@/types/video';
+
+export type SubtitleSource = 'video' | 'mic' | 'audio' | `audio:${string}`;
+
+export interface AudioSubtitleClipTransform {
+  kind: 'audio';
+  audioSegmentId: string;
+  sourceName: string;
+  sourcePath: string;
+  timelineOffsetSec: number;
+  sourceLocalOffsetSec: number;
+}
 
 export interface SubtitleClipPayload {
   clipId: string;
@@ -29,6 +40,13 @@ export interface SubtitleGenerationPlan {
     Array<{ startTime: number; endTime: number }>
   >;
   indicator: SubtitleGenerationIndicator;
+  sourceTypeForNative: 'video' | 'mic' | 'audio';
+  clipTransformsByClip: Record<string, AudioSubtitleClipTransform>;
+}
+
+export function nativeSubtitleSourceType(source: SubtitleSource): 'video' | 'mic' | 'audio' {
+  if (source === 'video' || source === 'mic') return source;
+  return 'audio';
 }
 
 function intersectSourceRangeWithTrimSegments(
@@ -93,6 +111,7 @@ function buildSingleClipPayload(params: {
   sourceDuration: number;
   segment: VideoSegment;
   selectedRange: TrackSelectionRange | null | undefined;
+  sourceTypeForNative?: 'video' | 'mic' | 'audio';
 }): SubtitleGenerationPlan {
   const replacementRanges = params.selectedRange
     ? intersectSourceRangeWithTrimSegments(
@@ -126,6 +145,74 @@ function buildSingleClipPayload(params: {
     indicator: {
       mode: params.selectedRange ? 'range' : 'full',
       range: params.selectedRange ?? null,
+    },
+    sourceTypeForNative: params.sourceTypeForNative ?? 'video',
+    clipTransformsByClip: {},
+  };
+}
+
+function emptyPlan(
+  indicator: SubtitleGenerationIndicator,
+  sourceType: SubtitleSource,
+): SubtitleGenerationPlan {
+  return {
+    clips: [],
+    replacementRangesByClip: {},
+    indicator,
+    sourceTypeForNative: nativeSubtitleSourceType(sourceType),
+    clipTransformsByClip: {},
+  };
+}
+
+function buildMusicClipPayload(
+  segment: ImportedAudioSegment,
+  selectedRange: TrackSelectionRange | null | undefined,
+) {
+  const inPoint = Math.max(0, Math.min(segment.inPoint, segment.duration));
+  const outPoint = Math.max(inPoint, Math.min(segment.outPoint, segment.duration));
+  const visibleDuration = outPoint - inPoint;
+  if (!segment.rawAudioPath || visibleDuration <= 0.0001) return null;
+
+  const timelineStart = segment.startTime;
+  const timelineEnd = timelineStart + visibleDuration;
+  const selectedStart = selectedRange
+    ? Math.min(selectedRange.startTime, selectedRange.endTime)
+    : timelineStart;
+  const selectedEnd = selectedRange
+    ? Math.max(selectedRange.startTime, selectedRange.endTime)
+    : timelineEnd;
+  if (selectedEnd <= timelineStart || selectedStart >= timelineEnd) return null;
+
+  const sourceStart = inPoint + Math.max(0, selectedStart - timelineStart);
+  const sourceEnd = inPoint + Math.min(visibleDuration, selectedEnd - timelineStart);
+  const clampedStart = Math.max(inPoint, Math.min(sourceStart, outPoint));
+  const clampedEnd = Math.max(clampedStart, Math.min(sourceEnd, outPoint));
+  if (clampedEnd - clampedStart <= 0.0001) return null;
+
+  const clipId = `audio:${segment.id}`;
+  return {
+    clip: {
+      clipId,
+      clipName: segment.name || 'Audio',
+      sourcePath: segment.rawAudioPath,
+      sourceDuration: segment.duration,
+      trimSegments: toPayloadTrimSegments([
+        { startTime: clampedStart, endTime: clampedEnd },
+      ]),
+    },
+    replacementRanges: [
+      {
+        startTime: clampedStart + segment.startTime - inPoint,
+        endTime: clampedEnd + segment.startTime - inPoint,
+      },
+    ],
+    transform: {
+      kind: 'audio' as const,
+      audioSegmentId: segment.id,
+      sourceName: segment.name || 'Audio',
+      sourcePath: segment.rawAudioPath,
+      timelineOffsetSec: segment.startTime - inPoint,
+      sourceLocalOffsetSec: inPoint,
     },
   };
 }
@@ -182,7 +269,7 @@ export function buildSubtitleGenerationPlan(params: {
   currentRawVideoPath: string;
   currentRawMicAudioPath: string;
   duration: number;
-  sourceType: 'video' | 'mic' | 'music';
+  sourceType: SubtitleSource;
   selectedRange?: TrackSelectionRange | null;
 }): SubtitleGenerationPlan {
   const indicator: SubtitleGenerationIndicator = {
@@ -190,51 +277,43 @@ export function buildSubtitleGenerationPlan(params: {
     range: params.selectedRange ?? null,
   };
 
-  // Music source: bypass per-clip composition logic and feed Gemini the
-  // raw audio file(s) directly. v1 uses the first segment only; multi-
-  // segment concat lands later. The MP4 export is never sent for music.
-  if (params.sourceType === 'music') {
-    const segments = params.composition?.musicSegments ?? [];
-    if (segments.length === 0) {
-      return { clips: [], replacementRangesByClip: {}, indicator };
-    }
-    const first = segments[0];
-    const trimmedDuration = Math.max(
-      first.outPoint - first.inPoint,
-      0.05,
-    );
-    if (!first.rawAudioPath) {
-      return { clips: [], replacementRangesByClip: {}, indicator };
-    }
-    return buildSingleClipPayload({
-      clipId: 'music',
-      clipName: first.name || 'Music',
-      sourcePath: first.rawAudioPath,
-      sourceDuration: trimmedDuration,
-      segment: {
-        ...(params.segment ?? ({} as VideoSegment)),
-        trimStart: 0,
-        trimEnd: trimmedDuration,
-        trimSegments: [
-          { id: 'music-range', startTime: 0, endTime: trimmedDuration },
-        ],
-      } as VideoSegment,
-      selectedRange: params.selectedRange,
-    });
+  if (params.sourceType === 'audio' || params.sourceType.startsWith('audio:')) {
+    const segments = params.composition?.audioSegments ?? [];
+    const requestedId = params.sourceType.startsWith('audio:')
+      ? params.sourceType.slice('audio:'.length)
+      : null;
+    const payloads = segments
+      .filter((segment) => !requestedId || segment.id === requestedId)
+      .slice()
+      .sort((left, right) => left.startTime - right.startTime)
+      .map((segment) => buildMusicClipPayload(segment, params.selectedRange))
+      .filter((payload): payload is NonNullable<typeof payload> => payload !== null);
+
+    return {
+      clips: payloads.map((payload) => payload.clip),
+      replacementRangesByClip: Object.fromEntries(
+        payloads.map((payload) => [payload.clip.clipId, payload.replacementRanges]),
+      ),
+      indicator,
+      sourceTypeForNative: 'audio',
+      clipTransformsByClip: Object.fromEntries(
+        payloads.map((payload) => [payload.clip.clipId, payload.transform]),
+      ),
+    };
   }
 
   const effectiveMode = getEffectiveCompositionMode(params.composition);
 
   if (!params.composition || effectiveMode === 'separate') {
     if (!params.segment) {
-      return { clips: [], replacementRangesByClip: {}, indicator };
+      return emptyPlan(indicator, params.sourceType);
     }
     const sourcePath =
       params.sourceType === 'mic'
         ? params.currentRawMicAudioPath
         : params.currentRawVideoPath;
     if (!sourcePath) {
-      return { clips: [], replacementRangesByClip: {}, indicator };
+      return emptyPlan(indicator, params.sourceType);
     }
     return buildSingleClipPayload({
       clipId: params.activeClipId ?? 'root',
@@ -243,17 +322,18 @@ export function buildSubtitleGenerationPlan(params: {
       sourceDuration: params.duration,
       segment: params.segment,
       selectedRange: params.selectedRange,
+      sourceTypeForNative: nativeSubtitleSourceType(params.sourceType),
     });
   }
 
   const timeline = buildSequenceTimeline(params.composition);
   if (!timeline) {
-    return { clips: [], replacementRangesByClip: {}, indicator };
+    return emptyPlan(indicator, params.sourceType);
   }
 
   const replacementRangesByClip: SubtitleGenerationPlan['replacementRangesByClip'] = {};
   const clips = timeline.clips.flatMap((timelineClip) => {
-    // 'music' source was already handled at the top of this function.
+    // 'audio' source was already handled at the top of this function.
     const sourcePath =
       params.sourceType === 'mic'
         ? timelineClip.clip.rawMicAudioPath ?? ''
@@ -314,6 +394,8 @@ export function buildSubtitleGenerationPlan(params: {
     clips,
     replacementRangesByClip,
     indicator,
+    sourceTypeForNative: nativeSubtitleSourceType(params.sourceType),
+    clipTransformsByClip: {},
   };
 }
 

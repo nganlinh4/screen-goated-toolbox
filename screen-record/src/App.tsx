@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
 import {
   BackgroundConfig, Project, ProjectComposition,
-  VideoSegment, RecordingMode, WebcamConfig,
+  VideoSegment, RecordingMode, WebcamConfig, ImportedAudioSegment,
 } from "@/types/video";
 
 import { useUndoRedo } from "@/hooks/useUndoRedo";
@@ -10,6 +10,7 @@ import { useHotkeys, useMonitors, useWindows } from "@/hooks/useAppHooks";
 import { useProjects, useExport } from "@/hooks/useVideoState";
 import { useMediaEngine } from "@/hooks/useMediaEngine";
 import { getInitialBackgroundConfig } from "@/lib/appUtils";
+import { logToHost } from "@/lib/ipc";
 import { useDebugEffects } from "@/hooks/useDebugEffects";
 import { useAppEffects } from "@/hooks/useAppEffects";
 import { useBackgroundManager } from "@/hooks/useBackgroundManager";
@@ -30,10 +31,11 @@ import { type PersistOptions } from "@/hooks/useSequenceComposition";
 import { EditorOverlays } from "@/components/EditorOverlays";
 import { DragDropOverlay } from "@/components/DragDropOverlay";
 import { useVideoImport } from "@/hooks/useVideoImport";
-import { useMusicAudioImport } from "@/hooks/useMusicAudioImport";
+import { useImportedAudioImport } from "@/hooks/useImportedAudioImport";
 import { useSubtitleGeneration } from "@/hooks/useSubtitleGeneration";
 import { EditorMain } from "@/components/EditorMain";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
+import { projectManager } from "@/lib/projectManager";
 import { cloneWebcamConfig, DEFAULT_WEBCAM_CONFIG } from "@/lib/webcam";
 import {
   deleteSubtitleIdsAcrossTracks,
@@ -105,10 +107,15 @@ function App() {
   const [isCanvasResizeDragging, setIsCanvasResizeDragging] = useState(false);
   // Stable ref for onProjectLoaded — breaks circular dep between useClipMediaCache and useProjects
   const onProjectLoadedRef = useRef<(project: Project) => void>(null!);
+  const currentProjectIdRef = useRef<string | null>(null);
+  const currentProjectDataRef = useRef<Project | null>(null);
   // Stable ref for persist callback — avoids cascading useEffect re-triggers
   const persistRef = useRef<((opts?: PersistOptions) => Promise<void>) | null>(null);
   // Early ref so setBackgroundConfig can guard against mid-transition mutations
   const isProjectTransitionRef = useRef(false);
+  useEffect(() => {
+    currentProjectDataRef.current = currentProjectData;
+  }, [currentProjectData]);
 
   const {
     backgroundMutationMetaRef,
@@ -140,7 +147,6 @@ function App() {
     duration,
     setDuration: setPreviewDuration,
     isPlaying,
-    setIsPlaying,
     isBuffering,
     isVideoReady,
     thumbnails,
@@ -211,6 +217,9 @@ function App() {
     currentMicAudio,
     currentWebcamVideo,
   });
+  useEffect(() => {
+    currentProjectIdRef.current = projects.currentProjectId;
+  }, [projects.currentProjectId]);
 
   const {
     loadedClipId,
@@ -324,59 +333,9 @@ function App() {
     selectedClipId,
   });
 
-  // Virtual playback clock for audio-only projects — drives currentTime
-  // forward when isPlaying is true and there's no <video> element to tick
-  // the timeline. Deactivates the moment a video clip is loaded.
-  const isAudioOnlyPlayback = composition?.audioOnly === true && !currentVideo;
-  const audioOnlyClockTickRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (!isAudioOnlyPlayback) return;
-    if (!isPlaying) return;
-    if (duration <= 0) return;
-
-    let rafId = 0;
-    let lastTick = performance.now();
-    const tick = () => {
-      const now = performance.now();
-      const dtSec = (now - lastTick) / 1000;
-      lastTick = now;
-      const next = currentTime + dtSec;
-      if (next >= duration) {
-        setCurrentTime(duration);
-        setIsPlaying(false);
-        return;
-      }
-      setCurrentTime(next);
-      rafId = requestAnimationFrame(tick);
-    };
-    rafId = requestAnimationFrame(tick);
-    audioOnlyClockTickRef.current = rafId;
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAudioOnlyPlayback, isPlaying, duration]);
-
   const handleTogglePlayPause = useCallback(() => {
-    if (isAudioOnlyPlayback && duration > 0) {
-      setIsPlaying((prev) => {
-        // Restart from beginning if we're parked at the end.
-        if (!prev && currentTime >= duration - 0.05) {
-          setCurrentTime(0);
-        }
-        return !prev;
-      });
-      return;
-    }
     handleVideoTogglePlayPause();
-  }, [
-    isAudioOnlyPlayback,
-    duration,
-    currentTime,
-    setIsPlaying,
-    setCurrentTime,
-    handleVideoTogglePlayPause,
-  ]);
+  }, [handleVideoTogglePlayPause]);
 
   // FPS of the most-recent recording (set on stop, cleared when a different project loads).
   const [lastCaptureFps, setLastCaptureFps] = useState<number | null>(null);
@@ -757,31 +716,150 @@ function App() {
     },
   });
 
-  // Auto-pick the 'music' subtitle source whenever an audio-only project is
-  // active, so generation hits the raw audio file (not the rendered MP4).
+  // Auto-pick the 'audio' subtitle source when a generated silent video is
+  // only backing an imported audio timeline.
   useEffect(() => {
-    if (composition?.audioOnly && (composition.musicSegments?.length ?? 0) > 0) {
-      if (subtitleSource !== "music") {
-        setSubtitleSource("music");
+    if (
+      composition?.placeholderVideoForAudio &&
+      (composition.audioSegments?.length ?? 0) > 0
+    ) {
+      if (subtitleSource !== "audio" && !subtitleSource.startsWith("audio:")) {
+        setSubtitleSource("audio");
       }
     }
-  }, [composition?.audioOnly, composition?.musicSegments, subtitleSource, setSubtitleSource]);
+  }, [
+    composition?.placeholderVideoForAudio,
+    composition?.audioSegments,
+    subtitleSource,
+    setSubtitleSource,
+  ]);
 
-  // Music/SFX audio import — creates an audio-only project when nothing is
-  // open, otherwise appends to composition.musicSegments on the current one.
-  const { isImporting: isImportingAudio, importAudio, importAudioPath } = useMusicAudioImport({
-    getCurrentProjectId: () => projects.currentProjectId,
-    onAttachToCurrentProject: (segment) => {
-      setComposition((prev) => {
-        if (!prev) return prev;
-        const existing = prev.musicSegments ?? [];
-        return { ...prev, musicSegments: [...existing, segment] };
-      });
+  const applyCurrentComposition = useCallback(
+    (nextComposition: ProjectComposition, reason: string) => {
+      setComposition(nextComposition);
+      const currentProject = currentProjectDataRef.current;
+      if (currentProject) {
+        currentProjectDataRef.current = {
+          ...currentProject,
+          composition: nextComposition,
+        };
+      }
+      setCurrentProjectData((prev) =>
+        prev ? { ...prev, composition: nextComposition } : prev,
+      );
+
+      const projectId =
+        currentProjectIdRef.current ??
+        currentProjectDataRef.current?.id ??
+        projects.currentProjectId ??
+        null;
+      if (!projectId) {
+        void logToHost(`[AudioImport][Frontend] skip composition persist reason="${reason}" no-project`);
+        return;
+      }
+
+      void projectManager
+        .updateProject(projectId, { composition: nextComposition })
+        .then(() => projects.loadProjects())
+        .catch((error) => {
+          console.warn("[AudioImport] Failed to persist composition", error);
+          void logToHost(
+            `[AudioImport][Frontend] composition persist failed reason="${reason}" project="${projectId}" error="${String(error)}"`,
+          );
+        });
     },
-    onCreateAudioOnlyProject: async (project) => {
+    [projects.currentProjectId, projects.loadProjects],
+  );
+
+  const updateCurrentMusicSegments = useCallback(
+    (
+      updater: (segments: ImportedAudioSegment[]) => ImportedAudioSegment[],
+      reason: string,
+      options: { persist: boolean } = { persist: false },
+    ) => {
+      const baseComposition = composition ?? currentProjectDataRef.current?.composition ?? null;
+      if (!baseComposition) {
+        void logToHost(`[AudioImport][Frontend] skip audio update reason="${reason}" no-composition`);
+        return;
+      }
+
+      const nextComposition: ProjectComposition = {
+        ...baseComposition,
+        audioSegments: updater(baseComposition.audioSegments ?? []),
+      };
+
+      if (options.persist) {
+        applyCurrentComposition(nextComposition, reason);
+        return;
+      }
+
+      setComposition(nextComposition);
+      const currentProject = currentProjectDataRef.current;
+      if (currentProject) {
+        currentProjectDataRef.current = {
+          ...currentProject,
+          composition: nextComposition,
+        };
+      }
+      setCurrentProjectData((prev) =>
+        prev ? { ...prev, composition: nextComposition } : prev,
+      );
+    },
+    [applyCurrentComposition, composition],
+  );
+
+  const persistCurrentComposition = useCallback(
+    (reason: string) => {
+      const currentComposition =
+        currentProjectDataRef.current?.composition ?? composition ?? null;
+      if (!currentComposition) {
+        void logToHost(`[AudioImport][Frontend] skip composition persist reason="${reason}" no-composition`);
+        return;
+      }
+      applyCurrentComposition(currentComposition, reason);
+    },
+    [applyCurrentComposition, composition],
+  );
+
+  // Audio audio import — creates a silent-video-backed audio project when
+  // nothing is open, otherwise appends to composition.audioSegments.
+  const { isImporting: isImportingAudio, importAudio, importAudios, importAudioPaths } = useImportedAudioImport({
+    getCurrentProjectId: () =>
+      currentProjectIdRef.current ?? currentProjectDataRef.current?.id ?? null,
+    onAttachToCurrentProject: (segments) => {
+      updateCurrentMusicSegments(
+        (existingSegments) => {
+          const appendStart = existingSegments.reduce((maxEnd, segment) => {
+            const visibleDuration = Math.max(segment.outPoint - segment.inPoint, 0);
+            return Math.max(maxEnd, segment.startTime + visibleDuration);
+          }, 0);
+          let cursor = appendStart;
+          const placedSegments = segments.map((segment) => {
+            const visibleDuration = Math.max(segment.outPoint - segment.inPoint, 0);
+            const placed = { ...segment, startTime: cursor };
+            cursor += visibleDuration;
+            return placed;
+          });
+          return [...existingSegments, ...placedSegments];
+        },
+        "attach-audio-to-current-project",
+        { persist: true },
+      );
+      if (composition?.placeholderVideoForAudio) {
+        setSubtitleSource("audio");
+      }
+    },
+    onCreateAudioProject: async (project) => {
+      logToHost(`[AudioImport][Frontend] load project start id="${project.id}"`);
       projects.setShowProjectsDialog(false);
       await projects.loadProjects();
+      logToHost(`[AudioImport][Frontend] project list refreshed id="${project.id}"`);
       await projects.handleLoadProject(project.id);
+      currentProjectIdRef.current = project.id;
+      if (project.composition) {
+        setComposition(project.composition);
+      }
+      logToHost(`[AudioImport][Frontend] load project complete id="${project.id}"`);
     },
   });
 
@@ -798,10 +876,11 @@ function App() {
             "take_pending_audio_drop_actions",
             {},
           );
-          for (const action of actions) {
-            const filePath = action.path?.trim();
-            if (!filePath) continue;
-            await importAudioPath(filePath);
+          const filePaths = actions
+            .map((action) => action.path?.trim() ?? "")
+            .filter(Boolean);
+          if (filePaths.length > 0) {
+            await importAudioPaths(filePaths);
           }
         } catch (error) {
           console.warn("[AudioDrop] Failed to drain pending audio actions", error);
@@ -816,7 +895,7 @@ function App() {
     return () => {
       window.removeEventListener("sgt-audio-drop-pending", drainPendingAudioDropActions);
     };
-  }, [importAudioPath]);
+  }, [importAudioPaths]);
 
   useEffect(() => {
     let isDraining = false;
@@ -993,6 +1072,7 @@ function App() {
           disabled={isRecording || isImporting || isImportingAudio}
           onDropVideo={importVideo}
           onDropAudio={importAudio}
+          onDropAudios={importAudios}
         />
         <ResizeBorders />
         <Header
@@ -1160,17 +1240,25 @@ function App() {
           handleAddKeystrokeSegment={handleAddKeystrokeSegment}
           handleAddPointerSegment={handleAddPointerSegment}
           setTimelineCanvasWidthPx={setTimelineCanvasWidthPx}
-          onPickMusicAudioFile={importAudio}
-          onUpdateMusicSegment={(id, patch) => {
-            setComposition((prev) => {
-              if (!prev?.musicSegments) return prev;
-              return {
-                ...prev,
-                musicSegments: prev.musicSegments.map((s) =>
-                  s.id === id ? { ...s, ...patch } : s,
+          onPickImportedAudioFile={importAudio}
+          onUpdateAudioSegment={(id, patch) => {
+            updateCurrentMusicSegments(
+              (segments) =>
+                segments.map((segment) =>
+                  segment.id === id ? { ...segment, ...patch } : segment,
                 ),
-              };
-            });
+              "update-audio-segment",
+            );
+          }}
+          onDeleteAudioSegment={(id) => {
+            updateCurrentMusicSegments(
+              (segments) => segments.filter((segment) => segment.id !== id),
+              "delete-audio-segment",
+              { persist: true },
+            );
+          }}
+          onCommitAudioSegments={() => {
+            persistCurrentComposition("commit-audio-segment-edit");
           }}
         />
 

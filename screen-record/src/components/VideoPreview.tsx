@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Video, Loader2, Play, Pause, Crop, Music4 } from 'lucide-react';
-import { VideoSegment, BackgroundConfig, MousePosition, type MusicAudioSegment } from '@/types/video';
+import { VideoSegment, BackgroundConfig, MousePosition, type ImportedAudioSegment } from '@/types/video';
 import { formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';
 
@@ -18,8 +18,8 @@ interface PlaceholderProps {
   isRecording: boolean;
   recordingDuration: number;
   onImportVideo?: (file: File) => void;
-  /** Audio-only project — show music info instead of "no video" copy. */
-  musicSegments?: MusicAudioSegment[];
+  /** Imported audio placeholder fallback — show audio info instead of "no video" copy. */
+  audioSegments?: ImportedAudioSegment[];
 }
 
 export function Placeholder({
@@ -28,7 +28,7 @@ export function Placeholder({
   isRecording,
   recordingDuration,
   onImportVideo,
-  musicSegments,
+  audioSegments,
 }: PlaceholderProps) {
   const { t } = useSettings();
   return (
@@ -58,17 +58,17 @@ export function Placeholder({
           <p className="text-[var(--on-surface)] text-sm font-medium">{t.recordingInProgress}</p>
           <span className="text-[var(--on-surface)] text-lg font-mono mt-2">{formatTime(recordingDuration)}</span>
         </div>
-      ) : musicSegments && musicSegments.length > 0 ? (
-        <div className="audio-only-state flex flex-col items-center max-w-[80%] text-center">
+      ) : audioSegments && audioSegments.length > 0 ? (
+        <div className="audio-placeholder-state flex flex-col items-center max-w-[80%] text-center">
           <Music4 className="w-10 h-10 text-[var(--primary-color)] mb-3" />
           <p className="text-[var(--on-surface)] text-sm font-medium truncate w-full">
-            {musicSegments[0].name}
+            {audioSegments[0].name}
           </p>
           <p className="text-[var(--outline)] text-xs mt-1 tabular-nums">
-            {formatTime(musicSegments[0].duration)}
-            {musicSegments.length > 1 ? ` · +${musicSegments.length - 1}` : ''}
+            {formatTime(audioSegments[0].duration)}
+            {audioSegments.length > 1 ? ` · +${audioSegments.length - 1}` : ''}
           </p>
-          <p className="text-[var(--outline)] text-[10px] mt-3 opacity-70">{t.audioOnlyProjectHint}</p>
+          <p className="text-[var(--outline)] text-[10px] mt-3 opacity-70">{t.audioPlaceholderProjectHint}</p>
         </div>
       ) : (
         <div className="no-video-state flex flex-col items-center">

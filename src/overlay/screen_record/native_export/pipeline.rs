@@ -475,15 +475,15 @@ fn prepare_audio_and_video(config: &ExportConfig) -> Result<AudioVideoPrep, Stri
     let speed_changes_audio_timeline = speed_points
         .iter()
         .any(|point| (point.speed - 1.0).abs() > 0.0001);
-    let has_music_segments = config
-        .music_segments
+    let has_audio_segments = config
+        .audio_segments
         .iter()
         .any(|seg| !seg.raw_audio_path.trim().is_empty());
     let t_audio_start = Instant::now();
     let use_preprocessed_audio = config.format != "gif"
         && (speed_changes_audio_timeline
             || (!config.mic_audio_path.trim().is_empty() && has_audible_mic_audio)
-            || has_music_segments);
+            || has_audio_segments);
     let timestamp_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -508,8 +508,8 @@ fn prepare_audio_and_video(config: &ExportConfig) -> Result<AudioVideoPrep, Stri
                 source_out_sec: None,
             });
         }
-        for music in &config.music_segments {
-            let path = music.raw_audio_path.trim();
+        for audio_segment in &config.audio_segments {
+            let path = audio_segment.raw_audio_path.trim();
             if path.is_empty() {
                 continue;
             }
@@ -518,19 +518,19 @@ fn prepare_audio_and_video(config: &ExportConfig) -> Result<AudioVideoPrep, Stri
             // so the trimmed range [in_point, out_point] is placed at
             // [start_time, start_time + (out_point - in_point)] on the project
             // timeline.
-            let in_point = music.in_point.max(0.0);
-            let raw_out = music.out_point;
+            let in_point = audio_segment.in_point.max(0.0);
+            let raw_out = audio_segment.out_point;
             let out_point = if raw_out > in_point + 0.0001 {
                 raw_out
-            } else if music.duration > in_point + 0.0001 {
-                music.duration
+            } else if audio_segment.duration > in_point + 0.0001 {
+                audio_segment.duration
             } else {
                 in_point
             };
             sources.push(ExportAudioSource {
                 path: path.to_string(),
-                volume_points: music.volume_points.clone(),
-                start_offset_sec: music.start_time - in_point,
+                volume_points: audio_segment.volume_points.clone(),
+                start_offset_sec: audio_segment.start_time - in_point,
                 source_in_sec: Some(in_point),
                 source_out_sec: Some(out_point),
             });

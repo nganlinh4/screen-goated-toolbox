@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Film, Music } from "lucide-react";
+import { AudioLines, Film } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 
 type DragKind = "video" | "audio" | "either" | "none";
@@ -8,6 +8,7 @@ interface DragDropOverlayProps {
   disabled?: boolean;
   onDropVideo: (file: File) => void;
   onDropAudio?: (file: File) => void;
+  onDropAudios?: (files: File[]) => void;
 }
 
 const AUDIO_EXT_RE = /\.(mp3|wav|m4a|flac|ogg|oga|aac|alac|aiff|aif|wma|opus|mka)$/i;
@@ -35,7 +36,7 @@ function classifyDragItems(items: DataTransferItemList | undefined): DragKind {
   return "either";
 }
 
-export function DragDropOverlay({ disabled, onDropVideo, onDropAudio }: DragDropOverlayProps) {
+export function DragDropOverlay({ disabled, onDropVideo, onDropAudio, onDropAudios }: DragDropOverlayProps) {
   const { t } = useSettings();
   const [dragCount, setDragCount] = useState(0);
   const [dragKind, setDragKind] = useState<DragKind>("none");
@@ -80,6 +81,11 @@ export function DragDropOverlay({ disabled, onDropVideo, onDropAudio }: DragDrop
       }
     }
     if (onDropAudio) {
+      const audioFiles = Array.from(files).filter(fileLooksLikeAudio);
+      if (audioFiles.length > 1 && onDropAudios) {
+        onDropAudios(audioFiles);
+        return;
+      }
       for (let i = 0; i < files.length; i += 1) {
         const file = files[i];
         if (fileLooksLikeAudio(file)) {
@@ -88,7 +94,7 @@ export function DragDropOverlay({ disabled, onDropVideo, onDropAudio }: DragDrop
         }
       }
     }
-  }, [disabled, onDropVideo, onDropAudio]);
+  }, [disabled, onDropVideo, onDropAudio, onDropAudios]);
 
   useEffect(() => {
     window.addEventListener("dragenter", handleDragEnter);
@@ -121,7 +127,7 @@ export function DragDropOverlay({ disabled, onDropVideo, onDropAudio }: DragDrop
       <div className="drag-drop-content flex flex-col items-center gap-3 p-8 rounded-2xl border-2 border-dashed" style={{ borderColor: 'var(--primary-color)', background: 'color-mix(in srgb, var(--surface) 90%, transparent)' }}>
         <div className="drag-drop-icons flex items-center gap-3">
           {showVideo && <Film className="w-10 h-10" style={{ color: 'var(--primary-color)' }} />}
-          {showAudio && <Music className="w-10 h-10" style={{ color: 'var(--primary-color)' }} />}
+          {showAudio && <AudioLines className="w-10 h-10" style={{ color: 'var(--primary-color)' }} />}
         </div>
         <p className="text-sm font-medium" style={{ color: 'var(--on-surface)' }}>{cta}</p>
       </div>

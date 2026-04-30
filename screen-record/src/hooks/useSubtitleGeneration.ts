@@ -12,18 +12,21 @@ import {
 } from '@/lib/sequenceTimeline';
 import {
   buildSubtitleGenerationPlan,
+  type AudioSubtitleClipTransform,
   type SubtitleGenerationIndicator,
+  type SubtitleSource,
 } from '@/lib/subtitleGenerationPlan';
 import { defaultSubtitleStyle } from '@/lib/subtitleDefaults';
 import {
   type TrackSelectionRange,
 } from '@/lib/timelineSegmentSelection';
 import type { Translations } from '@/i18n';
-import type { ProjectComposition, VideoSegment } from '@/types/video';
+import type { ProjectComposition, SubtitleSegment, VideoSegment } from '@/types/video';
 import {
   clearDerivedSubtitleTracks,
   mergePartialOriginalSubtitleSegments,
   replaceOriginalSubtitleSegments,
+  replaceAudioSubtitlesOnOriginalTrack,
 } from '@/lib/subtitleTrackMutations';
 import {
   getSubtitleTracks,
@@ -67,10 +70,23 @@ const SUBTITLE_PARTIAL_APPLY_INTERVAL_MS = 2500;
 const SUBTITLE_PARTIAL_TEXT_REFRESH_MS = 5000;
 const SUBTITLE_APPLY_PERF_LOG_INTERVAL_MS = 1000;
 
-function getInitialSubtitleSource(): 'video' | 'mic' | 'music' {
+function isSubtitleSource(value: string | null): value is SubtitleSource {
+  return value === 'video'
+    || value === 'mic'
+    || value === 'audio'
+    || value?.startsWith('audio:') === true;
+}
+
+function normalizeLegacySubtitleSource(value: string | null): string | null {
+  if (value === 'music') return 'audio';
+  if (value?.startsWith('music:')) return `audio:${value.slice('music:'.length)}`;
+  return value;
+}
+
+function getInitialSubtitleSource(): SubtitleSource {
   try {
-    const raw = localStorage.getItem(SUBTITLE_SOURCE_KEY);
-    if (raw === 'video' || raw === 'mic' || raw === 'music') {
+    const raw = normalizeLegacySubtitleSource(localStorage.getItem(SUBTITLE_SOURCE_KEY));
+    if (isSubtitleSource(raw)) {
       return raw;
     }
   } catch {
@@ -208,6 +224,8 @@ interface SubtitleJobContext {
     Array<{ startTime: number; endTime: number }>
   >;
   indicator: SubtitleGenerationIndicator;
+  sourceTypeForNative: 'video' | 'mic' | 'audio';
+  clipTransformsByClip: Record<string, AudioSubtitleClipTransform>;
 }
 
 interface UseSubtitleGenerationParams {
@@ -379,6 +397,61 @@ function partialApplySignature(result: SubtitleClipResult) {
   ].join(':');
 }
 
+function buildInsertedSubtitle(
+  result: SubtitleClipResult,
+  entry: { startTime: number; endTime: number; text: string },
+  index: number,
+  subtitleStyle: ReturnType<typeof defaultSubtitleStyle>,
+  transform?: AudioSubtitleClipTransform,
+  sourceTypeForNative: 'video' | 'mic' | 'audio' = 'video',
+): SubtitleSegment {
+  if (!transform) {
+    return {
+      id: buildSubtitleId(result.clipId, entry, index),
+      startTime: entry.startTime,
+      endTime: entry.endTime,
+      text: entry.text,
+      style: subtitleStyle,
+      sourceGroup: {
+        kind: sourceTypeForNative === 'mic'
+          ? 'mic'
+          : sourceTypeForNative === 'audio'
+            ? 'audio'
+            : 'video',
+        assignment: 'generated',
+      },
+    };
+  }
+
+  const sourceLocalStartTime = Math.max(0, entry.startTime - transform.sourceLocalOffsetSec);
+  const sourceLocalEndTime = Math.max(sourceLocalStartTime, entry.endTime - transform.sourceLocalOffsetSec);
+  return {
+    id: buildSubtitleId(result.clipId, {
+      ...entry,
+      startTime: entry.startTime + transform.timelineOffsetSec,
+    }, index),
+    startTime: entry.startTime + transform.timelineOffsetSec,
+    endTime: entry.endTime + transform.timelineOffsetSec,
+    text: entry.text,
+    style: subtitleStyle,
+    provenance: {
+      sourceKind: 'audio',
+      audioSegmentId: transform.audioSegmentId,
+      sourceName: transform.sourceName,
+      sourcePath: transform.sourcePath,
+      sourceLocalStartTime,
+      sourceLocalEndTime,
+    },
+    sourceGroup: {
+      kind: 'audio',
+      assignment: 'generated',
+      audioSegmentId: transform.audioSegmentId,
+      sourceName: transform.sourceName,
+      sourcePath: transform.sourcePath,
+    },
+  };
+}
+
 export function useSubtitleGeneration({
   t,
   projectResetKey,
@@ -393,7 +466,7 @@ export function useSubtitleGeneration({
   setActivePanel,
 }: UseSubtitleGenerationParams) {
   const [editingSubtitleId, setEditingSubtitleId] = useState<string | null>(null);
-  const [sourceType, setSourceType] = useState<'video' | 'mic' | 'music'>(getInitialSubtitleSource);
+  const [sourceType, setSourceType] = useState<SubtitleSource>(getInitialSubtitleSource);
   const [subtitleMethod, setSubtitleMethodState] = useState<SubtitleMethod>(getInitialSubtitleMethod);
   const [subtitleMethodNotice, setSubtitleMethodNotice] = useState<string | null>(null);
   const [languageHint, setLanguageHint] = useState(getInitialSubtitleLanguageHint);
@@ -519,9 +592,20 @@ export function useSubtitleGeneration({
     return !!currentRawMicAudioPath;
   }, [composition, currentRawMicAudioPath]);
 
-  const canUseMusicSource = useMemo(() => {
-    return (composition?.musicSegments?.length ?? 0) > 0;
+  const canUseAudioSource = useMemo(() => {
+    return (composition?.audioSegments?.length ?? 0) > 0;
   }, [composition]);
+
+  useEffect(() => {
+    if (sourceType.startsWith('audio:')) {
+      const id = sourceType.slice('audio:'.length);
+      if (!composition?.audioSegments?.some((segment) => segment.id === id)) {
+        setSourceType(composition?.audioSegments?.length ? 'audio' : 'video');
+      }
+    } else if (sourceType === 'audio' && !canUseAudioSource) {
+      setSourceType(canUseVideoSource ? 'video' : canUseMicSource ? 'mic' : 'video');
+    }
+  }, [canUseMicSource, canUseAudioSource, canUseVideoSource, composition?.audioSegments, sourceType]);
 
   const refreshSubtitleCapabilities = useCallback(async () => {
     const nextCapabilities = await invoke<SubtitleGenerationCapabilities>(
@@ -602,14 +686,25 @@ export function useSubtitleGeneration({
         if (!prev) return prev;
         return results.reduce((nextSegment, result) => {
           const replacementRanges = context?.replacementRangesByClip[result.clipId] ?? [];
-        const inserted = result.segments.map((entry, index) => ({
-          id: buildSubtitleId(result.clipId, entry, index),
-          startTime: entry.startTime,
-          endTime: entry.endTime,
-          text: entry.text,
-          style: subtitleStyle,
-        }));
-          const replacedSegment = result.isPartial
+          const transform = context?.clipTransformsByClip[result.clipId];
+          const inserted = result.segments.map((entry, index) =>
+            buildInsertedSubtitle(
+              result,
+              entry,
+              index,
+              subtitleStyle,
+              transform,
+              context?.sourceTypeForNative,
+            ),
+          );
+          const replacedSegment = transform
+            ? replaceAudioSubtitlesOnOriginalTrack(
+                nextSegment,
+                new Set([transform.audioSegmentId]),
+                replacementRanges,
+                inserted,
+              )
+            : result.isPartial
             ? mergePartialOriginalSubtitleSegments(nextSegment, inserted, replacementRanges)
             : replaceOriginalSubtitleSegments(nextSegment, inserted, replacementRanges);
           const updatedSegment = setActiveSubtitleTrackView(
@@ -645,15 +740,50 @@ export function useSubtitleGeneration({
       let next = prev;
       for (const result of results) {
         const clip = next.clips.find((entry) => entry.id === result.clipId);
-        if (!clip) continue;
+          const transform = context?.clipTransformsByClip[result.clipId];
         const replacementRanges = context?.replacementRangesByClip[result.clipId] ?? [];
-        const inserted = result.segments.map((entry, index) => ({
-          id: buildSubtitleId(result.clipId, entry, index),
-          startTime: entry.startTime,
-          endTime: entry.endTime,
-          text: entry.text,
-          style: subtitleStyle,
-        }));
+        if (transform) {
+          const inserted = result.segments.map((entry, index) =>
+            buildInsertedSubtitle(
+              result,
+              entry,
+              index,
+              subtitleStyle,
+              transform,
+              context?.sourceTypeForNative,
+            ),
+          );
+          const baseSegment = next.globalSegment ?? segment;
+          if (baseSegment) {
+            const updatedSegment = setActiveSubtitleTrackView(
+              clearDerivedSubtitleTracks(
+                replaceAudioSubtitlesOnOriginalTrack(
+                  baseSegment,
+                  new Set([transform.audioSegmentId]),
+                  replacementRanges,
+                  inserted,
+                ),
+              ),
+              ORIGINAL_SUBTITLE_TRACK_ID,
+            );
+            next = {
+              ...next,
+              globalSegment: updatedSegment,
+            };
+          }
+          continue;
+        }
+        if (!clip) continue;
+        const inserted = result.segments.map((entry, index) =>
+          buildInsertedSubtitle(
+            result,
+            entry,
+            index,
+            subtitleStyle,
+            undefined,
+            context?.sourceTypeForNative,
+          ),
+        );
         const replacedSegment = result.isPartial
           ? mergePartialOriginalSubtitleSegments(
               clip.segment,
@@ -704,7 +834,7 @@ export function useSubtitleGeneration({
         `[SubtitleGen][Perf] apply mode=unified ms=${elapsedMs.toFixed(1)} results=${results.length} segments=${segmentCount} partial=${results.filter((result) => result.isPartial).length} final=${results.filter((result) => !result.isPartial).length}`,
       );
     }
-  }, [composition, setComposition, setSegment]);
+  }, [composition, segment, setComposition, setSegment]);
 
   const applyResultsRef = useRef(applyResults);
 
@@ -937,10 +1067,12 @@ export function useSubtitleGeneration({
     setJobContext({
       replacementRangesByClip: plan.replacementRangesByClip,
       indicator: plan.indicator,
+      sourceTypeForNative: plan.sourceTypeForNative,
+      clipTransformsByClip: plan.clipTransformsByClip,
     });
 
     const result = await invoke<{ jobId: string }>('start_subtitle_generation', {
-      sourceType,
+      sourceType: plan.sourceTypeForNative,
       subtitleMethod,
       languageHint: languageHint.trim() || 'auto',
       geminiPrompt: geminiPrompt.trim() || null,
@@ -1043,7 +1175,7 @@ export function useSubtitleGeneration({
     subtitleGenerationIndicator: jobContext?.indicator ?? null,
     canUseVideoSubtitleSource: canUseVideoSource,
     canUseMicSubtitleSource: canUseMicSource,
-    canUseMusicSubtitleSource: canUseMusicSource,
+    canUseAudioSubtitleSource: canUseAudioSource,
     handleGenerateSubtitles,
     handleCancelSubtitleGeneration,
   };

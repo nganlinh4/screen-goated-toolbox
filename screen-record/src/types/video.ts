@@ -78,9 +78,31 @@ export interface TextSegment {
   endTime: number;
   text: string;
   style: TextStyle;
+  sourceGroup?: SubtitleSourceGroup;
+  provenance?: SubtitleProvenance;
 }
 
 export type SubtitleSegment = TextSegment;
+
+export interface SubtitleProvenance {
+  sourceKind: "audio";
+  audioSegmentId: string;
+  sourceName: string;
+  sourcePath: string;
+  sourceLocalStartTime: number;
+  sourceLocalEndTime: number;
+}
+
+export type SubtitleSourceGroupKind = "audio" | "video" | "mic" | "unassigned";
+export type SubtitleSourceGroupAssignment = "generated" | "manual" | "inferred";
+
+export interface SubtitleSourceGroup {
+  kind: SubtitleSourceGroupKind;
+  assignment?: SubtitleSourceGroupAssignment;
+  audioSegmentId?: string;
+  sourceName?: string;
+  sourcePath?: string;
+}
 
 export type SubtitleTrackKind = "original" | "translation";
 
@@ -177,17 +199,17 @@ export interface AudioGainPoint {
 
 export type DeviceAudioPoint = AudioGainPoint;
 export type MicAudioPoint = AudioGainPoint;
-export type MusicAudioGainPoint = AudioGainPoint;
+export type ImportedAudioGainPoint = AudioGainPoint;
 
 /**
- * A music/sfx file placed on the project-level Audio track. Distinct from
+ * An imported audio file placed on the project-level Audio track. Distinct from
  * device audio (screen capture) and mic audio (microphone capture) — these
- * are user-supplied background music or sound effects.
+ * are user-supplied audio files.
  *
  * `startTime` is in **timeline seconds** (project-wide), not per-clip seconds.
- * Reordering clips does NOT auto-shift music — by design.
+ * Reordering clips does NOT auto-shift imported audio — by design.
  */
-export interface MusicAudioSegment {
+export interface ImportedAudioSegment {
   id: string;
   rawAudioPath: string;
   name: string;
@@ -195,7 +217,7 @@ export interface MusicAudioSegment {
   startTime: number;
   inPoint: number;
   outPoint: number;
-  volumePoints?: MusicAudioGainPoint[];
+  volumePoints?: ImportedAudioGainPoint[];
   addedAt: number;
 }
 
@@ -305,16 +327,15 @@ export interface ProjectComposition {
   globalSegment?: VideoSegment;
   globalBackgroundConfig?: BackgroundConfig;
   /**
-   * User-supplied music/sfx files placed on the project-wide Audio track.
+   * User-supplied audio files placed on the project-wide Audio track.
    * Empty/undefined means no Audio track is rendered.
    */
-  musicSegments?: MusicAudioSegment[];
+  audioSegments?: ImportedAudioSegment[];
   /**
-   * Set true when the project was created from an audio file with no video.
-   * Cleared the moment a video clip is added. Drives audio-only side-panel
-   * gating and the audio-only preview placeholder.
+   * Set true when the root video is a generated silent placeholder whose only
+   * job is to provide normal video timing/export behavior for imported audio.
    */
-  audioOnly?: boolean;
+  placeholderVideoForAudio?: boolean;
 }
 
 export interface BackgroundConfig {
@@ -494,8 +515,8 @@ export interface ExportOptions {
   bakedCursorPath?: BakedCursorFrame[];
   bakedKeystrokeOverlays?: BakedKeystrokeOverlay[];
   bakedWebcamFrames?: BakedWebcamFrame[];
-  /** User-supplied music/sfx files placed on the project-wide Audio track. */
-  musicSegments?: MusicAudioSegment[];
+  /** User-supplied audio files placed on the project-wide Audio track. */
+  audioSegments?: ImportedAudioSegment[];
 }
 
 export type ExportArtifactFormat = "mp4" | "gif";

@@ -192,11 +192,17 @@ fn run_subtitle_translation_inner(
     );
     let chunks = split_translation_items(&request.items, initial_chunk_count);
     let mut history: Vec<TranslationConversationTurn> = Vec::new();
+    let mut previous_source_group_id: Option<String> = None;
     let mut translated_results: Vec<SubtitleTranslationResultItem> = Vec::new();
     let mut total_groups = chunks.len();
     let mut completed_groups = 0usize;
 
     for chunk in chunks {
+        let chunk_source_group_id = chunk.first().and_then(|item| item.source_group_id.clone());
+        if previous_source_group_id != chunk_source_group_id {
+            history.clear();
+            previous_source_group_id = chunk_source_group_id.clone();
+        }
         translate_group_with_retry(TranslateGroupRequest {
             config: &config,
             candidate_models: &candidate_models,
@@ -434,13 +440,32 @@ fn split_translation_items(
     items: &[SubtitleTranslationItemRequest],
     chunk_count: usize,
 ) -> Vec<Vec<SubtitleTranslationItemRequest>> {
-    let safe_chunk_count = chunk_count.max(1).min(items.len().max(1));
+    let mut grouped: Vec<(Option<String>, Vec<SubtitleTranslationItemRequest>)> = Vec::new();
+    for item in items {
+        let group_id = item.source_group_id.clone();
+        if let Some((last_group_id, last_items)) = grouped.last_mut() {
+            if *last_group_id == group_id {
+                last_items.push(item.clone());
+                continue;
+            }
+        }
+        grouped.push((group_id, vec![item.clone()]));
+    }
+
+    let total_items = items.len().max(1);
+    let safe_chunk_count = chunk_count.max(1).min(total_items);
     let mut chunks = Vec::with_capacity(safe_chunk_count);
-    for chunk_index in 0..safe_chunk_count {
-        let start = chunk_index * items.len() / safe_chunk_count;
-        let end = (chunk_index + 1) * items.len() / safe_chunk_count;
-        if start < end {
-            chunks.push(items[start..end].to_vec());
+    for (_group_id, group_items) in grouped {
+        let group_chunk_count = ((safe_chunk_count * group_items.len() + total_items - 1)
+            / total_items)
+            .max(1)
+            .min(group_items.len().max(1));
+        for chunk_index in 0..group_chunk_count {
+            let start = chunk_index * group_items.len() / group_chunk_count;
+            let end = (chunk_index + 1) * group_items.len() / group_chunk_count;
+            if start < end {
+                chunks.push(group_items[start..end].to_vec());
+            }
         }
     }
     chunks

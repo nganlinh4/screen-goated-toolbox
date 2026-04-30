@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Music, Plus } from "lucide-react";
-import type { MusicAudioSegment, VideoSegment } from "@/types/video";
+import type { ImportedAudioSegment, SubtitleSourceGroup, VideoSegment } from "@/types/video";
+import { Plus } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import type { SubtitleGenerationIndicator } from "@/lib/subtitleGenerationPlan";
 import type { TrackSelectionRange } from "@/lib/timelineSegmentSelection";
 import { KeystrokeTrack } from "./KeystrokeTrack";
 import { MicTrack } from "./MicTrack";
-import { MusicAudioTrack } from "./MusicAudioTrack";
+import { ImportedAudioTrack } from "./ImportedAudioTrack";
 import { Playhead } from "./Playhead";
 import { PointerTrack } from "./PointerTrack";
 import { DeviceAudioTrack } from "./DeviceAudioTrack";
@@ -30,6 +30,7 @@ import {
   deleteSubtitleIdsAcrossTracks,
   duplicateSubtitleAcrossTracks,
   splitSubtitleAcrossTracks,
+  updateSubtitleSourceGroupAcrossTracks,
 } from "@/lib/subtitleTrackMutations";
 import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
 
@@ -38,7 +39,7 @@ const TIMELINE_TRACK_HEIGHTS = {
   zoom: 40,
   debug: 40,
   speed: 40,
-  musicAudio: 40,
+  importedAudio: 40,
   deviceAudio: 40,
   micAudio: 40,
   webcam: 28,
@@ -99,10 +100,13 @@ interface TimelineAreaProps {
     groups: Record<string, number>;
     groupCount: number;
   } | null;
-  musicSegments?: MusicAudioSegment[];
-  onPickMusicAudioFile?: (file: File) => void;
+  audioSegments?: ImportedAudioSegment[];
+  onPickImportedAudioFile?: (file: File) => void;
   onSelectMusicSegment?: (id: string) => void;
-  onUpdateMusicSegment?: (id: string, patch: Partial<MusicAudioSegment>) => void;
+  onUpdateAudioSegment?: (id: string, patch: Partial<ImportedAudioSegment>) => void;
+  onDeleteAudioSegment?: (id: string) => void;
+  onCommitAudioSegments?: () => void;
+  selectedAudioSegmentId?: string | null;
 }
 
 export const TimelineArea: React.FC<TimelineAreaProps> = ({
@@ -152,10 +156,13 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   hasMouseData = true,
   subtitleGenerationIndicator,
   subtitleTranslationChunkPreview,
-  musicSegments,
-  onPickMusicAudioFile,
+  audioSegments,
+  onPickImportedAudioFile,
   onSelectMusicSegment,
-  onUpdateMusicSegment,
+  onUpdateAudioSegment,
+  onDeleteAudioSegment,
+  onCommitAudioSegments,
+  selectedAudioSegmentId,
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
@@ -220,26 +227,26 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   const showMicAudio = isMicAudioAvailable;
   const showWebcam = isWebcamAvailable;
   const showKeystroke = (segment?.keystrokeMode ?? 'off') !== 'off';
-  const showMusicAudio = (musicSegments?.length ?? 0) > 0;
+  const showImportedAudio = Boolean(onPickImportedAudioFile) || (audioSegments?.length ?? 0) > 0;
 
-  const musicAudioFileInputRef = useRef<HTMLInputElement>(null);
-  const handleTriggerMusicAudioPicker = useCallback(() => {
-    musicAudioFileInputRef.current?.click();
+  const importedAudioFileInputRef = useRef<HTMLInputElement>(null);
+  const handleTriggerImportedAudioPicker = useCallback(() => {
+    importedAudioFileInputRef.current?.click();
   }, []);
-  const handleMusicAudioFilePicked = useCallback(
+  const handleImportedAudioFilePicked = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       event.target.value = "";
-      if (file && onPickMusicAudioFile) onPickMusicAudioFile(file);
+      if (file && onPickImportedAudioFile) onPickImportedAudioFile(file);
     },
-    [onPickMusicAudioFile],
+    [onPickImportedAudioFile],
   );
 
   const trackHeightsBeforeTrim = [
     TIMELINE_TRACK_HEIGHTS.zoom,
     ...(showDebug ? [TIMELINE_TRACK_HEIGHTS.debug] : []),
     TIMELINE_TRACK_HEIGHTS.speed,
-    ...(showMusicAudio ? [TIMELINE_TRACK_HEIGHTS.musicAudio] : []),
+    ...(showImportedAudio ? [TIMELINE_TRACK_HEIGHTS.importedAudio] : []),
     ...(showDeviceAudio ? [TIMELINE_TRACK_HEIGHTS.deviceAudio] : []),
     ...(showMicAudio ? [TIMELINE_TRACK_HEIGHTS.micAudio] : []),
     ...(showWebcam ? [TIMELINE_TRACK_HEIGHTS.webcam] : []),
@@ -435,6 +442,13 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     commitBatch();
   }, [segment, setSegment, beginBatch, commitBatch]);
 
+  const handleAssignSubtitleSourceGroup = useCallback((ids: string[], sourceGroup: SubtitleSourceGroup) => {
+    if (!segment || ids.length === 0) return;
+    beginBatch();
+    setSegment(updateSubtitleSourceGroupAcrossTracks(segment, new Set(ids), sourceGroup));
+    commitBatch();
+  }, [segment, setSegment, beginBatch, commitBatch]);
+
   const handleDeleteKeystrokeSegments = useCallback((ids: string[]) => {
     if (!segment) return;
     beginBatch();
@@ -495,11 +509,11 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   return (
     <div className="timeline-area select-none mx-2">
       <input
-        ref={musicAudioFileInputRef}
+        ref={importedAudioFileInputRef}
         type="file"
         accept="audio/*"
         className="hidden"
-        onChange={handleMusicAudioFilePicked}
+        onChange={handleImportedAudioFilePicked}
       />
       <div className="timeline-shell flex gap-4">
         <div className="timeline-side-column w-[4rem] flex-shrink-0">
@@ -551,32 +565,29 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 R
               </button>
             </div>
-            {showMusicAudio && (
-              <div className="timeline-label-music-audio h-10 flex items-center">
+            {showImportedAudio && (
+              <div className="timeline-label-imported-audio group/imported-audio-label relative h-10 flex items-center">
                 <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                   {t.trackAudio}
                 </span>
-              </div>
-            )}
-            {showDeviceAudio && (
-              <div className="timeline-label-device-audio group relative h-10 flex items-center">
-                <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
-                  {t.trackDeviceAudio}
-                </span>
-                {onPickMusicAudioFile && (
+                {onPickImportedAudioFile && (
                   <button
                     type="button"
-                    onClick={handleTriggerMusicAudioPicker}
-                    className="add-music-track-btn ui-chip-button absolute -top-3 left-1/2 -translate-x-1/2 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--ui-border)] bg-[var(--surface)] text-[var(--primary-color)] opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-visible:opacity-100"
+                    onClick={handleTriggerImportedAudioPicker}
+                    className="timeline-label-imported-audio-add ui-icon-button absolute left-full ml-1 top-1/2 z-20 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--surface)]/95 text-[var(--primary-color)] opacity-0 shadow-sm transition-opacity duration-150 group-hover/imported-audio-label:opacity-100 focus-visible:opacity-100"
                     title={t.addAudioFile}
                     aria-label={t.addAudioFile}
                   >
-                    <span className="relative flex h-3 w-3 items-center justify-center">
-                      <Music className="h-3 w-3" strokeWidth={2.25} />
-                      <Plus className="absolute -right-1 -top-1 h-2 w-2" strokeWidth={3} />
-                    </span>
+                    <Plus className="h-3 w-3" strokeWidth={3} />
                   </button>
                 )}
+              </div>
+            )}
+            {showDeviceAudio && (
+              <div className="timeline-label-device-audio h-10 flex items-center">
+                <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+                  {t.trackDeviceAudio}
+                </span>
               </div>
             )}
             {showMicAudio && renderTrackDelayLabel({
@@ -697,15 +708,17 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     <div className="speed-track-empty timeline-track-empty h-10" />
                   )}
 
-                  {showMusicAudio && (
-                    <MusicAudioTrack
-                      segments={musicSegments ?? []}
+                  {showImportedAudio && (
+                    <ImportedAudioTrack
+                      segments={audioSegments ?? []}
                       duration={duration}
-                      onAddSegment={
-                        onPickMusicAudioFile ? handleTriggerMusicAudioPicker : undefined
-                      }
                       onSelectSegment={onSelectMusicSegment}
-                      onUpdateSegment={onUpdateMusicSegment}
+                      onUpdateSegment={onUpdateAudioSegment}
+                      onDeleteSegment={onDeleteAudioSegment}
+                      selectedSegmentId={selectedAudioSegmentId}
+                      beginBatch={beginBatch}
+                      commitBatch={commitBatch}
+                      onCommitSegments={onCommitAudioSegments}
                     />
                   )}
 
@@ -797,6 +810,10 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       clearSignal={clearSelectionSignal}
                       generationIndicator={subtitleGenerationIndicator}
                       translationChunkPreview={subtitleTranslationChunkPreview}
+                      audioSegments={audioSegments}
+                      isDeviceAudioAvailable={isDeviceAudioAvailable}
+                      isMicAudioAvailable={isMicAudioAvailable}
+                      onAssignSubtitleSourceGroup={handleAssignSubtitleSourceGroup}
                     />
                   ) : (
                     <div className="subtitle-track-empty timeline-track-empty h-7" />

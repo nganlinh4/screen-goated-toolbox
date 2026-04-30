@@ -33,17 +33,31 @@ pub fn show_preset_wheel(
     filter_mode: Option<&str>,
     center_pos: POINT,
 ) -> Option<usize> {
+    show_preset_wheel_with_extra(filter_type, filter_mode, center_pos, Vec::new())
+}
+
+pub fn show_preset_wheel_with_extra(
+    filter_type: &str,
+    filter_mode: Option<&str>,
+    center_pos: POINT,
+    extra_entries: Vec<(usize, String)>,
+) -> Option<usize> {
     let (presets, ui_lang) = {
         let app = APP.lock().unwrap();
         (app.config.presets.clone(), app.config.ui_language.clone())
     };
 
-    let entries: Vec<WheelEntry> = presets
+    let mut entries: Vec<WheelEntry> = presets
         .iter()
         .enumerate()
         .filter(|(_, preset)| should_show_preset(preset, filter_type, filter_mode))
         .map(|(idx, preset)| WheelEntry::new(idx, get_localized_preset_name(&preset.id, &ui_lang)))
         .collect();
+    entries.extend(
+        extra_entries
+            .into_iter()
+            .map(|(selection_id, label)| WheelEntry::new(selection_id, label)),
+    );
 
     show_entries(entries, center_pos, &ui_lang)
 }

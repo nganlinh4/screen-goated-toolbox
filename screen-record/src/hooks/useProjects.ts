@@ -232,7 +232,7 @@ export function useProjects(props: UseProjectsProps) {
       let audioObjectUrl: string | undefined;
       let micAudioObjectUrl: string | undefined;
       let webcamVideoObjectUrl: string | undefined;
-      if (rawVideoPath) {
+      if (rawVideoPath && project.segment.deviceAudioAvailable !== false) {
         const mediaUrl = await getMediaServerUrl(rawVideoPath);
         audioObjectUrl = await props.videoControllerRef.current?.loadDeviceAudio(
           {

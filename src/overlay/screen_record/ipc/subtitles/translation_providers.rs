@@ -128,6 +128,7 @@ fn build_user_payload(target_language: &str, items: &[SubtitleTranslationItemReq
             serde_json::json!({
                 "id": item.id,
                 "text": item.text,
+                "sourceName": item.source_name,
             })
         })
         .collect();

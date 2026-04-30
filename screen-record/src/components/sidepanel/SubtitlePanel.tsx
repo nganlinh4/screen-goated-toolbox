@@ -1,4 +1,5 @@
 import type { SubtitleMethod } from '@/hooks/useSubtitleGeneration';
+import type { SubtitleSource } from '@/lib/subtitleGenerationPlan';
 import { useState } from 'react';
 import { AlignCenter, AlignLeft, AlignRight, HelpCircle, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import { PanelCard } from '@/components/layout/PanelCard';
@@ -23,7 +24,7 @@ import {
   updateSubtitleTextsOnActiveTrack,
 } from '@/lib/subtitleTrackMutations';
 import { getSubtitleTrackLabel, ORIGINAL_SUBTITLE_TRACK_ID } from '@/lib/subtitleTracks';
-import { VideoSegment } from '@/types/video';
+import type { ImportedAudioSegment, VideoSegment } from '@/types/video';
 import { SubtitleCustomChainEditor } from './subtitle-panel/SubtitleCustomChainEditor';
 
 const METHOD_LANGUAGE_PREVIEW_LIMIT = 14;
@@ -104,8 +105,8 @@ export interface SubtitlePanelProps {
   editingSubtitleId: string | null;
   selectedSubtitleIds?: string[];
   selectedSubtitleRange?: TrackSelectionRange | null;
-  selectedSource: 'video' | 'mic' | 'music';
-  onSourceChange: (value: 'video' | 'mic' | 'music') => void;
+  selectedSource: SubtitleSource;
+  onSourceChange: (value: SubtitleSource) => void;
   selectedMethod: SubtitleMethod;
   onMethodChange: (value: SubtitleMethod) => void;
   methodCapabilities: Array<{ method: SubtitleMethod; available: boolean; reason?: string | null }>;
@@ -121,11 +122,14 @@ export interface SubtitlePanelProps {
   statusMessage?: string | null;
   canUseVideoSource: boolean;
   canUseMicSource: boolean;
-  canUseMusicSource: boolean;
+  canUseAudioSource: boolean;
+  audioSegments?: ImportedAudioSegment[];
   onGenerate: () => void;
   onCancel: () => void;
   canExportSrt: boolean;
   onExportSrt: () => void;
+  canExportAudioSrt: boolean;
+  onExportAudioSrt: () => void;
   subtitleTranslation: ReturnType<typeof useSubtitleTranslation>;
   onUpdateSegment: (segment: VideoSegment) => void;
   beginBatch: () => void;
@@ -154,11 +158,14 @@ export function SubtitlePanel({
   statusMessage,
   canUseVideoSource,
   canUseMicSource,
-  canUseMusicSource,
+  canUseAudioSource,
+  audioSegments = [],
   onGenerate,
   onCancel,
   canExportSrt,
   onExportSrt,
+  canExportAudioSrt,
+  onExportAudioSrt,
   subtitleTranslation,
   onUpdateSegment,
   beginBatch,
@@ -178,7 +185,7 @@ export function SubtitlePanel({
     : sourceSubtitle
       ? [sourceSubtitle]
       : [];
-  const hasSubtitleSource = canUseVideoSource || canUseMicSource || canUseMusicSource;
+  const hasSubtitleSource = canUseVideoSource || canUseMicSource || canUseAudioSource;
   const hasSubtitles = visibleSubtitles.length > 0;
   const subtitleActionDisabled = isGenerating
     || !hasSubtitleSource
@@ -273,10 +280,15 @@ export function SubtitlePanel({
       disabled: !canUseMicSource,
     },
     {
-      value: 'music',
-      label: t.subtitleSourceMusic,
-      disabled: !canUseMusicSource,
+      value: 'audio',
+      label: t.subtitleSourceFullAudio,
+      disabled: !canUseAudioSource,
     },
+    ...audioSegments.map((segment) => ({
+      value: `audio:${segment.id}`,
+      label: segment.name || t.subtitleSourceAudio,
+      disabled: !segment.rawAudioPath,
+    })),
   ];
 
   const subtitleMethodOptions = methodCapabilities.map((method) => ({
@@ -303,6 +315,33 @@ export function SubtitlePanel({
         && method.reason?.includes('Downloaded Tools')
       ),
   }));
+  const subtitleTranslationSourceOptions = [
+    {
+      value: 'current',
+      label: t.subtitleTranslationSourceCurrent,
+      disabled: (subtitleTranslation.subtitleTranslationSourceCounts.current ?? 0) <= 0,
+    },
+    {
+      value: 'audio',
+      label: t.subtitleTranslationSourceAllAudio,
+      disabled: !canUseAudioSource || (subtitleTranslation.subtitleTranslationSourceCounts.audio ?? 0) <= 0,
+    },
+    {
+      value: 'video',
+      label: t.subtitleSourceVideo,
+      disabled: !canUseVideoSource || (subtitleTranslation.subtitleTranslationSourceCounts.video ?? 0) <= 0,
+    },
+    {
+      value: 'mic',
+      label: t.subtitleSourceMic,
+      disabled: !canUseMicSource || (subtitleTranslation.subtitleTranslationSourceCounts.mic ?? 0) <= 0,
+    },
+    ...audioSegments.map((segment) => ({
+      value: `audio:${segment.id}`,
+      label: segment.name || t.subtitleSourceAudio,
+      disabled: !segment.rawAudioPath || (subtitleTranslation.subtitleTranslationSourceCounts[`audio:${segment.id}`] ?? 0) <= 0,
+    })),
+  ];
   const subtitleViewOptions = [
     {
       value: ORIGINAL_SUBTITLE_TRACK_ID,
@@ -373,7 +412,7 @@ export function SubtitlePanel({
           <PanelSelect
             value={selectedSource}
             options={subtitleSourceOptions}
-            onChange={(value) => onSourceChange(value as 'video' | 'mic' | 'music')}
+            onChange={(value) => onSourceChange(value as SubtitleSource)}
             triggerClassName="subtitle-source-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
             contentClassName="subtitle-source-menu"
           />
@@ -508,7 +547,7 @@ export function SubtitlePanel({
           </div>
         )}
 
-        <div className="subtitle-actions grid grid-cols-3 gap-1.5">
+        <div className="subtitle-actions grid grid-cols-2 gap-1.5">
           <button
             type="button"
             disabled={subtitleActionDisabled}
@@ -537,6 +576,15 @@ export function SubtitlePanel({
           >
             {selectedSubtitleRange ? t.subtitleExportRangeSrt : t.subtitleExportSrt}
           </button>
+          <button
+            type="button"
+            disabled={!canExportAudioSrt}
+            onClick={onExportAudioSrt}
+            data-tone="success"
+            className="subtitle-export-audio-srt-button ui-action-button flex h-8 items-center justify-center rounded-lg px-2.5 text-[11px] font-medium leading-tight"
+          >
+            {t.subtitleExportAudioSrt}
+          </button>
         </div>
 
         <p className="subtitle-status-message text-[11px] leading-4 text-on-surface-variant">
@@ -556,6 +604,23 @@ export function SubtitlePanel({
             emptyStateLabel={t.subtitleLanguageSearchEmpty}
             triggerClassName="subtitle-translation-language-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
             contentClassName="subtitle-translation-language-menu"
+          />
+        </div>
+
+        <div className="subtitle-translation-source-row flex items-center gap-2">
+          <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+            {t.subtitleTranslationSource}
+          </span>
+          <PanelSelect
+            value={subtitleTranslation.subtitleTranslationSource}
+            options={subtitleTranslationSourceOptions}
+            onChange={(value) =>
+              subtitleTranslation.setSubtitleTranslationSource(
+                value as typeof subtitleTranslation.subtitleTranslationSource,
+              )
+            }
+            triggerClassName="subtitle-translation-source-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+            contentClassName="subtitle-translation-source-menu"
           />
         </div>
 

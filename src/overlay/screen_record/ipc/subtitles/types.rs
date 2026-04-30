@@ -150,6 +150,10 @@ pub struct SubtitleTranslationItemRequest {
     pub id: String,
     #[serde(rename = "clipId")]
     pub clip_id: Option<String>,
+    #[serde(rename = "sourceGroupId")]
+    pub source_group_id: Option<String>,
+    #[serde(rename = "sourceName")]
+    pub source_name: Option<String>,
     pub text: String,
 }
 

@@ -199,9 +199,13 @@ export async function performVideoSourceChange(
   return new Promise<void>((resolve) => {
     let metadataLoaded = false;
     let canPlay = false;
+    let settled = false;
+    let canPlayFallback: number | null = null;
 
     const tryFinish = () => {
+      if (settled) return;
       if (!metadataLoaded || !canPlay) return;
+      settled = true;
       cleanup();
 
       // Set up canvas
@@ -253,6 +257,11 @@ export async function performVideoSourceChange(
 
     const onMetadata = () => {
       metadataLoaded = true;
+      canPlayFallback = window.setTimeout(() => {
+        if (settled || !metadataLoaded) return;
+        canPlay = true;
+        tryFinish();
+      }, 900);
       tryFinish();
     };
     const onCanPlay = () => {
@@ -260,6 +269,9 @@ export async function performVideoSourceChange(
       tryFinish();
     };
     const cleanup = () => {
+      if (canPlayFallback !== null) {
+        window.clearTimeout(canPlayFallback);
+      }
       video.removeEventListener("loadedmetadata", onMetadata);
       video.removeEventListener("canplaythrough", onCanPlay);
     };

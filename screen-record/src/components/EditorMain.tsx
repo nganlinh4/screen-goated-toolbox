@@ -14,9 +14,10 @@ import { TimelineArea } from "@/components/timeline";
 import type { CanvasModeToggleProps } from "@/components/CanvasModeToggle";
 import { useSettings } from "@/hooks/useSettings";
 import type { SubtitleMethod } from "@/hooks/useSubtitleGeneration";
+import type { SubtitleSource } from "@/lib/subtitleGenerationPlan";
 import { useSubtitleTranslation } from "@/hooks/useSubtitleTranslation";
 import { createManualSubtitleSegment } from "@/lib/subtitleDefaults";
-import { saveSubtitleSrt } from "@/lib/subtitleSrt";
+import { saveAudioSubtitleSrts, saveSubtitleSrt } from "@/lib/subtitleSrt";
 import type { SubtitleGenerationIndicator } from "@/lib/subtitleGenerationPlan";
 import {
   deriveSelectionRangeFromIds,
@@ -28,6 +29,7 @@ import {
   mergeSubtitleSelectionAcrossTracks,
 } from "@/lib/subtitleTrackMutations";
 import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
+import { inferAudioSourceGroupAtRange } from "@/lib/subtitleSourceGroups";
 
 export interface EditorMainProps {
   // Error
@@ -115,8 +117,8 @@ export interface EditorMainProps {
   isBackgroundUploadProcessing: boolean;
   editingTextId: string | null;
   editingSubtitleId: string | null;
-  subtitleSource: 'video' | 'mic' | 'music';
-  onSubtitleSourceChange: (value: 'video' | 'mic' | 'music') => void;
+  subtitleSource: SubtitleSource;
+  onSubtitleSourceChange: (value: SubtitleSource) => void;
   subtitleMethod: SubtitleMethod;
   onSubtitleMethodChange: (value: SubtitleMethod) => void;
   subtitleMethodCapabilities: Array<{ method: SubtitleMethod; available: boolean; reason?: string | null }>;
@@ -155,12 +157,14 @@ export interface EditorMainProps {
   handleAddKeystrokeSegment: (atTime?: number) => void;
   handleAddPointerSegment: (atTime?: number) => void;
   setTimelineCanvasWidthPx: (width: number) => void;
-  // Music/SFX track
-  onPickMusicAudioFile?: (file: File) => void;
-  onUpdateMusicSegment?: (
+  // Audio track
+  onPickImportedAudioFile?: (file: File) => void;
+  onUpdateAudioSegment?: (
     id: string,
-    patch: Partial<import("@/types/video").MusicAudioSegment>,
+    patch: Partial<import("@/types/video").ImportedAudioSegment>,
   ) => void;
+  onDeleteAudioSegment?: (id: string) => void;
+  onCommitAudioSegments?: () => void;
 }
 
 export function EditorMain({
@@ -276,8 +280,10 @@ export function EditorMain({
   handleAddKeystrokeSegment,
   handleAddPointerSegment,
   setTimelineCanvasWidthPx,
-  onPickMusicAudioFile,
-  onUpdateMusicSegment,
+  onPickImportedAudioFile,
+  onUpdateAudioSegment,
+  onDeleteAudioSegment,
+  onCommitAudioSegments,
 }: EditorMainProps) {
   const { t } = useSettings();
   const showPlaybackControls = Boolean(
@@ -298,6 +304,7 @@ export function EditorMain({
   const [selectedPointerIds, setSelectedPointerIds] = useState<string[]>([]);
   const [selectedKeystrokeIds, setSelectedKeystrokeIds] = useState<string[]>([]);
   const [selectedWebcamIds, setSelectedWebcamIds] = useState<string[]>([]);
+  const [selectedAudioSegmentId, setSelectedAudioSegmentId] = useState<string | null>(null);
   const exportSubtitleSrtInFlightRef = React.useRef(false);
   const subtitleTranslation = useSubtitleTranslation({
     t,
@@ -340,6 +347,7 @@ export function EditorMain({
     setSelectedPointerIds([]);
     setSelectedKeystrokeIds([]);
     setSelectedWebcamIds([]);
+    setSelectedAudioSegmentId(null);
     setClearSignal(c => c + 1);
   }, [onSelectedSubtitleIdsChange, onSelectedTextIdsChange]);
   const lastProjectResetKeyRef = React.useRef<string | null | undefined>(undefined);
@@ -358,6 +366,7 @@ export function EditorMain({
     setEditingSubtitleId(null);
     setEditingKeystrokeSegmentId(null);
     setEditingPointerId(null);
+    setSelectedAudioSegmentId(null);
   }, [
     clearAllSelections,
     projectResetKey,
@@ -428,14 +437,30 @@ export function EditorMain({
   const handleAddSubtitle = useCallback((atTime?: number) => {
     if (!segment) return;
     const subtitle = createManualSubtitleSegment(atTime ?? currentTime, duration);
-    setSegment(addSubtitleAcrossTracks(segment, subtitle));
+    const sourceGroup = inferAudioSourceGroupAtRange(
+      subtitle.startTime,
+      subtitle.endTime,
+      composition?.audioSegments,
+    );
+    setSegment(addSubtitleAcrossTracks(segment, {
+      ...subtitle,
+      sourceGroup: {
+        ...sourceGroup,
+        assignment: sourceGroup.kind === 'unassigned' ? 'manual' : sourceGroup.assignment,
+      },
+    }));
     setEditingSubtitleId(subtitle.id);
     setActivePanel('subtitles');
-  }, [currentTime, duration, segment, setActivePanel, setEditingSubtitleId, setSegment]);
+  }, [composition?.audioSegments, currentTime, duration, segment, setActivePanel, setEditingSubtitleId, setSegment]);
 
   const visibleSubtitleSegments = useMemo(
     () => getVisibleSubtitleSegments(segment),
     [segment],
+  );
+  const canExportAudioSubtitleSrt = visibleSubtitleSegments.some(
+    (subtitle) =>
+      subtitle.sourceGroup?.kind === 'audio' ||
+      subtitle.provenance?.sourceKind === 'audio',
   );
   useEffect(() => {
     const visibleIds = new Set(visibleSubtitleSegments.map((subtitle) => subtitle.id));
@@ -474,6 +499,23 @@ export function EditorMain({
       exportSubtitleSrtInFlightRef.current = false;
     }
   }, [currentProjectName, selectedSubtitleRange, t.subtitleSrtSavedTo, visibleSubtitleSegments]);
+
+  const handleExportMusicSubtitleSrts = useCallback(async () => {
+    if (!canExportAudioSubtitleSrt) return;
+    if (exportSubtitleSrtInFlightRef.current) return;
+    exportSubtitleSrtInFlightRef.current = true;
+    try {
+      await saveAudioSubtitleSrts(
+        visibleSubtitleSegments,
+        composition?.audioSegments ?? [],
+        t.subtitleSrtSavedTo,
+      );
+    } catch (error) {
+      console.error('[SubtitleSrt] Failed to save audio subtitle files:', error);
+    } finally {
+      exportSubtitleSrtInFlightRef.current = false;
+    }
+  }, [canExportAudioSubtitleSrt, composition?.audioSegments, t.subtitleSrtSavedTo, visibleSubtitleSegments]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -542,7 +584,7 @@ export function EditorMain({
             onCanvasResizeDragStateChange={setIsCanvasResizeDragging}
             seekIndicatorDir={seekIndicatorDir}
             seekIndicatorKey={seekIndicatorKey}
-            musicSegments={composition?.musicSegments}
+            audioSegments={composition?.audioSegments}
             currentTime={currentTime}
             isPlaying={isPlaying}
           />
@@ -627,15 +669,17 @@ export function EditorMain({
             subtitleStatusMessage={subtitleStatusMessage}
             canUseVideoSubtitleSource={segment?.deviceAudioAvailable !== false}
             canUseMicSubtitleSource={Boolean(segment?.micAudioAvailable)}
-            canUseMusicSubtitleSource={(composition?.musicSegments?.length ?? 0) > 0}
+            canUseAudioSubtitleSource={(composition?.audioSegments?.length ?? 0) > 0}
+            audioSegments={composition?.audioSegments}
             onGenerateSubtitles={() => handleGenerateSubtitles(null)}
             onCancelSubtitleGeneration={handleCancelSubtitleGeneration}
             canExportSubtitleSrt={canExportSubtitleSrt}
             onExportSubtitleSrt={handleExportSubtitleSrt}
+            canExportAudioSubtitleSrt={canExportAudioSubtitleSrt}
+            onExportMusicSubtitleSrt={handleExportMusicSubtitleSrts}
             subtitleTranslation={subtitleTranslation}
             selectedTextIds={selectedTextIds}
             hasMouseData={mousePositionsLength > 0}
-            isAudioOnlyProject={composition?.audioOnly === true}
             onUpdateSegment={setSegment as (segment: VideoSegment) => void}
             beginBatch={beginBatch}
             commitBatch={commitBatch}
@@ -696,9 +740,16 @@ export function EditorMain({
           hasMouseData={mousePositionsLength > 0}
           subtitleGenerationIndicator={subtitleGenerationIndicator}
           subtitleTranslationChunkPreview={subtitleTranslation.subtitleTranslationChunkPreview}
-          musicSegments={composition?.musicSegments}
-          onPickMusicAudioFile={onPickMusicAudioFile}
-          onUpdateMusicSegment={onUpdateMusicSegment}
+          audioSegments={composition?.audioSegments}
+          onPickImportedAudioFile={onPickImportedAudioFile}
+          onSelectMusicSegment={setSelectedAudioSegmentId}
+          onUpdateAudioSegment={onUpdateAudioSegment}
+          onDeleteAudioSegment={(id) => {
+            onDeleteAudioSegment?.(id);
+            setSelectedAudioSegmentId((current) => (current === id ? null : current));
+          }}
+          onCommitAudioSegments={onCommitAudioSegments}
+          selectedAudioSegmentId={selectedAudioSegmentId}
         />
         {isOverlayMode && (
           <div className="timeline-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />
