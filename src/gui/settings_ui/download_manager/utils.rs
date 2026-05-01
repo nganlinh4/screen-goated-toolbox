@@ -70,61 +70,101 @@ pub fn download_file(
 pub fn extract_ffmpeg(zip_path: &PathBuf, bin_dir: &Path) -> Result<(), String> {
     let file = fs::File::open(zip_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+    let stage_dir = bin_dir.join("_ffmpeg_extract_tmp");
+    let _ = fs::remove_dir_all(&stage_dir);
+    fs::create_dir_all(&stage_dir).map_err(|e| e.to_string())?;
 
     let mut found_ffmpeg = false;
     let mut found_ffprobe = false;
 
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
-        let name = file.name().to_string();
+    let result = (|| -> Result<(), String> {
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+            let name = file.name().to_string();
 
-        // Extract ffmpeg.exe
-        if name.ends_with("ffmpeg.exe") {
-            let mut out_file =
-                fs::File::create(bin_dir.join("ffmpeg.exe")).map_err(|e| e.to_string())?;
-            io::copy(&mut file, &mut out_file).map_err(|e| e.to_string())?;
-            found_ffmpeg = true;
+            // Extract ffmpeg.exe
+            if name.ends_with("ffmpeg.exe") {
+                let mut out_file =
+                    fs::File::create(stage_dir.join("ffmpeg.exe")).map_err(|e| e.to_string())?;
+                io::copy(&mut file, &mut out_file).map_err(|e| e.to_string())?;
+                found_ffmpeg = true;
+            }
+
+            // Extract ffprobe.exe (needed for video dimension probing)
+            if name.ends_with("ffprobe.exe") {
+                let mut out_file =
+                    fs::File::create(stage_dir.join("ffprobe.exe")).map_err(|e| e.to_string())?;
+                io::copy(&mut file, &mut out_file).map_err(|e| e.to_string())?;
+                found_ffprobe = true;
+            }
+
+            if found_ffmpeg && found_ffprobe {
+                break;
+            }
         }
 
-        // Extract ffprobe.exe (needed for video dimension probing)
-        if name.ends_with("ffprobe.exe") {
-            let mut out_file =
-                fs::File::create(bin_dir.join("ffprobe.exe")).map_err(|e| e.to_string())?;
-            io::copy(&mut file, &mut out_file).map_err(|e| e.to_string())?;
-            found_ffprobe = true;
+        if !found_ffmpeg {
+            return Err("ffmpeg.exe not found in archive".to_string());
+        }
+        if !found_ffprobe {
+            return Err("ffprobe.exe not found in archive".to_string());
         }
 
-        if found_ffmpeg && found_ffprobe {
-            return Ok(());
-        }
-    }
+        install_staged_file(&stage_dir.join("ffmpeg.exe"), &bin_dir.join("ffmpeg.exe"))?;
+        install_staged_file(&stage_dir.join("ffprobe.exe"), &bin_dir.join("ffprobe.exe"))?;
+        Ok(())
+    })();
 
-    if !found_ffmpeg {
-        return Err("ffmpeg.exe not found in archive".to_string());
-    }
-    if !found_ffprobe {
-        return Err("ffprobe.exe not found in archive".to_string());
-    }
-
-    Ok(())
+    let _ = fs::remove_dir_all(stage_dir);
+    result
 }
 
 pub fn extract_deno(zip_path: &PathBuf, bin_dir: &Path) -> Result<(), String> {
     let file = fs::File::open(zip_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+    let stage_dir = bin_dir.join("_deno_extract_tmp");
+    let _ = fs::remove_dir_all(&stage_dir);
+    fs::create_dir_all(&stage_dir).map_err(|e| e.to_string())?;
 
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
-        let name = file.name().to_string();
-        if name.ends_with("deno.exe") {
-            let mut out_file =
-                fs::File::create(bin_dir.join("deno.exe")).map_err(|e| e.to_string())?;
-            io::copy(&mut file, &mut out_file).map_err(|e| e.to_string())?;
-            return Ok(());
+    let result = (|| -> Result<(), String> {
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+            let name = file.name().to_string();
+            if name.ends_with("deno.exe") {
+                let mut out_file =
+                    fs::File::create(stage_dir.join("deno.exe")).map_err(|e| e.to_string())?;
+                io::copy(&mut file, &mut out_file).map_err(|e| e.to_string())?;
+                install_staged_file(&stage_dir.join("deno.exe"), &bin_dir.join("deno.exe"))?;
+                return Ok(());
+            }
         }
-    }
 
-    Err("deno.exe not found in archive".to_string())
+        Err("deno.exe not found in archive".to_string())
+    })();
+
+    let _ = fs::remove_dir_all(stage_dir);
+    result
+}
+
+fn install_staged_file(source: &Path, destination: &Path) -> Result<(), String> {
+    if !has_nonempty_file(source) {
+        return Err(format!(
+            "Extracted file '{}' is missing or empty",
+            source.display()
+        ));
+    }
+    fs::rename(source, destination)
+        .or_else(|_| {
+            fs::copy(source, destination)?;
+            fs::remove_file(source)
+        })
+        .map_err(|e| format!("Failed to install '{}': {}", destination.display(), e))
+}
+
+pub fn has_nonempty_file(path: &Path) -> bool {
+    fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.len() > 0)
+        .unwrap_or(false)
 }
 
 use super::types::CookieBrowser;

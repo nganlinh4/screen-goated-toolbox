@@ -59,7 +59,13 @@ pub fn download_file_with_progress(
     on_progress: impl Fn(u64, u64),
 ) -> Result<()> {
     if path.exists() {
-        return Ok(());
+        let usable_existing = fs::metadata(path)
+            .map(|metadata| metadata.is_file() && metadata.len() > 0)
+            .unwrap_or(false);
+        if usable_existing {
+            return Ok(());
+        }
+        let _ = fs::remove_file(path);
     }
 
     if let Some(parent) = path.parent() {
@@ -177,9 +183,15 @@ pub fn get_parakeet_model_dir() -> PathBuf {
 
 pub fn is_model_downloaded() -> bool {
     let dir = get_parakeet_model_dir();
-    dir.join("encoder.onnx").exists()
-        && dir.join("decoder_joint.onnx").exists()
-        && dir.join("tokenizer.json").exists()
+    has_nonempty_file(&dir.join("encoder.onnx"))
+        && has_nonempty_file(&dir.join("decoder_joint.onnx"))
+        && has_nonempty_file(&dir.join("tokenizer.json"))
+}
+
+fn has_nonempty_file(path: &Path) -> bool {
+    fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.len() > 0)
+        .unwrap_or(false)
 }
 
 pub fn remove_parakeet_model() -> Result<()> {

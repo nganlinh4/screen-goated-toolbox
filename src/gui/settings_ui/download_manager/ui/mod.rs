@@ -6,10 +6,11 @@ mod ui_action;
 mod ui_main;
 
 use super::DownloadManager;
+use super::utils::has_nonempty_file;
 
 impl DownloadManager {
     fn has_deno_runtime(&self) -> bool {
-        self.bin_dir.join("deno.exe").exists()
+        has_nonempty_file(&self.bin_dir.join("deno.exe"))
             || matches!(*self.deno_status.lock().unwrap(), InstallStatus::Installed)
     }
 
