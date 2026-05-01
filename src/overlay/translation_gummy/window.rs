@@ -45,6 +45,17 @@ pub(super) fn show() {
     }
 }
 
+pub(super) fn close_if_open() -> bool {
+    unsafe {
+        let hwnd = std::ptr::addr_of!(super::WINDOW_HWND).read();
+        if hwnd.is_invalid() || !IsWindow(Some(hwnd.0)).as_bool() {
+            return false;
+        }
+        let _ = PostMessageW(Some(hwnd.0), WM_CLOSE, WPARAM(0), LPARAM(0));
+        true
+    }
+}
+
 unsafe extern "system" fn window_proc(
     hwnd: HWND,
     msg: u32,
@@ -81,7 +92,7 @@ unsafe extern "system" fn window_proc(
                     false,
                     None,
                 );
-                let _ = ShowWindow(hwnd, SW_HIDE);
+                let _ = DestroyWindow(hwnd);
                 LRESULT(0)
             }
             WM_NCCALCSIZE => {
@@ -98,6 +109,11 @@ unsafe extern "system" fn window_proc(
             }
             WM_DESTROY => {
                 super::runtime::stop_session();
+                super::WEBVIEW.with(|webview| {
+                    *webview.borrow_mut() = None;
+                });
+                super::WINDOW_HWND = crate::win_types::SendHwnd(HWND(std::ptr::null_mut()));
+                super::IS_READY = false;
                 PostQuitMessage(0);
                 LRESULT(0)
             }
@@ -265,6 +281,16 @@ unsafe fn internal_create_loop() {
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
+
+        super::WEBVIEW.with(|webview| {
+            *webview.borrow_mut() = None;
+        });
+        super::WEB_CONTEXT.with(|context| {
+            *context.borrow_mut() = None;
+        });
+        super::WINDOW_HWND = crate::win_types::SendHwnd(HWND(std::ptr::null_mut()));
+        super::IS_READY = false;
+        super::IS_INITIALIZING = false;
     }
 }
 
