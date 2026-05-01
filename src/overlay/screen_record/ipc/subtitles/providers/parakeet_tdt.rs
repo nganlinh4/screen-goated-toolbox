@@ -5,6 +5,7 @@ use parakeet_rs::{
     ExecutionConfig, ExecutionProvider, ParakeetTDT, TimedToken, TimestampMode, Transcriber,
 };
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use super::{
     SubtitleBackend, SubtitleBackendProgress, SubtitleBackendRequest, ends_sentence,
@@ -29,6 +30,11 @@ impl ParakeetTdtSubtitleBackend {
     fn model(&mut self) -> Result<&mut ParakeetTDT, String> {
         if self.model.is_none() {
             let model_dir = get_parakeet_tdt_model_dir();
+            let started = Instant::now();
+            crate::log_info!(
+                "[SubtitleGen][ParakeetTDT] model-load-start dir={}",
+                model_dir.display()
+            );
             let config = ExecutionConfig::new()
                 .with_execution_provider(ExecutionProvider::DirectML)
                 .with_intra_threads(4)
@@ -36,6 +42,10 @@ impl ParakeetTdtSubtitleBackend {
             self.model = Some(
                 ParakeetTDT::from_pretrained(&model_dir, Some(config))
                     .map_err(|err| format!("Load Parakeet TDT subtitle model: {err}"))?,
+            );
+            crate::log_info!(
+                "[SubtitleGen][ParakeetTDT] model-load-complete elapsed_ms={:.0}",
+                started.elapsed().as_secs_f64() * 1000.0
             );
         }
         self.model
@@ -91,12 +101,32 @@ impl SubtitleBackend for ParakeetTdtSubtitleBackend {
                 .iter()
                 .map(|sample| *sample as f32 / i16::MAX as f32)
                 .collect::<Vec<_>>();
+            let chunk_started = Instant::now();
+            crate::log_info!(
+                "[SubtitleGen][ParakeetTDT] chunk-start {}/{} window={:.2}-{:.2}s samples={}",
+                chunk_index + 1,
+                total_chunks,
+                chunk_offset_sec,
+                end_sample as f64 / SAMPLE_RATE_HZ as f64,
+                audio.len()
+            );
             let transcribed = self
                 .model()?
                 .transcribe_samples(audio, SAMPLE_RATE_HZ as u32, 1, Some(TimestampMode::Words))
                 .map_err(|err| format!("Transcribe Parakeet TDT chunk: {err}"))?;
 
-            all_segments.extend(words_to_segments(&transcribed.tokens, chunk_offset_sec));
+            let chunk_segments = words_to_segments(&transcribed.tokens, chunk_offset_sec);
+            let chunk_segment_count = chunk_segments.len();
+            all_segments.extend(chunk_segments);
+            crate::log_info!(
+                "[SubtitleGen][ParakeetTDT] chunk-complete {}/{} elapsed_ms={:.0} tokens={} added_segments={} total_segments={}",
+                chunk_index + 1,
+                total_chunks,
+                chunk_started.elapsed().as_secs_f64() * 1000.0,
+                transcribed.tokens.len(),
+                chunk_segment_count,
+                all_segments.len()
+            );
             on_progress(SubtitleBackendProgress {
                 completed_steps: chunk_index + 1,
                 total_steps: total_chunks,
