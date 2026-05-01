@@ -163,11 +163,8 @@ impl SettingsApp {
         std::thread::spawn(move || {
             loop {
                 unsafe {
-                    match OpenEventW(
-                        EVENT_ALL_ACCESS,
-                        false,
-                        w!("Global\\ScreenGoatedToolboxRestoreEvent"),
-                    ) {
+                    let event_name = crate::hotkey::restore_event_name_wide();
+                    match OpenEventW(EVENT_ALL_ACCESS, false, PCWSTR(event_name.as_ptr())) {
                         Ok(event_handle) => {
                             let result = WaitForSingleObject(event_handle, INFINITE);
                             if result == WAIT_OBJECT_0 {

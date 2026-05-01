@@ -158,6 +158,12 @@ pub fn render_minimal_overlay(ctx: &egui::Context) {
         REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
         crate::api::tts::TTS_MANAGER.stop();
         USER_REQUESTED_CLOSE.store(false, Ordering::SeqCst);
+        std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if !MINIMAL_ACTIVE.load(Ordering::SeqCst) {
+                REALTIME_SESSION_STOPPING.store(false, Ordering::SeqCst);
+            }
+        });
         return;
     }
 

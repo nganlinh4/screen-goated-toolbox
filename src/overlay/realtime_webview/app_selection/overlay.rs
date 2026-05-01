@@ -72,11 +72,21 @@ fn apply_audio_app_selection(pid: u32, name: &str) {
     if let Ok(mut app_name) = SELECTED_APP_NAME.lock() {
         *app_name = name.to_string();
     }
+    REALTIME_TTS_ENABLED.store(true, Ordering::SeqCst);
+    LAST_SPOKEN_LENGTH.store(0, Ordering::SeqCst);
+    if let Ok(mut queue) = COMMITTED_TRANSLATION_QUEUE.lock() {
+        queue.clear();
+    }
     if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
         *new_source = "device".to_string();
     }
     AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
     CLOSE_TTS_MODAL_REQUEST.store(true, Ordering::SeqCst);
+    let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);
+    CURRENT_TTS_SPEED.store(base_speed, Ordering::Relaxed);
+    push_script_to_realtime_windows(format!(
+        "if(window.setTtsEnabled) window.setTtsEnabled(true); if(window.updateTtsSpeed) window.updateTtsSpeed({base_speed});"
+    ));
     post_realtime_updates();
 }
 
@@ -93,6 +103,10 @@ fn cancel_audio_app_selection() {
     if let Ok(mut app_name) = SELECTED_APP_NAME.lock() {
         app_name.clear();
     }
+    if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
+        *new_source = "device".to_string();
+    }
+    AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
 
     let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);
     CURRENT_TTS_SPEED.store(base_speed, Ordering::Relaxed);

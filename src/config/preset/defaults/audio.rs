@@ -63,6 +63,7 @@ pub fn create_audio_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_transcribe_retranslate", "Quick 4NR reply")
             .audio_mic()
             .auto_paste()
+            .auto_stop()
             .blocks(vec![
                 BlockBuilder::audio(PRESET_AUDIO_TRANSCRIBE_MODEL_ID)
                     .language("Korean")
@@ -82,6 +83,7 @@ pub fn create_audio_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_quicker_foreigner_reply", "Quicker foreigner reply")
             .audio_mic()
             .auto_paste()
+            .auto_stop()
             .blocks(vec![
                 BlockBuilder::audio(PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID)
                     .prompt("Translate the audio to {language1}. Only output the translated text.")

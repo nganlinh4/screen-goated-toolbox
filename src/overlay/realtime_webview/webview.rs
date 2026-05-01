@@ -2,7 +2,7 @@
 
 use super::state::*;
 use crate::APP;
-use crate::api::realtime_audio::WM_COPY_TEXT;
+use crate::api::realtime_audio::{WM_COPY_TEXT, WM_EXEC_SCRIPT};
 use crate::api::realtime_audio::{WM_REALTIME_UPDATE, WM_TRANSLATION_UPDATE};
 use crate::config::get_all_languages;
 use crate::gui::locale::LocaleText;
@@ -378,11 +378,11 @@ pub fn create_realtime_webview(
                         }
                     } else if body.starts_with("ttsEnabled:") {
                         // TTS toggle for realtime translations
-                        let enabled = &body[11..] == "1";
-                        REALTIME_TTS_ENABLED.store(enabled, Ordering::SeqCst);
+                        let requested_enabled = &body[11..] == "1";
 
                         // Reset spoken length when disabling so we start fresh next time
-                        if !enabled {
+                        if !requested_enabled {
+                            REALTIME_TTS_ENABLED.store(false, Ordering::SeqCst);
                             // IMMEDIATELY stop TTS (cut off mid-sentence to prevent capture)
                             crate::api::tts::TTS_MANAGER.stop();
 
@@ -402,16 +402,42 @@ pub fn create_realtime_webview(
                             if let Ok(mut name) = SELECTED_APP_NAME.lock() {
                                 name.clear();
                             }
-                        } else {
-                            // TTS enabled - if in device mode, show app selection popup
-                            // Note: We DON'T change audio mode here - only when user selects an app
+
                             let current_source = {
                                 let app = APP.lock().unwrap();
                                 app.config.realtime_audio_source.clone()
                             };
                             if current_source == "device" {
-                                // Show app selection popup (no audio change yet - happens when app is selected)
+                                if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
+                                    *new_source = "device".to_string();
+                                }
+                                AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
+                            }
+                        } else {
+                            // TTS enabled - if in device mode, show app selection popup
+                            let current_source = {
+                                let app = APP.lock().unwrap();
+                                app.config.realtime_audio_source.clone()
+                            };
+                            if current_source == "device" {
+                                // Do not enable TTS yet. Device mode needs per-app capture first;
+                                // otherwise the transcription backend sees "TTS on + no selected app"
+                                // and starts no capture stream.
+                                REALTIME_TTS_ENABLED.store(false, Ordering::SeqCst);
+                                let script =
+                                    "if(window.setTtsEnabled) window.setTtsEnabled(false);";
+                                let script_ptr = Box::into_raw(Box::new(script.to_string()));
+                                unsafe {
+                                    let _ = PostMessageW(
+                                        Some(hwnd_for_ipc),
+                                        WM_EXEC_SCRIPT,
+                                        WPARAM(0),
+                                        LPARAM(script_ptr as isize),
+                                    );
+                                }
                                 show_audio_app_selector_overlay();
+                            } else {
+                                REALTIME_TTS_ENABLED.store(true, Ordering::SeqCst);
                             }
                         }
                     } else if let Some(speed) = body.strip_prefix("ttsSpeed:") {

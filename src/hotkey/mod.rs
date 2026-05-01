@@ -8,6 +8,7 @@ pub use processor::hotkey_proc;
 use crate::APP;
 use crate::win_types::{SendHandle, SendHhook, SendHwnd};
 use lazy_static::lazy_static;
+use sha2::{Digest, Sha256};
 use std::sync::Mutex;
 use windows::Win32::Foundation::*;
 use windows::Win32::System::LibraryLoader::*;
@@ -31,12 +32,51 @@ pub const TRANSLATION_GUMMY_HOTKEY_ID: i32 = 9800;
 lazy_static! {
     /// Global event for inter-process restore signaling (manual-reset event).
     pub static ref RESTORE_EVENT: Option<SendHandle> = unsafe {
-        CreateEventW(None, true, false, w!("Global\\ScreenGoatedToolboxRestoreEvent")).ok().map(SendHandle)
+        let name = restore_event_name_wide();
+        CreateEventW(None, true, false, PCWSTR(name.as_ptr())).ok().map(SendHandle)
     };
     /// Global handle for the listener window (for the mouse hook to post messages to).
     static ref LISTENER_HWND: Mutex<SendHwnd> = Mutex::new(SendHwnd::default());
     /// Global handle for the mouse hook.
     static ref MOUSE_HOOK: Mutex<SendHhook> = Mutex::new(SendHhook::default());
+}
+
+fn current_exe_namespace_suffix() -> String {
+    let path = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.canonicalize().ok().or(Some(path)))
+        .map(|path| {
+            path.to_string_lossy()
+                .replace('/', "\\")
+                .to_ascii_lowercase()
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+    let digest = Sha256::digest(path.as_bytes());
+    let mut suffix = String::with_capacity(32);
+    for byte in digest.iter().take(16) {
+        suffix.push_str(&format!("{byte:02x}"));
+    }
+    suffix
+}
+
+pub fn restore_event_name_wide() -> Vec<u16> {
+    format!(
+        "Global\\ScreenGoatedToolboxRestoreEvent-{}",
+        current_exe_namespace_suffix()
+    )
+    .encode_utf16()
+    .chain(std::iter::once(0))
+    .collect()
+}
+
+pub fn single_instance_mutex_name_wide() -> Vec<u16> {
+    format!(
+        "Global\\ScreenGoatedToolboxSingleInstanceMutex-{}",
+        current_exe_namespace_suffix()
+    )
+    .encode_utf16()
+    .chain(std::iter::once(0))
+    .collect()
 }
 
 /// Register all hotkeys from config.

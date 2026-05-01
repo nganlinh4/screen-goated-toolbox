@@ -18,7 +18,19 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 
 pub fn is_realtime_overlay_active() -> bool {
-    unsafe { IS_ACTIVE && !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() }
+    unsafe {
+        if !IS_ACTIVE {
+            return false;
+        }
+        let hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
+        if hwnd.is_invalid() || !IsWindow(Some(hwnd)).as_bool() {
+            IS_ACTIVE = false;
+            REALTIME_SESSION_STOPPING.store(false, Ordering::SeqCst);
+            REALTIME_STOP_SIGNAL.store(false, Ordering::SeqCst);
+            return false;
+        }
+        true
+    }
 }
 
 /// Stop the realtime overlay and hide windows
@@ -34,13 +46,13 @@ pub fn stop_realtime_overlay() {
     unsafe {
         window_selector::close_selector_for_owner(SelectorOwner::RealtimeAppSelection);
 
-        if !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {
-            let _ = PostMessageW(
-                Some(REALTIME_HWND),
-                WM_APP_REALTIME_HIDE,
-                WPARAM(0),
-                LPARAM(0),
-            );
+        let hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
+        if !hwnd.is_invalid() && IsWindow(Some(hwnd)).as_bool() {
+            let _ = PostMessageW(Some(hwnd), WM_APP_REALTIME_HIDE, WPARAM(0), LPARAM(0));
+        } else {
+            IS_ACTIVE = false;
+            REALTIME_SESSION_STOPPING.store(false, Ordering::SeqCst);
+            REALTIME_STOP_SIGNAL.store(false, Ordering::SeqCst);
         }
     }
 }
@@ -54,7 +66,14 @@ pub fn show_realtime_overlay(preset_idx: usize) {
 
     unsafe {
         if REALTIME_SESSION_STOPPING.load(Ordering::SeqCst) {
-            return;
+            let hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
+            if !IS_ACTIVE || hwnd.is_invalid() || !IsWindow(Some(hwnd)).as_bool() {
+                REALTIME_SESSION_STOPPING.store(false, Ordering::SeqCst);
+                REALTIME_STOP_SIGNAL.store(false, Ordering::SeqCst);
+                IS_ACTIVE = false;
+            } else {
+                return;
+            }
         }
 
         // Initialize on-demand if not warmed up
@@ -223,6 +242,8 @@ unsafe fn internal_create_realtime_loop() {
         IS_ACTIVE = false;
         IS_WARMED_UP = false;
         IS_INITIALIZING = false;
+        REALTIME_SESSION_STOPPING.store(false, Ordering::SeqCst);
+        REALTIME_STOP_SIGNAL.store(false, Ordering::SeqCst);
         REALTIME_HWND = HWND::default();
         TRANSLATION_HWND = HWND::default();
         CoUninitialize();
