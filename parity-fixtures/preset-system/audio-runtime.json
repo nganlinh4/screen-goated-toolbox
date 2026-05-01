@@ -18,6 +18,16 @@
     "silence_ms": 800,
     "min_speech_ms": 2000
   },
+  "default_auto_stop_presets": [
+    "preset_transcribe",
+    "preset_fix_pronunciation",
+    "preset_transcribe_retranslate",
+    "preset_quicker_foreigner_reply",
+    "preset_quick_ai_question",
+    "preset_voice_search",
+    "preset_quick_record",
+    "preset_record_device"
+  ],
   "recording_shell_contract": {
     "source": "windows_webview_template",
     "bridge_methods": ["resetState", "updateState", "hideState", "updateTheme"],

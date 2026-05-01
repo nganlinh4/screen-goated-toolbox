@@ -19,11 +19,8 @@ pub fn simple_rand(seed: u32) -> u32 {
 pub fn signal_restore_window() {
     RESTORE_SIGNAL.store(true, Ordering::SeqCst);
     unsafe {
-        if let Ok(event) = OpenEventW(
-            EVENT_ALL_ACCESS,
-            false,
-            w!("Global\\ScreenGoatedToolboxRestoreEvent"),
-        ) {
+        let event_name = crate::hotkey::restore_event_name_wide();
+        if let Ok(event) = OpenEventW(EVENT_ALL_ACCESS, false, PCWSTR(event_name.as_ptr())) {
             let _ = SetEvent(event);
             let _ = CloseHandle(event);
         }

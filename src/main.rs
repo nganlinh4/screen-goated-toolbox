@@ -291,11 +291,8 @@ fn main() -> eframe::Result<()> {
 
     // Single instance check
     let _single_instance_mutex = unsafe {
-        let instance = CreateMutexW(
-            None,
-            true,
-            w!("Global\\ScreenGoatedToolboxSingleInstanceMutex"),
-        );
+        let mutex_name = hotkey::single_instance_mutex_name_wide();
+        let instance = CreateMutexW(None, true, PCWSTR(mutex_name.as_ptr()));
         if let Ok(handle) = instance {
             if GetLastError() == ERROR_ALREADY_EXISTS {
                 // Another instance is running - pass arguments via temp file and signal it

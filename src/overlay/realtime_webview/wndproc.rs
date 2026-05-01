@@ -38,6 +38,22 @@ fn sync_tts_ui_state(hwnd: HWND) {
     });
 }
 
+unsafe fn destroy_realtime_overlay_windows() {
+    unsafe {
+        let main_hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
+        let translation_hwnd = std::ptr::addr_of!(TRANSLATION_HWND).read();
+
+        if !translation_hwnd.is_invalid() && IsWindow(Some(translation_hwnd)).as_bool() {
+            let _ = DestroyWindow(translation_hwnd);
+        }
+        if !main_hwnd.is_invalid() && IsWindow(Some(main_hwnd)).as_bool() {
+            let _ = DestroyWindow(main_hwnd);
+        } else {
+            PostQuitMessage(0);
+        }
+    }
+}
+
 pub unsafe extern "system" fn realtime_wnd_proc(
     hwnd: HWND,
     msg: u32,
@@ -246,24 +262,17 @@ pub unsafe extern "system" fn realtime_wnd_proc(
                 REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
                 crate::api::tts::TTS_MANAGER.stop();
 
-                // Hide windows
-                let _ = ShowWindow(hwnd, SW_HIDE);
-                if !std::ptr::addr_of!(TRANSLATION_HWND).read().is_invalid() {
-                    let _ = ShowWindow(TRANSLATION_HWND, SW_HIDE);
-                }
-
-                // Reset active state so it can be shown again
                 IS_ACTIVE = false;
+                destroy_realtime_overlay_windows();
 
                 LRESULT(0)
             }
 
             WM_DESTROY => {
-                let _ = DestroyWindow(hwnd);
-                if !std::ptr::addr_of!(TRANSLATION_HWND).read().is_invalid() {
-                    let _ = DestroyWindow(TRANSLATION_HWND);
+                let main_hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
+                if hwnd == main_hwnd {
+                    PostQuitMessage(0);
                 }
-                PostQuitMessage(0);
                 LRESULT(0)
             }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
@@ -451,7 +460,12 @@ pub unsafe extern "system" fn translation_wnd_proc(
                 LRESULT(0)
             }
             WM_APP_REALTIME_HIDE => {
-                let _ = ShowWindow(hwnd, SW_HIDE);
+                let _ = PostMessageW(
+                    Some(REALTIME_HWND),
+                    WM_APP_REALTIME_HIDE,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
                 LRESULT(0)
             }
             WM_DESTROY => LRESULT(0),

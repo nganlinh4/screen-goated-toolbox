@@ -23,6 +23,7 @@
   - speech threshold `0.015`
   - silence cutoff `800ms`
   - minimum speech window `2000ms`
+- Built-in mic presets intended for one-shot speech capture keep `auto_stop_recording` aligned with the Windows defaults. This includes `preset_transcribe`, `preset_fix_pronunciation`, `preset_transcribe_retranslate`, `preset_quicker_foreigner_reply`, `preset_quick_ai_question`, `preset_voice_search`, and `preset_quick_record`.
 - Android recording UI uses the generated Windows recording WebView template from `src/overlay/recording/ui.rs`; Android-only code is limited to the bridge prelude, touch-drag shim, and runtime token substitution.
 - Audio-only input-adapter presets such as `preset_quick_record` and `preset_record_device` open the Windows-style audio-player result document rather than a text placeholder.
 - Audio result/media documents stay under the normal result-window runtime and preserve the Windows media markers and raw-html bridge contract.

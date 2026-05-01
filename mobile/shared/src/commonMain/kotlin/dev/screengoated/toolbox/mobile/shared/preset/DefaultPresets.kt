@@ -744,6 +744,7 @@ object DefaultPresets {
             nameKo = "\ube60\ub978 \uc678\uad6d\uc778 \ub2f5\ubcc0 1",
             presetType = PresetType.MIC,
             autoPaste = true,
+            autoStopRecording = true,
             blocks = listOf(
                 audioBlock(
                     PRESET_AUDIO_TRANSCRIBE_MODEL_ID,
@@ -765,6 +766,7 @@ object DefaultPresets {
             nameKo = "\ube60\ub978 \uc678\uad6d\uc778 \ub2f5\ubcc0 2",
             presetType = PresetType.MIC,
             autoPaste = true,
+            autoStopRecording = true,
             blocks = listOf(
                 audioBlock(
                     PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID,
