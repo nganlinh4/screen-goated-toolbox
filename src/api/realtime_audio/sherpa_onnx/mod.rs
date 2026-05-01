@@ -184,6 +184,7 @@ impl ZipformerLanguage {
     pub fn from_code(code: &str) -> Self {
         match code {
             "en" => Self::English,
+            "all" => Self::English,
             "ko" => Self::Korean,
             "zh" => Self::Chinese,
             "fr" => Self::French,

@@ -105,14 +105,27 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 || transcription_model == qwen3_0_6b_id
                 || transcription_model == qwen3_1_7b_id;
             let is_en_only = transcription_model == "parakeet";
-            let effective_lang = if is_all_lang {
+            let mut effective_lang = if is_all_lang {
                 "all"
             } else if is_en_only {
                 "en"
             } else {
                 &trans_lang_code
             };
-            let trans_lang_options = [
+            if transcription_model == "zipformer" && effective_lang == "all" {
+                effective_lang = "en";
+            }
+            let zipformer_lang_options = [
+                ("en", "English"),
+                ("ko", "Korean"),
+                ("zh", "Chinese"),
+                ("fr", "French"),
+                ("de", "German"),
+                ("es", "Spanish"),
+                ("ru", "Russian"),
+                ("all-8", "AR,EN,ID,JA,RU,TH,VI,ZH"),
+            ];
+            let non_zipformer_lang_options = [
                 ("all", "All"),
                 ("en", "English"),
                 ("ko", "Korean"),
@@ -123,6 +136,11 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 ("ru", "Russian"),
                 ("all-8", "AR,EN,ID,JA,RU,TH,VI,ZH"),
             ];
+            let trans_lang_options: &[(&str, &str)] = if transcription_model == "zipformer" {
+                &zipformer_lang_options
+            } else {
+                &non_zipformer_lang_options
+            };
             let trans_lang_html: String = trans_lang_options
                 .iter()
                 .map(|(code, name)| {

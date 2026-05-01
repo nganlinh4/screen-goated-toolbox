@@ -349,6 +349,7 @@ pub fn create_realtime_webview(
                         }
                         TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
                     } else if let Some(lang_code) = body.strip_prefix("transcriptionLanguage:") {
+                        let lang_code = if lang_code == "all" { "en" } else { lang_code };
                         {
                             let mut app = APP.lock().unwrap();
                             app.config.realtime_transcription_language = lang_code.to_string();
