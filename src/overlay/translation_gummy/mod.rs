@@ -48,6 +48,13 @@ pub fn show_translation_gummy() {
     window::show();
 }
 
+pub fn toggle_translation_gummy() {
+    if window::close_if_open() {
+        return;
+    }
+    show_translation_gummy();
+}
+
 pub fn update_settings() {
     let old_tts = runtime::current_gemini_tts_settings();
     state::refresh_from_config();

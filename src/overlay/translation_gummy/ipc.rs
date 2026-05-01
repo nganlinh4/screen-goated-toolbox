@@ -3,8 +3,7 @@ use serde_json::{Value, json};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
-    HTCAPTION, PostMessageW, SW_HIDE, SW_MINIMIZE, SendMessageW, ShowWindow, WM_CLOSE,
-    WM_NCLBUTTONDOWN,
+    HTCAPTION, PostMessageW, SW_MINIMIZE, SendMessageW, ShowWindow, WM_CLOSE, WM_NCLBUTTONDOWN,
 };
 
 #[derive(Deserialize)]
@@ -119,7 +118,6 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
         "close_window" => {
             unsafe {
                 let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                let _ = ShowWindow(hwnd, SW_HIDE);
             }
             Ok(Value::Null)
         }

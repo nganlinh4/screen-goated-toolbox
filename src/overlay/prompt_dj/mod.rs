@@ -198,19 +198,19 @@ unsafe extern "system" fn pdj_wnd_proc(
                 crate::gui::utils::set_window_icon(hwnd, is_dark);
 
                 PDJ_WEBVIEW.with(|wv| {
-                if let Some(webview) = wv.borrow().as_ref() {
-                    let script = format!(
-                        r#"
+                    if let Some(webview) = wv.borrow().as_ref() {
+                        let script = format!(
+                            r#"
                         if (window.postMessage) {{
                             window.postMessage({{ type: 'pm-dj-set-api-key', apiKey: '{}', lang: '{}' }}, '*');
                             window.postMessage({{ type: 'pm-dj-set-theme', theme: '{}' }}, '*');
                         }}
                         "#,
-                        api_key, lang, theme_str
-                    );
-                    let _ = webview.evaluate_script(&script);
-                }
-            });
+                            api_key, lang, theme_str
+                        );
+                        let _ = webview.evaluate_script(&script);
+                    }
+                });
 
                 let _ = ShowWindow(hwnd, SW_SHOW);
                 let _ = SetForegroundWindow(hwnd);
@@ -244,22 +244,23 @@ unsafe extern "system" fn pdj_wnd_proc(
                 crate::gui::utils::set_window_icon(hwnd, is_dark);
 
                 PDJ_WEBVIEW.with(|wv| {
-                if let Some(webview) = wv.borrow().as_ref() {
-                    let script = format!(
-                        r#"
+                    if let Some(webview) = wv.borrow().as_ref() {
+                        let script = format!(
+                            r#"
                         if (window.postMessage) {{
                             window.postMessage({{ type: 'pm-dj-set-api-key', apiKey: '{}', lang: '{}' }}, '*');
                             window.postMessage({{ type: 'pm-dj-set-theme', theme: '{}' }}, '*');
                         }}
                         "#,
-                        api_key, lang, theme_str
-                    );
-                    let _ = webview.evaluate_script(&script);
-                }
-            });
+                            api_key, lang, theme_str
+                        );
+                        let _ = webview.evaluate_script(&script);
+                    }
+                });
                 LRESULT(0)
             }
             WM_CLOSE => {
+                crate::log_info!("[PromptDJ] close requested; destroying window");
                 PDJ_WEBVIEW.with(|wv| {
                     if let Some(webview) = wv.borrow().as_ref() {
                         let _ = webview.evaluate_script(
@@ -267,10 +268,15 @@ unsafe extern "system" fn pdj_wnd_proc(
                         );
                     }
                 });
-                let _ = ShowWindow(hwnd, SW_HIDE);
+                let _ = DestroyWindow(hwnd);
                 LRESULT(0)
             }
             WM_DESTROY => {
+                PDJ_WEBVIEW.with(|wv| {
+                    *wv.borrow_mut() = None;
+                });
+                PDJ_HWND = SendHwnd::default();
+                IS_WARMED_UP = false;
                 PostQuitMessage(0);
                 LRESULT(0)
             }
@@ -673,7 +679,7 @@ unsafe fn internal_create_pdj_loop() {
                         } else if body == "minimize_window" {
                             let _ = ShowWindow(hwnd_ipc, SW_MINIMIZE);
                         } else if body == "close_window" {
-                            let _ = ShowWindow(hwnd_ipc, SW_HIDE);
+                            let _ = PostMessageW(Some(hwnd_ipc), WM_CLOSE, WPARAM(0), LPARAM(0));
                         } else if body.starts_with("set_volume:")
                             && let Ok(val) = body.trim_start_matches("set_volume:").parse::<f32>()
                         {
