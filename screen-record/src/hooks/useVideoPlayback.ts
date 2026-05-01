@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { videoRenderer } from "@/lib/videoRenderer";
 import { createVideoController } from "@/lib/videoController";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
+import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
 import { thumbnailGenerator } from "@/lib/thumbnailGenerator";
 import { getBaseTimelineThumbnailCount } from "@/lib/timelineThumbnailCount";
 import {
@@ -87,6 +88,15 @@ export function useVideoPlayback({
       textSegment.startTime,
       textSegment.endTime,
       textSegment.text,
+    ]),
+    activeSubtitleView: nextSegment.activeSubtitleView ?? null,
+    subtitleCustomChain: nextSegment.subtitleCustomChain ?? [],
+    subtitleSegments: getVisibleSubtitleSegments(nextSegment).map((subtitleSegment) => [
+      subtitleSegment.id,
+      subtitleSegment.startTime,
+      subtitleSegment.endTime,
+      subtitleSegment.text,
+      subtitleSegment.style,
     ]),
     keystrokeOverlay: nextSegment.keystrokeOverlay ?? null,
     cursorVisibilitySegments: nextSegment.cursorVisibilitySegments ?? [],
