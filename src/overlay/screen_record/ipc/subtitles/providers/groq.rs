@@ -1,4 +1,6 @@
 use serde::Deserialize;
+use std::io::Cursor;
+use std::sync::atomic::Ordering;
 
 use crate::APP;
 use crate::api::client::UREQ_AGENT;
@@ -14,6 +16,7 @@ use crate::overlay::screen_record::ipc::subtitles::types::CompactSubtitleSegment
 
 const GROQ_AUDIO_TRANSCRIPT_URL: &str = "https://api.groq.com/openai/v1/audio/transcriptions";
 const SENTENCE_BREAK_SILENCE_SEC: f64 = 0.45;
+const MAX_GROQ_SPLIT_PARTS: usize = 128;
 
 pub struct GroqSubtitleBackend {
     api_key: String,
@@ -48,7 +51,7 @@ impl SubtitleBackend for GroqSubtitleBackend {
     fn transcribe_clip(
         &mut self,
         request: SubtitleBackendRequest,
-        _on_progress: &mut dyn FnMut(SubtitleBackendProgress) -> Result<(), String>,
+        on_progress: &mut dyn FnMut(SubtitleBackendProgress) -> Result<(), String>,
     ) -> Result<Vec<CompactSubtitleSegment>, String> {
         if request.media.mime_type != "audio/wav" {
             return Err(format!(
@@ -56,15 +59,23 @@ impl SubtitleBackend for GroqSubtitleBackend {
                 request.media.mime_type
             ));
         }
-        let response = transcribe_with_groq_verbose(
+        transcribe_with_groq_auto_split(
             &self.api_key,
             &self.model_name,
-            request.media.bytes,
+            &request.media.bytes,
             request.language_hint.as_deref(),
             &request.groq_vocabulary,
-        )?;
-        Ok(build_sentence_blocks(&response))
+            &request.cancel_token,
+            on_progress,
+        )
     }
+}
+
+#[derive(Clone)]
+struct GroqWavAudio {
+    samples: Vec<i16>,
+    sample_rate: u32,
+    channels: u16,
 }
 
 #[derive(Deserialize)]
@@ -87,13 +98,132 @@ struct GroqWord {
     word: String,
 }
 
+enum GroqRequestError {
+    TooLarge(String),
+    Other(String),
+}
+
+fn transcribe_with_groq_auto_split(
+    api_key: &str,
+    model_name: &str,
+    audio_data: &[u8],
+    language_hint: Option<&str>,
+    vocabulary: &[String],
+    cancel_token: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    on_progress: &mut dyn FnMut(SubtitleBackendProgress) -> Result<(), String>,
+) -> Result<Vec<CompactSubtitleSegment>, String> {
+    let wav = decode_wav_audio(audio_data)?;
+    if wav.samples.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut split_parts = 1usize;
+    loop {
+        if cancel_token.load(Ordering::SeqCst) {
+            return Err("Groq subtitle generation cancelled".to_string());
+        }
+        crate::log_info!(
+            "[SubtitleGen][Groq] transcribe attempt split_parts={} bytes={} duration_sec={:.2}",
+            split_parts,
+            audio_data.len(),
+            wav.duration_sec()
+        );
+
+        match transcribe_groq_split_attempt(
+            api_key,
+            model_name,
+            &wav,
+            split_parts,
+            language_hint,
+            vocabulary,
+            cancel_token,
+        ) {
+            Ok(segments) => {
+                on_progress(SubtitleBackendProgress {
+                    completed_steps: split_parts,
+                    total_steps: split_parts,
+                    segments: segments.clone(),
+                })?;
+                return Ok(segments);
+            }
+            Err(GroqRequestError::TooLarge(message)) => {
+                if split_parts >= MAX_GROQ_SPLIT_PARTS {
+                    return Err(format!(
+                        "Groq subtitle request still returned 413 after splitting into {split_parts} parts: {message}"
+                    ));
+                }
+                split_parts += 1;
+                crate::log_info!(
+                    "[SubtitleGen][Groq] 413 payload too large; retrying with split_parts={}",
+                    split_parts
+                );
+            }
+            Err(GroqRequestError::Other(message)) => return Err(message),
+        }
+    }
+}
+
+fn transcribe_groq_split_attempt(
+    api_key: &str,
+    model_name: &str,
+    wav: &GroqWavAudio,
+    split_parts: usize,
+    language_hint: Option<&str>,
+    vocabulary: &[String],
+    cancel_token: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> Result<Vec<CompactSubtitleSegment>, GroqRequestError> {
+    let mut all_segments = Vec::new();
+    for part_index in 0..split_parts {
+        if cancel_token.load(Ordering::SeqCst) {
+            return Err(GroqRequestError::Other(
+                "Groq subtitle generation cancelled".to_string(),
+            ));
+        }
+
+        let chunk = wav.chunk_for_part(part_index, split_parts)?;
+        if chunk.samples.is_empty() {
+            continue;
+        }
+        let chunk_wav = encode_wav(&chunk.samples, wav.sample_rate, wav.channels)
+            .map_err(GroqRequestError::Other)?;
+        crate::log_info!(
+            "[SubtitleGen][Groq] part-start {}/{} offset={:.2}s duration={:.2}s bytes={}",
+            part_index + 1,
+            split_parts,
+            chunk.offset_sec,
+            chunk.duration_sec,
+            chunk_wav.len()
+        );
+        let response = transcribe_with_groq_verbose(
+            api_key,
+            model_name,
+            chunk_wav,
+            language_hint,
+            vocabulary,
+        )?;
+        let mut segments = build_sentence_blocks(&response);
+        for segment in &mut segments {
+            segment.start_time += chunk.offset_sec;
+            segment.end_time += chunk.offset_sec;
+        }
+        crate::log_info!(
+            "[SubtitleGen][Groq] part-complete {}/{} added_segments={}",
+            part_index + 1,
+            split_parts,
+            segments.len()
+        );
+        all_segments.extend(segments);
+    }
+    Ok(all_segments)
+}
+
 fn transcribe_with_groq_verbose(
     api_key: &str,
     model_name: &str,
     audio_data: Vec<u8>,
     language_hint: Option<&str>,
     vocabulary: &[String],
-) -> Result<GroqVerboseResponse, String> {
+) -> Result<GroqVerboseResponse, GroqRequestError> {
     let boundary = format!("----SGTSubtitle{}", chrono::Utc::now().timestamp_millis());
     let mut body = Vec::new();
     add_multipart_field(&mut body, &boundary, "model", model_name.as_bytes());
@@ -128,13 +258,27 @@ fn transcribe_with_groq_verbose(
             &format!("multipart/form-data; boundary={boundary}"),
         )
         .send(&body)
-        .map_err(|e| format!("Groq subtitle request failed: {e}"))?;
+        .map_err(map_groq_request_error)?;
 
     let json: serde_json::Value = response
         .into_body()
         .read_json()
-        .map_err(|e| format!("Parse Groq subtitle response: {e}"))?;
-    serde_json::from_value(json).map_err(|e| format!("Decode Groq verbose response: {e}"))
+        .map_err(|e| GroqRequestError::Other(format!("Parse Groq subtitle response: {e}")))?;
+    serde_json::from_value(json)
+        .map_err(|e| GroqRequestError::Other(format!("Decode Groq verbose response: {e}")))
+}
+
+fn map_groq_request_error(error: ureq::Error) -> GroqRequestError {
+    let message = error.to_string();
+    if message.contains("413")
+        || message
+            .to_ascii_lowercase()
+            .contains("request entity too large")
+    {
+        GroqRequestError::TooLarge(format!("Groq subtitle request failed: {message}"))
+    } else {
+        GroqRequestError::Other(format!("Groq subtitle request failed: {message}"))
+    }
 }
 
 fn build_groq_vocabulary_prompt(vocabulary: &[String]) -> Option<String> {
@@ -161,6 +305,84 @@ fn add_multipart_field(body: &mut Vec<u8>, boundary: &str, name: &str, value: &[
     );
     body.extend_from_slice(value);
     body.extend_from_slice(b"\r\n");
+}
+
+struct GroqWavChunk {
+    samples: Vec<i16>,
+    offset_sec: f64,
+    duration_sec: f64,
+}
+
+impl GroqWavAudio {
+    fn duration_sec(&self) -> f64 {
+        let frames = self.samples.len() / self.channels.max(1) as usize;
+        frames as f64 / self.sample_rate.max(1) as f64
+    }
+
+    fn chunk_for_part(
+        &self,
+        part_index: usize,
+        split_parts: usize,
+    ) -> Result<GroqWavChunk, GroqRequestError> {
+        let channels = self.channels.max(1) as usize;
+        let total_frames = self.samples.len() / channels;
+        let start_frame = total_frames * part_index / split_parts;
+        let end_frame = total_frames * (part_index + 1) / split_parts;
+        let start_sample = start_frame * channels;
+        let end_sample = end_frame * channels;
+        Ok(GroqWavChunk {
+            samples: self.samples[start_sample..end_sample].to_vec(),
+            offset_sec: start_frame as f64 / self.sample_rate.max(1) as f64,
+            duration_sec: (end_frame.saturating_sub(start_frame)) as f64
+                / self.sample_rate.max(1) as f64,
+        })
+    }
+}
+
+fn decode_wav_audio(audio_data: &[u8]) -> Result<GroqWavAudio, String> {
+    let cursor = Cursor::new(audio_data);
+    let mut reader =
+        hound::WavReader::new(cursor).map_err(|err| format!("Decode Groq WAV audio: {err}"))?;
+    let spec = reader.spec();
+    let samples = match spec.sample_format {
+        hound::SampleFormat::Int => reader
+            .samples::<i16>()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("Read Groq WAV PCM samples: {err}"))?,
+        hound::SampleFormat::Float => reader
+            .samples::<f32>()
+            .map(|sample| {
+                sample.map(|value| (value.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("Read Groq WAV float samples: {err}"))?,
+    };
+    Ok(GroqWavAudio {
+        samples,
+        sample_rate: spec.sample_rate,
+        channels: spec.channels.max(1),
+    })
+}
+
+fn encode_wav(samples: &[i16], sample_rate: u32, channels: u16) -> Result<Vec<u8>, String> {
+    let spec = hound::WavSpec {
+        channels: channels.max(1),
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut cursor = Cursor::new(Vec::new());
+    let mut writer = hound::WavWriter::new(&mut cursor, spec)
+        .map_err(|err| format!("Create Groq split WAV writer: {err}"))?;
+    for sample in samples {
+        writer
+            .write_sample(*sample)
+            .map_err(|err| format!("Write Groq split WAV sample: {err}"))?;
+    }
+    writer
+        .finalize()
+        .map_err(|err| format!("Finalize Groq split WAV: {err}"))?;
+    Ok(cursor.into_inner())
 }
 
 fn build_sentence_blocks(response: &GroqVerboseResponse) -> Vec<CompactSubtitleSegment> {
