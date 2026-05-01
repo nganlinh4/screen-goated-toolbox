@@ -1,5 +1,6 @@
 //! WebView creation and IPC handling for realtime overlay
 
+use super::controller;
 use super::state::*;
 use crate::APP;
 use crate::api::realtime_audio::{WM_COPY_TEXT, WM_EXEC_SCRIPT};
@@ -7,7 +8,6 @@ use crate::api::realtime_audio::{WM_REALTIME_UPDATE, WM_TRANSLATION_UPDATE};
 use crate::config::get_all_languages;
 use crate::gui::locale::LocaleText;
 use crate::overlay::realtime_html::{RealtimeHtmlOptions, get_realtime_html};
-use crate::overlay::window_selector::{self, SelectorOwner};
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -94,7 +94,7 @@ pub fn create_realtime_webview(
                 crate::overlay::html_components::font_manager::store_html_page(html.clone())
                     .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html)));
 
-            builder
+            let builder = builder
                 .with_bounds(Rect {
                     position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
                     size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
@@ -268,94 +268,18 @@ pub fn create_realtime_webview(
                     } else if let Some(size) = body.strip_prefix("fontSize:") {
                         // Font size change - store for future use
                         if let Ok(size) = size.parse::<u32>() {
-                            let mut app = APP.lock().unwrap();
-                            app.config.realtime_font_size = size;
-                            crate::config::save_config(&app.config);
+                            controller::set_font_size(size);
                         }
                     } else if let Some(source) = body.strip_prefix("audioSource:") {
-                        // Audio source change
-                        let source = source.to_string();
-                        if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
-                            *new_source = source.clone();
-                        }
-
-                        if source == "mic" {
-                            // Clear app selection when switching to mic
-                            SELECTED_APP_PID.store(0, Ordering::SeqCst);
-                            if let Ok(mut name) = SELECTED_APP_NAME.lock() {
-                                name.clear();
-                            }
-                        } else if source == "device" {
-                            // Check if TTS is enabled - if so, show app selection popup
-                            let tts_enabled = REALTIME_TTS_ENABLED.load(Ordering::SeqCst);
-                            if tts_enabled {
-                                // Show app selection popup for user to choose which app to capture
-                                show_audio_app_selector_overlay();
-                            } else {
-                                // TTS is off, use normal device loopback (clear any app selection)
-                                SELECTED_APP_PID.store(0, Ordering::SeqCst);
-                                if let Ok(mut name) = SELECTED_APP_NAME.lock() {
-                                    name.clear();
-                                }
-                            }
-                        }
-
-                        // Save to config
-                        {
-                            let mut app = APP.lock().unwrap();
-                            app.config.realtime_audio_source = source;
-                            crate::config::save_config(&app.config);
-                        }
-                        AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
+                        controller::set_audio_source(source);
                     } else if let Some(lang) = body.strip_prefix("language:") {
-                        // Target language change - signal update
-                        let lang = lang.to_string();
-                        if let Ok(mut new_lang) = NEW_TARGET_LANGUAGE.lock() {
-                            *new_lang = lang.clone();
-                        }
-
-                        // Save to config
-                        {
-                            let mut app = APP.lock().unwrap();
-                            app.config.realtime_target_language = lang;
-                            crate::config::save_config(&app.config);
-                        }
-                        LANGUAGE_CHANGE.store(true, Ordering::SeqCst);
+                        controller::set_target_language(lang);
                     } else if let Some(model) = body.strip_prefix("translationModel:") {
-                        // Translation model change - signal update
-                        let model = model.to_string();
-                        if let Ok(mut new_model) = NEW_TRANSLATION_MODEL.lock() {
-                            *new_model = model.clone();
-                        }
-
-                        // Save to config
-                        {
-                            let mut app = APP.lock().unwrap();
-                            app.config.realtime_translation_model = model;
-                            crate::config::save_config(&app.config);
-                        }
-                        TRANSLATION_MODEL_CHANGE.store(true, Ordering::SeqCst);
+                        controller::set_translation_model(model);
                     } else if let Some(model) = body.strip_prefix("transcriptionModel:") {
-                        // Transcription model change
-                        let model =
-                            crate::model_config::normalize_realtime_transcription_model_id(model);
-                        if let Ok(mut new_model) = NEW_TRANSCRIPTION_MODEL.lock() {
-                            *new_model = model.clone();
-                        }
-                        {
-                            let mut app = APP.lock().unwrap();
-                            app.config.realtime_transcription_model = model;
-                            crate::config::save_config(&app.config);
-                        }
-                        TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
+                        controller::set_transcription_model(model);
                     } else if let Some(lang_code) = body.strip_prefix("transcriptionLanguage:") {
-                        let lang_code = if lang_code == "all" { "en" } else { lang_code };
-                        {
-                            let mut app = APP.lock().unwrap();
-                            app.config.realtime_transcription_language = lang_code.to_string();
-                            crate::config::save_config(&app.config);
-                        }
-                        TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
+                        controller::set_transcription_language(lang_code);
                     } else if let Some(coords) = body.strip_prefix("resize:") {
                         // Resize window by delta
                         if let Some((dx_str, dy_str)) = coords.split_once(',')
@@ -380,89 +304,41 @@ pub fn create_realtime_webview(
                     } else if body.starts_with("ttsEnabled:") {
                         // TTS toggle for realtime translations
                         let requested_enabled = &body[11..] == "1";
-
-                        // Reset spoken length when disabling so we start fresh next time
-                        if !requested_enabled {
-                            REALTIME_TTS_ENABLED.store(false, Ordering::SeqCst);
-                            // IMMEDIATELY stop TTS (cut off mid-sentence to prevent capture)
-                            crate::api::tts::TTS_MANAGER.stop();
-
-                            window_selector::close_selector_for_owner(
-                                SelectorOwner::RealtimeAppSelection,
-                            );
-
-                            LAST_SPOKEN_LENGTH.store(0, Ordering::SeqCst);
-                            // Clear any queued translations
-                            if let Ok(mut queue) = COMMITTED_TRANSLATION_QUEUE.lock() {
-                                queue.clear();
-                            }
-
-                            // Clear app selection (but do NOT restart audio capture -
-                            // that only happens when an app is explicitly selected)
-                            SELECTED_APP_PID.store(0, Ordering::SeqCst);
-                            if let Ok(mut name) = SELECTED_APP_NAME.lock() {
-                                name.clear();
-                            }
-
-                            let current_source = {
-                                let app = APP.lock().unwrap();
-                                app.config.realtime_audio_source.clone()
-                            };
-                            if current_source == "device" {
-                                if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
-                                    *new_source = "device".to_string();
-                                }
-                                AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
-                            }
-                        } else {
-                            // TTS enabled - if in device mode, show app selection popup
-                            let current_source = {
-                                let app = APP.lock().unwrap();
-                                app.config.realtime_audio_source.clone()
-                            };
-                            if current_source == "device" {
-                                // Do not enable TTS yet. Device mode needs per-app capture first;
-                                // otherwise the transcription backend sees "TTS on + no selected app"
-                                // and starts no capture stream.
-                                REALTIME_TTS_ENABLED.store(false, Ordering::SeqCst);
-                                let script =
-                                    "if(window.setTtsEnabled) window.setTtsEnabled(false);";
-                                let script_ptr = Box::into_raw(Box::new(script.to_string()));
-                                unsafe {
-                                    let _ = PostMessageW(
-                                        Some(hwnd_for_ipc),
-                                        WM_EXEC_SCRIPT,
-                                        WPARAM(0),
-                                        LPARAM(script_ptr as isize),
-                                    );
-                                }
-                                show_audio_app_selector_overlay();
-                            } else {
-                                REALTIME_TTS_ENABLED.store(true, Ordering::SeqCst);
+                        controller::set_tts_enabled(requested_enabled);
+                        if requested_enabled
+                            && controller::load_session_config().audio_source == "device"
+                        {
+                            let script = "if(window.setTtsEnabled) window.setTtsEnabled(false);";
+                            let script_ptr = Box::into_raw(Box::new(script.to_string()));
+                            unsafe {
+                                let _ = PostMessageW(
+                                    Some(hwnd_for_ipc),
+                                    WM_EXEC_SCRIPT,
+                                    WPARAM(0),
+                                    LPARAM(script_ptr as isize),
+                                );
                             }
                         }
                     } else if let Some(speed) = body.strip_prefix("ttsSpeed:") {
                         // TTS playback speed adjustment (50-200, where 100 = 1.0x)
                         if let Ok(speed) = speed.parse::<u32>() {
-                            REALTIME_TTS_SPEED.store(speed, Ordering::SeqCst);
-                            // Turn off auto-speed when user manually adjusts slider
-                            REALTIME_TTS_AUTO_SPEED.store(false, Ordering::SeqCst);
+                            controller::set_tts_speed(speed);
                         }
                     } else if body.starts_with("ttsAutoSpeed:") {
                         // TTS auto-speed toggle
                         let enabled = &body[13..] == "1";
-                        REALTIME_TTS_AUTO_SPEED.store(enabled, Ordering::SeqCst);
+                        controller::set_tts_auto_speed(enabled);
                     } else if let Some(vol) = body.strip_prefix("ttsVolume:") {
                         // TTS output volume (0-100)
                         if let Ok(vol) = vol.parse::<u32>() {
-                            CURRENT_TTS_VOLUME.store(vol.min(100), Ordering::Relaxed);
+                            controller::set_tts_volume(vol);
                         }
                     } else if body == "cancelDownload" {
                         // Cancel Parakeet download and revert to Gemini
-                        crate::api::realtime_audio::cancel_download_and_revert_to_gemini();
+                        controller::cancel_download();
                     }
-                })
-                .build_as_child(&wrapper)
+                });
+            builder.build_as_child(&wrapper)
         });
         crate::log_info!(
             "[Realtime] Build finished. Releasing lock. Status: {}",
@@ -542,8 +418,6 @@ pub fn clear_webview_text(hwnd: HWND) {
         }
     });
 }
-
-use super::app_selection::show_audio_app_selector_overlay;
 
 pub fn update_webview_theme(hwnd: HWND) {
     let hwnd_key = hwnd.0 as isize;

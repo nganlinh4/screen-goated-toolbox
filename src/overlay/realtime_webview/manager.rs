@@ -4,9 +4,8 @@ use super::state::*;
 use super::webview::*;
 use super::wndproc::*;
 use crate::APP;
-use crate::api::realtime_audio::{RealtimeState, start_realtime_transcription};
-use crate::overlay::window_selector::{self, SelectorOwner};
-use std::sync::atomic::Ordering;
+use crate::api::realtime_audio::start_realtime_transcription;
+use std::sync::atomic::{AtomicIsize, Ordering};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
     DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
@@ -17,7 +16,15 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 
+static PENDING_REALTIME_START_PRESET: AtomicIsize = AtomicIsize::new(-1);
+
 pub fn is_realtime_overlay_active() -> bool {
+    if crate::overlay::realtime_egui::MINIMAL_ACTIVE.load(Ordering::SeqCst)
+        || crate::overlay::realtime_egui::MINIMAL_STOPPING.load(Ordering::SeqCst)
+    {
+        return true;
+    }
+
     unsafe {
         if !IS_ACTIVE {
             return false;
@@ -35,17 +42,16 @@ pub fn is_realtime_overlay_active() -> bool {
 
 /// Stop the realtime overlay and hide windows
 pub fn stop_realtime_overlay() {
-    // Stop any playing TTS immediately
-    crate::api::tts::TTS_MANAGER.stop();
+    if crate::overlay::realtime_egui::MINIMAL_ACTIVE.load(Ordering::SeqCst)
+        || crate::overlay::realtime_egui::MINIMAL_STOPPING.load(Ordering::SeqCst)
+    {
+        crate::overlay::realtime_egui::stop_minimal_overlay();
+        return;
+    }
 
-    // Stop Minimal Mode if active
-    crate::overlay::realtime_egui::MINIMAL_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
-    REALTIME_SESSION_STOPPING.store(true, Ordering::SeqCst);
-    REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
+    super::controller::stop_runtime_flags();
 
     unsafe {
-        window_selector::close_selector_for_owner(SelectorOwner::RealtimeAppSelection);
-
         let hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
         if !hwnd.is_invalid() && IsWindow(Some(hwnd)).as_bool() {
             let _ = PostMessageW(Some(hwnd), WM_APP_REALTIME_HIDE, WPARAM(0), LPARAM(0));
@@ -58,6 +64,30 @@ pub fn stop_realtime_overlay() {
 }
 
 pub fn show_realtime_overlay(preset_idx: usize) {
+    if crate::overlay::realtime_egui::recently_stopped_minimal(preset_idx) {
+        return;
+    }
+
+    let realtime_window_mode = APP
+        .lock()
+        .map(|app| {
+            app.config
+                .presets
+                .get(preset_idx)
+                .map(|preset| preset.realtime_window_mode.clone())
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+
+    if realtime_window_mode == "minimal" {
+        crate::overlay::realtime_egui::show_realtime_egui_overlay(preset_idx);
+        return;
+    }
+
+    if crate::overlay::realtime_egui::MINIMAL_STOPPING.load(Ordering::SeqCst) {
+        return;
+    }
+
     let capability = crate::runtime_support::require_webview2("Realtime overlay");
     if !capability.is_supported() {
         crate::runtime_support::notify_capability_issue(&capability);
@@ -67,43 +97,26 @@ pub fn show_realtime_overlay(preset_idx: usize) {
     unsafe {
         if REALTIME_SESSION_STOPPING.load(Ordering::SeqCst) {
             let hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
-            if !IS_ACTIVE || hwnd.is_invalid() || !IsWindow(Some(hwnd)).as_bool() {
+            if crate::overlay::realtime_egui::MINIMAL_STOPPING.load(Ordering::SeqCst) {
+                return;
+            } else if IS_ACTIVE && !hwnd.is_invalid() && IsWindow(Some(hwnd)).as_bool() {
+                return;
+            } else {
                 REALTIME_SESSION_STOPPING.store(false, Ordering::SeqCst);
                 REALTIME_STOP_SIGNAL.store(false, Ordering::SeqCst);
                 IS_ACTIVE = false;
-            } else {
-                return;
             }
         }
 
         // Initialize on-demand if not warmed up
         if !IS_WARMED_UP {
+            PENDING_REALTIME_START_PRESET.store(preset_idx as isize, Ordering::SeqCst);
             if !IS_INITIALIZING {
                 IS_INITIALIZING = true;
                 std::thread::spawn(move || {
                     internal_create_realtime_loop();
                 });
             }
-
-            // Polling thread to auto-show once ready
-            std::thread::spawn(move || {
-                // Poll for 10 seconds (100 * 100ms)
-                for _ in 0..100 {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    if REALTIME_SESSION_STOPPING.load(Ordering::SeqCst) {
-                        return;
-                    }
-                    if IS_WARMED_UP && !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {
-                        let _ = PostMessageW(
-                            Some(REALTIME_HWND),
-                            WM_APP_REALTIME_START,
-                            WPARAM(preset_idx),
-                            LPARAM(0),
-                        );
-                        return;
-                    }
-                }
-            });
             return;
         }
 
@@ -225,6 +238,15 @@ unsafe fn internal_create_realtime_loop() {
 
         // Mark as warmed up and ready
         IS_WARMED_UP = true;
+        let pending_preset = PENDING_REALTIME_START_PRESET.swap(-1, Ordering::SeqCst);
+        if pending_preset >= 0 {
+            let _ = PostMessageW(
+                Some(REALTIME_HWND),
+                WM_APP_REALTIME_START,
+                WPARAM(pending_preset as usize),
+                LPARAM(0),
+            );
+        }
 
         // Message loop
         let mut msg = MSG::default();
@@ -242,6 +264,7 @@ unsafe fn internal_create_realtime_loop() {
         IS_ACTIVE = false;
         IS_WARMED_UP = false;
         IS_INITIALIZING = false;
+        PENDING_REALTIME_START_PRESET.store(-1, Ordering::SeqCst);
         REALTIME_SESSION_STOPPING.store(false, Ordering::SeqCst);
         REALTIME_STOP_SIGNAL.store(false, Ordering::SeqCst);
         REALTIME_HWND = HWND::default();
@@ -289,61 +312,18 @@ unsafe fn handle_start_overlay(preset_idx: usize) {
             return;
         }
 
-        // Reset state
-        IS_ACTIVE = true;
-        REALTIME_SESSION_STOPPING.store(false, Ordering::SeqCst);
-        REALTIME_STOP_SIGNAL.store(false, Ordering::SeqCst);
-        MIC_VISIBLE.store(true, Ordering::SeqCst);
-        TRANS_VISIBLE.store(true, Ordering::SeqCst);
-        AUDIO_SOURCE_CHANGE.store(false, Ordering::SeqCst);
-        LANGUAGE_CHANGE.store(false, Ordering::SeqCst);
-        TRANSLATION_MODEL_CHANGE.store(false, Ordering::SeqCst);
-
-        {
-            let mut state = REALTIME_STATE.lock().unwrap();
-            *state = RealtimeState::new();
-        }
-
-        // Fetch config
-        let (
-            font_size,
-            config_audio_source,
-            config_language,
-            config_translation_model,
-            config_transcription_model,
-            config_transcription_language,
-            trans_size,
-            transcription_size,
-        ) = {
+        let session_config = super::controller::load_session_config();
+        let (trans_size, transcription_size) = {
             let app = APP.lock().unwrap();
             (
-                app.config.realtime_font_size,
-                app.config.realtime_audio_source.clone(),
-                app.config.realtime_target_language.clone(),
-                app.config.realtime_translation_model.clone(),
-                crate::model_config::normalize_realtime_transcription_model_id(
-                    &app.config.realtime_transcription_model,
-                ),
-                app.config.realtime_transcription_language.clone(),
                 app.config.realtime_translation_size,
                 app.config.realtime_transcription_size,
             )
         };
+        super::controller::reset_runtime_for_new_session();
 
-        // Default to "device" if no audio source is saved
-        let effective_audio_source = if config_audio_source.is_empty() {
-            "device".to_string()
-        } else {
-            config_audio_source.clone()
-        };
-
-        preset.audio_source = effective_audio_source.clone();
-        if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
-            *new_source = effective_audio_source.clone();
-        }
-
-        let target_language = if !config_language.is_empty() {
-            config_language
+        let target_language = if !session_config.target_language.is_empty() {
+            session_config.target_language.clone()
         } else if preset.blocks.len() > 1 {
             let trans_block = &preset.blocks[1];
             if !trans_block.selected_language.is_empty() {
@@ -360,12 +340,10 @@ unsafe fn handle_start_overlay(preset_idx: usize) {
             "English".to_string()
         };
 
-        if !target_language.is_empty() {
-            if let Ok(mut new_lang) = NEW_TARGET_LANGUAGE.lock() {
-                *new_lang = target_language.clone();
-            }
-            LANGUAGE_CHANGE.store(true, Ordering::SeqCst);
-        }
+        let mut active_config = session_config.clone();
+        active_config.target_language = target_language.clone();
+        super::controller::apply_session_config(&active_config);
+        preset.audio_source = active_config.audio_source.clone();
 
         // Calculate positions
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
@@ -411,12 +389,12 @@ unsafe fn handle_start_overlay(preset_idx: usize) {
         // Notify WebViews of new settings
         notify_webview_settings(
             REALTIME_HWND,
-            &effective_audio_source,
+            &active_config.audio_source,
             &target_language,
-            &config_translation_model,
-            &config_transcription_model,
-            &config_transcription_language,
-            font_size,
+            &active_config.translation_model,
+            &active_config.transcription_model,
+            &active_config.transcription_language,
+            active_config.font_size,
         );
 
         // Explicitly resize WebViews to match window sizes
@@ -430,10 +408,10 @@ unsafe fn handle_start_overlay(preset_idx: usize) {
                 TRANSLATION_HWND,
                 "mic",
                 &target_language,
-                &config_translation_model,
-                &config_transcription_model,
-                &config_transcription_language,
-                font_size,
+                &active_config.translation_model,
+                &active_config.transcription_model,
+                &active_config.transcription_language,
+                active_config.font_size,
             );
             resize_webview(TRANSLATION_HWND, trans_w, trans_h);
             clear_webview_text(TRANSLATION_HWND);

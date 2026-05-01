@@ -1,4 +1,5 @@
 pub mod app_selection;
+pub mod controller;
 pub mod manager;
 pub mod state;
 pub mod webview;

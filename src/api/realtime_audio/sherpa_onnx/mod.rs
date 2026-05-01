@@ -367,6 +367,7 @@ pub fn run_sherpa_transcription(
     stop_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
     state: SharedRealtimeState,
+    session_id: u64,
 ) -> Result<()> {
     if let Ok(mut s) = state.lock() {
         s.set_transcription_method(super::state::TranscriptionMethod::SherpaZipformer);
@@ -448,7 +449,7 @@ pub fn run_sherpa_transcription(
 
     let audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
     let pause_signal = Arc::new(AtomicBool::new(false));
-    let _audio_stream =
+    let audio_stream =
         start_audio_capture(audio_buffer.clone(), stop_signal.clone(), pause_signal)?;
 
     let result = run_streaming_loop(
@@ -460,7 +461,10 @@ pub fn run_sherpa_transcription(
         overlay_hwnd,
         &state,
         lang.has_native_punctuation(),
+        session_id,
     );
+
+    drop(audio_stream);
 
     unsafe {
         (lib.destroy_stream)(stream);
@@ -480,6 +484,7 @@ fn run_streaming_loop(
     overlay_hwnd: HWND,
     state: &SharedRealtimeState,
     has_native_punctuation: bool,
+    session_id: u64,
 ) -> Result<()> {
     let mut committed_history = String::new();
     // Portion of current stream output already committed — advance but never reset mid-speech
@@ -488,7 +493,7 @@ fn run_streaming_loop(
     let mut last_draft_change = Instant::now();
     let mut pending_f32: Vec<f32> = Vec::new();
 
-    while !stop_signal.load(Ordering::Relaxed) {
+    while !stop_signal.load(Ordering::Relaxed) && !is_stale_session(session_id) {
         if !overlay_hwnd.is_invalid() && !unsafe { IsWindow(Some(overlay_hwnd)).as_bool() } {
             break;
         }
@@ -537,9 +542,15 @@ fn run_streaming_loop(
 
             let batch: Vec<f32> = pending_f32.drain(..).collect();
             unsafe {
+                if stop_signal.load(Ordering::Relaxed) || is_stale_session(session_id) {
+                    break;
+                }
                 (lib.accept_waveform)(stream, 16000, batch.as_ptr(), batch.len() as i32);
             }
             while unsafe { (lib.is_ready)(recognizer, stream) } != 0 {
+                if stop_signal.load(Ordering::Relaxed) || is_stale_session(session_id) {
+                    break;
+                }
                 unsafe { (lib.decode)(recognizer, stream) };
             }
 
@@ -613,6 +624,11 @@ fn run_streaming_loop(
     Ok(())
 }
 
+fn is_stale_session(session_id: u64) -> bool {
+    crate::overlay::realtime_webview::state::REALTIME_SESSION_ID.load(Ordering::SeqCst)
+        != session_id
+}
+
 /// Parse text from sherpa-onnx result JSON: {"text": "hello world", ...}
 fn parse_result_text(json_str: &str) -> String {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str) {
@@ -632,7 +648,6 @@ fn publish_transcript(
     committed: &str,
     draft: &str,
 ) {
-    crate::log_info!("[Sherpa] WHITE={:?} GRAY={:?}", committed, draft);
     if let Ok(mut s) = state.lock() {
         s.set_transcription_method(super::state::TranscriptionMethod::SherpaZipformer);
         s.set_transcript_segments(committed, draft);

@@ -274,6 +274,9 @@ fn handle_audio_preset(preset_idx: usize) {
         if is_webview_active {
             overlay::stop_realtime_overlay();
         } else if !is_minimal_active {
+            if overlay::realtime_egui::recently_stopped_minimal(preset_idx) {
+                return;
+            }
             std::thread::spawn(move || {
                 overlay::show_realtime_overlay(preset_idx);
             });

@@ -42,6 +42,8 @@ pub fn start_realtime_transcription(
     translation_hwnd: Option<HWND>,
     state: SharedRealtimeState,
 ) {
+    let session_id =
+        crate::overlay::realtime_webview::state::REALTIME_SESSION_ID.load(Ordering::SeqCst);
     let overlay_send = crate::win_types::SendHwnd(overlay_hwnd);
     let translation_send = translation_hwnd.map(crate::win_types::SendHwnd);
 
@@ -59,7 +61,14 @@ pub fn start_realtime_transcription(
     }
 
     std::thread::spawn(move || {
-        transcription_thread_entry(preset, stop_signal, overlay_send, translation_send, state);
+        transcription_thread_entry(
+            preset,
+            stop_signal,
+            overlay_send,
+            translation_send,
+            state,
+            session_id,
+        );
     });
 }
 
@@ -69,6 +78,7 @@ fn transcription_thread_entry(
     overlay_send: crate::win_types::SendHwnd,
     translation_send: Option<crate::win_types::SendHwnd>,
     state: SharedRealtimeState,
+    session_id: u64,
 ) {
     let hwnd_overlay = overlay_send.0;
     let hwnd_translation = translation_send.map(|h| h.0);
@@ -81,6 +91,10 @@ fn transcription_thread_entry(
     let mut freeze_on_next_restart = false;
 
     loop {
+        if is_stale_session(session_id) {
+            break;
+        }
+
         AUDIO_SOURCE_CHANGE.store(false, Ordering::SeqCst);
         TRANSCRIPTION_MODEL_CHANGE.store(false, Ordering::SeqCst);
         super::DEVICE_RECONNECT_REQUESTED.store(false, Ordering::SeqCst);
@@ -150,6 +164,7 @@ fn transcription_thread_entry(
                 stop_signal.clone(),
                 hwnd_overlay,
                 state.clone(),
+                session_id,
             )
         } else {
             run_realtime_transcription(
@@ -162,6 +177,9 @@ fn transcription_thread_entry(
         };
 
         let reconnect_requested = super::DEVICE_RECONNECT_REQUESTED.load(Ordering::SeqCst);
+        if is_stale_session(session_id) {
+            break;
+        }
 
         if let Err(e) = result {
             // Only show error if it's not a user-initiated action (model/source change, stop signal)
@@ -242,6 +260,11 @@ fn transcription_thread_entry(
 
     crate::overlay::realtime_webview::state::REALTIME_SESSION_STOPPING
         .store(false, Ordering::SeqCst);
+}
+
+fn is_stale_session(session_id: u64) -> bool {
+    crate::overlay::realtime_webview::state::REALTIME_SESSION_ID.load(Ordering::SeqCst)
+        != session_id
 }
 
 fn run_realtime_transcription(

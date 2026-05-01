@@ -19,6 +19,9 @@ lazy_static::lazy_static! {
     /// True while a realtime session is winding down and must not be restarted yet.
     pub static ref REALTIME_SESSION_STOPPING: Arc<AtomicBool> =
         Arc::new(AtomicBool::new(false));
+    /// Monotonic realtime session generation. Incrementing invalidates stale backend loops.
+    pub static ref REALTIME_SESSION_ID: Arc<std::sync::atomic::AtomicU64> =
+        Arc::new(std::sync::atomic::AtomicU64::new(1));
     pub static ref REALTIME_STATE: SharedRealtimeState = Arc::new(Mutex::new(RealtimeState::new()));
     /// Signal to change audio source (true = restart with new source)
     pub static ref AUDIO_SOURCE_CHANGE: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
