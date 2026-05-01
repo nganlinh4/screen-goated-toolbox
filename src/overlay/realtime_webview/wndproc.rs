@@ -1,5 +1,6 @@
 //! Window procedures for realtime overlay windows
 
+use super::controller;
 use super::state::*;
 use super::webview::{update_webview_text, update_webview_theme};
 use crate::api::realtime_audio::{
@@ -325,66 +326,7 @@ pub unsafe extern "system" fn translation_wnd_proc(
                     }
                 };
 
-                // TTS: Check if we have new committed text to speak
-                // For Mic mode: TTS always works (no feedback loop concern)
-                // For Device mode: Only speak if an app is selected (per-app capture isolates TTS from loopback)
-                let app_selected = SELECTED_APP_PID.load(Ordering::SeqCst) > 0;
-                let is_mic_mode = NEW_AUDIO_SOURCE
-                    .lock()
-                    .map(|s| s.is_empty() || s.as_str() == "mic")
-                    .unwrap_or(true);
-                let tts_allowed = is_mic_mode || app_selected;
-                if REALTIME_TTS_ENABLED.load(Ordering::SeqCst)
-                    && tts_allowed
-                    && !old_text.is_empty()
-                {
-                    let old_len = old_text.len();
-
-                    // Smart catch-up: If starting fresh (0) with existing text, skip to last sentence
-                    // This prevents reading the entire history when toggling TTS on
-                    if LAST_SPOKEN_LENGTH.load(Ordering::SeqCst) == 0 && old_len > 50 {
-                        let text = old_text.trim_end();
-                        // Ignore the very last char if it's punctuation, to find the PREVIOUS sentence boundary
-                        let search_limit =
-                            clamp_to_char_boundary(text, text.len().saturating_sub(1));
-                        if search_limit > 0 {
-                            // Find last sentence terminator (. ? ! or newline)
-                            let last_boundary = text[..search_limit].rfind(['.', '?', '!', '\n']);
-
-                            if let Some(idx) = last_boundary {
-                                // Mark everything up to (and including) this punctuation as "spoken"
-                                // So we only read what follows
-                                LAST_SPOKEN_LENGTH.store(idx + 1, Ordering::SeqCst);
-                            }
-                        }
-                    }
-
-                    let last_spoken = LAST_SPOKEN_LENGTH.load(Ordering::SeqCst);
-
-                    if old_len > last_spoken {
-                        // We have new committed text since last spoken
-                        let safe_last_spoken = clamp_to_char_boundary(&old_text, last_spoken);
-                        let new_committed = old_text[safe_last_spoken..].to_string();
-
-                        // Only queue non-empty, non-whitespace segments
-                        if !new_committed.trim().is_empty() {
-                            // Queue this text for TTS
-                            if let Ok(mut queue) = COMMITTED_TRANSLATION_QUEUE.lock() {
-                                queue.push_back(new_committed.clone());
-                            }
-
-                            // Speak using TTS manager (non-blocking)
-                            // This uses the existing parallel TTS infrastructure
-                            let hwnd_val = hwnd.0 as isize;
-                            std::thread::spawn(move || {
-                                crate::api::tts::TTS_MANAGER
-                                    .speak_realtime(&new_committed, hwnd_val);
-                            });
-                        }
-
-                        LAST_SPOKEN_LENGTH.store(old_len, Ordering::SeqCst);
-                    }
-                }
+                controller::process_committed_translation_for_tts(&old_text, hwnd.0 as isize);
 
                 sync_tts_ui_state(hwnd);
                 update_webview_text(hwnd, &old_text, &new_text);

@@ -92,6 +92,9 @@ pub fn run_translation_loop(
                 let display = s.display_translation.clone();
                 update_translation_text(translation_hwnd, &display);
                 refresh_transcription_window();
+                last_run = Instant::now()
+                    .checked_sub(Duration::from_millis(interval_ms))
+                    .unwrap_or_else(Instant::now);
             }
         }
 

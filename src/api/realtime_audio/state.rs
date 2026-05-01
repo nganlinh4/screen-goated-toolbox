@@ -364,8 +364,14 @@ impl RealtimeState {
                 self.reset_translation_state();
             }
         } else {
-            self.last_processed_len = self.last_committed_pos.min(self.full_transcript.len());
-            self.clear_uncommitted_translation();
+            // Transcript growth/corrections after the committed boundary must not blank the
+            // currently visible draft. The translation loop will replace it when the next
+            // provider response arrives; clearing here causes long draft disappearances.
+            if self.uncommitted_source_start > self.full_transcript.len() {
+                self.clear_uncommitted_translation();
+            } else {
+                self.update_display_translation();
+            }
         }
     }
 

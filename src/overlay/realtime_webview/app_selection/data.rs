@@ -284,10 +284,3 @@ pub fn enumerate_audio_app_candidates() -> Vec<AudioAppCandidate> {
     });
     apps
 }
-
-pub fn enumerate_audio_apps() -> Vec<(u32, String)> {
-    enumerate_audio_app_candidates()
-        .into_iter()
-        .map(|app| (app.pid, app.display_name))
-        .collect()
-}

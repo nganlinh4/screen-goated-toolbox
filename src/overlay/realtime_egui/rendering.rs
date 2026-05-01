@@ -51,22 +51,29 @@ pub(super) fn render_transcript(
 
 pub(super) fn render_translation(
     ui: &mut egui::Ui,
-    segments: &[String],
+    committed: &str,
     uncommitted: &str,
     font: &egui::FontId,
 ) {
+    let committed = committed.trim_end();
     let uncommitted = uncommitted.trim_start();
     let dark_mode = ui.visuals().dark_mode;
 
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
 
-        for (i, segment) in segments.iter().enumerate() {
-            let color = get_segment_color(i, dark_mode);
-            ui.label(egui::RichText::new(segment).font(font.clone()).color(color));
+        if !committed.is_empty() {
+            ui.label(
+                egui::RichText::new(committed)
+                    .font(font.clone())
+                    .color(get_text_color(true, dark_mode)),
+            );
         }
 
         if !uncommitted.is_empty() {
+            if !committed.is_empty() {
+                ui.label(" ");
+            }
             // Uncommitted text color
             let color = if dark_mode {
                 egui::Color32::YELLOW
@@ -81,20 +88,6 @@ pub(super) fn render_translation(
             );
         }
     });
-}
-
-fn get_segment_color(index: usize, dark_mode: bool) -> egui::Color32 {
-    if dark_mode {
-        if index.is_multiple_of(2) {
-            egui::Color32::from_gray(230)
-        } else {
-            egui::Color32::from_rgb(180, 210, 255) // Light Blue
-        }
-    } else if index.is_multiple_of(2) {
-        egui::Color32::from_gray(30) // Dark Gray (almost black) for readability
-    } else {
-        egui::Color32::from_rgb(0, 80, 200) // Deep Blue
-    }
 }
 
 fn get_text_color(is_committed: bool, dark_mode: bool) -> egui::Color32 {
