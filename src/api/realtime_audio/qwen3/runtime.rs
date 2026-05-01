@@ -352,6 +352,22 @@ fn verify_runtime_dll_against_manifest(
     runtime_dll_path: &Path,
     manifest: &RuntimeDownloadManifest,
 ) -> Result<()> {
+    verify_runtime_dll_file_against_manifest(runtime_dll_path, manifest)?;
+    let actual_abi = qwen3_runtime_abi_version(runtime_dll_path).unwrap_or_default();
+    if actual_abi != manifest.abi_version {
+        bail!(
+            "Runtime DLL ABI mismatch: expected {}, got {}",
+            manifest.abi_version,
+            actual_abi
+        );
+    }
+    Ok(())
+}
+
+fn verify_runtime_dll_file_against_manifest(
+    runtime_dll_path: &Path,
+    manifest: &RuntimeDownloadManifest,
+) -> Result<()> {
     let metadata = std::fs::metadata(runtime_dll_path)
         .with_context(|| format!("Failed to inspect '{}'", runtime_dll_path.display()))?;
     if metadata.len() != manifest.size {
@@ -367,14 +383,6 @@ fn verify_runtime_dll_against_manifest(
             "Runtime DLL checksum mismatch: expected {}, got {}",
             manifest.sha256,
             actual_sha256
-        );
-    }
-    let actual_abi = qwen3_runtime_abi_version(runtime_dll_path).unwrap_or_default();
-    if actual_abi != manifest.abi_version {
-        bail!(
-            "Runtime DLL ABI mismatch: expected {}, got {}",
-            manifest.abi_version,
-            actual_abi
         );
     }
     Ok(())
@@ -397,6 +405,8 @@ fn qwen3_runtime_abi_version(runtime_dll_path: &Path) -> Option<u32> {
     }
 
     let abi_version = unsafe {
+        #[cfg(target_os = "windows")]
+        let _dll_dir_guard = runtime_dll_path.parent().map(TemporaryDllDirectory::new);
         let library = Library::new(runtime_dll_path).ok()?;
         let version = *library
             .get::<RuntimeVersionFn>(b"sgt_qwen3_runtime_version\0")
@@ -414,6 +424,42 @@ fn qwen3_runtime_abi_version(runtime_dll_path: &Path) -> Option<u32> {
         );
     }
     abi_version
+}
+
+#[cfg(target_os = "windows")]
+struct TemporaryDllDirectory {
+    previous: Vec<u16>,
+}
+
+#[cfg(target_os = "windows")]
+impl TemporaryDllDirectory {
+    fn new(dir: &Path) -> Self {
+        use windows::Win32::System::LibraryLoader::{GetDllDirectoryW, SetDllDirectoryW};
+        let mut previous = vec![0u16; 32_768];
+        let previous_len = unsafe { GetDllDirectoryW(Some(&mut previous)) } as usize;
+        previous.truncate(previous_len);
+        let dir_wide: Vec<u16> = dir
+            .to_string_lossy()
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        unsafe {
+            let _ = SetDllDirectoryW(windows::core::PCWSTR(dir_wide.as_ptr()));
+        }
+        Self { previous }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for TemporaryDllDirectory {
+    fn drop(&mut self) {
+        use windows::Win32::System::LibraryLoader::SetDllDirectoryW;
+        let mut previous = self.previous.clone();
+        previous.push(0);
+        unsafe {
+            let _ = SetDllDirectoryW(windows::core::PCWSTR(previous.as_ptr()));
+        }
+    }
 }
 
 /// Check if the runtime is installed in the managed (downloadable) private bin dir.
@@ -582,7 +628,7 @@ pub fn download_qwen3_runtime(
         let local_manifest_path = runtime_manifest_path(&bin_dir);
 
         // Step 1: Download our DLL from the repo
-        if verify_runtime_dll_against_manifest(&runtime_dll_path, &runtime_manifest).is_err() {
+        if verify_runtime_dll_file_against_manifest(&runtime_dll_path, &runtime_manifest).is_err() {
             let _ = std::fs::remove_file(&runtime_dll_path);
             let _ = std::fs::remove_file(&local_manifest_path);
             if let Ok(mut state) = REALTIME_STATE.lock() {
@@ -612,7 +658,7 @@ pub fn download_qwen3_runtime(
                     }
                 },
             )?;
-            verify_runtime_dll_against_manifest(&runtime_dll_path, &runtime_manifest)?;
+            verify_runtime_dll_file_against_manifest(&runtime_dll_path, &runtime_manifest)?;
             std::fs::write(
                 &local_manifest_path,
                 serde_json::to_vec_pretty(&runtime_manifest)?,
@@ -703,7 +749,12 @@ pub fn download_qwen3_runtime(
             }
             post_download_state();
 
-            // Extract only DLLs from libtorch/lib/ into bin_dir
+            // Extract only DLLs from libtorch/lib/ into a staging dir first.
+            // This avoids corrupting an existing runtime if extraction is
+            // cancelled or interrupted halfway through.
+            let libtorch_stage_dir = bin_dir.join("_qwen3_libtorch_extract_tmp");
+            let _ = std::fs::remove_dir_all(&libtorch_stage_dir);
+            std::fs::create_dir_all(&libtorch_stage_dir)?;
             let file = std::fs::File::open(&libtorch_zip_path)?;
             let mut zip = zip::ZipArchive::new(file)
                 .map_err(|err| anyhow!("Failed to open libtorch archive: {err}"))?;
@@ -740,11 +791,27 @@ pub fn download_qwen3_runtime(
                         sync_runtime_badge(progress);
                     }
                     post_download_state();
-                    let output_path = bin_dir.join(file_name);
+                    let output_path = libtorch_stage_dir.join(file_name);
                     let mut output = std::fs::File::create(&output_path)?;
                     std::io::copy(&mut entry, &mut output)?;
                 }
             }
+            if !qwen3_libtorch_required_files_present(&libtorch_stage_dir) {
+                let _ = std::fs::remove_dir_all(&libtorch_stage_dir);
+                return Err(anyhow!(
+                    "Extracted libtorch archive is missing required Qwen3 runtime DLLs"
+                ));
+            }
+            for entry in std::fs::read_dir(&libtorch_stage_dir)? {
+                let entry = entry?;
+                let file_name = entry.file_name();
+                let destination = bin_dir.join(&file_name);
+                std::fs::rename(entry.path(), &destination).or_else(|_| {
+                    std::fs::copy(entry.path(), &destination)?;
+                    std::fs::remove_file(entry.path())
+                })?;
+            }
+            let _ = std::fs::remove_dir_all(libtorch_stage_dir);
             let _ = std::fs::remove_file(libtorch_zip_path);
         }
 

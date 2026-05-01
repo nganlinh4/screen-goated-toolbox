@@ -1,4 +1,5 @@
 use crate::gui::locale::LocaleText;
+use crate::gui::settings_ui::download_manager::utils::has_nonempty_file;
 use crate::gui::settings_ui::download_manager::{DownloadManager, InstallStatus, UpdateStatus};
 use eframe::egui;
 use std::fs;
@@ -114,8 +115,8 @@ fn render_ffmpeg_content(
     download_manager: &mut DownloadManager,
     text: &LocaleText,
 ) {
-    let ffmpeg_exists = download_manager.bin_dir.join("ffmpeg.exe").exists();
-    let ffprobe_exists = download_manager.bin_dir.join("ffprobe.exe").exists();
+    let ffmpeg_exists = has_nonempty_file(&download_manager.bin_dir.join("ffmpeg.exe"));
+    let ffprobe_exists = has_nonempty_file(&download_manager.bin_dir.join("ffprobe.exe"));
     let installed_on_disk = ffmpeg_exists && ffprobe_exists;
 
     {
@@ -231,7 +232,7 @@ fn render_deno_content(
     download_manager: &mut DownloadManager,
     text: &LocaleText,
 ) {
-    let deno_exists = download_manager.bin_dir.join("deno.exe").exists();
+    let deno_exists = has_nonempty_file(&download_manager.bin_dir.join("deno.exe"));
     {
         let mut s = download_manager.deno_status.lock().unwrap();
         let in_dl = matches!(

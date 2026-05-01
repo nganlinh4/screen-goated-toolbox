@@ -207,7 +207,15 @@ fn model_dir(lang: ZipformerLanguage) -> std::path::PathBuf {
 
 pub fn is_model_downloaded(lang: ZipformerLanguage) -> bool {
     let dir = model_dir(lang);
-    lang.model_files().iter().all(|f| dir.join(f).exists())
+    lang.model_files()
+        .iter()
+        .all(|f| has_nonempty_file(&dir.join(f)))
+}
+
+fn has_nonempty_file(path: &std::path::Path) -> bool {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.len() > 0)
+        .unwrap_or(false)
 }
 
 /// Downloads all files for `lang`.
@@ -232,7 +240,7 @@ pub fn download_model_with_progress(
             return Err(anyhow::anyhow!("Download cancelled"));
         }
         let target = dir.join(filename);
-        if target.exists() {
+        if has_nonempty_file(&target) {
             on_progress((i + 1) as f32 / total);
             continue;
         }

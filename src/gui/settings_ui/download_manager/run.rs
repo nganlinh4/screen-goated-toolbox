@@ -1,5 +1,5 @@
 use super::types::{InstallStatus, UpdateStatus};
-use super::utils::log;
+use super::utils::{has_nonempty_file, log};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -189,7 +189,7 @@ impl DownloadManager {
 
             // Check yt-dlp
             let ytdlp_path = bin.join("yt-dlp.exe");
-            if ytdlp_path.exists() {
+            if has_nonempty_file(&ytdlp_path) {
                 *ytdlp_s.lock().unwrap() = InstallStatus::Installed;
             } else {
                 *ytdlp_s.lock().unwrap() = InstallStatus::Missing;
@@ -199,7 +199,7 @@ impl DownloadManager {
             // Check ffmpeg
             let ffmpeg_path = bin.join("ffmpeg.exe");
             let ffprobe_path = bin.join("ffprobe.exe");
-            if ffmpeg_path.exists() && ffprobe_path.exists() {
+            if has_nonempty_file(&ffmpeg_path) && has_nonempty_file(&ffprobe_path) {
                 *ffmpeg_s.lock().unwrap() = InstallStatus::Installed;
             } else {
                 *ffmpeg_s.lock().unwrap() = InstallStatus::Missing;
@@ -208,7 +208,7 @@ impl DownloadManager {
 
             // Check Deno runtime
             let deno_path = bin.join("deno.exe");
-            if deno_path.exists() {
+            if has_nonempty_file(&deno_path) {
                 *deno_s.lock().unwrap() = InstallStatus::Installed;
             } else {
                 *deno_s.lock().unwrap() = InstallStatus::Missing;

@@ -60,14 +60,20 @@ pub fn get_qwen3_server_path() -> PathBuf {
 }
 
 pub fn is_qwen3_server_managed() -> bool {
-    get_qwen3_server_path().exists()
+    has_nonempty_file(&get_qwen3_server_path())
 }
 
 pub fn get_active_qwen3_server_path() -> Option<PathBuf> {
     local_sidecar_candidate_paths()
         .into_iter()
-        .find(|path| path.exists())
-        .or_else(|| get_qwen3_server_path().exists().then(get_qwen3_server_path))
+        .find(|path| has_nonempty_file(path))
+        .or_else(|| has_nonempty_file(&get_qwen3_server_path()).then(get_qwen3_server_path))
+}
+
+fn has_nonempty_file(path: &std::path::Path) -> bool {
+    fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.len() > 0)
+        .unwrap_or(false)
 }
 
 pub fn remove_qwen3_server() -> Result<()> {

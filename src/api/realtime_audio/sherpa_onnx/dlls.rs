@@ -31,7 +31,7 @@ pub fn sherpa_bin_dir() -> std::path::PathBuf {
 
 pub fn is_sherpa_dlls_installed() -> bool {
     let dir = sherpa_bin_dir();
-    REQUIRED_DLLS.iter().all(|name| dir.join(name).exists())
+    required_dlls_present(&dir)
 }
 
 /// Downloads and installs sherpa-onnx DLLs.
@@ -95,7 +95,7 @@ pub fn download_sherpa_dlls_with_progress(
         ));
     }
 
-    copy_dlls_from_tree(&temp_dir, &bin_dir)?;
+    install_dlls_from_tree(&temp_dir, &bin_dir)?;
 
     let _ = std::fs::remove_dir_all(&temp_dir);
     let _ = std::fs::remove_file(&archive_path);
@@ -209,8 +209,8 @@ pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) ->
             ));
         }
 
-        // Find and copy DLLs from any subfolder inside the extracted archive
-        copy_dlls_from_tree(&temp_dir, &bin_dir)?;
+        // Find and stage DLLs from any subfolder before touching the live runtime dir.
+        install_dlls_from_tree(&temp_dir, &bin_dir)?;
 
         let _ = std::fs::remove_dir_all(&temp_dir);
         let _ = std::fs::remove_file(&archive_path);
@@ -233,6 +233,46 @@ pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) ->
     result
 }
 
+fn install_dlls_from_tree(src_root: &std::path::Path, dest: &std::path::Path) -> Result<()> {
+    let stage_dir = dest.join("_install_tmp");
+    let _ = std::fs::remove_dir_all(&stage_dir);
+    std::fs::create_dir_all(&stage_dir)?;
+
+    let result = (|| -> Result<()> {
+        copy_dlls_from_tree(src_root, &stage_dir)?;
+        if !required_dlls_present(&stage_dir) {
+            return Err(anyhow!(
+                "sherpa-onnx DLLs not found after extraction — archive layout may have changed"
+            ));
+        }
+        for name in REQUIRED_DLLS {
+            std::fs::rename(stage_dir.join(name), dest.join(name))
+                .or_else(|_| {
+                    std::fs::copy(stage_dir.join(name), dest.join(name))?;
+                    std::fs::remove_file(stage_dir.join(name))
+                })
+                .map_err(|err| anyhow!("Failed to install {name}: {err}"))?;
+            crate::log_info!("[Sherpa] Installed {}", name);
+        }
+        Ok(())
+    })();
+
+    let _ = std::fs::remove_dir_all(&stage_dir);
+    result
+}
+
+fn required_dlls_present(dir: &std::path::Path) -> bool {
+    REQUIRED_DLLS
+        .iter()
+        .all(|name| has_nonempty_file(&dir.join(name)))
+}
+
+fn has_nonempty_file(path: &std::path::Path) -> bool {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.len() > 0)
+        .unwrap_or(false)
+}
+
 /// Recursively walk the extracted tree and copy any DLL whose name matches REQUIRED_DLLS.
 fn copy_dlls_from_tree(src_root: &std::path::Path, dest: &std::path::Path) -> Result<()> {
     let entries =
@@ -246,7 +286,6 @@ fn copy_dlls_from_tree(src_root: &std::path::Path, dest: &std::path::Path) -> Re
                 let name_str = name.to_string_lossy();
                 if REQUIRED_DLLS.iter().any(|req| *req == name_str.as_ref()) {
                     std::fs::copy(&path, dest.join(name))?;
-                    crate::log_info!("[Sherpa] Installed {}", name_str);
                 }
             }
         }
