@@ -58,6 +58,18 @@ lazy_static::lazy_static! {
     pub static ref REALTIME_TTS_AUTO_SPEED: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
     /// Queue of committed translation text segments to speak
     pub static ref COMMITTED_TRANSLATION_QUEUE: Mutex<std::collections::VecDeque<String>> = Mutex::new(std::collections::VecDeque::new());
+    /// Ordered direct S2S audio segments waiting for playback.
+    pub static ref REALTIME_S2S_AUDIO_BACKLOG: Arc<std::sync::atomic::AtomicU32> =
+        Arc::new(std::sync::atomic::AtomicU32::new(0));
+    /// Approximate queued source-audio duration waiting for S2S playback.
+    pub static ref REALTIME_S2S_AUDIO_BACKLOG_MS: Arc<std::sync::atomic::AtomicU32> =
+        Arc::new(std::sync::atomic::AtomicU32::new(0));
+    /// Latest measured queue-to-playback delay for S2S audio.
+    pub static ref REALTIME_S2S_AUDIO_DELAY_MS: Arc<std::sync::atomic::AtomicU32> =
+        Arc::new(std::sync::atomic::AtomicU32::new(0));
+    /// Translated S2S audio already ready after the currently playing ordered segment.
+    pub static ref REALTIME_S2S_READY_BACKLOG_MS: Arc<std::sync::atomic::AtomicU32> =
+        Arc::new(std::sync::atomic::AtomicU32::new(0));
 
     /// Track how much of the committed text has been sent to TTS
     pub static ref LAST_SPOKEN_LENGTH: Arc<std::sync::atomic::AtomicUsize> = Arc::new(std::sync::atomic::AtomicUsize::new(0));

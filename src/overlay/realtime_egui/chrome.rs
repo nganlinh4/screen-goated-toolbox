@@ -369,6 +369,7 @@ fn render_transcription_controls(ui: &mut egui::Ui, theme: &RealtimeEguiTheme) {
                     crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5,
                     "Gemini Live",
                 ),
+                ("gemini-live-s2s", "Gemini S2S"),
                 ("parakeet", "Parakeet"),
                 (crate::model_config::QWEN3_ASR_0_6B_MODEL_ID, "Qwen3 0.6B"),
                 (crate::model_config::QWEN3_ASR_1_7B_MODEL_ID, "Qwen3 1.7B"),
@@ -421,6 +422,7 @@ fn transcription_model_label(model: &str) -> &'static str {
     match model {
         "parakeet" => "Parakeet",
         "zipformer" => "Zipformer",
+        "gemini-live-s2s" => "Gemini S2S",
         id if id == crate::model_config::QWEN3_ASR_0_6B_MODEL_ID => "Qwen 0.6B",
         id if id == crate::model_config::QWEN3_ASR_1_7B_MODEL_ID => "Qwen 1.7B",
         _ => "Gemini",

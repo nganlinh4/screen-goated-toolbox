@@ -63,6 +63,7 @@ pub fn reset_runtime_for_new_session() {
     TRANSCRIPTION_MODEL_CHANGE.store(false, Ordering::SeqCst);
     LAST_SPOKEN_LENGTH.store(0, Ordering::SeqCst);
     REALTIME_TTS_ENABLED.store(false, Ordering::SeqCst);
+    REALTIME_S2S_AUDIO_BACKLOG.store(0, Ordering::SeqCst);
     SELECTED_APP_PID.store(0, Ordering::SeqCst);
     if let Ok(mut name) = SELECTED_APP_NAME.lock() {
         name.clear();
@@ -97,9 +98,10 @@ pub fn set_audio_source(source: &str) {
         *new_source = source.clone();
     }
 
+    let is_s2s = load_session_config().transcription_model == "gemini-live-s2s";
     if source == "mic" {
         clear_selected_app();
-    } else if REALTIME_TTS_ENABLED.load(Ordering::SeqCst) {
+    } else if is_s2s || REALTIME_TTS_ENABLED.load(Ordering::SeqCst) {
         show_audio_app_selector_overlay();
     } else {
         clear_selected_app();
@@ -140,10 +142,13 @@ pub fn set_transcription_model(model: &str) {
         *new_model = model.clone();
     }
     if let Ok(mut app) = APP.lock() {
-        app.config.realtime_transcription_model = model;
+        app.config.realtime_transcription_model = model.clone();
         crate::config::save_config(&app.config);
     }
     TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
+    if model == "gemini-live-s2s" && load_session_config().audio_source == "device" {
+        show_audio_app_selector_overlay();
+    }
 }
 
 pub fn set_transcription_language(language: &str) {
@@ -172,6 +177,11 @@ pub fn set_visibility(transcription_visible: bool, translation_visible: bool) ->
 }
 
 pub fn set_tts_enabled(requested_enabled: bool) {
+    if load_session_config().transcription_model == "gemini-live-s2s" {
+        REALTIME_TTS_ENABLED.store(true, Ordering::SeqCst);
+        return;
+    }
+
     if !requested_enabled {
         disable_tts(true);
         return;

@@ -321,6 +321,37 @@ pub fn get(placeholder_text: &str, enable_inline_diff: bool) -> String {
         }}
 
         window.updateText = updateText;
+        window.replaceText = function(text) {{
+            if (!text) {{
+                content.innerHTML = '<span class="placeholder">{placeholder_text}</span>';
+                content.style.minHeight = '';
+                isFirstText = true;
+                minContentHeight = 0;
+                targetScrollTop = 0;
+                currentScrollTop = 0;
+                viewport.scrollTop = 0;
+                currentOldTextLength = 0;
+                previousFullText = '';
+                return;
+            }}
+
+            content.innerHTML = '';
+            appendClassifiedText(content, text, 0, text.length);
+            isFirstText = false;
+            currentOldTextLength = text.length;
+            previousFullText = text;
+            minContentHeight = content.offsetHeight;
+            content.style.minHeight = minContentHeight + 'px';
+            const viewportHeight = viewport.offsetHeight;
+            if (minContentHeight > viewportHeight) {{
+                targetScrollTop = minContentHeight - viewportHeight;
+            }} else {{
+                targetScrollTop = 0;
+            }}
+            if (!animationFrame) {{
+                animationFrame = requestAnimationFrame(animateScroll);
+            }}
+        }};
 
         // Canvas-based volume visualizer - cute pill bars scrolling left
         const volumeCanvas = document.getElementById('volume-canvas');

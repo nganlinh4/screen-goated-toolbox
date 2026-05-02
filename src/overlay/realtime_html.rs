@@ -29,6 +29,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
     } else {
         "graphic_eq"
     };
+    let is_s2s = transcription_model == "gemini-live-s2s";
     let glow_color = if is_translation { "#ff9633" } else { "#00c8ff" };
 
     // Title content: volume bars for transcription, text for translation
@@ -78,6 +79,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             let qwen3_1_7b_id = crate::model_config::QWEN3_ASR_1_7B_MODEL_ID;
             let trans_options = [
                 (gemini_id, "Gemini Live"),
+                ("gemini-live-s2s", "Gemini S2S"),
                 ("parakeet", "Parakeet"),
                 (qwen3_0_6b_id, "Qwen3 0.6B"),
                 (qwen3_1_7b_id, "Qwen3 1.7B"),
@@ -102,6 +104,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 app.config.realtime_transcription_language.clone()
             };
             let is_all_lang = transcription_model == gemini_id
+                || transcription_model == "gemini-live-s2s"
                 || transcription_model == qwen3_0_6b_id
                 || transcription_model == qwen3_1_7b_id;
             let is_en_only = transcription_model == "parakeet";
@@ -208,16 +211,34 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
 
             format!(
                 r#"
-                <span class="ctrl-btn speak-btn" id="speak-btn" title="Text-to-Speech Settings"><span class="material-symbols-rounded">{volume_up_svg}</span></span>
-                <select class="model-dropdown" id="translation-model-select" title="Translation Model">
+                <span class="ctrl-btn speak-btn {speak_active}" id="speak-btn" title="{speak_title}"><span class="material-symbols-rounded">{volume_up_svg}</span></span>
+                <select class="model-dropdown" id="translation-model-select" title="{translation_model_title}" {translation_model_disabled}>
                     {model_options_html}
                 </select>
-                <select id="language-select" title="Target Language">
+                <select id="language-select" title="{language_title}" {language_disabled}>
                     {lang_options}
                 </select>
             "#,
                 lang_options = lang_options,
                 model_options_html = model_options_html,
+                translation_model_title = if is_s2s {
+                    "Gemini S2S uses the TTS Gemini Live model"
+                } else {
+                    "Translation Model"
+                },
+                translation_model_disabled = if is_s2s { "disabled" } else { "" },
+                speak_active = if is_s2s { "active locked" } else { "" },
+                speak_title = if is_s2s {
+                    "Direct speech output settings"
+                } else {
+                    "Text-to-Speech Settings"
+                },
+                language_title = if is_s2s {
+                    "Target language is fixed for the current S2S session"
+                } else {
+                    "Target Language"
+                },
+                language_disabled = if is_s2s { "disabled" } else { "" },
                 volume_up_svg = crate::overlay::html_components::icons::get_icon_svg("volume_up"),
             )
         }
@@ -254,7 +275,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         {css_content}
     </style>
 </head>
-<body>
+<body data-s2s="{is_s2s_attr}">
     <div id="loading-overlay">{loading_icon}</div>
     <div id="container">
         <div id="header">
@@ -302,7 +323,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         <div class="tts-modal-title">
             <span class="material-symbols-rounded">{volume_up_svg}</span>
             {tts_title}
-            <div class="toggle-switch" id="tts-toggle" style="margin-left: auto;"></div>
+                <div class="toggle-switch {tts_toggle_class}" id="tts-toggle" title="{tts_toggle_title}" style="margin-left: auto;"></div>
         </div>
         <div class="tts-modal-row">
             <span class="tts-modal-label">{tts_speed}</span>
@@ -339,6 +360,13 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
 </html>"#,
         css_content = css,
         js_content = js,
+        is_s2s_attr = if is_s2s { "1" } else { "0" },
+        tts_toggle_class = if is_s2s { "on locked" } else { "" },
+        tts_toggle_title = if is_s2s {
+            "Direct speech output is always on for Gemini S2S"
+        } else {
+            "Enable text-to-speech"
+        },
         loading_icon = loading_icon,
         title_content = title_content,
         audio_selector = audio_selector,

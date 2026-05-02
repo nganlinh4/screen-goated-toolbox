@@ -11,6 +11,7 @@
     "gemini_live_text_model_id_3_1": "gemini-live-text-3.1",
     "gemini_live_audio_model_id_2_5": "gemini-live-audio",
     "gemini_live_audio_model_id_3_1": "gemini-live-audio-3.1",
+    "gemini_live_s2s_model_id": "gemini-live-s2s",
     "qwen3_asr_0_6b_model_id": "qwen3-asr-0.6b",
     "qwen3_asr_1_7b_model_id": "qwen3-asr-1.7b",
     "realtime_translation_model_cerebras": "cerebras-oss",
@@ -65,6 +66,7 @@
   "non_llm_ids": [
     "gemini-live-audio",
     "gemini-live-audio-3.1",
+    "gemini-live-s2s",
     "google-gtx",
     "parakeet-local",
     "qwen3-asr-0.6b",
@@ -82,6 +84,7 @@
     "gemini": "gemini-live-audio",
     "gemini-live-audio": "gemini-live-audio",
     "gemini-live-audio-3.1": "gemini-live-audio",
+    "gemini-live-s2s": "gemini-live-s2s",
     "gemini-2.5-flash-native-audio-preview-12-2025": "gemini-live-audio",
     "gemini-3.1-flash-live-preview": "gemini-live-audio",
     "parakeet": "parakeet",
@@ -613,6 +616,19 @@
       "quota_vi": "Không giới hạn",
       "quota_ko": "무제한",
       "quota_en": "Unlimited"
+    },
+    {
+      "id": "gemini-live-s2s",
+      "provider": "gemini-live",
+      "name_vi": "Dịch giọng nói trực tiếp",
+      "name_ko": "실시간 음성 번역",
+      "name_en": "Live speech-to-speech",
+      "full_name": "gemini-3.1-flash-live-preview",
+      "model_type": "Audio",
+      "enabled": true,
+      "quota_vi": "Theo Gemini API",
+      "quota_ko": "Gemini API 기준",
+      "quota_en": "Gemini API quota"
     },
     {
       "id": "gemini-audio",

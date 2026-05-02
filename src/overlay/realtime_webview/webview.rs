@@ -305,7 +305,9 @@ pub fn create_realtime_webview(
                         // TTS toggle for realtime translations
                         let requested_enabled = &body[11..] == "1";
                         controller::set_tts_enabled(requested_enabled);
-                        if requested_enabled
+                        if controller::load_session_config().transcription_model
+                            != "gemini-live-s2s"
+                            && requested_enabled
                             && controller::load_session_config().audio_source == "device"
                         {
                             let script = "if(window.setTtsEnabled) window.setTtsEnabled(false);";
@@ -399,6 +401,26 @@ pub fn update_webview_text(hwnd: HWND, old_text: &str, new_text: &str) {
     let escaped_new = escape_js(new_text);
 
     let script = format!("window.updateText('{}', '{}');", escaped_old, escaped_new);
+
+    REALTIME_WEBVIEWS.with(|wvs| {
+        if let Some(webview) = wvs.borrow().get(&hwnd_key) {
+            let _ = webview.evaluate_script(&script);
+        }
+    });
+}
+
+pub fn replace_webview_text(hwnd: HWND, text: &str) {
+    let hwnd_key = hwnd.0 as isize;
+
+    fn escape_js(text: &str) -> String {
+        text.replace('\\', "\\\\")
+            .replace('\'', "\\'")
+            .replace('\n', "\\n")
+            .replace('\r', "")
+    }
+
+    let escaped_text = escape_js(text);
+    let script = format!("window.replaceText('{}');", escaped_text);
 
     REALTIME_WEBVIEWS.with(|wvs| {
         if let Some(webview) = wvs.borrow().get(&hwnd_key) {

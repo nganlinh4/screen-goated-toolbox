@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -17,6 +17,8 @@ use crate::overlay::realtime_webview::state::{
     LAST_SPOKEN_LENGTH, NEW_AUDIO_SOURCE, REALTIME_HWND, REALTIME_TTS_ENABLED, REALTIME_TTS_SPEED,
     SELECTED_APP_NAME, SELECTED_APP_PID, TRANSLATION_HWND,
 };
+
+static APP_SELECTOR_OPENING: AtomicBool = AtomicBool::new(false);
 
 fn post_realtime_updates() {
     unsafe {
@@ -68,6 +70,7 @@ fn push_script_to_realtime_windows(script: String) {
 }
 
 fn apply_audio_app_selection(pid: u32, name: &str) {
+    APP_SELECTOR_OPENING.store(false, Ordering::SeqCst);
     SELECTED_APP_PID.store(pid, Ordering::SeqCst);
     if let Ok(mut app_name) = SELECTED_APP_NAME.lock() {
         *app_name = name.to_string();
@@ -91,7 +94,11 @@ fn apply_audio_app_selection(pid: u32, name: &str) {
 }
 
 fn cancel_audio_app_selection() {
-    REALTIME_TTS_ENABLED.store(false, Ordering::SeqCst);
+    APP_SELECTOR_OPENING.store(false, Ordering::SeqCst);
+    let is_s2s = crate::overlay::realtime_webview::controller::load_session_config()
+        .transcription_model
+        == "gemini-live-s2s";
+    REALTIME_TTS_ENABLED.store(is_s2s, Ordering::SeqCst);
     crate::api::tts::TTS_MANAGER.stop();
 
     LAST_SPOKEN_LENGTH.store(0, Ordering::SeqCst);
@@ -111,7 +118,8 @@ fn cancel_audio_app_selection() {
     let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);
     CURRENT_TTS_SPEED.store(base_speed, Ordering::Relaxed);
     push_script_to_realtime_windows(format!(
-        "if(window.setTtsEnabled) window.setTtsEnabled(false); if(window.updateTtsSpeed) window.updateTtsSpeed({base_speed});"
+        "if(window.setTtsEnabled) window.setTtsEnabled({}); if(window.updateTtsSpeed) window.updateTtsSpeed({base_speed});",
+        if is_s2s { "true" } else { "false" }
     ));
     post_realtime_updates();
 }
@@ -142,9 +150,16 @@ fn spawn_thumbnail_loader(candidates: Vec<AudioAppCandidate>) {
 }
 
 pub fn show_audio_app_selector_overlay() {
+    if window_selector::is_owner_active(SelectorOwner::RealtimeAppSelection)
+        || APP_SELECTOR_OPENING.swap(true, Ordering::SeqCst)
+    {
+        return;
+    }
+
     let candidates = enumerate_audio_app_candidates();
     if candidates.is_empty() {
         eprintln!("[AppSelection] No visible audio apps found");
+        APP_SELECTOR_OPENING.store(false, Ordering::SeqCst);
         cancel_audio_app_selection();
         return;
     }
@@ -204,6 +219,13 @@ pub fn show_audio_app_selector_overlay() {
         },
         callbacks,
     );
+
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_millis(700));
+        if !window_selector::is_owner_active(SelectorOwner::RealtimeAppSelection) {
+            APP_SELECTOR_OPENING.store(false, Ordering::SeqCst);
+        }
+    });
 
     spawn_thumbnail_loader(candidates);
 }

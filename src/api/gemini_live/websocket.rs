@@ -55,9 +55,8 @@ pub fn send_live_setup(
     socket: &mut WebSocket<TlsStream<TcpStream>>,
     model: &str,
     system_instruction: Option<&str>,
-    enable_thinking: bool,
+    _enable_thinking: bool,
 ) -> Result<()> {
-    let uses_live_3_1 = model == crate::model_config::GEMINI_LIVE_API_MODEL_3_1;
     let mut generation_config = serde_json::json!({
         "responseModalities": ["AUDIO"],
         "mediaResolution": "MEDIA_RESOLUTION_LOW",
@@ -70,19 +69,9 @@ pub fn send_live_setup(
         }
     });
 
-    if !enable_thinking {
-        generation_config["thinkingConfig"] = serde_json::json!({
-            "thinkingBudget": 0
-        });
-    } else if uses_live_3_1 {
-        generation_config["thinkingConfig"] = serde_json::json!({
-            "thinkingLevel": "minimal"
-        });
-    } else {
-        generation_config["thinkingConfig"] = serde_json::json!({
-            "includeThoughts": true
-        });
-    }
+    generation_config["thinkingConfig"] = serde_json::json!({
+        "thinkingBudget": 0
+    });
 
     let mut setup = serde_json::json!({
         "setup": {

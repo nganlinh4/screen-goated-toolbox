@@ -11,6 +11,7 @@ pub mod model_loader;
 pub mod parakeet;
 pub mod parakeet_tdt_assets;
 pub mod qwen3;
+mod s2s;
 pub mod sherpa_onnx;
 mod state;
 #[cfg(test)]
@@ -25,7 +26,7 @@ use windows::Win32::UI::WindowsAndMessaging::WM_APP;
 
 // Re-export public items
 pub use capture::start_mic_capture;
-pub use state::{RealtimeState, SharedRealtimeState};
+pub use state::{RealtimeState, SharedRealtimeState, TranscriptionMethod};
 pub use transcription::start_realtime_transcription;
 pub use translation::translate_with_google_gtx;
 
