@@ -220,7 +220,7 @@ fn send_setup(
             "generationConfig": {
                 "responseModalities": ["AUDIO"],
                 "mediaResolution": "MEDIA_RESOLUTION_LOW",
-                "thinkingConfig": { "thinkingLevel": "minimal" },
+                "thinkingConfig": { "thinkingBudget": 0 },
                 "speechConfig": {
                     "voiceConfig": {
                         "prebuiltVoiceConfig": {

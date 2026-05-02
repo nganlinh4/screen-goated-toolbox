@@ -126,6 +126,10 @@ pub fn get(is_dark: bool) -> String {
         .toggle-switch.on {{
             background: {switch_on_bg};
         }}
+        .toggle-switch.locked {{
+            cursor: not-allowed;
+            box-shadow: 0 0 0 1px {switch_on_bg}55;
+        }}
         .toggle-switch::after {{
             content: '';
             position: absolute;

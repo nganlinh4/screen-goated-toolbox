@@ -277,6 +277,14 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
             border-color: {primary}80;
             box-shadow: 0 2px 8px {primary}30;
         }}
+        .model-dropdown:disabled {{
+            opacity: 0.45;
+            cursor: not-allowed;
+        }}
+        .model-dropdown:disabled:hover, .model-dropdown:disabled:focus {{
+            border-color: {ctrl_border};
+            box-shadow: none;
+        }}
         .model-dropdown option {{
             background: {bg_color};
             color: {text_color};
@@ -389,6 +397,14 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
             border-color: {primary}80;
             box-shadow: 0 2px 8px {primary}25;
         }}
+        select:disabled {{
+            opacity: 0.45;
+            cursor: not-allowed;
+        }}
+        select:disabled:hover {{
+            border-color: {ctrl_border};
+            box-shadow: none;
+        }}
         select option {{
             font-family: 'Google Sans Flex', sans-serif;
             background: {select_option_bg};
@@ -422,6 +438,7 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
             font-size: {font_size}px;
             line-height: 1.5;
             padding-bottom: 5px;
+            white-space: pre-wrap;
         }}
         @keyframes wipe-in {{
             from {{
@@ -642,12 +659,16 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
             position: relative;
         }}
         .speak-btn.active {{
-            color: {success} !important;
-            border-color: {success};
-            box-shadow: 0 2px 8px {success}40;
+            color: #4caf50 !important;
+            border-color: #4caf50;
+            background: rgba(76, 175, 80, 0.14);
+            box-shadow: 0 2px 8px rgba(76, 175, 80, 0.35);
         }}
         .speak-btn.active .material-symbols-rounded {{
             animation: speak-pulse 1.5s cubic-bezier(0.2, 0.0, 0, 1.0) infinite;
+        }}
+        .speak-btn.locked {{
+            cursor: default;
         }}
         @keyframes speak-pulse {{
             0%, 100% {{ opacity: 1; }}

@@ -13,6 +13,17 @@ use super::types::*;
 use super::utils::{clear_tts_loading_state, clear_tts_state};
 use super::wsola::WsolaStretcher;
 
+struct AutoSpeedState {
+    speed: u32,
+    base_speed: u32,
+    text_queue_len: usize,
+    s2s_segment_backlog: u32,
+    s2s_delay_ms: u32,
+    s2s_backlog_ms: u32,
+    s2s_ready_backlog_ms: u32,
+    effective_delay_ms: u32,
+}
+
 /// Main Player thread - consumes audio streams sequentially
 pub fn run_player_thread(manager: Arc<TtsManager>) {
     // Create ONE persistent audio player
@@ -41,10 +52,12 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
             let mut loading_cleared = false;
             let mut chunks_received = 0u32;
 
-            eprintln!(
-                "[TTS Player] Starting playback job: req_id={}, hwnd={}, gen={}, realtime={}",
-                req_id, hwnd, generation, is_realtime
-            );
+            if !is_realtime {
+                eprintln!(
+                    "[TTS Player] Starting playback job: req_id={}, hwnd={}, gen={}, realtime={}",
+                    req_id, hwnd, generation, is_realtime
+                );
+            }
 
             // Mark that we're now playing audio
             manager.is_playing.store(true, Ordering::SeqCst);
@@ -55,10 +68,12 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
                     Ok(AudioEvent::Data(data)) => {
                         // Check interrupt before playing
                         if generation < manager.interrupt_generation.load(Ordering::SeqCst) {
-                            eprintln!(
-                                "[TTS Player] Interrupted during playback (after {} chunks)",
-                                chunks_received
-                            );
+                            if !is_realtime {
+                                eprintln!(
+                                    "[TTS Player] Interrupted during playback (after {} chunks)",
+                                    chunks_received
+                                );
+                            }
                             audio_player.stop();
                             clear_tts_state(hwnd);
                             break;
@@ -67,24 +82,32 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
                         chunks_received += 1;
                         if !loading_cleared {
                             loading_cleared = true;
-                            eprintln!(
-                                "[TTS Player] First audio chunk received, clearing loading state"
-                            );
+                            if !is_realtime {
+                                eprintln!(
+                                    "[TTS Player] First audio chunk received, clearing loading state"
+                                );
+                            }
                             clear_tts_loading_state(hwnd);
                         }
                         audio_player.play(&data, is_realtime);
                     }
                     Ok(AudioEvent::End) => {
-                        eprintln!(
-                            "[TTS Player] AudioEvent::End received after {} chunks",
-                            chunks_received
-                        );
+                        if !is_realtime {
+                            eprintln!(
+                                "[TTS Player] AudioEvent::End received after {} chunks",
+                                chunks_received
+                            );
+                        }
                         // Check if we were interrupted or finished normally
                         if generation < manager.interrupt_generation.load(Ordering::SeqCst) {
-                            eprintln!("[TTS Player] Was interrupted, stopping immediately");
+                            if !is_realtime {
+                                eprintln!("[TTS Player] Was interrupted, stopping immediately");
+                            }
                             audio_player.stop(); // Immediate cut-off
                         } else {
-                            eprintln!("[TTS Player] Normal finish, draining audio buffer");
+                            if !is_realtime {
+                                eprintln!("[TTS Player] Normal finish, draining audio buffer");
+                            }
                             audio_player.drain(); // Normal finish
                         }
                         clear_tts_state(hwnd);
@@ -95,7 +118,9 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
                         if generation < manager.interrupt_generation.load(Ordering::SeqCst)
                             || manager.shutdown.load(Ordering::SeqCst)
                         {
-                            eprintln!("[TTS Player] Interrupted/shutdown during recv timeout");
+                            if !is_realtime {
+                                eprintln!("[TTS Player] Interrupted/shutdown during recv timeout");
+                            }
                             audio_player.stop();
                             clear_tts_state(hwnd);
                             break;
@@ -104,10 +129,12 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                         // Sender disconnected
-                        eprintln!(
-                            "[TTS Player] Channel disconnected after {} chunks",
-                            chunks_received
-                        );
+                        if !is_realtime {
+                            eprintln!(
+                                "[TTS Player] Channel disconnected after {} chunks",
+                                chunks_received
+                            );
+                        }
                         if generation < manager.interrupt_generation.load(Ordering::SeqCst) {
                             audio_player.stop();
                         } else {
@@ -134,6 +161,83 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
             // Mark that we're done playing this job
             manager.is_playing.store(false, Ordering::SeqCst);
         }
+    }
+}
+
+fn compute_realtime_auto_speed() -> AutoSpeedState {
+    use crate::overlay::realtime_webview::state::{
+        COMMITTED_TRANSLATION_QUEUE, CURRENT_TTS_SPEED, REALTIME_S2S_AUDIO_BACKLOG,
+        REALTIME_S2S_AUDIO_BACKLOG_MS, REALTIME_S2S_AUDIO_DELAY_MS, REALTIME_S2S_READY_BACKLOG_MS,
+        REALTIME_TTS_AUTO_SPEED, REALTIME_TTS_SPEED,
+    };
+
+    let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);
+    let auto_enabled = REALTIME_TTS_AUTO_SPEED.load(Ordering::Relaxed);
+    let text_queue_len = COMMITTED_TRANSLATION_QUEUE
+        .lock()
+        .map(|q| q.len())
+        .unwrap_or(0);
+    let s2s_segment_backlog = REALTIME_S2S_AUDIO_BACKLOG.load(Ordering::Relaxed);
+    let s2s_delay_ms = REALTIME_S2S_AUDIO_DELAY_MS.load(Ordering::Relaxed);
+    let s2s_backlog_ms = REALTIME_S2S_AUDIO_BACKLOG_MS.load(Ordering::Relaxed);
+    let s2s_ready_backlog_ms = REALTIME_S2S_READY_BACKLOG_MS.load(Ordering::Relaxed);
+    let text_queue_delay_ms = (text_queue_len as u32).saturating_mul(1_200);
+    let s2s_ready_delay_ms = s2s_ready_backlog_ms.saturating_add(s2s_delay_ms);
+    let s2s_waiting_delay_ms = s2s_backlog_ms.saturating_sub(5_000);
+    let effective_delay_ms = text_queue_delay_ms
+        .max(s2s_ready_delay_ms)
+        .max(s2s_waiting_delay_ms);
+
+    let target_speed = if auto_enabled {
+        let boost = match effective_delay_ms {
+            0..=1_800 => 0,
+            1_801..=2_600 => 10,
+            2_601..=3_600 => 25,
+            3_601..=5_000 => 40,
+            5_001..=7_000 => 55,
+            _ => 75,
+        };
+        let cap = if text_queue_len > 0 || s2s_ready_backlog_ms > 0 {
+            200
+        } else if s2s_segment_backlog > 1 {
+            base_speed.saturating_add(35).min(170)
+        } else {
+            base_speed.saturating_add(15).min(150)
+        };
+        (base_speed + boost).min(cap)
+    } else {
+        base_speed
+    };
+
+    let current_speed = CURRENT_TTS_SPEED.load(Ordering::Relaxed);
+    let current_speed = if current_speed < base_speed && target_speed >= base_speed {
+        base_speed
+    } else {
+        current_speed
+    };
+    let speed = if target_speed > current_speed {
+        (current_speed + 15).min(target_speed)
+    } else if target_speed < current_speed {
+        let step_down = if s2s_segment_backlog > 0 || text_queue_len > 0 {
+            2
+        } else {
+            5
+        };
+        current_speed.saturating_sub(step_down).max(target_speed)
+    } else {
+        current_speed
+    }
+    .clamp(50, 200);
+
+    AutoSpeedState {
+        speed,
+        base_speed,
+        text_queue_len,
+        s2s_segment_backlog,
+        s2s_delay_ms,
+        s2s_backlog_ms,
+        s2s_ready_backlog_ms,
+        effective_delay_ms,
     }
 }
 
@@ -406,31 +510,25 @@ impl AudioPlayer {
         // Get effective speed
         let effective_speed = if is_realtime {
             use crate::api::realtime_audio::WM_UPDATE_TTS_SPEED;
-            use crate::overlay::realtime_webview::state::{
-                COMMITTED_TRANSLATION_QUEUE, CURRENT_TTS_SPEED, REALTIME_HWND,
-                REALTIME_TTS_AUTO_SPEED, REALTIME_TTS_SPEED,
-            };
+            use crate::overlay::realtime_webview::state::{CURRENT_TTS_SPEED, REALTIME_HWND};
 
-            let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);
-            let auto_enabled = REALTIME_TTS_AUTO_SPEED.load(Ordering::Relaxed);
-
-            // Auto-catchup: boost speed if queue is building up
-            let queue_len = COMMITTED_TRANSLATION_QUEUE
-                .lock()
-                .map(|q| q.len())
-                .unwrap_or(0);
-
-            let speed = if auto_enabled && queue_len > 0 {
-                // +15% per queued item, up to +60%
-                let boost = (queue_len as u32 * 15).min(60);
-                (base_speed + boost).min(200)
-            } else {
-                base_speed
-            };
+            let auto_speed = compute_realtime_auto_speed();
+            let speed = auto_speed.speed;
 
             // Update current speed for UI if it changed
             let old_speed = CURRENT_TTS_SPEED.swap(speed, Ordering::Relaxed);
             if old_speed != speed {
+                eprintln!(
+                    "[TTS AutoSpeed] speed={} base={} text_queue={} s2s_queue={} delay_ms={} s2s_delay_ms={} s2s_backlog_ms={} s2s_ready_ms={}",
+                    speed,
+                    auto_speed.base_speed,
+                    auto_speed.text_queue_len,
+                    auto_speed.s2s_segment_backlog,
+                    auto_speed.effective_delay_ms,
+                    auto_speed.s2s_delay_ms,
+                    auto_speed.s2s_backlog_ms,
+                    auto_speed.s2s_ready_backlog_ms
+                );
                 unsafe {
                     use crate::overlay::realtime_webview::state::TRANSLATION_HWND;
                     use windows::Win32::Foundation::{LPARAM, WPARAM};

@@ -75,6 +75,7 @@ pub enum TranscriptionMethod {
     Parakeet,
     Qwen3Local,
     SherpaZipformer,
+    GeminiLiveS2s,
 }
 
 pub struct RealtimeState {

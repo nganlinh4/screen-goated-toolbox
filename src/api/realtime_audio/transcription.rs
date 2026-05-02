@@ -47,8 +47,16 @@ pub fn start_realtime_transcription(
     let overlay_send = crate::win_types::SendHwnd(overlay_hwnd);
     let translation_send = translation_hwnd.map(crate::win_types::SendHwnd);
 
-    // Spawn translation thread if needed (Independent of transcription model)
-    let has_translation = translation_hwnd.is_some() && preset.blocks.len() > 1;
+    let trans_model = APP
+        .lock()
+        .map(|app| {
+            normalize_realtime_transcription_model_id(&app.config.realtime_transcription_model)
+        })
+        .unwrap_or_else(|_| crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string());
+    let is_s2s = trans_model == "gemini-live-s2s";
+
+    // Spawn translation thread if needed. Direct S2S owns translation audio itself.
+    let has_translation = translation_hwnd.is_some() && preset.blocks.len() > 1 && !is_s2s;
     if has_translation {
         let t_send = translation_send.unwrap();
         let t_state = state.clone();
@@ -84,7 +92,8 @@ fn transcription_thread_entry(
     let hwnd_translation = translation_send.map(|h| h.0);
 
     use crate::overlay::realtime_webview::{
-        AUDIO_SOURCE_CHANGE, NEW_AUDIO_SOURCE, NEW_TRANSCRIPTION_MODEL, TRANSCRIPTION_MODEL_CHANGE,
+        AUDIO_SOURCE_CHANGE, LANGUAGE_CHANGE, NEW_AUDIO_SOURCE, NEW_TRANSCRIPTION_MODEL,
+        TRANSCRIPTION_MODEL_CHANGE,
     };
 
     let mut current_preset = preset;
@@ -97,6 +106,7 @@ fn transcription_thread_entry(
 
         AUDIO_SOURCE_CHANGE.store(false, Ordering::SeqCst);
         TRANSCRIPTION_MODEL_CHANGE.store(false, Ordering::SeqCst);
+        LANGUAGE_CHANGE.store(false, Ordering::SeqCst);
         super::DEVICE_RECONNECT_REQUESTED.store(false, Ordering::SeqCst);
 
         // On model/source switch: freeze old transcript so it stays visible,
@@ -126,6 +136,8 @@ fn transcription_thread_entry(
                 s.set_transcription_method(super::state::TranscriptionMethod::Qwen3Local);
             } else if trans_model == "zipformer" {
                 s.set_transcription_method(super::state::TranscriptionMethod::SherpaZipformer);
+            } else if trans_model == "gemini-live-s2s" {
+                s.set_transcription_method(super::state::TranscriptionMethod::GeminiLiveS2s);
             } else {
                 s.set_transcription_method(super::state::TranscriptionMethod::GeminiLive);
             }
@@ -163,6 +175,15 @@ fn transcription_thread_entry(
                 current_preset.clone(),
                 stop_signal.clone(),
                 hwnd_overlay,
+                state.clone(),
+                session_id,
+            )
+        } else if trans_model == "gemini-live-s2s" {
+            super::s2s::run_gemini_live_s2s(
+                current_preset.clone(),
+                stop_signal.clone(),
+                hwnd_overlay,
+                hwnd_translation,
                 state.clone(),
                 session_id,
             )
@@ -212,6 +233,7 @@ fn transcription_thread_entry(
 
         let restart_source = AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst);
         let restart_model = TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst);
+        let restart_language = LANGUAGE_CHANGE.load(Ordering::SeqCst);
 
         if restart_source
             && let Ok(new_source) = NEW_AUDIO_SOURCE.lock()
@@ -235,7 +257,7 @@ fn transcription_thread_entry(
         }
 
         // If a restart is triggered, reset stop signal to allow the new transcription to run
-        if restart_source || restart_model {
+        if restart_source || restart_model || restart_language {
             freeze_on_next_restart = true;
             stop_signal.store(false, Ordering::SeqCst);
         }
@@ -246,14 +268,18 @@ fn transcription_thread_entry(
             continue;
         }
 
-        if !restart_source && !restart_model && stop_signal.load(Ordering::Relaxed) {
+        if !restart_source
+            && !restart_model
+            && !restart_language
+            && stop_signal.load(Ordering::Relaxed)
+        {
             break;
         }
         // If a restart is triggered (source or model changed), the loop continues.
         // Otherwise, if stop_signal is set, we break.
         // If neither, we also break, meaning the transcription loop only runs once
         // unless a restart is explicitly requested.
-        if !restart_source && !restart_model {
+        if !restart_source && !restart_model && !restart_language {
             break;
         }
     }

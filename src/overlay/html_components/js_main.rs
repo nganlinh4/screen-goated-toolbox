@@ -19,6 +19,7 @@ pub fn get(font_size: u32) -> String {
         let micVisible = true;
         let transVisible = true;
         let headerCollapsed = false;
+        let isS2sMode = document.body && document.body.dataset.s2s === '1';
 
         // TTS Modal elements
         const speakBtn = document.getElementById('speak-btn');
@@ -27,7 +28,7 @@ pub fn get(font_size: u32) -> String {
         const ttsToggle = document.getElementById('tts-toggle');
         const speedSlider = document.getElementById('speed-slider');
         const speedValue = document.getElementById('speed-value');
-        let ttsEnabled = false;
+        let ttsEnabled = isS2sMode;
         let ttsSpeed = 100;
 
         // TTS Modal Logic
@@ -47,6 +48,14 @@ pub fn get(font_size: u32) -> String {
         if (ttsToggle) {{
             ttsToggle.addEventListener('click', function(e) {{
                 e.stopPropagation();
+                if (isS2sMode) {{
+                    e.preventDefault();
+                    ttsEnabled = true;
+                    this.classList.add('on');
+                    if (speakBtn) speakBtn.classList.add('active');
+                    window.ipc.postMessage('ttsEnabled:1');
+                    return;
+                }}
                 ttsEnabled = !ttsEnabled;
                 this.classList.toggle('on', ttsEnabled);
                 if (speakBtn) speakBtn.classList.toggle('active', ttsEnabled);
@@ -55,10 +64,47 @@ pub fn get(font_size: u32) -> String {
         }}
 
         window.setTtsEnabled = function(enabled) {{
-            ttsEnabled = !!enabled;
+            ttsEnabled = isS2sMode ? true : !!enabled;
             if (ttsToggle) ttsToggle.classList.toggle('on', ttsEnabled);
             if (speakBtn) speakBtn.classList.toggle('active', ttsEnabled);
         }};
+        if (isS2sMode) {{
+            window.setTtsEnabled(true);
+        }}
+
+        function applyS2sMode(isS2s) {{
+            isS2sMode = !!isS2s;
+            document.body.dataset.s2s = isS2s ? '1' : '0';
+            if (isS2s) {{
+                ttsEnabled = true;
+            }}
+
+            const translationModelSelect = document.getElementById('translation-model-select');
+            if (translationModelSelect) {{
+                translationModelSelect.disabled = isS2s;
+                translationModelSelect.title = isS2s
+                    ? 'Gemini S2S uses the TTS Gemini Live model'
+                    : 'Translation Model';
+            }}
+            if (langSelect) {{
+                langSelect.disabled = isS2s;
+                langSelect.title = isS2s
+                    ? 'Target language is fixed for the current S2S session'
+                    : 'Target Language';
+            }}
+            if (speakBtn) {{
+                speakBtn.classList.toggle('active', isS2s || ttsEnabled);
+                speakBtn.classList.toggle('locked', isS2s);
+                speakBtn.title = isS2s ? 'Direct speech output settings' : 'Text-to-Speech Settings';
+            }}
+            if (ttsToggle) {{
+                ttsToggle.classList.toggle('locked', isS2s);
+                ttsToggle.classList.toggle('on', isS2s || ttsEnabled);
+                ttsToggle.title = isS2s
+                    ? 'Direct speech output is always on for Gemini S2S'
+                    : 'Enable text-to-speech';
+            }}
+        }}
 
         if (speedSlider && speedValue) {{
             const autoToggle = document.getElementById('auto-speed-toggle');
@@ -482,6 +528,7 @@ pub fn get(font_size: u32) -> String {
                 const tcSel = document.getElementById('transcription-model-select');
                 if (tcSel) tcSel.value = settings.transcriptionModel;
                 updateTransLangSelectState(settings.transcriptionModel);
+                applyS2sMode(settings.transcriptionModel === 'gemini-live-s2s');
                 // Legacy icons
                 if (transModelIcons && transModelIcons.length) {{
                     transModelIcons.forEach(icon => {{
