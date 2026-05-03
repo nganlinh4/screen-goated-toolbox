@@ -25,6 +25,6 @@ pub use hotkey::Hotkey;
 pub use model_priority::ModelPriorityChains;
 
 pub use tts::{
-    EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod,
+    EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
     default_tts_language_conditions,
 };

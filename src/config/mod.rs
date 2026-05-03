@@ -61,7 +61,9 @@ pub use types::Hotkey;
 pub use types::ModelPriorityChains;
 
 // TTS types
-pub use types::{EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod};
+pub use types::{
+    EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
+};
 
 // Translation Gummy
 pub use types::TranslationGummySettings;

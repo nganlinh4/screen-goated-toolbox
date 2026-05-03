@@ -26,7 +26,25 @@ pub(super) fn handle_edge_tts(
     eprintln!("[TTS Edge] Starting Edge TTS for {} chars", text.len());
 
     // Get Settings
-    let (voice_name, pitch, rate) = {
+    let (voice_name, pitch, rate) = if let Some(profile) = request.req.profile.as_ref() {
+        let detected_code =
+            crate::lang_detect::detect_language(&text).unwrap_or_else(|| "eng".to_string());
+        let code_2 = Language::from_639_3(&detected_code)
+            .and_then(|l| l.to_639_1())
+            .unwrap_or("en");
+        let voice = profile
+            .edge_settings
+            .voice_configs
+            .iter()
+            .find(|config| config.language_code == code_2)
+            .map(|config| config.voice_name.clone())
+            .unwrap_or_else(|| profile.edge_voice.clone());
+        (
+            voice,
+            profile.edge_settings.pitch,
+            profile.edge_settings.rate,
+        )
+    } else {
         let app = APP.lock().unwrap();
         let settings = &app.config.edge_tts_settings;
 

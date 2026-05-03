@@ -1,4 +1,5 @@
 pub mod detection;
+pub mod ffmpeg_dependency;
 pub mod persistence;
 pub mod run;
 mod run_download;

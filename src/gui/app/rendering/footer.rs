@@ -55,6 +55,7 @@ impl SettingsApp {
                     self.tip_fade_state,
                     &mut self.show_tips_modal,
                     &mut self.show_translation_gummy,
+                    &mut self.show_tts_playground,
                     &mut self.pointer_gallery.show_window,
                 );
             });
@@ -68,6 +69,16 @@ impl SettingsApp {
         if self.show_translation_gummy {
             self.show_translation_gummy = false;
             crate::overlay::translation_gummy::show_translation_gummy();
+        }
+
+        if crate::gui::settings_ui::tts_playground::render_tts_playground(
+            ctx,
+            &mut self.config,
+            &text,
+            &mut self.show_tts_playground,
+            &mut self.tts_playground,
+        ) {
+            self.save_and_sync();
         }
 
         // Render Download Manager Modal

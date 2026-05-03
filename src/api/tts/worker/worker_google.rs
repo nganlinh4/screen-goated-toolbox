@@ -20,6 +20,12 @@ pub(super) fn handle_google_tts(
 ) {
     let text = request.req.text.clone();
     eprintln!("[TTS Google] Starting Google TTS for {} chars", text.len());
+    let speed = request
+        .req
+        .profile
+        .as_ref()
+        .map(|profile| profile.google_speed.as_str())
+        .unwrap_or("Normal");
 
     // Detect language for Google TTS TL parameter
     let detected_code =
@@ -30,10 +36,12 @@ pub(super) fn handle_google_tts(
 
     eprintln!("[TTS Google] Detected language: {}", tl);
 
+    let tts_speed = if speed == "Slow" { "0.75" } else { "1" };
     let url = format!(
-        "https://translate.google.com/translate_tts?ie=UTF-8&q={}&tl={}&client=tw-ob",
+        "https://translate.google.com/translate_tts?ie=UTF-8&q={}&tl={}&ttsspeed={}&client=tw-ob",
         urlencoding::encode(&text),
-        tl
+        tl,
+        tts_speed
     );
 
     eprintln!("[TTS Google] Fetching audio from Google...");
