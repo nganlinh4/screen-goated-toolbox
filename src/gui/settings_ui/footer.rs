@@ -61,6 +61,7 @@ pub fn render_footer(
     tip_alpha: f32,
     show_modal: &mut bool,
     show_translation_gummy: &mut bool,
+    show_tts_playground: &mut bool,
     show_pointer_gallery: &mut bool,
 ) {
     ui.horizontal(|ui| {
@@ -117,6 +118,30 @@ pub fn render_footer(
         .clicked()
         {
             *show_translation_gummy = true;
+        }
+
+        let playground_color = egui::Color32::from_rgb(245, 255, 250);
+        let playground_bg = if is_dark {
+            egui::Color32::from_rgb(66, 150, 112)
+        } else {
+            egui::Color32::from_rgb(58, 170, 126)
+        };
+        let playground_bg_hover = if is_dark {
+            egui::Color32::from_rgb(78, 168, 128)
+        } else {
+            egui::Color32::from_rgb(70, 188, 142)
+        };
+        if render_launch_button(
+            ui,
+            text.tts_playground_btn,
+            Icon::Speaker,
+            playground_color,
+            playground_bg,
+            playground_bg_hover,
+        )
+        .clicked()
+        {
+            *show_tts_playground = true;
         }
 
         ui.add_space(8.0);

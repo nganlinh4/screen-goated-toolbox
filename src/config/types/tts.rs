@@ -15,6 +15,47 @@ pub enum TtsMethod {
 }
 
 // ============================================================================
+// TTS PLAYGROUND SETTINGS
+// ============================================================================
+
+/// Independent sandbox settings for the TTS Playground mini app.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct TtsPlaygroundSettings {
+    pub method: TtsMethod,
+    pub gemini_model: String,
+    pub gemini_voice: String,
+    pub gemini_speed: String,
+    pub gemini_instruction: String,
+    pub gemini_language_conditions: Vec<TtsLanguageCondition>,
+    pub google_speed: String,
+    pub edge_voice: String,
+    pub edge_pitch: i32,
+    pub edge_rate: i32,
+    pub edge_settings: EdgeTtsSettings,
+    pub draft_text: String,
+}
+
+impl Default for TtsPlaygroundSettings {
+    fn default() -> Self {
+        Self {
+            method: TtsMethod::GeminiLive,
+            gemini_model: crate::model_config::DEFAULT_GEMINI_LIVE_TTS_MODEL.to_string(),
+            gemini_voice: "Aoede".to_string(),
+            gemini_speed: "Fast".to_string(),
+            gemini_instruction: String::new(),
+            gemini_language_conditions: default_tts_language_conditions(),
+            google_speed: "Normal".to_string(),
+            edge_voice: "en-US-AriaNeural".to_string(),
+            edge_pitch: 0,
+            edge_rate: 0,
+            edge_settings: EdgeTtsSettings::default(),
+            draft_text: "Write anything here and test how it sounds.".to_string(),
+        }
+    }
+}
+
+// ============================================================================
 // EDGE TTS VOICE CONFIG
 // ============================================================================
 

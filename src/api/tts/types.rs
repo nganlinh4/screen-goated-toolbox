@@ -10,11 +10,50 @@ pub enum AudioEvent {
     End,
 }
 
+/// Fully collected TTS audio for artifact-style callers.
+#[derive(Clone)]
+pub struct TtsCollectedAudio {
+    pub pcm_samples: Vec<i16>,
+    pub wav_data: Vec<u8>,
+    pub sample_rate: u32,
+    pub duration_ms: u64,
+}
+
 /// Request paired with its generation ID (to handle interrupts)
 #[derive(Clone)]
 pub struct QueuedRequest {
     pub req: TtsRequest,
     pub generation: u64,
+}
+
+/// Per-request TTS settings for sandboxed callers such as TTS Playground.
+#[derive(Clone)]
+pub struct TtsRequestProfile {
+    pub method: crate::config::TtsMethod,
+    pub gemini_model: String,
+    pub gemini_voice: String,
+    pub gemini_speed: String,
+    pub gemini_instruction: String,
+    pub gemini_language_conditions: Vec<crate::config::TtsLanguageCondition>,
+    pub google_speed: String,
+    pub edge_voice: String,
+    pub edge_settings: crate::config::EdgeTtsSettings,
+}
+
+impl From<&crate::config::TtsPlaygroundSettings> for TtsRequestProfile {
+    fn from(settings: &crate::config::TtsPlaygroundSettings) -> Self {
+        Self {
+            method: settings.method.clone(),
+            gemini_model: settings.gemini_model.clone(),
+            gemini_voice: settings.gemini_voice.clone(),
+            gemini_speed: settings.gemini_speed.clone(),
+            gemini_instruction: settings.gemini_instruction.clone(),
+            gemini_language_conditions: settings.gemini_language_conditions.clone(),
+            google_speed: settings.google_speed.clone(),
+            edge_voice: settings.edge_voice.clone(),
+            edge_settings: settings.edge_settings.clone(),
+        }
+    }
 }
 
 /// TTS request with unique ID for cancellation
@@ -24,4 +63,5 @@ pub struct TtsRequest {
     pub text: String,
     pub hwnd: isize,       // Window handle to update state when audio starts
     pub is_realtime: bool, // True if this is from realtime translation (uses REALTIME_TTS_SPEED)
+    pub profile: Option<TtsRequestProfile>,
 }

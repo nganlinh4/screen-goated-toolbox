@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use tungstenite::Message;
 
 use super::manager::TtsManager;
-use super::types::AudioEvent;
+use super::types::{AudioEvent, TtsRequestProfile};
 use super::utils::{clear_tts_loading_state, clear_tts_state, get_language_instruction_for_text};
 use super::websocket::{
     connect_tts_websocket, is_turn_complete, parse_audio_data, send_tts_setup, send_tts_text,
@@ -112,7 +112,9 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
         );
 
         // Check TTS Method
-        let tts_method = {
+        let tts_method = if let Some(profile) = &request.req.profile {
+            profile.method.clone()
+        } else {
             match APP.lock() {
                 Ok(app) => app.config.tts_method.clone(),
                 Err(e) => {
@@ -199,20 +201,29 @@ fn handle_gemini_tts(
         }
     };
 
-    let (current_voice, current_speed, language_instruction) = {
-        let app = APP.lock().unwrap();
-        let voice = app.config.tts_voice.clone();
-        let conditions = app.config.tts_language_conditions.clone();
-
-        let instruction = get_language_instruction_for_text(&request.req.text, &conditions);
-
-        if request.req.is_realtime {
-            (voice, "Normal".to_string(), instruction)
+    let (current_voice, current_speed, language_instruction) =
+        if let Some(profile) = request.req.profile.as_ref() {
+            (
+                profile.gemini_voice.clone(),
+                profile.gemini_speed.clone(),
+                playground_language_instruction(&request.req.text, profile),
+            )
         } else {
-            (voice, app.config.tts_speed.clone(), instruction)
-        }
-    };
-    let current_model = {
+            let app = APP.lock().unwrap();
+            let voice = app.config.tts_voice.clone();
+            let conditions = app.config.tts_language_conditions.clone();
+
+            let instruction = get_language_instruction_for_text(&request.req.text, &conditions);
+
+            if request.req.is_realtime {
+                (voice, "Normal".to_string(), instruction)
+            } else {
+                (voice, app.config.tts_speed.clone(), instruction)
+            }
+        };
+    let current_model = if let Some(profile) = request.req.profile.as_ref() {
+        crate::model_config::normalize_tts_gemini_model(&profile.gemini_model).to_string()
+    } else {
         let app = APP.lock().unwrap();
         crate::model_config::normalize_tts_gemini_model(&app.config.tts_gemini_live_model)
             .to_string()
@@ -354,6 +365,20 @@ fn handle_gemini_tts(
 
     // Pre-connect next warm socket for subsequent requests
     start_warm_up(api_key.clone());
+}
+
+fn playground_language_instruction(text: &str, profile: &TtsRequestProfile) -> Option<String> {
+    let language_instruction =
+        get_language_instruction_for_text(text, &profile.gemini_language_conditions);
+    let custom_instruction = profile.gemini_instruction.trim();
+    match (language_instruction, custom_instruction.is_empty()) {
+        (Some(language_instruction), false) => {
+            Some(format!("{language_instruction} {custom_instruction}"))
+        }
+        (Some(language_instruction), true) => Some(language_instruction),
+        (None, false) => Some(custom_instruction.to_string()),
+        (None, true) => None,
+    }
 }
 
 pub(super) fn resample_audio(samples: &[i16], from_rate: u32, to_rate: u32) -> Vec<i16> {

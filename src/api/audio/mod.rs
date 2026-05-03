@@ -16,4 +16,4 @@ pub use gemini_live::record_and_stream_gemini_live;
 pub use recording::{
     process_audio_file_request, record_and_stream_parakeet, record_audio_and_transcribe,
 };
-pub use utils::extract_pcm_from_wav;
+pub use utils::{encode_wav, extract_pcm_from_wav};

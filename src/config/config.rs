@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
     DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey, ModelPriorityChains,
-    ThemeMode, TranslationGummySettings, TtsLanguageCondition, TtsMethod,
+    ThemeMode, TranslationGummySettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
     default_tts_language_conditions, get_system_ui_language,
 };
 
@@ -51,6 +51,10 @@ fn default_tts_method() -> TtsMethod {
 
 fn default_edge_tts_settings() -> EdgeTtsSettings {
     EdgeTtsSettings::default()
+}
+
+fn default_tts_playground_settings() -> TtsPlaygroundSettings {
+    TtsPlaygroundSettings::default()
 }
 
 fn default_model_priority_chains() -> ModelPriorityChains {
@@ -276,6 +280,10 @@ pub struct Config {
     #[serde(default = "default_edge_tts_settings")]
     pub edge_tts_settings: EdgeTtsSettings,
 
+    /// Independent sandbox profile for the TTS Playground mini app.
+    #[serde(default = "default_tts_playground_settings")]
+    pub tts_playground: TtsPlaygroundSettings,
+
     // -------------------------------------------------------------------------
     // Favorite Bubble Settings
     // -------------------------------------------------------------------------
@@ -439,6 +447,7 @@ impl Default for Config {
             tts_output_device: String::new(),
             tts_language_conditions: default_tts_language_conditions(),
             edge_tts_settings: EdgeTtsSettings::default(),
+            tts_playground: TtsPlaygroundSettings::default(),
 
             // Favorite Bubble
             show_favorite_bubble: false,

@@ -500,6 +500,7 @@ pub fn render_tts_settings_modal(
 
                         if ui.button(text.tts_reset_to_defaults_label).clicked() {
                             config.edge_tts_settings = crate::config::EdgeTtsSettings::default();
+                            config.tts_playground = crate::config::TtsPlaygroundSettings::default();
                             changed = true;
                         }
                     });

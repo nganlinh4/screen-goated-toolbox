@@ -408,16 +408,16 @@ impl AudioPlayer {
 
             let _frames_written = 0;
 
-            let mut last_gen = manager.interrupt_generation.load(Ordering::SeqCst);
+            let mut last_clear_gen = manager.buffer_clear_generation.load(Ordering::SeqCst);
             let mut last_default_device_check = Instant::now();
 
             while !shutdown.load(Ordering::Relaxed) {
-                let current_gen = manager.interrupt_generation.load(Ordering::SeqCst);
-                if current_gen > last_gen {
+                let current_clear_gen = manager.buffer_clear_generation.load(Ordering::SeqCst);
+                if current_clear_gen > last_clear_gen {
                     if let Ok(mut deck) = shared_buffer.lock() {
                         deck.clear();
                     }
-                    last_gen = current_gen;
+                    last_clear_gen = current_clear_gen;
                 }
                 if follows_default_device
                     && last_default_device_check.elapsed() >= Duration::from_millis(750)
@@ -582,9 +582,13 @@ impl AudioPlayer {
         };
 
         // Apply volume scaling before pushing to buffer.
-        let vol = crate::overlay::realtime_webview::state::CURRENT_TTS_VOLUME
-            .load(Ordering::Relaxed) as f32
-            / 100.0;
+        let vol = if is_realtime {
+            crate::overlay::realtime_webview::state::CURRENT_TTS_VOLUME.load(Ordering::Relaxed)
+                as f32
+                / 100.0
+        } else {
+            1.0
+        };
 
         // Upsample from 24kHz to 48kHz (duplicate each sample) and scale by volume.
         let output_samples: Vec<i16> = stretched_samples
