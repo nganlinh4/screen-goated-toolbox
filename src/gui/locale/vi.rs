@@ -178,7 +178,7 @@ pub fn get() -> LocaleText {
         realtime_mic: "Micro",
         ollama_url_guide: "Xem hướng dẫn tại ollama.com",
         tts_settings_button: "Cài đặt giọng đọc",
-        tts_settings_title: "Thiết lập Giọng Đọc",
+        tts_settings_title: "Thiết lập Giọng Đọc (dành cho Chức năng đọc trong các Preset, Dịch cabin và Bánh mỳ chuyển ngữ)",
         tts_playground_btn: "Sân chơi TTS",
         tts_playground_title: "Sân chơi TTS",
         tts_playground_text_label: "Văn bản cần đọc",

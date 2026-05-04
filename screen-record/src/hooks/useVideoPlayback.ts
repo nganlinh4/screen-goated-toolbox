@@ -5,6 +5,7 @@ import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
 import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
 import { thumbnailGenerator } from "@/lib/thumbnailGenerator";
 import { getBaseTimelineThumbnailCount } from "@/lib/timelineThumbnailCount";
+import { getSpeedAtTime } from "@/lib/videoExporter";
 import {
   BackgroundConfig,
   VideoSegment,
@@ -21,6 +22,7 @@ interface UseVideoPlaybackProps {
   webcamConfig?: WebcamConfig;
   mousePositionsRef: { current: MousePosition[] };
   isCropping: boolean;
+  isTimelineOnly: boolean;
   interactiveBackgroundPreview?: boolean;
 }
 
@@ -30,6 +32,7 @@ export function useVideoPlayback({
   webcamConfig,
   mousePositionsRef,
   isCropping,
+  isTimelineOnly,
   interactiveBackgroundPreview = false,
 }: UseVideoPlaybackProps) {
   const [currentTime, setCurrentTime] = useState(0);
@@ -64,6 +67,11 @@ export function useVideoPlayback({
   const lastPlaybackStructureSignatureRef = useRef("");
   const lastLoopStructureSignatureRef = useRef("");
   const lastSubtitleRenderSyncAtRef = useRef(0);
+  const currentTimeRef = useRef(0);
+  const timelineOnlyPlaybackRef = useRef<{ raf: number | null; lastTick: number }>({
+    raf: null,
+    lastTick: 0,
+  });
 
   const getPlaybackStructureSignature = useCallback((nextSegment: VideoSegment) => JSON.stringify({
     trimStart: nextSegment.trimStart,
@@ -143,8 +151,34 @@ export function useVideoPlayback({
     };
   }, []);
 
+  const renderTimelineOnlyFrame = useCallback((time: number) => {
+    if (!segment || !videoRef.current || !canvasRef.current) return;
+    void videoRenderer.drawFrame({
+      video: videoRef.current,
+      webcamVideo: webcamVideoRef.current,
+      canvas: canvasRef.current,
+      tempCanvas: tempCanvasRef.current,
+      segment: { ...segment, mediaMode: "timelineOnly" },
+      backgroundConfig: cloneBackgroundConfig(backgroundConfig),
+      webcamConfig,
+      mousePositions: mousePositionsRef.current,
+      currentTime: time,
+      interactiveBackgroundPreview,
+    });
+  }, [
+    backgroundConfig,
+    interactiveBackgroundPreview,
+    mousePositionsRef,
+    segment,
+    webcamConfig,
+  ]);
+
   const renderFrame = useCallback(() => {
     if (!segment || !videoRef.current || !canvasRef.current) return;
+    if (isTimelineOnly) {
+      renderTimelineOnlyFrame(currentTimeRef.current);
+      return;
+    }
     if (!videoRef.current.paused) return;
 
     const renderSegment = isCropping
@@ -191,19 +225,34 @@ export function useVideoPlayback({
     webcamConfig,
     interactiveBackgroundPreview,
     isCropping,
+    isTimelineOnly,
+    renderTimelineOnlyFrame,
   ]);
 
   const togglePlayPause = useCallback(() => {
+    if (isTimelineOnly) {
+      setIsPlaying((playing) => !playing);
+      return;
+    }
     videoControllerRef.current?.togglePlayPause();
-  }, []);
+  }, [isTimelineOnly]);
 
   const seek = useCallback((time: number) => {
+    if (isTimelineOnly) {
+      const safeDuration = Math.max(duration, segment?.trimEnd ?? 0, 0);
+      const clamped = Math.max(0, Math.min(time, safeDuration));
+      currentTimeRef.current = clamped;
+      setCurrentTime(clamped);
+      renderTimelineOnlyFrame(clamped);
+      return;
+    }
     videoControllerRef.current?.seek(time);
-  }, []);
+  }, [duration, isTimelineOnly, renderTimelineOnlyFrame, segment?.trimEnd]);
 
   const flushSeek = useCallback(() => {
+    if (isTimelineOnly) return;
     videoControllerRef.current?.flushPendingSeek();
-  }, []);
+  }, [isTimelineOnly]);
 
   const generateThumbnail = useCallback((): string | undefined => {
     if (!canvasRef.current) return undefined;
@@ -363,13 +412,78 @@ export function useVideoPlayback({
       if (thumbnailTimerRef.current) {
         clearTimeout(thumbnailTimerRef.current);
       }
+      if (timelineOnlyPlaybackRef.current.raf !== null) {
+        cancelAnimationFrame(timelineOnlyPlaybackRef.current.raf);
+        timelineOnlyPlaybackRef.current.raf = null;
+      }
       thumbnailCacheRef.current.clear();
     };
   }, []);
 
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+
+  useEffect(() => {
+    if (!isTimelineOnly || !segment) return;
+    const safeDuration = Math.max(segment.trimEnd, duration, 1);
+    if (duration !== safeDuration) setDuration(safeDuration);
+    setIsVideoReady(true);
+    setCurrentVideo(null);
+    setThumbnails([]);
+    if (currentTimeRef.current > safeDuration) {
+      currentTimeRef.current = safeDuration;
+      setCurrentTime(safeDuration);
+    }
+    renderTimelineOnlyFrame(currentTimeRef.current);
+  }, [duration, isTimelineOnly, renderTimelineOnlyFrame, segment]);
+
+  useEffect(() => {
+    if (!isTimelineOnly) return;
+    if (timelineOnlyPlaybackRef.current.raf !== null) {
+      cancelAnimationFrame(timelineOnlyPlaybackRef.current.raf);
+      timelineOnlyPlaybackRef.current.raf = null;
+    }
+    if (!isPlaying || !segment) return;
+
+    timelineOnlyPlaybackRef.current.lastTick = performance.now();
+    const tick = (now: number) => {
+      const playback = timelineOnlyPlaybackRef.current;
+      const dt = Math.max(0, (now - playback.lastTick) / 1000);
+      playback.lastTick = now;
+      const safeDuration = Math.max(segment.trimEnd, duration, 1);
+      const speed = Math.max(
+        0.0625,
+        getSpeedAtTime(currentTimeRef.current, segment.speedPoints ?? []),
+      );
+      const nextTime = Math.min(safeDuration, currentTimeRef.current + dt * speed);
+      currentTimeRef.current = nextTime;
+      setCurrentTime(nextTime);
+      renderTimelineOnlyFrame(nextTime);
+      if (nextTime >= safeDuration) {
+        setIsPlaying(false);
+        playback.raf = null;
+        return;
+      }
+      playback.raf = requestAnimationFrame(tick);
+    };
+    timelineOnlyPlaybackRef.current.raf = requestAnimationFrame(tick);
+
+    return () => {
+      if (timelineOnlyPlaybackRef.current.raf !== null) {
+        cancelAnimationFrame(timelineOnlyPlaybackRef.current.raf);
+        timelineOnlyPlaybackRef.current.raf = null;
+      }
+    };
+  }, [duration, isPlaying, isTimelineOnly, renderTimelineOnlyFrame, segment]);
+
   // Render options sync — apply isCropping overrides so the controller always
   // renders the correct view (e.g. after seeked events, thumbnail generation).
   useEffect(() => {
+    if (isTimelineOnly) {
+      renderFrame();
+      return;
+    }
     if (!segment || !videoControllerRef.current) return;
     const video = videoRef.current;
     const nextStructureSignature = getPlaybackStructureSignature(segment);
@@ -422,6 +536,8 @@ export function useVideoPlayback({
     interactiveBackgroundPreview,
     isCropping,
     getPlaybackStructureSignature,
+    isTimelineOnly,
+    renderFrame,
   ]);
 
   // Render context sync — update the running animation loop's context when
@@ -429,6 +545,10 @@ export function useVideoPlayback({
   // VideoController.handlePlay owns startAnimation; the loop self-exits on pause.
   // This eliminates the stop→start thrashing that caused audio play/pause AbortErrors.
   useEffect(() => {
+    if (isTimelineOnly) {
+      renderFrame();
+      return;
+    }
     const video = videoRef.current;
     if (!video || !segment) return;
     const nextStructureSignature = getPlaybackStructureSignature(segment);
@@ -496,6 +616,7 @@ export function useVideoPlayback({
     isCropping,
     getPlaybackStructureSignature,
     renderFrame,
+    isTimelineOnly,
   ]);
 
   // Cleanup URLs

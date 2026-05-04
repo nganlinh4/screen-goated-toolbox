@@ -1,6 +1,7 @@
 import { Link2, Plus, X, Check, Minus, LogOut } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import type { ProjectComposition, ProjectCompositionClip, ProjectCompositionMode } from "@/types/video";
+import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRef, useCallback, useState, useEffect } from "react";
 
@@ -318,7 +319,7 @@ export function SequencePillChain({
               && (isSingleClip || popoverClip.role === "root");
             return (
               <>
-                <ClipMetadataList clip={popoverClip} t={t} />
+                <ClipMetadataList clip={popoverClip} composition={composition} t={t} />
                 {showCloseProject && (
                   <div className="sequence-mode-popover-footer mt-2 pt-2 border-t border-[var(--ui-border)]">
                     <button
@@ -342,18 +343,32 @@ export function SequencePillChain({
   );
 }
 
-function ClipMetadataList({ clip, t }: { clip?: ProjectCompositionClip; t: Record<string, string> }) {
+function ClipMetadataList({
+  clip,
+  composition,
+  t,
+}: {
+  clip?: ProjectCompositionClip;
+  composition: ProjectComposition;
+  t: Record<string, string>;
+}) {
   if (!clip) return null;
 
-  const hasVideo = !!(clip.rawVideoPath);
+  const hasVideo = !!clip.rawVideoPath;
+  const hasImportedAudio = (composition.audioSegments?.length ?? 0) > 0;
   const hasCursor = clip.mousePositions.length > 0;
   const hasWebcam = clip.segment.webcamAvailable === true;
   const hasMic = clip.segment.micAudioAvailable === true;
   const hasDeviceAudio = clip.segment.deviceAudioAvailable !== false;
   const hasKeystrokes = (clip.segment.keystrokeEvents?.length ?? 0) > 0;
+  const hasSubtitles = getVisibleSubtitleSegments(clip.segment).length > 0;
+  const hasText = (clip.segment.textSegments?.length ?? 0) > 0;
 
   const items: { label: string; available: boolean }[] = [
     { label: t.clipInfoVideo, available: hasVideo },
+    { label: t.clipInfoImportedAudio, available: hasImportedAudio },
+    { label: t.clipInfoSubtitles, available: hasSubtitles },
+    { label: t.clipInfoText, available: hasText },
     { label: t.clipInfoCursor, available: hasCursor },
     { label: t.clipInfoWebcam, available: hasWebcam },
     { label: t.clipInfoMic, available: hasMic },
@@ -378,7 +393,9 @@ function ClipMetadataList({ clip, t }: { clip?: ProjectCompositionClip; t: Recor
                 <Minus className="w-2 h-2 text-[var(--on-surface-variant)]/30" strokeWidth={3} />
               )}
             </span>
-            <span className={`text-[10px] ${item.available ? 'text-[var(--on-surface)]' : 'text-[var(--on-surface-variant)]/40 line-through'}`}>{item.label}</span>
+            <span className={`text-[10px] ${item.available ? 'text-[var(--on-surface)]' : 'text-[var(--on-surface-variant)]/40 line-through'}`}>
+              {item.label}
+            </span>
           </div>
         ))}
       </div>

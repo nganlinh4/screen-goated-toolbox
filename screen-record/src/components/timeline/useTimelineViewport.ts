@@ -51,6 +51,7 @@ interface UseTimelineViewportOptions {
   videoRef: RefObject<HTMLVideoElement>;
   isPlaying: boolean;
   isInteracting: boolean;
+  disableVideoSync?: boolean;
 }
 
 interface UseTimelineViewportResult {
@@ -77,6 +78,7 @@ export function useTimelineViewport({
   videoRef,
   isPlaying,
   isInteracting,
+  disableVideoSync = false,
 }: UseTimelineViewportOptions): UseTimelineViewportResult {
   const viewportRef = useRef<HTMLDivElement>(null);
   const scrollbarTrackRef = useRef<HTMLDivElement>(null);
@@ -96,6 +98,7 @@ export function useTimelineViewport({
   const segmentRef = useRef(segment);
   const isPlayingRef = useRef(isPlaying);
   const isInteractingRef = useRef(isInteracting);
+  const disableVideoSyncRef = useRef(disableVideoSync);
   const zoomRef = useRef(zoom);
   const showScrollbarRef = useRef(showScrollbarState);
   const followSuppressedUntilRef = useRef(0);
@@ -115,6 +118,7 @@ export function useTimelineViewport({
   segmentRef.current = segment;
   isPlayingRef.current = isPlaying;
   isInteractingRef.current = isInteracting;
+  disableVideoSyncRef.current = disableVideoSync;
   zoomRef.current = zoom;
 
   const setShowScrollbar = useCallback((nextValue: boolean) => {
@@ -311,7 +315,7 @@ export function useTimelineViewport({
     }
 
     const rawTime =
-      isPlayingRef.current && videoRef.current
+      isPlayingRef.current && !disableVideoSyncRef.current && videoRef.current
         ? videoRef.current.currentTime
         : currentTimeRef.current;
     const playheadTime = clampToTrimSegments(

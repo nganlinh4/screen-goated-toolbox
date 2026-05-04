@@ -1,42 +1,58 @@
 import { useEffect, useState, useCallback } from "react";
-import { AudioLines, Film } from "lucide-react";
+import { AudioLines, Captions, Film } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 
-type DragKind = "video" | "audio" | "either" | "none";
+type DragKind = "video" | "audio" | "subtitle" | "either" | "none";
 
 interface DragDropOverlayProps {
   disabled?: boolean;
   onDropVideo: (file: File) => void;
   onDropAudio?: (file: File) => void;
   onDropAudios?: (files: File[]) => void;
+  onDropSubtitleSrt?: (file: File) => void;
 }
 
 const AUDIO_EXT_RE = /\.(mp3|wav|m4a|flac|ogg|oga|aac|alac|aiff|aif|wma|opus|mka)$/i;
+const SUBTITLE_SRT_EXT_RE = /\.srt$/i;
 
 function fileLooksLikeAudio(file: File): boolean {
   if (file.type.startsWith("audio/")) return true;
   return AUDIO_EXT_RE.test(file.name);
 }
 
+function fileLooksLikeSubtitleSrt(file: File): boolean {
+  return SUBTITLE_SRT_EXT_RE.test(file.name);
+}
+
 function classifyDragItems(items: DataTransferItemList | undefined): DragKind {
   if (!items || items.length === 0) return "none";
   let sawVideo = false;
   let sawAudio = false;
+  let sawSubtitle = false;
   for (let i = 0; i < items.length; i += 1) {
     const it = items[i];
     if (it.kind !== "file") continue;
     if (it.type.startsWith("video/")) sawVideo = true;
     else if (it.type.startsWith("audio/")) sawAudio = true;
+    else if (it.type === "application/x-subrip") sawSubtitle = true;
   }
-  if (sawVideo && sawAudio) return "either";
+  const kinds = [sawVideo, sawAudio, sawSubtitle].filter(Boolean).length;
+  if (kinds > 1) return "either";
   if (sawVideo) return "video";
   if (sawAudio) return "audio";
+  if (sawSubtitle) return "subtitle";
   // Browsers can leave .type empty for some audio files (e.g. m4a). Defer
   // discrimination until drop, where we have the filename to inspect.
   return "either";
 }
 
-export function DragDropOverlay({ disabled, onDropVideo, onDropAudio, onDropAudios }: DragDropOverlayProps) {
+export function DragDropOverlay({
+  disabled,
+  onDropVideo,
+  onDropAudio,
+  onDropAudios,
+  onDropSubtitleSrt,
+}: DragDropOverlayProps) {
   const { t } = useSettings();
   const [dragCount, setDragCount] = useState(0);
   const [dragKind, setDragKind] = useState<DragKind>("none");
@@ -73,6 +89,16 @@ export function DragDropOverlay({ disabled, onDropVideo, onDropAudio, onDropAudi
     const files = e.dataTransfer?.files;
     if (!files) return;
 
+    if (onDropSubtitleSrt) {
+      for (let i = 0; i < files.length; i += 1) {
+        const file = files[i];
+        if (fileLooksLikeSubtitleSrt(file)) {
+          onDropSubtitleSrt(file);
+          return;
+        }
+      }
+    }
+
     for (let i = 0; i < files.length; i += 1) {
       const file = files[i];
       if (file.type.startsWith("video/")) {
@@ -94,7 +120,7 @@ export function DragDropOverlay({ disabled, onDropVideo, onDropAudio, onDropAudi
         }
       }
     }
-  }, [disabled, onDropVideo, onDropAudio, onDropAudios]);
+  }, [disabled, onDropVideo, onDropAudio, onDropAudios, onDropSubtitleSrt]);
 
   useEffect(() => {
     window.addEventListener("dragenter", handleDragEnter);
@@ -112,9 +138,13 @@ export function DragDropOverlay({ disabled, onDropVideo, onDropAudio, onDropAudi
   if (!isVisible) return null;
 
   const audioCapable = !!onDropAudio;
+  const subtitleCapable = !!onDropSubtitleSrt;
   const showAudio = audioCapable && (dragKind === "audio" || dragKind === "either");
+  const showSubtitle = subtitleCapable && (dragKind === "subtitle" || dragKind === "either");
   const showVideo = dragKind === "video" || dragKind === "either" || !audioCapable;
-  const cta = audioCapable
+  const cta = subtitleCapable && dragKind === "subtitle"
+    ? t.dropSubtitleHere
+    : audioCapable
     ? dragKind === "audio"
       ? t.dropAudioHere
       : dragKind === "video"
@@ -128,6 +158,7 @@ export function DragDropOverlay({ disabled, onDropVideo, onDropAudio, onDropAudi
         <div className="drag-drop-icons flex items-center gap-3">
           {showVideo && <Film className="w-10 h-10" style={{ color: 'var(--primary-color)' }} />}
           {showAudio && <AudioLines className="w-10 h-10" style={{ color: 'var(--primary-color)' }} />}
+          {showSubtitle && <Captions className="w-10 h-10" style={{ color: 'var(--primary-color)' }} />}
         </div>
         <p className="text-sm font-medium" style={{ color: 'var(--on-surface)' }}>{cta}</p>
       </div>

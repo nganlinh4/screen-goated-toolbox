@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Video, Loader2, Play, Pause, Crop, Music4 } from 'lucide-react';
+import { Video, Loader2, Play, Pause, Crop, Music4, Pencil, Check, X } from 'lucide-react';
 import { VideoSegment, BackgroundConfig, MousePosition, type ImportedAudioSegment } from '@/types/video';
 import { formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';
@@ -189,6 +189,8 @@ interface PlaybackControlsProps {
   wallClockDuration?: number;
   onTogglePlayPause: () => void;
   onToggleCrop: () => void;
+  showCropButton?: boolean;
+  onSetProjectDuration?: (duration: number) => void;
   canvasModeToggle?: React.ReactNode;
   keystrokeToggle?: React.ReactNode;
   autoZoomButton?: React.ReactNode;
@@ -209,6 +211,8 @@ export function PlaybackControls({
   wallClockDuration,
   onTogglePlayPause,
   onToggleCrop,
+  showCropButton = true,
+  onSetProjectDuration,
   canvasModeToggle,
   keystrokeToggle,
   autoZoomButton,
@@ -217,6 +221,20 @@ export function PlaybackControls({
   selectionChip,
 }: PlaybackControlsProps) {
   const { t } = useSettings();
+  const [isEditingDuration, setIsEditingDuration] = useState(false);
+  const [durationInput, setDurationInput] = useState("");
+
+  const openDurationEditor = () => {
+    setDurationInput((wallClockDuration ?? duration).toFixed(2));
+    setIsEditingDuration(true);
+  };
+  const applyDurationEdit = () => {
+    const nextDuration = Number.parseFloat(durationInput.replace(",", "."));
+    if (Number.isFinite(nextDuration) && nextDuration > 0) {
+      onSetProjectDuration?.(nextDuration);
+    }
+    setIsEditingDuration(false);
+  };
 
   if (isCropping) {
     return (
@@ -256,22 +274,26 @@ export function PlaybackControls({
           <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
         </>
       )}
-      <Button
-        onClick={onToggleCrop}
-        variant="ghost"
-        size="icon"
-        className={`playback-crop-toggle-btn ui-action-button w-8 h-8 rounded-lg transition-colors ${
-          hasAppliedCrop
-            ? ''
-            : 'text-[var(--overlay-panel-fg)]/80 hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--ui-hover)]'
-        }`}
-        data-tone="success"
-        data-active={hasAppliedCrop ? "true" : "false"}
-        title={t.cropVideo}
-      >
-        <Crop className="w-3.5 h-3.5" />
-      </Button>
-      <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
+      {showCropButton && (
+        <>
+          <Button
+            onClick={onToggleCrop}
+            variant="ghost"
+            size="icon"
+            className={`playback-crop-toggle-btn ui-action-button w-8 h-8 rounded-lg transition-colors ${
+              hasAppliedCrop
+                ? ''
+                : 'text-[var(--overlay-panel-fg)]/80 hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--ui-hover)]'
+            }`}
+            data-tone="success"
+            data-active={hasAppliedCrop ? "true" : "false"}
+            title={t.cropVideo}
+          >
+            <Crop className="w-3.5 h-3.5" />
+          </Button>
+          <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
+        </>
+      )}
       <Button
         onClick={onTogglePlayPause}
         disabled={isProcessing || !isVideoReady}
@@ -283,8 +305,56 @@ export function PlaybackControls({
       >
         {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
       </Button>
-<div className="time-display text-[11px] font-medium tabular-nums flex-shrink-0 text-[var(--overlay-panel-fg)]/90">
+      <div className="time-display group/time-display relative text-[11px] font-medium tabular-nums flex-shrink-0 text-[var(--overlay-panel-fg)]/90">
         {formatTime(wallClockCurrentTime ?? currentTime)} / {formatTime(wallClockDuration ?? duration)}
+        {onSetProjectDuration && (
+          <>
+            <button
+              type="button"
+              onClick={openDurationEditor}
+              className="time-display-duration-edit ui-icon-button absolute -right-7 top-1/2 z-30 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--surface)]/95 opacity-0 shadow-sm transition-opacity duration-150 group-hover/time-display:opacity-100 focus-visible:opacity-100"
+              title={t.editProjectDuration}
+              aria-label={t.editProjectDuration}
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+            {isEditingDuration && (
+              <div className="time-display-duration-popover absolute left-1/2 top-[calc(100%+8px)] z-40 flex -translate-x-1/2 items-center gap-1 rounded-xl border bg-[var(--surface)] p-2 shadow-[var(--shadow-elevation-2)]">
+                <input
+                  className="time-display-duration-input h-7 w-20 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-1)] px-2 text-[11px] text-[var(--on-surface)] outline-none"
+                  value={durationInput}
+                  autoFocus
+                  inputMode="decimal"
+                  onChange={(event) => setDurationInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") applyDurationEdit();
+                    if (event.key === "Escape") setIsEditingDuration(false);
+                  }}
+                />
+                <Button
+                  type="button"
+                  onClick={applyDurationEdit}
+                  variant="ghost"
+                  size="icon"
+                  className="time-display-duration-apply ui-action-button h-7 w-7 rounded-lg"
+                  title={t.applyProjectDuration}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => setIsEditingDuration(false)}
+                  variant="ghost"
+                  size="icon"
+                  className="time-display-duration-cancel ui-action-button h-7 w-7 rounded-lg"
+                  title={t.cancelProjectDurationEdit}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
+          </>
+        )}
       </div>
       {keystrokeToggle && (
         <>

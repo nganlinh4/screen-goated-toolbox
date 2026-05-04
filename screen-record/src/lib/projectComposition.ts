@@ -251,7 +251,11 @@ export function ensureProjectComposition(
     existing?.globalCanvasConfig ??
       extractCanvasConfig(project.backgroundConfig),
   );
-  if (existing?.placeholderVideoForAudio) {
+  if (
+    existing?.placeholderVideoForAudio ||
+    existing?.placeholderVideoForSubtitles ||
+    existing?.timelineOnly
+  ) {
     canvasConfig = {
       canvasMode: "custom",
       canvasWidth: 1920,
@@ -295,6 +299,8 @@ export function ensureProjectComposition(
         : cloneBackgroundConfig(project.backgroundConfig),
       audioSegments: getLegacyCompatibleAudioSegments(existing).map((segment) => ({ ...segment })),
       placeholderVideoForAudio: existing?.placeholderVideoForAudio,
+      placeholderVideoForSubtitles: existing?.placeholderVideoForSubtitles,
+      timelineOnly: existing?.timelineOnly,
     },
     {
       ...canvasConfig,

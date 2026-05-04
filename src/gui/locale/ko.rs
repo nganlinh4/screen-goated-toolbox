@@ -178,7 +178,7 @@ pub fn get() -> LocaleText {
         realtime_mic: "마이크",
         ollama_url_guide: "올라마 설명서 보기",
         tts_settings_button: "TTS 설정",
-        tts_settings_title: "TTS 설정",
+        tts_settings_title: "TTS 설정 (프리셋, 실시간 음성 번역, 통역 곤약에서 사용)",
         tts_playground_btn: "TTS 플레이그라운드",
         tts_playground_title: "TTS 플레이그라운드",
         tts_playground_text_label: "읽을 텍스트",

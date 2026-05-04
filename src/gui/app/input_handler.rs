@@ -39,6 +39,9 @@ const VIDEO_EXTENSIONS: &[&str] = &[
     "m2ts",
 ];
 
+/// Subtitle file extensions routed to SGT Record.
+const SUBTITLE_EXTENSIONS: &[&str] = &["srt"];
+
 /// Check if a file extension is an image type
 fn is_image_extension(ext: &str) -> bool {
     IMAGE_EXTENSIONS.contains(&ext.to_lowercase().as_str())
@@ -52,6 +55,11 @@ fn is_audio_extension(ext: &str) -> bool {
 /// Check if a file extension is a video type
 fn is_video_extension(ext: &str) -> bool {
     VIDEO_EXTENSIONS.contains(&ext.to_lowercase().as_str())
+}
+
+/// Check if a file extension is a subtitle type
+fn is_subtitle_extension(ext: &str) -> bool {
+    SUBTITLE_EXTENSIONS.contains(&ext.to_lowercase().as_str())
 }
 
 /// Load a text file content
@@ -370,6 +378,22 @@ fn open_audio_paths_in_screen_record(paths: &[std::path::PathBuf]) {
     });
 }
 
+fn open_subtitle_srt_in_screen_record(path: &Path) {
+    crate::overlay::screen_record::queue_subtitle_drop_action(path.to_string_lossy().to_string());
+    crate::overlay::screen_record::show_screen_record();
+    std::thread::spawn(move || {
+        let script =
+            "window.dispatchEvent(new CustomEvent('sgt-subtitle-drop-pending'));".to_string();
+        for _ in 0..80 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if crate::overlay::screen_record::post_script(script.clone()) {
+                return;
+            }
+        }
+        crate::log_info!("[SubtitleDrop] Failed to dispatch subtitle action to SGT Record");
+    });
+}
+
 fn process_audio_paths(paths: &[std::path::PathBuf]) {
     if paths.len() == 1 {
         process_audio_path(&paths[0]);
@@ -437,6 +461,9 @@ pub fn process_file_path(path: &Path) {
     if is_video_extension(ext) {
         crate::log_info!("Type detected: VIDEO");
         process_video_path(path);
+    } else if is_subtitle_extension(ext) {
+        crate::log_info!("Type detected: SUBTITLE");
+        open_subtitle_srt_in_screen_record(path);
     } else if is_image_extension(ext) {
         crate::log_info!("Type detected: IMAGE");
         let (tx, rx) = mpsc::channel();

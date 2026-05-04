@@ -8,6 +8,7 @@ interface UseMediaEngineParams {
   webcamConfig: WebcamConfig;
   isCropping: boolean;
   isCanvasResizeDragging: boolean;
+  isTimelineOnly: boolean;
   setSegment: (segment: VideoSegment | null) => void;
 }
 
@@ -17,6 +18,7 @@ export function useMediaEngine({
   webcamConfig,
   isCropping,
   isCanvasResizeDragging,
+  isTimelineOnly,
   setSegment,
 }: UseMediaEngineParams) {
   // mousePositionsRef is a stable ref shared between useVideoPlayback and the layout effect
@@ -28,6 +30,7 @@ export function useMediaEngine({
     webcamConfig,
     mousePositionsRef,
     isCropping,
+    isTimelineOnly,
     interactiveBackgroundPreview: isCanvasResizeDragging,
   });
   const {

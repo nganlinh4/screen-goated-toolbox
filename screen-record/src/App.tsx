@@ -32,10 +32,17 @@ import { EditorOverlays } from "@/components/EditorOverlays";
 import { DragDropOverlay } from "@/components/DragDropOverlay";
 import { useVideoImport } from "@/hooks/useVideoImport";
 import { useImportedAudioImport } from "@/hooks/useImportedAudioImport";
+import { useSubtitleSrtImport } from "@/hooks/useSubtitleSrtImport";
 import { useSubtitleGeneration } from "@/hooks/useSubtitleGeneration";
 import { EditorMain } from "@/components/EditorMain";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
 import { projectManager } from "@/lib/projectManager";
+import { createAudioPlaceholderVideo, getMediaServerUrl } from "@/lib/mediaServer";
+import {
+  getTimelineContentEnd,
+  resizeCompositionRootDuration,
+  resizeSegmentDuration,
+} from "@/lib/timelineDuration";
 import { cloneWebcamConfig, DEFAULT_WEBCAM_CONFIG } from "@/lib/webcam";
 import {
   deleteSubtitleIdsAcrossTracks,
@@ -47,6 +54,15 @@ import { invoke } from "@/lib/ipc";
 type PendingVideoDropAction = {
   path?: string;
   action?: string;
+};
+
+type PendingSubtitleDropAction = {
+  path?: string;
+};
+
+type ReadSubtitleSrtPathResult = {
+  fileName?: string;
+  content?: string;
 };
 
 function App() {
@@ -94,6 +110,16 @@ function App() {
   const [currentRawMicAudioPath, setCurrentRawMicAudioPath] = useState("");
   const [currentRawWebcamVideoPath, setCurrentRawWebcamVideoPath] = useState("");
   const [timelineCanvasWidthPx, setTimelineCanvasWidthPx] = useState(0);
+  const isTimelineOnlyProject = Boolean(
+    segment?.mediaMode === "timelineOnly" ||
+    composition?.timelineOnly,
+  );
+  const isPlaceholderBackedProject = Boolean(
+    composition?.placeholderVideoForAudio ||
+    composition?.placeholderVideoForSubtitles ||
+    composition?.timelineOnly ||
+    segment?.mediaMode === "timelineOnly",
+  );
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -194,6 +220,7 @@ function App() {
     webcamConfig,
     isCropping,
     isCanvasResizeDragging,
+    isTimelineOnly: isTimelineOnlyProject,
     setSegment,
   });
 
@@ -821,12 +848,205 @@ function App() {
     [applyCurrentComposition, composition],
   );
 
+  const persistTimelineWorkspaceState = useCallback(
+    async (
+      nextSegment: VideoSegment,
+      nextComposition: ProjectComposition | null,
+      nextDuration: number,
+      reason: string,
+      rawVideoPath?: string,
+    ) => {
+      setSegment(nextSegment);
+      setPreviewDuration(nextDuration);
+      if (nextComposition) setComposition(nextComposition);
+      if (rawVideoPath !== undefined) {
+        handleProjectRawVideoPathChange(rawVideoPath);
+      }
+
+      const currentProject = currentProjectDataRef.current;
+      if (currentProject) {
+        const nextProject = {
+          ...currentProject,
+          duration: nextDuration,
+          segment: nextSegment,
+          composition: nextComposition ?? currentProject.composition,
+          rawVideoPath: rawVideoPath ?? currentProject.rawVideoPath,
+        };
+        currentProjectDataRef.current = nextProject;
+        setCurrentProjectData(nextProject);
+      }
+
+      const projectId =
+        currentProjectIdRef.current ??
+        currentProjectDataRef.current?.id ??
+        projects.currentProjectId ??
+        null;
+      if (!projectId) {
+        void logToHost(`[TimelineDuration] skip persist reason="${reason}" no-project`);
+        return;
+      }
+
+      try {
+        await projectManager.updateProject(projectId, {
+          duration: nextDuration,
+          segment: nextSegment,
+          composition: nextComposition ?? undefined,
+          ...(rawVideoPath !== undefined ? { rawVideoPath } : {}),
+        });
+        await projects.loadProjects();
+      } catch (error) {
+        console.warn(`[TimelineDuration] persist failed reason="${reason}"`, error);
+      }
+    },
+    [
+      handleProjectRawVideoPathChange,
+      projects.currentProjectId,
+      projects.loadProjects,
+      setPreviewDuration,
+      setSegment,
+    ],
+  );
+
+  const updatePlaceholderProjectDuration = useCallback(
+    async (requestedDuration: number, reason: string) => {
+      const currentSegment = segmentRef.current;
+      if (!currentSegment) return;
+      const currentComposition =
+        currentProjectDataRef.current?.composition ?? composition ?? null;
+      const contentEnd = getTimelineContentEnd(
+        currentSegment,
+        currentComposition?.audioSegments,
+      );
+      const nextDuration = Math.max(requestedDuration, contentEnd, 1);
+      let nextSegment = resizeSegmentDuration(currentSegment, nextDuration);
+      let nextComposition = resizeCompositionRootDuration(
+        currentComposition,
+        nextSegment,
+        nextDuration,
+      );
+      let nextRawVideoPath: string | undefined;
+      if (nextComposition) {
+        const placeholder = await createAudioPlaceholderVideo(
+          nextDuration,
+          "placeholder-project-duration",
+        );
+        nextRawVideoPath = placeholder.path;
+        nextSegment = { ...nextSegment, mediaMode: undefined };
+        nextComposition = {
+          ...nextComposition,
+          timelineOnly: false,
+          placeholderVideoForSubtitles:
+            currentComposition?.placeholderVideoForSubtitles,
+          placeholderVideoForAudio: currentComposition?.placeholderVideoForAudio,
+          clips: nextComposition.clips.map((clip) =>
+            clip.id === "root"
+              ? {
+                  ...clip,
+                  duration: nextDuration,
+                  segment: nextSegment,
+                  rawVideoPath: placeholder.path,
+                }
+              : clip,
+          ),
+          globalSegment: nextComposition.globalSegment
+            ? nextSegment
+            : nextComposition.globalSegment,
+        };
+      }
+      await persistTimelineWorkspaceState(
+        nextSegment,
+        nextComposition,
+        nextDuration,
+        reason,
+        nextRawVideoPath,
+      );
+      if (nextRawVideoPath) {
+        const mediaUrl = await getMediaServerUrl(nextRawVideoPath);
+        const loadedUrl = await videoControllerRef.current?.loadVideo({
+          videoUrl: mediaUrl,
+          initialTime: Math.min(currentTime, nextDuration),
+          debugLabel: "placeholder-project-duration",
+        });
+        setCurrentVideo(loadedUrl ?? mediaUrl);
+      }
+    },
+    [composition, currentTime, persistTimelineWorkspaceState],
+  );
+
   // Audio audio import — creates a silent-video-backed audio project when
   // nothing is open, otherwise appends to composition.audioSegments.
   const { isImporting: isImportingAudio, importAudio, importAudios, importAudioPaths } = useImportedAudioImport({
     getCurrentProjectId: () =>
       currentProjectIdRef.current ?? currentProjectDataRef.current?.id ?? null,
-    onAttachToCurrentProject: (segments) => {
+    onAttachToCurrentProject: async (segments) => {
+      if (isPlaceholderBackedProject && segmentRef.current) {
+        const baseComposition =
+          currentProjectDataRef.current?.composition ?? composition ?? null;
+        if (!baseComposition) return;
+        const existingSegments = baseComposition.audioSegments ?? [];
+        const appendStart = existingSegments.reduce((maxEnd, segment) => {
+          const visibleDuration = Math.max(segment.outPoint - segment.inPoint, 0);
+          return Math.max(maxEnd, segment.startTime + visibleDuration);
+        }, 0);
+        let cursor = appendStart;
+        const placedSegments = segments.map((segment) => {
+          const visibleDuration = Math.max(segment.outPoint - segment.inPoint, 0);
+          const placed = { ...segment, startTime: cursor };
+          cursor += visibleDuration;
+          return placed;
+        });
+        const nextAudioSegments = [...existingSegments, ...placedSegments];
+        const nextDuration = Math.max(
+          duration,
+          segmentRef.current.trimEnd,
+          getTimelineContentEnd(segmentRef.current, nextAudioSegments),
+          1,
+        );
+        const nextSegment = {
+          ...resizeSegmentDuration(segmentRef.current, nextDuration),
+          mediaMode: undefined,
+        };
+        const placeholder = await createAudioPlaceholderVideo(
+          nextDuration,
+          "attach-audio-to-placeholder-project",
+        );
+        const nextComposition = {
+          ...baseComposition,
+          audioSegments: nextAudioSegments,
+          timelineOnly: false,
+          placeholderVideoForAudio: true,
+          placeholderVideoForSubtitles: baseComposition.placeholderVideoForSubtitles,
+          clips: baseComposition.clips.map((clip) =>
+            clip.id === "root"
+              ? {
+                  ...clip,
+                  duration: nextDuration,
+                  segment: nextSegment,
+                  rawVideoPath: placeholder.path,
+                }
+              : clip,
+          ),
+          globalSegment: baseComposition.globalSegment
+            ? nextSegment
+            : baseComposition.globalSegment,
+        };
+        await persistTimelineWorkspaceState(
+          nextSegment,
+          nextComposition,
+          nextDuration,
+          "attach-audio-to-placeholder-project",
+          placeholder.path,
+        );
+        const mediaUrl = await getMediaServerUrl(placeholder.path);
+        const loadedUrl = await videoControllerRef.current?.loadVideo({
+          videoUrl: mediaUrl,
+          initialTime: currentTime,
+          debugLabel: "attach-audio-to-placeholder-project",
+        });
+        setCurrentVideo(loadedUrl ?? mediaUrl);
+        setSubtitleSource("audio");
+        return;
+      }
       updateCurrentMusicSegments(
         (existingSegments) => {
           const appendStart = existingSegments.reduce((maxEnd, segment) => {
@@ -863,6 +1083,35 @@ function App() {
     },
   });
 
+  const {
+    isImporting: isImportingSubtitleSrt,
+    importSubtitleSrtFile,
+    importSubtitleSrtPayload,
+  } = useSubtitleSrtImport({
+    segment,
+    duration,
+    getCurrentProjectId: () =>
+      currentProjectIdRef.current ?? currentProjectDataRef.current?.id ?? null,
+    setSegment,
+    setActivePanel,
+    setEditingSubtitleId,
+    onImportedIntoCurrentProject: () => {
+      selectedSubtitleIdsRef.current = [];
+      selectedTextIdsRef.current = [];
+    },
+    onCreateSubtitleProject: async (project) => {
+      logToHost(`[SubtitleSrt][Frontend] load project start id="${project.id}"`);
+      projects.setShowProjectsDialog(false);
+      await projects.loadProjects();
+      await projects.handleLoadProject(project.id);
+      currentProjectIdRef.current = project.id;
+      if (project.composition) {
+        setComposition(project.composition);
+      }
+      logToHost(`[SubtitleSrt][Frontend] load project complete id="${project.id}"`);
+    },
+  });
+
   // Drain pending audio-drop actions queued from the main SGT egui app
   // (file dropped onto the desktop tool, "Add to SGT Record" picked).
   useEffect(() => {
@@ -896,6 +1145,46 @@ function App() {
       window.removeEventListener("sgt-audio-drop-pending", drainPendingAudioDropActions);
     };
   }, [importAudioPaths]);
+
+  useEffect(() => {
+    let isDraining = false;
+    const drainPendingSubtitleDropActions = () => {
+      if (isDraining) return;
+      isDraining = true;
+      void (async () => {
+        try {
+          const actions = await invoke<PendingSubtitleDropAction[]>(
+            "take_pending_subtitle_drop_actions",
+            {},
+          );
+          for (const action of actions) {
+            const filePath = action.path?.trim();
+            if (!filePath) continue;
+            const result = await invoke<ReadSubtitleSrtPathResult>(
+              "read_subtitle_srt_path",
+              { path: filePath },
+            );
+            if (!result.content) continue;
+            await importSubtitleSrtPayload({
+              fileName: result.fileName || filePath,
+              content: result.content,
+            });
+            break;
+          }
+        } catch (error) {
+          console.warn("[SubtitleDrop] Failed to drain pending subtitle actions", error);
+        } finally {
+          isDraining = false;
+        }
+      })();
+    };
+
+    window.addEventListener("sgt-subtitle-drop-pending", drainPendingSubtitleDropActions);
+    drainPendingSubtitleDropActions();
+    return () => {
+      window.removeEventListener("sgt-subtitle-drop-pending", drainPendingSubtitleDropActions);
+    };
+  }, [importSubtitleSrtPayload]);
 
   useEffect(() => {
     let isDraining = false;
@@ -1069,10 +1358,11 @@ function App() {
     <SettingsContext.Provider value={settings}>
       <div className="app-container min-h-screen bg-[var(--surface)]">
         <DragDropOverlay
-          disabled={isRecording || isImporting || isImportingAudio}
+          disabled={isRecording || isImporting || isImportingAudio || isImportingSubtitleSrt}
           onDropVideo={importVideo}
           onDropAudio={importAudio}
           onDropAudios={importAudios}
+          onDropSubtitleSrt={importSubtitleSrtFile}
         />
         <ResizeBorders />
         <Header
@@ -1146,6 +1436,7 @@ function App() {
           isBuffering={isBuffering}
           isPreviewPlaying={isPlaying}
           currentVideo={currentVideo}
+          isTimelineOnly={isTimelineOnlyProject}
           isLoadingVideo={isLoadingVideo}
           loadingProgress={loadingProgress}
           isRecording={isRecording}
@@ -1166,6 +1457,15 @@ function App() {
           duration={duration}
           handleTogglePlayPause={handleTogglePlayPause}
           handleToggleCrop={handleToggleCrop}
+          onSetProjectDuration={
+            isPlaceholderBackedProject
+              ? (nextDuration) =>
+                  void updatePlaceholderProjectDuration(
+                    nextDuration,
+                    "edit-project-duration",
+                  )
+              : undefined
+          }
           customCanvasBaseDimensions={customCanvasBaseDimensions}
           getAutoCanvasSelectionConfig={getAutoCanvasSelectionConfig}
           handleActivateCustomCanvas={handleActivateCustomCanvas}
@@ -1242,6 +1542,57 @@ function App() {
           setTimelineCanvasWidthPx={setTimelineCanvasWidthPx}
           onPickImportedAudioFile={importAudio}
           onUpdateAudioSegment={(id, patch) => {
+            if (isPlaceholderBackedProject && segmentRef.current) {
+              const baseComposition =
+                currentProjectDataRef.current?.composition ?? composition ?? null;
+              if (!baseComposition) return;
+              const nextAudioSegments = (baseComposition.audioSegments ?? []).map((segment) =>
+                segment.id === id ? { ...segment, ...patch } : segment,
+              );
+              const nextDuration = Math.max(
+                duration,
+                segmentRef.current.trimEnd,
+                getTimelineContentEnd(segmentRef.current, nextAudioSegments),
+                1,
+              );
+              const nextSegment = resizeSegmentDuration(segmentRef.current, nextDuration);
+              const nextComposition = {
+                ...baseComposition,
+                audioSegments: nextAudioSegments,
+                timelineOnly: false,
+                placeholderVideoForSubtitles: baseComposition.placeholderVideoForSubtitles,
+                clips: baseComposition.clips.map((clip) =>
+                  clip.id === "root"
+                    ? { ...clip, duration: nextDuration, segment: nextSegment }
+                    : clip,
+                ),
+                globalSegment: baseComposition.globalSegment
+                  ? nextSegment
+                  : baseComposition.globalSegment,
+              };
+              setSegment(nextSegment);
+              setPreviewDuration(nextDuration);
+              setComposition(nextComposition);
+              currentProjectDataRef.current = currentProjectDataRef.current
+                ? {
+                    ...currentProjectDataRef.current,
+                    duration: nextDuration,
+                    segment: nextSegment,
+                    composition: nextComposition,
+                  }
+                : currentProjectDataRef.current;
+              setCurrentProjectData((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      duration: nextDuration,
+                      segment: nextSegment,
+                      composition: nextComposition,
+                    }
+                  : prev,
+              );
+              return;
+            }
             updateCurrentMusicSegments(
               (segments) =>
                 segments.map((segment) =>
@@ -1258,6 +1609,13 @@ function App() {
             );
           }}
           onCommitAudioSegments={() => {
+            if (isPlaceholderBackedProject && segmentRef.current) {
+              void updatePlaceholderProjectDuration(
+                segmentRef.current.trimEnd,
+                "commit-audio-segment-edit",
+              );
+              return;
+            }
             persistCurrentComposition("commit-audio-segment-edit");
           }}
         />
