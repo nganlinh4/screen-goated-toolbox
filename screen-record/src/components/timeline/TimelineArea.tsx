@@ -102,6 +102,7 @@ interface TimelineAreaProps {
   } | null;
   audioSegments?: ImportedAudioSegment[];
   onPickImportedAudioFile?: (file: File) => void;
+  onPickSubtitleSrtFile?: (file: File) => void;
   onSelectMusicSegment?: (id: string) => void;
   onUpdateAudioSegment?: (id: string, patch: Partial<ImportedAudioSegment>) => void;
   onDeleteAudioSegment?: (id: string) => void;
@@ -158,6 +159,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   subtitleTranslationChunkPreview,
   audioSegments,
   onPickImportedAudioFile,
+  onPickSubtitleSrtFile,
   onSelectMusicSegment,
   onUpdateAudioSegment,
   onDeleteAudioSegment,
@@ -223,15 +225,23 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
       : segment?.keystrokeMode === "keyboardMouse"
         ? t.trackKeyboardMouse
         : t.trackKeystrokesOff;
+  const showZoom = true;
+  const showSpeed = true;
+  const showTrimLane = true;
   const showDeviceAudio = isDeviceAudioAvailable;
   const showMicAudio = isMicAudioAvailable;
   const showWebcam = isWebcamAvailable;
   const showKeystroke = (segment?.keystrokeMode ?? 'off') !== 'off';
+  const showPointer = hasMouseData;
   const showImportedAudio = Boolean(onPickImportedAudioFile) || (audioSegments?.length ?? 0) > 0;
 
   const importedAudioFileInputRef = useRef<HTMLInputElement>(null);
+  const subtitleSrtFileInputRef = useRef<HTMLInputElement>(null);
   const handleTriggerImportedAudioPicker = useCallback(() => {
     importedAudioFileInputRef.current?.click();
+  }, []);
+  const handleTriggerSubtitleSrtPicker = useCallback(() => {
+    subtitleSrtFileInputRef.current?.click();
   }, []);
   const handleImportedAudioFilePicked = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -241,11 +251,19 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     },
     [onPickImportedAudioFile],
   );
+  const handleSubtitleSrtFilePicked = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (file && onPickSubtitleSrtFile) onPickSubtitleSrtFile(file);
+    },
+    [onPickSubtitleSrtFile],
+  );
 
   const trackHeightsBeforeTrim = [
-    TIMELINE_TRACK_HEIGHTS.zoom,
-    ...(showDebug ? [TIMELINE_TRACK_HEIGHTS.debug] : []),
-    TIMELINE_TRACK_HEIGHTS.speed,
+    ...(showZoom ? [TIMELINE_TRACK_HEIGHTS.zoom] : []),
+    ...(showZoom && showDebug ? [TIMELINE_TRACK_HEIGHTS.debug] : []),
+    ...(showSpeed ? [TIMELINE_TRACK_HEIGHTS.speed] : []),
     ...(showImportedAudio ? [TIMELINE_TRACK_HEIGHTS.importedAudio] : []),
     ...(showDeviceAudio ? [TIMELINE_TRACK_HEIGHTS.deviceAudio] : []),
     ...(showMicAudio ? [TIMELINE_TRACK_HEIGHTS.micAudio] : []),
@@ -253,13 +271,22 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     TIMELINE_TRACK_HEIGHTS.subtitles,
     TIMELINE_TRACK_HEIGHTS.text,
     ...(showKeystroke ? [TIMELINE_TRACK_HEIGHTS.keystroke] : []),
-    ...(hasMouseData ? [TIMELINE_TRACK_HEIGHTS.pointer] : []),
+    ...(showPointer ? [TIMELINE_TRACK_HEIGHTS.pointer] : []),
   ];
-  const trimHeadCenterY =
+  const trackStackHeight =
     trackHeightsBeforeTrim.reduce((sum, height) => sum + height, 0) +
-    trackHeightsBeforeTrim.length * TIMELINE_TRACK_GAP_PX +
+    Math.max(trackHeightsBeforeTrim.length - 1, 0) * TIMELINE_TRACK_GAP_PX;
+  const trimHeadCenterY =
+    trackStackHeight +
+    (trackHeightsBeforeTrim.length > 0 ? TIMELINE_TRACK_GAP_PX : 0) +
     TIMELINE_TRACK_HEIGHTS.trimLane / 2;
   const trimLaneBottomY = trimHeadCenterY + TIMELINE_TRACK_HEIGHTS.trimLane / 2;
+  const playheadHeadCenterY = showTrimLane
+    ? trimHeadCenterY
+    : Math.max(trackStackHeight / 2, 8);
+  const playheadLineBottomY = showTrimLane
+    ? trimLaneBottomY
+    : Math.max(trackStackHeight, 1);
   const {
     dragState,
     handleTrimDragStart,
@@ -491,6 +518,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     videoRef,
     isPlaying: !!isPlaying,
     isInteracting: isTimelineInteracting,
+    disableVideoSync: segment?.mediaMode === "timelineOnly",
   });
   const rulerTicks = buildTimelineRulerTicks({
     duration,
@@ -515,56 +543,67 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
         className="hidden"
         onChange={handleImportedAudioFilePicked}
       />
+      <input
+        ref={subtitleSrtFileInputRef}
+        type="file"
+        accept=".srt,text/plain"
+        className="timeline-subtitle-srt-input hidden"
+        onChange={handleSubtitleSrtFilePicked}
+      />
       <div className="timeline-shell flex gap-4">
         <div className="timeline-side-column w-[4rem] flex-shrink-0">
           <div className="timeline-label-gutter flex flex-col gap-[2px] border-r border-[var(--ui-border)] pr-2">
-            <div className="timeline-label-zoom h-10 flex items-center justify-between">
-              <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
-                {t.trackZoom}
-              </span>
-              <button
-                onClick={() => setShowDebug((value) => !value)}
-                className={`timeline-debug-btn w-3 h-3 rounded-sm text-[7px] font-bold leading-none flex items-center justify-center transition-colors ${
-                  showDebug
-                    ? "bg-blue-500 text-white"
-                    : "ui-surface text-[var(--outline)] hover:text-[var(--on-surface)]"
-                }`}
-                title="Debug zoom curve"
-              >
-                D
-              </button>
-            </div>
-            {showDebug && (
+            {showZoom && (
+              <div className="timeline-label-zoom h-10 flex items-center justify-between">
+                <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+                  {t.trackZoom}
+                </span>
+                <button
+                  onClick={() => setShowDebug((value) => !value)}
+                  className={`timeline-debug-btn w-3 h-3 rounded-sm text-[7px] font-bold leading-none flex items-center justify-center transition-colors ${
+                    showDebug
+                      ? "bg-blue-500 text-white"
+                      : "ui-surface text-[var(--outline)] hover:text-[var(--on-surface)]"
+                  }`}
+                  title="Debug zoom curve"
+                >
+                  D
+                </button>
+              </div>
+            )}
+            {showZoom && showDebug && (
               <div className="timeline-label-debug h-10 flex items-center">
                 <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none opacity-50">
                   dbg
                 </span>
               </div>
             )}
-            <div className="timeline-label-speed h-10 flex items-center justify-between">
-              <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
-                {t.trackSpeed || "Speed"}
-              </span>
-              <button
-                onClick={() => {
-                  if (!segment) return;
-                  beginBatch();
-                  setSegment({
-                    ...segment,
-                    speedPoints: [
-                      { time: 0, speed: 1 },
-                      { time: duration, speed: 1 },
-                    ],
-                  });
-                  commitBatch();
-                }}
-                disabled={!segment}
-                className="timeline-speed-reset-btn ui-icon-button p-1 text-[9px] font-mono leading-none disabled:opacity-40 disabled:hover:text-[var(--outline)] disabled:hover:bg-transparent"
-                title={t.resetSpeed || "Reset"}
-              >
-                R
-              </button>
-            </div>
+            {showSpeed && (
+              <div className="timeline-label-speed h-10 flex items-center justify-between">
+                <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+                  {t.trackSpeed || "Speed"}
+                </span>
+                <button
+                  onClick={() => {
+                    if (!segment) return;
+                    beginBatch();
+                    setSegment({
+                      ...segment,
+                      speedPoints: [
+                        { time: 0, speed: 1 },
+                        { time: duration, speed: 1 },
+                      ],
+                    });
+                    commitBatch();
+                  }}
+                  disabled={!segment}
+                  className="timeline-speed-reset-btn ui-icon-button p-1 text-[9px] font-mono leading-none disabled:opacity-40 disabled:hover:text-[var(--outline)] disabled:hover:bg-transparent"
+                  title={t.resetSpeed || "Reset"}
+                >
+                  R
+                </button>
+              </div>
+            )}
             {showImportedAudio && (
               <div className="timeline-label-imported-audio group/imported-audio-label relative h-10 flex items-center">
                 <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
@@ -614,10 +653,21 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               isAvailable: true,
               heightClassName: "h-7",
             })}
-            <div className="timeline-label-subtitles h-7 flex items-center">
+            <div className="timeline-label-subtitles group/subtitle-label relative h-7 flex items-center">
               <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                 {t.trackSubtitles}
               </span>
+              {onPickSubtitleSrtFile && (
+                <button
+                  type="button"
+                  onClick={handleTriggerSubtitleSrtPicker}
+                  className="timeline-label-subtitles-add ui-icon-button absolute left-full ml-1 top-1/2 z-20 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--surface)]/95 text-[var(--primary-color)] opacity-0 shadow-sm transition-opacity duration-150 group-hover/subtitle-label:opacity-100 focus-visible:opacity-100"
+                  title={t.importSubtitleSrt}
+                  aria-label={t.importSubtitleSrt}
+                >
+                  <Plus className="h-3 w-3" strokeWidth={3} />
+                </button>
+              )}
             </div>
             <div className="timeline-label-text h-7 flex items-center">
               <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
@@ -631,18 +681,20 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 </span>
               </div>
             )}
-            {hasMouseData && (
+            {showPointer && (
               <div className="timeline-label-pointer h-7 flex items-center">
                 <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                   {t.trackPointer}
                 </span>
               </div>
             )}
-            <div className="timeline-label-video h-10 flex items-center">
-              <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
-                {t.trackVideo}
-              </span>
-            </div>
+            {showTrimLane && (
+              <div className="timeline-label-video h-10 flex items-center">
+                <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+                  {t.trackVideo}
+                </span>
+              </div>
+            )}
           </div>
           <div className="timeline-ruler-spacer h-4 mt-0.5" />
         </div>
@@ -665,7 +717,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 onPointerCancel={handleMouseUp}
               >
                 <div className="timeline-tracks flex flex-col gap-[2px]">
-                  {segment ? (
+                  {showZoom && (segment ? (
                     <ZoomTrack
                       segment={segment}
                       duration={duration}
@@ -688,13 +740,13 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     />
                   ) : (
                     <div className="zoom-track-empty timeline-track-empty h-10" />
-                  )}
+                  ))}
 
-                  {showDebug && segment && (
+                  {showZoom && showDebug && segment && (
                     <ZoomDebugOverlay segment={segment} duration={duration} />
                   )}
 
-                  {segment ? (
+                  {showSpeed && (segment ? (
                     <SpeedTrack
                       segment={segment}
                       duration={duration}
@@ -706,7 +758,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     />
                   ) : (
                     <div className="speed-track-empty timeline-track-empty h-10" />
-                  )}
+                  ))}
 
                   {showImportedAudio && (
                     <ImportedAudioTrack
@@ -854,7 +906,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     <div className="keystroke-track-empty timeline-track-empty h-7" />
                   ))}
 
-                  {hasMouseData && (segment ? (
+                  {showPointer && (segment ? (
                     <PointerTrack
                       segment={segment}
                       duration={duration}
@@ -870,7 +922,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     <div className="pointer-track-empty timeline-track-empty h-7" />
                   ))}
 
-                  {segment ? (
+                  {showTrimLane && (segment ? (
                     <TrimTrack
                       segment={segment}
                       duration={duration}
@@ -887,7 +939,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     <div className="trim-track-empty-shell relative h-14">
                       <div className="trim-track-empty timeline-track-empty h-10" />
                     </div>
-                  )}
+                  ))}
                 </div>
 
                 {segment && (
@@ -897,8 +949,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     isPlaying={!!isPlaying}
                     videoRef={videoRef}
                     segment={segment}
-                    headCenterY={trimHeadCenterY}
-                    lineBottomY={trimLaneBottomY}
+                    disableVideoSync={segment.mediaMode === "timelineOnly"}
+                    headCenterY={playheadHeadCenterY}
+                    lineBottomY={playheadLineBottomY}
                   />
                 )}
               </div>

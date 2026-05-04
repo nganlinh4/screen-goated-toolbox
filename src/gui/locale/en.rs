@@ -177,7 +177,7 @@ pub fn get() -> LocaleText {
         realtime_mic: "Mic",
         ollama_url_guide: "View guide at ollama.com",
         tts_settings_button: "Voice Settings",
-        tts_settings_title: "TTS Settings",
+        tts_settings_title: "Voice Settings (for Presets, Live Translate, and Translation Gummy)",
         tts_playground_btn: "TTS Playground",
         tts_playground_title: "TTS Playground",
         tts_playground_text_label: "Text to read",

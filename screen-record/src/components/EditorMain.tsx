@@ -17,7 +17,7 @@ import type { SubtitleMethod } from "@/hooks/useSubtitleGeneration";
 import type { SubtitleSource } from "@/lib/subtitleGenerationPlan";
 import { useSubtitleTranslation } from "@/hooks/useSubtitleTranslation";
 import { createManualSubtitleSegment } from "@/lib/subtitleDefaults";
-import { saveAudioSubtitleSrts, saveSubtitleSrt } from "@/lib/subtitleSrt";
+import { importSubtitleSrtIntoSegment, saveAudioSubtitleSrts, saveSubtitleSrt } from "@/lib/subtitleSrt";
 import type { SubtitleGenerationIndicator } from "@/lib/subtitleGenerationPlan";
 import {
   deriveSelectionRangeFromIds,
@@ -57,6 +57,7 @@ export interface EditorMainProps {
   isBuffering: boolean;
   isPreviewPlaying: boolean;
   currentVideo: string | null;
+  isTimelineOnly: boolean;
   isLoadingVideo: boolean;
   loadingProgress: number;
   isRecording: boolean;
@@ -80,6 +81,7 @@ export interface EditorMainProps {
   duration: number;
   handleTogglePlayPause: () => void;
   handleToggleCrop: () => void;
+  onSetProjectDuration?: (duration: number) => void;
   customCanvasBaseDimensions: { width: number; height: number };
   getAutoCanvasSelectionConfig: CanvasModeToggleProps["getAutoCanvasSelectionConfig"];
   handleActivateCustomCanvas: () => void;
@@ -190,6 +192,7 @@ export function EditorMain({
   isBuffering,
   isPreviewPlaying,
   currentVideo,
+  isTimelineOnly,
   isLoadingVideo,
   loadingProgress,
   isRecording,
@@ -210,6 +213,7 @@ export function EditorMain({
   duration,
   handleTogglePlayPause,
   handleToggleCrop,
+  onSetProjectDuration,
   customCanvasBaseDimensions,
   getAutoCanvasSelectionConfig,
   handleActivateCustomCanvas,
@@ -287,10 +291,10 @@ export function EditorMain({
 }: EditorMainProps) {
   const { t } = useSettings();
   const showPlaybackControls = Boolean(
-    currentVideo && !isLoadingVideo && !isOverlayMode,
+    (currentVideo || isTimelineOnly) && !isLoadingVideo && !isOverlayMode,
   );
   const showPlaybackControlsGhost = Boolean(
-    !currentVideo && !isLoadingVideo && !isCropping,
+    !currentVideo && !isTimelineOnly && !isLoadingVideo && !isCropping,
   );
   const wallClockDuration = useMemo(() => {
     const pts = segment?.speedPoints;
@@ -453,6 +457,35 @@ export function EditorMain({
     setActivePanel('subtitles');
   }, [composition?.audioSegments, currentTime, duration, segment, setActivePanel, setEditingSubtitleId, setSegment]);
 
+  const handleImportSubtitleSrt = useCallback(async (file: File) => {
+    if (!segment) return;
+    try {
+      const content = await file.text();
+      const { segment: nextSegment, subtitles: importedSubtitles } = importSubtitleSrtIntoSegment(
+        segment,
+        content,
+        duration,
+      );
+      if (importedSubtitles.length === 0) {
+        console.error('[SubtitleSrt] import failed: no valid subtitles found');
+        return;
+      }
+      setSegment(nextSegment);
+      clearAllSelections();
+      setEditingSubtitleId(importedSubtitles[0]?.id ?? null);
+      setActivePanel('subtitles');
+    } catch (error) {
+      console.error('[SubtitleSrt] import failed:', error);
+    }
+  }, [
+    clearAllSelections,
+    duration,
+    segment,
+    setActivePanel,
+    setEditingSubtitleId,
+    setSegment,
+  ]);
+
   const visibleSubtitleSegments = useMemo(
     () => getVisibleSubtitleSegments(segment),
     [segment],
@@ -572,6 +605,7 @@ export function EditorMain({
             isBuffering={isBuffering}
             isPreviewPlaying={isPreviewPlaying}
             currentVideo={currentVideo}
+            isTimelineOnly={isTimelineOnly}
             isLoadingVideo={isLoadingVideo}
             loadingProgress={loadingProgress}
             isRecording={isRecording}
@@ -603,6 +637,7 @@ export function EditorMain({
             wallClockDuration={wallClockDuration}
             onTogglePlayPause={handleTogglePlayPause}
             onToggleCrop={handleToggleCrop}
+            onSetProjectDuration={onSetProjectDuration}
             backgroundConfig={backgroundConfig}
             setBackgroundConfig={setBackgroundConfig}
             customCanvasBaseDimensions={customCanvasBaseDimensions}
@@ -717,6 +752,7 @@ export function EditorMain({
           onSeekEnd={flushSeek}
           onAddText={handleAddText}
           onAddSubtitle={subtitleTranslation.canCreateManualSubtitles ? handleAddSubtitle : undefined}
+          onPickSubtitleSrtFile={handleImportSubtitleSrt}
           onAddKeystrokeSegment={handleAddKeystrokeSegment}
           onAddPointerSegment={handleAddPointerSegment}
           isPlaying={isPlaying}

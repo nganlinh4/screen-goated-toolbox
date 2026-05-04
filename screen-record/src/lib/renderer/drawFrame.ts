@@ -125,8 +125,10 @@ export async function drawFrame(
     mousePositions,
   } = context;
   if (!video || !canvas || !segment) return;
-  if (video.readyState < 2) return;
-  if (video.seeking) return;
+  const isTimelineOnly = segment.mediaMode === 'timelineOnly';
+  if (!isTimelineOnly && video.readyState < 2) return;
+  if (!isTimelineOnly && video.seeking) return;
+  const frameTime = isTimelineOnly ? context.currentTime : video.currentTime;
 
   const quality: ImageSmoothingQuality = 'high';
 
@@ -143,8 +145,12 @@ export async function drawFrame(
   state.latestElapsed = state.lastDrawTime === 0 ? 1000 / 60 : now - state.lastDrawTime;
   state.lastDrawTime = now;
 
-  const vidW = video.videoWidth;
-  const vidH = video.videoHeight;
+  const vidW = isTimelineOnly
+    ? Math.max(backgroundConfig.canvasWidth ?? 1920, 1)
+    : video.videoWidth;
+  const vidH = isTimelineOnly
+    ? Math.max(backgroundConfig.canvasHeight ?? 1080, 1)
+    : video.videoHeight;
   const webcamAspectRatio =
     webcamVideo && webcamVideo.videoWidth > 0 && webcamVideo.videoHeight > 0
       ? webcamVideo.videoWidth / webcamVideo.videoHeight
@@ -186,7 +192,7 @@ export async function drawFrame(
     const legacyCrop = (backgroundConfig.cropBottom || 0) / 100;
     const scale = backgroundConfig.scale / 100;
     const captureDims = sampleCaptureDimensionsAtTime(
-      video.currentTime,
+      frameTime,
       mousePositions,
       vidW,
       vidH
@@ -209,14 +215,14 @@ export async function drawFrame(
     const x = contained.left;
     const y = contained.top;
 
-    const zoomState = state.calculateCurrentZoomState(video.currentTime, segment, canvas.width, canvas.height, srcW, srcH, scale);
+    const zoomState = state.calculateCurrentZoomState(frameTime, segment, canvas.width, canvas.height, srcW, srcH, scale);
 
     // Supersample to keep zoom crisp
     const zf = zoomState?.zoomFactor ?? 1;
     const bgScale = Math.max(0.01, backgroundConfig.scale / 100);
     let ss = 1;
     const fullQualitySs = zf > 1 ? Math.min(Math.ceil(zf / bgScale), 4) : 1;
-    const isRealtimePreview = !isExportMode && !video.paused;
+    const isRealtimePreview = !isExportMode && !isTimelineOnly && !video.paused;
 
     if (!isRealtimePreview) {
       ss = fullQualitySs;
@@ -286,13 +292,15 @@ export async function drawFrame(
 
     tempCtx.clip();
 
-    try {
-      tempCtx.drawImage(
-        video,
-        srcX, srcY, srcW, srcH * (1 - legacyCrop),
-        x, y, scaledWidth, scaledHeight
-      );
-    } catch (_e) {
+    if (!isTimelineOnly) {
+      try {
+        tempCtx.drawImage(
+          video,
+          srcX, srcY, srcW, srcH * (1 - legacyCrop),
+          x, y, scaledWidth, scaledHeight
+        );
+      } catch (_e) {
+      }
     }
 
     tempCtx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
@@ -301,7 +309,7 @@ export async function drawFrame(
     tempCtx.restore();
 
     // --- Compute cursor state (squish, visibility) once per frame ---
-    const cursorTime = video.currentTime + getCursorMovementDelaySec(backgroundConfig);
+    const cursorTime = frameTime + getCursorMovementDelaySec(backgroundConfig);
     const interpolatedPosition = interpolateCursorPosition(
       cursorTime,
       mousePositions,
@@ -310,13 +318,13 @@ export async function drawFrame(
       vidH,
       backgroundConfig
     );
-    const cursorVis = getCursorVisibility(video.currentTime, segment.cursorVisibilitySegments);
+    const cursorVis = getCursorVisibility(frameTime, segment.cursorVisibilitySegments);
     const shouldRenderCustomCursor = segment.useCustomCursor !== false;
     const showCursor = Boolean(shouldRenderCustomCursor && interpolatedPosition && cursorVis.opacity > 0.001);
     if (!isExportMode) {
       logPreviewCursorDebug(
         state,
-        video.currentTime,
+        frameTime,
         cursorTime,
         interpolatedPosition,
         showCursor,
@@ -385,7 +393,9 @@ export async function drawFrame(
         tCtx.fillStyle = bgStyle;
         tCtx.fillRect(0, 0, canvasW, canvasH);
       }
-      tCtx.drawImage(tempCanvas, 0, 0, canvasW, canvasH);
+      if (!isTimelineOnly) {
+        tCtx.drawImage(tempCanvas, 0, 0, canvasW, canvasH);
+      }
       tCtx.restore();
 
       if (subCur && showCursor) {
@@ -428,8 +438,8 @@ export async function drawFrame(
     let cursorMoving = false;
     if (anyBlurEnabled && maxShutterSec > 0) {
       const halfShutter = maxShutterSec / 2;
-      const t0 = video.currentTime - halfShutter;
-      const t1 = video.currentTime + halfShutter;
+      const t0 = frameTime - halfShutter;
+      const t1 = frameTime + halfShutter;
       if (blurZoomVal > 0 || blurPanVal > 0) {
         const z0 = state.calculateCurrentZoomState(t0, segment, canvasW, canvasH, srcW, srcH, scale);
         const z1 = state.calculateCurrentZoomState(t1, segment, canvasW, canvasH, srcW, srcH, scale);
@@ -463,9 +473,9 @@ export async function drawFrame(
 
       for (let i = 0; i < N; i++) {
         const f = N > 1 ? i / (N - 1) : 0.5;
-        const cameraZoomSubT = video.currentTime - (zoomShutterSec / 2) + f * zoomShutterSec;
-        const cameraPanSubT = video.currentTime - (panShutterSec / 2) + f * panShutterSec;
-        const cursorSubT = video.currentTime + getCursorMovementDelaySec(backgroundConfig) - (cursorShutterSec / 2) + f * cursorShutterSec;
+        const cameraZoomSubT = frameTime - (zoomShutterSec / 2) + f * zoomShutterSec;
+        const cameraPanSubT = frameTime - (panShutterSec / 2) + f * panShutterSec;
+        const cursorSubT = frameTime + getCursorMovementDelaySec(backgroundConfig) - (cursorShutterSec / 2) + f * cursorShutterSec;
 
         const zState = state.calculateCurrentZoomState(cameraZoomSubT, segment, canvasW, canvasH, srcW, srcH, scale);
         const pState = state.calculateCurrentZoomState(cameraPanSubT, segment, canvasW, canvasH, srcW, srcH, scale);
@@ -505,7 +515,7 @@ export async function drawFrame(
 
       for (let i = 0; i < N; i++) {
         const f = N > 1 ? i / (N - 1) : 0.5;
-        const subCursorT = video.currentTime + getCursorMovementDelaySec(backgroundConfig) - (cursorShutterSec / 2) + f * cursorShutterSec;
+        const subCursorT = frameTime + getCursorMovementDelaySec(backgroundConfig) - (cursorShutterSec / 2) + f * cursorShutterSec;
         const subCur = interpolateCursorPosition(subCursorT, mousePositions, state, vidW, vidH, backgroundConfig);
         if (!subCur) continue;
 
@@ -544,13 +554,13 @@ export async function drawFrame(
     if (overlayTextSegments.length > 0) {
       const FADE_DURATION = 0.3;
       for (const textSegment of overlayTextSegments) {
-        if (video.currentTime >= textSegment.startTime && video.currentTime <= textSegment.endTime) {
+        if (frameTime >= textSegment.startTime && frameTime <= textSegment.endTime) {
           let fadeAlpha = 1.0;
-          const elapsed = video.currentTime - textSegment.startTime;
-          const remaining = textSegment.endTime - video.currentTime;
+          const elapsed = frameTime - textSegment.startTime;
+          const remaining = textSegment.endTime - frameTime;
           if (elapsed < FADE_DURATION) fadeAlpha = elapsed / FADE_DURATION;
           if (remaining < FADE_DURATION) fadeAlpha = Math.min(fadeAlpha, remaining / FADE_DURATION);
-          drawTextOverlay(ctx, textSegment, canvas.width, canvas.height, fadeAlpha, video.currentTime);
+          drawTextOverlay(ctx, textSegment, canvas.width, canvas.height, fadeAlpha, frameTime);
         }
       }
       canvas.style.fontVariationSettings = 'normal';
@@ -559,13 +569,13 @@ export async function drawFrame(
     const segmentDuration = Math.max(
       segment.trimEnd,
       ...(segment.trimSegments || []).map((trimSegment) => trimSegment.endTime),
-      video.duration || segment.trimEnd || 0
+      (!isTimelineOnly ? video.duration : 0) || segment.trimEnd || 0
     );
     drawActiveKeystrokeOverlays(
       state.keystrokeState,
       ctx,
       segment,
-      video.currentTime,
+      frameTime,
       canvas.width,
       canvas.height,
       segmentDuration

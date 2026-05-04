@@ -67,10 +67,16 @@ lazy_static::lazy_static! {
     pub static ref SERVER_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
     static ref PENDING_VIDEO_DROP_ACTIONS: std::sync::Mutex<Vec<VideoDropAction>> = std::sync::Mutex::new(Vec::new());
     static ref PENDING_AUDIO_DROP_ACTIONS: std::sync::Mutex<Vec<AudioDropAction>> = std::sync::Mutex::new(Vec::new());
+    static ref PENDING_SUBTITLE_DROP_ACTIONS: std::sync::Mutex<Vec<SubtitleDropAction>> = std::sync::Mutex::new(Vec::new());
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct AudioDropAction {
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct SubtitleDropAction {
     pub path: String,
 }
 
@@ -274,6 +280,17 @@ pub fn queue_audio_drop_action(path: String) {
 
 pub(crate) fn take_pending_audio_drop_actions() -> Vec<AudioDropAction> {
     std::mem::take(&mut *PENDING_AUDIO_DROP_ACTIONS.lock().unwrap())
+}
+
+pub fn queue_subtitle_drop_action(path: String) {
+    PENDING_SUBTITLE_DROP_ACTIONS
+        .lock()
+        .unwrap()
+        .push(SubtitleDropAction { path });
+}
+
+pub(crate) fn take_pending_subtitle_drop_actions() -> Vec<SubtitleDropAction> {
+    std::mem::take(&mut *PENDING_SUBTITLE_DROP_ACTIONS.lock().unwrap())
 }
 
 pub fn toggle_recording() {

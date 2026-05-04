@@ -31,11 +31,12 @@ import {
 } from "@/lib/webcamVisibility";
 import {
   getMediaServerUrl,
+  createAudioPlaceholderVideo,
   importVideoToManagedMediaFile,
   isManagedImportedVideoPath,
   writeBlobToTempMediaFile,
 } from "@/lib/mediaServer";
-import { normalizeSubtitleTrackState } from "@/lib/subtitleTracks";
+import { getVisibleSubtitleSegments, normalizeSubtitleTrackState } from "@/lib/subtitleTracks";
 import {
   normalizeCropRect,
   normalizeTrackDelaySec,
@@ -114,6 +115,11 @@ export function useProjects(props: UseProjectsProps) {
         fetchedBackground: summarizeLoadedBackground(project.backgroundConfig),
         trimEnd: project.segment?.trimEnd ?? null,
       });
+      let isTimelineOnlyProject =
+        project.composition?.timelineOnly ||
+        project.segment?.mediaMode === "timelineOnly" ||
+        Boolean((project.composition as { srtWorkspace?: boolean } | undefined)?.srtWorkspace) ||
+        Boolean(project.composition?.placeholderVideoForSubtitles && !project.rawVideoPath);
 
       const previousVideoUrl = props.currentVideo;
       const previousAudioUrl = props.currentAudio;
@@ -123,7 +129,68 @@ export function useProjects(props: UseProjectsProps) {
       // Restore rawVideoPath for old projects that only have a blob.
       // Writes the blob to disk via the media server POST endpoint (binary, no JSON overhead).
       let rawVideoPath = project.rawVideoPath ?? "";
-      if (!rawVideoPath && project.videoBlob && project.videoBlob.size > 0) {
+      if (isTimelineOnlyProject) {
+        try {
+          const legacyDuration = Math.max(
+            project.duration ?? 0,
+            project.segment?.trimEnd ?? 0,
+            ...getVisibleSubtitleSegments(project.segment)
+              .map((subtitle) => subtitle.endTime)
+              .filter(Number.isFinite),
+            1,
+          );
+          const placeholder = await createAudioPlaceholderVideo(
+            legacyDuration,
+            "legacy-srt-placeholder",
+          );
+          rawVideoPath = placeholder.path;
+          project.segment = {
+            ...project.segment,
+            mediaMode: undefined,
+            trimStart: 0,
+            trimEnd: legacyDuration,
+            trimSegments: [
+              {
+                id: project.segment.trimSegments?.[0]?.id ?? crypto.randomUUID(),
+                startTime: 0,
+                endTime: legacyDuration,
+              },
+            ],
+          };
+          project.duration = legacyDuration;
+          if (project.composition) {
+            const composition = project.composition;
+            project.composition = {
+              ...composition,
+              timelineOnly: false,
+              placeholderVideoForSubtitles: true,
+              clips: composition.clips.map((clip) =>
+                clip.id === "root"
+                  ? {
+                      ...clip,
+                      duration: legacyDuration,
+                      segment: project.segment,
+                      rawVideoPath,
+                    }
+                  : clip,
+              ),
+              globalSegment: composition.globalSegment
+                ? project.segment
+                : composition.globalSegment,
+            };
+            delete (project.composition as { srtWorkspace?: boolean }).srtWorkspace;
+          }
+          await projectManager.updateProject(projectId, {
+            ...project,
+            rawVideoPath,
+          });
+          isTimelineOnlyProject = false;
+        } catch (e) {
+          console.error("[ProjectLoad] Failed to materialize legacy timeline-only project:", e);
+          rawVideoPath = "";
+        }
+      }
+      if (!isTimelineOnlyProject && !rawVideoPath && project.videoBlob && project.videoBlob.size > 0) {
         try {
           if (project.recordingMode === "imported") {
             const restored = await importVideoToManagedMediaFile(
@@ -152,6 +219,7 @@ export function useProjects(props: UseProjectsProps) {
         }
       }
       if (
+        !isTimelineOnlyProject &&
         rawVideoPath &&
         project.recordingMode === "imported" &&
         !isManagedImportedVideoPath(rawVideoPath)
@@ -213,14 +281,14 @@ export function useProjects(props: UseProjectsProps) {
       if (loadRequestSeq !== loadRequestSeqRef.current) return;
 
       let videoObjectUrl: string | undefined;
-      if (rawVideoPath) {
+      if (!isTimelineOnlyProject && rawVideoPath) {
         const mediaUrl = await getMediaServerUrl(rawVideoPath);
         videoObjectUrl = await props.videoControllerRef.current?.loadVideo({
           videoUrl: mediaUrl,
           initialTime: project.segment.trimStart,
           debugLabel: "project-load",
         });
-      } else if (project.videoBlob) {
+      } else if (!isTimelineOnlyProject && project.videoBlob) {
         videoObjectUrl = await props.videoControllerRef.current?.loadVideo({
           videoBlob: project.videoBlob,
           initialTime: project.segment.trimStart,
@@ -276,8 +344,13 @@ export function useProjects(props: UseProjectsProps) {
       }
       if (loadRequestSeq !== loadRequestSeqRef.current) return;
 
-      const videoDuration = props.videoControllerRef.current?.duration || 0;
+      const videoDuration = isTimelineOnlyProject
+        ? Math.max(project.duration ?? 0, project.segment.trimEnd, 1)
+        : props.videoControllerRef.current?.duration || 0;
       let correctedSegment = { ...project.segment };
+      if (isTimelineOnlyProject) {
+        correctedSegment.mediaMode = "timelineOnly";
+      }
       const hasExplicitPointerSegments = Array.isArray(
         correctedSegment.cursorVisibilitySegments,
       );
@@ -424,12 +497,14 @@ export function useProjects(props: UseProjectsProps) {
 
       // Draw the first frame on the canvas immediately (before React state updates)
       // so the canvas has content when the projects overlay fades out.
-      props.videoControllerRef.current?.renderImmediate({
-        segment: correctedSegment,
-        backgroundConfig: cloneBackgroundConfig(project.backgroundConfig),
-        webcamConfig: cloneWebcamConfig(project.webcamConfig),
-        mousePositions: project.mousePositions,
-      });
+      if (!isTimelineOnlyProject) {
+        props.videoControllerRef.current?.renderImmediate({
+          segment: correctedSegment,
+          backgroundConfig: cloneBackgroundConfig(project.backgroundConfig),
+          webcamConfig: cloneWebcamConfig(project.webcamConfig),
+          mousePositions: project.mousePositions,
+        });
+      }
 
       setCurrentProjectId(projectId);
       props.setThumbnails([]);
@@ -439,6 +514,11 @@ export function useProjects(props: UseProjectsProps) {
           previousVideoUrl?.startsWith("blob:") &&
           previousVideoUrl !== videoObjectUrl
         ) {
+          URL.revokeObjectURL(previousVideoUrl);
+        }
+      } else {
+        props.setCurrentVideo(null);
+        if (previousVideoUrl?.startsWith("blob:")) {
           URL.revokeObjectURL(previousVideoUrl);
         }
       }

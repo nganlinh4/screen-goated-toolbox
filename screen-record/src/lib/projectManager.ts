@@ -99,6 +99,13 @@ function stripHeavyProjectFields(
   return record as StoredProjectRecord;
 }
 
+function isTimelineOnlyProject(project: StoredProjectRecord): boolean {
+  return Boolean(
+    project.composition?.timelineOnly ||
+      project.segment?.mediaMode === "timelineOnly",
+  );
+}
+
 function sortProjectsByDisplayOrder<
   T extends { lastModified: number; createdAt: number },
 >(projects: T[]): T[] {
@@ -168,7 +175,9 @@ class ProjectManager {
     if (!project) return null;
 
     const videoBlob = await this.loadVideoBlob(id);
-    if (!videoBlob && !project.rawVideoPath) return null;
+    if (!videoBlob && !project.rawVideoPath && !isTimelineOnlyProject(project)) {
+      return null;
+    }
 
     const audioBlob = await this.loadAudioBlob(id);
     const micAudioBlob = await this.loadMicAudioBlob(id);

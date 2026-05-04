@@ -40,6 +40,7 @@ export interface PreviewCanvasProps {
   isBuffering: boolean;
   isPreviewPlaying: boolean;
   currentVideo: string | null;
+  isTimelineOnly: boolean;
   // Loading state
   isLoadingVideo: boolean;
   loadingProgress: number;
@@ -85,6 +86,7 @@ export function PreviewCanvas({
   isBuffering,
   isPreviewPlaying,
   currentVideo,
+  isTimelineOnly,
   isLoadingVideo,
   loadingProgress,
   isRecording,
@@ -183,13 +185,13 @@ export function PreviewCanvas({
               </div>
             )}
 
-          {isBuffering && isPreviewPlaying && currentVideo && (
+          {isBuffering && isPreviewPlaying && currentVideo && !isTimelineOnly && (
             <div className="buffering-indicator absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
               <div className="buffering-spinner w-10 h-10 rounded-full border-[3px] border-white/20 border-t-white/80 animate-spin" />
             </div>
           )}
 
-          {(!currentVideo || isLoadingVideo) && (
+          {(!currentVideo || isLoadingVideo) && !isTimelineOnly && (
             <Placeholder
               isLoadingVideo={isLoadingVideo}
               loadingProgress={loadingProgress}

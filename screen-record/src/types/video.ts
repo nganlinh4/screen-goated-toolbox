@@ -257,6 +257,7 @@ export const DEFAULT_AUTO_ZOOM_CONFIG: AutoZoomConfig = {
 };
 
 export interface VideoSegment {
+  mediaMode?: "video" | "timelineOnly";
   trimStart: number;
   trimEnd: number;
   trimSegments?: TrimSegment[];
@@ -336,6 +337,14 @@ export interface ProjectComposition {
    * job is to provide normal video timing/export behavior for imported audio.
    */
   placeholderVideoForAudio?: boolean;
+  /** Marker for SRT-imported projects backed by a generated placeholder video. */
+  placeholderVideoForSubtitles?: boolean;
+  /**
+   * Project has no source media; preview/export are driven directly by
+   * timeline duration and overlays.
+   * Legacy only. New SRT imports create a generated placeholder video instead.
+   */
+  timelineOnly?: boolean;
 }
 
 export interface BackgroundConfig {

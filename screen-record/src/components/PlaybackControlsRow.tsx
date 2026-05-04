@@ -25,6 +25,7 @@ export interface PlaybackControlsRowProps {
   wallClockDuration: number;
   onTogglePlayPause: () => void;
   onToggleCrop: () => void;
+  onSetProjectDuration?: (duration: number) => void;
   // CanvasModeToggle props
   backgroundConfig: BackgroundConfig;
   setBackgroundConfig: CanvasModeToggleProps["setBackgroundConfig"];
@@ -67,6 +68,7 @@ export function PlaybackControlsRow({
   wallClockDuration,
   onTogglePlayPause,
   onToggleCrop,
+  onSetProjectDuration,
   backgroundConfig,
   setBackgroundConfig,
   customCanvasBaseDimensions,
@@ -137,6 +139,8 @@ export function PlaybackControlsRow({
           wallClockDuration={wallClockDuration}
           onTogglePlayPause={onTogglePlayPause}
           onToggleCrop={onToggleCrop}
+          showCropButton={true}
+          onSetProjectDuration={onSetProjectDuration}
           canvasModeToggle={
             <CanvasModeToggle
               backgroundConfig={backgroundConfig}
