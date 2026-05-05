@@ -5,6 +5,7 @@ import {
   buildFlatDeviceAudioPoints,
   clampDeviceAudioVolume,
   getDeviceAudioVolumeAtTime,
+  getImplicitAudioEdgeFadeMultiplier,
 } from "./deviceAudio";
 import {
   buildFlatMicAudioPoints,
@@ -251,12 +252,17 @@ export class VideoController {
   }
 
   private applyAudioTrackVolumes(time: number = this.video.currentTime) {
+    const segmentDuration = Math.max(
+      0.001,
+      this.renderOptions?.segment?.trimEnd ?? this.video.duration ?? 0,
+    );
     const deviceVol = clampDeviceAudioVolume(
       getDeviceAudioVolumeAtTime(time, this.renderOptions?.segment?.deviceAudioPoints),
-    );
+    ) * getImplicitAudioEdgeFadeMultiplier(time, segmentDuration);
+    const micLocalTime = time - this.getMicAudioOffsetSec();
     const micVol = clampMicAudioVolume(
       getMicAudioVolumeAtTime(time, this.renderOptions?.segment?.micAudioPoints),
-    );
+    ) * getImplicitAudioEdgeFadeMultiplier(micLocalTime, segmentDuration);
     if (this.hasValidDeviceAudio && this.deviceAudio) this.deviceAudio.volume = deviceVol;
     if (this.hasValidMicAudio && this.micAudio) this.micAudio.volume = micVol;
     if (this.hasExternalAudio) { this.video.muted = true; return; }

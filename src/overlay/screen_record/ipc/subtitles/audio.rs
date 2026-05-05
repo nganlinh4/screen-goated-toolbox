@@ -88,6 +88,153 @@ pub fn build_trimmed_wav(
     Ok(cursor.into_inner())
 }
 
+/// Window duration used when scanning for low-energy regions during VAD-aware splitting.
+const VAD_WINDOW_MS: u32 = 25;
+
+/// Compute per-window RMS over a mono view of the input samples.
+/// Returns `(rms_per_window, frames_per_window)`.
+fn compute_window_rms(samples: &[i16], channels: usize, sample_rate: u32) -> (Vec<f32>, usize) {
+    let channels = channels.max(1);
+    let window_frames = ((sample_rate as f64 * VAD_WINDOW_MS as f64) / 1000.0).max(1.0) as usize;
+    let total_frames = samples.len() / channels;
+    if total_frames == 0 || window_frames == 0 {
+        return (Vec::new(), window_frames);
+    }
+    let window_count = total_frames.div_ceil(window_frames);
+    let mut rms = Vec::with_capacity(window_count);
+    for window_index in 0..window_count {
+        let start_frame = window_index * window_frames;
+        let end_frame = (start_frame + window_frames).min(total_frames);
+        let mut sum_sq: f64 = 0.0;
+        let mut count: usize = 0;
+        for frame in start_frame..end_frame {
+            let mono = samples[frame * channels] as f64 / i16::MAX as f64;
+            sum_sq += mono * mono;
+            count += 1;
+        }
+        let value = if count > 0 {
+            (sum_sq / count as f64).sqrt() as f32
+        } else {
+            0.0
+        };
+        rms.push(value);
+    }
+    (rms, window_frames)
+}
+
+/// Snap each ideal split frame to the quietest window within `search_radius_sec`.
+/// Returned positions are strictly increasing and bounded by `(0, total_frames)`.
+pub fn snap_split_frames_to_silence(
+    samples: &[i16],
+    channels: usize,
+    sample_rate: u32,
+    ideal_frame_positions: &[usize],
+    search_radius_sec: f64,
+) -> Vec<usize> {
+    if ideal_frame_positions.is_empty() {
+        return Vec::new();
+    }
+    let channels = channels.max(1);
+    let total_frames = samples.len() / channels;
+    if total_frames < 2 {
+        return ideal_frame_positions.to_vec();
+    }
+    let (window_rms, window_frames) = compute_window_rms(samples, channels, sample_rate);
+    if window_rms.is_empty() || window_frames == 0 {
+        return ideal_frame_positions.to_vec();
+    }
+    let radius_windows = ((search_radius_sec * sample_rate as f64) / window_frames as f64)
+        .ceil()
+        .max(1.0) as usize;
+    let last_window = window_rms.len() - 1;
+    let mut snapped = Vec::with_capacity(ideal_frame_positions.len());
+    let mut min_window_floor: usize = 0;
+    for ideal_frame in ideal_frame_positions {
+        let clamped_frame = (*ideal_frame).min(total_frames - 1);
+        let ideal_window = (clamped_frame / window_frames).min(last_window);
+        let lo = ideal_window
+            .saturating_sub(radius_windows)
+            .max(min_window_floor);
+        let hi = (ideal_window + radius_windows).min(last_window);
+        if hi <= lo {
+            snapped.push(clamped_frame);
+            min_window_floor = (ideal_window + 1).min(last_window);
+            continue;
+        }
+        let mut best_index = ideal_window;
+        let mut best_rms = f32::INFINITY;
+        let mut best_distance = usize::MAX;
+        for window_index in lo..=hi {
+            let rms_value = window_rms[window_index];
+            let distance = window_index.abs_diff(ideal_window);
+            let is_better = rms_value < best_rms - 1e-6
+                || (rms_value <= best_rms + 1e-6 && distance < best_distance);
+            if is_better {
+                best_rms = rms_value;
+                best_distance = distance;
+                best_index = window_index;
+            }
+        }
+        let snapped_frame =
+            (best_index * window_frames + window_frames / 2).min(total_frames - 1);
+        snapped.push(snapped_frame);
+        min_window_floor = (best_index + 1).min(last_window);
+    }
+
+    // Final guard: keep positions strictly increasing within (0, total_frames).
+    let mut prev: usize = 0;
+    for position in snapped.iter_mut() {
+        if *position <= prev {
+            *position = prev + 1;
+        }
+        if *position >= total_frames {
+            *position = total_frames - 1;
+        }
+        prev = *position;
+    }
+    snapped
+}
+
+/// Build half-open `[start_frame, end_frame)` chunk ranges for VAD-aware splitting.
+/// Initial split positions are evenly spaced; each is then snapped to the quietest
+/// window within `search_radius_sec` so chunks end on natural silence whenever possible.
+pub fn build_silence_aware_split_frames(
+    samples: &[i16],
+    channels: usize,
+    sample_rate: u32,
+    split_parts: usize,
+    search_radius_sec: f64,
+) -> Vec<(usize, usize)> {
+    let channels = channels.max(1);
+    let total_frames = samples.len() / channels;
+    if split_parts <= 1 || total_frames == 0 {
+        return vec![(0, total_frames)];
+    }
+    let split_parts = split_parts.min(total_frames.max(1));
+    let ideal_positions: Vec<usize> = (1..split_parts)
+        .map(|i| total_frames * i / split_parts)
+        .collect();
+    let snapped = snap_split_frames_to_silence(
+        samples,
+        channels,
+        sample_rate,
+        &ideal_positions,
+        search_radius_sec,
+    );
+    let mut ranges = Vec::with_capacity(split_parts);
+    let mut start: usize = 0;
+    for boundary in snapped {
+        if boundary > start {
+            ranges.push((start, boundary));
+            start = boundary;
+        }
+    }
+    if start < total_frames {
+        ranges.push((start, total_frames));
+    }
+    ranges
+}
+
 pub fn compact_to_source_time(
     compact_time: f64,
     trim_segments: &[SubtitleTrimSegment],

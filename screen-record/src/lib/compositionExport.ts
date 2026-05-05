@@ -110,6 +110,9 @@ interface NativeCompositionExportRequest {
   format: "mp4" | "gif" | "both";
   clips: NativeCompositionExportClipJob[];
   audioSegments?: import("@/types/video").ImportedAudioSegment[];
+  audioTrackVolumePoints?: import("@/types/video").AudioGainPoint[];
+  narrationSegments?: import("@/types/video").NarrationSegment[];
+  narrationTrackVolumePoints?: import("@/types/video").AudioGainPoint[];
 }
 
 interface NativeCompositionExportResponse {
@@ -481,6 +484,9 @@ export async function exportCompositionAndDownload(
         format: exportOptions.format || "mp4",
         clips: clipJobs,
         audioSegments: context.composition.audioSegments,
+        audioTrackVolumePoints: context.composition.audioTrackVolumePoints,
+        narrationSegments: context.composition.narrationSegments,
+        narrationTrackVolumePoints: context.composition.narrationTrackVolumePoints,
       } satisfies NativeCompositionExportRequest,
     );
   } finally {

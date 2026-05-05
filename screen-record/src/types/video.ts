@@ -217,8 +217,50 @@ export interface ImportedAudioSegment {
   startTime: number;
   inPoint: number;
   outPoint: number;
-  volumePoints?: ImportedAudioGainPoint[];
+  /** Per-segment playback rate (1.0 = original; clamp 0.25–4.0). */
+  playbackRate?: number;
   addedAt: number;
+}
+
+/**
+ * A TTS-narration audio clip placed on the project-level Narration track.
+ * Lives in `composition.narrationSegments` and is rendered/exported separately
+ * from `composition.audioSegments` so the two features never share a row.
+ */
+export interface NarrationSegment {
+  id: string;
+  rawAudioPath: string;
+  name: string;
+  duration: number;
+  startTime: number;
+  inPoint: number;
+  outPoint: number;
+  /** Per-segment playback rate (1.0 = original; clamp 0.25–4.0). */
+  playbackRate?: number;
+  addedAt: number;
+  /** Originating subtitle id (so re-synthesize can target the same row). */
+  sourceSubtitleId?: string;
+  /** Group id for the narration generation batch this clip came from. */
+  narrationBatchId?: string;
+  /** TTS profile snapshot used to synthesize this clip. */
+  ttsProfileSnapshot?: TtsProfileSnapshot;
+}
+
+export interface TtsProfileSnapshot {
+  method: string;
+  geminiModel?: string;
+  geminiVoice?: string;
+  geminiSpeed?: string;
+  geminiInstruction?: string;
+  googleSpeed?: string;
+  edgeVoice?: string;
+  edgePitch?: number;
+  edgeRate?: number;
+  edgeVoiceConfigs?: Array<{
+    languageCode: string;
+    languageName: string;
+    voiceName: string;
+  }>;
 }
 
 export type RecordingMode = "withoutCursor" | "withCursor" | "imported";
@@ -332,6 +374,21 @@ export interface ProjectComposition {
    * Empty/undefined means no Audio track is rendered.
    */
   audioSegments?: ImportedAudioSegment[];
+  /**
+   * Track-global volume envelope for the Audio track (mirrors device audio).
+   * Time domain: project-relative seconds. Volume range: 0..1.
+   */
+  audioTrackVolumePoints?: AudioGainPoint[];
+  /**
+   * TTS-generated narration clips placed on the project-wide Narration track.
+   * Independent from `audioSegments`; rendered and exported in its own pass.
+   */
+  narrationSegments?: NarrationSegment[];
+  /**
+   * Track-global volume envelope for the Narration track.
+   * Same shape as `audioTrackVolumePoints`.
+   */
+  narrationTrackVolumePoints?: AudioGainPoint[];
   /**
    * Set true when the root video is a generated silent placeholder whose only
    * job is to provide normal video timing/export behavior for imported audio.
@@ -526,6 +583,8 @@ export interface ExportOptions {
   bakedWebcamFrames?: BakedWebcamFrame[];
   /** User-supplied audio files placed on the project-wide Audio track. */
   audioSegments?: ImportedAudioSegment[];
+  /** TTS-generated clips placed on the project-wide Narration track. */
+  narrationSegments?: NarrationSegment[];
 }
 
 export type ExportArtifactFormat = "mp4" | "gif";

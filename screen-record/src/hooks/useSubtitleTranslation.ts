@@ -44,7 +44,7 @@ const SUBTITLE_TRANSLATION_CHUNK_COUNT_KEY = 'screen-record-subtitle-translation
 const SUBTITLE_TRANSLATION_INSTRUCTIONS_KEY = 'screen-record-subtitle-translation-instructions-v1';
 const SUBTITLE_TRANSLATION_SOURCE_KEY = 'screen-record-subtitle-translation-source-v1';
 
-export type SubtitleTranslationSource = 'current' | Exclude<SubtitleSourceGroupId, 'unassigned'>;
+export type SubtitleTranslationSource = 'current' | 'all' | Exclude<SubtitleSourceGroupId, 'unassigned'>;
 
 interface SubtitleTranslationResultItem {
   id: string;
@@ -145,12 +145,15 @@ function getInitialTranslationSource(): SubtitleTranslationSource {
     const raw = localStorage.getItem(SUBTITLE_TRANSLATION_SOURCE_KEY);
     if (
       raw === 'current' ||
+      raw === 'all' ||
       raw === 'video' ||
       raw === 'mic' ||
-      raw === 'audio' ||
-      raw?.startsWith('audio:')
+      raw === 'audio'
     ) {
       return raw as SubtitleTranslationSource;
+    }
+    if (raw?.startsWith('audio:')) {
+      return 'audio';
     }
   } catch {
     // ignore persistence failures
@@ -192,7 +195,7 @@ function buildTranslationItems(
   const originalTrack = tracks.find((track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID);
   return (originalTrack?.segments ?? [])
     .filter((subtitle) => targetIds.has(subtitle.id))
-    .filter((subtitle) => source === 'current' || subtitleOverlapsSourceGroup(subtitle, source))
+    .filter((subtitle) => source === 'current' || source === 'all' || subtitleOverlapsSourceGroup(subtitle, source))
     .sort((left, right) => {
       if (source !== 'audio') return left.startTime - right.startTime;
       const groupCompare = getSubtitleSourceGroupId(left).localeCompare(getSubtitleSourceGroupId(right));
@@ -202,8 +205,8 @@ function buildTranslationItems(
       id: subtitle.id,
       clipId: 'root',
       text: subtitle.text,
-      sourceGroupId:
-        source === 'current' || source === 'audio'
+        sourceGroupId:
+        source === 'current' || source === 'all' || source === 'audio'
           ? getSubtitleSourceGroupId(subtitle)
           : source,
       sourceName: subtitle.sourceGroup?.sourceName ?? subtitle.provenance?.sourceName ?? null,
@@ -233,7 +236,7 @@ function buildCompositionTranslationItems(
     );
     return (originalTrack?.segments ?? [])
       .filter((subtitle) => targetIds.has(subtitle.id))
-      .filter((subtitle) => source === 'current' || subtitleOverlapsSourceGroup(subtitle, source))
+      .filter((subtitle) => source === 'current' || source === 'all' || subtitleOverlapsSourceGroup(subtitle, source))
       .sort((left, right) => {
         if (source !== 'audio') return left.startTime - right.startTime;
         const groupCompare = getSubtitleSourceGroupId(left).localeCompare(getSubtitleSourceGroupId(right));
@@ -244,7 +247,7 @@ function buildCompositionTranslationItems(
         clipId: clip.id,
         text: subtitle.text,
         sourceGroupId:
-          source === 'current' || source === 'audio'
+          source === 'current' || source === 'all' || source === 'audio'
             ? getSubtitleSourceGroupId(subtitle)
             : source,
         sourceName: subtitle.sourceGroup?.sourceName ?? subtitle.provenance?.sourceName ?? null,
@@ -478,13 +481,11 @@ export function useSubtitleTranslation({
   const subtitleTranslationSourceCounts = useMemo(() => {
     const sources = new Set<SubtitleTranslationSource>([
       'current',
+      'all',
       'audio',
       'video',
       'mic',
     ]);
-    for (const audioSegment of composition?.audioSegments ?? []) {
-      sources.add(`audio:${audioSegment.id}`);
-    }
     const entries = [...sources].map((source) => {
       const items = !segment
         ? []

@@ -1,5 +1,5 @@
 import React, { type MutableRefObject, type RefObject } from "react";
-import { BackgroundConfig, type ImportedAudioSegment } from "@/types/video";
+import { BackgroundConfig, type AudioGainPoint, type ImportedAudioSegment } from "@/types/video";
 import {
   Placeholder,
   CanvasResizeOverlay,
@@ -61,8 +61,11 @@ export interface PreviewCanvasProps {
   // Imported audio segments — rendered as hidden <audio> elements synced with
   // the timeline. Each plays independently when its time-range is active.
   audioSegments?: ImportedAudioSegment[];
+  audioTrackVolumePoints?: AudioGainPoint[];
+  narrationTrackVolumePoints?: AudioGainPoint[];
   currentTime: number;
   isPlaying: boolean;
+  audioResetKey?: number;
 }
 
 export function PreviewCanvas({
@@ -100,8 +103,11 @@ export function PreviewCanvas({
   seekIndicatorDir,
   seekIndicatorKey,
   audioSegments,
+  audioTrackVolumePoints,
+  narrationTrackVolumePoints,
   currentTime,
   isPlaying,
+  audioResetKey,
 }: PreviewCanvasProps) {
   return (
     <div className="video-preview-container flex-1 min-h-0 overflow-hidden flex items-center justify-center">
@@ -155,8 +161,11 @@ export function PreviewCanvas({
 
           <ImportedAudioPlayers
             segments={audioSegments}
+            audioTrackVolumePoints={audioTrackVolumePoints}
+            narrationTrackVolumePoints={narrationTrackVolumePoints}
             currentTime={currentTime}
             isPlaying={isPlaying}
+            resetKey={audioResetKey}
           />
 
           {keystrokeOverlayEditFrame &&

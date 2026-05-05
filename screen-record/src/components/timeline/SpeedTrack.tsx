@@ -486,7 +486,7 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
   return (
     <>
       <div
-        className="speed-track timeline-lane timeline-lane-strong relative h-10"
+        className="speed-track timeline-lane timeline-lane-strong relative h-7"
       >
         <div
           className="speed-track-curve-clip absolute inset-0 overflow-hidden"

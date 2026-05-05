@@ -40,6 +40,15 @@ pub struct ExportConfig {
     /// User-supplied audio files placed on the project-wide Audio track.
     #[serde(default, alias = "musicSegments")]
     pub audio_segments: Vec<ImportedAudioSegmentConfig>,
+    /// Track-global volume envelope for the Audio track.
+    #[serde(default)]
+    pub audio_track_volume_points: Vec<DeviceAudioPoint>,
+    /// TTS-narration audio clips placed on the project-wide Narration track.
+    #[serde(default)]
+    pub narration_segments: Vec<ImportedAudioSegmentConfig>,
+    /// Track-global volume envelope for the Narration track.
+    #[serde(default)]
+    pub narration_track_volume_points: Vec<DeviceAudioPoint>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -90,6 +99,15 @@ pub struct CompositionExportConfig {
     /// per-clip slice of these computed at export time.
     #[serde(default, alias = "musicSegments")]
     pub audio_segments: Vec<ImportedAudioSegmentConfig>,
+    /// Project-wide track-global Audio track volume envelope.
+    #[serde(default)]
+    pub audio_track_volume_points: Vec<DeviceAudioPoint>,
+    /// Project-wide TTS narration segments. Sliced per clip alongside audio.
+    #[serde(default)]
+    pub narration_segments: Vec<ImportedAudioSegmentConfig>,
+    /// Project-wide track-global Narration track volume envelope.
+    #[serde(default)]
+    pub narration_track_volume_points: Vec<DeviceAudioPoint>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -138,6 +156,12 @@ pub struct ImportedAudioSegmentConfig {
     pub out_point: f64,
     #[serde(default)]
     pub volume_points: Vec<DeviceAudioPoint>,
+    #[serde(default = "default_playback_rate")]
+    pub playback_rate: f64,
+}
+
+fn default_playback_rate() -> f64 {
+    1.0
 }
 
 #[derive(Deserialize, Debug, Clone)]

@@ -588,7 +588,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
 
   return (
     <div
-      className="zoom-track timeline-lane timeline-lane-strong relative h-10"
+      className="zoom-track timeline-lane timeline-lane-strong relative h-7"
       onMouseMove={handleTrackMouseMove}
       onMouseLeave={() => setHoveredRangeIdx(null)}
     >

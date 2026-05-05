@@ -1,5 +1,11 @@
 import { useEffect, useRef } from 'react';
-import type { VideoSegment, BackgroundConfig, ImportedAudioSegment } from '@/types/video';
+import type {
+  VideoSegment,
+  BackgroundConfig,
+  ImportedAudioSegment,
+  NarrationSegment,
+  SubtitleSegment,
+} from '@/types/video';
 import { useSettings } from '@/hooks/useSettings';
 import type { SubtitleMethod } from '@/hooks/useSubtitleGeneration';
 import type { SubtitleSource } from '@/lib/subtitleGenerationPlan';
@@ -12,6 +18,8 @@ import { CursorPanel } from './CursorPanel';
 import { SubtitlePanel } from './SubtitlePanel';
 import { TextPanel } from './TextPanel';
 import { BlurPanel } from './BlurPanel';
+import { AudioPanel } from './AudioPanel';
+import { NarrationPanel } from './NarrationPanel';
 import { motion } from 'framer-motion';
 import type { WebcamConfig } from '@/types/video';
 
@@ -24,10 +32,22 @@ export type ActivePanel =
   | 'background'
   | 'cursor'
   | 'blur'
+  | 'audio'
+  | 'narration'
   | 'subtitles'
   | 'text';
 
-const PANEL_TAB_ORDER: ActivePanel[] = ['zoom', 'camera', 'background', 'cursor', 'blur', 'subtitles', 'text'];
+const PANEL_TAB_ORDER: ActivePanel[] = [
+  'zoom',
+  'camera',
+  'background',
+  'cursor',
+  'blur',
+  'audio',
+  'narration',
+  'subtitles',
+  'text',
+];
 
 // ============================================================================
 // PanelTabs
@@ -40,25 +60,22 @@ interface PanelTabsProps {
 
 function PanelTabs({ activePanel, onPanelChange, hiddenTabs }: PanelTabsProps) {
   const { t } = useSettings();
+  const tabLabel = (id: ActivePanel) => {
+    switch (id) {
+      case 'zoom': return t.tabZoom;
+      case 'camera': return t.tabCamera;
+      case 'background': return t.tabBackground;
+      case 'cursor': return t.tabCursor;
+      case 'blur': return t.tabBlur;
+      case 'audio': return t.tabAudio;
+      case 'narration': return t.tabNarration;
+      case 'subtitles': return t.tabSubtitles;
+      case 'text': return t.tabText;
+    }
+  };
   const tabs: { id: ActivePanel; label: string }[] = PANEL_TAB_ORDER
     .filter((id) => !hiddenTabs?.has(id))
-    .map((id) => ({
-    id,
-    label:
-      id === 'zoom'
-        ? t.tabZoom
-        : id === 'camera'
-          ? t.tabCamera
-        : id === 'background'
-          ? t.tabBackground
-          : id === 'cursor'
-            ? t.tabCursor
-            : id === 'blur'
-              ? t.tabBlur
-              : id === 'subtitles'
-                ? t.tabSubtitles
-              : t.tabText,
-  }));
+    .map((id) => ({ id, label: tabLabel(id) }));
 
   return (
     <div className="panel-tabs ui-segmented relative flex flex-nowrap overflow-hidden">
@@ -143,6 +160,23 @@ interface SidePanelProps {
   onExportSubtitleSrt: () => void;
   canExportAudioSubtitleSrt: boolean;
   onExportMusicSubtitleSrt: () => void;
+  onApplyNarrationSegments: (
+    segments: NarrationSegment[],
+    replaceSubtitleIds: string[],
+  ) => void | Promise<void>;
+  onFinalizeNarrationSegments: () => void | Promise<void>;
+  audioSegmentsForPanel?: ImportedAudioSegment[];
+  selectedAudioSegmentIds?: ReadonlySet<string>;
+  onUpdateAudioSegmentForPanel?: (id: string, patch: Partial<ImportedAudioSegment>) => void;
+  onDeleteAudioSegmentsForPanel?: (ids: string[]) => void;
+  onCommitAudioSegmentsForPanel?: () => void;
+  narrationSegmentsForPanel?: NarrationSegment[];
+  selectedNarrationSegmentIds?: ReadonlySet<string>;
+  onUpdateNarrationSegmentForPanel?: (id: string, patch: Partial<NarrationSegment>) => void;
+  onDeleteNarrationSegmentsForPanel?: (ids: string[]) => void;
+  onCommitNarrationSegmentsForPanel?: () => void;
+  visibleSubtitlesForNarration?: SubtitleSegment[];
+  subtitleTracksForNarration?: import('@/types/video').SubtitleTrack[];
   subtitleTranslation: ReturnType<typeof useSubtitleTranslation>;
   selectedTextIds?: string[];
   hasMouseData?: boolean;
@@ -198,6 +232,18 @@ export function SidePanel({
   onExportSubtitleSrt,
   canExportAudioSubtitleSrt,
   onExportMusicSubtitleSrt,
+  onApplyNarrationSegments,
+  onFinalizeNarrationSegments,
+  audioSegmentsForPanel,
+  selectedAudioSegmentIds,
+  onUpdateAudioSegmentForPanel,
+  onCommitAudioSegmentsForPanel,
+  narrationSegmentsForPanel,
+  selectedNarrationSegmentIds,
+  onUpdateNarrationSegmentForPanel,
+  onCommitNarrationSegmentsForPanel,
+  visibleSubtitlesForNarration,
+  subtitleTracksForNarration,
   subtitleTranslation,
   selectedTextIds,
   hasMouseData,
@@ -209,12 +255,19 @@ export function SidePanel({
   const hasTextFocus = !!editingTextId || (selectedTextIds?.length ?? 0) > 0;
   const hasSubtitlePanel = !!segment;
 
+  const hasNarrationSegments = (narrationSegmentsForPanel?.length ?? 0) > 0;
+  const hasAudioSegments = (audioSegmentsForPanel?.length ?? 0) > 0 || hasNarrationSegments;
+  const hasNarrationContext = hasNarrationSegments
+    || (visibleSubtitlesForNarration?.length ?? 0) > 0;
+
   const hiddenTabs = new Set<ActivePanel>();
   if (!hasMouseData) hiddenTabs.add('cursor');
   if (!webcamAvailable) hiddenTabs.add('camera');
   if (!hasZoomFocus) hiddenTabs.add('zoom');
   if (!hasTextFocus) hiddenTabs.add('text');
   if (!hasSubtitlePanel) hiddenTabs.add('subtitles');
+  if (!hasAudioSegments) hiddenTabs.add('audio');
+  if (!hasNarrationContext) hiddenTabs.add('narration');
   const visiblePanelOrder = PANEL_TAB_ORDER.filter((id) => !hiddenTabs.has(id));
   // If active panel got hidden, fall back to first visible tab
   const effectivePanel = hiddenTabs.has(activePanel) ? (visiblePanelOrder[0] ?? 'background') : activePanel;
@@ -325,6 +378,37 @@ export function SidePanel({
           onUpdateSegment={onUpdateSegment}
           beginBatch={beginBatch}
           commitBatch={commitBatch}
+        />
+      );
+    }
+
+    if (panelId === 'audio') {
+      return (
+        <AudioPanel
+          importedSegments={audioSegmentsForPanel ?? []}
+          narrationSegments={narrationSegmentsForPanel ?? []}
+          subtitleSegments={visibleSubtitlesForNarration ?? []}
+          selectedImportedIds={selectedAudioSegmentIds ?? new Set()}
+          selectedNarrationIds={selectedNarrationSegmentIds ?? new Set()}
+          onUpdateImportedSegment={onUpdateAudioSegmentForPanel ?? (() => undefined)}
+          onUpdateNarrationSegment={onUpdateNarrationSegmentForPanel ?? (() => undefined)}
+          beginBatch={beginBatch}
+          commitBatch={commitBatch}
+          onCommitImportedSegments={onCommitAudioSegmentsForPanel}
+          onCommitNarrationSegments={onCommitNarrationSegmentsForPanel}
+        />
+      );
+    }
+
+    if (panelId === 'narration') {
+      return (
+        <NarrationPanel
+          visibleSubtitles={visibleSubtitlesForNarration ?? []}
+          subtitleTracks={subtitleTracksForNarration}
+          selectedSubtitleIds={selectedSubtitleIds}
+          selectedSubtitleRange={selectedSubtitleRange}
+          onApplyNarrationSegments={onApplyNarrationSegments}
+          onFinalizeNarrationSegments={onFinalizeNarrationSegments}
         />
       );
     }

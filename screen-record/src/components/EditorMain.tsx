@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState, type MutableRefObject, type RefObject } from "react";
 import {
   BackgroundConfig,
+  ImportedAudioSegment,
+  NarrationSegment,
   ProjectComposition,
   TextSegment,
   VideoSegment,
@@ -28,7 +30,7 @@ import {
   addSubtitleAcrossTracks,
   mergeSubtitleSelectionAcrossTracks,
 } from "@/lib/subtitleTrackMutations";
-import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
+import { getSubtitleTracks, getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
 import { inferAudioSourceGroupAtRange } from "@/lib/subtitleSourceGroups";
 
 export interface EditorMainProps {
@@ -72,6 +74,7 @@ export interface EditorMainProps {
   setIsCanvasResizeDragging: (dragging: boolean) => void;
   seekIndicatorDir: "left" | "right" | null;
   seekIndicatorKey: number;
+  audioResetKey?: number;
   // PlaybackControlsRow props
   isPlaying: boolean;
   isProcessing: boolean;
@@ -137,6 +140,11 @@ export interface EditorMainProps {
   subtitleGenerationIndicator?: SubtitleGenerationIndicator | null;
   handleGenerateSubtitles: (selectedRange?: TrackSelectionRange | null) => void;
   handleCancelSubtitleGeneration: () => void;
+  onApplyNarrationSegments: (
+    segments: NarrationSegment[],
+    replaceSubtitleIds: string[],
+  ) => void | Promise<void>;
+  onFinalizeNarrationSegments: () => void | Promise<void>;
   onSelectedTextIdsChange?: (ids: string[]) => void;
   onSelectedSubtitleIdsChange?: (ids: string[]) => void;
   projectResetKey?: string | null;
@@ -163,10 +171,22 @@ export interface EditorMainProps {
   onPickImportedAudioFile?: (file: File) => void;
   onUpdateAudioSegment?: (
     id: string,
-    patch: Partial<import("@/types/video").ImportedAudioSegment>,
+    patch: Partial<ImportedAudioSegment>,
   ) => void;
-  onDeleteAudioSegment?: (id: string) => void;
+  onDeleteAudioSegments?: (ids: string[]) => void;
   onCommitAudioSegments?: () => void;
+  audioTrackVolumePoints?: import("@/types/video").AudioGainPoint[];
+  onUpdateAudioTrackVolumePoints?: (points: import("@/types/video").AudioGainPoint[]) => void;
+  // Narration track
+  narrationSegments?: NarrationSegment[];
+  onUpdateNarrationSegment?: (
+    id: string,
+    patch: Partial<NarrationSegment>,
+  ) => void;
+  onDeleteNarrationSegments?: (ids: string[]) => void;
+  onCommitNarrationSegments?: () => void;
+  narrationTrackVolumePoints?: import("@/types/video").AudioGainPoint[];
+  onUpdateNarrationTrackVolumePoints?: (points: import("@/types/video").AudioGainPoint[]) => void;
 }
 
 export function EditorMain({
@@ -205,6 +225,7 @@ export function EditorMain({
   setIsCanvasResizeDragging,
   seekIndicatorDir,
   seekIndicatorKey,
+  audioResetKey,
   isPlaying,
   isProcessing,
   isVideoReady,
@@ -263,6 +284,8 @@ export function EditorMain({
   subtitleGenerationIndicator,
   handleGenerateSubtitles,
   handleCancelSubtitleGeneration,
+  onApplyNarrationSegments,
+  onFinalizeNarrationSegments,
   onSelectedTextIdsChange,
   onSelectedSubtitleIdsChange,
   projectResetKey,
@@ -286,8 +309,16 @@ export function EditorMain({
   setTimelineCanvasWidthPx,
   onPickImportedAudioFile,
   onUpdateAudioSegment,
-  onDeleteAudioSegment,
+  onDeleteAudioSegments,
   onCommitAudioSegments,
+  audioTrackVolumePoints,
+  onUpdateAudioTrackVolumePoints,
+  narrationSegments,
+  onUpdateNarrationSegment,
+  onDeleteNarrationSegments,
+  onCommitNarrationSegments,
+  narrationTrackVolumePoints,
+  onUpdateNarrationTrackVolumePoints,
 }: EditorMainProps) {
   const { t } = useSettings();
   const showPlaybackControls = Boolean(
@@ -308,7 +339,31 @@ export function EditorMain({
   const [selectedPointerIds, setSelectedPointerIds] = useState<string[]>([]);
   const [selectedKeystrokeIds, setSelectedKeystrokeIds] = useState<string[]>([]);
   const [selectedWebcamIds, setSelectedWebcamIds] = useState<string[]>([]);
-  const [selectedAudioSegmentId, setSelectedAudioSegmentId] = useState<string | null>(null);
+  const [selectedAudioSegmentIds, setSelectedAudioSegmentIds] = useState<string[]>([]);
+  const [selectedAudioSegmentRange, setSelectedAudioSegmentRange] = useState<TrackSelectionRange | null>(null);
+  const [selectedNarrationSegmentIds, setSelectedNarrationSegmentIds] = useState<string[]>([]);
+  const [selectedNarrationSegmentRange, setSelectedNarrationSegmentRange] = useState<TrackSelectionRange | null>(null);
+  const selectedAudioSegmentIdSet = useMemo(
+    () => new Set(selectedAudioSegmentIds),
+    [selectedAudioSegmentIds],
+  );
+  const selectedNarrationSegmentIdSet = useMemo(
+    () => new Set(selectedNarrationSegmentIds),
+    [selectedNarrationSegmentIds],
+  );
+  const previewAudioSegments = useMemo<ImportedAudioSegment[]>(
+    () => [
+      ...(composition?.audioSegments ?? []).map((segment) => ({
+        ...segment,
+        previewTrackKind: "imported" as const,
+      })),
+      ...(narrationSegments ?? []).map((segment) => ({
+        ...segment,
+        previewTrackKind: "narration" as const,
+      })),
+    ],
+    [composition?.audioSegments, narrationSegments],
+  );
   const exportSubtitleSrtInFlightRef = React.useRef(false);
   const subtitleTranslation = useSubtitleTranslation({
     t,
@@ -339,6 +394,32 @@ export function EditorMain({
   const handlePointerSelectionChange = useCallback((ids: string[]) => setSelectedPointerIds(ids), []);
   const handleKeystrokeSelectionChange = useCallback((ids: string[]) => setSelectedKeystrokeIds(ids), []);
   const handleWebcamSelectionChange = useCallback((ids: string[]) => setSelectedWebcamIds(ids), []);
+  const handleAudioSelectionChange = useCallback((ids: string[]) => {
+    setSelectedAudioSegmentIds(ids);
+    if (ids.length > 0) setActivePanel('audio');
+  }, [setActivePanel]);
+  const handleAudioRangeChange = useCallback((range: TrackSelectionRange | null) => {
+    setSelectedAudioSegmentRange(range);
+    if (range) setActivePanel('audio');
+  }, [setActivePanel]);
+  const handleNarrationSelectionChange = useCallback((ids: string[]) => {
+    setSelectedNarrationSegmentIds(ids);
+    if (ids.length > 0) setActivePanel('audio');
+  }, [setActivePanel]);
+  const handleNarrationRangeChange = useCallback((range: TrackSelectionRange | null) => {
+    setSelectedNarrationSegmentRange(range);
+    if (range) setActivePanel('audio');
+  }, [setActivePanel]);
+  const handleAudioSegmentClick = useCallback((id: string) => {
+    setSelectedAudioSegmentIds([id]);
+    setSelectedAudioSegmentRange(null);
+    setActivePanel('audio');
+  }, [setActivePanel]);
+  const handleNarrationSegmentClick = useCallback((id: string) => {
+    setSelectedNarrationSegmentIds([id]);
+    setSelectedNarrationSegmentRange(null);
+    setActivePanel('audio');
+  }, [setActivePanel]);
 
   const totalSelectedCount = selectedTextIds.length + selectedSubtitleIds.length + selectedPointerIds.length + selectedKeystrokeIds.length + selectedWebcamIds.length;
   const [clearSignal, setClearSignal] = useState(0);
@@ -351,7 +432,10 @@ export function EditorMain({
     setSelectedPointerIds([]);
     setSelectedKeystrokeIds([]);
     setSelectedWebcamIds([]);
-    setSelectedAudioSegmentId(null);
+    setSelectedAudioSegmentIds([]);
+    setSelectedAudioSegmentRange(null);
+    setSelectedNarrationSegmentIds([]);
+    setSelectedNarrationSegmentRange(null);
     setClearSignal(c => c + 1);
   }, [onSelectedSubtitleIdsChange, onSelectedTextIdsChange]);
   const lastProjectResetKeyRef = React.useRef<string | null | undefined>(undefined);
@@ -370,7 +454,6 @@ export function EditorMain({
     setEditingSubtitleId(null);
     setEditingKeystrokeSegmentId(null);
     setEditingPointerId(null);
-    setSelectedAudioSegmentId(null);
   }, [
     clearAllSelections,
     projectResetKey,
@@ -488,6 +571,10 @@ export function EditorMain({
 
   const visibleSubtitleSegments = useMemo(
     () => getVisibleSubtitleSegments(segment),
+    [segment],
+  );
+  const allSubtitleTracks = useMemo(
+    () => getSubtitleTracks(segment),
     [segment],
   );
   const canExportAudioSubtitleSrt = visibleSubtitleSegments.some(
@@ -618,9 +705,12 @@ export function EditorMain({
             onCanvasResizeDragStateChange={setIsCanvasResizeDragging}
             seekIndicatorDir={seekIndicatorDir}
             seekIndicatorKey={seekIndicatorKey}
-            audioSegments={composition?.audioSegments}
+            audioSegments={previewAudioSegments}
+            audioTrackVolumePoints={audioTrackVolumePoints}
+            narrationTrackVolumePoints={narrationTrackVolumePoints}
             currentTime={currentTime}
             isPlaying={isPlaying}
+            audioResetKey={audioResetKey}
           />
 
           <PlaybackControlsRow
@@ -706,12 +796,26 @@ export function EditorMain({
             canUseMicSubtitleSource={Boolean(segment?.micAudioAvailable)}
             canUseAudioSubtitleSource={(composition?.audioSegments?.length ?? 0) > 0}
             audioSegments={composition?.audioSegments}
-            onGenerateSubtitles={() => handleGenerateSubtitles(null)}
+            onGenerateSubtitles={() => handleGenerateSubtitles(selectedSubtitleRange)}
             onCancelSubtitleGeneration={handleCancelSubtitleGeneration}
             canExportSubtitleSrt={canExportSubtitleSrt}
             onExportSubtitleSrt={handleExportSubtitleSrt}
             canExportAudioSubtitleSrt={canExportAudioSubtitleSrt}
             onExportMusicSubtitleSrt={handleExportMusicSubtitleSrts}
+            onApplyNarrationSegments={onApplyNarrationSegments}
+            onFinalizeNarrationSegments={onFinalizeNarrationSegments}
+            audioSegmentsForPanel={composition?.audioSegments}
+            selectedAudioSegmentIds={selectedAudioSegmentIdSet}
+            onUpdateAudioSegmentForPanel={onUpdateAudioSegment}
+            onDeleteAudioSegmentsForPanel={onDeleteAudioSegments}
+            onCommitAudioSegmentsForPanel={onCommitAudioSegments}
+            narrationSegmentsForPanel={narrationSegments}
+            selectedNarrationSegmentIds={selectedNarrationSegmentIdSet}
+            onUpdateNarrationSegmentForPanel={onUpdateNarrationSegment}
+            onDeleteNarrationSegmentsForPanel={onDeleteNarrationSegments}
+            onCommitNarrationSegmentsForPanel={onCommitNarrationSegments}
+            visibleSubtitlesForNarration={visibleSubtitleSegments}
+            subtitleTracksForNarration={allSubtitleTracks}
             subtitleTranslation={subtitleTranslation}
             selectedTextIds={selectedTextIds}
             hasMouseData={mousePositionsLength > 0}
@@ -777,15 +881,38 @@ export function EditorMain({
           subtitleGenerationIndicator={subtitleGenerationIndicator}
           subtitleTranslationChunkPreview={subtitleTranslation.subtitleTranslationChunkPreview}
           audioSegments={composition?.audioSegments}
-          onPickImportedAudioFile={onPickImportedAudioFile}
-          onSelectMusicSegment={setSelectedAudioSegmentId}
           onUpdateAudioSegment={onUpdateAudioSegment}
-          onDeleteAudioSegment={(id) => {
-            onDeleteAudioSegment?.(id);
-            setSelectedAudioSegmentId((current) => (current === id ? null : current));
+          onPickImportedAudioFile={onPickImportedAudioFile}
+          onAudioSegmentClick={handleAudioSegmentClick}
+          audioTrackVolumePoints={audioTrackVolumePoints}
+          onUpdateAudioTrackVolumePoints={onUpdateAudioTrackVolumePoints}
+          onDeleteAudioSegments={(ids) => {
+            onDeleteAudioSegments?.(ids);
+            setSelectedAudioSegmentIds((current) =>
+              current.filter((id) => !ids.includes(id)),
+            );
           }}
           onCommitAudioSegments={onCommitAudioSegments}
-          selectedAudioSegmentId={selectedAudioSegmentId}
+          selectedAudioSegmentIds={selectedAudioSegmentIdSet}
+          selectedAudioSegmentRange={selectedAudioSegmentRange}
+          onAudioSelectionChange={handleAudioSelectionChange}
+          onAudioRangeChange={handleAudioRangeChange}
+          narrationSegments={narrationSegments}
+          onNarrationSegmentClick={handleNarrationSegmentClick}
+          onUpdateNarrationSegment={onUpdateNarrationSegment}
+          narrationTrackVolumePoints={narrationTrackVolumePoints}
+          onUpdateNarrationTrackVolumePoints={onUpdateNarrationTrackVolumePoints}
+          onDeleteNarrationSegments={(ids) => {
+            onDeleteNarrationSegments?.(ids);
+            setSelectedNarrationSegmentIds((current) =>
+              current.filter((id) => !ids.includes(id)),
+            );
+          }}
+          onCommitNarrationSegments={onCommitNarrationSegments}
+          selectedNarrationSegmentIds={selectedNarrationSegmentIdSet}
+          selectedNarrationSegmentRange={selectedNarrationSegmentRange}
+          onNarrationSelectionChange={handleNarrationSelectionChange}
+          onNarrationRangeChange={handleNarrationRangeChange}
         />
         {isOverlayMode && (
           <div className="timeline-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />

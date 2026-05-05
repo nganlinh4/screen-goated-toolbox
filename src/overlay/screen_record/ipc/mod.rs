@@ -6,6 +6,7 @@ mod audio_waveform;
 mod cursor_svg;
 mod hotkeys;
 pub mod media_server;
+mod narration;
 mod recording;
 mod subtitle_export;
 mod subtitles;
@@ -371,6 +372,10 @@ pub fn handle_ipc_command(
             subtitles::handle_get_subtitle_translation_status(&args)
         }
         "cancel_subtitle_translation" => subtitles::handle_cancel_subtitle_translation(&args),
+        "start_subtitle_narration" => narration::handle_start_subtitle_narration(&args),
+        "get_subtitle_narration_status" => narration::handle_get_subtitle_narration_status(&args),
+        "cancel_subtitle_narration" => narration::handle_cancel_subtitle_narration(&args),
+        "get_narration_tts_metadata" => narration::handle_get_narration_tts_metadata(&args),
         "get_hotkeys" => hotkeys::handle_get_hotkeys(),
         "remove_hotkey" => hotkeys::handle_remove_hotkey(&args),
         "set_hotkey" => hotkeys::handle_set_hotkey(&args),

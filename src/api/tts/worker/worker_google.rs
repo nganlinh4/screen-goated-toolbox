@@ -27,9 +27,16 @@ pub(super) fn handle_google_tts(
         .map(|profile| profile.google_speed.as_str())
         .unwrap_or("Normal");
 
-    // Detect language for Google TTS TL parameter
-    let detected_code =
-        crate::lang_detect::detect_language(&text).unwrap_or_else(|| "eng".to_string());
+    // Detect language for Google TTS TL parameter, unless a batched caller
+    // already supplied a stable language hint.
+    let detected_code = request
+        .req
+        .profile
+        .as_ref()
+        .and_then(|profile| profile.language_code_override.clone())
+        .unwrap_or_else(|| {
+            crate::lang_detect::detect_language(&text).unwrap_or_else(|| "eng".to_string())
+        });
     let tl = Language::from_639_3(&detected_code)
         .and_then(|l| l.to_639_1())
         .unwrap_or("en");

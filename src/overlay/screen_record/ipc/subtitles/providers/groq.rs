@@ -11,12 +11,20 @@ use super::{
     SubtitleBackend, SubtitleBackendProgress, SubtitleBackendRequest, ends_sentence,
     join_word_tokens, normalize_groq_language_hint, normalize_subtitle_text,
 };
-use crate::overlay::screen_record::ipc::subtitles::audio::MIN_SUBTITLE_DURATION_SEC;
+use crate::overlay::screen_record::ipc::subtitles::audio::{
+    MIN_SUBTITLE_DURATION_SEC, build_silence_aware_split_frames,
+};
 use crate::overlay::screen_record::ipc::subtitles::types::CompactSubtitleSegment;
 
 const GROQ_AUDIO_TRANSCRIPT_URL: &str = "https://api.groq.com/openai/v1/audio/transcriptions";
 const SENTENCE_BREAK_SILENCE_SEC: f64 = 0.45;
 const MAX_GROQ_SPLIT_PARTS: usize = 128;
+// Target audio duration per chunk to keep each request comfortably below the
+// shared `UREQ_AGENT` 120 s timeout (upload + Whisper processing + response).
+const GROQ_TARGET_CHUNK_SEC: f64 = 90.0;
+// How far each side of an even-split boundary to scan for a quieter cut point so
+// chunks end on natural silence rather than mid-word.
+const GROQ_SILENCE_SEARCH_RADIUS_SEC: f64 = 5.0;
 
 pub struct GroqSubtitleBackend {
     api_key: String,
@@ -117,7 +125,10 @@ fn transcribe_with_groq_auto_split(
         return Ok(Vec::new());
     }
 
-    let mut split_parts = 1usize;
+    let duration_sec = wav.duration_sec();
+    let mut split_parts = ((duration_sec / GROQ_TARGET_CHUNK_SEC).ceil() as usize)
+        .max(1)
+        .min(MAX_GROQ_SPLIT_PARTS);
     loop {
         if cancel_token.load(Ordering::SeqCst) {
             return Err("Groq subtitle generation cancelled".to_string());
@@ -137,25 +148,20 @@ fn transcribe_with_groq_auto_split(
             language_hint,
             vocabulary,
             cancel_token,
+            on_progress,
         ) {
-            Ok(segments) => {
-                on_progress(SubtitleBackendProgress {
-                    completed_steps: split_parts,
-                    total_steps: split_parts,
-                    segments: segments.clone(),
-                })?;
-                return Ok(segments);
-            }
+            Ok(segments) => return Ok(segments),
             Err(GroqRequestError::TooLarge(message)) => {
                 if split_parts >= MAX_GROQ_SPLIT_PARTS {
                     return Err(format!(
-                        "Groq subtitle request still returned 413 after splitting into {split_parts} parts: {message}"
+                        "Groq subtitle request still failed after splitting into {split_parts} parts: {message}"
                     ));
                 }
                 split_parts += 1;
                 crate::log_info!(
-                    "[SubtitleGen][Groq] 413 payload too large; retrying with split_parts={}",
-                    split_parts
+                    "[SubtitleGen][Groq] retry needed; splitting into {} parts ({})",
+                    split_parts,
+                    message
                 );
             }
             Err(GroqRequestError::Other(message)) => return Err(message),
@@ -171,16 +177,25 @@ fn transcribe_groq_split_attempt(
     language_hint: Option<&str>,
     vocabulary: &[String],
     cancel_token: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    on_progress: &mut dyn FnMut(SubtitleBackendProgress) -> Result<(), String>,
 ) -> Result<Vec<CompactSubtitleSegment>, GroqRequestError> {
+    let chunk_ranges = build_silence_aware_split_frames(
+        &wav.samples,
+        wav.channels as usize,
+        wav.sample_rate,
+        split_parts,
+        GROQ_SILENCE_SEARCH_RADIUS_SEC,
+    );
+    let total_parts = chunk_ranges.len();
     let mut all_segments = Vec::new();
-    for part_index in 0..split_parts {
+    for (part_index, (start_frame, end_frame)) in chunk_ranges.into_iter().enumerate() {
         if cancel_token.load(Ordering::SeqCst) {
             return Err(GroqRequestError::Other(
                 "Groq subtitle generation cancelled".to_string(),
             ));
         }
 
-        let chunk = wav.chunk_for_part(part_index, split_parts)?;
+        let chunk = wav.chunk_from_frames(start_frame, end_frame);
         if chunk.samples.is_empty() {
             continue;
         }
@@ -189,7 +204,7 @@ fn transcribe_groq_split_attempt(
         crate::log_info!(
             "[SubtitleGen][Groq] part-start {}/{} offset={:.2}s duration={:.2}s bytes={}",
             part_index + 1,
-            split_parts,
+            total_parts,
             chunk.offset_sec,
             chunk.duration_sec,
             chunk_wav.len()
@@ -209,10 +224,19 @@ fn transcribe_groq_split_attempt(
         crate::log_info!(
             "[SubtitleGen][Groq] part-complete {}/{} added_segments={}",
             part_index + 1,
-            split_parts,
+            total_parts,
             segments.len()
         );
         all_segments.extend(segments);
+
+        // Stream the accumulated transcript to the timeline as soon as each
+        // part finishes, instead of waiting for the whole job.
+        on_progress(SubtitleBackendProgress {
+            completed_steps: part_index + 1,
+            total_steps: total_parts,
+            segments: all_segments.clone(),
+        })
+        .map_err(GroqRequestError::Other)?;
     }
     Ok(all_segments)
 }
@@ -270,12 +294,23 @@ fn transcribe_with_groq_verbose(
 
 fn map_groq_request_error(error: ureq::Error) -> GroqRequestError {
     let message = error.to_string();
-    if message.contains("413")
-        || message
-            .to_ascii_lowercase()
-            .contains("request entity too large")
-    {
+    let lowered = message.to_ascii_lowercase();
+    if message.contains("413") || lowered.contains("request entity too large") {
         GroqRequestError::TooLarge(format!("Groq subtitle request failed: {message}"))
+    } else if lowered.contains("os error 10053")
+        || lowered.contains("os error 10054")
+        || lowered.contains("connectionaborted")
+        || lowered.contains("connection abort")
+        || lowered.contains("connection reset")
+        || lowered.contains("timed out")
+        || lowered.contains("timeout")
+    {
+        // Treat connection drops and timeouts as a "split smaller and retry"
+        // signal: Groq's response just took longer than the shared HTTP
+        // client's global timeout, so smaller chunks fit the budget.
+        GroqRequestError::TooLarge(format!(
+            "Groq subtitle request aborted (likely timed out): {message}"
+        ))
     } else {
         GroqRequestError::Other(format!("Groq subtitle request failed: {message}"))
     }
@@ -319,23 +354,19 @@ impl GroqWavAudio {
         frames as f64 / self.sample_rate.max(1) as f64
     }
 
-    fn chunk_for_part(
-        &self,
-        part_index: usize,
-        split_parts: usize,
-    ) -> Result<GroqWavChunk, GroqRequestError> {
+    fn chunk_from_frames(&self, start_frame: usize, end_frame: usize) -> GroqWavChunk {
         let channels = self.channels.max(1) as usize;
         let total_frames = self.samples.len() / channels;
-        let start_frame = total_frames * part_index / split_parts;
-        let end_frame = total_frames * (part_index + 1) / split_parts;
+        let end_frame = end_frame.min(total_frames);
+        let start_frame = start_frame.min(end_frame);
         let start_sample = start_frame * channels;
         let end_sample = end_frame * channels;
-        Ok(GroqWavChunk {
+        GroqWavChunk {
             samples: self.samples[start_sample..end_sample].to_vec(),
             offset_sec: start_frame as f64 / self.sample_rate.max(1) as f64,
             duration_sec: (end_frame.saturating_sub(start_frame)) as f64
                 / self.sample_rate.max(1) as f64,
-        })
+        }
     }
 }
 

@@ -42,6 +42,7 @@ export interface UseSequenceCompositionParams {
   // composition state (owned by App.tsx, managed here)
   composition: ProjectComposition | null;
   setComposition: (c: ProjectComposition | null | ((prev: ProjectComposition | null) => ProjectComposition | null)) => void;
+  setCompositionSilently: (c: ProjectComposition | null | ((prev: ProjectComposition | null) => ProjectComposition | null)) => void;
   currentProjectData: Project | null;
   setCurrentProjectData: (p: Project | null) => void;
   // live editor state
@@ -115,6 +116,7 @@ export function useSequenceComposition({
   currentProjectId,
   composition,
   setComposition,
+  setCompositionSilently,
   currentProjectData,
   setCurrentProjectData,
   backgroundConfig,
@@ -211,7 +213,7 @@ export function useSequenceComposition({
       isProjectTransitionRef.current
     )
       return;
-    setComposition((prev) => {
+    setCompositionSilently((prev) => {
       if (!prev) return prev;
       // Only sync canvas config when editing the auto source clip (or single-clip).
       // Non-source clips must not override the global canvas dimensions.
@@ -306,7 +308,7 @@ export function useSequenceComposition({
       const nextComposition = withCompositionSelection(composition, clipId);
       const targetClip = getCompositionClip(nextComposition, clipId);
       if (!targetClip) return;
-      setComposition(nextComposition);
+      setCompositionSilently(nextComposition);
       await loadClipMediaIntoEditor(
         currentProjectId,
         clipId,
@@ -337,6 +339,7 @@ export function useSequenceComposition({
       loadClipMediaIntoEditor,
       currentProjectId,
       seek,
+      setCompositionSilently,
       videoControllerRef,
     ],
   );

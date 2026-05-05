@@ -1,5 +1,6 @@
 import type {
   ImportedAudioSegment,
+  NarrationSegment,
   ProjectComposition,
   SubtitleSegment,
   TextSegment,
@@ -16,26 +17,47 @@ function maxSegmentEnd(segments: readonly TextSegment[] | readonly SubtitleSegme
   );
 }
 
-export function getImportedAudioEnd(audioSegments: readonly ImportedAudioSegment[] | undefined) {
+interface AudioLikeSegment {
+  startTime: number;
+  inPoint: number;
+  outPoint: number;
+  playbackRate?: number;
+}
+
+function audioLikeEnd(segments: readonly AudioLikeSegment[] | undefined) {
   return Math.max(
     0,
-    ...(audioSegments ?? []).map((segment) => {
-      const visibleDuration = Math.max(segment.outPoint - segment.inPoint, 0);
+    ...(segments ?? []).map((segment) => {
+      const trimmed = Math.max(segment.outPoint - segment.inPoint, 0);
+      const rate = segment.playbackRate && segment.playbackRate > 0 ? segment.playbackRate : 1;
+      const visibleDuration = trimmed / rate;
       return segment.startTime + visibleDuration;
     }),
   );
 }
 
+export function getImportedAudioEnd(audioSegments: readonly ImportedAudioSegment[] | undefined) {
+  return audioLikeEnd(audioSegments);
+}
+
+export function getNarrationEnd(narrationSegments: readonly NarrationSegment[] | undefined) {
+  return audioLikeEnd(narrationSegments);
+}
+
 export function getTimelineContentEnd(
   segment: VideoSegment | null | undefined,
   audioSegments?: readonly ImportedAudioSegment[],
+  narrationSegments?: readonly NarrationSegment[],
 ) {
-  if (!segment) return Math.max(1, getImportedAudioEnd(audioSegments));
+  const audioEnd = getImportedAudioEnd(audioSegments);
+  const narrationEnd = getNarrationEnd(narrationSegments);
+  if (!segment) return Math.max(1, audioEnd, narrationEnd);
   return Math.max(
     1,
     maxSegmentEnd(segment.textSegments),
     maxSegmentEnd(getVisibleSubtitleSegments(segment)),
-    getImportedAudioEnd(audioSegments),
+    audioEnd,
+    narrationEnd,
   );
 }
 

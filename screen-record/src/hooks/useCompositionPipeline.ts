@@ -17,6 +17,7 @@ export interface UseCompositionPipelineParams {
   // Shared state
   composition: ProjectComposition | null;
   setComposition: (c: ProjectComposition | null | ((prev: ProjectComposition | null) => ProjectComposition | null)) => void;
+  setCompositionSilently: (c: ProjectComposition | null | ((prev: ProjectComposition | null) => ProjectComposition | null)) => void;
   currentProjectData: Project | null;
   setCurrentProjectData: (p: Project | null) => void;
   segment: VideoSegment | null;
@@ -74,6 +75,7 @@ export interface UseCompositionPipelineParams {
 export function useCompositionPipeline({
   composition,
   setComposition,
+  setCompositionSilently,
   currentProjectData,
   setCurrentProjectData,
   segment,
@@ -189,6 +191,7 @@ export function useCompositionPipeline({
     currentProjectId,
     composition,
     setComposition,
+    setCompositionSilently,
     currentProjectData,
     setCurrentProjectData,
     backgroundConfig,

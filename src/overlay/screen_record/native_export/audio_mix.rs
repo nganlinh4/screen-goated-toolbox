@@ -11,6 +11,7 @@ pub const MIX_OUTPUT_SAMPLE_RATE: u32 = 48_000;
 pub const MIX_OUTPUT_CHANNELS: u32 = 2;
 
 const MIXER_INTEGRATION_STEP_SEC: f64 = 0.005;
+pub const IMPLICIT_AUDIO_EDGE_FADE_SEC: f64 = 0.12;
 
 #[derive(Debug, Clone)]
 pub struct ExportAudioSource {
@@ -22,6 +23,10 @@ pub struct ExportAudioSource {
     /// `source_in_sec` (default 0) and stop at `source_out_sec` (default end).
     pub source_in_sec: Option<f64>,
     pub source_out_sec: Option<f64>,
+    /// Per-source playback rate (1.0 = original). Values >1 play faster and
+    /// shrink the timeline footprint; <1 plays slower and stretches it.
+    pub playback_rate: f64,
+    pub implicit_edge_fade_sec: f64,
 }
 
 fn normalized_trim_segments(
@@ -78,12 +83,38 @@ fn get_audio_volume(time: f64, points: &[DeviceAudioPoint]) -> f64 {
     (left.volume + (right.volume - left.volume) * cos_t).clamp(0.0, 1.0)
 }
 
+fn implicit_edge_fade_multiplier(time: f64, start_time: f64, end_time: f64, fade_sec: f64) -> f64 {
+    if fade_sec <= 0.0 || end_time <= start_time {
+        return 1.0;
+    }
+    let duration = end_time - start_time;
+    let fade = fade_sec.min(duration / 2.0).max(0.0);
+    if fade <= 0.0 {
+        return 1.0;
+    }
+    if time <= start_time || time >= end_time {
+        return 0.0;
+    }
+    let fade_in = if time - start_time < fade {
+        (1.0 - (((time - start_time) / fade) * std::f64::consts::PI).cos()) / 2.0
+    } else {
+        1.0
+    };
+    let fade_out = if end_time - time < fade {
+        (1.0 - (((end_time - time) / fade) * std::f64::consts::PI).cos()) / 2.0
+    } else {
+        1.0
+    };
+    (fade_in * fade_out).clamp(0.0, 1.0)
+}
+
 fn apply_audio_volume_envelope(
     pcm: &mut [u8],
     source_start_time: f64,
     source_duration_sec: f64,
     channels: usize,
     points: &[DeviceAudioPoint],
+    implicit_fade: Option<(f64, f64, f64)>,
 ) {
     if pcm.is_empty() || channels == 0 {
         return;
@@ -94,10 +125,10 @@ fn apply_audio_volume_envelope(
         return;
     }
 
-    if points
+    let has_editable_volume = points
         .iter()
-        .all(|point| (point.volume.clamp(0.0, 1.0) - 1.0).abs() < 0.0001)
-    {
+        .any(|point| (point.volume.clamp(0.0, 1.0) - 1.0).abs() >= 0.0001);
+    if !has_editable_volume && implicit_fade.is_none() {
         return;
     }
 
@@ -109,7 +140,12 @@ fn apply_audio_volume_envelope(
 
     for frame_idx in 0..frames {
         let sample_time = source_start_time + ((frame_idx as f64) + 0.5) * frame_time_step;
-        let volume = get_audio_volume(sample_time, points) as f32;
+        let fade = implicit_fade
+            .map(|(start, end, fade_sec)| {
+                implicit_edge_fade_multiplier(sample_time, start, end, fade_sec)
+            })
+            .unwrap_or(1.0);
+        let volume = (get_audio_volume(sample_time, points) * fade) as f32;
         if (volume - 1.0).abs() < 0.0001 {
             continue;
         }
@@ -181,6 +217,7 @@ fn try_build_single_source_ffmpeg_wav(
         || trim_segments.len() != 1
         || source.source_in_sec.is_some()
         || source.source_out_sec.is_some()
+        || source.implicit_edge_fade_sec > 0.0
     {
         return Ok(None);
     }
@@ -200,7 +237,10 @@ fn try_build_single_source_ffmpeg_wav(
         return Ok(None);
     }
 
-    let mut filter_chain = ffmpeg_atempo_chain(speed);
+    // Compose the source-side playback rate with the project speed; both are
+    // expressed as "atempo" multipliers (>1 = faster).
+    let combined_speed = speed * source.playback_rate.max(0.0001);
+    let mut filter_chain = ffmpeg_atempo_chain(combined_speed);
     filter_chain.push(format!("aresample={MIX_OUTPUT_SAMPLE_RATE}"));
     filter_chain.push("aformat=sample_fmts=s16:channel_layouts=stereo".to_string());
     let audio_filter = filter_chain.join(",");
@@ -454,7 +494,8 @@ fn mix_source_into_raw_file(
                 break;
             }
         }
-        let chunk_time = decoded_time + source.start_offset_sec;
+        let chunk_time =
+            (decoded_time / source.playback_rate.max(0.0001)) + source.start_offset_sec;
         let Some(segment) = trim_segments.get(segment_idx) else {
             break;
         };
@@ -489,6 +530,11 @@ fn mix_source_into_raw_file(
             source_duration_sec,
             channels,
             &source.volume_points,
+            (source.implicit_edge_fade_sec > 0.0).then_some((
+                source.start_offset_sec,
+                source.start_offset_sec + trim_segments.last().map(|s| s.end_time).unwrap_or(0.0),
+                source.implicit_edge_fade_sec,
+            )),
         );
         let Some(output_start_time) = mapper.map_source_time(chunk_time) else {
             continue;
@@ -513,6 +559,11 @@ fn mix_source_into_raw_file(
             tail_duration_sec,
             channels,
             &source.volume_points,
+            (source.implicit_edge_fade_sec > 0.0).then_some((
+                source.start_offset_sec,
+                source.start_offset_sec + trim_segments.last().map(|s| s.end_time).unwrap_or(0.0),
+                source.implicit_edge_fade_sec,
+            )),
         );
         mix_pcm_chunk_into_raw_file(raw_file, last_output_end_time, &tail, channels)?;
     }
@@ -597,7 +648,8 @@ fn build_single_source_preprocessed_wav(
                 break;
             }
         }
-        let chunk_time = decoded_time + source.start_offset_sec;
+        let chunk_time =
+            (decoded_time / source.playback_rate.max(0.0001)) + source.start_offset_sec;
         let Some(segment) = trim_segments.get(segment_idx) else {
             break;
         };
@@ -632,6 +684,11 @@ fn build_single_source_preprocessed_wav(
             source_duration_sec,
             channels,
             &source.volume_points,
+            (source.implicit_edge_fade_sec > 0.0).then_some((
+                source.start_offset_sec,
+                source.start_offset_sec + trim_segments.last().map(|s| s.end_time).unwrap_or(0.0),
+                source.implicit_edge_fade_sec,
+            )),
         );
         let Some(output_start_time) = mapper.map_source_time(chunk_time) else {
             continue;
@@ -659,6 +716,11 @@ fn build_single_source_preprocessed_wav(
             tail_duration_sec,
             channels,
             &source.volume_points,
+            (source.implicit_edge_fade_sec > 0.0).then_some((
+                source.start_offset_sec,
+                source.start_offset_sec + trim_segments.last().map(|s| s.end_time).unwrap_or(0.0),
+                source.implicit_edge_fade_sec,
+            )),
         );
         append_f32le_chunk_to_wav(&mut writer, &tail)?;
         written_frames += tail.len() as u64 / (channels as u64 * 4);

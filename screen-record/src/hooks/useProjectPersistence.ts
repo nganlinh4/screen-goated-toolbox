@@ -27,6 +27,48 @@ import { cloneWebcamConfig } from "@/lib/webcam";
 import type { PersistOptions } from "@/hooks/useSequenceComposition";
 import type { ClipMediaAssets } from "@/hooks/useClipMediaCache";
 
+function preserveProjectLevelAudioLanes(
+  nextComposition: ProjectComposition,
+  fallbackComposition: ProjectComposition | null | undefined,
+): ProjectComposition {
+  if (!fallbackComposition) return nextComposition;
+  const shouldPreserveAudio =
+    (nextComposition.audioSegments?.length ?? 0) === 0 &&
+    (fallbackComposition.audioSegments?.length ?? 0) > 0;
+  const shouldPreserveNarration =
+    (nextComposition.narrationSegments?.length ?? 0) === 0 &&
+    (fallbackComposition.narrationSegments?.length ?? 0) > 0;
+  const shouldPreserveAudioVolume =
+    (nextComposition.audioTrackVolumePoints?.length ?? 0) === 0 &&
+    (fallbackComposition.audioTrackVolumePoints?.length ?? 0) > 0;
+  const shouldPreserveNarrationVolume =
+    (nextComposition.narrationTrackVolumePoints?.length ?? 0) === 0 &&
+    (fallbackComposition.narrationTrackVolumePoints?.length ?? 0) > 0;
+  if (
+    !shouldPreserveAudio &&
+    !shouldPreserveNarration &&
+    !shouldPreserveAudioVolume &&
+    !shouldPreserveNarrationVolume
+  ) {
+    return nextComposition;
+  }
+  return {
+    ...nextComposition,
+    audioSegments: shouldPreserveAudio
+      ? fallbackComposition.audioSegments
+      : nextComposition.audioSegments,
+    narrationSegments: shouldPreserveNarration
+      ? fallbackComposition.narrationSegments
+      : nextComposition.narrationSegments,
+    audioTrackVolumePoints: shouldPreserveAudioVolume
+      ? fallbackComposition.audioTrackVolumePoints
+      : nextComposition.audioTrackVolumePoints,
+    narrationTrackVolumePoints: shouldPreserveNarrationVolume
+      ? fallbackComposition.narrationTrackVolumePoints
+      : nextComposition.narrationTrackVolumePoints,
+  };
+}
+
 export interface UseProjectPersistenceParams {
   currentProjectId: string | null;
   projects: { projects: Project[]; loadProjects: () => Promise<void> };
@@ -296,6 +338,13 @@ export function useProjectPersistence({
         }
         const rootClip = getCompositionClip(nextComposition, "root");
         if (!rootClip) return;
+        const storedProject = await projectManager.loadProject(projectId);
+        nextComposition = preserveProjectLevelAudioLanes(
+          nextComposition,
+          storedProject?.composition ?? currentProjectData?.composition,
+        );
+        const nextRootClip = getCompositionClip(nextComposition, "root");
+        if (!nextRootClip) return;
         logProjectSwitch("persist:write-root", {
           targetProjectId: projectId,
           currentProjectDataId: currentProjectData?.id ?? null,
@@ -313,21 +362,21 @@ export function useProjectPersistence({
           videoBlob,
           micAudioBlob,
           webcamBlob,
-          segment: rootClip.segment,
-          backgroundConfig: rootClip.backgroundConfig,
+          segment: nextRootClip.segment,
+          backgroundConfig: nextRootClip.backgroundConfig,
           webcamConfig:
             getCompositionClip(nextComposition, "root")?.webcamConfig ??
             cloneWebcamConfig(webcamConfig),
-          mousePositions: rootClip.mousePositions,
+          mousePositions: nextRootClip.mousePositions,
           thumbnail:
             activeClip.role === "root"
               ? thumbnail
               : currentProjectData?.thumbnail,
-          duration: rootClip.duration,
-          recordingMode: rootClip.recordingMode ?? currentRecordingMode,
-          rawVideoPath: rootClip.rawVideoPath,
-          rawMicAudioPath: rootClip.rawMicAudioPath,
-          rawWebcamVideoPath: rootClip.rawWebcamVideoPath,
+          duration: nextRootClip.duration,
+          recordingMode: nextRootClip.recordingMode ?? currentRecordingMode,
+          rawVideoPath: nextRootClip.rawVideoPath,
+          rawMicAudioPath: nextRootClip.rawMicAudioPath,
+          rawWebcamVideoPath: nextRootClip.rawWebcamVideoPath,
           composition: nextComposition,
         });
         setComposition(nextComposition);
