@@ -2,10 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
 import {
   BackgroundConfig, Project, ProjectComposition,
-  VideoSegment, RecordingMode, WebcamConfig, ImportedAudioSegment,
+  VideoSegment, RecordingMode, WebcamConfig, ImportedAudioSegment, NarrationSegment,
 } from "@/types/video";
 
-import { useUndoRedo } from "@/hooks/useUndoRedo";
+import { useEditorHistory, type EditorHistorySnapshot } from "@/hooks/useEditorHistory";
 import { useHotkeys, useMonitors, useWindows } from "@/hooks/useAppHooks";
 import { useProjects, useExport } from "@/hooks/useVideoState";
 import { useMediaEngine } from "@/hooks/useMediaEngine";
@@ -65,33 +65,57 @@ type ReadSubtitleSrtPathResult = {
   content?: string;
 };
 
+function preserveSilentAudioLanes(
+  nextComposition: ProjectComposition | null,
+  previousComposition: ProjectComposition | null | undefined,
+  projectComposition: ProjectComposition | null | undefined,
+) {
+  if (!nextComposition) return nextComposition;
+  const fallbackComposition = projectComposition ?? previousComposition;
+  if (!fallbackComposition) return nextComposition;
+  return {
+    ...nextComposition,
+    audioSegments:
+      (nextComposition.audioSegments?.length ?? 0) === 0 &&
+      (fallbackComposition.audioSegments?.length ?? 0) > 0
+        ? fallbackComposition.audioSegments
+        : nextComposition.audioSegments,
+    narrationSegments:
+      (nextComposition.narrationSegments?.length ?? 0) === 0 &&
+      (fallbackComposition.narrationSegments?.length ?? 0) > 0
+        ? fallbackComposition.narrationSegments
+        : nextComposition.narrationSegments,
+    audioTrackVolumePoints:
+      (nextComposition.audioTrackVolumePoints?.length ?? 0) === 0 &&
+      (fallbackComposition.audioTrackVolumePoints?.length ?? 0) > 0
+        ? fallbackComposition.audioTrackVolumePoints
+        : nextComposition.audioTrackVolumePoints,
+    narrationTrackVolumePoints:
+      (nextComposition.narrationTrackVolumePoints?.length ?? 0) === 0 &&
+      (fallbackComposition.narrationTrackVolumePoints?.length ?? 0) > 0
+        ? fallbackComposition.narrationTrackVolumePoints
+        : nextComposition.narrationTrackVolumePoints,
+  };
+}
+
 function App() {
   useEffect(() => {
     installFrontendPerfDiagnostics();
   }, []);
 
   const settings = useSettingsProvider();
-  const {
-    state: segment,
-    setState: setSegment,
-    undo,
-    redo,
-    canUndo,
-    canRedo,
-    isBatching,
-    beginBatch,
-    commitBatch,
-  } = useUndoRedo<VideoSegment | null>(null);
+  const [segment, rawSetSegment] = useState<VideoSegment | null>(null);
   const [activePanel, setActivePanel] = useState<ActivePanel>("background");
   const [isCropping, setIsCropping] = useState(false);
   const [backgroundConfig, setBackgroundConfigState] =
     useState<BackgroundConfig>(() => cloneBackgroundConfig(getInitialBackgroundConfig()));
-  const [webcamConfig, setWebcamConfig] = useState<WebcamConfig>(() => cloneWebcamConfig(DEFAULT_WEBCAM_CONFIG));
-  const [currentRecordingMode, setCurrentRecordingMode] = useState<RecordingMode>("withoutCursor");
+  const [webcamConfig, rawSetWebcamConfig] = useState<WebcamConfig>(() => cloneWebcamConfig(DEFAULT_WEBCAM_CONFIG));
+  const [currentRecordingMode, rawSetCurrentRecordingMode] = useState<RecordingMode>("withoutCursor");
   const [currentProjectData, setCurrentProjectData] = useState<Project | null>(null);
-  const [composition, setComposition] = useState<ProjectComposition | null>(null);
+  const [composition, rawSetComposition] = useState<ProjectComposition | null>(null);
   const {
     currentRawVideoPath,
+    setCurrentRawVideoPath: rawSetCurrentRawVideoPath,
     lastRawSavedPath,
     setLastRawSavedPath,
     showRawVideoDialog,
@@ -107,9 +131,10 @@ function App() {
     handleOpenRawVideoDialog,
     handleToggleRawAutoCopy,
   } = useRawVideoHandler();
-  const [currentRawMicAudioPath, setCurrentRawMicAudioPath] = useState("");
-  const [currentRawWebcamVideoPath, setCurrentRawWebcamVideoPath] = useState("");
+  const [currentRawMicAudioPath, rawSetCurrentRawMicAudioPath] = useState("");
+  const [currentRawWebcamVideoPath, rawSetCurrentRawWebcamVideoPath] = useState("");
   const [timelineCanvasWidthPx, setTimelineCanvasWidthPx] = useState(0);
+  const [previewAudioResetKey, setPreviewAudioResetKey] = useState(0);
   const isTimelineOnlyProject = Boolean(
     segment?.mediaMode === "timelineOnly" ||
     composition?.timelineOnly,
@@ -137,6 +162,7 @@ function App() {
   const currentProjectDataRef = useRef<Project | null>(null);
   // Stable ref for persist callback — avoids cascading useEffect re-triggers
   const persistRef = useRef<((opts?: PersistOptions) => Promise<void>) | null>(null);
+  const compositionPersistChainRef = useRef<Promise<void>>(Promise.resolve());
   // Early ref so setBackgroundConfig can guard against mid-transition mutations
   const isProjectTransitionRef = useRef(false);
   useEffect(() => {
@@ -145,7 +171,7 @@ function App() {
 
   const {
     backgroundMutationMetaRef,
-    setBackgroundConfig,
+    setBackgroundConfig: rawSetBackgroundConfig,
     applyLoadedBackgroundConfig,
     recentUploads,
     isBackgroundUploadProcessing,
@@ -221,8 +247,142 @@ function App() {
     isCropping,
     isCanvasResizeDragging,
     isTimelineOnly: isTimelineOnlyProject,
-    setSegment,
+    setSegment: rawSetSegment,
   });
+
+  const applyHistorySnapshot = useCallback((snapshot: EditorHistorySnapshot) => {
+    rawSetSegment(snapshot.segment);
+    rawSetComposition(snapshot.composition);
+    setBackgroundConfigState(cloneBackgroundConfig(snapshot.backgroundConfig));
+    rawSetWebcamConfig(cloneWebcamConfig(snapshot.webcamConfig));
+    setPreviewDuration(snapshot.duration);
+    rawSetCurrentRecordingMode(snapshot.currentRecordingMode);
+    rawSetCurrentRawVideoPath(snapshot.currentRawVideoPath);
+    setLastRawSavedPath("");
+    rawSetCurrentRawMicAudioPath(snapshot.currentRawMicAudioPath);
+    rawSetCurrentRawWebcamVideoPath(snapshot.currentRawWebcamVideoPath);
+    const applyProjectSnapshot = (project: Project): Project => ({
+          ...project,
+          duration: snapshot.duration,
+          segment: snapshot.segment ?? project.segment,
+          backgroundConfig: cloneBackgroundConfig(snapshot.backgroundConfig),
+          webcamConfig: cloneWebcamConfig(snapshot.webcamConfig),
+          composition: snapshot.composition ?? undefined,
+          rawVideoPath: snapshot.currentRawVideoPath || undefined,
+          rawMicAudioPath: snapshot.currentRawMicAudioPath || undefined,
+          rawWebcamVideoPath: snapshot.currentRawWebcamVideoPath || undefined,
+        });
+    currentProjectDataRef.current = currentProjectDataRef.current
+      ? applyProjectSnapshot(currentProjectDataRef.current)
+      : currentProjectDataRef.current;
+    setCurrentProjectData((prev) => prev ? applyProjectSnapshot(prev) : prev);
+  }, [
+    rawSetCurrentRawVideoPath,
+    setLastRawSavedPath,
+    setPreviewDuration,
+  ]);
+
+  const editorHistory = useEditorHistory({
+    initialSnapshot: {
+      segment,
+      composition,
+      backgroundConfig,
+      webcamConfig,
+      duration,
+      currentRecordingMode,
+      currentRawVideoPath,
+      currentRawMicAudioPath,
+      currentRawWebcamVideoPath,
+    },
+    applySnapshot: applyHistorySnapshot,
+  });
+  const {
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    isBatching,
+    beginBatch,
+    commitBatch,
+  } = editorHistory;
+
+  const setSegment = useCallback((
+    value: VideoSegment | null | ((prev: VideoSegment | null) => VideoSegment | null),
+  ) => {
+    editorHistory.setSegment(value);
+    rawSetSegment(value);
+  }, [editorHistory]);
+
+  const setComposition = useCallback((
+    value: ProjectComposition | null | ((prev: ProjectComposition | null) => ProjectComposition | null),
+  ) => {
+    editorHistory.setComposition(value);
+    rawSetComposition(value);
+  }, [editorHistory]);
+
+  const setCompositionSilently = useCallback((
+    value: ProjectComposition | null | ((prev: ProjectComposition | null) => ProjectComposition | null),
+  ) => {
+    rawSetComposition((prev) => {
+      const next = typeof value === "function"
+        ? (value as (current: ProjectComposition | null) => ProjectComposition | null)(prev)
+        : value;
+      return preserveSilentAudioLanes(
+        next,
+        prev,
+        currentProjectDataRef.current?.composition ?? null,
+      );
+    });
+  }, []);
+
+  const setEditorPreviewDuration = useCallback((value: number) => {
+    editorHistory.setDuration(value);
+    setPreviewDuration(value);
+  }, [editorHistory, setPreviewDuration]);
+
+  const handleEditorRawVideoPathChange = useCallback((value: string) => {
+    editorHistory.setCurrentRawVideoPath(value);
+    handleProjectRawVideoPathChange(value);
+  }, [editorHistory, handleProjectRawVideoPathChange]);
+
+  const setBackgroundConfig = useCallback((
+    value: BackgroundConfig | ((prev: BackgroundConfig) => BackgroundConfig),
+  ) => {
+    editorHistory.setBackgroundConfig(value);
+    rawSetBackgroundConfig(value);
+  }, [editorHistory, rawSetBackgroundConfig]);
+
+  const setWebcamConfig = useCallback((
+    value: WebcamConfig | ((prev: WebcamConfig) => WebcamConfig),
+  ) => {
+    editorHistory.setWebcamConfig(value);
+    rawSetWebcamConfig(value);
+  }, [editorHistory]);
+
+  useEffect(() => {
+    editorHistory.replaceSnapshot({
+      segment,
+      composition,
+      backgroundConfig,
+      webcamConfig,
+      duration,
+      currentRecordingMode,
+      currentRawVideoPath,
+      currentRawMicAudioPath,
+      currentRawWebcamVideoPath,
+    });
+  }, [
+    editorHistory,
+    segment,
+    composition,
+    backgroundConfig,
+    webcamConfig,
+    duration,
+    currentRecordingMode,
+    currentRawVideoPath,
+    currentRawMicAudioPath,
+    currentRawWebcamVideoPath,
+  ]);
 
   const projects = useProjects({
     videoControllerRef,
@@ -230,13 +390,13 @@ function App() {
     setCurrentAudio,
     setCurrentMicAudio,
     setCurrentWebcamVideo,
-    setSegment,
-    setBackgroundConfig,
-    setWebcamConfig,
+    setSegment: rawSetSegment,
+    setBackgroundConfig: rawSetBackgroundConfig,
+    setWebcamConfig: rawSetWebcamConfig,
     applyLoadedBackgroundConfig,
     setMousePositions,
     setThumbnails,
-    setCurrentRecordingMode,
+    setCurrentRecordingMode: rawSetCurrentRecordingMode,
     setCurrentRawVideoPath: handleProjectRawVideoPathChange,
     onProjectLoaded: (project) => onProjectLoadedRef.current(project),
     currentVideo,
@@ -247,6 +407,13 @@ function App() {
   useEffect(() => {
     currentProjectIdRef.current = projects.currentProjectId;
   }, [projects.currentProjectId]);
+  const historyProjectResetRef = useRef<string | null>(null);
+  useEffect(() => {
+    const projectId = currentProjectData?.id ?? null;
+    if (!projectId || historyProjectResetRef.current === projectId) return;
+    historyProjectResetRef.current = projectId;
+    editorHistory.resetHistory(editorHistory.getSnapshot());
+  }, [currentProjectData?.id, editorHistory]);
 
   const {
     loadedClipId,
@@ -289,6 +456,7 @@ function App() {
   } = useCompositionPipeline({
     composition,
     setComposition,
+    setCompositionSilently,
     currentProjectData,
     setCurrentProjectData,
     segment,
@@ -319,12 +487,12 @@ function App() {
     isProjectTransitionRef,
     persistRef,
     applyLoadedBackgroundConfig,
-    setWebcamConfig,
+    setWebcamConfig: rawSetWebcamConfig,
     setMousePositions,
-    setCurrentRecordingMode,
+    setCurrentRecordingMode: rawSetCurrentRecordingMode,
     handleProjectRawVideoPathChange,
-    setCurrentRawMicAudioPath,
-    setCurrentRawWebcamVideoPath,
+    setCurrentRawMicAudioPath: rawSetCurrentRawMicAudioPath,
+    setCurrentRawWebcamVideoPath: rawSetCurrentRawWebcamVideoPath,
     showProjectsDialog: projects.showProjectsDialog,
     setShowProjectsDialog: projects.setShowProjectsDialog,
     seek,
@@ -640,10 +808,10 @@ function App() {
     setError,
     showWindowSelect,
     setShowWindowSelect,
-    setCurrentRecordingMode,
+    setCurrentRecordingMode: rawSetCurrentRecordingMode,
     setCurrentRawVideoPath: handleProjectRawVideoPathChange,
-    setCurrentRawMicAudioPath,
-    setCurrentRawWebcamVideoPath,
+    setCurrentRawMicAudioPath: rawSetCurrentRawMicAudioPath,
+    setCurrentRawWebcamVideoPath: rawSetCurrentRawWebcamVideoPath,
     setLastRawSavedPath,
     setRawButtonSavedFlash,
     projectsDialog: {
@@ -700,8 +868,85 @@ function App() {
       );
       void (async () => {
         try {
-          await persistRef.current?.({ refreshList: false, includeMedia: false });
-          await projects.handleLoadProject(projectId);
+          const project = currentProjectDataRef.current;
+          if (!project || project.id !== projectId) return;
+          let nextVideoUrl: string | undefined;
+          if (currentRawVideoPath) {
+            nextVideoUrl = await videoControllerRef.current?.loadVideo({
+              videoUrl: await getMediaServerUrl(currentRawVideoPath),
+              initialTime: resumeTime,
+              debugLabel: "media-reset",
+            });
+          } else if (project.videoBlob) {
+            nextVideoUrl = await videoControllerRef.current?.loadVideo({
+              videoBlob: project.videoBlob,
+              initialTime: resumeTime,
+              debugLabel: "media-reset",
+            });
+          }
+          if (nextVideoUrl) {
+            setCurrentVideo((previous) => {
+              if (previous?.startsWith("blob:") && previous !== nextVideoUrl) {
+                URL.revokeObjectURL(previous);
+              }
+              return nextVideoUrl;
+            });
+          }
+          let nextAudioUrl: string | undefined;
+          if (currentRawVideoPath && segment?.deviceAudioAvailable !== false) {
+            nextAudioUrl = await videoControllerRef.current?.loadDeviceAudio({
+              audioUrl: await getMediaServerUrl(currentRawVideoPath),
+            });
+          } else if (project.audioBlob) {
+            nextAudioUrl = await videoControllerRef.current?.loadDeviceAudio({
+              audioBlob: project.audioBlob,
+            });
+          }
+          if (nextAudioUrl) {
+            setCurrentAudio((previous) => {
+              if (previous?.startsWith("blob:") && previous !== nextAudioUrl) {
+                URL.revokeObjectURL(previous);
+              }
+              return nextAudioUrl;
+            });
+          }
+          let nextMicAudioUrl: string | undefined;
+          if (currentRawMicAudioPath) {
+            nextMicAudioUrl = await videoControllerRef.current?.loadMicAudio({
+              audioUrl: await getMediaServerUrl(currentRawMicAudioPath),
+            });
+          } else if (project.micAudioBlob) {
+            nextMicAudioUrl = await videoControllerRef.current?.loadMicAudio({
+              audioBlob: project.micAudioBlob,
+            });
+          }
+          if (nextMicAudioUrl) {
+            setCurrentMicAudio((previous) => {
+              if (previous?.startsWith("blob:") && previous !== nextMicAudioUrl) {
+                URL.revokeObjectURL(previous);
+              }
+              return nextMicAudioUrl;
+            });
+          }
+          let nextWebcamUrl: string | undefined;
+          if (currentRawWebcamVideoPath) {
+            nextWebcamUrl = await videoControllerRef.current?.loadWebcamVideo({
+              videoUrl: await getMediaServerUrl(currentRawWebcamVideoPath),
+            });
+          } else if (project.webcamBlob) {
+            nextWebcamUrl = await videoControllerRef.current?.loadWebcamVideo({
+              videoBlob: project.webcamBlob,
+            });
+          }
+          if (nextWebcamUrl) {
+            setCurrentWebcamVideo((previous) => {
+              if (previous?.startsWith("blob:") && previous !== nextWebcamUrl) {
+                URL.revokeObjectURL(previous);
+              }
+              return nextWebcamUrl;
+            });
+          }
+          setPreviewAudioResetKey((key) => key + 1);
           requestAnimationFrame(() => {
             seek(resumeTime);
             if (shouldResume) {
@@ -724,10 +969,17 @@ function App() {
     };
   }, [
     currentTime,
+    currentRawMicAudioPath,
+    currentRawVideoPath,
+    currentRawWebcamVideoPath,
     isPlaying,
-    persistRef,
     projects,
     seek,
+    segment?.deviceAudioAvailable,
+    setCurrentAudio,
+    setCurrentMicAudio,
+    setCurrentVideo,
+    setCurrentWebcamVideo,
     videoControllerRef,
   ]);
 
@@ -785,8 +1037,11 @@ function App() {
         return;
       }
 
-      void projectManager
-        .updateProject(projectId, { composition: nextComposition })
+      const persistTask = compositionPersistChainRef.current
+        .catch(() => undefined)
+        .then(() => projectManager.updateProject(projectId, { composition: nextComposition }));
+      compositionPersistChainRef.current = persistTask;
+      void persistTask
         .then(() => projects.loadProjects())
         .catch((error) => {
           console.warn("[AudioImport] Failed to persist composition", error);
@@ -804,7 +1059,7 @@ function App() {
       reason: string,
       options: { persist: boolean } = { persist: false },
     ) => {
-      const baseComposition = composition ?? currentProjectDataRef.current?.composition ?? null;
+      const baseComposition = currentProjectDataRef.current?.composition ?? composition ?? null;
       if (!baseComposition) {
         void logToHost(`[AudioImport][Frontend] skip audio update reason="${reason}" no-composition`);
         return;
@@ -848,6 +1103,120 @@ function App() {
     [applyCurrentComposition, composition],
   );
 
+  const updateCurrentNarrationSegments = useCallback(
+    (
+      updater: (segments: NarrationSegment[]) => NarrationSegment[],
+      reason: string,
+      options: { persist: boolean } = { persist: false },
+    ) => {
+      const baseComposition = currentProjectDataRef.current?.composition ?? composition ?? null;
+      if (!baseComposition) {
+        void logToHost(`[Narration][Frontend] skip narration update reason="${reason}" no-composition`);
+        return;
+      }
+
+      const nextComposition: ProjectComposition = {
+        ...baseComposition,
+        narrationSegments: updater(baseComposition.narrationSegments ?? []),
+      };
+
+      if (options.persist) {
+        applyCurrentComposition(nextComposition, reason);
+        return;
+      }
+
+      setComposition(nextComposition);
+      const currentProject = currentProjectDataRef.current;
+      if (currentProject) {
+        currentProjectDataRef.current = {
+          ...currentProject,
+          composition: nextComposition,
+        };
+      }
+      setCurrentProjectData((prev) =>
+        prev ? { ...prev, composition: nextComposition } : prev,
+      );
+    },
+    [applyCurrentComposition, composition],
+  );
+
+  const applyNarrationAudioSegments = useCallback(
+    (segments: NarrationSegment[], replaceSubtitleIds: string[]) => {
+      const baseComposition =
+        currentProjectDataRef.current?.composition ?? composition ?? null;
+      if (!baseComposition) {
+        void logToHost('[Narration][Frontend] skip apply no-composition');
+        return;
+      }
+
+      const replaceSet = new Set(replaceSubtitleIds);
+      const nextNarrationSegments = [
+        ...(baseComposition.narrationSegments ?? []).filter((segment) => {
+          if (!segment.sourceSubtitleId) return true;
+          return !replaceSet.has(segment.sourceSubtitleId);
+        }),
+        ...segments,
+      ].sort((left, right) => left.startTime - right.startTime);
+
+      let nextComposition: ProjectComposition = {
+        ...baseComposition,
+        narrationSegments: nextNarrationSegments,
+      };
+      let nextSegment = segmentRef.current;
+      let nextDuration = duration;
+
+      if (isPlaceholderBackedProject && nextSegment) {
+        nextDuration = Math.max(
+          duration,
+          nextSegment.trimEnd,
+          getTimelineContentEnd(
+            nextSegment,
+            baseComposition.audioSegments,
+            nextNarrationSegments,
+          ),
+          1,
+        );
+        nextSegment = resizeSegmentDuration(nextSegment, nextDuration);
+        nextComposition = resizeCompositionRootDuration(
+          nextComposition,
+          nextSegment,
+          nextDuration,
+        ) ?? nextComposition;
+      }
+
+      if (nextSegment && nextDuration > duration) {
+        setSegment(nextSegment);
+        setEditorPreviewDuration(nextDuration);
+      }
+      setComposition(nextComposition);
+      currentProjectDataRef.current = currentProjectDataRef.current
+        ? {
+            ...currentProjectDataRef.current,
+            duration: Math.max(currentProjectDataRef.current.duration ?? 0, nextDuration),
+            segment: nextSegment ?? currentProjectDataRef.current.segment,
+            composition: nextComposition,
+          }
+        : currentProjectDataRef.current;
+      setCurrentProjectData((prev) =>
+        prev
+          ? {
+              ...prev,
+              duration: Math.max(prev.duration ?? 0, nextDuration),
+              segment: nextSegment ?? prev.segment,
+              composition: nextComposition,
+            }
+          : prev,
+      );
+    },
+    [
+      composition,
+      duration,
+      isPlaceholderBackedProject,
+      setEditorPreviewDuration,
+      setSegment,
+    ],
+  );
+
   const persistTimelineWorkspaceState = useCallback(
     async (
       nextSegment: VideoSegment,
@@ -857,10 +1226,10 @@ function App() {
       rawVideoPath?: string,
     ) => {
       setSegment(nextSegment);
-      setPreviewDuration(nextDuration);
+      setEditorPreviewDuration(nextDuration);
       if (nextComposition) setComposition(nextComposition);
       if (rawVideoPath !== undefined) {
-        handleProjectRawVideoPathChange(rawVideoPath);
+        handleEditorRawVideoPathChange(rawVideoPath);
       }
 
       const currentProject = currentProjectDataRef.current;
@@ -899,10 +1268,10 @@ function App() {
       }
     },
     [
-      handleProjectRawVideoPathChange,
+      handleEditorRawVideoPathChange,
       projects.currentProjectId,
       projects.loadProjects,
-      setPreviewDuration,
+      setEditorPreviewDuration,
       setSegment,
     ],
   );
@@ -916,6 +1285,7 @@ function App() {
       const contentEnd = getTimelineContentEnd(
         currentSegment,
         currentComposition?.audioSegments,
+        currentComposition?.narrationSegments,
       );
       const nextDuration = Math.max(requestedDuration, contentEnd, 1);
       let nextSegment = resizeSegmentDuration(currentSegment, nextDuration);
@@ -973,6 +1343,21 @@ function App() {
     [composition, currentTime, persistTimelineWorkspaceState],
   );
 
+  const finalizeNarrationAudioSegments = useCallback(async () => {
+    if (isPlaceholderBackedProject && segmentRef.current) {
+      await updatePlaceholderProjectDuration(
+        segmentRef.current.trimEnd,
+        'subtitle-narration-finalize',
+      );
+      return;
+    }
+    persistCurrentComposition('subtitle-narration-finalize');
+  }, [
+    isPlaceholderBackedProject,
+    persistCurrentComposition,
+    updatePlaceholderProjectDuration,
+  ]);
+
   // Audio audio import — creates a silent-video-backed audio project when
   // nothing is open, otherwise appends to composition.audioSegments.
   const { isImporting: isImportingAudio, importAudio, importAudios, importAudioPaths } = useImportedAudioImport({
@@ -999,7 +1384,11 @@ function App() {
         const nextDuration = Math.max(
           duration,
           segmentRef.current.trimEnd,
-          getTimelineContentEnd(segmentRef.current, nextAudioSegments),
+          getTimelineContentEnd(
+            segmentRef.current,
+            nextAudioSegments,
+            baseComposition.narrationSegments,
+          ),
           1,
         );
         const nextSegment = {
@@ -1270,20 +1659,39 @@ function App() {
     [currentVideo, currentAudio, currentMicAudio, currentWebcamVideo].forEach((url) => {
       if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
     });
-    setCurrentVideo(null);
-    setCurrentAudio(null);
-    setCurrentMicAudio(null);
-    setCurrentWebcamVideo(null);
-    setSegment(null);
-    setThumbnails([]);
-    setMousePositions([]);
-    setCurrentTime(0);
-    setPreviewDuration(0);
-    setLoadedClipId(null);
-    setComposition(null);
-    setCurrentProjectData(null);
+    editorHistory.withoutHistory(() => {
+      setCurrentVideo(null);
+      setCurrentAudio(null);
+      setCurrentMicAudio(null);
+      setCurrentWebcamVideo(null);
+      rawSetSegment(null);
+      setThumbnails([]);
+      setMousePositions([]);
+      setCurrentTime(0);
+      setPreviewDuration(0);
+      setLoadedClipId(null);
+      rawSetComposition(null);
+      setCurrentProjectData(null);
+    });
     projects.setCurrentProjectId(null);
+    historyProjectResetRef.current = null;
+    editorHistory.resetHistory({
+      segment: null,
+      composition: null,
+      backgroundConfig,
+      webcamConfig,
+      duration: 0,
+      currentRecordingMode,
+      currentRawVideoPath,
+      currentRawMicAudioPath,
+      currentRawWebcamVideoPath,
+    });
   }, [
+    backgroundConfig,
+    currentRawMicAudioPath,
+    currentRawVideoPath,
+    currentRawWebcamVideoPath,
+    currentRecordingMode,
     isRecording,
     exportHook.isProcessing,
     currentVideo,
@@ -1294,13 +1702,14 @@ function App() {
     setCurrentAudio,
     setCurrentMicAudio,
     setCurrentWebcamVideo,
-    setSegment,
+    editorHistory,
     setThumbnails,
     setMousePositions,
     setCurrentTime,
     setPreviewDuration,
     setLoadedClipId,
     projects,
+    webcamConfig,
   ]);
 
   // Keyboard shortcuts, segment initializer, and keystroke drag
@@ -1449,6 +1858,7 @@ function App() {
           setIsCanvasResizeDragging={setIsCanvasResizeDragging}
           seekIndicatorDir={seekIndicatorDir}
           seekIndicatorKey={seekIndicatorKey}
+          audioResetKey={previewAudioResetKey}
           isPlaying={isPlaying}
           isProcessing={exportHook.isProcessing}
           isVideoReady={isVideoReady}
@@ -1519,6 +1929,8 @@ function App() {
           subtitleGenerationIndicator={subtitleGenerationIndicator}
           handleGenerateSubtitles={handleGenerateSubtitles}
           handleCancelSubtitleGeneration={handleCancelSubtitleGeneration}
+          onApplyNarrationSegments={applyNarrationAudioSegments}
+          onFinalizeNarrationSegments={finalizeNarrationAudioSegments}
           onSelectedTextIdsChange={handleSelectedTextIdsChange}
           onSelectedSubtitleIdsChange={handleSelectedSubtitleIdsChange}
           projectResetKey={currentProjectData?.id ?? null}
@@ -1552,7 +1964,11 @@ function App() {
               const nextDuration = Math.max(
                 duration,
                 segmentRef.current.trimEnd,
-                getTimelineContentEnd(segmentRef.current, nextAudioSegments),
+                getTimelineContentEnd(
+                  segmentRef.current,
+                  nextAudioSegments,
+                  baseComposition.narrationSegments,
+                ),
                 1,
               );
               const nextSegment = resizeSegmentDuration(segmentRef.current, nextDuration);
@@ -1571,7 +1987,7 @@ function App() {
                   : baseComposition.globalSegment,
               };
               setSegment(nextSegment);
-              setPreviewDuration(nextDuration);
+              setEditorPreviewDuration(nextDuration);
               setComposition(nextComposition);
               currentProjectDataRef.current = currentProjectDataRef.current
                 ? {
@@ -1599,12 +2015,14 @@ function App() {
                   segment.id === id ? { ...segment, ...patch } : segment,
                 ),
               "update-audio-segment",
+              { persist: true },
             );
           }}
-          onDeleteAudioSegment={(id) => {
+          onDeleteAudioSegments={(ids) => {
+            const idSet = new Set(ids);
             updateCurrentMusicSegments(
-              (segments) => segments.filter((segment) => segment.id !== id),
-              "delete-audio-segment",
+              (segments) => segments.filter((segment) => !idSet.has(segment.id)),
+              "delete-audio-segments",
               { persist: true },
             );
           }}
@@ -1617,6 +2035,49 @@ function App() {
               return;
             }
             persistCurrentComposition("commit-audio-segment-edit");
+          }}
+          audioTrackVolumePoints={composition?.audioTrackVolumePoints}
+          onUpdateAudioTrackVolumePoints={(points) => {
+            const baseComposition = composition ?? currentProjectDataRef.current?.composition ?? null;
+            if (!baseComposition) return;
+            const next: ProjectComposition = { ...baseComposition, audioTrackVolumePoints: points };
+            applyCurrentComposition(next, "update-audio-track-volume");
+          }}
+          narrationSegments={composition?.narrationSegments}
+          onUpdateNarrationSegment={(id, patch) => {
+            updateCurrentNarrationSegments(
+              (segments) =>
+                segments.map((segment) =>
+                  segment.id === id ? { ...segment, ...patch } : segment,
+                ),
+              "update-narration-segment",
+              { persist: true },
+            );
+          }}
+          onDeleteNarrationSegments={(ids) => {
+            const idSet = new Set(ids);
+            updateCurrentNarrationSegments(
+              (segments) => segments.filter((segment) => !idSet.has(segment.id)),
+              "delete-narration-segments",
+              { persist: true },
+            );
+          }}
+          onCommitNarrationSegments={() => {
+            if (isPlaceholderBackedProject && segmentRef.current) {
+              void updatePlaceholderProjectDuration(
+                segmentRef.current.trimEnd,
+                "commit-narration-segment-edit",
+              );
+              return;
+            }
+            persistCurrentComposition("commit-narration-segment-edit");
+          }}
+          narrationTrackVolumePoints={composition?.narrationTrackVolumePoints}
+          onUpdateNarrationTrackVolumePoints={(points) => {
+            const baseComposition = composition ?? currentProjectDataRef.current?.composition ?? null;
+            if (!baseComposition) return;
+            const next: ProjectComposition = { ...baseComposition, narrationTrackVolumePoints: points };
+            applyCurrentComposition(next, "update-narration-track-volume");
           }}
         />
 

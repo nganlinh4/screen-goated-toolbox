@@ -38,6 +38,8 @@ pub struct TtsRequestProfile {
     pub google_speed: String,
     pub edge_voice: String,
     pub edge_settings: crate::config::EdgeTtsSettings,
+    /// Optional ISO 639-3 language hint for batched callers such as subtitle narration.
+    pub language_code_override: Option<String>,
 }
 
 impl From<&crate::config::TtsPlaygroundSettings> for TtsRequestProfile {
@@ -52,6 +54,7 @@ impl From<&crate::config::TtsPlaygroundSettings> for TtsRequestProfile {
             google_speed: settings.google_speed.clone(),
             edge_voice: settings.edge_voice.clone(),
             edge_settings: settings.edge_settings.clone(),
+            language_code_override: None,
         }
     }
 }

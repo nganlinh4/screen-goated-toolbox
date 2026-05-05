@@ -1,5 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import type { ImportedAudioSegment, SubtitleSourceGroup, VideoSegment } from "@/types/video";
+import type {
+  ImportedAudioSegment,
+  NarrationSegment,
+  SubtitleSourceGroup,
+  VideoSegment,
+} from "@/types/video";
 import { Plus } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import type { SubtitleGenerationIndicator } from "@/lib/subtitleGenerationPlan";
@@ -7,6 +12,7 @@ import type { TrackSelectionRange } from "@/lib/timelineSegmentSelection";
 import { KeystrokeTrack } from "./KeystrokeTrack";
 import { MicTrack } from "./MicTrack";
 import { ImportedAudioTrack } from "./ImportedAudioTrack";
+import { NarrationTrack } from "./NarrationTrack";
 import { Playhead } from "./Playhead";
 import { PointerTrack } from "./PointerTrack";
 import { DeviceAudioTrack } from "./DeviceAudioTrack";
@@ -21,6 +27,8 @@ import { buildTimelineRulerTicks } from "./timelineRuler";
 import { useTimelineDrag } from "./useTimelineDrag";
 import { useTimelineViewport } from "./useTimelineViewport";
 import { Slider } from "@/components/ui/Slider";
+import { Switch } from "@/components/ui/Switch";
+import type { ActivePanel } from "@/components/sidepanel";
 import {
   clampVisibilitySegmentsToDuration,
   mergePointerSegments,
@@ -35,18 +43,20 @@ import {
 import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
 
 const TIMELINE_TRACK_GAP_PX = 2;
+const SMALL_TRACK_HEIGHT = 28;
 const TIMELINE_TRACK_HEIGHTS = {
-  zoom: 40,
-  debug: 40,
-  speed: 40,
-  importedAudio: 40,
-  deviceAudio: 40,
-  micAudio: 40,
-  webcam: 28,
-  subtitles: 28,
-  text: 28,
-  keystroke: 28,
-  pointer: 28,
+  zoom: SMALL_TRACK_HEIGHT,
+  debug: SMALL_TRACK_HEIGHT,
+  speed: SMALL_TRACK_HEIGHT,
+  importedAudio: SMALL_TRACK_HEIGHT,
+  narration: SMALL_TRACK_HEIGHT,
+  deviceAudio: SMALL_TRACK_HEIGHT,
+  micAudio: SMALL_TRACK_HEIGHT,
+  webcam: SMALL_TRACK_HEIGHT,
+  subtitles: SMALL_TRACK_HEIGHT,
+  text: SMALL_TRACK_HEIGHT,
+  keystroke: SMALL_TRACK_HEIGHT,
+  pointer: SMALL_TRACK_HEIGHT,
   trimLane: 40,
 } as const;
 
@@ -67,7 +77,7 @@ interface TimelineAreaProps {
   setEditingSubtitleId: (id: string | null) => void;
   setEditingKeystrokeSegmentId: (id: string | null) => void;
   setEditingPointerId: (id: string | null) => void;
-  setActivePanel: (panel: "zoom" | "background" | "cursor" | "text" | "subtitles") => void;
+  setActivePanel: (panel: ActivePanel) => void;
   setSegment: (segment: VideoSegment | null) => void;
   onSeek?: (time: number) => void;
   onSeekEnd?: () => void;
@@ -103,11 +113,27 @@ interface TimelineAreaProps {
   audioSegments?: ImportedAudioSegment[];
   onPickImportedAudioFile?: (file: File) => void;
   onPickSubtitleSrtFile?: (file: File) => void;
-  onSelectMusicSegment?: (id: string) => void;
+  onAudioSegmentClick?: (id: string) => void;
   onUpdateAudioSegment?: (id: string, patch: Partial<ImportedAudioSegment>) => void;
-  onDeleteAudioSegment?: (id: string) => void;
+  onDeleteAudioSegments?: (ids: string[]) => void;
   onCommitAudioSegments?: () => void;
-  selectedAudioSegmentId?: string | null;
+  selectedAudioSegmentIds?: ReadonlySet<string>;
+  selectedAudioSegmentRange?: TrackSelectionRange | null;
+  onAudioSelectionChange?: (ids: string[]) => void;
+  onAudioRangeChange?: (range: TrackSelectionRange | null) => void;
+  audioTrackVolumePoints?: import("@/types/video").AudioGainPoint[];
+  onUpdateAudioTrackVolumePoints?: (points: import("@/types/video").AudioGainPoint[]) => void;
+  narrationSegments?: NarrationSegment[];
+  onNarrationSegmentClick?: (id: string) => void;
+  onUpdateNarrationSegment?: (id: string, patch: Partial<NarrationSegment>) => void;
+  onDeleteNarrationSegments?: (ids: string[]) => void;
+  onCommitNarrationSegments?: () => void;
+  selectedNarrationSegmentIds?: ReadonlySet<string>;
+  selectedNarrationSegmentRange?: TrackSelectionRange | null;
+  onNarrationSelectionChange?: (ids: string[]) => void;
+  onNarrationRangeChange?: (range: TrackSelectionRange | null) => void;
+  narrationTrackVolumePoints?: import("@/types/video").AudioGainPoint[];
+  onUpdateNarrationTrackVolumePoints?: (points: import("@/types/video").AudioGainPoint[]) => void;
 }
 
 export const TimelineArea: React.FC<TimelineAreaProps> = ({
@@ -160,14 +186,31 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   audioSegments,
   onPickImportedAudioFile,
   onPickSubtitleSrtFile,
-  onSelectMusicSegment,
+  onAudioSegmentClick,
   onUpdateAudioSegment,
-  onDeleteAudioSegment,
+  onDeleteAudioSegments,
   onCommitAudioSegments,
-  selectedAudioSegmentId,
+  selectedAudioSegmentIds,
+  selectedAudioSegmentRange,
+  onAudioSelectionChange,
+  onAudioRangeChange,
+  audioTrackVolumePoints,
+  onUpdateAudioTrackVolumePoints,
+  narrationSegments,
+  onNarrationSegmentClick,
+  onUpdateNarrationSegment,
+  onDeleteNarrationSegments,
+  onCommitNarrationSegments,
+  selectedNarrationSegmentIds,
+  selectedNarrationSegmentRange,
+  onNarrationSelectionChange,
+  onNarrationRangeChange,
+  narrationTrackVolumePoints,
+  onUpdateNarrationTrackVolumePoints,
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
+  const [volumeViewEnabled, setVolumeViewEnabled] = useState(false);
   const showEmptyRuler = duration <= 0;
   const clampTrackDelay = (value: number) =>
     Math.max(-2, Math.min(2, value));
@@ -234,6 +277,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   const showKeystroke = (segment?.keystrokeMode ?? 'off') !== 'off';
   const showPointer = hasMouseData;
   const showImportedAudio = Boolean(onPickImportedAudioFile) || (audioSegments?.length ?? 0) > 0;
+  const showNarration = (narrationSegments?.length ?? 0) > 0;
 
   const importedAudioFileInputRef = useRef<HTMLInputElement>(null);
   const subtitleSrtFileInputRef = useRef<HTMLInputElement>(null);
@@ -265,6 +309,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     ...(showZoom && showDebug ? [TIMELINE_TRACK_HEIGHTS.debug] : []),
     ...(showSpeed ? [TIMELINE_TRACK_HEIGHTS.speed] : []),
     ...(showImportedAudio ? [TIMELINE_TRACK_HEIGHTS.importedAudio] : []),
+    ...(showNarration ? [TIMELINE_TRACK_HEIGHTS.narration] : []),
     ...(showDeviceAudio ? [TIMELINE_TRACK_HEIGHTS.deviceAudio] : []),
     ...(showMicAudio ? [TIMELINE_TRACK_HEIGHTS.micAudio] : []),
     ...(showWebcam ? [TIMELINE_TRACK_HEIGHTS.webcam] : []),
@@ -554,7 +599,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
         <div className="timeline-side-column w-[4rem] flex-shrink-0">
           <div className="timeline-label-gutter flex flex-col gap-[2px] border-r border-[var(--ui-border)] pr-2">
             {showZoom && (
-              <div className="timeline-label-zoom h-10 flex items-center justify-between">
+              <div className="timeline-label-zoom h-7 flex items-center justify-between">
                 <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                   {t.trackZoom}
                 </span>
@@ -572,14 +617,14 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               </div>
             )}
             {showZoom && showDebug && (
-              <div className="timeline-label-debug h-10 flex items-center">
+              <div className="timeline-label-debug h-7 flex items-center">
                 <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none opacity-50">
                   dbg
                 </span>
               </div>
             )}
             {showSpeed && (
-              <div className="timeline-label-speed h-10 flex items-center justify-between">
+              <div className="timeline-label-speed h-7 flex items-center justify-between">
                 <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                   {t.trackSpeed || "Speed"}
                 </span>
@@ -605,7 +650,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               </div>
             )}
             {showImportedAudio && (
-              <div className="timeline-label-imported-audio group/imported-audio-label relative h-10 flex items-center">
+              <div className="timeline-label-imported-audio group/imported-audio-label relative h-7 flex items-center">
                 <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                   {t.trackAudio}
                 </span>
@@ -622,8 +667,15 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 )}
               </div>
             )}
+            {showNarration && (
+              <div className="timeline-label-narration h-7 flex items-center">
+                <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+                  {t.tabNarration || "Narration"}
+                </span>
+              </div>
+            )}
             {showDeviceAudio && (
-              <div className="timeline-label-device-audio h-10 flex items-center">
+              <div className="timeline-label-device-audio h-7 flex items-center">
                 <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                   {t.trackDeviceAudio}
                 </span>
@@ -639,7 +691,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 setSegment({ ...segment, micAudioOffsetSec: value });
               },
               isAvailable: true,
-              heightClassName: "h-10",
+              heightClassName: "h-7",
             })}
             {showWebcam && renderTrackDelayLabel({
               className: "timeline-label-webcam",
@@ -696,7 +748,17 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               </div>
             )}
           </div>
-          <div className="timeline-ruler-spacer h-4 mt-0.5" />
+          <div className="timeline-ruler-spacer h-4 mt-0.5 flex items-center justify-end">
+            <div className="timeline-volume-view-toggle flex items-center gap-1.5">
+              <span className="text-[9px] font-medium leading-none text-[var(--on-surface-variant)]">
+                Volume
+              </span>
+              <Switch
+                checked={volumeViewEnabled}
+                onCheckedChange={setVolumeViewEnabled}
+              />
+            </div>
+          </div>
         </div>
 
         <div className="timeline-main-column flex-1 min-w-0">
@@ -739,7 +801,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       commitBatch={commitBatch}
                     />
                   ) : (
-                    <div className="zoom-track-empty timeline-track-empty h-10" />
+                    <div className="zoom-track-empty timeline-track-empty h-7" />
                   ))}
 
                   {showZoom && showDebug && segment && (
@@ -757,20 +819,48 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       commitBatch={commitBatch}
                     />
                   ) : (
-                    <div className="speed-track-empty timeline-track-empty h-10" />
+                    <div className="speed-track-empty timeline-track-empty h-7" />
                   ))}
 
                   {showImportedAudio && (
                     <ImportedAudioTrack
                       segments={audioSegments ?? []}
                       duration={duration}
-                      onSelectSegment={onSelectMusicSegment}
+                      onSegmentClick={onAudioSegmentClick}
                       onUpdateSegment={onUpdateAudioSegment}
-                      onDeleteSegment={onDeleteAudioSegment}
-                      selectedSegmentId={selectedAudioSegmentId}
+                      onDeleteSegments={onDeleteAudioSegments}
+                      selectedIds={selectedAudioSegmentIds}
+                      selectedRange={selectedAudioSegmentRange}
+                      onSelectionChange={onAudioSelectionChange}
+                      onRangeChange={onAudioRangeChange}
+                      viewMode={volumeViewEnabled ? "volume" : "compact"}
+                      clearSignal={clearSelectionSignal}
+                      volumePoints={audioTrackVolumePoints}
+                      onUpdateVolumePoints={onUpdateAudioTrackVolumePoints}
                       beginBatch={beginBatch}
                       commitBatch={commitBatch}
                       onCommitSegments={onCommitAudioSegments}
+                    />
+                  )}
+
+                  {showNarration && (
+                    <NarrationTrack
+                      segments={narrationSegments ?? []}
+                      duration={duration}
+                      onSegmentClick={onNarrationSegmentClick}
+                      onUpdateSegment={onUpdateNarrationSegment}
+                      onDeleteSegments={onDeleteNarrationSegments}
+                      selectedIds={selectedNarrationSegmentIds}
+                      selectedRange={selectedNarrationSegmentRange}
+                      onSelectionChange={onNarrationSelectionChange}
+                      onRangeChange={onNarrationRangeChange}
+                      viewMode={volumeViewEnabled ? "volume" : "compact"}
+                      clearSignal={clearSelectionSignal}
+                      volumePoints={narrationTrackVolumePoints}
+                      onUpdateVolumePoints={onUpdateNarrationTrackVolumePoints}
+                      beginBatch={beginBatch}
+                      commitBatch={commitBatch}
+                      onCommitSegments={onCommitNarrationSegments}
                     />
                   )}
 
@@ -780,6 +870,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       duration={duration}
                       isAvailable={isDeviceAudioAvailable}
                       sourcePath={currentRawVideoPath}
+                      viewMode={volumeViewEnabled ? "volume" : "compact"}
                       onUpdateDeviceAudioPoints={(points) => {
                         setSegment({ ...segment, deviceAudioPoints: points });
                       }}
@@ -787,7 +878,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       commitBatch={commitBatch}
                     />
                   ) : (
-                    <div className="device-audio-track-empty timeline-track-empty h-10" />
+                    <div className="device-audio-track-empty timeline-track-empty h-7" />
                   ))}
 
                   {showMicAudio && (segment ? (
@@ -796,6 +887,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       duration={duration}
                       isAvailable={isMicAudioAvailable}
                       sourcePath={currentRawMicAudioPath}
+                      viewMode={volumeViewEnabled ? "volume" : "compact"}
                       onUpdateMicAudioPoints={(points) => {
                         setSegment({ ...segment, micAudioPoints: points });
                       }}
@@ -803,7 +895,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       commitBatch={commitBatch}
                     />
                   ) : (
-                    <div className="mic-audio-track-empty timeline-track-empty h-10" />
+                    <div className="mic-audio-track-empty timeline-track-empty h-7" />
                   ))}
 
                   {showWebcam && (segment ? (

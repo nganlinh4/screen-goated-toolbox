@@ -322,25 +322,25 @@ export function SubtitlePanel({
       disabled: (subtitleTranslation.subtitleTranslationSourceCounts.current ?? 0) <= 0,
     },
     {
+      value: 'all',
+      label: t.subtitleTranslationSourceAll,
+      disabled: (subtitleTranslation.subtitleTranslationSourceCounts.all ?? 0) <= 0,
+    },
+    {
       value: 'audio',
       label: t.subtitleTranslationSourceAllAudio,
-      disabled: !canUseAudioSource || (subtitleTranslation.subtitleTranslationSourceCounts.audio ?? 0) <= 0,
+      disabled: (subtitleTranslation.subtitleTranslationSourceCounts.audio ?? 0) <= 0,
     },
     {
       value: 'video',
       label: t.subtitleSourceVideo,
-      disabled: !canUseVideoSource || (subtitleTranslation.subtitleTranslationSourceCounts.video ?? 0) <= 0,
+      disabled: (subtitleTranslation.subtitleTranslationSourceCounts.video ?? 0) <= 0,
     },
     {
       value: 'mic',
       label: t.subtitleSourceMic,
-      disabled: !canUseMicSource || (subtitleTranslation.subtitleTranslationSourceCounts.mic ?? 0) <= 0,
+      disabled: (subtitleTranslation.subtitleTranslationSourceCounts.mic ?? 0) <= 0,
     },
-    ...audioSegments.map((segment) => ({
-      value: `audio:${segment.id}`,
-      label: segment.name || t.subtitleSourceAudio,
-      disabled: !segment.rawAudioPath || (subtitleTranslation.subtitleTranslationSourceCounts[`audio:${segment.id}`] ?? 0) <= 0,
-    })),
   ];
   const subtitleViewOptions = [
     {

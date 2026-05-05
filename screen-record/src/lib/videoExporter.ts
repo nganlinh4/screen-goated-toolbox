@@ -435,6 +435,9 @@ export class VideoExporter {
     audio?: HTMLAudioElement | null;
     micAudio?: HTMLAudioElement | null;
     audioSegments?: import("@/types/video").ImportedAudioSegment[];
+    narrationSegments?: import("@/types/video").NarrationSegment[];
+    audioTrackVolumePoints?: import("@/types/video").AudioGainPoint[];
+    narrationTrackVolumePoints?: import("@/types/video").AudioGainPoint[];
   }) {
     if (this.isExporting) {
       throw new Error('Export already in progress');
@@ -554,6 +557,9 @@ export class VideoExporter {
         webcamConfig: context.webcamConfig,
         mousePositions,
         audioSegments: options.audioSegments ?? [],
+        audioTrackVolumePoints: options.audioTrackVolumePoints ?? [],
+        narrationSegments: options.narrationSegments ?? [],
+        narrationTrackVolumePoints: options.narrationTrackVolumePoints ?? [],
       });
       const exportNullPaths = collectNullPaths(exportConfig, '$');
       if (exportNullPaths.length > 0) {

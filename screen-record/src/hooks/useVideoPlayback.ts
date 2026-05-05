@@ -91,6 +91,14 @@ export function useVideoPlayback({
       point.time,
       point.speed,
     ]),
+    deviceAudioPoints: (nextSegment.deviceAudioPoints ?? []).map((point) => [
+      point.time,
+      point.volume,
+    ]),
+    micAudioPoints: (nextSegment.micAudioPoints ?? []).map((point) => [
+      point.time,
+      point.volume,
+    ]),
     textSegments: (nextSegment.textSegments ?? []).map((textSegment) => [
       textSegment.id,
       textSegment.startTime,

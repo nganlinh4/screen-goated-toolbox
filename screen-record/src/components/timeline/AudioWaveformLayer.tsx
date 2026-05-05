@@ -14,6 +14,10 @@ interface AudioWaveformLayerProps {
   topPx: number;
   bottomPx: number;
   offsetSec?: number;
+  sourceInSec?: number;
+  sourceOutSec?: number;
+  playbackRate?: number;
+  gainTimeOffsetSec?: number;
 }
 
 const TARGET_BIN_MIN = 128;
@@ -76,6 +80,10 @@ export const AudioWaveformLayer: React.FC<AudioWaveformLayerProps> = ({
   topPx,
   bottomPx,
   offsetSec = 0,
+  sourceInSec,
+  sourceOutSec,
+  playbackRate = 1,
+  gainTimeOffsetSec = 0,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const requestIdRef = useRef(0);
@@ -167,18 +175,29 @@ export const AudioWaveformLayer: React.FC<AudioWaveformLayerProps> = ({
     const centerY = (topPx + bottomPx) * 0.5;
     const halfRange = Math.max(1, (bottomPx - topPx) * 0.5 - 1);
     const sourceDuration = waveform.sourceDurationSec;
+    const sourceStartSec = Math.max(0, sourceInSec ?? 0);
+    const sourceEndSec = Math.max(
+      sourceStartSec,
+      Math.min(sourceDuration, sourceOutSec ?? sourceDuration),
+    );
+    const rate = playbackRate > 0 ? playbackRate : 1;
+    const displaySourceDuration = Math.max(0.0001, (sourceEndSec - sourceStartSec) / rate);
     const smoothingRadius = getSmoothingRadius(cssWidth, waveform.bins.length);
     const drawPoints: Array<{ x: number; topY: number; bottomY: number }> = [];
 
     for (let index = 0; index < waveform.bins.length; index += 1) {
       const bin = waveform.bins[index];
-      const sourceStart = (index / waveform.bins.length) * sourceDuration + offsetSec;
-      const sourceEnd =
-        ((index + 1) / waveform.bins.length) * sourceDuration + offsetSec;
-      if (sourceEnd <= 0 || sourceStart >= duration) continue;
+      const rawStart = (index / waveform.bins.length) * sourceDuration;
+      const rawEnd = ((index + 1) / waveform.bins.length) * sourceDuration;
+      if (rawEnd <= sourceStartSec || rawStart >= sourceEndSec) continue;
+      const clippedStart = Math.max(sourceStartSec, rawStart);
+      const clippedEnd = Math.min(sourceEndSec, rawEnd);
+      const sourceStart = (clippedStart - sourceStartSec) / rate + offsetSec;
+      const sourceEnd = (clippedEnd - sourceStartSec) / rate + offsetSec;
+      if (sourceEnd <= 0 || sourceStart >= displaySourceDuration) continue;
 
       const displayCenter = clamp((sourceStart + sourceEnd) * 0.5, 0, duration);
-      const gain = clamp(getVolumeAtTime(displayCenter, gainPoints), 0, 1);
+      const gain = clamp(getVolumeAtTime(displayCenter + gainTimeOffsetSec, gainPoints), 0, 1);
       const minAmplitude = clamp(bin.min * gain, -1, 1);
       const maxAmplitude = clamp(bin.max * gain, -1, 1);
       const x = (sourceStart / duration) * cssWidth;
@@ -236,11 +255,15 @@ export const AudioWaveformLayer: React.FC<AudioWaveformLayerProps> = ({
     bottomPx,
     colorVariable,
     duration,
+    gainTimeOffsetSec,
     gainPoints,
     getVolumeAtTime,
     offsetSec,
     size.height,
     size.width,
+    playbackRate,
+    sourceInSec,
+    sourceOutSec,
     topPx,
     waveform,
   ]);

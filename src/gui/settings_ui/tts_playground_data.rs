@@ -1,4 +1,4 @@
-pub(super) const GEMINI_VOICES: &[(&str, &str)] = &[
+pub const GEMINI_VOICES: &[(&str, &str)] = &[
     ("Achernar", "Female"),
     ("Achird", "Male"),
     ("Algenib", "Male"),
@@ -31,7 +31,7 @@ pub(super) const GEMINI_VOICES: &[(&str, &str)] = &[
     ("Zubenelgenubi", "Male"),
 ];
 
-pub(super) const SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES: &[(&str, &str)] = &[
+pub const SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES: &[(&str, &str)] = &[
     ("afr", "Afrikaans"),
     ("ara", "Arabic"),
     ("aze", "Azerbaijani"),

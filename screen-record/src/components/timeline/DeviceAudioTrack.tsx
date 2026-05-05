@@ -46,6 +46,7 @@ interface DeviceAudioTrackProps {
   duration: number;
   isAvailable: boolean;
   sourcePath?: string | null;
+  viewMode?: "compact" | "volume";
   onUpdateDeviceAudioPoints: (points: DeviceAudioPoint[]) => void;
   beginBatch: () => void;
   commitBatch: () => void;
@@ -56,10 +57,12 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
   duration,
   isAvailable,
   sourcePath,
+  viewMode = "volume",
   onUpdateDeviceAudioPoints,
   beginBatch,
   commitBatch,
 }) => {
+  const fadePct = `${Math.max(0, Math.min(50, (0.12 / Math.max(duration, 0.001)) * 100))}%`;
   const points = segment.deviceAudioPoints?.length
     ? segment.deviceAudioPoints
     : buildFlatDeviceAudioPoints(duration);
@@ -486,10 +489,35 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
     highlightedSegmentIndices,
   );
 
+  if (viewMode === "compact") {
+    return (
+      <div
+        className={`device-audio-track timeline-lane relative h-7 ${
+          isAvailable ? "" : "timeline-lane-unavailable"
+        }`}
+      >
+        <div
+          className="device-audio-soft-segment timeline-block absolute inset-y-0 left-0 right-0 overflow-hidden"
+          data-tone="danger"
+        >
+          <div className="device-audio-soft-segment-fill absolute inset-0 bg-[color-mix(in_srgb,var(--timeline-device-audio-color)_22%,var(--ui-surface-3))]" />
+          <div
+            className="device-audio-soft-segment-fade-in absolute inset-y-0 left-0 bg-gradient-to-r from-transparent to-[color-mix(in_srgb,var(--timeline-device-audio-color)_14%,transparent)]"
+            style={{ width: fadePct }}
+          />
+          <div
+            className="device-audio-soft-segment-fade-out absolute inset-y-0 right-0 bg-gradient-to-l from-transparent to-[color-mix(in_srgb,var(--timeline-device-audio-color)_14%,transparent)]"
+            style={{ width: fadePct }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div
-        className={`device-audio-track timeline-lane timeline-lane-strong relative h-10 ${
+        className={`device-audio-track timeline-lane timeline-lane-strong relative h-7 ${
           isAvailable ? "" : "timeline-lane-unavailable"
         }`}
       >

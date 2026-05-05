@@ -8,7 +8,7 @@ pub mod pointer_gallery;
 mod preset;
 mod sidebar;
 pub mod tts_playground;
-mod tts_playground_data;
+pub mod tts_playground_data;
 
 pub use footer::render_footer;
 pub use global::render_global_settings;

@@ -307,6 +307,9 @@ export function useExport(props: UseExportProps) {
       webcamVideoFilePath: props.webcamVideoFilePath || "",
       videoFilePath: sourceVideoPath,
       audioSegments: props.composition?.audioSegments,
+      audioTrackVolumePoints: props.composition?.audioTrackVolumePoints,
+      narrationSegments: props.composition?.narrationSegments,
+      narrationTrackVolumePoints: props.composition?.narrationTrackVolumePoints,
     }),
     [
       exportOptions.width,

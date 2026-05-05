@@ -4,7 +4,10 @@ use tungstenite::Message;
 
 use super::manager::TtsManager;
 use super::types::{AudioEvent, TtsRequestProfile};
-use super::utils::{clear_tts_loading_state, clear_tts_state, get_language_instruction_for_text};
+use super::utils::{
+    clear_tts_loading_state, clear_tts_state, get_language_instruction_for_code,
+    get_language_instruction_for_text,
+};
 use super::websocket::{
     connect_tts_websocket, is_turn_complete, parse_audio_data, send_tts_setup, send_tts_text,
 };
@@ -368,8 +371,13 @@ fn handle_gemini_tts(
 }
 
 fn playground_language_instruction(text: &str, profile: &TtsRequestProfile) -> Option<String> {
-    let language_instruction =
-        get_language_instruction_for_text(text, &profile.gemini_language_conditions);
+    let language_instruction = profile
+        .language_code_override
+        .as_deref()
+        .and_then(|code| {
+            get_language_instruction_for_code(code, &profile.gemini_language_conditions)
+        })
+        .or_else(|| get_language_instruction_for_text(text, &profile.gemini_language_conditions));
     let custom_instruction = profile.gemini_instruction.trim();
     match (language_instruction, custom_instruction.is_empty()) {
         (Some(language_instruction), false) => {

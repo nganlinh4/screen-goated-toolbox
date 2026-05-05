@@ -3,6 +3,7 @@ import type { DeviceAudioPoint } from "@/types/video";
 export const MIN_DEVICE_AUDIO_VOLUME = 0;
 export const MAX_DEVICE_AUDIO_VOLUME = 1;
 export const DEFAULT_DEVICE_AUDIO_VOLUME = 1;
+export const IMPLICIT_AUDIO_EDGE_FADE_SEC = 0.12;
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -54,6 +55,25 @@ export function getDeviceAudioVolumeAtTime(
   return clampDeviceAudioVolume(
     left.volume + (right.volume - left.volume) * cosT,
   );
+}
+
+export function getImplicitAudioEdgeFadeMultiplier(
+  localTime: number,
+  duration: number,
+  fadeSec: number = IMPLICIT_AUDIO_EDGE_FADE_SEC,
+): number {
+  if (!Number.isFinite(localTime) || !Number.isFinite(duration) || duration <= 0) return 0;
+  const fade = Math.max(0, Math.min(fadeSec, duration / 2));
+  if (fade <= 0) return 1;
+  if (localTime <= 0 || localTime >= duration) return 0;
+  const fadeIn = localTime < fade
+    ? (1 - Math.cos((localTime / fade) * Math.PI)) / 2
+    : 1;
+  const tailTime = duration - localTime;
+  const fadeOut = tailTime < fade
+    ? (1 - Math.cos((tailTime / fade) * Math.PI)) / 2
+    : 1;
+  return clamp(fadeIn * fadeOut, 0, 1);
 }
 
 export function normalizeDeviceAudioPoints(

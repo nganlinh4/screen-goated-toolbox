@@ -58,6 +58,14 @@ pub fn get_language_instruction_for_text(
     conditions: &[crate::config::TtsLanguageCondition],
 ) -> Option<String> {
     let detected_code = crate::lang_detect::detect_language(text)?;
+    get_language_instruction_for_code(&detected_code, conditions)
+}
+
+/// Get matching TTS instruction from a known ISO 639-3 language code.
+pub fn get_language_instruction_for_code(
+    detected_code: &str,
+    conditions: &[crate::config::TtsLanguageCondition],
+) -> Option<String> {
 
     // Find matching condition
     for condition in conditions {

@@ -25,7 +25,7 @@ const NORMALIZED_IMPORT_AUDIO_SAMPLE_RATE: u32 = 48_000;
 const NORMALIZED_IMPORT_AUDIO_CHANNELS: u32 = 2;
 const NORMALIZED_IMPORT_AUDIO_BITRATE_KBPS: u32 = 192;
 
-fn recordings_dir() -> PathBuf {
+pub(crate) fn recordings_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("screen-goated-toolbox")
@@ -46,6 +46,38 @@ fn managed_import_path(recordings_dir: &Path, ts: u128, extension: &str) -> Path
 
 fn managed_import_audio_path(recordings_dir: &Path, ts: u128, extension: &str) -> PathBuf {
     recordings_dir.join(format!("imported-audio-{ts}.{extension}"))
+}
+
+pub(crate) fn write_managed_narration_wav(
+    trace_id: &str,
+    index: usize,
+    wav_data: &[u8],
+) -> Result<String, String> {
+    let recordings_dir = recordings_dir();
+    std::fs::create_dir_all(&recordings_dir)
+        .map_err(|error| format!("Create recordings dir: {error}"))?;
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let safe_trace_id: String = trace_id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let output_path = recordings_dir.join(format!("narration-{safe_trace_id}-{index}-{ts}.wav"));
+    std::fs::write(&output_path, wav_data).map_err(|error| {
+        format!(
+            "Write narration WAV failed at '{}': {error}",
+            output_path.display()
+        )
+    })?;
+    Ok(output_path.to_string_lossy().to_string())
 }
 
 fn managed_audio_placeholder_video_path(recordings_dir: &Path, ts: u128) -> PathBuf {

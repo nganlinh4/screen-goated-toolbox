@@ -230,7 +230,48 @@ fn build_single_clip_config(
             project_clip_start_sec,
             clip.duration,
         ),
+        audio_track_volume_points: slice_track_volume_points(
+            &export.audio_track_volume_points,
+            project_clip_start_sec,
+            clip.duration,
+        ),
+        narration_segments: slice_audio_for_clip(
+            &export.narration_segments,
+            project_clip_start_sec,
+            clip.duration,
+        ),
+        narration_track_volume_points: slice_track_volume_points(
+            &export.narration_track_volume_points,
+            project_clip_start_sec,
+            clip.duration,
+        ),
     }
+}
+
+/// Translate project-relative track volume points into clip-relative ones for
+/// the clip occupying `[clip_start, clip_start + clip_duration]`.
+fn slice_track_volume_points(
+    points: &[super::config::DeviceAudioPoint],
+    clip_start: f64,
+    clip_duration: f64,
+) -> Vec<super::config::DeviceAudioPoint> {
+    if clip_duration <= 0.0 || points.is_empty() {
+        return Vec::new();
+    }
+    points
+        .iter()
+        .filter_map(|point| {
+            let local = point.time - clip_start;
+            if local < -0.0001 || local > clip_duration + 0.0001 {
+                None
+            } else {
+                Some(super::config::DeviceAudioPoint {
+                    time: local.clamp(0.0, clip_duration),
+                    volume: point.volume,
+                })
+            }
+        })
+        .collect()
 }
 
 /// Convert project-relative audio segments to clip-relative ones for the
@@ -252,24 +293,31 @@ fn slice_audio_for_clip(
         if trimmed_len <= 0.0 || seg.raw_audio_path.trim().is_empty() {
             continue;
         }
+        let rate = if seg.playback_rate > 0.0001 {
+            seg.playback_rate
+        } else {
+            1.0
+        };
+        let timeline_len = trimmed_len / rate;
         let seg_proj_start = seg.start_time;
-        let seg_proj_end = seg_proj_start + trimmed_len;
+        let seg_proj_end = seg_proj_start + timeline_len;
         let overlap_start = seg_proj_start.max(clip_start);
         let overlap_end = seg_proj_end.min(clip_end);
         if overlap_end - overlap_start <= 0.0001 {
             continue;
         }
         let local_start = overlap_start - clip_start;
-        let in_offset = overlap_start - seg_proj_start;
+        let in_offset = (overlap_start - seg_proj_start) * rate;
         let local_in = seg.in_point + in_offset.max(0.0);
-        let local_out = local_in + (overlap_end - overlap_start);
+        let local_out = local_in + (overlap_end - overlap_start) * rate;
         out.push(ImportedAudioSegmentConfig {
             raw_audio_path: seg.raw_audio_path.clone(),
             duration: seg.duration,
             start_time: local_start,
             in_point: local_in,
-            out_point: local_out,
+            out_point: local_out.min(seg.out_point),
             volume_points: seg.volume_points.clone(),
+            playback_rate: seg.playback_rate,
         });
     }
     out

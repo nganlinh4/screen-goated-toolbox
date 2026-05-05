@@ -11,9 +11,13 @@ use super::{
     SubtitleBackend, SubtitleBackendProgress, SubtitleBackendRequest, ends_sentence,
     join_word_tokens, normalize_subtitle_text,
 };
+use crate::overlay::screen_record::ipc::subtitles::audio::build_silence_aware_split_frames;
 
 const SAMPLE_RATE_HZ: usize = 16_000;
 const CHUNK_SEC: f64 = 30.0;
+// How far each side of an even-split boundary to scan for a quieter cut so
+// chunks end on natural silence rather than mid-word.
+const PARAKEET_SILENCE_SEARCH_RADIUS_SEC: f64 = 3.0;
 const MAX_SEGMENT_SEC: f64 = 6.5;
 const MAX_SEGMENT_CHARS: usize = 96;
 const MAX_SEGMENT_WORDS: usize = 16;
@@ -75,7 +79,15 @@ impl SubtitleBackend for ParakeetTdtSubtitleBackend {
 
         let total_samples = samples.len();
         let chunk_samples = (CHUNK_SEC * SAMPLE_RATE_HZ as f64).round() as usize;
-        let total_chunks = total_samples.div_ceil(chunk_samples).max(1);
+        let target_chunks = total_samples.div_ceil(chunk_samples).max(1);
+        let chunk_ranges = build_silence_aware_split_frames(
+            &samples,
+            1,
+            SAMPLE_RATE_HZ as u32,
+            target_chunks,
+            PARAKEET_SILENCE_SEARCH_RADIUS_SEC,
+        );
+        let total_chunks = chunk_ranges.len();
         let mut all_segments = Vec::new();
 
         crate::log_info!(
@@ -85,13 +97,10 @@ impl SubtitleBackend for ParakeetTdtSubtitleBackend {
             CHUNK_SEC
         );
 
-        for chunk_index in 0..total_chunks {
+        for (chunk_index, (start_sample, end_sample)) in chunk_ranges.into_iter().enumerate() {
             if request.cancel_token.load(Ordering::SeqCst) {
                 return Err("Parakeet TDT subtitle generation cancelled".to_string());
             }
-
-            let start_sample = chunk_index * chunk_samples;
-            let end_sample = ((chunk_index + 1) * chunk_samples).min(total_samples);
             if start_sample >= end_sample {
                 continue;
             }

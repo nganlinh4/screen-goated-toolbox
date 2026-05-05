@@ -5,8 +5,10 @@ use std::time::Instant;
 
 use serde::de::DeserializeOwned;
 
-use super::audio_mix::{ExportAudioSource, build_preprocessed_audio_mix};
-use super::config::{self, ExportConfig};
+use super::audio_mix::{
+    ExportAudioSource, IMPLICIT_AUDIO_EDGE_FADE_SEC, build_preprocessed_audio_mix,
+};
+use super::config::{self, ExportConfig, ImportedAudioSegmentConfig};
 use super::{camera_path, cursor_path, staging};
 
 use super::gpu_pipeline;
@@ -479,11 +481,16 @@ fn prepare_audio_and_video(config: &ExportConfig) -> Result<AudioVideoPrep, Stri
         .audio_segments
         .iter()
         .any(|seg| !seg.raw_audio_path.trim().is_empty());
+    let has_narration_segments = config
+        .narration_segments
+        .iter()
+        .any(|seg| !seg.raw_audio_path.trim().is_empty());
     let t_audio_start = Instant::now();
     let use_preprocessed_audio = config.format != "gif"
         && (speed_changes_audio_timeline
             || (!config.mic_audio_path.trim().is_empty() && has_audible_mic_audio)
-            || has_audio_segments);
+            || has_audio_segments
+            || has_narration_segments);
     let timestamp_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -497,6 +504,8 @@ fn prepare_audio_and_video(config: &ExportConfig) -> Result<AudioVideoPrep, Stri
                 start_offset_sec: 0.0,
                 source_in_sec: None,
                 source_out_sec: None,
+                playback_rate: 1.0,
+                implicit_edge_fade_sec: IMPLICIT_AUDIO_EDGE_FADE_SEC,
             });
         }
         if !config.mic_audio_path.trim().is_empty() && has_audible_mic_audio {
@@ -506,35 +515,59 @@ fn prepare_audio_and_video(config: &ExportConfig) -> Result<AudioVideoPrep, Stri
                 start_offset_sec: config.segment.mic_audio_offset_sec,
                 source_in_sec: None,
                 source_out_sec: None,
+                playback_rate: 1.0,
+                implicit_edge_fade_sec: IMPLICIT_AUDIO_EDGE_FADE_SEC,
             });
         }
-        for audio_segment in &config.audio_segments {
-            let path = audio_segment.raw_audio_path.trim();
-            if path.is_empty() {
-                continue;
+        let push_clip_sources = |sources: &mut Vec<ExportAudioSource>,
+                                 segments: &[ImportedAudioSegmentConfig],
+                                 track_volume_points: &[config::DeviceAudioPoint]| {
+            for audio_segment in segments {
+                let path = audio_segment.raw_audio_path.trim();
+                if path.is_empty() {
+                    continue;
+                }
+                // The mix maps source time → project time as
+                //   project_t = (source_t / rate) + (start_time - in_point)
+                // so the trimmed range [in_point, out_point] is placed at
+                // [start_time, start_time + (out_point - in_point) / rate].
+                let in_point = audio_segment.in_point.max(0.0);
+                let raw_out = audio_segment.out_point;
+                let out_point = if raw_out > in_point + 0.0001 {
+                    raw_out
+                } else if audio_segment.duration > in_point + 0.0001 {
+                    audio_segment.duration
+                } else {
+                    in_point
+                };
+                let rate = if audio_segment.playback_rate > 0.0001 {
+                    audio_segment.playback_rate
+                } else {
+                    1.0
+                };
+                sources.push(ExportAudioSource {
+                    path: path.to_string(),
+                    // Track-global volume envelope: every source on this track
+                    // inherits the same project-time curve.
+                    volume_points: track_volume_points.to_vec(),
+                    start_offset_sec: audio_segment.start_time - in_point / rate,
+                    source_in_sec: Some(in_point),
+                    source_out_sec: Some(out_point),
+                    playback_rate: rate,
+                    implicit_edge_fade_sec: 0.0,
+                });
             }
-            // The mix maps source time → project time as
-            //   project_t = source_t + (start_time - in_point)
-            // so the trimmed range [in_point, out_point] is placed at
-            // [start_time, start_time + (out_point - in_point)] on the project
-            // timeline.
-            let in_point = audio_segment.in_point.max(0.0);
-            let raw_out = audio_segment.out_point;
-            let out_point = if raw_out > in_point + 0.0001 {
-                raw_out
-            } else if audio_segment.duration > in_point + 0.0001 {
-                audio_segment.duration
-            } else {
-                in_point
-            };
-            sources.push(ExportAudioSource {
-                path: path.to_string(),
-                volume_points: audio_segment.volume_points.clone(),
-                start_offset_sec: audio_segment.start_time - in_point,
-                source_in_sec: Some(in_point),
-                source_out_sec: Some(out_point),
-            });
-        }
+        };
+        push_clip_sources(
+            &mut sources,
+            &config.audio_segments,
+            &config.audio_track_volume_points,
+        );
+        push_clip_sources(
+            &mut sources,
+            &config.narration_segments,
+            &config.narration_track_volume_points,
+        );
         if sources.is_empty() {
             None
         } else {
