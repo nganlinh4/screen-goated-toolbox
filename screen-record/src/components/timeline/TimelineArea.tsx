@@ -5,7 +5,7 @@ import type {
   SubtitleSourceGroup,
   VideoSegment,
 } from "@/types/video";
-import { Plus } from "lucide-react";
+import { AudioLines, Plus } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import type { SubtitleGenerationIndicator } from "@/lib/subtitleGenerationPlan";
 import type { TrackSelectionRange } from "@/lib/timelineSegmentSelection";
@@ -309,10 +309,10 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     ...(showZoom && showDebug ? [TIMELINE_TRACK_HEIGHTS.debug] : []),
     ...(showSpeed ? [TIMELINE_TRACK_HEIGHTS.speed] : []),
     ...(showImportedAudio ? [TIMELINE_TRACK_HEIGHTS.importedAudio] : []),
-    ...(showNarration ? [TIMELINE_TRACK_HEIGHTS.narration] : []),
     ...(showDeviceAudio ? [TIMELINE_TRACK_HEIGHTS.deviceAudio] : []),
     ...(showMicAudio ? [TIMELINE_TRACK_HEIGHTS.micAudio] : []),
     ...(showWebcam ? [TIMELINE_TRACK_HEIGHTS.webcam] : []),
+    ...(showNarration ? [TIMELINE_TRACK_HEIGHTS.narration] : []),
     TIMELINE_TRACK_HEIGHTS.subtitles,
     TIMELINE_TRACK_HEIGHTS.text,
     ...(showKeystroke ? [TIMELINE_TRACK_HEIGHTS.keystroke] : []),
@@ -667,13 +667,6 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 )}
               </div>
             )}
-            {showNarration && (
-              <div className="timeline-label-narration h-7 flex items-center">
-                <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
-                  {t.tabNarration || "Narration"}
-                </span>
-              </div>
-            )}
             {showDeviceAudio && (
               <div className="timeline-label-device-audio h-7 flex items-center">
                 <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
@@ -705,6 +698,13 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               isAvailable: true,
               heightClassName: "h-7",
             })}
+            {showNarration && (
+              <div className="timeline-label-narration h-7 flex items-center">
+                <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
+                  {t.tabNarration || "Narration"}
+                </span>
+              </div>
+            )}
             <div className="timeline-label-subtitles group/subtitle-label relative h-7 flex items-center">
               <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                 {t.trackSubtitles}
@@ -749,10 +749,16 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
             )}
           </div>
           <div className="timeline-ruler-spacer h-4 mt-0.5 flex items-center justify-end">
-            <div className="timeline-volume-view-toggle flex items-center gap-1.5">
-              <span className="text-[9px] font-medium leading-none text-[var(--on-surface-variant)]">
-                Volume
-              </span>
+            <div
+              className="timeline-volume-view-toggle flex items-center gap-1"
+              title={t.volumeView}
+              aria-label={t.volumeView}
+            >
+              <AudioLines
+                className="timeline-volume-view-icon h-3 w-3 text-[var(--on-surface-variant)]"
+                strokeWidth={2}
+                aria-hidden="true"
+              />
               <Switch
                 checked={volumeViewEnabled}
                 onCheckedChange={setVolumeViewEnabled}
@@ -843,27 +849,6 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                     />
                   )}
 
-                  {showNarration && (
-                    <NarrationTrack
-                      segments={narrationSegments ?? []}
-                      duration={duration}
-                      onSegmentClick={onNarrationSegmentClick}
-                      onUpdateSegment={onUpdateNarrationSegment}
-                      onDeleteSegments={onDeleteNarrationSegments}
-                      selectedIds={selectedNarrationSegmentIds}
-                      selectedRange={selectedNarrationSegmentRange}
-                      onSelectionChange={onNarrationSelectionChange}
-                      onRangeChange={onNarrationRangeChange}
-                      viewMode={volumeViewEnabled ? "volume" : "compact"}
-                      clearSignal={clearSelectionSignal}
-                      volumePoints={narrationTrackVolumePoints}
-                      onUpdateVolumePoints={onUpdateNarrationTrackVolumePoints}
-                      beginBatch={beginBatch}
-                      commitBatch={commitBatch}
-                      onCommitSegments={onCommitNarrationSegments}
-                    />
-                  )}
-
                   {showDeviceAudio && (segment ? (
                     <DeviceAudioTrack
                       segment={segment}
@@ -937,6 +922,27 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                   ) : (
                     <div className="webcam-visibility-track-empty timeline-track-empty h-7" />
                   ))}
+
+                  {showNarration && (
+                    <NarrationTrack
+                      segments={narrationSegments ?? []}
+                      duration={duration}
+                      onSegmentClick={onNarrationSegmentClick}
+                      onUpdateSegment={onUpdateNarrationSegment}
+                      onDeleteSegments={onDeleteNarrationSegments}
+                      selectedIds={selectedNarrationSegmentIds}
+                      selectedRange={selectedNarrationSegmentRange}
+                      onSelectionChange={onNarrationSelectionChange}
+                      onRangeChange={onNarrationRangeChange}
+                      viewMode={volumeViewEnabled ? "volume" : "compact"}
+                      clearSignal={clearSelectionSignal}
+                      volumePoints={narrationTrackVolumePoints}
+                      onUpdateVolumePoints={onUpdateNarrationTrackVolumePoints}
+                      beginBatch={beginBatch}
+                      commitBatch={commitBatch}
+                      onCommitSegments={onCommitNarrationSegments}
+                    />
+                  )}
 
                   {segment ? (
                     <SubtitleTrack

@@ -55,6 +55,7 @@ const en = {
   tabSubtitles: 'Subtitles',
   tabAudio: 'Audio',
   tabNarration: 'Narration',
+  volumeView: 'Volume',
 
   // ZoomPanel
   zoomConfiguration: 'Zoom Configuration',
