@@ -57,6 +57,7 @@ const ko: Translations = {
   tabSubtitles: '자막',
   tabAudio: '오디오',
   tabNarration: '내레이션',
+  volumeView: '볼륨',
 
   // ZoomPanel
   zoomConfiguration: '확대 설정',

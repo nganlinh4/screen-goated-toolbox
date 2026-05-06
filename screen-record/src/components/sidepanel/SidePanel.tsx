@@ -405,6 +405,7 @@ export function SidePanel({
         <NarrationPanel
           visibleSubtitles={visibleSubtitlesForNarration ?? []}
           subtitleTracks={subtitleTracksForNarration}
+          activeSubtitleView={subtitleTranslation.activeSubtitleView}
           selectedSubtitleIds={selectedSubtitleIds}
           selectedSubtitleRange={selectedSubtitleRange}
           onApplyNarrationSegments={onApplyNarrationSegments}

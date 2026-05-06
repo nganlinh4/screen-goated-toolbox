@@ -18,6 +18,7 @@ import {
   subscribeToAdjustableLineDragVisualMode,
 } from "./adjustableLineUtils";
 import { AudioWaveformLayer } from "./AudioWaveformLayer";
+import { SoftAudioSegmentBlock } from "./SoftAudioSegmentBlock";
 
 const MIC_TRACK_TOP_PX = 5;
 const MIC_TRACK_BOTTOM_PX = 35;
@@ -61,7 +62,6 @@ export const MicTrack: React.FC<MicTrackProps> = ({
   beginBatch,
   commitBatch,
 }) => {
-  const fadePct = `${Math.max(0, Math.min(50, (0.12 / Math.max(duration, 0.001)) * 100))}%`;
   const points = segment.micAudioPoints?.length
     ? segment.micAudioPoints
     : buildFlatMicAudioPoints(duration);
@@ -490,26 +490,17 @@ export const MicTrack: React.FC<MicTrackProps> = ({
 
   if (viewMode === "compact") {
     return (
-      <div
-        className={`mic-audio-track timeline-lane relative h-7 ${
-          isAvailable ? "" : "timeline-lane-unavailable"
-        }`}
-      >
-        <div
-          className="mic-audio-soft-segment timeline-block absolute inset-y-0 left-0 right-0 overflow-hidden"
-          data-tone="info"
-        >
-          <div className="mic-audio-soft-segment-fill absolute inset-0 bg-[color-mix(in_srgb,var(--timeline-mic-audio-color)_22%,var(--ui-surface-3))]" />
-          <div
-            className="mic-audio-soft-segment-fade-in absolute inset-y-0 left-0 bg-gradient-to-r from-transparent to-[color-mix(in_srgb,var(--timeline-mic-audio-color)_14%,transparent)]"
-            style={{ width: fadePct }}
-          />
-          <div
-            className="mic-audio-soft-segment-fade-out absolute inset-y-0 right-0 bg-gradient-to-l from-transparent to-[color-mix(in_srgb,var(--timeline-mic-audio-color)_14%,transparent)]"
-            style={{ width: fadePct }}
-          />
-        </div>
-      </div>
+      <SoftAudioSegmentBlock
+        classNamePrefix="mic-audio"
+        duration={duration}
+        points={points}
+        isAvailable={isAvailable}
+        tone="info"
+        colorVariable="--timeline-mic-audio-color"
+        onUpdatePoints={onUpdateMicAudioPoints}
+        beginBatch={beginBatch}
+        commitBatch={commitBatch}
+      />
     );
   }
 

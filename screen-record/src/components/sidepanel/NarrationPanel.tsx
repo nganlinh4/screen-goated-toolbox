@@ -15,12 +15,15 @@ import {
   ORIGINAL_SUBTITLE_TRACK_ID,
   getSubtitleTrackLabel,
 } from '@/lib/subtitleTracks';
-import type { NarrationSegment, SubtitleSegment, SubtitleTrack } from '@/types/video';
+import type { NarrationSegment, SubtitleSegment, SubtitleTrack, SubtitleViewState } from '@/types/video';
+
+const CURRENT_SUBTITLE_VIEW_SOURCE_ID = 'current-subtitle-view';
 
 interface NarrationPanelProps {
   visibleSubtitles: SubtitleSegment[];
   /** All available subtitle tracks (original + translations) for the source picker. */
   subtitleTracks?: SubtitleTrack[];
+  activeSubtitleView?: SubtitleViewState;
   selectedSubtitleIds?: string[];
   selectedSubtitleRange?: TrackSelectionRange | null;
   onApplyNarrationSegments: (
@@ -33,6 +36,7 @@ interface NarrationPanelProps {
 export function NarrationPanel({
   visibleSubtitles,
   subtitleTracks,
+  activeSubtitleView,
   selectedSubtitleIds,
   selectedSubtitleRange,
   onApplyNarrationSegments,
@@ -41,15 +45,20 @@ export function NarrationPanel({
   const { t } = useSettings();
   const { settings, update, profile, metadata } = useNarrationSettings();
 
-  // "Hiện bằng" equivalent: which subtitle track to narrate from. Defaults to
-  // the original track; switches to a chosen translation when picked. The text
-  // we hand to TTS comes from this track regardless of the SubtitlePanel view.
   const availableTracks = subtitleTracks ?? [];
+  const preferredSourceTrackId = activeSubtitleView?.kind === 'track'
+    ? (activeSubtitleView.trackId ?? ORIGINAL_SUBTITLE_TRACK_ID)
+    : CURRENT_SUBTITLE_VIEW_SOURCE_ID;
   const [selectedSourceTrackId, setSelectedSourceTrackId] = useState<string>(
-    ORIGINAL_SUBTITLE_TRACK_ID,
+    preferredSourceTrackId,
   );
+
   useEffect(() => {
-    // If the chosen track disappears (e.g. translation deleted), fall back to original.
+    setSelectedSourceTrackId(preferredSourceTrackId);
+  }, [preferredSourceTrackId]);
+
+  useEffect(() => {
+    if (selectedSourceTrackId === CURRENT_SUBTITLE_VIEW_SOURCE_ID) return;
     if (
       selectedSourceTrackId !== ORIGINAL_SUBTITLE_TRACK_ID
       && !availableTracks.some((track) => track.id === selectedSourceTrackId)
@@ -59,20 +68,28 @@ export function NarrationPanel({
   }, [availableTracks, selectedSourceTrackId]);
 
   const sourceTrackOptions = useMemo(() => {
+    const currentViewOption = activeSubtitleView?.kind === 'custom'
+      ? [{ value: CURRENT_SUBTITLE_VIEW_SOURCE_ID, label: t.subtitleTrackCustom }]
+      : [];
     if (availableTracks.length === 0) {
       return [
+        ...currentViewOption,
         { value: ORIGINAL_SUBTITLE_TRACK_ID, label: t.subtitleTrackOriginal },
       ];
     }
-    return availableTracks.map((track) => ({
-      value: track.id,
-      label: track.id === ORIGINAL_SUBTITLE_TRACK_ID
-        ? t.subtitleTrackOriginal
-        : getSubtitleTrackLabel(track),
-    }));
-  }, [availableTracks, t.subtitleTrackOriginal]);
+    return [
+      ...currentViewOption,
+      ...availableTracks.map((track) => ({
+        value: track.id,
+        label: track.id === ORIGINAL_SUBTITLE_TRACK_ID
+          ? t.subtitleTrackOriginal
+          : getSubtitleTrackLabel(track),
+      })),
+    ];
+  }, [activeSubtitleView?.kind, availableTracks, t.subtitleTrackCustom, t.subtitleTrackOriginal]);
 
   const subtitlesFromSelectedTrack = useMemo<SubtitleSegment[]>(() => {
+    if (selectedSourceTrackId === CURRENT_SUBTITLE_VIEW_SOURCE_ID) return visibleSubtitles;
     const fromTrack = availableTracks.find((track) => track.id === selectedSourceTrackId);
     if (fromTrack) return fromTrack.segments;
     return visibleSubtitles;
