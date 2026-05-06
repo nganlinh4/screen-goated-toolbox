@@ -94,6 +94,11 @@ export function NarrationPanel({
     if (fromTrack) return fromTrack.segments;
     return visibleSubtitles;
   }, [availableTracks, selectedSourceTrackId, visibleSubtitles]);
+  const selectedSourceLanguageCode = useMemo(() => {
+    if (selectedSourceTrackId === CURRENT_SUBTITLE_VIEW_SOURCE_ID) return null;
+    const fromTrack = availableTracks.find((track) => track.id === selectedSourceTrackId);
+    return fromTrack?.targetLanguage ?? null;
+  }, [availableTracks, selectedSourceTrackId]);
 
   const geminiVoices = metadata?.geminiVoices ?? [];
   const geminiModels = metadata?.geminiModels ?? [];
@@ -175,6 +180,7 @@ export function NarrationPanel({
     visibleSubtitles: subtitlesFromSelectedTrack,
     selectedSubtitleIds,
     selectedSubtitleRange,
+    sourceLanguageCode: selectedSourceLanguageCode,
     profile,
     onApplyNarrationSegments,
     onFinalizeNarrationSegments,

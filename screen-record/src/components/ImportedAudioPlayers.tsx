@@ -1,7 +1,11 @@
-import { useEffect, useRef, useState } from "react";
-import type { AudioGainPoint, ImportedAudioSegment, SpeedPoint } from "@/types/video";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import type { AudioGainPoint, ImportedAudioSegment, NarrationSegment, SpeedPoint } from "@/types/video";
 import { getSpeedAtTime } from "@/lib/exportEstimator";
 import { getMediaServerUrl } from "@/lib/mediaServer";
+import {
+  mergeLiveNarrationSegments,
+  useLiveNarrationState,
+} from "@/lib/liveNarrationStreamStore";
 
 interface ImportedAudioPlayersProps {
   segments: ImportedAudioSegment[] | undefined;
@@ -11,6 +15,7 @@ interface ImportedAudioPlayersProps {
   currentTime: number;
   isPlaying: boolean;
   resetKey?: number;
+  liveNarrationProjectId?: string | null;
 }
 
 type PreviewAudioSegment = ImportedAudioSegment & {
@@ -20,6 +25,34 @@ type PreviewAudioSegment = ImportedAudioSegment & {
 const SEEK_DRIFT_THRESHOLD_SEC = 0.15;
 const MIN_ACTIVE_SEC = 0.001;
 const PREROLL_SEC = 0.75;
+const PLAYBACK_WINDOW_TAIL_SEC = 0.35;
+
+const mediaUrlCache = new Map<string, string>();
+
+function getSegmentTimelineDuration(segment: ImportedAudioSegment) {
+  const rate = segment.playbackRate && segment.playbackRate > 0
+    ? segment.playbackRate
+    : 1;
+  const sourceDuration = Math.max(MIN_ACTIVE_SEC, segment.outPoint - segment.inPoint);
+  return Math.max(MIN_ACTIVE_SEC, sourceDuration / rate);
+}
+
+function isSegmentInPlaybackWindow(
+  segment: ImportedAudioSegment,
+  currentTime: number,
+  isPlaying: boolean,
+) {
+  const timelineDuration = getSegmentTimelineDuration(segment);
+  const segmentEnd = segment.startTime + timelineDuration;
+  if (!isPlaying) {
+    return currentTime >= segment.startTime - PREROLL_SEC && currentTime <= segmentEnd;
+  }
+  return (
+    segmentEnd >= currentTime - PLAYBACK_WINDOW_TAIL_SEC &&
+    segment.startTime <= currentTime + PREROLL_SEC
+  );
+}
+
 function getTrackVolumeAtTime(time: number, points: AudioGainPoint[] | undefined | null) {
   if (!points || points.length === 0) return 1;
   const sorted = [...points].sort((a, b) => a.time - b.time);
@@ -46,11 +79,51 @@ export function ImportedAudioPlayers({
   currentTime,
   isPlaying,
   resetKey = 0,
+  liveNarrationProjectId,
 }: ImportedAudioPlayersProps) {
-  if (!segments || segments.length === 0) return null;
+  const liveNarrationState = useLiveNarrationState(liveNarrationProjectId);
+  const effectiveSegments = useMemo<ImportedAudioSegment[]>(() => {
+    const importedSegments: ImportedAudioSegment[] = [];
+    const narrationSegments: NarrationSegment[] = [];
+    for (const segment of segments ?? []) {
+      if ((segment as PreviewAudioSegment).previewTrackKind === "narration") {
+        narrationSegments.push(segment as NarrationSegment);
+      } else {
+        importedSegments.push(segment);
+      }
+    }
+    return [
+      ...importedSegments,
+      ...mergeLiveNarrationSegments(narrationSegments, liveNarrationState).map((segment) => ({
+        ...segment,
+        previewTrackKind: "narration" as const,
+      })),
+    ];
+  }, [liveNarrationState, segments]);
+  const activeSegments = useMemo(
+    () => effectiveSegments.filter((segment) =>
+      isSegmentInPlaybackWindow(segment, currentTime, isPlaying),
+    ),
+    [currentTime, effectiveSegments, isPlaying],
+  );
+  const activeSignature = activeSegments.map((segment) => segment.id).join("|");
+  const lastActiveSignatureRef = useRef("");
+  useEffect(() => {
+    if (lastActiveSignatureRef.current === activeSignature) return;
+    lastActiveSignatureRef.current = activeSignature;
+    if (!isPlaying) return;
+    const narrationCount = activeSegments.filter(
+      (segment) => (segment as PreviewAudioSegment).previewTrackKind === "narration",
+    ).length;
+    if (activeSegments.length === 0 && narrationCount === 0) return;
+    console.info(
+      `[NarrationPerf][PreviewAudioWindow] t=${currentTime.toFixed(2)} active=${activeSegments.length} narration=${narrationCount} total=${effectiveSegments.length} ids=${activeSegments.slice(0, 4).map((segment) => segment.id).join(",")}`,
+    );
+  }, [activeSegments, activeSignature, currentTime, effectiveSegments.length, isPlaying]);
+  if (activeSegments.length === 0) return null;
   return (
     <>
-      {segments.map((segment) => (
+      {activeSegments.map((segment) => (
         <MusicSegmentAudio
           key={segment.id}
           segment={segment as PreviewAudioSegment}
@@ -78,7 +151,7 @@ interface MusicSegmentAudioProps {
   resetKey: number;
 }
 
-function MusicSegmentAudio({
+const MusicSegmentAudio = memo(function MusicSegmentAudio({
   segment,
   trackVolumePoints,
   speedPoints,
@@ -90,10 +163,16 @@ function MusicSegmentAudio({
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
+    const cached = mediaUrlCache.get(segment.rawAudioPath);
+    if (cached) {
+      setUrl(cached);
+      return undefined;
+    }
     let cancelled = false;
     void (async () => {
       try {
         const next = await getMediaServerUrl(segment.rawAudioPath);
+        mediaUrlCache.set(segment.rawAudioPath, next);
         if (!cancelled) setUrl(next);
       } catch (err) {
         console.warn("[ImportedAudio] failed to resolve URL", err);
@@ -165,7 +244,7 @@ function MusicSegmentAudio({
       ref={audioRef}
       src={url ?? undefined}
       className="hidden imported-audio-element"
-      preload="auto"
+      preload="metadata"
     />
   );
-}
+});

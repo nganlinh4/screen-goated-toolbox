@@ -25,6 +25,7 @@ interface KeystrokeTrackProps {
   onDeleteKeystrokeSegments?: (ids: string[]) => void;
   onSelectionChange?: (ids: string[]) => void;
   clearSignal?: number;
+  onEmptyClick?: (time: number) => void;
 }
 
 interface TimeRange {
@@ -171,6 +172,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
   onDeleteKeystrokeSegments,
   onSelectionChange,
   clearSignal,
+  onEmptyClick,
 }) => {
   const { t } = useSettings();
   const [hoverState, setHoverState] = useState<
@@ -193,6 +195,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
     undefined,
     onDeleteKeystrokeSegments,
     clearSignal,
+    { onEmptyClick },
   );
   const rawEventRanges = useMemo(
     () => getRawEventRanges(segment, safeDuration),

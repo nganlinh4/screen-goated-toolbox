@@ -76,6 +76,52 @@ pub fn get_language_instruction_for_code(
     None
 }
 
+pub fn resolve_edge_voice_for_language(
+    profile: &crate::api::tts::types::TtsRequestProfile,
+    detected_code: Option<&str>,
+) -> (String, String, String, &'static str) {
+    let edge_language_code = detected_code
+        .and_then(isolang::Language::from_639_3)
+        .and_then(|language| language.to_639_1())
+        .unwrap_or("en")
+        .to_string();
+
+    if let Some(config) = profile
+        .edge_settings
+        .voice_configs
+        .iter()
+        .find(|config| config.language_code.eq_ignore_ascii_case(&edge_language_code))
+    {
+        return (
+            config.voice_name.clone(),
+            edge_language_code,
+            config.voice_name.clone(),
+            "profile-config",
+        );
+    }
+
+    if let Some(config) = crate::config::TtsPlaygroundSettings::default()
+        .edge_settings
+        .voice_configs
+        .into_iter()
+        .find(|config| config.language_code.eq_ignore_ascii_case(&edge_language_code))
+    {
+        return (
+            config.voice_name.clone(),
+            edge_language_code,
+            config.voice_name.clone(),
+            "default-language-config",
+        );
+    }
+
+    (
+        crate::config::TtsPlaygroundSettings::default().edge_voice,
+        edge_language_code,
+        String::new(),
+        "default-fallback",
+    )
+}
+
 /// List available audio output devices (ID, Name)
 pub fn get_output_devices() -> Vec<(String, String)> {
     let mut devices = Vec::new();

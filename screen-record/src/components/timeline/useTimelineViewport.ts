@@ -10,6 +10,7 @@ import {
 import type { VideoSegment } from "@/types/video";
 import { clampToTrimSegments } from "@/lib/trimSegments";
 import { SpringSolver } from "@/lib/spring";
+import type { TimelineVisibleRange } from "./SegmentBlocksCanvas";
 
 const MIN_TIMELINE_ZOOM = 1;
 const MAX_TIMELINE_ZOOM = 12;
@@ -62,6 +63,7 @@ interface UseTimelineViewportResult {
   showScrollbar: boolean;
   canvasWidth: string;
   canvasWidthPx: number;
+  visibleTimeRange: TimelineVisibleRange | null;
   handleScrollbarTrackPointerDown: (
     event: PointerEvent<HTMLDivElement>,
   ) => void;
@@ -85,7 +87,9 @@ export function useTimelineViewport({
   const scrollbarThumbRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const [viewportWidth, setViewportWidth] = useState(0);
+  const [visibleTimeRange, setVisibleTimeRange] = useState<TimelineVisibleRange | null>(null);
   const [showScrollbarState, setShowScrollbarState] = useState(false);
+  const pendingVisibleRangeRafRef = useRef<number | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const releaseProgrammaticScrollRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
@@ -126,6 +130,53 @@ export function useTimelineViewport({
     showScrollbarRef.current = nextValue;
     setShowScrollbarState(nextValue);
   }, []);
+
+  const syncVisibleTimeRange = useCallback(() => {
+    const viewport = viewportRef.current;
+    const activeDuration = durationRef.current;
+    const activeSegment = segmentRef.current;
+    if (!viewport || !activeSegment || activeDuration <= 0) {
+      setVisibleTimeRange(null);
+      return;
+    }
+    const activeZoom = Math.max(zoomRef.current, MIN_TIMELINE_ZOOM);
+    if (activeZoom <= MIN_TIMELINE_ZOOM + 0.001) {
+      setVisibleTimeRange(null);
+      return;
+    }
+    const visibleWidth = getVisibleContentWidth(viewport);
+    const contentWidth = visibleWidth * activeZoom;
+    const visibleDuration = activeDuration * (visibleWidth / Math.max(contentWidth, 1));
+    const buffer = Math.max(1, visibleDuration * 0.65);
+    const start = clamp(
+      (viewport.scrollLeft / Math.max(contentWidth, 1)) * activeDuration - buffer,
+      0,
+      activeDuration,
+    );
+    const end = clamp(
+      ((viewport.scrollLeft + visibleWidth) / Math.max(contentWidth, 1)) * activeDuration + buffer,
+      0,
+      activeDuration,
+    );
+    setVisibleTimeRange((previous) => {
+      if (
+        previous &&
+        Math.abs(previous.startTime - start) < 0.05 &&
+        Math.abs(previous.endTime - end) < 0.05
+      ) {
+        return previous;
+      }
+      return { startTime: start, endTime: end };
+    });
+  }, []);
+
+  const scheduleVisibleRangeSync = useCallback(() => {
+    if (pendingVisibleRangeRafRef.current !== null) return;
+    pendingVisibleRangeRafRef.current = requestAnimationFrame(() => {
+      pendingVisibleRangeRafRef.current = null;
+      syncVisibleTimeRange();
+    });
+  }, [syncVisibleTimeRange]);
 
   const syncScrollbarThumb = useCallback(() => {
     const viewport = viewportRef.current;
@@ -373,6 +424,7 @@ export function useTimelineViewport({
     const updateViewportWidth = () => {
       setViewportWidth(getVisibleContentWidth(viewport));
       syncScrollbarThumb();
+      scheduleVisibleRangeSync();
     };
 
     updateViewportWidth();
@@ -394,6 +446,7 @@ export function useTimelineViewport({
         suppressFollow();
       }
       syncScrollbarThumb();
+      scheduleVisibleRangeSync();
     };
 
     viewport.addEventListener("scroll", handleScroll, { passive: true });
@@ -410,12 +463,14 @@ export function useTimelineViewport({
       followSpringRef.current.set(0);
       setProgrammaticScrollLeft(0);
       syncScrollbarThumb();
+      scheduleVisibleRangeSync();
       return;
     }
 
     const pendingAnchor = pendingWheelAnchorRef.current;
     if (!pendingAnchor || duration <= 0) {
       syncScrollbarThumb();
+      scheduleVisibleRangeSync();
       return;
     }
 
@@ -433,7 +488,8 @@ export function useTimelineViewport({
     followActiveRef.current = false;
     pendingWheelAnchorRef.current = null;
     syncScrollbarThumb();
-  }, [duration, setProgrammaticScrollLeft, syncScrollbarThumb, timelineRef, zoom]);
+    scheduleVisibleRangeSync();
+  }, [duration, scheduleVisibleRangeSync, setProgrammaticScrollLeft, syncScrollbarThumb, timelineRef, zoom]);
 
   useEffect(() => {
     if (!segment || duration <= 0) {
@@ -447,8 +503,9 @@ export function useTimelineViewport({
         setProgrammaticScrollLeft(0);
       }
       syncScrollbarThumb();
+      scheduleVisibleRangeSync();
     }
-  }, [duration, segment, setProgrammaticScrollLeft, syncScrollbarThumb, zoom]);
+  }, [duration, scheduleVisibleRangeSync, segment, setProgrammaticScrollLeft, syncScrollbarThumb, zoom]);
 
   // Schedule follow-frame on playback state changes.
   // NOTE: syncScrollbarThumb() is NOT called here — it forces layout
@@ -478,6 +535,9 @@ export function useTimelineViewport({
       }
       if (pendingZoomRafRef.current !== null) {
         cancelAnimationFrame(pendingZoomRafRef.current);
+      }
+      if (pendingVisibleRangeRafRef.current !== null) {
+        cancelAnimationFrame(pendingVisibleRangeRafRef.current);
       }
     };
   }, []);
@@ -635,6 +695,7 @@ export function useTimelineViewport({
     showScrollbar: showScrollbarState,
     canvasWidth: `${Math.max(zoom, MIN_TIMELINE_ZOOM) * 100}%`,
     canvasWidthPx: viewportWidth * Math.max(zoom, MIN_TIMELINE_ZOOM),
+    visibleTimeRange,
     handleScrollbarTrackPointerDown,
     handleScrollbarThumbPointerDown,
   };

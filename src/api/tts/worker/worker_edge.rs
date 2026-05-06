@@ -12,7 +12,6 @@ use super::super::types::AudioEvent;
 use super::super::utils::{clear_tts_loading_state, clear_tts_state};
 use super::resample_audio;
 use crate::APP;
-use isolang::Language;
 
 pub(super) fn handle_edge_tts(
     manager: Arc<TtsManager>,
@@ -33,16 +32,15 @@ pub(super) fn handle_edge_tts(
             .unwrap_or_else(|| {
                 crate::lang_detect::detect_language(&text).unwrap_or_else(|| "eng".to_string())
             });
-        let code_2 = Language::from_639_3(&detected_code)
-            .and_then(|l| l.to_639_1())
-            .unwrap_or("en");
-        let voice = profile
-            .edge_settings
-            .voice_configs
-            .iter()
-            .find(|config| config.language_code == code_2)
-            .map(|config| config.voice_name.clone())
-            .unwrap_or_else(|| profile.edge_voice.clone());
+        let (voice, code_2, _, source) =
+            crate::api::tts::utils::resolve_edge_voice_for_language(
+                profile,
+                Some(&detected_code),
+            );
+        eprintln!(
+            "[TTS Edge][VoiceRoute] detected_6393={} edge_lang={} source={} voice={}",
+            detected_code, code_2, source, voice
+        );
         (
             voice,
             profile.edge_settings.pitch,
@@ -57,7 +55,7 @@ pub(super) fn handle_edge_tts(
 
         let mut voice = "en-US-AriaNeural".to_string();
 
-        let code_2 = Language::from_639_3(&detected_code)
+        let code_2 = isolang::Language::from_639_3(&detected_code)
             .and_then(|l| l.to_639_1())
             .unwrap_or("en");
 

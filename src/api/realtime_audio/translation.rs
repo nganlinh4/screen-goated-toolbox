@@ -652,10 +652,17 @@ fn compute_adaptive_translation_interval_ms(latency_ms: u64) -> u64 {
 
 /// Unofficial Google Translate (GTX) fallback
 pub fn translate_with_google_gtx(text: &str, target_lang: &str) -> Option<String> {
-    let target_code = isolang::Language::from_name(target_lang)
-        .and_then(|lang| lang.to_639_1())
-        .map(|code| code.to_string())
-        .unwrap_or_else(|| "en".to_string());
+    let trimmed_target = target_lang.trim();
+    let target_code = if (2..=3).contains(&trimmed_target.len())
+        && trimmed_target.chars().all(|ch| ch.is_ascii_alphabetic())
+    {
+        trimmed_target.to_ascii_lowercase()
+    } else {
+        isolang::Language::from_name(trimmed_target)
+            .and_then(|lang| lang.to_639_1())
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "en".to_string())
+    };
 
     let encoded_text = urlencoding::encode(text);
     let url = format!(

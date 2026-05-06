@@ -23,6 +23,7 @@ export function useTimelineDrag({
   selectedSubtitleIds,
   onSeek,
   onSeekEnd,
+  onClearTimelineFocus,
   beginBatch,
   commitBatch,
 }: UseTimelineDragOptions) {
@@ -294,8 +295,9 @@ export function useTimelineDrag({
     setEditingSubtitleId?.(null);
     setEditingKeystrokeId?.(null);
     setEditingPointerId?.(null);
+    onClearTimelineFocus?.();
     handleSeek(e.clientX);
-  }, [isDraggingTrimStart, isDraggingTrimEnd, trackDrag.isDraggingTextStart, trackDrag.isDraggingTextEnd, trackDrag.isDraggingTextBody, trackDrag.isDraggingSubtitleStart, trackDrag.isDraggingSubtitleEnd, trackDrag.isDraggingSubtitleBody, trackDrag.isDraggingKeystrokeStart, trackDrag.isDraggingKeystrokeEnd, trackDrag.isDraggingKeystrokeBody, trackDrag.isDraggingPointerStart, trackDrag.isDraggingPointerEnd, trackDrag.isDraggingPointerBody, trackDrag.isDraggingWebcamStart, trackDrag.isDraggingWebcamEnd, trackDrag.isDraggingWebcamBody, isDraggingZoom, setEditingTextId, setEditingSubtitleId, setEditingKeystrokeId, setEditingPointerId, handleSeek]);
+  }, [isDraggingTrimStart, isDraggingTrimEnd, trackDrag.isDraggingTextStart, trackDrag.isDraggingTextEnd, trackDrag.isDraggingTextBody, trackDrag.isDraggingSubtitleStart, trackDrag.isDraggingSubtitleEnd, trackDrag.isDraggingSubtitleBody, trackDrag.isDraggingKeystrokeStart, trackDrag.isDraggingKeystrokeEnd, trackDrag.isDraggingKeystrokeBody, trackDrag.isDraggingPointerStart, trackDrag.isDraggingPointerEnd, trackDrag.isDraggingPointerBody, trackDrag.isDraggingWebcamStart, trackDrag.isDraggingWebcamEnd, trackDrag.isDraggingWebcamBody, isDraggingZoom, setEditingTextId, setEditingSubtitleId, setEditingKeystrokeId, setEditingPointerId, onClearTimelineFocus, handleSeek]);
 
   const handleMouseMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     handleTrimDrag(e.clientX);

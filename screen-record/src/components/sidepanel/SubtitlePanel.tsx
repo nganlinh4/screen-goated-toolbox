@@ -629,9 +629,25 @@ export function SubtitlePanel({
             <span className="text-[11px] font-medium text-on-surface-variant">
               {t.subtitleTranslationChunking}
             </span>
-            <span className="subtitle-translation-chunk-value text-[10px] font-semibold text-on-surface-variant">
-              {subtitleTranslation.subtitleTranslationChunkCount}/{subtitleTranslation.subtitleTranslationChunkMax}
-            </span>
+            <div className="subtitle-translation-chunk-meta flex items-center gap-1.5">
+              <span className="subtitle-translation-chunk-value text-[10px] font-semibold text-on-surface-variant">
+                {subtitleTranslation.subtitleTranslationChunkCountIsAuto
+                  ? `${t.subtitleTranslationChunkAuto}: `
+                  : ''}
+                {subtitleTranslation.subtitleTranslationChunkCount}/{subtitleTranslation.subtitleTranslationChunkMax}
+              </span>
+              {!subtitleTranslation.subtitleTranslationChunkCountIsAuto ? (
+                <button
+                  type="button"
+                  onClick={subtitleTranslation.resetSubtitleTranslationChunkCount}
+                  className="subtitle-translation-chunk-reset ui-chip-button flex h-6 w-6 items-center justify-center rounded-md"
+                  title={t.subtitleGeminiPromptReset}
+                  aria-label={t.subtitleGeminiPromptReset}
+                >
+                  <RotateCcw className="h-3 w-3" />
+                </button>
+              ) : null}
+            </div>
           </div>
           <Slider
             min={1}

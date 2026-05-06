@@ -81,6 +81,7 @@ interface TimelineAreaProps {
   setSegment: (segment: VideoSegment | null) => void;
   onSeek?: (time: number) => void;
   onSeekEnd?: () => void;
+  onClearTimelineFocus?: () => void;
   onAddText?: (atTime?: number) => void;
   onAddSubtitle?: (atTime?: number) => void;
   onAddKeystrokeSegment?: (atTime?: number) => void;
@@ -124,6 +125,7 @@ interface TimelineAreaProps {
   audioTrackVolumePoints?: import("@/types/video").AudioGainPoint[];
   onUpdateAudioTrackVolumePoints?: (points: import("@/types/video").AudioGainPoint[]) => void;
   narrationSegments?: NarrationSegment[];
+  liveNarrationProjectId?: string | null;
   onNarrationSegmentClick?: (id: string) => void;
   onUpdateNarrationSegment?: (id: string, patch: Partial<NarrationSegment>) => void;
   onDeleteNarrationSegments?: (ids: string[]) => void;
@@ -157,6 +159,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   setSegment,
   onSeek,
   onSeekEnd,
+  onClearTimelineFocus,
   onAddText,
   onAddSubtitle,
   onAddKeystrokeSegment,
@@ -197,6 +200,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   audioTrackVolumePoints,
   onUpdateAudioTrackVolumePoints,
   narrationSegments,
+  liveNarrationProjectId,
   onNarrationSegmentClick,
   onUpdateNarrationSegment,
   onDeleteNarrationSegments,
@@ -369,9 +373,23 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     selectedSubtitleIds,
     onSeek,
     onSeekEnd,
+    onClearTimelineFocus,
     beginBatch,
     commitBatch,
   });
+
+  const handleEmptyTrackClick = useCallback((time: number) => {
+    onClearTimelineFocus?.();
+    const nextTime = Math.max(0, Math.min(duration, time));
+    if (onSeek) {
+      onSeek(nextTime);
+      return;
+    }
+    if (videoRef.current && Math.abs(videoRef.current.currentTime - nextTime) > 0.05) {
+      videoRef.current.currentTime = nextTime;
+    }
+    setCurrentTime(nextTime);
+  }, [duration, onClearTimelineFocus, onSeek, setCurrentTime, videoRef]);
 
   const isTimelineInteracting =
     dragState.isDraggingTrimStart ||
@@ -553,6 +571,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     showScrollbar,
     canvasWidth,
     canvasWidthPx,
+    visibleTimeRange,
     handleScrollbarTrackPointerDown,
     handleScrollbarThumbPointerDown,
   } = useTimelineViewport({
@@ -846,6 +865,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       beginBatch={beginBatch}
                       commitBatch={commitBatch}
                       onCommitSegments={onCommitAudioSegments}
+                      onEmptyClick={handleEmptyTrackClick}
+                      canvasWidthPx={canvasWidthPx}
+                      visibleTimeRange={visibleTimeRange}
                     />
                   )}
 
@@ -918,6 +940,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       onDeleteWebcamSegments={handleDeleteWebcamSegments}
                       onSelectionChange={onWebcamSelectionChange}
                       clearSignal={clearSelectionSignal}
+                      onEmptyClick={handleEmptyTrackClick}
                     />
                   ) : (
                     <div className="webcam-visibility-track-empty timeline-track-empty h-7" />
@@ -926,6 +949,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                   {showNarration && (
                     <NarrationTrack
                       segments={narrationSegments ?? []}
+                      liveProjectId={liveNarrationProjectId}
                       duration={duration}
                       onSegmentClick={onNarrationSegmentClick}
                       onUpdateSegment={onUpdateNarrationSegment}
@@ -941,6 +965,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       beginBatch={beginBatch}
                       commitBatch={commitBatch}
                       onCommitSegments={onCommitNarrationSegments}
+                      onEmptyClick={handleEmptyTrackClick}
+                      canvasWidthPx={canvasWidthPx}
+                      visibleTimeRange={visibleTimeRange}
                     />
                   )}
 
@@ -964,6 +991,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       isDeviceAudioAvailable={isDeviceAudioAvailable}
                       isMicAudioAvailable={isMicAudioAvailable}
                       onAssignSubtitleSourceGroup={handleAssignSubtitleSourceGroup}
+                      onEmptyClick={handleEmptyTrackClick}
+                      canvasWidthPx={canvasWidthPx}
+                      visibleTimeRange={visibleTimeRange}
                     />
                   ) : (
                     <div className="subtitle-track-empty timeline-track-empty h-7" />
@@ -982,6 +1012,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       onDeleteTextSegments={handleDeleteTextSegments}
                       onSelectionChange={onTextSelectionChange}
                       clearSignal={clearSelectionSignal}
+                      onEmptyClick={handleEmptyTrackClick}
                     />
                   ) : (
                     <div className="text-track-empty timeline-track-empty h-7" />
@@ -999,6 +1030,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       onDeleteKeystrokeSegments={handleDeleteKeystrokeSegments}
                       onSelectionChange={onKeystrokeSelectionChange}
                       clearSignal={clearSelectionSignal}
+                      onEmptyClick={handleEmptyTrackClick}
                     />
                   ) : (
                     <div className="keystroke-track-empty timeline-track-empty h-7" />
@@ -1015,6 +1047,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       onDeletePointerSegments={handleDeletePointerSegments}
                       onSelectionChange={onPointerSelectionChange}
                       clearSignal={clearSelectionSignal}
+                      onEmptyClick={handleEmptyTrackClick}
                     />
                   ) : (
                     <div className="pointer-track-empty timeline-track-empty h-7" />

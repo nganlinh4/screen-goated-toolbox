@@ -43,6 +43,7 @@ export function useTrackRangeSelect<T extends { id: string; startTime: number; e
   options?: {
     allowBackgroundRangeSelect?: boolean;
     allowCtrlDragAnywhere?: boolean;
+    onEmptyClick?: (time: number) => void;
   },
 ): TrackRangeSelect {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -53,6 +54,7 @@ export function useTrackRangeSelect<T extends { id: string; startTime: number; e
   const isPointerInsideTrack = useRef(false);
   const preDragSnapshot = useRef<Set<string>>(new Set());
   const dragMode = useRef<'sweep-select' | 'ctrl-range' | null>(null);
+  const pendingEmptyClickTime = useRef<number | null>(null);
 
   // External clear signal — parent increments to force clear
   const lastClearSignal = useRef(clearSignal ?? 0);
@@ -67,6 +69,7 @@ export function useTrackRangeSelect<T extends { id: string; startTime: number; e
   const safeDuration = Math.max(duration, 0.001);
   const allowBackgroundRangeSelect = options?.allowBackgroundRangeSelect ?? true;
   const allowCtrlDragAnywhere = options?.allowCtrlDragAnywhere ?? false;
+  const onEmptyClick = options?.onEmptyClick;
 
   const getSweptIds = useCallback((t1: number, t2: number): Set<string> => {
     const lo = Math.min(t1, t2);
@@ -171,6 +174,7 @@ export function useTrackRangeSelect<T extends { id: string; startTime: number; e
 
     isDraggingRange.current = true;
     dragMode.current = isCtrlRangeGesture ? 'ctrl-range' : 'sweep-select';
+    pendingEmptyClickTime.current = isCtrlRangeGesture ? null : time;
     preDragSnapshot.current = new Set(selectedIds);
     setRangeSelect({ startX: x, endX: x, startTime: time, endTime: time });
     e.preventDefault();
@@ -203,8 +207,11 @@ export function useTrackRangeSelect<T extends { id: string; startTime: number; e
       setSelectedIds(preDragSnapshot.current);
       if (dragMode.current === 'ctrl-range') {
         setSelectedRange(null);
+      } else if (pendingEmptyClickTime.current !== null) {
+        onEmptyClick?.(pendingEmptyClickTime.current);
       }
     } else if (rangeSelect) {
+      pendingEmptyClickTime.current = null;
       const normalizedRange = normalizeSelectionRange(
         {
           startTime: rangeSelect.startTime,
@@ -223,8 +230,9 @@ export function useTrackRangeSelect<T extends { id: string; startTime: number; e
       }
     }
     dragMode.current = null;
+    pendingEmptyClickTime.current = null;
     setRangeSelect(null);
-  }, [getSweptIds, rangeSelect]);
+  }, [getSweptIds, onEmptyClick, rangeSelect]);
 
   return {
     selectedIds,
