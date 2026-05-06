@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Scissors } from 'lucide-react';
 import { ImportedAudioSegment, SubtitleSegment, SubtitleSourceGroup, VideoSegment } from '@/types/video';
 import type {
@@ -18,6 +18,11 @@ import {
   getSubtitleSourceGroupId,
   makeSubtitleSourceGroup,
 } from '@/lib/subtitleSourceGroups';
+import {
+  SegmentBlocksCanvas,
+  type TimelineVisibleRange,
+  overlapsVisibleRange,
+} from './SegmentBlocksCanvas';
 
 interface SubtitleTrackProps {
   segment: VideoSegment;
@@ -32,6 +37,7 @@ interface SubtitleTrackProps {
   onSelectionChange?: (ids: string[]) => void;
   onRangeChange?: (range: TrackSelectionRange | null) => void;
   clearSignal?: number;
+  onEmptyClick?: (time: number) => void;
   generationIndicator?: SubtitleGenerationIndicator | null;
   translationChunkPreview?: {
     groups: Record<string, number>;
@@ -41,8 +47,12 @@ interface SubtitleTrackProps {
   isDeviceAudioAvailable?: boolean;
   isMicAudioAvailable?: boolean;
   onAssignSubtitleSourceGroup?: (ids: string[], sourceGroup: SubtitleSourceGroup) => void;
+  canvasWidthPx?: number;
+  visibleTimeRange?: TimelineVisibleRange | null;
 }
 
+const DENSE_SUBTITLE_COUNT = 260;
+const MIN_INTERACTIVE_SUBTITLE_PX = 7;
 const TRANSLATION_CHUNK_COLORS = [
   '#2563eb',
   '#0f9f8d',
@@ -67,12 +77,15 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
   onSelectionChange,
   onRangeChange,
   clearSignal,
+  onEmptyClick,
   generationIndicator,
   translationChunkPreview,
   audioSegments = [],
   isDeviceAudioAvailable = false,
   isMicAudioAvailable = false,
   onAssignSubtitleSourceGroup,
+  canvasWidthPx = 0,
+  visibleTimeRange,
 }) => {
   const [hoverState, setHoverState] = useState<
     | { type: 'split'; x: number; time: number; seg: SubtitleSegment; preview: { leftText: string; rightText: string } | null }
@@ -87,6 +100,7 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
 
   const safeDuration = Math.max(duration, 0.001);
   const subtitles = getVisibleSubtitleSegments(segment);
+  const denseMode = subtitles.length >= DENSE_SUBTITLE_COUNT;
   const lastClickRef = useRef<{ id: string | null; time: number }>({ id: null, time: 0 });
   const DOUBLE_CLICK_MS = 350;
 
@@ -104,11 +118,61 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
     clearSignal,
     {
       allowCtrlDragAnywhere: true,
+      onEmptyClick,
     },
   );
 
+  const findSubtitleAtTime = (time: number) =>
+    subtitles.find((subtitle) => time >= subtitle.startTime && time <= subtitle.endTime);
+
+  const canvasSegments = useMemo(
+    () =>
+      subtitles.map((subtitle) => {
+        const chunkIndex = translationChunkPreview?.groups[subtitle.id];
+        const chunkColor = typeof chunkIndex === 'number'
+          ? TRANSLATION_CHUNK_COLORS[chunkIndex % TRANSLATION_CHUNK_COLORS.length]
+          : null;
+        const sourceColor = getSubtitleSourceGroupColor(getSubtitleSourceGroupId(subtitle));
+        return {
+          id: subtitle.id,
+          startTime: subtitle.startTime,
+          endTime: subtitle.endTime,
+          color: chunkColor ?? sourceColor,
+          selected: selectedIds.has(subtitle.id) || editingSubtitleId === subtitle.id,
+        };
+      }),
+    [editingSubtitleId, selectedIds, subtitles, translationChunkPreview?.groups],
+  );
+
+  const handleTrackPointerDownFast = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget || e.ctrlKey || !denseMode) {
+      handleTrackPointerDown(e);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const time = ((e.clientX - rect.left) / Math.max(rect.width, 1)) * safeDuration;
+    const hit = findSubtitleAtTime(time);
+    if (!hit) {
+      handleTrackPointerDown(e);
+      return;
+    }
+    e.stopPropagation();
+    if (e.shiftKey) {
+      addSegmentSelection(hit.id, { shiftKey: true });
+    } else if (!selectedIds.has(hit.id) || selectedIds.size <= 1) {
+      addSegmentSelection(hit.id);
+    }
+    onSegmentPointerDown();
+    onSubtitleClick(hit.id);
+    onHandleDragStart(hit.id, 'body', time - hit.startTime);
+  };
+
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isDraggingRange.current) return;
+    if (denseMode) {
+      if (hoverState !== null) setHoverState(null);
+      return;
+    }
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const time = (x / rect.width) * safeDuration;
@@ -174,10 +238,21 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
       className="subtitle-track timeline-lane relative h-7"
       onMouseMove={handleMouseMove}
       onMouseLeave={() => { if (!isDraggingRange.current) setHoverState(null); }}
-      onPointerDown={handleTrackPointerDown}
+      onPointerDown={handleTrackPointerDownFast}
       onPointerMove={handleTrackPointerMove}
       onPointerUp={handleTrackPointerUp}
     >
+      {denseMode && (
+        <SegmentBlocksCanvas
+          segments={canvasSegments}
+          duration={duration}
+          visibleRange={visibleTimeRange}
+          colorVar="--timeline-zoom-color"
+          fallbackColor="#22d3ee"
+          alpha={0.38}
+        />
+      )}
+
       {generationIndicator && (
         <div
           className="subtitle-generation-indicator pointer-events-none absolute inset-y-0 z-[1] overflow-hidden rounded-md border border-[color:color-mix(in_srgb,var(--timeline-zoom-color)_50%,transparent)] bg-[color:color-mix(in_srgb,var(--timeline-zoom-color)_18%,transparent)]"
@@ -201,6 +276,18 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
       )}
 
       {subtitles.map((subtitle) => {
+        const widthPx = ((subtitle.endTime - subtitle.startTime) / safeDuration) * Math.max(canvasWidthPx, 1);
+        const isSelected = selectedIds.has(subtitle.id);
+        const isActive = editingSubtitleId === subtitle.id;
+        if (
+          denseMode &&
+          !isSelected &&
+          !isActive &&
+          (widthPx < MIN_INTERACTIVE_SUBTITLE_PX ||
+            !overlapsVisibleRange(subtitle.startTime, subtitle.endTime, visibleTimeRange))
+        ) {
+          return null;
+        }
         const chunkIndex = translationChunkPreview?.groups[subtitle.id];
         const chunkColor = typeof chunkIndex === 'number'
           ? TRANSLATION_CHUNK_COLORS[chunkIndex % TRANSLATION_CHUNK_COLORS.length]
@@ -262,8 +349,8 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
           }}
           className="subtitle-segment timeline-block absolute h-full cursor-move group"
           data-tone="accent"
-          data-active={editingSubtitleId === subtitle.id ? 'true' : 'false'}
-          data-selected={selectedIds.has(subtitle.id) ? 'true' : undefined}
+          data-active={isActive ? 'true' : 'false'}
+          data-selected={isSelected ? 'true' : undefined}
           data-source-unassigned={isUnassignedSource ? 'true' : undefined}
           style={{
             left: `${(subtitle.startTime / safeDuration) * 100}%`,

@@ -67,6 +67,7 @@ export interface PreviewCanvasProps {
   currentTime: number;
   isPlaying: boolean;
   audioResetKey?: number;
+  liveNarrationProjectId?: string | null;
 }
 
 export function PreviewCanvas({
@@ -110,6 +111,7 @@ export function PreviewCanvas({
   currentTime,
   isPlaying,
   audioResetKey,
+  liveNarrationProjectId,
 }: PreviewCanvasProps) {
   return (
     <div className="video-preview-container flex-1 min-h-0 overflow-hidden flex items-center justify-center">
@@ -169,6 +171,7 @@ export function PreviewCanvas({
             currentTime={currentTime}
             isPlaying={isPlaying}
             resetKey={audioResetKey}
+            liveNarrationProjectId={liveNarrationProjectId}
           />
 
           {keystrokeOverlayEditFrame &&

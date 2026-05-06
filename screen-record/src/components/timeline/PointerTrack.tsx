@@ -18,6 +18,7 @@ interface PointerTrackProps {
   onDeletePointerSegments?: (ids: string[]) => void;
   onSelectionChange?: (ids: string[]) => void;
   clearSignal?: number;
+  onEmptyClick?: (time: number) => void;
 }
 
 export const PointerTrack: React.FC<PointerTrackProps> = ({
@@ -30,6 +31,7 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
   onDeletePointerSegments,
   onSelectionChange,
   clearSignal,
+  onEmptyClick,
 }) => {
   const [hoverState, setHoverState] = useState<
     | { type: 'split'; x: number; time: number; seg: CursorVisibilitySegment }
@@ -51,6 +53,7 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
     undefined,
     onDeletePointerSegments,
     clearSignal,
+    { onEmptyClick },
   );
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {

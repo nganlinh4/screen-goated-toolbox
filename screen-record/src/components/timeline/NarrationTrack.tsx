@@ -5,9 +5,19 @@ import { useTrackRangeSelect } from "./useTrackRangeSelect";
 import { TrackVolumeCurve } from "./TrackVolumeCurve";
 import { useAudioSegmentTimelineEdit } from "./useAudioSegmentTimelineEdit";
 import { AudioWaveformLayer } from "./AudioWaveformLayer";
+import {
+  SegmentBlocksCanvas,
+  type TimelineVisibleRange,
+  overlapsVisibleRange,
+} from "./SegmentBlocksCanvas";
+import {
+  mergeLiveNarrationSegments,
+  useLiveNarrationState,
+} from "@/lib/liveNarrationStreamStore";
 
 interface NarrationTrackProps {
   segments: NarrationSegment[];
+  liveProjectId?: string | null;
   duration: number;
   onSegmentClick?: (id: string) => void;
   onDeleteSegments?: (ids: string[]) => void;
@@ -18,15 +28,21 @@ interface NarrationTrackProps {
   onUpdateSegment?: (id: string, patch: Partial<NarrationSegment>) => void;
   viewMode?: "compact" | "volume";
   clearSignal?: number;
+  onEmptyClick?: (time: number) => void;
   /** Track-global volume envelope (project-relative seconds). */
   volumePoints?: AudioGainPoint[];
   onUpdateVolumePoints?: (points: AudioGainPoint[]) => void;
   beginBatch?: () => void;
   commitBatch?: () => void;
   onCommitSegments?: () => void;
+  canvasWidthPx?: number;
+  visibleTimeRange?: TimelineVisibleRange | null;
 }
 
 const MIN_VISIBLE_SEC = 0.05;
+const DENSE_SEGMENT_COUNT = 120;
+const MIN_INTERACTIVE_SEGMENT_PX = 8;
+const MIN_WAVEFORM_SEGMENT_PX = 28;
 
 interface SelectableSegment {
   id: string;
@@ -36,6 +52,7 @@ interface SelectableSegment {
 
 export const NarrationTrack: React.FC<NarrationTrackProps> = ({
   segments,
+  liveProjectId,
   duration,
   onSegmentClick,
   onDeleteSegments,
@@ -46,17 +63,25 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
   onUpdateSegment,
   viewMode = "compact",
   clearSignal,
+  onEmptyClick,
   volumePoints,
   onUpdateVolumePoints,
   beginBatch,
   commitBatch,
   onCommitSegments,
+  canvasWidthPx = 0,
+  visibleTimeRange,
 }) => {
   const safeDuration = Math.max(duration, 0.001);
+  const liveNarrationState = useLiveNarrationState(liveProjectId);
+  const displayedSegments = useMemo(
+    () => mergeLiveNarrationSegments(segments, liveNarrationState),
+    [liveNarrationState, segments],
+  );
 
   const selectable = useMemo<SelectableSegment[]>(
     () =>
-      segments.map((seg) => {
+      displayedSegments.map((seg) => {
         const trimmed = Math.max(seg.outPoint - seg.inPoint, MIN_VISIBLE_SEC);
         const rate = seg.playbackRate && seg.playbackRate > 0 ? seg.playbackRate : 1;
         const visible = Math.max(trimmed / rate, MIN_VISIBLE_SEC);
@@ -66,7 +91,7 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
           endTime: seg.startTime + visible,
         };
       }),
-    [segments],
+    [displayedSegments],
   );
 
   const {
@@ -86,11 +111,20 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
     onRangeChange,
     onDeleteSegments,
     clearSignal,
-    { allowCtrlDragAnywhere: true },
+    { allowCtrlDragAnywhere: true, onEmptyClick },
   );
 
   const effectiveSelectedIds = externalSelectedIds ?? selectedIds;
   const effectiveSelectedRange = externalSelectedRange ?? selectedRange;
+  const denseMode = displayedSegments.length >= DENSE_SEGMENT_COUNT;
+  const canvasSegments = useMemo(
+    () =>
+      selectable.map((segment) => ({
+        ...segment,
+        selected: effectiveSelectedIds.has(segment.id),
+      })),
+    [effectiveSelectedIds, selectable],
+  );
   const {
     isDraggingAudioSegment,
     handleAudioSegmentPointerDown,
@@ -126,15 +160,55 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
     const cosT = (1 - Math.cos(ratio * Math.PI)) / 2;
     return Math.max(0, Math.min(1, left.volume + (right.volume - left.volume) * cosT));
   };
+  const findSegmentAtTime = (time: number) =>
+    displayedSegments.find((segment) => {
+      const trimmed = Math.max(segment.outPoint - segment.inPoint, MIN_VISIBLE_SEC);
+      const rate = segment.playbackRate && segment.playbackRate > 0 ? segment.playbackRate : 1;
+      const visible = Math.max(trimmed / rate, MIN_VISIBLE_SEC);
+      return time >= segment.startTime && time <= segment.startTime + visible;
+    });
+
+  const handleTrackPointerDownFast = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget || e.ctrlKey || !denseMode) {
+      handleTrackPointerDown(e);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const time = ((e.clientX - rect.left) / Math.max(rect.width, 1)) * safeDuration;
+    const hit = findSegmentAtTime(time);
+    if (!hit) {
+      handleTrackPointerDown(e);
+      return;
+    }
+    e.stopPropagation();
+    if (e.shiftKey) {
+      addSegmentSelection(hit.id, { shiftKey: true });
+      return;
+    }
+    addSegmentSelection(hit.id);
+    onSegmentClick?.(hit.id);
+    handleAudioSegmentPointerDown(e, hit);
+  };
 
   return (
     <div
       ref={trackRef}
       className="narration-track timeline-lane relative h-7"
-      onPointerDown={handleTrackPointerDown}
+      onPointerDown={handleTrackPointerDownFast}
       onPointerMove={handleTrackPointerMove}
       onPointerUp={handleTrackPointerUp}
     >
+      {denseMode && (
+        <SegmentBlocksCanvas
+          segments={canvasSegments}
+          duration={duration}
+          visibleRange={visibleTimeRange}
+          colorVar="--secondary-color"
+          fallbackColor="#a78bfa"
+          alpha={0.34}
+        />
+      )}
+
       {effectiveSelectedRange && (
         <div
           className={`narration-track-selected-range ${rangePillClassName} z-[2]`}
@@ -142,14 +216,27 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
         />
       )}
 
-      {segments.map((seg) => {
+      {displayedSegments.map((seg) => {
         const trimmed = Math.max(seg.outPoint - seg.inPoint, MIN_VISIBLE_SEC);
         const rate = seg.playbackRate && seg.playbackRate > 0 ? seg.playbackRate : 1;
         const visible = Math.max(trimmed / rate, MIN_VISIBLE_SEC);
         const widthPct = Math.min(100, (visible / safeDuration) * 100);
         const leftPct = Math.min(100, Math.max(0, (seg.startTime / safeDuration) * 100));
         const isSelected = effectiveSelectedIds.has(seg.id);
+        const widthPx = (visible / safeDuration) * Math.max(canvasWidthPx, 1);
+        if (
+          denseMode &&
+          !isSelected &&
+          (widthPx < MIN_INTERACTIVE_SEGMENT_PX ||
+            !overlapsVisibleRange(seg.startTime, seg.startTime + visible, visibleTimeRange))
+        ) {
+          return null;
+        }
         const showSpeedBadge = Math.abs(rate - 1) > 0.001;
+        const shouldRenderWaveform =
+          viewMode === "volume" &&
+          widthPx >= MIN_WAVEFORM_SEGMENT_PX &&
+          (!denseMode || isSelected || overlapsVisibleRange(seg.startTime, seg.startTime + visible, visibleTimeRange));
         return (
           <div
             key={seg.id}
@@ -185,7 +272,7 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
           >
             <div className="narration-track-segment-trim-start absolute inset-y-0 left-0 z-[2] w-2 cursor-ew-resize" />
             <div className="narration-track-segment-trim-end absolute inset-y-0 right-0 z-[2] w-2 cursor-ew-resize" />
-            {viewMode === "volume" ? (
+            {shouldRenderWaveform ? (
               <AudioWaveformLayer
                 sourcePath={seg.rawAudioPath}
                 duration={visible}

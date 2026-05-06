@@ -37,6 +37,7 @@ import {
 import { DEFAULT_GEMINI_SUBTITLE_PROMPT } from '@/lib/geminiSubtitlePrompt';
 import { getSubtitleLanguageOptionsForMethod } from '@/lib/subtitleLanguageOptions';
 import { markFrontendPerfEvent } from '@/lib/frontendPerfDiagnostics';
+import type { PersistOptions } from '@/hooks/useSequenceComposition';
 
 export type SubtitleMethod =
   | 'groq-whisper-accurate'
@@ -253,6 +254,7 @@ interface UseSubtitleGenerationParams {
   setActivePanel: (
     panel: 'zoom' | 'background' | 'cursor' | 'text' | 'subtitles',
   ) => void;
+  persistProject?: (opts?: PersistOptions) => Promise<void>;
 }
 
 function buildSubtitleId(
@@ -464,6 +466,7 @@ export function useSubtitleGeneration({
   currentRawMicAudioPath,
   duration,
   setActivePanel,
+  persistProject,
 }: UseSubtitleGenerationParams) {
   const [editingSubtitleId, setEditingSubtitleId] = useState<string | null>(null);
   const [sourceType, setSourceType] = useState<SubtitleSource>(getInitialSubtitleSource);
@@ -485,12 +488,18 @@ export function useSubtitleGeneration({
   const pendingSubtitleResultsRef = useRef<SubtitleClipResult[]>([]);
   const pendingSubtitleApplyTimerRef = useRef<number | null>(null);
   const jobContextRef = useRef<SubtitleJobContext | null>(null);
+  const persistProjectRef = useRef<typeof persistProject>(persistProject);
+  const pendingCompletedJobPersistRef = useRef(false);
   const lastSubtitleApplyPerfLogRef = useRef(0);
   const partialApplyStateRef = useRef(new Map<string, { signature: string; appliedAt: number }>());
 
   useEffect(() => {
     jobContextRef.current = jobContext;
   }, [jobContext]);
+
+  useEffect(() => {
+    persistProjectRef.current = persistProject;
+  }, [persistProject]);
 
   const clearQueuedSubtitleResults = useCallback(() => {
     if (pendingSubtitleApplyTimerRef.current !== null) {
@@ -911,6 +920,25 @@ export function useSubtitleGeneration({
   }, [composition, setSegment]);
 
   useEffect(() => {
+    if (!pendingCompletedJobPersistRef.current || jobId) return;
+    if (!segment && !composition) return;
+
+    const timeoutId = window.setTimeout(() => {
+      if (!pendingCompletedJobPersistRef.current) return;
+      pendingCompletedJobPersistRef.current = false;
+      void persistProjectRef.current?.({
+        refreshList: true,
+        includeMedia: false,
+      }).catch((error) => {
+        pendingCompletedJobPersistRef.current = true;
+        console.warn('[SubtitleGen][Persist] Failed to save completed subtitles:', error);
+      });
+    }, 50);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [composition, jobId, segment]);
+
+  useEffect(() => {
     if (!jobId) return;
     let cancelled = false;
 
@@ -953,6 +981,7 @@ export function useSubtitleGeneration({
         }
         if (nextStatus.state === 'completed') {
           flushQueuedSubtitleResults();
+          pendingCompletedJobPersistRef.current = true;
           lastAppliedResultsKeyRef.current = '';
           lastKnownResultsRevisionRef.current = 0;
           lastStatusViewKeyRef.current = '';

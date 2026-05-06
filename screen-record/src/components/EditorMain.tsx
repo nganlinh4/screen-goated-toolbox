@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState, type MutableRefObject, type RefObject } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useState, type MutableRefObject, type RefObject } from "react";
 import {
   BackgroundConfig,
   ImportedAudioSegment,
@@ -343,6 +343,9 @@ export function EditorMain({
   const [selectedAudioSegmentRange, setSelectedAudioSegmentRange] = useState<TrackSelectionRange | null>(null);
   const [selectedNarrationSegmentIds, setSelectedNarrationSegmentIds] = useState<string[]>([]);
   const [selectedNarrationSegmentRange, setSelectedNarrationSegmentRange] = useState<TrackSelectionRange | null>(null);
+  const deferredNarrationSegments = useDeferredValue(narrationSegments);
+  const narrationSegmentCount = narrationSegments?.length ?? 0;
+  const deferredNarrationSegmentCount = deferredNarrationSegments?.length ?? 0;
   const selectedAudioSegmentIdSet = useMemo(
     () => new Set(selectedAudioSegmentIds),
     [selectedAudioSegmentIds],
@@ -357,13 +360,25 @@ export function EditorMain({
         ...segment,
         previewTrackKind: "imported" as const,
       })),
-      ...(narrationSegments ?? []).map((segment) => ({
+      ...(deferredNarrationSegments ?? []).map((segment) => ({
         ...segment,
         previewTrackKind: "narration" as const,
       })),
     ],
-    [composition?.audioSegments, narrationSegments],
+    [composition?.audioSegments, deferredNarrationSegments],
   );
+  useEffect(() => {
+    const start = performance.now();
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const twoFrameMs = performance.now() - start;
+        if (!isPlaying && twoFrameMs < 80) return;
+        console.info(
+          `[NarrationPerf][EditorCommit] live=${narrationSegmentCount} deferred=${deferredNarrationSegmentCount} playing=${isPlaying ? 1 : 0} two_frame_ms=${twoFrameMs.toFixed(1)}`,
+        );
+      });
+    });
+  }, [deferredNarrationSegmentCount, isPlaying, narrationSegmentCount]);
   const exportSubtitleSrtInFlightRef = React.useRef(false);
   const subtitleTranslation = useSubtitleTranslation({
     t,
@@ -421,7 +436,14 @@ export function EditorMain({
     setActivePanel('audio');
   }, [setActivePanel]);
 
-  const totalSelectedCount = selectedTextIds.length + selectedSubtitleIds.length + selectedPointerIds.length + selectedKeystrokeIds.length + selectedWebcamIds.length;
+  const totalSelectedCount =
+    selectedTextIds.length +
+    selectedSubtitleIds.length +
+    selectedPointerIds.length +
+    selectedKeystrokeIds.length +
+    selectedWebcamIds.length +
+    selectedAudioSegmentIds.length +
+    selectedNarrationSegmentIds.length;
   const [clearSignal, setClearSignal] = useState(0);
   const clearAllSelections = useCallback(() => {
     setSelectedTextIds([]);
@@ -438,6 +460,21 @@ export function EditorMain({
     setSelectedNarrationSegmentRange(null);
     setClearSignal(c => c + 1);
   }, [onSelectedSubtitleIdsChange, onSelectedTextIdsChange]);
+  const clearTimelineFocus = useCallback(() => {
+    clearAllSelections();
+    setEditingKeyframeId(null);
+    setEditingTextId(null);
+    setEditingSubtitleId(null);
+    setEditingKeystrokeSegmentId(null);
+    setEditingPointerId(null);
+  }, [
+    clearAllSelections,
+    setEditingKeyframeId,
+    setEditingKeystrokeSegmentId,
+    setEditingPointerId,
+    setEditingSubtitleId,
+    setEditingTextId,
+  ]);
   const lastProjectResetKeyRef = React.useRef<string | null | undefined>(undefined);
   useEffect(() => {
     const nextKey = projectResetKey ?? null;
@@ -712,6 +749,7 @@ export function EditorMain({
             currentTime={currentTime}
             isPlaying={isPlaying}
             audioResetKey={audioResetKey}
+            liveNarrationProjectId={projectResetKey}
           />
 
           <PlaybackControlsRow
@@ -810,7 +848,7 @@ export function EditorMain({
             onUpdateAudioSegmentForPanel={onUpdateAudioSegment}
             onDeleteAudioSegmentsForPanel={onDeleteAudioSegments}
             onCommitAudioSegmentsForPanel={onCommitAudioSegments}
-            narrationSegmentsForPanel={narrationSegments}
+            narrationSegmentsForPanel={deferredNarrationSegments}
             selectedNarrationSegmentIds={selectedNarrationSegmentIdSet}
             onUpdateNarrationSegmentForPanel={onUpdateNarrationSegment}
             onDeleteNarrationSegmentsForPanel={onDeleteNarrationSegments}
@@ -855,6 +893,7 @@ export function EditorMain({
           setSegment={setSegment}
           onSeek={seek}
           onSeekEnd={flushSeek}
+          onClearTimelineFocus={clearTimelineFocus}
           onAddText={handleAddText}
           onAddSubtitle={subtitleTranslation.canCreateManualSubtitles ? handleAddSubtitle : undefined}
           onPickSubtitleSrtFile={handleImportSubtitleSrt}
@@ -898,7 +937,8 @@ export function EditorMain({
           selectedAudioSegmentRange={selectedAudioSegmentRange}
           onAudioSelectionChange={handleAudioSelectionChange}
           onAudioRangeChange={handleAudioRangeChange}
-          narrationSegments={narrationSegments}
+          narrationSegments={deferredNarrationSegments}
+          liveNarrationProjectId={projectResetKey}
           onNarrationSegmentClick={handleNarrationSegmentClick}
           onUpdateNarrationSegment={onUpdateNarrationSegment}
           narrationTrackVolumePoints={narrationTrackVolumePoints}

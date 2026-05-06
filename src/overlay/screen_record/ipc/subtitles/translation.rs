@@ -12,7 +12,9 @@ use crate::retry_model_chain::{
     RetryChainKind, preflight_skip_reason, provider_is_available, resolve_next_retry_model,
 };
 
-use super::translation_providers::{TranslationConversationTurn, translate_subtitle_chunk};
+use super::translation_providers::{
+    TranslationConversationTurn, translate_subtitle_chunk, translate_subtitle_chunk_with_gtx,
+};
 use super::types::{
     SubtitleTranslationCapabilities, SubtitleTranslationItemRequest,
     SubtitleTranslationJobSnapshot, SubtitleTranslationModelCapability, SubtitleTranslationRequest,
@@ -21,6 +23,8 @@ use super::types::{
 
 const TRANSLATION_MODEL_ATTEMPTS: usize = 3;
 const TRANSLATION_RETRY_BASE_DELAY_MS: u64 = 3_000;
+const GTX_TRANSLATION_MODEL_ID: &str = "gtx";
+const GTX_TRANSLATION_MODEL_LABEL: &str = "GTX";
 
 #[derive(Clone)]
 struct SubtitleTranslationJobHandle {
@@ -60,7 +64,10 @@ pub fn handle_start_subtitle_translation(
             },
         );
 
-    std::thread::spawn(move || run_subtitle_translation(request, snapshot, cancelled));
+    let thread_job_id = job_id.clone();
+    std::thread::spawn(move || {
+        run_subtitle_translation(&thread_job_id, request, snapshot, cancelled)
+    });
 
     Ok(serde_json::json!({ "jobId": job_id }))
 }
@@ -108,32 +115,36 @@ pub fn handle_get_subtitle_translation_capabilities(
 ) -> Result<serde_json::Value, String> {
     let config = current_config()?;
     let models = collect_translation_models(&config);
-    let payload = SubtitleTranslationCapabilities {
-        available: !models.is_empty(),
-        reason: if models.is_empty() {
-            Some("No compatible text-to-text translation model is currently available.".to_string())
-        } else {
-            None
-        },
-        models: models
+    let mut model_payload = vec![SubtitleTranslationModelCapability {
+        model_id: GTX_TRANSLATION_MODEL_ID.to_string(),
+        model_label: GTX_TRANSLATION_MODEL_LABEL.to_string(),
+        provider: "gtx".to_string(),
+    }];
+    model_payload.extend(
+        models
             .into_iter()
             .map(|model| SubtitleTranslationModelCapability {
                 model_id: model.id.clone(),
                 model_label: localized_model_label(&model, &config.ui_language),
                 provider: model.provider.clone(),
-            })
-            .collect(),
+            }),
+    );
+    let payload = SubtitleTranslationCapabilities {
+        available: true,
+        reason: None,
+        models: model_payload,
     };
     serde_json::to_value(payload)
         .map_err(|error| format!("Serialize subtitle translation capabilities: {error}"))
 }
 
 fn run_subtitle_translation(
+    job_id: &str,
     request: SubtitleTranslationRequest,
     snapshot: Arc<Mutex<SubtitleTranslationJobSnapshot>>,
     cancelled: Arc<AtomicBool>,
 ) {
-    let result = run_subtitle_translation_inner(&request, &snapshot, &cancelled);
+    let result = run_subtitle_translation_inner(job_id, &request, &snapshot, &cancelled);
     let mut locked = match snapshot.lock() {
         Ok(locked) => locked,
         Err(_) => return,
@@ -162,6 +173,7 @@ fn run_subtitle_translation(
 }
 
 fn run_subtitle_translation_inner(
+    job_id: &str,
     request: &SubtitleTranslationRequest,
     snapshot: &Arc<Mutex<SubtitleTranslationJobSnapshot>>,
     cancelled: &Arc<AtomicBool>,
@@ -171,7 +183,13 @@ fn run_subtitle_translation_inner(
     }
     let config = current_config()?;
     let candidate_models = collect_translation_models(&config);
-    if candidate_models.is_empty() {
+    let gtx_allowed = request
+        .instructions
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty();
+    if candidate_models.is_empty() && !gtx_allowed {
         return Err(
             "No compatible text-to-text translation model is currently available.".to_string(),
         );
@@ -191,6 +209,17 @@ fn run_subtitle_translation_inner(
         request.items.len(),
     );
     let chunks = split_translation_items(&request.items, initial_chunk_count);
+    let mut diagnostics = TranslationDiagnostics::new(job_id);
+    diagnostics.log_start(
+        request.items.len(),
+        chunks.len(),
+        request.chunk_mode.as_deref(),
+        &request.target_language,
+        request.instructions.as_deref(),
+        gtx_allowed,
+        &candidate_models,
+        &config.ui_language,
+    );
     let mut history: Vec<TranslationConversationTurn> = Vec::new();
     let mut previous_source_group_id: Option<String> = None;
     let mut translated_results: Vec<SubtitleTranslationResultItem> = Vec::new();
@@ -216,12 +245,27 @@ fn run_subtitle_translation_inner(
             total_items: request.items.len(),
             total_groups: &mut total_groups,
             completed_groups: &mut completed_groups,
+            diagnostics: &mut diagnostics,
         })?;
     }
 
     if translated_results.len() == request.items.len() {
+        diagnostics.log_finish(
+            "completed",
+            translated_results.len(),
+            request.items.len(),
+            completed_groups,
+            total_groups,
+        );
         Ok(translated_results)
     } else {
+        diagnostics.log_finish(
+            "mismatched",
+            translated_results.len(),
+            request.items.len(),
+            completed_groups,
+            total_groups,
+        );
         Err(format!(
             "Subtitle translation produced {} item(s) for {} requested subtitle(s)",
             translated_results.len(),
@@ -243,6 +287,7 @@ struct TranslateGroupRequest<'a> {
     total_items: usize,
     total_groups: &'a mut usize,
     completed_groups: &'a mut usize,
+    diagnostics: &'a mut TranslationDiagnostics,
 }
 
 fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), String> {
@@ -259,6 +304,7 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
         total_items,
         total_groups,
         completed_groups,
+        diagnostics,
     } = request;
 
     if group.is_empty() || cancelled.load(Ordering::SeqCst) {
@@ -268,6 +314,57 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
     let mut last_error =
         "Subtitle translation failed because every model attempt returned invalid output."
             .to_string();
+
+    if instructions.map(str::trim).unwrap_or("").is_empty() {
+        update_translation_snapshot(snapshot, |locked| {
+            locked.current_model_id = Some(GTX_TRANSLATION_MODEL_ID.to_string());
+            locked.current_model_label = Some(GTX_TRANSLATION_MODEL_LABEL.to_string());
+            locked.current_chunk_count = *total_groups;
+            locked.current_chunk_index = *completed_groups + 1;
+            locked.total_chunks = *total_groups;
+            locked.progress = translated_results.len() as f64 / total_items.max(1) as f64;
+            locked.results = translated_results.clone();
+            locked.message = format!(
+                "Translating subtitles with {} ({}/{})",
+                GTX_TRANSLATION_MODEL_LABEL,
+                *completed_groups + 1,
+                *total_groups
+            );
+            locked.message_key = Some("subtitleTranslationStatusChunk".to_string());
+            locked.message_params = HashMap::from([
+                ("model".to_string(), GTX_TRANSLATION_MODEL_LABEL.to_string()),
+                ("current".to_string(), (*completed_groups + 1).to_string()),
+                ("total".to_string(), total_groups.to_string()),
+            ]);
+        })?;
+        match translate_subtitle_chunk_with_gtx(target_language, &group) {
+            Ok(response) => {
+                diagnostics.record_success(GTX_TRANSLATION_MODEL_ID, group.len(), 1);
+                history.push(TranslationConversationTurn {
+                    user_payload: response.user_payload,
+                    assistant_payload: response.assistant_payload,
+                });
+                translated_results.extend(response.items);
+                *completed_groups += 1;
+                update_translation_snapshot(snapshot, |locked| {
+                    locked.progress = translated_results.len() as f64 / total_items.max(1) as f64;
+                    locked.results = translated_results.clone();
+                })?;
+                return Ok(());
+            }
+            Err(error) => {
+                diagnostics.record_failure(
+                    GTX_TRANSLATION_MODEL_ID,
+                    GTX_TRANSLATION_MODEL_LABEL,
+                    1,
+                    group.len(),
+                    history.len(),
+                    &error,
+                );
+                last_error = error;
+            }
+        }
+    }
 
     for model in candidate_models {
         if cancelled.load(Ordering::SeqCst) {
@@ -339,6 +436,7 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
                 history,
             ) {
                 Ok(response) => {
+                    diagnostics.record_success(&model.id, group.len(), attempt_index + 1);
                     history.push(TranslationConversationTurn {
                         user_payload: response.user_payload,
                         assistant_payload: response.assistant_payload,
@@ -353,6 +451,14 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
                     return Ok(());
                 }
                 Err(error) => {
+                    diagnostics.record_failure(
+                        &model.id,
+                        &model_label,
+                        attempt_index + 1,
+                        group.len(),
+                        history.len(),
+                        &error,
+                    );
                     last_error = error;
                 }
             }
@@ -364,6 +470,7 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
         let right = group.split_off(midpoint);
         let left = group;
         *total_groups += 1;
+        diagnostics.record_split(left.len(), right.len(), &last_error);
         translate_group_with_retry(TranslateGroupRequest {
             config,
             candidate_models,
@@ -377,6 +484,7 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
             total_items,
             total_groups,
             completed_groups,
+            diagnostics,
         })?;
         translate_group_with_retry(TranslateGroupRequest {
             config,
@@ -391,11 +499,214 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
             total_items,
             total_groups,
             completed_groups,
+            diagnostics,
         })?;
         return Ok(());
     }
 
     Err(last_error)
+}
+
+struct TranslationDiagnostics {
+    job_id: String,
+    started_at: std::time::Instant,
+    attempt_count: usize,
+    success_count: usize,
+    retry_success_count: usize,
+    split_count: usize,
+    failure_counts: HashMap<String, usize>,
+    model_attempt_counts: HashMap<String, usize>,
+}
+
+impl TranslationDiagnostics {
+    fn new(job_id: &str) -> Self {
+        Self {
+            job_id: job_id.to_string(),
+            started_at: std::time::Instant::now(),
+            attempt_count: 0,
+            success_count: 0,
+            retry_success_count: 0,
+            split_count: 0,
+            failure_counts: HashMap::new(),
+            model_attempt_counts: HashMap::new(),
+        }
+    }
+
+    fn log_start(
+        &self,
+        item_count: usize,
+        chunk_count: usize,
+        chunk_mode: Option<&str>,
+        target_language: &str,
+        instructions: Option<&str>,
+        gtx_allowed: bool,
+        candidate_models: &[ModelConfig],
+        ui_language: &str,
+    ) {
+        let model_chain = candidate_models
+            .iter()
+            .map(|model| format!("{}:{}", model.provider, localized_model_label(model, ui_language)))
+            .collect::<Vec<_>>()
+            .join(" > ");
+        eprintln!(
+            "[SubtitleTranslation][job={}] start items={} initial_chunks={} chunk_mode={} target=\"{}\" instructions={} gtx_allowed={} fallback_chain=\"{}\"",
+            self.job_id,
+            item_count,
+            chunk_count,
+            chunk_mode.unwrap_or("auto"),
+            target_language,
+            instructions.map(str::trim).is_some_and(|value| !value.is_empty()),
+            gtx_allowed,
+            if model_chain.is_empty() { "none" } else { &model_chain }
+        );
+    }
+
+    fn record_success(&mut self, model_id: &str, chunk_items: usize, attempts: usize) {
+        self.success_count += 1;
+        if attempts > 1 {
+            self.retry_success_count += 1;
+            eprintln!(
+                "[SubtitleTranslation][job={}] retry-success model={} chunk_items={} attempts={}",
+                self.job_id,
+                model_id,
+                chunk_items,
+                attempts
+            );
+        }
+    }
+
+    fn record_failure(
+        &mut self,
+        model_id: &str,
+        model_label: &str,
+        attempt: usize,
+        chunk_items: usize,
+        history_turns: usize,
+        error: &str,
+    ) {
+        self.attempt_count += 1;
+        *self
+            .model_attempt_counts
+            .entry(model_id.to_string())
+            .or_default() += 1;
+        let category = classify_translation_error(error);
+        let key = format!("{model_id}:{category}");
+        let category_count = self.failure_counts.entry(key).or_default();
+        *category_count += 1;
+
+        // Log the first occurrence and then sparse repeats. This keeps long
+        // translation jobs readable while still showing persistent failure modes.
+        if *category_count == 1 || *category_count == 5 || *category_count % 20 == 0 {
+            eprintln!(
+                "[SubtitleTranslation][job={}] failure model=\"{}\" category={} count={} attempt={} chunk_items={} history_turns={} detail=\"{}\"",
+                self.job_id,
+                model_label,
+                category,
+                category_count,
+                attempt,
+                chunk_items,
+                history_turns,
+                truncate_log_detail(error, 220)
+            );
+        }
+    }
+
+    fn record_split(&mut self, left_items: usize, right_items: usize, last_error: &str) {
+        self.split_count += 1;
+        eprintln!(
+            "[SubtitleTranslation][job={}] split #{} left_items={} right_items={} reason_category={} reason=\"{}\"",
+            self.job_id,
+            self.split_count,
+            left_items,
+            right_items,
+            classify_translation_error(last_error),
+            truncate_log_detail(last_error, 180)
+        );
+    }
+
+    fn log_finish(
+        &self,
+        state: &str,
+        translated_items: usize,
+        requested_items: usize,
+        completed_groups: usize,
+        total_groups: usize,
+    ) {
+        let failures = summarize_count_map(&self.failure_counts);
+        let model_attempts = summarize_count_map(&self.model_attempt_counts);
+        eprintln!(
+            "[SubtitleTranslation][job={}] finish state={} translated_items={}/{} groups={}/{} attempts={} successes={} retry_successes={} splits={} elapsed_ms={} failures=\"{}\" model_attempts=\"{}\"",
+            self.job_id,
+            state,
+            translated_items,
+            requested_items,
+            completed_groups,
+            total_groups,
+            self.attempt_count,
+            self.success_count,
+            self.retry_success_count,
+            self.split_count,
+            self.started_at.elapsed().as_millis(),
+            failures,
+            model_attempts
+        );
+    }
+}
+
+fn classify_translation_error(error: &str) -> &'static str {
+    let lower = error.to_lowercase();
+    if lower.contains("gtx") {
+        "gtx"
+    } else if lower.contains("parse structured translation json") || lower.contains("json") {
+        "json"
+    } else if lower.contains("returned")
+        && (lower.contains("item") || lower.contains("id") || lower.contains("empty text"))
+    {
+        "schema"
+    } else if lower.contains("timed out") || lower.contains("timeout") {
+        "timeout"
+    } else if lower.contains("rate limit") || lower.contains("429") {
+        "rate-limit"
+    } else if lower.contains("401") || lower.contains("403") || lower.contains("api key") {
+        "auth"
+    } else if lower.contains("network")
+        || lower.contains("connection")
+        || lower.contains("dns")
+        || lower.contains("http")
+        || lower.contains("request")
+    {
+        "transport"
+    } else if lower.contains("no content") || lower.contains("empty") {
+        "empty"
+    } else {
+        "other"
+    }
+}
+
+fn truncate_log_detail(value: &str, max_chars: usize) -> String {
+    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() <= max_chars {
+        return compact;
+    }
+    let mut truncated = compact.chars().take(max_chars).collect::<String>();
+    truncated.push('…');
+    truncated
+}
+
+fn summarize_count_map(counts: &HashMap<String, usize>) -> String {
+    if counts.is_empty() {
+        return "none".to_string();
+    }
+    let mut entries = counts
+        .iter()
+        .map(|(key, count)| (key.as_str(), *count))
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| left.0.cmp(right.0));
+    entries
+        .into_iter()
+        .map(|(key, count)| format!("{key}={count}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn translation_retry_delay(attempt_index: usize) -> Duration {

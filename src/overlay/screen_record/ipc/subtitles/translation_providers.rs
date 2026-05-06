@@ -98,6 +98,53 @@ pub fn translate_subtitle_chunk(
     })
 }
 
+pub fn translate_subtitle_chunk_with_gtx(
+    target_language: &str,
+    items: &[SubtitleTranslationItemRequest],
+) -> Result<ValidatedSubtitleTranslationResponse, String> {
+    let user_payload = build_user_payload(target_language, items);
+    let mut translated_items = Vec::with_capacity(items.len());
+    for item in items {
+        let text = item.text.trim();
+        if text.is_empty() {
+            return Err(format!(
+                "GTX subtitle translation received empty text for subtitle '{}'",
+                item.id
+            ));
+        }
+        let translated =
+            crate::api::realtime_audio::translate_with_google_gtx(text, target_language)
+                .ok_or_else(|| "GTX subtitle translation failed".to_string())?;
+        let translated = translated.trim();
+        if translated.is_empty() {
+            return Err(format!(
+                "GTX subtitle translation returned empty text for subtitle '{}'",
+                item.id
+            ));
+        }
+        translated_items.push(SubtitleTranslationResultItem {
+            id: item.id.clone(),
+            clip_id: item.clip_id.clone(),
+            translated_text: translated.to_string(),
+        });
+    }
+    let assistant_payload = serde_json::to_string(&serde_json::json!({
+        "items": translated_items
+            .iter()
+            .map(|item| serde_json::json!({
+                "id": item.id,
+                "translatedText": item.translated_text,
+            }))
+            .collect::<Vec<_>>(),
+    }))
+    .map_err(|error| format!("Serialize GTX subtitle translation response: {error}"))?;
+    Ok(ValidatedSubtitleTranslationResponse {
+        items: translated_items,
+        user_payload,
+        assistant_payload,
+    })
+}
+
 fn build_system_instruction(target_language: &str, instructions: Option<&str>) -> String {
     let mut prompt = format!(
         "You are translating subtitle segments inside one continuous conversation.\n\

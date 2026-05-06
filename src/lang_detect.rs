@@ -18,7 +18,6 @@ pub fn detect_language(text: &str) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
-
     if let Ok(guard) = CACHE.lock()
         && let Some(cache) = guard.as_ref()
         && let Some((_, code)) = cache.iter().find(|(key, _)| key == trimmed)

@@ -28,6 +28,7 @@ interface TextTrackProps {
   onDeleteTextSegments?: (ids: string[]) => void;
   onSelectionChange?: (ids: string[]) => void;
   clearSignal?: number;
+  onEmptyClick?: (time: number) => void;
 }
 
 export const TextTrack: React.FC<TextTrackProps> = ({
@@ -42,6 +43,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
   onDeleteTextSegments,
   onSelectionChange,
   clearSignal,
+  onEmptyClick,
 }) => {
   const [hoverState, setHoverState] = useState<
     | { type: 'split'; x: number; time: number; seg: TextSegment; preview: { leftText: string; rightText: string } | null }
@@ -66,6 +68,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
     undefined,
     onDeleteTextSegments,
     clearSignal,
+    { onEmptyClick },
   );
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {

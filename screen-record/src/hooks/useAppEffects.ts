@@ -132,4 +132,26 @@ export function useAppEffects({
     currentProjectId,
     currentVideo,
   ]);
+
+  // Last-chance metadata flush for edits that are visible in memory but still
+  // waiting behind the debounced autosave when the WebView is hidden/closed.
+  useEffect(() => {
+    if (!currentProjectId || !segment || !currentVideo) return;
+
+    const flushEditorMetadata = () => {
+      void persistRef.current?.({ refreshList: false, includeMedia: false });
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flushEditorMetadata();
+      }
+    };
+
+    window.addEventListener("pagehide", flushEditorMetadata);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flushEditorMetadata);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [currentProjectId, currentVideo, segment, composition, persistRef]);
 }

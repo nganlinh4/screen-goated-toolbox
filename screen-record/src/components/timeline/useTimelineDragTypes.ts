@@ -45,6 +45,7 @@ export interface UseTimelineDragOptions {
   selectedSubtitleIds: readonly string[];
   onSeek?: (time: number) => void;
   onSeekEnd?: () => void;
+  onClearTimelineFocus?: () => void;
   beginBatch: () => void;
   commitBatch: () => void;
 }
