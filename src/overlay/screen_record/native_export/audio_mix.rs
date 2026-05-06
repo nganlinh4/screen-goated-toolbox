@@ -158,6 +158,50 @@ fn apply_audio_volume_envelope(
     }
 }
 
+fn trim_pcm_to_source_window(
+    pcm: Vec<u8>,
+    decoded_time: f64,
+    channels: usize,
+    source_in_sec: Option<f64>,
+    source_out_sec: Option<f64>,
+) -> Option<(Vec<u8>, f64, f64)> {
+    if channels == 0 {
+        return None;
+    }
+    let bytes_per_frame = channels * 4;
+    let frames = pcm.len() / bytes_per_frame;
+    if frames == 0 {
+        return None;
+    }
+    let duration_sec = frames as f64 / MIX_OUTPUT_SAMPLE_RATE as f64;
+    let chunk_start = decoded_time;
+    let chunk_end = decoded_time + duration_sec;
+    let window_start = source_in_sec.filter(|value| value.is_finite()).unwrap_or(0.0);
+    let window_end = source_out_sec
+        .filter(|value| value.is_finite())
+        .unwrap_or(f64::INFINITY);
+    let keep_start = chunk_start.max(window_start);
+    let keep_end = chunk_end.min(window_end);
+    if keep_end <= keep_start {
+        return None;
+    }
+    let start_frame = ((keep_start - chunk_start) * MIX_OUTPUT_SAMPLE_RATE as f64)
+        .floor()
+        .clamp(0.0, frames as f64) as usize;
+    let end_frame = ((keep_end - chunk_start) * MIX_OUTPUT_SAMPLE_RATE as f64)
+        .ceil()
+        .clamp(start_frame as f64, frames as f64) as usize;
+    if end_frame <= start_frame {
+        return None;
+    }
+    let start_byte = start_frame * bytes_per_frame;
+    let end_byte = end_frame * bytes_per_frame;
+    let next_pcm = pcm[start_byte..end_byte].to_vec();
+    let next_time = chunk_start + start_frame as f64 / MIX_OUTPUT_SAMPLE_RATE as f64;
+    let next_duration = (end_frame - start_frame) as f64 / MIX_OUTPUT_SAMPLE_RATE as f64;
+    Some((next_pcm, next_time, next_duration))
+}
+
 fn curve_has_audible_points(points: &[DeviceAudioPoint]) -> bool {
     points.iter().any(|point| point.volume > 0.0001)
 }
@@ -489,11 +533,19 @@ fn mix_source_into_raw_file(
             break;
         };
         let decoded_time = ts_100ns as f64 / 10_000_000.0;
-        if let Some(out_sec) = source_out_sec {
-            if decoded_time >= out_sec {
+        let channels = decoder.channels() as usize;
+        let Some((pcm, decoded_time, source_duration_sec)) = trim_pcm_to_source_window(
+            pcm,
+            decoded_time,
+            channels,
+            source.source_in_sec,
+            source_out_sec,
+        ) else {
+            if source_out_sec.is_some_and(|out_sec| decoded_time >= out_sec) {
                 break;
             }
-        }
+            continue;
+        };
         let chunk_time =
             (decoded_time / source.playback_rate.max(0.0001)) + source.start_offset_sec;
         let Some(segment) = trim_segments.get(segment_idx) else {
@@ -512,17 +564,13 @@ fn mix_source_into_raw_file(
             continue;
         }
 
-        let input_frames = if channels == 0 {
-            0
-        } else {
-            pcm.len() / (channels * 4)
-        };
+        let input_frames = pcm.len() / (channels * 4);
         if input_frames == 0 {
             continue;
         }
 
-        let speed = get_speed(chunk_time, speed_points).clamp(0.1, 16.0);
-        let source_duration_sec = input_frames as f64 / MIX_OUTPUT_SAMPLE_RATE as f64;
+        let speed = (get_speed(chunk_time, speed_points) * source.playback_rate.max(0.0001))
+            .clamp(0.1, 100.0);
         let mut processed = stretcher.stretch(&pcm, speed);
         apply_audio_volume_envelope(
             &mut processed,
@@ -643,11 +691,19 @@ fn build_single_source_preprocessed_wav(
             break;
         };
         let decoded_time = ts_100ns as f64 / 10_000_000.0;
-        if let Some(out_sec) = source_out_sec {
-            if decoded_time >= out_sec {
+        let channels = decoder.channels() as usize;
+        let Some((pcm, decoded_time, source_duration_sec)) = trim_pcm_to_source_window(
+            pcm,
+            decoded_time,
+            channels,
+            source.source_in_sec,
+            source_out_sec,
+        ) else {
+            if source_out_sec.is_some_and(|out_sec| decoded_time >= out_sec) {
                 break;
             }
-        }
+            continue;
+        };
         let chunk_time =
             (decoded_time / source.playback_rate.max(0.0001)) + source.start_offset_sec;
         let Some(segment) = trim_segments.get(segment_idx) else {
@@ -666,17 +722,13 @@ fn build_single_source_preprocessed_wav(
             continue;
         }
 
-        let input_frames = if channels == 0 {
-            0
-        } else {
-            pcm.len() / (channels * 4)
-        };
+        let input_frames = pcm.len() / (channels * 4);
         if input_frames == 0 {
             continue;
         }
 
-        let speed = get_speed(chunk_time, speed_points).clamp(0.1, 16.0);
-        let source_duration_sec = input_frames as f64 / MIX_OUTPUT_SAMPLE_RATE as f64;
+        let speed = (get_speed(chunk_time, speed_points) * source.playback_rate.max(0.0001))
+            .clamp(0.1, 100.0);
         let mut processed = stretcher.stretch(&pcm, speed);
         apply_audio_volume_envelope(
             &mut processed,

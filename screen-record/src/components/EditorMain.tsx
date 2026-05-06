@@ -708,6 +708,7 @@ export function EditorMain({
             audioSegments={previewAudioSegments}
             audioTrackVolumePoints={audioTrackVolumePoints}
             narrationTrackVolumePoints={narrationTrackVolumePoints}
+            speedPoints={segment?.speedPoints}
             currentTime={currentTime}
             isPlaying={isPlaying}
             audioResetKey={audioResetKey}

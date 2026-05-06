@@ -1,5 +1,5 @@
 import React, { type MutableRefObject, type RefObject } from "react";
-import { BackgroundConfig, type AudioGainPoint, type ImportedAudioSegment } from "@/types/video";
+import { BackgroundConfig, type AudioGainPoint, type ImportedAudioSegment, type SpeedPoint } from "@/types/video";
 import {
   Placeholder,
   CanvasResizeOverlay,
@@ -63,6 +63,7 @@ export interface PreviewCanvasProps {
   audioSegments?: ImportedAudioSegment[];
   audioTrackVolumePoints?: AudioGainPoint[];
   narrationTrackVolumePoints?: AudioGainPoint[];
+  speedPoints?: SpeedPoint[];
   currentTime: number;
   isPlaying: boolean;
   audioResetKey?: number;
@@ -105,6 +106,7 @@ export function PreviewCanvas({
   audioSegments,
   audioTrackVolumePoints,
   narrationTrackVolumePoints,
+  speedPoints,
   currentTime,
   isPlaying,
   audioResetKey,
@@ -163,6 +165,7 @@ export function PreviewCanvas({
             segments={audioSegments}
             audioTrackVolumePoints={audioTrackVolumePoints}
             narrationTrackVolumePoints={narrationTrackVolumePoints}
+            speedPoints={speedPoints}
             currentTime={currentTime}
             isPlaying={isPlaying}
             resetKey={audioResetKey}

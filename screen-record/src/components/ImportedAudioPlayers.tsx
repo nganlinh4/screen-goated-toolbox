@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import type { AudioGainPoint, ImportedAudioSegment } from "@/types/video";
+import type { AudioGainPoint, ImportedAudioSegment, SpeedPoint } from "@/types/video";
+import { getSpeedAtTime } from "@/lib/exportEstimator";
 import { getMediaServerUrl } from "@/lib/mediaServer";
 
 interface ImportedAudioPlayersProps {
   segments: ImportedAudioSegment[] | undefined;
   audioTrackVolumePoints?: AudioGainPoint[];
   narrationTrackVolumePoints?: AudioGainPoint[];
+  speedPoints?: SpeedPoint[];
   currentTime: number;
   isPlaying: boolean;
   resetKey?: number;
@@ -18,21 +20,6 @@ type PreviewAudioSegment = ImportedAudioSegment & {
 const SEEK_DRIFT_THRESHOLD_SEC = 0.15;
 const MIN_ACTIVE_SEC = 0.001;
 const PREROLL_SEC = 0.75;
-const EDGE_FADE_SEC = 0.09;
-
-function getEdgeFadeGain(localTime: number, duration: number) {
-  const fade = Math.min(EDGE_FADE_SEC, Math.max(0, duration / 2));
-  if (fade <= 0) return 1;
-  const fadeIn = localTime < fade
-    ? (1 - Math.cos((Math.max(0, localTime) / fade) * Math.PI)) / 2
-    : 1;
-  const tailTime = duration - localTime;
-  const fadeOut = tailTime < fade
-    ? (1 - Math.cos((Math.max(0, tailTime) / fade) * Math.PI)) / 2
-    : 1;
-  return Math.max(0, Math.min(1, fadeIn * fadeOut));
-}
-
 function getTrackVolumeAtTime(time: number, points: AudioGainPoint[] | undefined | null) {
   if (!points || points.length === 0) return 1;
   const sorted = [...points].sort((a, b) => a.time - b.time);
@@ -55,6 +42,7 @@ export function ImportedAudioPlayers({
   segments,
   audioTrackVolumePoints,
   narrationTrackVolumePoints,
+  speedPoints,
   currentTime,
   isPlaying,
   resetKey = 0,
@@ -71,6 +59,7 @@ export function ImportedAudioPlayers({
               ? narrationTrackVolumePoints
               : audioTrackVolumePoints
           }
+          speedPoints={speedPoints}
           currentTime={currentTime}
           isPlaying={isPlaying}
           resetKey={resetKey}
@@ -83,6 +72,7 @@ export function ImportedAudioPlayers({
 interface MusicSegmentAudioProps {
   segment: PreviewAudioSegment;
   trackVolumePoints?: AudioGainPoint[];
+  speedPoints?: SpeedPoint[];
   currentTime: number;
   isPlaying: boolean;
   resetKey: number;
@@ -91,6 +81,7 @@ interface MusicSegmentAudioProps {
 function MusicSegmentAudio({
   segment,
   trackVolumePoints,
+  speedPoints,
   currentTime,
   isPlaying,
   resetKey,
@@ -119,8 +110,10 @@ function MusicSegmentAudio({
     const rate = segment.playbackRate && segment.playbackRate > 0
       ? segment.playbackRate
       : 1;
-    if (Math.abs(el.playbackRate - rate) > 0.001) {
-      el.playbackRate = rate;
+    const timelineSpeed = Math.max(0.1, Math.min(16, getSpeedAtTime(currentTime, speedPoints ?? [])));
+    const effectiveRate = Math.max(0.05, Math.min(64, rate * timelineSpeed));
+    if (Math.abs(el.playbackRate - effectiveRate) > 0.001) {
+      el.playbackRate = effectiveRate;
     }
     const sourceDuration = Math.max(MIN_ACTIVE_SEC, segment.outPoint - segment.inPoint);
     const timelineDuration = Math.max(MIN_ACTIVE_SEC, sourceDuration / rate);
@@ -131,8 +124,7 @@ function MusicSegmentAudio({
       segment.inPoint + Math.max(0, Math.min(sourceDuration, localTime * rate));
 
     el.volume = inAudibleRange
-      ? getEdgeFadeGain(localTime, timelineDuration) *
-        getTrackVolumeAtTime(currentTime, trackVolumePoints)
+      ? getTrackVolumeAtTime(currentTime, trackVolumePoints)
       : 0;
 
     if (Number.isFinite(targetTime)) {
@@ -163,6 +155,7 @@ function MusicSegmentAudio({
     segment.inPoint,
     segment.outPoint,
     segment.playbackRate,
+    speedPoints,
     trackVolumePoints,
   ]);
 
