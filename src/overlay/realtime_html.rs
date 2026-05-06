@@ -234,11 +234,11 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                     "Text-to-Speech Settings"
                 },
                 language_title = if is_s2s {
-                    "Target language is fixed for the current S2S session"
+                    "Change target language and restart the current S2S session"
                 } else {
                     "Target Language"
                 },
-                language_disabled = if is_s2s { "disabled" } else { "" },
+                language_disabled = "",
                 volume_up_svg = crate::overlay::html_components::icons::get_icon_svg("volume_up"),
             )
         }

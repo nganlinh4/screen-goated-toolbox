@@ -258,20 +258,54 @@ fn slice_track_volume_points(
     if clip_duration <= 0.0 || points.is_empty() {
         return Vec::new();
     }
-    points
+    fn volume_at(points: &[super::config::DeviceAudioPoint], time: f64) -> f64 {
+        if points.is_empty() {
+            return 1.0;
+        }
+        let idx = points.partition_point(|point| point.time < time);
+        if idx == 0 {
+            return points[0].volume;
+        }
+        if idx >= points.len() {
+            return points.last().map(|point| point.volume).unwrap_or(1.0);
+        }
+        let left = &points[idx - 1];
+        let right = &points[idx];
+        let ratio = ((time - left.time) / (right.time - left.time).max(0.0001)).clamp(0.0, 1.0);
+        let cos_t = (1.0 - (ratio * std::f64::consts::PI).cos()) / 2.0;
+        left.volume + (right.volume - left.volume) * cos_t
+    }
+
+    let mut sorted = points.to_vec();
+    sorted.sort_by(|a, b| {
+        a.time
+            .partial_cmp(&b.time)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let mut sliced = Vec::new();
+    sliced.push(super::config::DeviceAudioPoint {
+        time: 0.0,
+        volume: volume_at(&sorted, clip_start),
+    });
+    sliced.extend(sorted
         .iter()
         .filter_map(|point| {
             let local = point.time - clip_start;
-            if local < -0.0001 || local > clip_duration + 0.0001 {
+            if local <= 0.0001 || local >= clip_duration - 0.0001 {
                 None
             } else {
                 Some(super::config::DeviceAudioPoint {
-                    time: local.clamp(0.0, clip_duration),
+                    time: local,
                     volume: point.volume,
                 })
             }
-        })
-        .collect()
+        }));
+    sliced.push(super::config::DeviceAudioPoint {
+        time: clip_duration,
+        volume: volume_at(&sorted, clip_start + clip_duration),
+    });
+    sliced
 }
 
 /// Convert project-relative audio segments to clip-relative ones for the

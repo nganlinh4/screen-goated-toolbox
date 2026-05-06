@@ -87,9 +87,9 @@ pub fn get(font_size: u32) -> String {
                     : 'Translation Model';
             }}
             if (langSelect) {{
-                langSelect.disabled = isS2s;
+                langSelect.disabled = false;
                 langSelect.title = isS2s
-                    ? 'Target language is fixed for the current S2S session'
+                    ? 'Change target language and restart the current S2S session'
                     : 'Target Language';
             }}
             if (speakBtn) {{
