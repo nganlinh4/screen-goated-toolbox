@@ -360,6 +360,8 @@ pub struct BackgroundConfig {
     pub motion_blur_zoom: f64,
     #[serde(default)]
     pub motion_blur_pan: f64,
+    #[serde(default = "default_true")]
+    pub background_zoom_with_video: bool,
     // Cursor physics / appearance fields used by the Rust path generator
     #[serde(default)]
     pub cursor_pack: Option<String>,

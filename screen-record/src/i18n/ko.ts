@@ -74,6 +74,7 @@ const ko: Translations = {
   videoSize: '비디오 크기',
   roundness: '둥글기',
   shadow: '그림자',
+  backgroundZoomWithVideo: '배경 확대',
   volume: '볼륨',
   backgroundStyle: '배경 스타일',
 

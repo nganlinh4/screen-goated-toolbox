@@ -12,7 +12,7 @@ use super::sampling::{sample_baked_path, sample_parsed_baked_cursor};
 use super::{background_presets, gif, staging};
 
 use super::gpu_export::{
-    CompositorUniformParams, CompositorUniforms, GpuCompositor, create_uniforms,
+    create_uniforms, CompositorUniformParams, CompositorUniforms, GpuCompositor,
 };
 use super::gpu_pipeline;
 use super::mf_decode;
@@ -354,8 +354,16 @@ impl UniformBuildParams {
             cursor_rotation: cr,
             cursor_shadow: self.cursor_shadow,
             use_background_texture: self.use_custom_background,
-            bg_zoom: zoom as f32,
-            bg_anchor: (rx as f32, ry as f32),
+            bg_zoom: if config.background_config.background_zoom_with_video {
+                zoom as f32
+            } else {
+                1.0
+            },
+            bg_anchor: if config.background_config.background_zoom_with_video {
+                (rx as f32, ry as f32)
+            } else {
+                (0.5, 0.5)
+            },
             background_style: self.bg_style,
             bg_tex_w: self.actual_bg_w,
             bg_tex_h: self.actual_bg_h,

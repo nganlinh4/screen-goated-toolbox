@@ -361,6 +361,31 @@ export async function drawFrame(
       return { x: cx, y: cy };
     };
 
+    const backgroundFollowsZoom = backgroundConfig.backgroundZoomWithVideo !== false;
+    const drawBackground = (
+      targetCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    ) => {
+      if (typeof bgStyle === 'string') {
+        const builtInBackgroundId = parseBuiltInBackgroundToken(bgStyle);
+        if (builtInBackgroundId) {
+          fillBuiltInBackground(
+            state.gradientCache,
+            targetCtx,
+            builtInBackgroundId,
+            canvasW,
+            canvasH,
+            Boolean(context.interactiveBackgroundPreview)
+          );
+        } else {
+          targetCtx.fillStyle = bgStyle;
+          targetCtx.fillRect(0, 0, canvasW, canvasH);
+        }
+      } else {
+        targetCtx.fillStyle = bgStyle;
+        targetCtx.fillRect(0, 0, canvasW, canvasH);
+      }
+    };
+
     // Helper: draw one composited sub-frame (background + video + cursor)
     const drawSubFrame = (
       tCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
@@ -368,30 +393,17 @@ export async function drawFrame(
       subCur: { x: number; y: number; isClicked: boolean; cursor_type: string; cursor_rotation?: number } | null,
     ) => {
       tCtx.save();
+      if (!backgroundFollowsZoom) {
+        drawBackground(tCtx);
+      }
       if (subZoom && subZoom.zoomFactor !== 1) {
         const zW = canvasW * subZoom.zoomFactor;
         const zH = canvasH * subZoom.zoomFactor;
         tCtx.translate((canvasW - zW) * subZoom.positionX, (canvasH - zH) * subZoom.positionY);
         tCtx.scale(subZoom.zoomFactor, subZoom.zoomFactor);
       }
-      if (typeof bgStyle === 'string') {
-        const builtInBackgroundId = parseBuiltInBackgroundToken(bgStyle);
-        if (builtInBackgroundId) {
-          fillBuiltInBackground(
-            state.gradientCache,
-            tCtx,
-            builtInBackgroundId,
-            canvasW,
-            canvasH,
-            Boolean(context.interactiveBackgroundPreview)
-          );
-        } else {
-          tCtx.fillStyle = bgStyle;
-          tCtx.fillRect(0, 0, canvasW, canvasH);
-        }
-      } else {
-        tCtx.fillStyle = bgStyle;
-        tCtx.fillRect(0, 0, canvasW, canvasH);
+      if (backgroundFollowsZoom) {
+        drawBackground(tCtx);
       }
       if (!isTimelineOnly) {
         tCtx.drawImage(tempCanvas, 0, 0, canvasW, canvasH);

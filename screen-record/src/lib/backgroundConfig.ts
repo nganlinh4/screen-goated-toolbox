@@ -59,6 +59,10 @@ export function normalizeBackgroundConfig(
       parsed.motionBlurPan,
       DEFAULT_BACKGROUND_CONFIG.motionBlurPan ?? 0,
     ),
+    backgroundZoomWithVideo:
+      typeof parsed.backgroundZoomWithVideo === "boolean"
+        ? parsed.backgroundZoomWithVideo
+        : DEFAULT_BACKGROUND_CONFIG.backgroundZoomWithVideo,
     volume: finiteOr(parsed.volume, DEFAULT_BACKGROUND_CONFIG.volume ?? 1),
     canvasWidth: optionalFinite(parsed.canvasWidth),
     canvasHeight: optionalFinite(parsed.canvasHeight),

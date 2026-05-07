@@ -3,6 +3,7 @@ import { invoke } from '@/lib/ipc';
 import { Trash2, Download, Loader2 } from 'lucide-react';
 import { BackgroundConfig } from '@/types/video';
 import { Slider } from '@/components/ui/Slider';
+import { Switch } from '@/components/ui/Switch';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { SettingRow } from '@/components/layout/SettingRow';
 import { useSettings } from '@/hooks/useSettings';
@@ -377,6 +378,13 @@ export function BackgroundPanel({
             onChange={(val) => setBackgroundConfig(prev => ({ ...prev, shadow: val }))}
           />
         </SettingRow>
+        <div className="background-zoom-with-video-field flex items-center justify-between gap-3">
+          <span className="text-[11px] font-medium text-on-surface-variant">{t.backgroundZoomWithVideo}</span>
+          <Switch
+            checked={backgroundConfig.backgroundZoomWithVideo !== false}
+            onCheckedChange={(checked) => setBackgroundConfig(prev => ({ ...prev, backgroundZoomWithVideo: checked }))}
+          />
+        </div>
         <div className="background-style-field">
           <label className="text-xs font-medium uppercase tracking-wide text-on-surface-variant mb-2 block">{t.backgroundStyle}</label>
           <div className="background-presets-grid grid grid-cols-7 gap-2">

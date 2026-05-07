@@ -764,7 +764,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                   </div>
                   {/* Diamond marker */}
                   <div
-                    className={`keyframe-diamond w-2.5 h-2.5 rotate-45 rounded-[2px] bg-[var(--primary-color)] group-hover:scale-125 transition-all duration-200 ease-spring ${
+                    className={`keyframe-diamond bg-[var(--primary-color)] ${
                       active
                         ? 'ring-1 ring-white shadow-[0_0_8px_rgba(59,130,246,0.5),0_0_16px_rgba(59,130,246,0.2)]'
                         : 'shadow-sm group-hover:shadow-[0_0_8px_rgba(59,130,246,0.35)]'
