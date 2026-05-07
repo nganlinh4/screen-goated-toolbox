@@ -71,7 +71,7 @@
   - Gemma 4 family models (`gemma-4-26b-a4b-it` and `gemma-4-31b-it`) must send `thinkingConfig` equivalent to Gemini 3.1 Flash Lite minimal thinking (`thinkingLevel: MINIMAL`) on both Windows and Android across text, vision, and audio request paths
   - Cerebras, Groq, and OpenRouter use the OpenAI-compatible chat completions contract with the resolved Windows `full_name`
   - Groq compound models use the Windows non-streaming `compound_custom.tools` request shape instead of the standard streaming chat payload
-  - Google GTX uses the translation endpoint as a non-LLM provider
+  - Google GTX uses the translation endpoint as a non-LLM provider, keeps prompt editing hidden, and takes its target language from `language_vars["language1"]` / `languageVars["language1"]` with `Vietnamese` as the editor default
   - Android must emit the same wipe-on-first-content behavior after thinking placeholders that Windows uses for Gemini/Cerebras/Ollama-style streams
 - Android preset overlay sessions must follow the Windows chain/runtime ownership model:
   - launching a new preset input window must not destroy result windows from earlier completed sessions

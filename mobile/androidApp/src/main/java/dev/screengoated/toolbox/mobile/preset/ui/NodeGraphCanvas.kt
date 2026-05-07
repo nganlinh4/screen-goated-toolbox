@@ -62,6 +62,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock
 import kotlin.math.roundToInt
@@ -140,7 +141,7 @@ private val condensedFontFamily: androidx.compose.ui.text.font.FontFamily by laz
 private val ALL_ISO_LANGUAGES: List<String> by lazy {
     java.util.Locale.getISOLanguages()
         .mapNotNull { code ->
-            val loc = java.util.Locale(code)
+            val loc = java.util.Locale.forLanguageTag(code)
             loc.getDisplayLanguage(java.util.Locale.ENGLISH).takeIf { it.isNotBlank() && it != code }
         }
         .distinct()
@@ -579,6 +580,7 @@ private fun NodeCard(
                     val catalog = dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
                     val descriptor = catalog.getById(block.model)
                     val isNonLlm = descriptor?.isNonLlm == true
+                    val isGtx = descriptor?.provider == PresetModelProvider.GOOGLE_GTX
                     val availableModels = remember(block.blockType, providerSettings) {
                         catalog.forBlockType(block.blockType).filter { model ->
                             when (model.provider) {
@@ -756,11 +758,14 @@ private fun NodeCard(
                     }
                     } // end if (!isNonLlm) for prompt
 
-                    // Row 4+: Language variable rows — ONLY for tags found in prompt
-                    // (matches Windows utils.rs: scan prompt for {languageN}, ignore stale map entries)
-                    if (!isNonLlm) {
-                        val detectedVars = (1..10).filter { n ->
-                            block.prompt.contains("{language$n}")
+                    // Row 4+: Language variable rows. GTX is non-LLM but still needs language1.
+                    if (!isNonLlm || isGtx) {
+                        val detectedVars = if (isGtx) {
+                            listOf(1)
+                        } else {
+                            (1..10).filter { n ->
+                                block.prompt.contains("{language$n}")
+                            }
                         }
                         detectedVars.forEach { num ->
                             val key = "language$num"

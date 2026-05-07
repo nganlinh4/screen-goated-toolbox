@@ -3,7 +3,9 @@
 
 use std::collections::HashMap;
 
-use super::super::utils::{insert_next_language_tag, model_supports_search, show_language_vars};
+use super::super::utils::{
+    insert_next_language_tag, model_supports_search, show_language_selector, show_language_vars,
+};
 use super::super::viewer::ChainViewer;
 use crate::gui::icons::{Icon, icon_button};
 use crate::model_config::{
@@ -117,6 +119,26 @@ pub fn show_model_and_settings(
             }
         });
     });
+
+    let is_gtx_model = get_model_by_id(model)
+        .map(|m| m.provider == "google-gtx")
+        .unwrap_or(false);
+
+    if is_gtx_model {
+        let label = match viewer.ui_language.as_str() {
+            "vi" => "Ngôn ngữ:",
+            "ko" => "언어:",
+            _ => "Language:",
+        };
+        show_language_selector(
+            ui,
+            label,
+            1,
+            "language1",
+            language_vars,
+            &mut viewer.changed,
+        );
+    }
 
     // Only show prompt UI for LLM models (not QR scanner, GTX, Whisper, etc.)
     if !model_is_non_llm(model) {

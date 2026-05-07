@@ -26,6 +26,7 @@ pub struct TranslateTextRequest<'a> {
     pub search_label: Option<String>,
     pub ui_language: &'a str,
     pub cancel_token: Option<Arc<AtomicBool>>,
+    pub target_language: Option<String>,
 }
 
 pub fn translate_text_streaming<F>(
@@ -47,6 +48,7 @@ where
         search_label,
         ui_language,
         cancel_token,
+        target_language,
     } = request;
 
     let openrouter_api_key = crate::APP
@@ -128,14 +130,18 @@ where
         );
     } else if provider == "google-gtx" {
         // --- GOOGLE TRANSLATE (GTX) API ---
-        let target_lang = instruction
-            .to_lowercase()
-            .split("translate to ")
-            .nth(1)
-            .and_then(|s| s.split('.').next())
-            .and_then(|s| s.split(',').next())
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|| "English".to_string());
+        let target_lang = target_language
+            .filter(|lang| !lang.trim().is_empty())
+            .unwrap_or_else(|| {
+                instruction
+                    .to_lowercase()
+                    .split("translate to ")
+                    .nth(1)
+                    .and_then(|s| s.split('.').next())
+                    .and_then(|s| s.split(',').next())
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_else(|| "English".to_string())
+            });
 
         let target_lang = target_lang
             .chars()

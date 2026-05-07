@@ -90,18 +90,20 @@ internal fun TextApiClient.streamOllama(
 internal fun TextApiClient.translateGoogleGtx(
     inputText: String,
     prompt: String,
+    targetLanguage: String?,
     onChunk: (String) -> Unit,
 ): String {
-    val targetLanguage = prompt
-        .lowercase()
-        .substringAfter("translate to ", "")
-        .substringBefore(".")
-        .substringBefore(",")
-        .trim()
-        .replaceFirstChar { it.uppercaseChar() }
-        .ifBlank { "English" }
+    val resolvedTargetLanguage = targetLanguage?.trim()?.takeIf { it.isNotEmpty() }
+        ?: prompt
+            .lowercase()
+            .substringAfter("translate to ", "")
+            .substringBefore(".")
+            .substringBefore(",")
+            .trim()
+            .replaceFirstChar { it.uppercaseChar() }
+            .ifBlank { "English" }
 
-    val targetCode = LanguageCatalog.codeForName(targetLanguage).lowercase()
+    val targetCode = LanguageCatalog.codeForName(resolvedTargetLanguage).lowercase()
     val encoded = URLEncoder.encode(inputText, "UTF-8")
     val request = Request.Builder()
         .url("$GTX_ENDPOINT?client=gtx&sl=auto&tl=$targetCode&dt=t&q=$encoded")

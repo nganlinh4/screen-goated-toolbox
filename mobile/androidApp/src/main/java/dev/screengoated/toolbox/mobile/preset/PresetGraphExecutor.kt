@@ -322,6 +322,7 @@ internal class PresetGraphExecutor(
                 uiLanguage = uiLanguage(),
                 searchLabel = preset.name(uiLanguage()),
                 streamingEnabled = actualStreamingEnabled,
+                targetLanguage = block.gtxTargetLanguage(),
                 onChunk = { chunk ->
                     if (chunk.startsWith(TextApiClient.WIPE_SIGNAL)) {
                         blockBuffer.clear()

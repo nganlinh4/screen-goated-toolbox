@@ -294,6 +294,8 @@ internal fun ProcessNodeBody(
     lang: String,
     onUpdate: (ProcessingBlock) -> Unit,
 ) {
+    val isGtx = ModelCatalog.getById(block.model)?.provider == ModelProvider.GOOGLE_GTX
+
     // --- Model selector ---
     ModelSelectorSection(block, lang, onUpdate)
 
@@ -301,6 +303,9 @@ internal fun ProcessNodeBody(
     if (!ModelCatalog.isNonLlm(block.model)) {
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
         PromptEditorSection(block, lang, onUpdate)
+    } else if (isGtx) {
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        GtxTargetLanguageSection(block, lang, onUpdate)
     }
 
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
