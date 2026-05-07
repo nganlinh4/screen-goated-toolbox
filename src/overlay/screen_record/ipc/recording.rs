@@ -213,7 +213,10 @@ pub(super) fn handle_start_recording(
             SettingsOptions {
                 cursor_capture_settings: cursor_setting,
                 draw_border_settings: DrawBorderSettings::Default,
-                secondary_window_settings: SecondaryWindowSettings::Include,
+                // Monitor capture does not need the Windows 11-only
+                // IncludeSecondaryWindows session flag. Requesting it on older
+                // Windows builds fails capture startup on multi-screen systems.
+                secondary_window_settings: SecondaryWindowSettings::Default,
                 minimum_update_interval_settings: update_interval,
                 dirty_region_settings: DirtyRegionSettings::Default,
                 color_format: ColorFormat::Bgra8,
