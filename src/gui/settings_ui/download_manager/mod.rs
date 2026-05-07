@@ -7,6 +7,7 @@ mod run_install;
 pub mod types;
 pub mod ui;
 pub mod utils;
+mod ytdlp_process;
 
 pub use self::types::{
     CookieBrowser, DownloadSession, DownloadState, DownloadType, InstallStatus, UpdateStatus,

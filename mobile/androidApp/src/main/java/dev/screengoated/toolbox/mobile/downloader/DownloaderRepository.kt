@@ -5,6 +5,7 @@ import android.os.Environment
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -18,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 class DownloaderRepository(
     private val context: Context,
@@ -29,6 +31,8 @@ class DownloaderRepository(
 
     private var analysisJob: Job? = null
     private var downloadJob: Job? = null
+    private val cancelledDownloadSessionIds = ConcurrentHashMap.newKeySet<Int>()
+    private val activeDownloadPaths = ConcurrentHashMap<Int, String>()
     private var nextSessionId = 2
 
     // ── Tool management ──
@@ -542,10 +546,13 @@ class DownloaderRepository(
         val idx = _state.value.activeTabIndex
         val session = _state.value.activeSession
         if (session.inputUrl.isBlank()) return
+        val processId = "download_${session.id}"
 
         android.util.Log.d("SGT-DL", "startDownload: formats=${session.availableFormats.size} phase=${session.phase}")
         analysisJob?.cancel()
         downloadJob?.cancel()
+        cancelledDownloadSessionIds.remove(session.id)
+        activeDownloadPaths.remove(session.id)
         updateSession(idx) {
             android.util.Log.d("SGT-DL", "startDownload: updateSession DOWNLOADING, keeping formats=${it.availableFormats.size}")
             it.copy(
@@ -553,30 +560,55 @@ class DownloaderRepository(
                 progress = DownloadProgress(),
                 logs = emptyList(),
                 errorMessage = null,
+                processId = processId,
             )
         }
 
         downloadJob = scope.launch {
             withContext(Dispatchers.IO) {
                 try {
-                    val result = executeDownload(idx, session)
+                    val result = executeDownload(idx, session, processId)
+                    activeDownloadPaths.remove(session.id)
                     updateSession(idx) {
-                        it.copy(phase = DownloadPhase.FINISHED, finishedFilePath = result)
+                        it.copy(phase = DownloadPhase.FINISHED, finishedFilePath = result, processId = null)
                     }
                 } catch (e: Exception) {
+                    if (isDownloadCancelled(session.id, e)) {
+                        cleanupCancelledDownload(session.id)
+                        updateSession(idx) {
+                            it.copy(phase = DownloadPhase.IDLE, progress = DownloadProgress(), processId = null)
+                        }
+                        cancelledDownloadSessionIds.remove(session.id)
+                        return@withContext
+                    }
+
                     // Auto-retry: update yt-dlp and try once more
                     try {
                         prepareYoutubeDlUpdate()
+                        if (isDownloadCancelled(session.id)) throw CancellationException("Download cancelled")
                         YoutubeDL.getInstance().updateYoutubeDL(context)
-                        val result = executeDownload(idx, session)
+                        if (isDownloadCancelled(session.id)) throw CancellationException("Download cancelled")
+                        val result = executeDownload(idx, session, processId)
+                        activeDownloadPaths.remove(session.id)
                         updateSession(idx) {
-                            it.copy(phase = DownloadPhase.FINISHED, finishedFilePath = result)
+                            it.copy(phase = DownloadPhase.FINISHED, finishedFilePath = result, processId = null)
                         }
                     } catch (retryError: Exception) {
+                        if (isDownloadCancelled(session.id, retryError)) {
+                            cleanupCancelledDownload(session.id)
+                            updateSession(idx) {
+                                it.copy(phase = DownloadPhase.IDLE, progress = DownloadProgress(), processId = null)
+                            }
+                            cancelledDownloadSessionIds.remove(session.id)
+                            return@withContext
+                        }
+
+                        activeDownloadPaths.remove(session.id)
                         updateSession(idx) {
                             it.copy(
                                 phase = DownloadPhase.ERROR,
                                 errorMessage = retryError.message ?: "Download failed",
+                                processId = null,
                             )
                         }
                     }
@@ -585,7 +617,7 @@ class DownloaderRepository(
         }
     }
 
-    private fun executeDownload(sessionIdx: Int, session: DownloadSessionState): String? {
+    private fun executeDownload(sessionIdx: Int, session: DownloadSessionState, processId: String): String? {
         val settings = _state.value.settings
         val outputDir = getDownloadDir()
         outputDir.mkdirs()
@@ -645,7 +677,8 @@ class DownloaderRepository(
 
         // Execute with progress callback and process ID for cancellation
         var finalPath: String? = null
-        val response = YoutubeDL.getInstance().execute(request, "download_$sessionIdx") { progress, eta, line ->
+        val response = YoutubeDL.getInstance().execute(request, processId) { progress, eta, line ->
+            if (isDownloadCancelled(session.id)) throw CancellationException("Download cancelled")
             val fraction = (progress / 100f).coerceIn(0f, 1f)
             val msg = buildProgressMessage(line, fraction)
             updateSession(sessionIdx) {
@@ -655,15 +688,23 @@ class DownloaderRepository(
             if (line.isNotBlank()) {
                 updateSession(sessionIdx) { it.copy(logs = it.logs + line) }
                 val parsed = parseFilePath(line)
-                if (parsed != null) finalPath = parsed
+                if (parsed != null) {
+                    finalPath = parsed
+                    activeDownloadPaths[session.id] = parsed
+                }
             }
         }
 
         // Also check response output for final path
         response.out?.lines()?.forEach { line ->
             val parsed = parseFilePath(line)
-            if (parsed != null) finalPath = parsed
+            if (parsed != null) {
+                finalPath = parsed
+                activeDownloadPaths[session.id] = parsed
+            }
         }
+
+        if (isDownloadCancelled(session.id)) throw CancellationException("Download cancelled")
 
         if (response.exitCode != 0) {
             throw Exception("Exit code: ${response.exitCode}")
@@ -674,9 +715,56 @@ class DownloaderRepository(
 
     fun cancelDownload() {
         val idx = _state.value.activeTabIndex
+        val session = _state.value.activeSession
+        cancelledDownloadSessionIds.add(session.id)
+        YoutubeDL.getInstance().destroyProcessById(session.processId ?: "download_${session.id}")
         YoutubeDL.getInstance().destroyProcessById("download_$idx")
+        cleanupCancelledDownload(session.id)
         downloadJob?.cancel()
-        updateSession(idx) { it.copy(phase = DownloadPhase.IDLE) }
+        updateSession(idx) { it.copy(phase = DownloadPhase.IDLE, progress = DownloadProgress(), processId = null) }
+    }
+
+    private fun isDownloadCancelled(sessionId: Int, error: Throwable? = null): Boolean {
+        return error is CancellationException || cancelledDownloadSessionIds.contains(sessionId)
+    }
+
+    private fun cleanupCancelledDownload(sessionId: Int) {
+        val path = activeDownloadPaths.remove(sessionId) ?: return
+        val target = File(path)
+        cleanupCandidates(target).forEach { candidate ->
+            if (candidate.isFile) {
+                runCatching {
+                    if (candidate.delete()) {
+                        android.util.Log.d("SGT-DL", "Removed cancelled artifact: ${candidate.absolutePath}")
+                    }
+                }
+            }
+        }
+        if (target.isFile && target.length() == 0L) {
+            runCatching {
+                if (target.delete()) {
+                    android.util.Log.d("SGT-DL", "Removed zero-byte cancelled output: ${target.absolutePath}")
+                }
+            }
+        }
+    }
+
+    private fun cleanupCandidates(target: File): List<File> {
+        val parent = target.parentFile ?: return emptyList()
+        val name = target.name
+        val extension = target.extension.takeIf { it.isNotBlank() }
+        val candidates = mutableListOf(
+            File(parent, "$name.part"),
+            File(parent, "$name.ytdl"),
+            File(parent, "$name.tmp"),
+            File(parent, "$name.temp"),
+        )
+        if (extension != null) {
+            val base = target.name.removeSuffix(".$extension")
+            candidates += File(parent, "$base.$extension.part")
+            candidates += File(parent, "$base.$extension.ytdl")
+        }
+        return candidates.distinctBy { it.absolutePath }
     }
 
     fun resetSession() {

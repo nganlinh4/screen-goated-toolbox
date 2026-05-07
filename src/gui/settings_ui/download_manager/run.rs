@@ -1,4 +1,4 @@
-use super::types::{InstallStatus, UpdateStatus};
+use super::types::{DownloadState, InstallStatus, UpdateStatus};
 use super::utils::{has_nonempty_file, log};
 use std::fs;
 use std::path::PathBuf;
@@ -442,6 +442,15 @@ impl DownloadManager {
         let idx = self.active_idx();
         if let Some(s) = self.sessions.get(idx) {
             s.cancel_flag.store(true, Ordering::Relaxed);
+            if let Ok(mut state) = s.download_state.lock() {
+                let progress = match &*state {
+                    DownloadState::Downloading(progress, _) => Some(*progress),
+                    _ => None,
+                };
+                if let Some(progress) = progress {
+                    *state = DownloadState::Downloading(progress, "Cancelling...".to_string());
+                }
+            }
         }
     }
 

@@ -1,15 +1,13 @@
 use super::run::{YTDLP_DOWNLOAD_URL, fetch_latest_ytdlp_version, read_local_ytdlp_version};
 use super::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus, UpdateStatus};
 use super::utils::{download_file, log};
-use std::io::{BufRead, BufReader};
+use super::ytdlp_process::run_ytdlp_download_attempt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use super::DownloadManager;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 
 fn set_download_stage(state: &Arc<Mutex<DownloadState>>, msg: impl Into<String>) {
     *state.lock().unwrap() = DownloadState::Downloading(0.0, msg.into());
@@ -20,191 +18,18 @@ fn set_download_finished(state: &Arc<Mutex<DownloadState>>, final_path: Option<P
     *state.lock().unwrap() = DownloadState::Finished(path, "Download Completed!".to_string());
 }
 
-fn run_ytdlp_download_attempt(
-    ytdlp_exe: &PathBuf,
-    args: &[String],
-    progress_fmt: &str,
+fn finish_if_cancelled(
     state: &Arc<Mutex<DownloadState>>,
     logs: &Arc<Mutex<Vec<String>>>,
-    attempt_label: &str,
-) -> Result<Option<PathBuf>, String> {
-    use std::process::Stdio;
-
-    let mut cmd = std::process::Command::new(ytdlp_exe);
-    cmd.args(args);
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-
-    log(logs, format!("Running yt-dlp ({})...", attempt_label));
-
-    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "Failed to open yt-dlp stdout".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "Failed to open yt-dlp stderr".to_string())?;
-
-    let logs_clone = logs.clone();
-    let state_clone = state.clone();
-    let final_filename = Arc::new(Mutex::new(None));
-    let final_filename_clone = final_filename.clone();
-    let fmt_str = progress_fmt.to_string();
-
-    let stdout_thread = thread::spawn(move || {
-        let reader = BufReader::new(stdout);
-        for l in reader.lines().map_while(Result::ok) {
-            if l.contains("[download]")
-                && l.contains("%")
-                && let Some(start) = l.find("%")
-            {
-                let substr = &l[..start];
-                if let Some(space) = substr.rfind(' ')
-                    && let Ok(p) = substr[space + 1..].parse::<f32>()
-                {
-                    let parts: Vec<&str> = l.split_whitespace().collect();
-
-                    let mut p_val = None;
-                    let mut t_val = None;
-                    let mut s_val = None;
-                    let mut e_val = None;
-
-                    for (i, part) in parts.iter().enumerate() {
-                        if part.contains("%") {
-                            p_val = Some(part.trim_end_matches('%'));
-                        } else if *part == "of" && i + 1 < parts.len() {
-                            let val = parts[i + 1];
-                            if val != "Unknown" && val != "N/A" {
-                                t_val = Some(val);
-                            }
-                        } else if *part == "at" && i + 1 < parts.len() {
-                            let val = parts[i + 1];
-                            if val != "Unknown" && val != "N/A" {
-                                s_val = Some(val);
-                            }
-                        } else if *part == "ETA" && i + 1 < parts.len() {
-                            let val = parts[i + 1];
-                            if val != "Unknown" && val != "N/A" {
-                                e_val = Some(val);
-                            }
-                        }
-                    }
-
-                    let fmt_segments: Vec<&str> = fmt_str.split("{}").collect();
-                    let mut status_msg = String::new();
-
-                    if let Some(p_str) = p_val {
-                        if fmt_segments.len() >= 5 {
-                            status_msg.push_str(fmt_segments[0]);
-                            status_msg.push_str(p_str);
-
-                            if let Some(t) = t_val {
-                                status_msg.push_str(fmt_segments[1]);
-                                status_msg.push_str(t);
-                            } else {
-                                status_msg.push('%');
-                            }
-
-                            if let Some(s) = s_val {
-                                status_msg.push_str(fmt_segments[2]);
-                                status_msg.push_str(s);
-                            }
-
-                            if let Some(e) = e_val {
-                                status_msg.push_str(fmt_segments[3]);
-                                status_msg.push_str(e);
-                                status_msg.push_str(fmt_segments[4]);
-                            }
-                        } else {
-                            status_msg = format!("{}%", p_str);
-                        }
-                    } else {
-                        status_msg = l.clone();
-                    }
-
-                    if let Ok(mut s) = state_clone.lock() {
-                        *s = DownloadState::Downloading(p / 100.0, status_msg);
-                    }
-                }
-            }
-
-            if l.contains("Merging formats into \"") {
-                if let Some(start) = l.find("Merging formats into \"") {
-                    let raw_path = &l[start + "Merging formats into \"".len()..];
-                    let clean_path = raw_path.trim().trim_end_matches('"');
-                    *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_path));
-                }
-            } else if l.contains("Destination: ") {
-                if final_filename_clone.lock().unwrap().is_none()
-                    && let Some(start) = l.find("Destination: ")
-                {
-                    let raw_path = &l[start + "Destination: ".len()..];
-                    let clean_path = raw_path.trim();
-                    if !clean_path.ends_with(".vtt")
-                        && !clean_path.ends_with(".srt")
-                        && !clean_path.ends_with(".ass")
-                        && !clean_path.ends_with(".lrc")
-                    {
-                        *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_path));
-                    }
-                }
-            } else if l.contains(" has already been downloaded")
-                && final_filename_clone.lock().unwrap().is_none()
-                && let Some(end) = l.find(" has already been downloaded")
-            {
-                let start = if let Some(p) = l.find("[download] ") {
-                    p + "[download] ".len()
-                } else {
-                    0
-                };
-                if start < end {
-                    let filename = &l[start..end];
-                    let clean_filename = filename.trim();
-                    if !clean_filename.ends_with(".vtt")
-                        && !clean_filename.ends_with(".srt")
-                        && !clean_filename.ends_with(".ass")
-                        && !clean_filename.ends_with(".lrc")
-                    {
-                        *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_filename));
-                    }
-                }
-            }
-            if l.contains("[ExtractAudio] Destination: ")
-                && let Some(start) = l.find("[ExtractAudio] Destination: ")
-            {
-                let raw_path = &l[start + "[ExtractAudio] Destination: ".len()..];
-                let clean_path = raw_path.trim();
-                *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_path));
-            }
-            log(&logs_clone, l);
-        }
-    });
-
-    let logs_clone_err = logs.clone();
-    let stderr_thread = thread::spawn(move || {
-        let reader = BufReader::new(stderr);
-        for l in reader.lines().map_while(Result::ok) {
-            log(&logs_clone_err, format!("ERR: {}", l));
-        }
-    });
-
-    let status = child.wait();
-    let _ = stdout_thread.join();
-    let _ = stderr_thread.join();
-
-    match status {
-        Ok(exit_status) => {
-            if exit_status.success() {
-                Ok(final_filename.lock().unwrap().clone())
-            } else {
-                Err(format!("Exit Code: {}", exit_status))
-            }
-        }
-        Err(e) => Err(e.to_string()),
+    cancel_flag: &Arc<AtomicBool>,
+    error: Option<&str>,
+) -> bool {
+    if cancel_flag.load(Ordering::Relaxed) || error == Some("Cancelled") {
+        *state.lock().unwrap() = DownloadState::Idle;
+        log(logs, "Download cancelled.");
+        true
+    } else {
+        false
     }
 }
 
@@ -217,6 +42,10 @@ fn check_update_ytdlp_and_prepare_retry(
     ytdlp_version: &Arc<Mutex<Option<String>>>,
     cancel_flag: &Arc<AtomicBool>,
 ) -> Result<String, String> {
+    if cancel_flag.load(Ordering::Relaxed) {
+        return Err("Cancelled".to_string());
+    }
+
     set_download_stage(state, "Download failed. Checking yt-dlp update...");
     *ytdlp_update_status.lock().unwrap() = UpdateStatus::Checking;
 
@@ -255,6 +84,10 @@ fn check_update_ytdlp_and_prepare_retry(
         *ytdlp_update_status.lock().unwrap() = UpdateStatus::UpdateAvailable(remote.clone());
     }
 
+    if cancel_flag.load(Ordering::Relaxed) {
+        return Err("Cancelled".to_string());
+    }
+
     let stage_msg = if let Some(remote) = &remote_ver {
         format!("Updating yt-dlp to {}...", remote)
     } else {
@@ -266,7 +99,6 @@ fn check_update_ytdlp_and_prepare_retry(
         let mut status = ytdlp_status.lock().unwrap();
         *status = InstallStatus::Downloading(0.0);
     }
-    cancel_flag.store(false, Ordering::Relaxed);
 
     match download_file(YTDLP_DOWNLOAD_URL, &ytdlp_path, ytdlp_status, cancel_flag) {
         Ok(_) => {
@@ -295,6 +127,20 @@ fn check_update_ytdlp_and_prepare_retry(
             Ok(format!("yt-dlp updated ({})", installed_ver))
         }
         Err(e) => {
+            if e == "Cancelled" {
+                let status = if ytdlp_path
+                    .metadata()
+                    .is_ok_and(|metadata| metadata.len() > 0)
+                {
+                    InstallStatus::Installed
+                } else {
+                    InstallStatus::Missing
+                };
+                *ytdlp_status.lock().unwrap() = status;
+                *ytdlp_update_status.lock().unwrap() = UpdateStatus::Idle;
+                log(logs, "yt-dlp auto-refresh cancelled.");
+                return Err(e);
+            }
             *ytdlp_status.lock().unwrap() = InstallStatus::Error(e.clone());
             *ytdlp_update_status.lock().unwrap() = UpdateStatus::Error(e.clone());
             log(logs, format!("yt-dlp auto-refresh failed: {}", e));
@@ -388,6 +234,7 @@ impl DownloadManager {
             if matches!(*s, DownloadState::Downloading(_, _)) {
                 return;
             }
+            cancel_flag.store(false, Ordering::Relaxed);
             *s = DownloadState::Downloading(0.0, "Starting...".to_string());
         }
 
@@ -514,6 +361,7 @@ impl DownloadManager {
                 &progress_fmt,
                 &state,
                 &logs,
+                &cancel_flag,
                 "initial",
             ) {
                 Ok(final_path) => {
@@ -521,6 +369,9 @@ impl DownloadManager {
                     log(&logs, "Download Finished Successfully.");
                 }
                 Err(first_err) => {
+                    if finish_if_cancelled(&state, &logs, &cancel_flag, Some(&first_err)) {
+                        return;
+                    }
                     log(
                         &logs,
                         format!("Download failed on first attempt: {}", first_err),
@@ -536,6 +387,9 @@ impl DownloadManager {
                         &cancel_flag,
                     ) {
                         Ok(update_msg) => {
+                            if finish_if_cancelled(&state, &logs, &cancel_flag, None) {
+                                return;
+                            }
                             set_download_stage(
                                 &state,
                                 format!("{} - retrying download...", update_msg),
@@ -548,6 +402,7 @@ impl DownloadManager {
                                 &progress_fmt,
                                 &state,
                                 &logs,
+                                &cancel_flag,
                                 "retry",
                             ) {
                                 Ok(final_path) => {
@@ -555,6 +410,14 @@ impl DownloadManager {
                                     log(&logs, "Download recovered after yt-dlp refresh.");
                                 }
                                 Err(retry_err) => {
+                                    if finish_if_cancelled(
+                                        &state,
+                                        &logs,
+                                        &cancel_flag,
+                                        Some(&retry_err),
+                                    ) {
+                                        return;
+                                    }
                                     let combined_error = format!(
                                         "{} | Retry after yt-dlp refresh failed: {}",
                                         first_err, retry_err
@@ -569,6 +432,9 @@ impl DownloadManager {
                             }
                         }
                         Err(update_err) => {
+                            if finish_if_cancelled(&state, &logs, &cancel_flag, Some(&update_err)) {
+                                return;
+                            }
                             let combined_error = format!(
                                 "{} | yt-dlp auto-refresh failed: {}",
                                 first_err, update_err
