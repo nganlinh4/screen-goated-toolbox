@@ -61,6 +61,7 @@ impl SettingsApp {
         if let crate::gui::settings_ui::ViewMode::Preset(idx) = self.view_mode {
             self.config.active_preset_idx = idx;
         }
+        self.config.sync_active_profile_from_presets();
 
         let mut state = self.app_state_ref.lock().unwrap();
 

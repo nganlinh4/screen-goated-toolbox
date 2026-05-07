@@ -64,6 +64,12 @@ impl ExportAudioStretcher {
             return Vec::new();
         };
 
+        if (stretch_ratio - 1.0).abs() < f64::EPSILON
+            && (self.last_ratio - 1.0).abs() < f64::EPSILON
+        {
+            return input.to_vec();
+        }
+
         let Some(pcm_f32) = pcm_le_bytes_to_f32(input) else {
             return input.to_vec();
         };

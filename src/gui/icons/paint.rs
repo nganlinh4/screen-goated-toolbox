@@ -394,6 +394,49 @@ pub(super) fn paint_internal(
             painter.line_segment([p3, p4], stroke);
         }
 
+        Icon::Plus => {
+            let sz = 5.5 * scale;
+            painter.line_segment(
+                [
+                    egui::pos2(center.x - sz, center.y),
+                    egui::pos2(center.x + sz, center.y),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(center.x, center.y - sz),
+                    egui::pos2(center.x, center.y + sz),
+                ],
+                stroke,
+            );
+        }
+
+        Icon::Edit => {
+            let tip = center + egui::vec2(-6.0, 5.5) * scale;
+            let lower = center + egui::vec2(-3.8, 6.7) * scale;
+            let upper = center + egui::vec2(5.5, -2.6) * scale;
+            let back = center + egui::vec2(3.3, -4.8) * scale;
+            painter.add(egui::Shape::line(
+                vec![tip, lower, upper, back, tip],
+                stroke,
+            ));
+            painter.line_segment(
+                [
+                    center + egui::vec2(2.0, -3.5) * scale,
+                    center + egui::vec2(4.3, -1.2) * scale,
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    center + egui::vec2(4.0, -5.5) * scale,
+                    center + egui::vec2(6.2, -3.3) * scale,
+                ],
+                stroke,
+            );
+        }
+
         // All remaining icons are handled in paint_extra.rs
         _ => {
             super::paint_extra::paint_extra_icons(painter, center, icon, color, scale, stroke);

@@ -1,7 +1,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::time::Instant;
 
 use super::super::audio_time_stretch;
 use super::super::mf_audio::MfAudioDecoder;
@@ -176,7 +176,9 @@ fn trim_pcm_to_source_window(
     let duration_sec = frames as f64 / MIX_OUTPUT_SAMPLE_RATE as f64;
     let chunk_start = decoded_time;
     let chunk_end = decoded_time + duration_sec;
-    let window_start = source_in_sec.filter(|value| value.is_finite()).unwrap_or(0.0);
+    let window_start = source_in_sec
+        .filter(|value| value.is_finite())
+        .unwrap_or(0.0);
     let window_end = source_out_sec
         .filter(|value| value.is_finite())
         .unwrap_or(f64::INFINITY);
@@ -204,130 +206,6 @@ fn trim_pcm_to_source_window(
 
 fn curve_has_audible_points(points: &[DeviceAudioPoint]) -> bool {
     points.iter().any(|point| point.volume > 0.0001)
-}
-
-fn volume_curve_is_flat_unity(points: &[DeviceAudioPoint]) -> bool {
-    points
-        .iter()
-        .all(|point| (point.volume.clamp(0.0, 1.0) - 1.0).abs() < 0.0001)
-}
-
-fn constant_speed(speed_points: &[SpeedPoint]) -> Option<f64> {
-    if speed_points.is_empty() {
-        return Some(1.0);
-    }
-    let speed = speed_points[0].speed;
-    if speed_points
-        .iter()
-        .all(|point| (point.speed - speed).abs() < 0.0001)
-    {
-        Some(speed.clamp(0.1, 16.0))
-    } else {
-        None
-    }
-}
-
-fn ffmpeg_exe() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or(PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("bin")
-        .join("ffmpeg.exe")
-}
-
-fn ffmpeg_atempo_chain(speed: f64) -> Vec<String> {
-    let mut filters = Vec::new();
-    let mut remaining = speed.clamp(0.1, 100.0);
-    while remaining > 2.0 + 0.0001 {
-        filters.push("atempo=2.0".to_string());
-        remaining /= 2.0;
-    }
-    while remaining < 0.5 - 0.0001 {
-        filters.push("atempo=0.5".to_string());
-        remaining /= 0.5;
-    }
-    filters.push(format!("atempo={remaining:.6}"));
-    filters
-}
-
-fn try_build_single_source_ffmpeg_wav(
-    source: &ExportAudioSource,
-    speed_points: &[SpeedPoint],
-    trim_segments: &[TrimSegment],
-    wav_path: &Path,
-) -> Result<Option<PathBuf>, String> {
-    if source.start_offset_sec.abs() > 0.0001
-        || !volume_curve_is_flat_unity(&source.volume_points)
-        || trim_segments.len() != 1
-        || source.source_in_sec.is_some()
-        || source.source_out_sec.is_some()
-        || source.implicit_edge_fade_sec > 0.0
-    {
-        return Ok(None);
-    }
-    let Some(speed) = constant_speed(speed_points) else {
-        return Ok(None);
-    };
-
-    let ffmpeg = ffmpeg_exe();
-    if !ffmpeg.exists() {
-        return Ok(None);
-    }
-
-    let segment = &trim_segments[0];
-    let start = segment.start_time.max(0.0);
-    let duration = (segment.end_time - segment.start_time).max(0.0);
-    if duration <= 0.0 {
-        return Ok(None);
-    }
-
-    // Compose the source-side playback rate with the project speed; both are
-    // expressed as "atempo" multipliers (>1 = faster).
-    let combined_speed = speed * source.playback_rate.max(0.0001);
-    let mut filter_chain = ffmpeg_atempo_chain(combined_speed);
-    filter_chain.push(format!("aresample={MIX_OUTPUT_SAMPLE_RATE}"));
-    filter_chain.push("aformat=sample_fmts=s16:channel_layouts=stereo".to_string());
-    let audio_filter = filter_chain.join(",");
-
-    let output = Command::new(&ffmpeg)
-        .args([
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-ss",
-            &format!("{start:.6}"),
-            "-t",
-            &format!("{duration:.6}"),
-            "-i",
-            &source.path,
-            "-vn",
-            "-map",
-            "0:a:0",
-            "-af",
-            &audio_filter,
-            "-ar",
-            &MIX_OUTPUT_SAMPLE_RATE.to_string(),
-            "-ac",
-            &MIX_OUTPUT_CHANNELS.to_string(),
-            "-c:a",
-            "pcm_s16le",
-            wav_path.to_string_lossy().as_ref(),
-        ])
-        .output()
-        .map_err(|e| format!("Failed to launch FFmpeg for export audio prep: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("FFmpeg export audio prep failed:\n{stderr}"));
-    }
-    if !wav_path.exists() {
-        return Ok(None);
-    }
-    eprintln!(
-        "[Export][AudioPrep] FFmpeg fast path: constant_speed={speed:.3} trim={start:.3}s+{duration:.3}s"
-    );
-    Ok(Some(wav_path.to_path_buf()))
 }
 
 struct OutputTimeMapper {
@@ -651,12 +529,7 @@ fn build_single_source_preprocessed_wav(
     trim_segments: &[TrimSegment],
     wav_path: &Path,
 ) -> Result<Option<PathBuf>, String> {
-    if let Some(path) =
-        try_build_single_source_ffmpeg_wav(source, speed_points, trim_segments, wav_path)?
-    {
-        return Ok(Some(path));
-    }
-    eprintln!("[Export][AudioPrep] Rust fallback path");
+    eprintln!("[Export][AudioPrep] native MF/Rust path");
 
     let decoder = MfAudioDecoder::new_with_output_format(
         &source.path,
@@ -812,12 +685,20 @@ pub fn build_preprocessed_audio_mix(
     let wav_path = temp_dir.join(format!("{file_stem}_audio_mix.wav"));
     let trim_segments = normalized_trim_segments(trim_start, duration, trim_segments);
     if active_sources.len() == 1 {
+        let t0 = Instant::now();
         return build_single_source_preprocessed_wav(
             &active_sources[0],
             speed_points,
             &trim_segments,
             &wav_path,
-        );
+        )
+        .inspect(|path| {
+            eprintln!(
+                "[Export][AudioPrep] single-source mix: {:.3}s (output={})",
+                t0.elapsed().as_secs_f64(),
+                path.is_some()
+            );
+        });
     }
 
     let raw_path = temp_dir.join(format!("{file_stem}_audio_mix.pcm"));
@@ -834,9 +715,19 @@ pub fn build_preprocessed_audio_mix(
             if !Path::new(&source.path).exists() {
                 continue;
             }
+            let t0 = Instant::now();
             mix_source_into_raw_file(&mut raw_file, source, &trim_segments, speed_points)?;
+            eprintln!(
+                "[Export][AudioPrep] mixed source '{}' in {:.3}s",
+                Path::new(&source.path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("<audio>"),
+                t0.elapsed().as_secs_f64()
+            );
         }
 
+        let t0 = Instant::now();
         let mixed_len = raw_file
             .metadata()
             .map_err(|e| format!("Inspect mixed PCM: {e}"))?
@@ -846,6 +737,10 @@ pub fn build_preprocessed_audio_mix(
         }
 
         write_wav_from_raw_pcm(&raw_path, &wav_path)?;
+        eprintln!(
+            "[Export][AudioPrep] write mixed wav: {:.3}s",
+            t0.elapsed().as_secs_f64()
+        );
         Ok(Some(wav_path.clone()))
     })();
 

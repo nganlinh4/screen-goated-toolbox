@@ -24,6 +24,8 @@ pub enum Icon {
     Copy,      // NEW: For "Copy Text"
     CopySmall, // NEW: Smaller copy icon for preset buttons
     Close,     // NEW: "X" for clearing search
+    Plus,      // NEW: Add/create action
+    Edit,      // NEW: Rename/edit action
 
     TextSelect,      // NEW: Text with selection cursor for text selection mode
     Speaker,         // NEW: Speaker icon for device audio source

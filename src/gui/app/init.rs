@@ -314,7 +314,7 @@ impl SettingsApp {
             custom_chrome_ready: false,
             cached_audio_devices,
             snarl: None,
-            last_edited_preset_idx: None,
+            last_edited_preset_key: None,
             updater: Some(Updater::new(up_tx)),
             update_rx: up_rx,
             update_status: UpdateStatus::Idle,
