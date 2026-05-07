@@ -24,6 +24,7 @@ import {
   summarizeSegment,
 } from "@/lib/appUtils";
 import { cloneWebcamConfig } from "@/lib/webcam";
+import { normalizeSubtitleTrackState } from "@/lib/subtitleTracks";
 import type { PersistOptions } from "@/hooks/useSequenceComposition";
 import type { ClipMediaAssets } from "@/hooks/useClipMediaCache";
 
@@ -66,6 +67,21 @@ function preserveProjectLevelAudioLanes(
     narrationTrackVolumePoints: shouldPreserveNarrationVolume
       ? fallbackComposition.narrationTrackVolumePoints
       : nextComposition.narrationTrackVolumePoints,
+  };
+}
+
+function normalizeCompositionSubtitleState(
+  composition: ProjectComposition,
+): ProjectComposition {
+  return {
+    ...composition,
+    clips: composition.clips.map((clip) => ({
+      ...clip,
+      segment: normalizeSubtitleTrackState(clip.segment),
+    })),
+    globalSegment: composition.globalSegment
+      ? normalizeSubtitleTrackState(composition.globalSegment)
+      : composition.globalSegment,
   };
 }
 
@@ -343,6 +359,7 @@ export function useProjectPersistence({
           nextComposition,
           storedProject?.composition ?? currentProjectData?.composition,
         );
+        nextComposition = normalizeCompositionSubtitleState(nextComposition);
         const nextRootClip = getCompositionClip(nextComposition, "root");
         if (!nextRootClip) return;
         logProjectSwitch("persist:write-root", {

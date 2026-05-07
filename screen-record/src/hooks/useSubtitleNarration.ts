@@ -10,6 +10,8 @@ interface SubtitleNarrationRequestItem {
   text: string;
   startTime: number;
   endTime: number;
+  sourceSubtitleId: string;
+  replaceSubtitleIds: string[];
 }
 
 interface SubtitleNarrationResultItem {
@@ -19,6 +21,8 @@ interface SubtitleNarrationResultItem {
   duration: number;
   startTime: number;
   endTime: number;
+  sourceSubtitleId?: string;
+  replaceSubtitleIds?: string[];
 }
 
 interface SubtitleNarrationJobStatus {
@@ -44,6 +48,7 @@ interface UseSubtitleNarrationParams {
   selectedSubtitleRange?: TrackSelectionRange | null;
   sourceLanguageCode?: string | null;
   profile: NarrationProfilePayload;
+  readUnsplitSubtitles?: boolean;
   onApplyNarrationSegments: (
     segments: NarrationSegment[],
     replaceSubtitleIds: string[],
@@ -82,7 +87,8 @@ function buildNarrationSegment(
     outPoint: duration,
     playbackRate: 1,
     addedAt: Date.now(),
-    sourceSubtitleId: result.subtitleId,
+    sourceSubtitleId: result.sourceSubtitleId ?? result.subtitleId,
+    sourceSubtitleIds: result.replaceSubtitleIds,
     narrationBatchId: batchId,
     ttsProfileSnapshot: profileToSnapshot(profile),
   };
@@ -108,6 +114,7 @@ export function useSubtitleNarration({
   selectedSubtitleRange,
   sourceLanguageCode,
   profile,
+  readUnsplitSubtitles = true,
   onApplyNarrationSegments,
   onFinalizeNarrationSegments,
 }: UseSubtitleNarrationParams) {
@@ -147,16 +154,68 @@ export function useSubtitleNarration({
       .sort((a, b) => a.startTime - b.startTime);
   }, [selectedSubtitleIds, selectedSubtitleRange, visibleSubtitles]);
 
-  const requestItems = useMemo<SubtitleNarrationRequestItem[]>(() => (
-    targetSubtitles
-      .map((subtitle) => ({
+  const narrationTargets = useMemo<SubtitleNarrationRequestItem[]>(() => {
+    if (!readUnsplitSubtitles) {
+      return targetSubtitles.map((subtitle) => ({
         id: subtitle.id,
         text: subtitle.text.trim(),
         startTime: subtitle.startTime,
         endTime: subtitle.endTime,
-      }))
+        sourceSubtitleId: subtitle.id,
+        replaceSubtitleIds: [subtitle.id],
+      }));
+    }
+
+    const groups = new Map<string, SubtitleSegment[]>();
+    const ungrouped: SubtitleSegment[] = [];
+    for (const subtitle of targetSubtitles) {
+      if (subtitle.splitGroupId && subtitle.splitGroupText) {
+        const group = groups.get(subtitle.splitGroupId) ?? [];
+        group.push(subtitle);
+        groups.set(subtitle.splitGroupId, group);
+      } else {
+        ungrouped.push(subtitle);
+      }
+    }
+
+    const groupedTargets = [...groups.entries()].map(([groupId, subtitles]) => {
+      const sorted = [...subtitles].sort((a, b) =>
+        (a.splitGroupIndex ?? 0) - (b.splitGroupIndex ?? 0) ||
+        a.startTime - b.startTime,
+      );
+      const first = sorted[0];
+      return {
+        id: groupId,
+        text: (first?.splitGroupText ?? sorted.map((subtitle) => subtitle.text).join(' ')).trim(),
+        startTime: first?.splitGroupStartTime ?? Math.min(...sorted.map((subtitle) => subtitle.startTime)),
+        endTime: first?.splitGroupEndTime ?? Math.max(...sorted.map((subtitle) => subtitle.endTime)),
+        sourceSubtitleId: first?.id ?? groupId,
+        replaceSubtitleIds: sorted.map((subtitle) => subtitle.id),
+      };
+    });
+
+    return [
+      ...groupedTargets,
+      ...ungrouped.map((subtitle) => ({
+        id: subtitle.id,
+        text: subtitle.text.trim(),
+        startTime: subtitle.startTime,
+        endTime: subtitle.endTime,
+        sourceSubtitleId: subtitle.id,
+        replaceSubtitleIds: [subtitle.id],
+      })),
+    ].sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
+  }, [readUnsplitSubtitles, targetSubtitles]);
+
+  const narrationTargetById = useMemo(
+    () => new Map(narrationTargets.map((target) => [target.id, target])),
+    [narrationTargets],
+  );
+
+  const requestItems = useMemo<SubtitleNarrationRequestItem[]>(() => (
+    narrationTargets
       .filter((subtitle) => subtitle.text.length > 0)
-  ), [targetSubtitles]);
+  ), [narrationTargets]);
 
   const finalizeNarration = useCallback(async () => {
     await onFinalizeNarrationSegments();
@@ -214,9 +273,14 @@ export function useSubtitleNarration({
       isApplyingResultRef.current = true;
       const batchId = batchIdRef.current ?? `narration-${Date.now()}`;
       try {
+        const target = narrationTargetById.get(next.subtitleId);
         await onApplyNarrationSegmentsRef.current(
-          [buildNarrationSegment(next, batchId, profileRef.current)],
-          [next.subtitleId],
+          [buildNarrationSegment({
+            ...next,
+            sourceSubtitleId: target?.sourceSubtitleId,
+            replaceSubtitleIds: target?.replaceSubtitleIds,
+          }, batchId, profileRef.current)],
+          target?.replaceSubtitleIds ?? [target?.sourceSubtitleId ?? next.subtitleId],
         );
       } finally {
         isApplyingResultRef.current = false;
@@ -227,7 +291,7 @@ export function useSubtitleNarration({
         resolveDrainWaiters();
       }
     }, APPLY_RESULT_STREAM_INTERVAL_MS);
-  }, [resolveDrainWaiters]);
+  }, [narrationTargetById, resolveDrainWaiters]);
 
   const waitForApplyDrain = useCallback(() => {
     if (pendingApplyResultsRef.current.length === 0 && !isApplyingResultRef.current) {
@@ -250,16 +314,21 @@ export function useSubtitleNarration({
       isApplyingResultRef.current = true;
       const batchId = batchIdRef.current ?? `narration-${Date.now()}`;
       try {
+        const target = narrationTargetById.get(next.subtitleId);
         await onApplyNarrationSegmentsRef.current(
-          [buildNarrationSegment(next, batchId, profileRef.current)],
-          [next.subtitleId],
+          [buildNarrationSegment({
+            ...next,
+            sourceSubtitleId: target?.sourceSubtitleId,
+            replaceSubtitleIds: target?.replaceSubtitleIds,
+          }, batchId, profileRef.current)],
+          target?.replaceSubtitleIds ?? [target?.sourceSubtitleId ?? next.subtitleId],
         );
       } finally {
         isApplyingResultRef.current = false;
       }
     }
     resolveDrainWaiters();
-  }, [resolveDrainWaiters]);
+  }, [narrationTargetById, resolveDrainWaiters]);
 
   const applyInitialClear = useCallback(async (replaceSubtitleIds: string[]) => {
     await onApplyNarrationSegmentsRef.current(
@@ -424,7 +493,7 @@ export function useSubtitleNarration({
     setIsStarting(true);
     try {
       pendingApplyResultsRef.current = [];
-      await applyInitialClear(targetSubtitles.map((subtitle) => subtitle.id));
+      await applyInitialClear(requestItems.flatMap((subtitle) => subtitle.replaceSubtitleIds));
       const result = await invoke<{ jobId: string }>('start_subtitle_narration', {
         items: requestItems,
         profile: profileRef.current,
@@ -466,7 +535,6 @@ export function useSubtitleNarration({
     t.subtitleNarrationNoSource,
     t.subtitleNarrationStatusFailed,
     t.subtitleNarrationStatusStarting,
-    targetSubtitles,
   ]);
 
   const handleCancelNarration = useCallback(async () => {

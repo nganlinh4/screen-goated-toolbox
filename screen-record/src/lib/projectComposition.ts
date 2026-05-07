@@ -391,10 +391,13 @@ export function updateCompositionClip(
   clipId: string,
   updates: Partial<ProjectCompositionClip>,
 ): ProjectComposition {
+  const normalizedUpdates = updates.segment
+    ? { ...updates, segment: normalizeSubtitleTrackState(updates.segment) }
+    : updates;
   return {
     ...composition,
     clips: composition.clips.map((clip) =>
-      clip.id === clipId ? { ...clip, ...updates } : clip,
+      clip.id === clipId ? { ...clip, ...normalizedUpdates } : clip,
     ),
   };
 }

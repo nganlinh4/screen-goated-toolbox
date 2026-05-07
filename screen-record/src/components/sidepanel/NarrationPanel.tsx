@@ -2,6 +2,7 @@ import { X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { PanelSelect } from '@/components/ui/PanelSelect';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useSettings } from '@/hooks/useSettings';
 import { useSubtitleNarration } from '@/hooks/useSubtitleNarration';
 import {
@@ -18,6 +19,16 @@ import {
 import type { NarrationSegment, SubtitleSegment, SubtitleTrack, SubtitleViewState } from '@/types/video';
 
 const CURRENT_SUBTITLE_VIEW_SOURCE_ID = 'current-subtitle-view';
+const READ_UNSPLIT_SUBTITLES_KEY = 'screen-record-narration-read-unsplit-subtitles-v1';
+
+function getInitialReadUnsplitSubtitles() {
+  try {
+    const raw = localStorage.getItem(READ_UNSPLIT_SUBTITLES_KEY);
+    return raw === null ? true : raw === 'true';
+  } catch {
+    return true;
+  }
+}
 
 interface NarrationPanelProps {
   visibleSubtitles: SubtitleSegment[];
@@ -52,6 +63,15 @@ export function NarrationPanel({
   const [selectedSourceTrackId, setSelectedSourceTrackId] = useState<string>(
     preferredSourceTrackId,
   );
+  const [readUnsplitSubtitles, setReadUnsplitSubtitles] = useState(getInitialReadUnsplitSubtitles);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(READ_UNSPLIT_SUBTITLES_KEY, String(readUnsplitSubtitles));
+    } catch {
+      // ignore persistence failures
+    }
+  }, [readUnsplitSubtitles]);
 
   useEffect(() => {
     setSelectedSourceTrackId(preferredSourceTrackId);
@@ -182,6 +202,7 @@ export function NarrationPanel({
     selectedSubtitleRange,
     sourceLanguageCode: selectedSourceLanguageCode,
     profile,
+    readUnsplitSubtitles,
     onApplyNarrationSegments,
     onFinalizeNarrationSegments,
   });
@@ -240,6 +261,13 @@ export function NarrationPanel({
           <p className="narration-panel-hint mb-2 text-[10px] leading-4 text-on-surface-variant">
             {t.subtitleNarrationHint}
           </p>
+          <label className="narration-panel-read-unsplit mb-2 flex cursor-pointer items-center gap-2 text-[11px] font-medium text-on-surface">
+            <Checkbox
+              checked={readUnsplitSubtitles}
+              onChange={(event) => setReadUnsplitSubtitles(event.target.checked)}
+            />
+            {t.narrationReadUnsplitSubtitles}
+          </label>
           <div className="narration-panel-actions grid grid-cols-2 gap-1.5">
             <button
               type="button"
