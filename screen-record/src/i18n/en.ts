@@ -72,6 +72,7 @@ const en = {
   videoSize: 'Video Size',
   roundness: 'Roundness',
   shadow: 'Shadow',
+  backgroundZoomWithVideo: 'Zoom Background',
   volume: 'Volume',
   backgroundStyle: 'Background Style',
 

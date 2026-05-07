@@ -446,6 +446,7 @@ export interface BackgroundConfig {
   motionBlurCursor?: number; // 0-100 intensity (default 25, 0=off, 100=extreme)
   motionBlurZoom?: number; // 0-100 intensity
   motionBlurPan?: number; // 0-100 intensity
+  backgroundZoomWithVideo?: boolean; // true = background follows video zoom/pan, false = fixed canvas background
   cursorPack?: CursorPack;
   cursorDefaultVariant?: CursorPack;
   cursorTextVariant?: CursorPack;

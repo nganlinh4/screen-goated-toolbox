@@ -80,6 +80,7 @@ export const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
   motionBlurCursor: 25,
   motionBlurZoom: 10,
   motionBlurPan: 10,
+  backgroundZoomWithVideo: true,
   cursorPack: "macos26",
   cursorDefaultVariant: "macos26",
   cursorTextVariant: "macos26",

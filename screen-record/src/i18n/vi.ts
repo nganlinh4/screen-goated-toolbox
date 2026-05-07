@@ -74,6 +74,7 @@ const vi: Translations = {
   videoSize: 'Kích Thước Video',
   roundness: 'Độ Bo Tròn',
   shadow: 'Đổ Bóng',
+  backgroundZoomWithVideo: 'Zoom Nền',
   volume: 'Âm Lượng',
   backgroundStyle: 'Kiểu Nền',
 
