@@ -1,5 +1,7 @@
 package dev.screengoated.toolbox.mobile.preset
 
+import dev.screengoated.toolbox.mobile.shared.preset.BlockType
+import dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
@@ -104,6 +106,20 @@ class TextApiClientTest {
     }
 
     @Test
+    fun gtxTargetLanguageComesFromLanguage1Fixture() {
+        val case = fixtureCases().single { it.name == "gtx_uses_language1_target_language" }
+        val block = ProcessingBlock(
+            id = "gtx",
+            blockType = BlockType.TEXT,
+            model = case.modelId,
+            prompt = "",
+            languageVars = case.languageVars,
+        )
+
+        assertEquals(case.targetLanguage, block.gtxTargetLanguage())
+    }
+
+    @Test
     fun geminiRequestRespectsStreamingToggle() {
         val payload = json.parseToJsonElement(
             client.debugBuildRequestBody(
@@ -128,6 +144,11 @@ class TextApiClientTest {
                 supportsSearch = case.getValue("supports_search").jsonPrimitive.boolean,
                 thinkingLevel = case["thinking_level"]?.jsonPrimitive?.contentOrNull,
                 thinkingIncludeThoughts = case["thinking_include_thoughts"]?.jsonPrimitive?.booleanOrNull,
+                languageVars = case["language_vars"]
+                    ?.jsonObject
+                    ?.mapValues { (_, value) -> value.jsonPrimitive.content }
+                    .orEmpty(),
+                targetLanguage = case["target_language"]?.jsonPrimitive?.contentOrNull,
             )
         }
     }
@@ -150,5 +171,7 @@ class TextApiClientTest {
         val supportsSearch: Boolean,
         val thinkingLevel: String?,
         val thinkingIncludeThoughts: Boolean?,
+        val languageVars: Map<String, String>,
+        val targetLanguage: String?,
     )
 }

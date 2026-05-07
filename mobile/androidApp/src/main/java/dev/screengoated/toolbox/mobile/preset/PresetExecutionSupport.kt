@@ -73,6 +73,12 @@ internal fun dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock.resol
     return resolved
 }
 
+internal fun dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock.gtxTargetLanguage(): String? {
+    return (languageVars["language1"] ?: languageVars["language"])
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+}
+
 internal fun dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock.requestsHtmlOutput(): Boolean {
     val normalizedPrompt = prompt.lowercase()
     return normalizedPrompt.contains("raw html")

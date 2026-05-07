@@ -24,6 +24,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
         searchLabel: String?,
         onChunk: (String) -> Unit,
         streamingEnabled: Boolean = true,
+        targetLanguage: String? = null,
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val model = resolveModel(modelId)
@@ -88,6 +89,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                 PresetModelProvider.GOOGLE_GTX -> translateGoogleGtx(
                     inputText = inputText,
                     prompt = prompt,
+                    targetLanguage = targetLanguage,
                     onChunk = onChunk,
                 )
 

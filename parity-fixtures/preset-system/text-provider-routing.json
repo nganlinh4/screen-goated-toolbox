@@ -53,6 +53,17 @@
       "provider": "GROQ",
       "api_model": "groq/compound-mini",
       "supports_search": true
+    },
+    {
+      "name": "gtx_uses_language1_target_language",
+      "model_id": "google-gtx",
+      "provider": "GOOGLE_GTX",
+      "api_model": "translate.googleapis.com/gtx",
+      "supports_search": false,
+      "language_vars": {
+        "language1": "Korean"
+      },
+      "target_language": "Korean"
     }
   ]
 }

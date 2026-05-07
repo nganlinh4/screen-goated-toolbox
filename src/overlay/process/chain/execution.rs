@@ -168,6 +168,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                 groq_key: &groq_key,
                 gemini_key: &gemini_key,
                 final_prompt,
+                target_language: gtx_target_language(block),
                 model_full_name: &current_model_full_name,
                 provider: &current_provider,
                 streaming_enabled: actual_streaming_enabled,
@@ -312,6 +313,7 @@ struct ExecuteTextBlockRequest<'a> {
     groq_key: &'a str,
     gemini_key: &'a str,
     final_prompt: &'a str,
+    target_language: Option<String>,
     model_full_name: &'a str,
     provider: &'a str,
     streaming_enabled: bool,
@@ -328,6 +330,7 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
         groq_key,
         gemini_key,
         final_prompt,
+        target_language,
         model_full_name,
         provider,
         streaming_enabled,
@@ -357,6 +360,7 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
             search_label,
             ui_language: &config.ui_language,
             cancel_token: Some(api_cancel),
+            target_language,
         },
         move |chunk| {
             if chain_token_cb.is_cancelled() {
@@ -384,6 +388,22 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
             }
         },
     )
+}
+
+fn gtx_target_language(block: &ProcessingBlock) -> Option<String> {
+    block
+        .language_vars
+        .get("language1")
+        .or_else(|| block.language_vars.get("language"))
+        .or_else(|| {
+            if block.selected_language.trim().is_empty() {
+                None
+            } else {
+                Some(&block.selected_language)
+            }
+        })
+        .map(|lang| lang.trim().to_string())
+        .filter(|lang| !lang.is_empty())
 }
 
 /// Handle a streaming chunk for image blocks.
