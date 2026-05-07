@@ -148,14 +148,26 @@ impl SettingsApp {
         idx: usize,
         text: &LocaleText,
     ) {
-        // Sync snarl state if switching presets or first load
-        if self.last_edited_preset_idx != Some(idx) && idx < self.config.presets.len() {
+        let preset_key = self.config.presets.get(idx).map(|preset| {
+            let profile_id = self
+                .config
+                .preset_profiles
+                .get(self.config.active_preset_profile_idx)
+                .map(|profile| profile.id.clone())
+                .unwrap_or_default();
+            (idx, profile_id, preset.id.clone())
+        });
+
+        // Sync snarl state if switching presets, profiles, or first load.
+        if preset_key.as_ref() != self.last_edited_preset_key.as_ref()
+            && idx < self.config.presets.len()
+        {
             self.snarl = Some(blocks_to_snarl(
                 &self.config.presets[idx].blocks,
                 &self.config.presets[idx].block_connections,
                 &self.config.presets[idx].preset_type,
             ));
-            self.last_edited_preset_idx = Some(idx);
+            self.last_edited_preset_key = preset_key;
         }
 
         if let Some(snarl) = &mut self.snarl

@@ -51,65 +51,23 @@ pub fn load_config() -> Config {
 fn migrate_config(config: &mut Config) {
     let default_presets = get_default_presets();
 
-    // -------------------------------------------------------------------------
-    // 1. AUTO-MERGE NEW DEFAULT PRESETS
-    // -------------------------------------------------------------------------
-    // This ensures users get new presets from updates without losing their
-    // custom presets or modifications to existing presets.
-    //
-    // Strategy:
-    // - Default presets have IDs starting with "preset_"
-    // - User-created presets have timestamp-based IDs
-    // - For each default preset not in user's config → add it
-    // - Keep user's version of existing presets (they may have customized)
-
-    let existing_ids: std::collections::HashSet<String> =
-        config.presets.iter().map(|p| p.id.clone()).collect();
-
-    let new_presets: Vec<Preset> = default_presets
-        .iter()
-        .filter(|p| p.is_builtin() && !existing_ids.contains(&p.id))
-        .cloned()
-        .collect();
-
-    if !new_presets.is_empty() {
-        config.presets.extend(new_presets);
-    }
-
-    // -------------------------------------------------------------------------
-    // 2. MIGRATE CRITICAL SETTINGS FOR EXISTING BUILT-IN PRESETS
-    // -------------------------------------------------------------------------
-    // When default presets are updated with new settings (like auto_paste=true),
-    // sync those settings to existing user presets.
-
-    for preset in &mut config.presets {
-        if !preset.is_builtin() {
-            continue;
-        }
-
-        if let Some(default_preset) = default_presets.iter().find(|p| p.id == preset.id) {
-            // Sync auto_paste and auto_paste_newline
-            preset.auto_paste = default_preset.auto_paste;
-            preset.auto_paste_newline = default_preset.auto_paste_newline;
-
-            // Sync prompt_mode (critical: determines whether text input appears for dynamic presets)
-            preset.prompt_mode = default_preset.prompt_mode.clone();
-
-            // Do not sync blocks from defaults here: built-in presets are user-editable,
-            // and overwriting blocks would reset custom models/prompts/render modes.
-
-            // Sync audio-specific settings
-            if preset.preset_type == "audio" {
-                preset.auto_stop_recording = default_preset.auto_stop_recording;
-            }
-        }
+    config.ensure_preset_profiles();
+    migrate_preset_list(&mut config.presets, &default_presets);
+    for profile in &mut config.preset_profiles {
+        migrate_preset_list(&mut profile.presets, &default_presets);
+        profile.active_preset_idx = profile
+            .active_preset_idx
+            .min(profile.presets.len().saturating_sub(1));
     }
 
     normalize_model_priority_chain(
         &mut config.model_priority_chains.image_to_text,
         ModelType::Vision,
     );
-    normalize_saved_block_model_ids(config);
+    normalize_saved_block_model_ids(&mut config.presets);
+    for profile in &mut config.preset_profiles {
+        normalize_saved_block_model_ids(&mut profile.presets);
+    }
     normalize_model_priority_chain(
         &mut config.model_priority_chains.text_to_text,
         ModelType::Text,
@@ -121,10 +79,42 @@ fn migrate_config(config: &mut Config) {
             crate::model_config::REALTIME_TRANSLATION_MODEL_CEREBRAS.to_string();
     }
 
-    // -------------------------------------------------------------------------
-    // 3. ENSURE EVERY PRESET HAS AT LEAST ONE BLOCK
-    // -------------------------------------------------------------------------
-    for preset in &mut config.presets {
+    config.sync_active_profile_from_presets();
+}
+
+fn migrate_preset_list(presets: &mut Vec<Preset>, default_presets: &[Preset]) {
+    // This ensures users get new presets from updates without losing their
+    // custom presets or modifications to existing presets.
+    let existing_ids: std::collections::HashSet<String> =
+        presets.iter().map(|p| p.id.clone()).collect();
+
+    let new_presets: Vec<Preset> = default_presets
+        .iter()
+        .filter(|p| p.is_builtin() && !existing_ids.contains(&p.id))
+        .cloned()
+        .collect();
+
+    if !new_presets.is_empty() {
+        presets.extend(new_presets);
+    }
+
+    for preset in presets.iter_mut() {
+        if !preset.is_builtin() {
+            continue;
+        }
+
+        if let Some(default_preset) = default_presets.iter().find(|p| p.id == preset.id) {
+            preset.auto_paste = default_preset.auto_paste;
+            preset.auto_paste_newline = default_preset.auto_paste_newline;
+            preset.prompt_mode = default_preset.prompt_mode.clone();
+
+            if preset.preset_type == "audio" {
+                preset.auto_stop_recording = default_preset.auto_stop_recording;
+            }
+        }
+    }
+
+    for preset in presets.iter_mut() {
         if preset.blocks.is_empty() && !preset.is_master {
             preset.blocks.push(ProcessingBlock {
                 block_type: preset.preset_type.clone(),
@@ -134,8 +124,8 @@ fn migrate_config(config: &mut Config) {
     }
 }
 
-fn normalize_saved_block_model_ids(config: &mut Config) {
-    for preset in &mut config.presets {
+fn normalize_saved_block_model_ids(presets: &mut [Preset]) {
+    for preset in presets {
         for block in &mut preset.blocks {
             block.model = normalize_model_id_for_block(&block.block_type, &block.model);
         }
@@ -209,7 +199,17 @@ fn normalize_translation_gummy_settings(config: &mut Config) {
 #[cfg(test)]
 mod tests {
     use super::migrate_config;
-    use crate::config::{Config, Preset, ProcessingBlock};
+    use crate::config::types::PresetProfile;
+    use crate::config::{Config, Hotkey, Preset, ProcessingBlock};
+
+    fn legacy_config_with_presets(presets: Vec<Preset>) -> Config {
+        Config {
+            presets,
+            preset_profiles: Vec::new(),
+            active_preset_profile_idx: 0,
+            ..Default::default()
+        }
+    }
 
     #[test]
     fn migrate_config_falls_back_for_missing_block_models() {
@@ -233,10 +233,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut config = Config {
-            presets: vec![builtin, custom],
-            ..Default::default()
-        };
+        let mut config = legacy_config_with_presets(vec![builtin, custom]);
 
         migrate_config(&mut config);
 
@@ -262,10 +259,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut config = Config {
-            presets: vec![custom],
-            ..Default::default()
-        };
+        let mut config = legacy_config_with_presets(vec![custom]);
 
         migrate_config(&mut config);
 
@@ -294,10 +288,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut config = Config {
-            presets: vec![builtin, custom],
-            ..Default::default()
-        };
+        let mut config = legacy_config_with_presets(vec![builtin, custom]);
 
         migrate_config(&mut config);
 
@@ -369,10 +360,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut config = Config {
-            presets: vec![builtin, custom],
-            ..Default::default()
-        };
+        let mut config = legacy_config_with_presets(vec![builtin, custom]);
 
         config.model_priority_chains.text_to_text = vec!["retired_text_model".to_string()];
 
@@ -409,6 +397,81 @@ mod tests {
         assert_eq!(config.translation_gummy.second.accent, "Busan");
         assert_eq!(config.translation_gummy.second.tone, "polite");
     }
+
+    #[test]
+    fn migrate_config_creates_default_profile_for_legacy_presets() {
+        let custom = Preset {
+            id: "custom_legacy_preset".to_string(),
+            name: "Legacy".to_string(),
+            ..Default::default()
+        };
+        let mut config = legacy_config_with_presets(vec![custom]);
+
+        migrate_config(&mut config);
+
+        assert_eq!(config.preset_profiles.len(), 1);
+        assert_eq!(config.preset_profiles[0].name, "Default");
+        assert!(
+            config.preset_profiles[0]
+                .presets
+                .iter()
+                .any(|preset| preset.id == "custom_legacy_preset")
+        );
+    }
+
+    #[test]
+    fn add_preset_profile_clones_active_preset_config() {
+        let mut preset = Preset {
+            id: "profile_source_preset".to_string(),
+            name: "Profile Source".to_string(),
+            is_favorite: true,
+            ..Default::default()
+        };
+        preset.hotkeys.push(Hotkey::new(65, "A", 2));
+
+        let mut config = legacy_config_with_presets(vec![preset]);
+        migrate_config(&mut config);
+
+        config.add_preset_profile_from_active();
+
+        assert_eq!(config.preset_profiles.len(), 2);
+        assert_eq!(config.active_preset_profile_idx, 1);
+        assert_eq!(config.presets[0].id, "profile_source_preset");
+        assert!(config.presets[0].is_favorite);
+        assert_eq!(config.presets[0].hotkeys, vec![Hotkey::new(65, "A", 2)]);
+    }
+
+    #[test]
+    fn delete_preset_profile_selects_left_neighbor_for_active_only() {
+        let first = PresetProfile::new_default(vec![Preset::default()], 0);
+        let second = PresetProfile::new_default(
+            vec![Preset {
+                id: "second_profile_preset".to_string(),
+                ..Default::default()
+            }],
+            0,
+        );
+        let third = PresetProfile::new_default(
+            vec![Preset {
+                id: "third_profile_preset".to_string(),
+                ..Default::default()
+            }],
+            0,
+        );
+        let mut config = Config {
+            preset_profiles: vec![first, second, third],
+            active_preset_profile_idx: 1,
+            ..Default::default()
+        };
+        config.ensure_preset_profiles();
+
+        config.delete_preset_profile(2);
+        assert_eq!(config.active_preset_profile_idx, 1);
+        assert_eq!(config.presets[0].id, "second_profile_preset");
+
+        config.delete_preset_profile(1);
+        assert_eq!(config.active_preset_profile_idx, 0);
+    }
 }
 
 // ============================================================================
@@ -418,7 +481,9 @@ mod tests {
 /// Save config to disk
 pub fn save_config(config: &Config) {
     let path = get_config_path();
-    if let Ok(data) = serde_json::to_string_pretty(config) {
+    let mut config_to_save = config.clone();
+    config_to_save.sync_active_profile_from_presets();
+    if let Ok(data) = serde_json::to_string_pretty(&config_to_save) {
         let _ = std::fs::write(path, data);
     }
 }

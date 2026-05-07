@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
     DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey, ModelPriorityChains,
-    ThemeMode, TranslationGummySettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
-    default_tts_language_conditions, get_system_ui_language,
+    PresetProfile, ThemeMode, TranslationGummySettings, TtsLanguageCondition, TtsMethod,
+    TtsPlaygroundSettings, default_tts_language_conditions, get_system_ui_language,
 };
 
 // ============================================================================
@@ -124,6 +124,14 @@ pub struct Config {
 
     /// Index of the currently active preset
     pub active_preset_idx: usize,
+
+    /// Preset profiles. The active profile is mirrored into `presets`.
+    #[serde(default)]
+    pub preset_profiles: Vec<PresetProfile>,
+
+    /// Index of the active preset profile.
+    #[serde(default)]
+    pub active_preset_profile_idx: usize,
 
     // -------------------------------------------------------------------------
     // UI Settings
@@ -339,6 +347,115 @@ fn default_screen_record_window_size() -> (i32, i32) {
 // ============================================================================
 
 impl Config {
+    pub fn ensure_preset_profiles(&mut self) {
+        if self.preset_profiles.is_empty() {
+            self.preset_profiles = vec![PresetProfile::new_default(
+                self.presets.clone(),
+                self.active_preset_idx,
+            )];
+            self.active_preset_profile_idx = 0;
+            return;
+        }
+
+        self.active_preset_profile_idx = self
+            .active_preset_profile_idx
+            .min(self.preset_profiles.len().saturating_sub(1));
+
+        if let Some(profile) = self.preset_profiles.get(self.active_preset_profile_idx) {
+            self.presets = profile.presets.clone();
+            self.active_preset_idx = profile
+                .active_preset_idx
+                .min(self.presets.len().saturating_sub(1));
+        }
+    }
+
+    pub fn sync_active_profile_from_presets(&mut self) {
+        if self.preset_profiles.is_empty() {
+            self.preset_profiles = vec![PresetProfile::new_default(
+                self.presets.clone(),
+                self.active_preset_idx,
+            )];
+            self.active_preset_profile_idx = 0;
+            return;
+        }
+
+        self.active_preset_profile_idx = self
+            .active_preset_profile_idx
+            .min(self.preset_profiles.len().saturating_sub(1));
+        if let Some(profile) = self.preset_profiles.get_mut(self.active_preset_profile_idx) {
+            profile.presets = self.presets.clone();
+            profile.active_preset_idx = self
+                .active_preset_idx
+                .min(self.presets.len().saturating_sub(1));
+        }
+    }
+
+    pub fn switch_preset_profile(&mut self, idx: usize) {
+        if self.preset_profiles.is_empty() {
+            self.sync_active_profile_from_presets();
+        }
+        if idx >= self.preset_profiles.len() || idx == self.active_preset_profile_idx {
+            return;
+        }
+
+        self.sync_active_profile_from_presets();
+        self.active_preset_profile_idx = idx;
+        if let Some(profile) = self.preset_profiles.get(idx) {
+            self.presets = profile.presets.clone();
+            self.active_preset_idx = profile
+                .active_preset_idx
+                .min(self.presets.len().saturating_sub(1));
+        }
+    }
+
+    pub fn add_preset_profile_from_active(&mut self) {
+        self.sync_active_profile_from_presets();
+        let source_idx = self.active_preset_profile_idx;
+        let base = self.preset_profiles[source_idx].name.clone();
+        let name = self.next_profile_copy_name(&base);
+        let new_profile = PresetProfile::cloned_from(&self.preset_profiles[source_idx], name);
+        self.preset_profiles.insert(source_idx + 1, new_profile);
+        self.switch_preset_profile(source_idx + 1);
+    }
+
+    pub fn delete_preset_profile(&mut self, idx: usize) {
+        if self.preset_profiles.len() <= 1 || idx >= self.preset_profiles.len() {
+            return;
+        }
+
+        let old_active_idx = self.active_preset_profile_idx;
+        self.sync_active_profile_from_presets();
+        self.preset_profiles.remove(idx);
+        self.active_preset_profile_idx = if idx == old_active_idx {
+            idx.saturating_sub(1)
+        } else if idx < old_active_idx {
+            old_active_idx.saturating_sub(1)
+        } else {
+            old_active_idx
+        }
+        .min(self.preset_profiles.len().saturating_sub(1));
+        if let Some(profile) = self.preset_profiles.get(self.active_preset_profile_idx) {
+            self.presets = profile.presets.clone();
+            self.active_preset_idx = profile
+                .active_preset_idx
+                .min(self.presets.len().saturating_sub(1));
+        }
+    }
+
+    fn next_profile_copy_name(&self, base: &str) -> String {
+        let mut candidate = format!("{base} Copy");
+        let mut counter = 1;
+        while self
+            .preset_profiles
+            .iter()
+            .any(|profile| profile.name == candidate)
+        {
+            candidate = format!("{base} Copy {counter}");
+            counter += 1;
+        }
+        candidate
+    }
+
     /// Checks if a hotkey combination conflicts with any existing hotkeys.
     /// Returns the name of the conflicting item if found.
     pub fn check_hotkey_conflict(
@@ -400,6 +517,8 @@ impl Default for Config {
             // Presets - use the centralized ordered list
             presets: get_default_presets(),
             active_preset_idx: 0,
+            preset_profiles: vec![PresetProfile::new_default(get_default_presets(), 0)],
+            active_preset_profile_idx: 0,
 
             // UI Settings
             theme_mode: ThemeMode::System,

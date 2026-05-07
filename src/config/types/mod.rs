@@ -10,6 +10,7 @@
 mod enums;
 mod hotkey;
 mod model_priority;
+mod profile;
 mod translation_gummy;
 mod tts;
 
@@ -23,6 +24,8 @@ pub use enums::{
 pub use hotkey::Hotkey;
 
 pub use model_priority::ModelPriorityChains;
+
+pub use profile::PresetProfile;
 
 pub use tts::{
     EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
