@@ -1,4 +1,4 @@
-import { AudioLines, Rows3 } from 'lucide-react';
+import { AudioLines, Captions, Rows3 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { useSettings } from '@/hooks/useSettings';
@@ -16,6 +16,7 @@ interface AudioPanelProps {
   selectedNarrationIds: ReadonlySet<string>;
   onUpdateImportedSegment: (id: string, patch: Partial<ImportedAudioSegment>) => void;
   onUpdateNarrationSegment: (id: string, patch: Partial<NarrationSegment>) => void;
+  onAlignSubtitlesToNarration?: () => void;
   beginBatch?: () => void;
   commitBatch?: () => void;
   onCommitImportedSegments?: () => void;
@@ -46,6 +47,7 @@ export function AudioPanel({
   selectedNarrationIds,
   onUpdateImportedSegment,
   onUpdateNarrationSegment,
+  onAlignSubtitlesToNarration,
   beginBatch,
   commitBatch,
   onCommitImportedSegments,
@@ -70,6 +72,9 @@ export function AudioPanel({
     return clampRate(total / selected.length);
   };
   const [bulkRate, setBulkRate] = useState(getSelectedAverageRate);
+  const selectedNarrationWithSubtitleCount = selected.filter(
+    (segment) => segment.kind === 'narration' && !!segment.sourceSubtitleId,
+  ).length;
 
   useEffect(() => {
     setBulkRate(getSelectedAverageRate());
@@ -364,14 +369,26 @@ export function AudioPanel({
 
             {selected.length > 1 ? (
               <div className="audio-panel-multi-editor space-y-2">
-                <button
-                  type="button"
-                  className="audio-panel-auto-arrange-button flex w-full items-center justify-center gap-2 rounded-lg border border-outline/30 bg-surface-container-high/50 px-3 py-2 text-[11px] font-semibold text-on-surface transition-colors hover:border-[var(--primary-color)] hover:bg-[color:color-mix(in_srgb,var(--primary-color)_12%,transparent)]"
-                  onClick={handleAutoArrange}
-                >
-                  <Rows3 className="h-3.5 w-3.5 text-[var(--primary-color)]" />
-                  {t.audioPanelAutoArrange}
-                </button>
+                <div className={`audio-panel-action-row grid gap-2 ${selectedNarrationWithSubtitleCount > 0 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                  <button
+                    type="button"
+                    className="audio-panel-auto-arrange-button flex w-full items-center justify-center gap-2 rounded-lg border border-outline/30 bg-surface-container-high/50 px-3 py-2 text-[11px] font-semibold text-on-surface transition-colors hover:border-[var(--primary-color)] hover:bg-[color:color-mix(in_srgb,var(--primary-color)_12%,transparent)]"
+                    onClick={handleAutoArrange}
+                  >
+                    <Rows3 className="h-3.5 w-3.5 text-[var(--primary-color)]" />
+                    {t.audioPanelAutoArrange}
+                  </button>
+                  {selectedNarrationWithSubtitleCount > 0 && (
+                    <button
+                      type="button"
+                      className="audio-panel-align-subtitles-button flex w-full items-center justify-center gap-2 rounded-lg border border-outline/30 bg-surface-container-high/50 px-3 py-2 text-[11px] font-semibold text-on-surface transition-colors hover:border-[var(--primary-color)] hover:bg-[color:color-mix(in_srgb,var(--primary-color)_12%,transparent)]"
+                      onClick={onAlignSubtitlesToNarration}
+                    >
+                      <Captions className="h-3.5 w-3.5 text-[var(--primary-color)]" />
+                      {t.audioPanelAlignSubtitlesToAudio}
+                    </button>
+                  )}
+                </div>
                 {renderSpeedControl(bulkRate, handleApplyRateToAll, t.audioPanelBulkSpeed)}
               </div>
             ) : (

@@ -747,6 +747,10 @@ function App() {
     setSubtitleGeminiPrompt,
     subtitleGroqVocabulary,
     setSubtitleGroqVocabulary,
+    autoSplitSubtitles,
+    setAutoSplitSubtitles,
+    autoSplitMaxUnits,
+    setAutoSplitMaxUnits,
     isGeneratingSubtitles,
     subtitleStatusMessage,
     subtitleGenerationIndicator,
@@ -1192,8 +1196,13 @@ function App() {
       const replaceSet = new Set(replaceSubtitleIds);
       const nextNarrationSegments = [
         ...(baseComposition.narrationSegments ?? []).filter((segment) => {
-          if (!segment.sourceSubtitleId) return true;
-          return !replaceSet.has(segment.sourceSubtitleId);
+          const sourceIds = segment.sourceSubtitleIds?.length
+            ? segment.sourceSubtitleIds
+            : segment.sourceSubtitleId
+              ? [segment.sourceSubtitleId]
+              : [];
+          if (sourceIds.length === 0) return true;
+          return !sourceIds.some((id) => replaceSet.has(id));
         }),
         ...segments,
       ].sort((left, right) => left.startTime - right.startTime);
@@ -2038,6 +2047,10 @@ function App() {
           onSubtitleGeminiPromptChange={setSubtitleGeminiPrompt}
           subtitleGroqVocabulary={subtitleGroqVocabulary}
           onSubtitleGroqVocabularyChange={setSubtitleGroqVocabulary}
+          autoSplitSubtitles={autoSplitSubtitles}
+          onAutoSplitSubtitlesChange={setAutoSplitSubtitles}
+          autoSplitSubtitleMaxUnits={autoSplitMaxUnits}
+          onAutoSplitSubtitleMaxUnitsChange={setAutoSplitMaxUnits}
           isGeneratingSubtitles={isGeneratingSubtitles}
           subtitleStatusMessage={subtitleStatusMessage}
           subtitleGenerationIndicator={subtitleGenerationIndicator}

@@ -9,6 +9,7 @@ import { PanelSelect } from '@/components/ui/PanelSelect';
 import { Slider } from '@/components/ui/Slider';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
+import { SmartSplitControl } from '@/components/sidepanel/SmartSplitControl';
 import { useSettings } from '@/hooks/useSettings';
 import { useSubtitleTranslation } from '@/hooks/useSubtitleTranslation';
 import {
@@ -20,6 +21,7 @@ import { getSubtitleLanguageOptionsForMethod } from '@/lib/subtitleLanguageOptio
 import { normalizeTextStyle } from '@/lib/textStyleDefaults';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
 import {
+  splitSubtitleIdsAcrossTracks,
   updateSubtitleStylesAcrossTracks,
   updateSubtitleTextsOnActiveTrack,
 } from '@/lib/subtitleTrackMutations';
@@ -118,6 +120,10 @@ export interface SubtitlePanelProps {
   onGeminiPromptChange: (value: string) => void;
   groqVocabulary: string[];
   onGroqVocabularyChange: (value: string[]) => void;
+  autoSplitSubtitles: boolean;
+  onAutoSplitSubtitlesChange: (value: boolean) => void;
+  autoSplitSubtitleMaxUnits: number;
+  onAutoSplitSubtitleMaxUnitsChange: (value: number) => void;
   isGenerating: boolean;
   statusMessage?: string | null;
   canUseVideoSource: boolean;
@@ -154,6 +160,10 @@ export function SubtitlePanel({
   onGeminiPromptChange,
   groqVocabulary,
   onGroqVocabularyChange,
+  autoSplitSubtitles,
+  onAutoSplitSubtitlesChange,
+  autoSplitSubtitleMaxUnits,
+  onAutoSplitSubtitleMaxUnitsChange,
   isGenerating,
   statusMessage,
   canUseVideoSource,
@@ -266,6 +276,17 @@ export function SubtitlePanel({
       ...subtitle,
       text,
     })));
+  };
+
+  const splitSelectedSubtitles = (maxUnits: number) => {
+    if (!segment || editableSubtitles.length === 0 || subtitleTranslation.isCustomSubtitleView) return;
+    beginBatch();
+    onUpdateSegment(splitSubtitleIdsAcrossTracks(
+      segment,
+      editableSubtitles.map((subtitle) => subtitle.id),
+      maxUnits,
+    ));
+    commitBatch();
   };
 
   const subtitleSourceOptions = [
@@ -547,6 +568,36 @@ export function SubtitlePanel({
           </div>
         )}
 
+        <div className="subtitle-auto-split-row rounded-lg border border-outline/30 bg-surface-container-high/40 p-2">
+          <label className="subtitle-auto-split-toggle flex cursor-pointer items-center gap-2 text-[11px] font-medium text-on-surface">
+            <Checkbox
+              checked={autoSplitSubtitles}
+              onChange={(event) => onAutoSplitSubtitlesChange(event.target.checked)}
+            />
+            {t.subtitleAutoSplit}
+          </label>
+          {autoSplitSubtitles ? (
+            <div className="subtitle-auto-split-controls mt-2 space-y-1.5">
+              <SettingRow
+                label={t.smartSplitMaxWords}
+                valueDisplay={`${autoSplitSubtitleMaxUnits}`}
+                className="subtitle-auto-split-max-words-row"
+              >
+                <Slider
+                  min={3}
+                  max={24}
+                  step={1}
+                  value={autoSplitSubtitleMaxUnits}
+                  onChange={onAutoSplitSubtitleMaxUnitsChange}
+                />
+              </SettingRow>
+              <p className="subtitle-auto-split-hint text-[10px] leading-4 text-on-surface-variant">
+                {t.subtitleAutoSplitHint}
+              </p>
+            </div>
+          ) : null}
+        </div>
+
         <div className="subtitle-actions grid grid-cols-2 gap-1.5">
           <button
             type="button"
@@ -752,6 +803,13 @@ export function SubtitlePanel({
             <p className="text-[10px] text-on-surface-variant">
               {subtitleTranslation.isCustomSubtitleView ? t.subtitleCustomReadOnly : t.dragTextHint}
             </p>
+
+            <SmartSplitControl
+              className="subtitle-smart-split-control"
+              disabled={subtitleTranslation.isCustomSubtitleView}
+              targetCount={editableSubtitles.length}
+              onSplit={splitSelectedSubtitles}
+            />
 
             <SettingRow label={t.fontSize} valueDisplay={`${resolvedStyle.fontSize}`}>
               <Slider

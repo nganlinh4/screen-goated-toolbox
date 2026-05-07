@@ -8,6 +8,7 @@ import type {
 import { getSubtitleLanguageLabel } from '@/lib/subtitleLanguageOptions';
 
 export const ORIGINAL_SUBTITLE_TRACK_ID = 'subtitle-track-original';
+const visibleEmptyWarningKeys = new Set<string>();
 
 export function buildSubtitleTrackLabel(index: number): string {
   let value = Math.max(0, Math.floor(index));
@@ -252,10 +253,52 @@ export function getActiveSubtitleTrack(segment: VideoSegment | null | undefined)
 
 export function getVisibleSubtitleSegments(segment: VideoSegment | null | undefined): SubtitleSegment[] {
   if (!segment) return [];
-  if (Array.isArray(segment.subtitleSegments)) {
+  const hasCanonicalTracks =
+    Array.isArray(segment.subtitleTracks) &&
+    segment.subtitleTracks.some((track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID);
+  if (!hasCanonicalTracks && Array.isArray(segment.subtitleSegments)) {
     return segment.subtitleSegments;
   }
-  return normalizeSubtitleTrackState(segment).subtitleSegments ?? [];
+  const tracks = getSubtitleTracks(segment);
+  const activeSubtitleView = normalizeActiveView(tracks, segment.activeSubtitleView);
+  const visible = activeSubtitleView.kind === 'custom'
+    ? buildCustomSubtitleSegments(
+        tracks,
+        normalizeCustomChain(tracks, segment.subtitleCustomChain),
+      )
+    : (
+        tracks.find((track) => track.id === activeSubtitleView.trackId)
+          ?? tracks.find((track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID)
+          ?? tracks[0]
+      )?.segments ?? [];
+  if (
+    hasCanonicalTracks &&
+    visible.length === 0 &&
+    (segment.subtitleTracks ?? []).some((track) => (track.segments?.length ?? 0) > 0)
+  ) {
+    const warningKey = JSON.stringify({
+      activeSubtitleView,
+      trackCounts: (segment.subtitleTracks ?? []).map((track) => [
+        track.id,
+        track.segments?.length ?? 0,
+      ]),
+    });
+    if (!visibleEmptyWarningKeys.has(warningKey)) {
+      visibleEmptyWarningKeys.add(warningKey);
+      console.warn(
+        "[SubtitleTracks][VisibleEmpty]",
+        {
+          activeSubtitleView,
+          trackCounts: (segment.subtitleTracks ?? []).map((track) => ({
+            id: track.id,
+            kind: track.kind,
+            count: track.segments?.length ?? 0,
+          })),
+        },
+      );
+    }
+  }
+  return visible;
 }
 
 export function setActiveSubtitleTrackView(segment: VideoSegment, trackId: string): VideoSegment {

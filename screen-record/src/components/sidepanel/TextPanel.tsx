@@ -6,7 +6,9 @@ import { Slider } from '@/components/ui/Slider';
 import { PanelSelect } from '@/components/ui/PanelSelect';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { SettingRow } from '@/components/layout/SettingRow';
+import { SmartSplitControl } from '@/components/sidepanel/SmartSplitControl';
 import { useSettings } from '@/hooks/useSettings';
+import { splitTextSegmentByMaxUnits } from '@/lib/segmentSmartSplit';
 import { normalizeTextStyle } from '@/lib/textStyleDefaults';
 
 function buildFontVariationCSS(vars?: TextSegment['style']['fontVariations']): string | undefined {
@@ -36,6 +38,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
   const sourceId = hasSelection ? selectedTextIds![0] : editingTextId;
   const editingText = sourceId ? segment?.textSegments?.find(ts => ts.id === sourceId) : null;
   const resolvedStyle = editingText ? normalizeTextStyle(editingText.style) : null;
+  const splitTargetIds = hasSelection && selectedTextIds ? selectedTextIds : sourceId ? [sourceId] : [];
 
   const updateStyle = (updates: Partial<TextSegment['style']>) => {
     if (!segment || !sourceId) return;
@@ -77,6 +80,21 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
     }
   };
 
+  const splitSelectedTextSegments = (maxUnits: number) => {
+    if (!segment || splitTargetIds.length === 0) return;
+    const targetIds = new Set(splitTargetIds);
+    beginBatch();
+    onUpdateSegment({
+      ...segment,
+      textSegments: (segment.textSegments ?? []).flatMap((textSegment) =>
+        targetIds.has(textSegment.id)
+          ? splitTextSegmentByMaxUnits(textSegment, maxUnits, () => crypto.randomUUID())
+          : [textSegment],
+      ),
+    });
+    commitBatch();
+  };
+
   return (
     <PanelCard className="text-panel">
       {editingText && segment && resolvedStyle ? (
@@ -102,6 +120,12 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
           />
 
           <p className="text-[10px] text-on-surface-variant">{t.dragTextHint}</p>
+
+          <SmartSplitControl
+            className="text-smart-split-control"
+            targetCount={splitTargetIds.length}
+            onSplit={splitSelectedTextSegments}
+          />
 
           <SettingRow label={t.fontSize} valueDisplay={`${resolvedStyle.fontSize}`}>
             <Slider

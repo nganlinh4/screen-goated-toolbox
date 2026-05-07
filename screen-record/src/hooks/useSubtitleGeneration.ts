@@ -38,6 +38,7 @@ import { DEFAULT_GEMINI_SUBTITLE_PROMPT } from '@/lib/geminiSubtitlePrompt';
 import { getSubtitleLanguageOptionsForMethod } from '@/lib/subtitleLanguageOptions';
 import { markFrontendPerfEvent } from '@/lib/frontendPerfDiagnostics';
 import type { PersistOptions } from '@/hooks/useSequenceComposition';
+import { smartSplitText, splitTimingByChunks } from '@/lib/segmentSmartSplit';
 
 export type SubtitleMethod =
   | 'groq-whisper-accurate'
@@ -67,9 +68,12 @@ const SUBTITLE_METHOD_KEY = 'screen-record-subtitle-method-v1';
 const SUBTITLE_LANGUAGE_HINT_KEY = 'screen-record-subtitle-language-hint-v1';
 const SUBTITLE_GEMINI_PROMPT_KEY = 'screen-record-subtitle-gemini-prompt-v1';
 const SUBTITLE_GROQ_VOCABULARY_KEY = 'screen-record-subtitle-groq-vocabulary-v1';
+const SUBTITLE_AUTO_SPLIT_KEY = 'screen-record-subtitle-auto-split-v1';
+const SUBTITLE_AUTO_SPLIT_MAX_UNITS_KEY = 'screen-record-subtitle-auto-split-max-units-v1';
 const SUBTITLE_PARTIAL_APPLY_INTERVAL_MS = 2500;
 const SUBTITLE_PARTIAL_TEXT_REFRESH_MS = 5000;
 const SUBTITLE_APPLY_PERF_LOG_INTERVAL_MS = 1000;
+const DEFAULT_SUBTITLE_AUTO_SPLIT_MAX_UNITS = 8;
 
 function isSubtitleSource(value: string | null): value is SubtitleSource {
   return value === 'video'
@@ -169,10 +173,43 @@ function getInitialGroqVocabulary(): string[] {
   return [];
 }
 
+function getInitialAutoSplitEnabled() {
+  try {
+    const raw = localStorage.getItem(SUBTITLE_AUTO_SPLIT_KEY);
+    return raw === null ? true : raw === 'true';
+  } catch {
+    return true;
+  }
+}
+
+function getInitialAutoSplitMaxUnits() {
+  try {
+    const raw = Number(localStorage.getItem(SUBTITLE_AUTO_SPLIT_MAX_UNITS_KEY));
+    if (Number.isFinite(raw) && raw >= 3 && raw <= 24) {
+      return Math.round(raw);
+    }
+  } catch {
+    // ignore persistence failures
+  }
+  return DEFAULT_SUBTITLE_AUTO_SPLIT_MAX_UNITS;
+}
+
+interface SubtitleClipResultSegment {
+  startTime: number;
+  endTime: number;
+  text: string;
+  splitGroupId?: string;
+  splitGroupIndex?: number;
+  splitGroupCount?: number;
+  splitGroupText?: string;
+  splitGroupStartTime?: number;
+  splitGroupEndTime?: number;
+}
+
 interface SubtitleClipResult {
   clipId: string;
   isPartial: boolean;
-  segments: Array<{ startTime: number; endTime: number; text: string }>;
+  segments: SubtitleClipResultSegment[];
 }
 
 interface SubtitleSkippedClip {
@@ -323,6 +360,41 @@ function buildAppliedResultsKey(results: SubtitleClipResult[]): string {
   ].join('/')).join('||');
 }
 
+function splitGeneratedSubtitleSegments(
+  segments: SubtitleClipResult['segments'],
+  maxUnits: number,
+): SubtitleClipResult['segments'] {
+  return segments.flatMap((segment, segmentIndex) => {
+    const chunks = smartSplitText(segment.text, maxUnits);
+    if (chunks.length <= 1) return [segment];
+    const timings = splitTimingByChunks(segment.startTime, segment.endTime, chunks);
+    const splitGroupId = `split:${Math.round(segment.startTime * 1000)}:${Math.round(segment.endTime * 1000)}:${segmentIndex}`;
+    return chunks.map((chunk, index) => ({
+      startTime: timings[index]?.startTime ?? segment.startTime,
+      endTime: timings[index]?.endTime ?? segment.endTime,
+      text: chunk.text,
+      splitGroupId,
+      splitGroupIndex: index,
+      splitGroupCount: chunks.length,
+      splitGroupText: segment.text,
+      splitGroupStartTime: segment.startTime,
+      splitGroupEndTime: segment.endTime,
+    }));
+  });
+}
+
+function splitGeneratedSubtitleResults(
+  results: SubtitleClipResult[],
+  enabled: boolean,
+  maxUnits: number,
+): SubtitleClipResult[] {
+  if (!enabled) return results;
+  return results.map((result) => ({
+    ...result,
+    segments: splitGeneratedSubtitleSegments(result.segments, maxUnits),
+  }));
+}
+
 function hasFinalSubtitleResult(results: SubtitleClipResult[]) {
   return results.some((result) => !result.isPartial);
 }
@@ -401,7 +473,7 @@ function partialApplySignature(result: SubtitleClipResult) {
 
 function buildInsertedSubtitle(
   result: SubtitleClipResult,
-  entry: { startTime: number; endTime: number; text: string },
+  entry: SubtitleClipResultSegment,
   index: number,
   subtitleStyle: ReturnType<typeof defaultSubtitleStyle>,
   transform?: AudioSubtitleClipTransform,
@@ -414,6 +486,12 @@ function buildInsertedSubtitle(
       endTime: entry.endTime,
       text: entry.text,
       style: subtitleStyle,
+      splitGroupId: entry.splitGroupId,
+      splitGroupIndex: entry.splitGroupIndex,
+      splitGroupCount: entry.splitGroupCount,
+      splitGroupText: entry.splitGroupText,
+      splitGroupStartTime: entry.splitGroupStartTime,
+      splitGroupEndTime: entry.splitGroupEndTime,
       sourceGroup: {
         kind: sourceTypeForNative === 'mic'
           ? 'mic'
@@ -436,6 +514,16 @@ function buildInsertedSubtitle(
     endTime: entry.endTime + transform.timelineOffsetSec,
     text: entry.text,
     style: subtitleStyle,
+    splitGroupId: entry.splitGroupId,
+    splitGroupIndex: entry.splitGroupIndex,
+    splitGroupCount: entry.splitGroupCount,
+    splitGroupText: entry.splitGroupText,
+    splitGroupStartTime: entry.splitGroupStartTime !== undefined
+      ? entry.splitGroupStartTime + transform.timelineOffsetSec
+      : undefined,
+    splitGroupEndTime: entry.splitGroupEndTime !== undefined
+      ? entry.splitGroupEndTime + transform.timelineOffsetSec
+      : undefined,
     provenance: {
       sourceKind: 'audio',
       audioSegmentId: transform.audioSegmentId,
@@ -475,6 +563,8 @@ export function useSubtitleGeneration({
   const [languageHint, setLanguageHint] = useState(getInitialSubtitleLanguageHint);
   const [geminiPrompt, setGeminiPrompt] = useState(getInitialGeminiPrompt);
   const [groqVocabulary, setGroqVocabulary] = useState<string[]>(getInitialGroqVocabulary);
+  const [autoSplitSubtitles, setAutoSplitSubtitles] = useState(getInitialAutoSplitEnabled);
+  const [autoSplitMaxUnits, setAutoSplitMaxUnitsState] = useState(getInitialAutoSplitMaxUnits);
   const [jobId, setJobId] = useState<string | null>(null);
   const [isStartingSubtitleJob, setIsStartingSubtitleJob] = useState(false);
   const [jobContext, setJobContext] = useState<SubtitleJobContext | null>(null);
@@ -492,6 +582,8 @@ export function useSubtitleGeneration({
   const pendingCompletedJobPersistRef = useRef(false);
   const lastSubtitleApplyPerfLogRef = useRef(0);
   const partialApplyStateRef = useRef(new Map<string, { signature: string; appliedAt: number }>());
+  const autoSplitSubtitlesRef = useRef(autoSplitSubtitles);
+  const autoSplitMaxUnitsRef = useRef(autoSplitMaxUnits);
 
   useEffect(() => {
     jobContextRef.current = jobContext;
@@ -555,6 +647,29 @@ export function useSubtitleGeneration({
       // ignore persistence failures
     }
   }, [groqVocabulary]);
+
+  useEffect(() => {
+    autoSplitSubtitlesRef.current = autoSplitSubtitles;
+    try {
+      localStorage.setItem(SUBTITLE_AUTO_SPLIT_KEY, String(autoSplitSubtitles));
+    } catch {
+      // ignore persistence failures
+    }
+  }, [autoSplitSubtitles]);
+
+  const setAutoSplitMaxUnits = useCallback((value: number) => {
+    const next = Math.min(24, Math.max(3, Math.round(value)));
+    setAutoSplitMaxUnitsState(next);
+  }, []);
+
+  useEffect(() => {
+    autoSplitMaxUnitsRef.current = autoSplitMaxUnits;
+    try {
+      localStorage.setItem(SUBTITLE_AUTO_SPLIT_MAX_UNITS_KEY, String(autoSplitMaxUnits));
+    } catch {
+      // ignore persistence failures
+    }
+  }, [autoSplitMaxUnits]);
 
   useEffect(() => {
     activeJobIdRef.current = jobId;
@@ -958,9 +1073,14 @@ export function useSubtitleGeneration({
           lastStatusViewKeyRef.current = nextStatusViewKey;
           setStatus(nextViewStatus);
         }
-        const nextAppliedResultsKey = buildAppliedResultsKey(nextStatus.results);
+        const generatedResults = splitGeneratedSubtitleResults(
+          nextStatus.results,
+          autoSplitSubtitlesRef.current,
+          autoSplitMaxUnitsRef.current,
+        );
+        const nextAppliedResultsKey = buildAppliedResultsKey(generatedResults);
         if (nextStatus.results.length > 0 || nextStatus.state === 'completed') {
-          const resultSummary = nextStatus.results
+          const resultSummary = generatedResults
             .map((result) => `${result.clipId}:${result.isPartial ? 'p' : 'f'}:${summarizeSubtitleRanges(result.segments)}`)
             .join(' | ');
           console.log(
@@ -969,7 +1089,7 @@ export function useSubtitleGeneration({
           );
         }
         if (
-          nextStatus.results.length > 0
+          generatedResults.length > 0
           && nextAppliedResultsKey !== lastAppliedResultsKeyRef.current
         ) {
           if (nextStatus.state === 'completed') {
@@ -977,7 +1097,7 @@ export function useSubtitleGeneration({
           }
           lastKnownResultsRevisionRef.current = nextStatus.resultsRevision;
           lastAppliedResultsKeyRef.current = nextAppliedResultsKey;
-          queueSubtitleResults(nextStatus.results, hasFinalSubtitleResult(nextStatus.results));
+          queueSubtitleResults(generatedResults, hasFinalSubtitleResult(generatedResults));
         }
         if (nextStatus.state === 'completed') {
           flushQueuedSubtitleResults();
@@ -1207,5 +1327,9 @@ export function useSubtitleGeneration({
     canUseAudioSubtitleSource: canUseAudioSource,
     handleGenerateSubtitles,
     handleCancelSubtitleGeneration,
+    autoSplitSubtitles,
+    setAutoSplitSubtitles,
+    autoSplitMaxUnits,
+    setAutoSplitMaxUnits,
   };
 }

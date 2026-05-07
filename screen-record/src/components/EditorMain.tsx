@@ -30,7 +30,7 @@ import {
   addSubtitleAcrossTracks,
   mergeSubtitleSelectionAcrossTracks,
 } from "@/lib/subtitleTrackMutations";
-import { getSubtitleTracks, getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
+import { getSubtitleTracks, getVisibleSubtitleSegments, updateAllSubtitleTracks } from "@/lib/subtitleTracks";
 import { inferAudioSourceGroupAtRange } from "@/lib/subtitleSourceGroups";
 
 export interface EditorMainProps {
@@ -135,6 +135,10 @@ export interface EditorMainProps {
   onSubtitleGeminiPromptChange: (value: string) => void;
   subtitleGroqVocabulary: string[];
   onSubtitleGroqVocabularyChange: (value: string[]) => void;
+  autoSplitSubtitles: boolean;
+  onAutoSplitSubtitlesChange: (value: boolean) => void;
+  autoSplitSubtitleMaxUnits: number;
+  onAutoSplitSubtitleMaxUnitsChange: (value: number) => void;
   isGeneratingSubtitles: boolean;
   subtitleStatusMessage?: string | null;
   subtitleGenerationIndicator?: SubtitleGenerationIndicator | null;
@@ -187,6 +191,32 @@ export interface EditorMainProps {
   onCommitNarrationSegments?: () => void;
   narrationTrackVolumePoints?: import("@/types/video").AudioGainPoint[];
   onUpdateNarrationTrackVolumePoints?: (points: import("@/types/video").AudioGainPoint[]) => void;
+}
+
+function getNarrationTimelineDuration(segment: NarrationSegment) {
+  const playbackRate = Number.isFinite(segment.playbackRate ?? 1)
+    ? Math.max(0.25, segment.playbackRate ?? 1)
+    : 1;
+  return Math.max(0.05, (segment.outPoint - segment.inPoint) / playbackRate);
+}
+
+function alignSubtitleTracksToNarrationTiming(
+  segment: VideoSegment,
+  timingBySubtitleId: ReadonlyMap<string, { startTime: number; endTime: number }>,
+): VideoSegment {
+  if (timingBySubtitleId.size === 0) return segment;
+  return updateAllSubtitleTracks(segment, (track) => ({
+    ...track,
+    segments: track.segments.map((subtitle) => {
+      const timing = timingBySubtitleId.get(subtitle.id);
+      if (!timing) return subtitle;
+      return {
+        ...subtitle,
+        startTime: timing.startTime,
+        endTime: timing.endTime,
+      };
+    }),
+  }));
 }
 
 export function EditorMain({
@@ -279,6 +309,10 @@ export function EditorMain({
   onSubtitleGeminiPromptChange,
   subtitleGroqVocabulary,
   onSubtitleGroqVocabularyChange,
+  autoSplitSubtitles,
+  onAutoSplitSubtitlesChange,
+  autoSplitSubtitleMaxUnits,
+  onAutoSplitSubtitleMaxUnitsChange,
   isGeneratingSubtitles,
   subtitleStatusMessage,
   subtitleGenerationIndicator,
@@ -435,6 +469,39 @@ export function EditorMain({
     setSelectedNarrationSegmentRange(null);
     setActivePanel('audio');
   }, [setActivePanel]);
+  const handleAlignSubtitlesToNarration = useCallback(() => {
+    if (!segment || !narrationSegments?.length) return;
+    const selectedNarrations = narrationSegments
+      .filter((narration) =>
+        selectedNarrationSegmentIdSet.has(narration.id) &&
+        !!narration.sourceSubtitleId,
+      )
+      .sort((left, right) => left.startTime - right.startTime || left.id.localeCompare(right.id));
+    if (selectedNarrations.length === 0) return;
+
+    const timingBySubtitleId = new Map<string, { startTime: number; endTime: number }>();
+    for (const narration of selectedNarrations) {
+      const subtitleId = narration.sourceSubtitleId;
+      if (!subtitleId) continue;
+      const startTime = Math.max(0, narration.startTime);
+      timingBySubtitleId.set(subtitleId, {
+        startTime,
+        endTime: startTime + getNarrationTimelineDuration(narration),
+      });
+    }
+    if (timingBySubtitleId.size === 0) return;
+
+    beginBatch();
+    setSegment(alignSubtitleTracksToNarrationTiming(segment, timingBySubtitleId));
+    commitBatch();
+  }, [
+    beginBatch,
+    commitBatch,
+    narrationSegments,
+    segment,
+    selectedNarrationSegmentIdSet,
+    setSegment,
+  ]);
 
   const totalSelectedCount =
     selectedTextIds.length +
@@ -829,6 +896,10 @@ export function EditorMain({
             onSubtitleGeminiPromptChange={onSubtitleGeminiPromptChange}
             subtitleGroqVocabulary={subtitleGroqVocabulary}
             onSubtitleGroqVocabularyChange={onSubtitleGroqVocabularyChange}
+            autoSplitSubtitles={autoSplitSubtitles}
+            onAutoSplitSubtitlesChange={onAutoSplitSubtitlesChange}
+            autoSplitSubtitleMaxUnits={autoSplitSubtitleMaxUnits}
+            onAutoSplitSubtitleMaxUnitsChange={onAutoSplitSubtitleMaxUnitsChange}
             isGeneratingSubtitles={isGeneratingSubtitles}
             subtitleStatusMessage={subtitleStatusMessage}
             canUseVideoSubtitleSource={segment?.deviceAudioAvailable !== false}
@@ -853,6 +924,7 @@ export function EditorMain({
             onUpdateNarrationSegmentForPanel={onUpdateNarrationSegment}
             onDeleteNarrationSegmentsForPanel={onDeleteNarrationSegments}
             onCommitNarrationSegmentsForPanel={onCommitNarrationSegments}
+            onAlignSubtitlesToNarration={handleAlignSubtitlesToNarration}
             visibleSubtitlesForNarration={visibleSubtitleSegments}
             subtitleTracksForNarration={allSubtitleTracks}
             subtitleTranslation={subtitleTranslation}

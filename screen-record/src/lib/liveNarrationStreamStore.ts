@@ -14,6 +14,11 @@ const EMPTY_STATE: LiveNarrationState = {
 const states = new Map<string, LiveNarrationState>();
 const listeners = new Set<() => void>();
 
+function getNarrationSourceIds(segment: NarrationSegment): string[] {
+  if (segment.sourceSubtitleIds?.length) return segment.sourceSubtitleIds;
+  return segment.sourceSubtitleId ? [segment.sourceSubtitleId] : [];
+}
+
 function emit() {
   listeners.forEach((listener) => listener());
 }
@@ -37,7 +42,7 @@ export function applyLiveNarrationSegments(
   const nextSegments = [
     ...previous.segments.filter((segment) => {
       if (incomingIds.has(segment.id)) return false;
-      if (segment.sourceSubtitleId && replaceSet.has(segment.sourceSubtitleId)) return false;
+      if (getNarrationSourceIds(segment).some((id) => replaceSet.has(id))) return false;
       return true;
     }),
     ...segments,
@@ -64,17 +69,14 @@ export function mergeLiveNarrationSegments(
   const liveIds = new Set(liveSegments.map((segment) => segment.id));
   const liveSourceIds = new Set(
     liveSegments
-      .map((segment) => segment.sourceSubtitleId)
-      .filter((id): id is string => Boolean(id)),
+      .flatMap(getNarrationSourceIds),
   );
   return [
     ...(baseSegments ?? []).filter((segment) => {
       if (liveIds.has(segment.id)) return false;
-      if (
-        segment.sourceSubtitleId &&
-        (liveSourceIds.has(segment.sourceSubtitleId) ||
-          liveState.hiddenSourceSubtitleIds.has(segment.sourceSubtitleId))
-      ) {
+      if (getNarrationSourceIds(segment).some((id) =>
+        liveSourceIds.has(id) || liveState.hiddenSourceSubtitleIds.has(id),
+      )) {
         return false;
       }
       return true;

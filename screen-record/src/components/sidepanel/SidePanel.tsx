@@ -148,6 +148,10 @@ interface SidePanelProps {
   onSubtitleGeminiPromptChange: (value: string) => void;
   subtitleGroqVocabulary: string[];
   onSubtitleGroqVocabularyChange: (value: string[]) => void;
+  autoSplitSubtitles: boolean;
+  onAutoSplitSubtitlesChange: (value: boolean) => void;
+  autoSplitSubtitleMaxUnits: number;
+  onAutoSplitSubtitleMaxUnitsChange: (value: number) => void;
   isGeneratingSubtitles: boolean;
   subtitleStatusMessage?: string | null;
   canUseVideoSubtitleSource: boolean;
@@ -175,6 +179,7 @@ interface SidePanelProps {
   onUpdateNarrationSegmentForPanel?: (id: string, patch: Partial<NarrationSegment>) => void;
   onDeleteNarrationSegmentsForPanel?: (ids: string[]) => void;
   onCommitNarrationSegmentsForPanel?: () => void;
+  onAlignSubtitlesToNarration?: () => void;
   visibleSubtitlesForNarration?: SubtitleSegment[];
   subtitleTracksForNarration?: import('@/types/video').SubtitleTrack[];
   subtitleTranslation: ReturnType<typeof useSubtitleTranslation>;
@@ -220,6 +225,10 @@ export function SidePanel({
   onSubtitleGeminiPromptChange,
   subtitleGroqVocabulary,
   onSubtitleGroqVocabularyChange,
+  autoSplitSubtitles,
+  onAutoSplitSubtitlesChange,
+  autoSplitSubtitleMaxUnits,
+  onAutoSplitSubtitleMaxUnitsChange,
   isGeneratingSubtitles,
   subtitleStatusMessage,
   canUseVideoSubtitleSource,
@@ -242,6 +251,7 @@ export function SidePanel({
   selectedNarrationSegmentIds,
   onUpdateNarrationSegmentForPanel,
   onCommitNarrationSegmentsForPanel,
+  onAlignSubtitlesToNarration,
   visibleSubtitlesForNarration,
   subtitleTracksForNarration,
   subtitleTranslation,
@@ -362,6 +372,10 @@ export function SidePanel({
           onGeminiPromptChange={onSubtitleGeminiPromptChange}
           groqVocabulary={subtitleGroqVocabulary}
           onGroqVocabularyChange={onSubtitleGroqVocabularyChange}
+          autoSplitSubtitles={autoSplitSubtitles}
+          onAutoSplitSubtitlesChange={onAutoSplitSubtitlesChange}
+          autoSplitSubtitleMaxUnits={autoSplitSubtitleMaxUnits}
+          onAutoSplitSubtitleMaxUnitsChange={onAutoSplitSubtitleMaxUnitsChange}
           isGenerating={isGeneratingSubtitles}
           statusMessage={subtitleStatusMessage}
           canUseVideoSource={canUseVideoSubtitleSource}
@@ -392,6 +406,7 @@ export function SidePanel({
           selectedNarrationIds={selectedNarrationSegmentIds ?? new Set()}
           onUpdateImportedSegment={onUpdateAudioSegmentForPanel ?? (() => undefined)}
           onUpdateNarrationSegment={onUpdateNarrationSegmentForPanel ?? (() => undefined)}
+          onAlignSubtitlesToNarration={onAlignSubtitlesToNarration}
           beginBatch={beginBatch}
           commitBatch={commitBatch}
           onCommitImportedSegments={onCommitAudioSegmentsForPanel}

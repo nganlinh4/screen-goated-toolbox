@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { videoRenderer } from "@/lib/videoRenderer";
 import { createVideoController } from "@/lib/videoController";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
-import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
+import { getVisibleSubtitleSegments, normalizeSubtitleTrackState } from "@/lib/subtitleTracks";
 import { thumbnailGenerator } from "@/lib/thumbnailGenerator";
 import { getBaseTimelineThumbnailCount } from "@/lib/timelineThumbnailCount";
 import { getSpeedAtTime } from "@/lib/videoExporter";
@@ -72,6 +72,10 @@ export function useVideoPlayback({
     raf: null,
     lastTick: 0,
   });
+  const normalizedSegment = useMemo(
+    () => (segment ? normalizeSubtitleTrackState(segment) : null),
+    [segment],
+  );
 
   const getPlaybackStructureSignature = useCallback((nextSegment: VideoSegment) => JSON.stringify({
     trimStart: nextSegment.trimStart,
@@ -160,13 +164,13 @@ export function useVideoPlayback({
   }, []);
 
   const renderTimelineOnlyFrame = useCallback((time: number) => {
-    if (!segment || !videoRef.current || !canvasRef.current) return;
+    if (!normalizedSegment || !videoRef.current || !canvasRef.current) return;
     void videoRenderer.drawFrame({
       video: videoRef.current,
       webcamVideo: webcamVideoRef.current,
       canvas: canvasRef.current,
       tempCanvas: tempCanvasRef.current,
-      segment: { ...segment, mediaMode: "timelineOnly" },
+      segment: { ...normalizedSegment, mediaMode: "timelineOnly" },
       backgroundConfig: cloneBackgroundConfig(backgroundConfig),
       webcamConfig,
       mousePositions: mousePositionsRef.current,
@@ -177,12 +181,12 @@ export function useVideoPlayback({
     backgroundConfig,
     interactiveBackgroundPreview,
     mousePositionsRef,
-    segment,
+    normalizedSegment,
     webcamConfig,
   ]);
 
   const renderFrame = useCallback(() => {
-    if (!segment || !videoRef.current || !canvasRef.current) return;
+    if (!normalizedSegment || !videoRef.current || !canvasRef.current) return;
     if (isTimelineOnly) {
       renderTimelineOnlyFrame(currentTimeRef.current);
       return;
@@ -191,16 +195,16 @@ export function useVideoPlayback({
 
     const renderSegment = isCropping
       ? {
-          ...segment,
+          ...normalizedSegment,
           crop: undefined,
-          zoomKeyframes: segment.zoomKeyframes.map((k) => ({
+          zoomKeyframes: normalizedSegment.zoomKeyframes.map((k) => ({
             ...k,
             zoomFactor: 1.0,
             positionX: 0.5,
             positionY: 0.5,
           })),
         }
-      : segment;
+      : normalizedSegment;
 
     const renderBackground = isCropping
       ? {
@@ -228,7 +232,7 @@ export function useVideoPlayback({
       interactiveBackgroundPreview,
     });
   }, [
-    segment,
+    normalizedSegment,
     backgroundConfig,
     webcamConfig,
     interactiveBackgroundPreview,
@@ -247,7 +251,7 @@ export function useVideoPlayback({
 
   const seek = useCallback((time: number) => {
     if (isTimelineOnly) {
-      const safeDuration = Math.max(duration, segment?.trimEnd ?? 0, 0);
+      const safeDuration = Math.max(duration, normalizedSegment?.trimEnd ?? 0, 0);
       const clamped = Math.max(0, Math.min(time, safeDuration));
       currentTimeRef.current = clamped;
       setCurrentTime(clamped);
@@ -255,7 +259,7 @@ export function useVideoPlayback({
       return;
     }
     videoControllerRef.current?.seek(time);
-  }, [duration, isTimelineOnly, renderTimelineOnlyFrame, segment?.trimEnd]);
+  }, [duration, isTimelineOnly, normalizedSegment?.trimEnd, renderTimelineOnlyFrame]);
 
   const flushSeek = useCallback(() => {
     if (isTimelineOnly) return;
@@ -433,8 +437,8 @@ export function useVideoPlayback({
   }, [currentTime]);
 
   useEffect(() => {
-    if (!isTimelineOnly || !segment) return;
-    const safeDuration = Math.max(segment.trimEnd, duration, 1);
+    if (!isTimelineOnly || !normalizedSegment) return;
+    const safeDuration = Math.max(normalizedSegment.trimEnd, duration, 1);
     if (duration !== safeDuration) setDuration(safeDuration);
     setIsVideoReady(true);
     setCurrentVideo(null);
@@ -444,7 +448,7 @@ export function useVideoPlayback({
       setCurrentTime(safeDuration);
     }
     renderTimelineOnlyFrame(currentTimeRef.current);
-  }, [duration, isTimelineOnly, renderTimelineOnlyFrame, segment]);
+  }, [duration, isTimelineOnly, renderTimelineOnlyFrame, normalizedSegment]);
 
   useEffect(() => {
     if (!isTimelineOnly) return;
@@ -452,17 +456,17 @@ export function useVideoPlayback({
       cancelAnimationFrame(timelineOnlyPlaybackRef.current.raf);
       timelineOnlyPlaybackRef.current.raf = null;
     }
-    if (!isPlaying || !segment) return;
+    if (!isPlaying || !normalizedSegment) return;
 
     timelineOnlyPlaybackRef.current.lastTick = performance.now();
     const tick = (now: number) => {
       const playback = timelineOnlyPlaybackRef.current;
       const dt = Math.max(0, (now - playback.lastTick) / 1000);
       playback.lastTick = now;
-      const safeDuration = Math.max(segment.trimEnd, duration, 1);
+      const safeDuration = Math.max(normalizedSegment.trimEnd, duration, 1);
       const speed = Math.max(
         0.0625,
-        getSpeedAtTime(currentTimeRef.current, segment.speedPoints ?? []),
+        getSpeedAtTime(currentTimeRef.current, normalizedSegment.speedPoints ?? []),
       );
       const nextTime = Math.min(safeDuration, currentTimeRef.current + dt * speed);
       currentTimeRef.current = nextTime;
@@ -483,7 +487,7 @@ export function useVideoPlayback({
         timelineOnlyPlaybackRef.current.raf = null;
       }
     };
-  }, [duration, isPlaying, isTimelineOnly, renderTimelineOnlyFrame, segment]);
+  }, [duration, isPlaying, isTimelineOnly, normalizedSegment, renderTimelineOnlyFrame]);
 
   // Render options sync — apply isCropping overrides so the controller always
   // renders the correct view (e.g. after seeked events, thumbnail generation).
@@ -492,9 +496,9 @@ export function useVideoPlayback({
       renderFrame();
       return;
     }
-    if (!segment || !videoControllerRef.current) return;
+    if (!normalizedSegment || !videoControllerRef.current) return;
     const video = videoRef.current;
-    const nextStructureSignature = getPlaybackStructureSignature(segment);
+    const nextStructureSignature = getPlaybackStructureSignature(normalizedSegment);
     const isSubtitleOnlyChange =
       lastPlaybackStructureSignatureRef.current !== "" &&
       lastPlaybackStructureSignatureRef.current === nextStructureSignature;
@@ -506,16 +510,16 @@ export function useVideoPlayback({
 
     const renderSegment = isCropping
       ? {
-          ...segment,
+          ...normalizedSegment,
           crop: undefined,
-          zoomKeyframes: segment.zoomKeyframes.map((k) => ({
+          zoomKeyframes: normalizedSegment.zoomKeyframes.map((k) => ({
             ...k,
             zoomFactor: 1.0,
             positionX: 0.5,
             positionY: 0.5,
           })),
         }
-      : segment;
+      : normalizedSegment;
 
     const renderBackground = isCropping
       ? {
@@ -538,7 +542,7 @@ export function useVideoPlayback({
       interactiveBackgroundPreview,
     });
   }, [
-    segment,
+    normalizedSegment,
     backgroundConfig,
     webcamConfig,
     interactiveBackgroundPreview,
@@ -558,8 +562,8 @@ export function useVideoPlayback({
       return;
     }
     const video = videoRef.current;
-    if (!video || !segment) return;
-    const nextStructureSignature = getPlaybackStructureSignature(segment);
+    if (!video || !normalizedSegment) return;
+    const nextStructureSignature = getPlaybackStructureSignature(normalizedSegment);
     const isSubtitleOnlyChange =
       lastLoopStructureSignatureRef.current !== "" &&
       lastLoopStructureSignatureRef.current === nextStructureSignature;
@@ -575,16 +579,16 @@ export function useVideoPlayback({
 
     const loopSegment = isCropping
       ? {
-          ...segment,
+          ...normalizedSegment,
           crop: undefined,
-          zoomKeyframes: segment.zoomKeyframes.map((k) => ({
+          zoomKeyframes: normalizedSegment.zoomKeyframes.map((k) => ({
             ...k,
             zoomFactor: 1.0,
             positionX: 0.5,
             positionY: 0.5,
           })),
         }
-      : segment;
+      : normalizedSegment;
 
     const loopBackground = isCropping
       ? {
@@ -617,7 +621,7 @@ export function useVideoPlayback({
       renderFrame();
     }
   }, [
-    segment,
+    normalizedSegment,
     backgroundConfig,
     webcamConfig,
     interactiveBackgroundPreview,

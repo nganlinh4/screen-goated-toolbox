@@ -11,9 +11,15 @@ import {
   createTranslationTrack,
   getActiveSubtitleTrack,
   getActiveSubtitleView,
+  getVisibleSubtitleSegments,
   getSubtitleTracks,
   normalizeSubtitleTrackState,
 } from '@/lib/subtitleTracks';
+import {
+  smartSplitText,
+  splitTextIntoChunkCount,
+  splitTimingByChunks,
+} from '@/lib/segmentSmartSplit';
 
 function cloneSubtitleSegment(segment: SubtitleSegment): SubtitleSegment {
   return {
@@ -407,6 +413,45 @@ export function splitSubtitleAcrossTracks(
     };
   });
   return { segment: didSplit ? nextSegment : normalizeSubtitleTrackState(segment), newSubtitleId: didSplit ? newSubtitleId : null };
+}
+
+export function splitSubtitleIdsAcrossTracks(
+  segment: VideoSegment,
+  subtitleIds: readonly string[],
+  maxUnits: number,
+): VideoSegment {
+  const selectedIds = new Set(subtitleIds);
+  if (selectedIds.size === 0 || maxUnits <= 0) return normalizeSubtitleTrackState(segment);
+
+  const splitPlanById = new Map<string, { ids: string[]; timings: Array<{ startTime: number; endTime: number }> }>();
+  for (const subtitle of getVisibleSubtitleSegments(segment)) {
+    if (!selectedIds.has(subtitle.id)) continue;
+    const chunks = smartSplitText(subtitle.text, maxUnits);
+    if (chunks.length <= 1) continue;
+    splitPlanById.set(subtitle.id, {
+      ids: chunks.map((_, index) => (index === 0 ? subtitle.id : crypto.randomUUID())),
+      timings: splitTimingByChunks(subtitle.startTime, subtitle.endTime, chunks),
+    });
+  }
+  if (splitPlanById.size === 0) return normalizeSubtitleTrackState(segment);
+
+  return mapConcreteTracks(segment, (track) => ({
+    ...track,
+    segments: sortSubtitleSegments(
+      track.segments.flatMap((subtitle) => {
+        const plan = splitPlanById.get(subtitle.id);
+        if (!plan) return [subtitle];
+        const chunks = splitTextIntoChunkCount(subtitle.text, plan.ids.length);
+        return plan.ids.map((id, index) => ({
+          ...cloneSubtitleSegment(subtitle),
+          id,
+          text: chunks[index]?.text ?? subtitle.text,
+          startTime: plan.timings[index]?.startTime ?? subtitle.startTime,
+          endTime: plan.timings[index]?.endTime ?? subtitle.endTime,
+        }));
+      }),
+    ),
+  }));
 }
 
 export function mergeSubtitleSelectionAcrossTracks(

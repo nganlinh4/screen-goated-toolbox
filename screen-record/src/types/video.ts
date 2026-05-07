@@ -78,6 +78,12 @@ export interface TextSegment {
   endTime: number;
   text: string;
   style: TextStyle;
+  splitGroupId?: string;
+  splitGroupIndex?: number;
+  splitGroupCount?: number;
+  splitGroupText?: string;
+  splitGroupStartTime?: number;
+  splitGroupEndTime?: number;
   sourceGroup?: SubtitleSourceGroup;
   provenance?: SubtitleProvenance;
 }
@@ -240,6 +246,8 @@ export interface NarrationSegment {
   addedAt: number;
   /** Originating subtitle id (so re-synthesize can target the same row). */
   sourceSubtitleId?: string;
+  /** All subtitle ids covered by this clip when narration was generated from an unsplit subtitle group. */
+  sourceSubtitleIds?: string[];
   /** Group id for the narration generation batch this clip came from. */
   narrationBatchId?: string;
   /** TTS profile snapshot used to synthesize this clip. */
