@@ -68,6 +68,16 @@ impl DownloadManager {
                     }
                     ui.add_space(5.0);
                     ui.add(egui::ProgressBar::new(*progress).animate(true));
+                    ui.add_space(5.0);
+                    if ui
+                        .add_sized(
+                            [ui.available_width(), 30.0],
+                            egui::Button::new(text.download_cancel_btn),
+                        )
+                        .clicked()
+                    {
+                        self.cancel_download();
+                    }
                 });
             }
         }
