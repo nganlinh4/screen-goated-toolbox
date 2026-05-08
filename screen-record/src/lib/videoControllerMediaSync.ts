@@ -69,6 +69,7 @@ export function syncAudioElementPlaybackRate(
   playbackRate: number,
 ): void {
   if (!element || !hasValidMediaElement(element)) return;
+  element.preservesPitch = true;
   element.playbackRate = playbackRate;
 }
 

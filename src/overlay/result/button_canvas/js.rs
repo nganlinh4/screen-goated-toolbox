@@ -460,7 +460,7 @@ function generateRefineInputHTML(hwnd, state) {
         </div>
         <div class="btn" style="width:24px;height:24px;border:none;background:transparent;box-shadow:none;cursor:pointer;display:flex;align-items:center;justify-content:center;"
             onclick="action('${hwnd}', 'cancel_refine')"
-            title="Cancel">
+            title="${window.L10N.cancel}">
             <span style="font-size:14px;color:var(--refine-placeholder);pointer-events:none;">✕</span>
         </div>
     </div>`;

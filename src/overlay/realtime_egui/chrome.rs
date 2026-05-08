@@ -20,7 +20,7 @@ pub(super) fn render_transcription_header(
             ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
             render_volume_meter(ui, theme, 56.0);
             render_source_group(ui, theme, locale, is_device_mode);
-            render_transcription_controls(ui, theme);
+            render_transcription_controls(ui, theme, locale);
             if compact_button(ui, "Copy", false, theme)
                 .on_hover_text(locale.overlay_copy_tooltip)
                 .clicked()
@@ -337,7 +337,11 @@ fn render_font_group(
     });
 }
 
-fn render_transcription_controls(ui: &mut egui::Ui, theme: &RealtimeEguiTheme) {
+fn render_transcription_controls(
+    ui: &mut egui::Ui,
+    theme: &RealtimeEguiTheme,
+    locale: &crate::gui::locale::LocaleText,
+) {
     let (current_model, current_language) = APP
         .lock()
         .map(|a| {
@@ -383,7 +387,7 @@ fn render_transcription_controls(ui: &mut egui::Ui, theme: &RealtimeEguiTheme) {
             }
         },
     )
-    .on_hover_text("Transcription model");
+    .on_hover_text(locale.realtime_tooltip_transcription_model);
 
     ui.add_enabled_ui(current_model == "zipformer", |ui| {
         render_combo(
@@ -414,7 +418,7 @@ fn render_transcription_controls(ui: &mut egui::Ui, theme: &RealtimeEguiTheme) {
                 }
             },
         )
-        .on_hover_text("Zipformer language");
+        .on_hover_text(locale.realtime_tooltip_transcription_language);
     });
 }
 

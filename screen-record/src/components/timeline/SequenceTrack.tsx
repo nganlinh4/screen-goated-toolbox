@@ -1,6 +1,7 @@
 import type { ProjectComposition, ProjectCompositionMode } from "@/types/video";
 import { getClipOffsets, getSequenceDuration } from "@/lib/projectComposition";
 import { Plus, Trash2 } from "lucide-react";
+import { useSettings } from "@/hooks/useSettings";
 
 interface SequenceTrackProps {
   composition: ProjectComposition;
@@ -23,6 +24,7 @@ export function SequenceTrack({
   onRemoveClip,
   onModeChange,
 }: SequenceTrackProps) {
+  const { t } = useSettings();
   const totalDuration = Math.max(getSequenceDuration(composition), 0.001);
   const offsets = getClipOffsets(composition);
   return (
@@ -53,7 +55,7 @@ export function SequenceTrack({
           type="button"
           className="sequence-insert-btn sequence-insert-btn-start ui-chip-button absolute left-1 top-1/2 z-10 -translate-y-1/2 rounded-full p-1 text-[var(--on-surface)]"
           onClick={() => onInsertAt(composition.selectedClipId, "before")}
-          title="Add project before"
+          title={t.sequenceAddProjectBefore}
         >
           <Plus className="w-3 h-3" />
         </button>
@@ -83,14 +85,14 @@ export function SequenceTrack({
                   {formatDuration(clip.duration)}
                 </div>
                 <div className="sequence-clip-role text-[9px] uppercase tracking-[0.12em] opacity-55">
-                  {clip.role === "root" ? "current" : "inserted"}
+                  {clip.role === "root" ? t.sequenceCurrentClip : t.sequenceInsertedClip}
                 </div>
               </button>
               <button
                 type="button"
                 onClick={() => onInsertAt(clip.id, "after")}
                 className="sequence-insert-btn sequence-insert-btn-after ui-chip-button absolute -right-2 top-1/2 z-10 -translate-y-1/2 rounded-full p-1 text-[var(--on-surface)]"
-                title="Add project after"
+                title={t.sequenceAddProjectAfter}
               >
                 <Plus className="w-3 h-3" />
               </button>
@@ -99,7 +101,7 @@ export function SequenceTrack({
                   type="button"
                   onClick={() => onRemoveClip(clip.id)}
                   className="sequence-remove-btn absolute right-1 top-1 rounded-md p-1 text-[var(--outline)] opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
-                  title="Remove inserted clip"
+                  title={t.sequenceRemoveInsertedClip}
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>

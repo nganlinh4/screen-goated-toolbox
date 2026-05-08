@@ -67,10 +67,11 @@ pub(crate) fn generate_items_html(entries: &[WheelEntry]) -> String {
     html
 }
 
-pub(crate) fn get_wheel_template(is_dark: bool) -> String {
+pub(crate) fn get_wheel_template(is_dark: bool, cancel_text: &str) -> String {
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
     let css = generate_css(is_dark);
     let js = get_js();
+    let cancel_text = escape_html(cancel_text);
 
     format!(
         r#"<!DOCTYPE html>
@@ -86,7 +87,7 @@ pub(crate) fn get_wheel_template(is_dark: bool) -> String {
 </head>
 <body>
 <div class="container">
-    <div class="dismiss-btn" onclick="dismiss()">CANCEL</div>
+    <div class="dismiss-btn" onclick="dismiss()">{cancel_text}</div>
     <div class="presets-grid" id="grid"></div>
 </div>
 <script>

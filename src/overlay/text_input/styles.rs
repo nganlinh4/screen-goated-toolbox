@@ -346,13 +346,16 @@ pub fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
         .replace('\n', "\\n");
 
     // Locale text
-    let (submit_txt, newline_txt, cancel_txt) = {
+    let (submit_txt, newline_txt, cancel_txt, close_title, mic_title, send_title) = {
         let lang = CFG_LANG.lock().unwrap().clone();
         let locale = crate::gui::locale::LocaleText::get(&lang);
         (
             locale.text_input_footer_submit.to_string(),
             locale.text_input_footer_newline.to_string(),
             locale.text_input_footer_cancel.to_string(),
+            locale.text_input_close_tooltip.to_string(),
+            locale.text_input_speech_to_text_tooltip.to_string(),
+            locale.text_input_send_tooltip.to_string(),
         )
     };
     let cancel_hint = {
@@ -387,7 +390,7 @@ pub fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
     <div class="editor-container">
         <div class="header" id="headerRegion">
             <span class="header-title" id="headerTitle">{title_text}</span>
-            <div class="close-btn" id="closeBtn" title="Close">
+            <div class="close-btn" id="closeBtn" title="{close_title}">
                 {close_svg}
             </div>
         </div>
@@ -395,10 +398,10 @@ pub fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
         <textarea id="editor" placeholder="{placeholder}" autofocus></textarea>
 
         <div class="btn-container">
-            <button class="mic-btn" id="micBtn" title="Speech to text">
+            <button class="mic-btn" id="micBtn" title="{mic_title}">
                 {mic_svg}
             </button>
-            <button class="send-btn" id="sendBtn" title="Send">
+            <button class="send-btn" id="sendBtn" title="{send_title}">
                 {send_svg}
             </button>
         </div>

@@ -310,7 +310,7 @@ pub fn download_qwen3_1_7b_model(stop_signal: Arc<AtomicBool>, use_badge: bool) 
             }
 
             if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = format!("Downloading {}...", file.path);
+                state.download_message = locale.qwen3_downloading_file.replace("{}", &file.path);
             }
             post_download_state();
 

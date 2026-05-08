@@ -114,6 +114,7 @@ pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) ->
     if is_sherpa_dlls_installed() {
         return Ok(());
     }
+    let locale = super::sherpa_locale();
 
     crate::log_info!(
         "[Sherpa] Downloading sherpa-onnx v{} DLLs from official release...",
@@ -140,11 +141,10 @@ pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) ->
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = "Downloading sherpa-onnx DLLs".to_string();
-        state.download_message = format!(
-            "Downloading sherpa-onnx v{} runtime (~50 MB)...",
-            SHERPA_ONNX_VERSION
-        );
+        state.download_title = locale.sherpa_dll_downloading_title.to_string();
+        state.download_message = locale
+            .sherpa_dll_downloading_runtime_fmt
+            .replace("{}", SHERPA_ONNX_VERSION);
         state.download_progress = 0.0;
     }
     post_download_state();
@@ -153,16 +153,15 @@ pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) ->
         let archive_path = bin_dir.join("sherpa-onnx-v1.12.35-win-x64-shared-MD-Release.tar.bz2");
 
         if let Ok(mut state) = REALTIME_STATE.lock() {
-            state.download_message = format!(
-                "Downloading sherpa-onnx v{} shared library release...",
-                SHERPA_ONNX_VERSION
-            );
+            state.download_message = locale
+                .sherpa_dll_downloading_release_fmt
+                .replace("{}", SHERPA_ONNX_VERSION);
             state.download_progress = 5.0;
         }
         post_download_state();
         super::super::utils::update_overlay_text(
             overlay_hwnd,
-            "Downloading sherpa-onnx runtime DLLs...",
+            locale.sherpa_dll_downloading_overlay,
         );
 
         crate::api::realtime_audio::model_loader::download_file(
@@ -178,13 +177,13 @@ pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) ->
         }
 
         if let Ok(mut state) = REALTIME_STATE.lock() {
-            state.download_message = "Extracting sherpa-onnx DLLs...".to_string();
+            state.download_message = locale.sherpa_dll_extracting.to_string();
             state.download_progress = 75.0;
         }
         post_download_state();
         super::super::utils::update_overlay_text(
             overlay_hwnd,
-            "Extracting sherpa-onnx runtime DLLs...",
+            locale.sherpa_dll_extracting_overlay,
         );
 
         // Use Windows built-in tar.exe to extract into a temp dir

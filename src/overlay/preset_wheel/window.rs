@@ -203,9 +203,5 @@ fn ensure_wheel_ready() -> bool {
 }
 
 fn dismiss_label(ui_lang: &str) -> &'static str {
-    match ui_lang {
-        "vi" => "HỦY",
-        "ko" => "취소",
-        _ => "CANCEL",
-    }
+    crate::gui::locale::LocaleText::get(ui_lang).preset_wheel_cancel
 }

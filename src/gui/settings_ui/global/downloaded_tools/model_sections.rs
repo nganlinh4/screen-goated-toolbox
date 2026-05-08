@@ -384,7 +384,8 @@ fn render_qwen3_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let is_downloading_runtime = is_qwen3_runtime_downloading() || {
                 if let Ok(state) = REALTIME_STATE.lock() {
-                    state.is_downloading && state.download_title.contains("CUDA Runtime")
+                    state.is_downloading
+                        && state.download_title == text.qwen3_runtime_downloading_title
                 } else {
                     false
                 }

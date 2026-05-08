@@ -165,13 +165,13 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             format!(
                 r#"
                 <div class="btn-group">
-                    <span class="material-symbols-rounded audio-icon {mic_active}" id="mic-btn" data-value="mic" title="Microphone Input">{mic_svg}</span>
-                    <span class="material-symbols-rounded audio-icon {device_active}" id="device-btn" data-value="device" title="Device Audio">{device_svg}</span>
+                    <span class="material-symbols-rounded audio-icon {mic_active}" id="mic-btn" data-value="mic" title="{mic_title}">{mic_svg}</span>
+                    <span class="material-symbols-rounded audio-icon {device_active}" id="device-btn" data-value="device" title="{device_title}">{device_svg}</span>
                 </div>
-                <select class="model-dropdown" id="transcription-model-select" title="Transcription Model">
+                <select class="model-dropdown" id="transcription-model-select" title="{model_title}">
                     {options_html}
                 </select>
-                <select class="model-dropdown" id="transcription-lang-select" title="Transcription Language" {trans_lang_disabled}>
+                <select class="model-dropdown" id="transcription-lang-select" title="{language_title}" {trans_lang_disabled}>
                     {trans_lang_html}
                 </select>
             "#,
@@ -179,6 +179,10 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 device_active = if is_device { "active" } else { "" },
                 mic_svg = crate::overlay::html_components::icons::get_icon_svg("mic"),
                 device_svg = crate::overlay::html_components::icons::get_icon_svg("speaker_group"),
+                mic_title = text.realtime_tooltip_microphone_input,
+                device_title = text.realtime_tooltip_device_audio,
+                model_title = text.realtime_tooltip_transcription_model,
+                language_title = text.realtime_tooltip_transcription_language,
                 options_html = options_html,
                 trans_lang_html = trans_lang_html,
                 trans_lang_disabled = trans_lang_disabled,
@@ -222,21 +226,21 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 lang_options = lang_options,
                 model_options_html = model_options_html,
                 translation_model_title = if is_s2s {
-                    "Gemini S2S uses the TTS Gemini Live model"
+                    text.realtime_tooltip_s2s_translation_model
                 } else {
-                    "Translation Model"
+                    text.realtime_tooltip_translation_model
                 },
                 translation_model_disabled = if is_s2s { "disabled" } else { "" },
                 speak_active = if is_s2s { "active locked" } else { "" },
                 speak_title = if is_s2s {
-                    "Direct speech output settings"
+                    text.realtime_tooltip_direct_speech
                 } else {
-                    "Text-to-Speech Settings"
+                    text.realtime_tooltip_tts_settings
                 },
                 language_title = if is_s2s {
-                    "Change target language and restart the current S2S session"
+                    text.realtime_tooltip_s2s_target_language
                 } else {
-                    "Target Language"
+                    text.realtime_tooltip_target_language
                 },
                 language_disabled = "",
                 volume_up_svg = crate::overlay::html_components::icons::get_icon_svg("volume_up"),
@@ -261,6 +265,17 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         crate::overlay::html_components::js_main::get(font_size),
         crate::overlay::html_components::js_logic::get(placeholder_text, is_translation)
     );
+    let l10n_json = serde_json::json!({
+        "translationModel": text.realtime_tooltip_translation_model,
+        "s2sTranslationModel": text.realtime_tooltip_s2s_translation_model,
+        "targetLanguage": text.realtime_tooltip_target_language,
+        "s2sTargetLanguage": text.realtime_tooltip_s2s_target_language,
+        "directSpeech": text.realtime_tooltip_direct_speech,
+        "ttsSettings": text.realtime_tooltip_tts_settings,
+        "ttsS2sLocked": text.realtime_tts_s2s_locked_tooltip,
+        "ttsEnable": text.realtime_tts_enable_tooltip,
+    })
+    .to_string();
 
     // Get local font CSS (cached fonts, no network loading)
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
@@ -282,18 +297,18 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             <div id="title">{title_content}</div>
             <div id="controls">
                 {audio_selector}
-                <span class="ctrl-btn" id="copy-btn" title="Copy text"><span class="material-symbols-rounded">{content_copy_svg}</span></span>
+                <span class="ctrl-btn" id="copy-btn" title="{copy_title}"><span class="material-symbols-rounded">{content_copy_svg}</span></span>
                 <div class="pill-group">
-                    <span class="ctrl-btn" id="font-decrease" title="Decrease font size"><span class="material-symbols-rounded">{remove_svg}</span></span>
-                    <span class="ctrl-btn" id="font-increase" title="Increase font size"><span class="material-symbols-rounded">{add_svg}</span></span>
+                    <span class="ctrl-btn" id="font-decrease" title="{font_decrease_title}"><span class="material-symbols-rounded">{remove_svg}</span></span>
+                    <span class="ctrl-btn" id="font-increase" title="{font_increase_title}"><span class="material-symbols-rounded">{add_svg}</span></span>
                 </div>
                 <div class="btn-group">
-                    <span class="vis-btn mic active" id="toggle-mic" title="Toggle Transcription"><span class="material-symbols-rounded">{subtitles_svg}</span></span>
-                    <span class="vis-btn trans active" id="toggle-trans" title="Toggle Translation"><span class="material-symbols-rounded">{translate_svg}</span></span>
+                    <span class="vis-btn mic active" id="toggle-mic" title="{toggle_mic_title}"><span class="material-symbols-rounded">{subtitles_svg}</span></span>
+                    <span class="vis-btn trans active" id="toggle-trans" title="{toggle_trans_title}"><span class="material-symbols-rounded">{translate_svg}</span></span>
                 </div>
             </div>
         </div>
-        <div id="header-toggle" title="Toggle header"><span class="material-symbols-rounded">{expand_less_svg}</span></div>
+        <div id="header-toggle" title="{toggle_header_title}"><span class="material-symbols-rounded">{expand_less_svg}</span></div>
         <div id="viewport">
             <div id="content">
                 <span class="placeholder">{placeholder_text}</span>
@@ -306,13 +321,13 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
     <div id="download-modal">
         <div class="download-modal-title">
             <span class="material-symbols-rounded">{download_svg}</span>
-            <span id="download-title">Downloading Model</span>
+            <span id="download-title">{download_default_title}</span>
         </div>
-        <div class="download-modal-msg" id="download-msg">Please wait...</div>
+        <div class="download-modal-msg" id="download-msg">{download_wait}</div>
         <div class="download-progress-bar">
             <div class="download-progress-fill" id="download-fill" style="width: 0%;"></div>
         </div>
-        <button class="download-cancel-btn" id="download-cancel-btn" title="Cancel download and return to Gemini Live">
+        <button class="download-cancel-btn" id="download-cancel-btn" title="{download_cancel_title}">
             <span class="material-symbols-rounded">{close_svg}</span>
             {cancel_text}
         </button>
@@ -330,7 +345,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             <div class="speed-slider-container">
                 <input type="range" class="speed-slider" id="speed-slider" min="50" max="200" value="100" step="10">
                 <span class="speed-value" id="speed-value">1.0x</span>
-                <button class="auto-toggle on" id="auto-speed-toggle" title="Auto-adjust speed to catch up">{tts_auto}</button>
+                <button class="auto-toggle on" id="auto-speed-toggle" title="{tts_auto_title}">{tts_auto}</button>
             </div>
         </div>
         <div class="tts-modal-row">
@@ -350,27 +365,40 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         </div>
         <div class="app-modal-hint">{app_select_hint}</div>
         <div id="app-list" class="app-list">
-            <div class="app-loading">Loading...</div>
+            <div class="app-loading">{app_loading}</div>
         </div>
     </div>
     <script>
+        window.REALTIME_L10N = {l10n_json};
         {js_content}
     </script>
 </body>
 </html>"#,
         css_content = css,
         js_content = js,
+        l10n_json = l10n_json,
         is_s2s_attr = if is_s2s { "1" } else { "0" },
         tts_toggle_class = if is_s2s { "on locked" } else { "" },
         tts_toggle_title = if is_s2s {
-            "Direct speech output is always on for Gemini S2S"
+            text.realtime_tts_s2s_locked_tooltip
         } else {
-            "Enable text-to-speech"
+            text.realtime_tts_enable_tooltip
         },
         loading_icon = loading_icon,
         title_content = title_content,
         audio_selector = audio_selector,
         placeholder_text = placeholder_text,
+        copy_title = text.realtime_tooltip_copy_text,
+        font_decrease_title = text.realtime_tooltip_decrease_font,
+        font_increase_title = text.realtime_tooltip_increase_font,
+        toggle_mic_title = text.toggle_transcription_tooltip,
+        toggle_trans_title = text.toggle_translation_tooltip,
+        toggle_header_title = text.realtime_tooltip_toggle_header,
+        download_default_title = text.realtime_download_default_title,
+        download_wait = text.realtime_download_wait,
+        download_cancel_title = text.realtime_download_cancel_tooltip,
+        tts_auto_title = text.realtime_tts_auto_tooltip,
+        app_loading = text.realtime_app_loading,
         tts_title = text.realtime_tts_title,
         tts_speed = text.realtime_tts_speed,
         tts_auto = text.realtime_tts_auto,

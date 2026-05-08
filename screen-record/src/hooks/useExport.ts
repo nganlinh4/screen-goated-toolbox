@@ -47,6 +47,7 @@ interface UseExportProps {
   /** Actual FPS the most-recent recording was encoded at (from backend). Overrides probe. */
   lastCaptureFps: number | null;
   composition: ProjectComposition | null;
+  getLatestComposition?: () => ProjectComposition | null;
   currentProjectId: string | null;
   resolveClipExportSourcePath: (
     clip: ProjectCompositionClip,
@@ -277,7 +278,13 @@ export function useExport(props: UseExportProps) {
 
   // Shared builder for the prime-preparation args (used by both idle + dialog priming effects).
   const buildPrimeArgs = useCallback(
-    (videoEl: HTMLVideoElement, canvasEl: HTMLCanvasElement, segment: VideoSegment, sourceVideoPath: string) => ({
+    (
+      videoEl: HTMLVideoElement,
+      canvasEl: HTMLCanvasElement,
+      segment: VideoSegment,
+      sourceVideoPath: string,
+      compositionOverride?: ProjectComposition | null,
+    ) => ({
       width: exportOptions.width,
       height: exportOptions.height,
       fps: exportOptions.fps,
@@ -306,10 +313,10 @@ export function useExport(props: UseExportProps) {
       micAudioFilePath: props.micAudioFilePath || "",
       webcamVideoFilePath: props.webcamVideoFilePath || "",
       videoFilePath: sourceVideoPath,
-      audioSegments: props.composition?.audioSegments,
-      audioTrackVolumePoints: props.composition?.audioTrackVolumePoints,
-      narrationSegments: props.composition?.narrationSegments,
-      narrationTrackVolumePoints: props.composition?.narrationTrackVolumePoints,
+      audioSegments: (compositionOverride ?? props.composition)?.audioSegments,
+      audioTrackVolumePoints: (compositionOverride ?? props.composition)?.audioTrackVolumePoints,
+      narrationSegments: (compositionOverride ?? props.composition)?.narrationSegments,
+      narrationTrackVolumePoints: (compositionOverride ?? props.composition)?.narrationTrackVolumePoints,
     }),
     [
       exportOptions.width,
@@ -485,8 +492,9 @@ export function useExport(props: UseExportProps) {
     if (exportInFlightRef.current || isProcessing) {
       return;
     }
+    const latestComposition = props.getLatestComposition?.() ?? props.composition;
     const useBatchExport =
-      !!props.composition &&
+      !!latestComposition &&
       (isCompositionExport || (exportOptions.format || "mp4") === "both");
     if (
       !useBatchExport &&
@@ -507,16 +515,22 @@ export function useExport(props: UseExportProps) {
         requestAnimationFrame(() => resolve()),
       );
 
-      const res = useBatchExport && props.composition
+      const res = useBatchExport && latestComposition
         ? await exportCompositionAndDownload({
-            composition: props.composition,
+            composition: latestComposition,
             exportOptions,
             resolveClipSourcePath: props.resolveClipExportSourcePath,
             resolveClipMicAudioPath: props.resolveClipExportMicAudioPath,
             resolveClipWebcamPath: props.resolveClipExportWebcamPath,
           })
         : await videoExporter.exportAndDownload({
-            ...buildPrimeArgs(props.videoRef.current!, props.canvasRef.current!, props.segment!, sourceVideoPath),
+            ...buildPrimeArgs(
+              props.videoRef.current!,
+              props.canvasRef.current!,
+              props.segment!,
+              sourceVideoPath,
+              latestComposition,
+            ),
             format: exportOptions.format || "mp4",
             onProgress: setExportProgress,
           });

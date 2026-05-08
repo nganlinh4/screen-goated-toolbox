@@ -113,6 +113,7 @@ interface TimelineAreaProps {
   } | null;
   audioSegments?: ImportedAudioSegment[];
   onPickImportedAudioFile?: (file: File) => void;
+  onPickSubtitleFile?: (file: File) => void;
   onPickSubtitleSrtFile?: (file: File) => void;
   onAudioSegmentClick?: (id: string) => void;
   onUpdateAudioSegment?: (id: string, patch: Partial<ImportedAudioSegment>) => void;
@@ -188,6 +189,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   subtitleTranslationChunkPreview,
   audioSegments,
   onPickImportedAudioFile,
+  onPickSubtitleFile,
   onPickSubtitleSrtFile,
   onAudioSegmentClick,
   onUpdateAudioSegment,
@@ -284,12 +286,12 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   const showNarration = (narrationSegments?.length ?? 0) > 0;
 
   const importedAudioFileInputRef = useRef<HTMLInputElement>(null);
-  const subtitleSrtFileInputRef = useRef<HTMLInputElement>(null);
+  const subtitleFileInputRef = useRef<HTMLInputElement>(null);
   const handleTriggerImportedAudioPicker = useCallback(() => {
     importedAudioFileInputRef.current?.click();
   }, []);
-  const handleTriggerSubtitleSrtPicker = useCallback(() => {
-    subtitleSrtFileInputRef.current?.click();
+  const handleTriggerSubtitlePicker = useCallback(() => {
+    subtitleFileInputRef.current?.click();
   }, []);
   const handleImportedAudioFilePicked = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -299,13 +301,14 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     },
     [onPickImportedAudioFile],
   );
-  const handleSubtitleSrtFilePicked = useCallback(
+  const handleSubtitleFilePicked = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       event.target.value = "";
-      if (file && onPickSubtitleSrtFile) onPickSubtitleSrtFile(file);
+      const pickSubtitle = onPickSubtitleFile ?? onPickSubtitleSrtFile;
+      if (file && pickSubtitle) pickSubtitle(file);
     },
-    [onPickSubtitleSrtFile],
+    [onPickSubtitleFile, onPickSubtitleSrtFile],
   );
 
   const trackHeightsBeforeTrim = [
@@ -608,11 +611,11 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
         onChange={handleImportedAudioFilePicked}
       />
       <input
-        ref={subtitleSrtFileInputRef}
+        ref={subtitleFileInputRef}
         type="file"
-        accept=".srt,text/plain"
-        className="timeline-subtitle-srt-input hidden"
-        onChange={handleSubtitleSrtFilePicked}
+        accept=".srt,.vtt,text/plain,text/vtt,application/x-subrip"
+        className="timeline-subtitle-file-input hidden"
+        onChange={handleSubtitleFilePicked}
       />
       <div className="timeline-shell flex gap-4">
         <div className="timeline-side-column w-[4rem] flex-shrink-0">
@@ -728,10 +731,10 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                 {t.trackSubtitles}
               </span>
-              {onPickSubtitleSrtFile && (
+              {(onPickSubtitleFile || onPickSubtitleSrtFile) && (
                 <button
                   type="button"
-                  onClick={handleTriggerSubtitleSrtPicker}
+                  onClick={handleTriggerSubtitlePicker}
                   className="timeline-label-subtitles-add ui-icon-button absolute left-full ml-1 top-1/2 z-20 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--surface)]/95 text-[var(--primary-color)] opacity-0 shadow-sm transition-opacity duration-150 group-hover/subtitle-label:opacity-100 focus-visible:opacity-100"
                   title={t.importSubtitleSrt}
                   aria-label={t.importSubtitleSrt}

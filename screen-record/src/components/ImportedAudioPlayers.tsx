@@ -191,6 +191,7 @@ const MusicSegmentAudio = memo(function MusicSegmentAudio({
       : 1;
     const timelineSpeed = Math.max(0.1, Math.min(16, getSpeedAtTime(currentTime, speedPoints ?? [])));
     const effectiveRate = Math.max(0.05, Math.min(64, rate * timelineSpeed));
+    el.preservesPitch = true;
     if (Math.abs(el.playbackRate - effectiveRate) > 0.001) {
       el.playbackRate = effectiveRate;
     }

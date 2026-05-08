@@ -19,7 +19,7 @@ import type { SubtitleMethod } from "@/hooks/useSubtitleGeneration";
 import type { SubtitleSource } from "@/lib/subtitleGenerationPlan";
 import { useSubtitleTranslation } from "@/hooks/useSubtitleTranslation";
 import { createManualSubtitleSegment } from "@/lib/subtitleDefaults";
-import { importSubtitleSrtIntoSegment, saveAudioSubtitleSrts, saveSubtitleSrt } from "@/lib/subtitleSrt";
+import { importSubtitleFileIntoSegment, saveAudioSubtitleSrts, saveSubtitleSrt } from "@/lib/subtitleSrt";
 import type { SubtitleGenerationIndicator } from "@/lib/subtitleGenerationPlan";
 import {
   deriveSelectionRangeFromIds,
@@ -644,17 +644,17 @@ export function EditorMain({
     setActivePanel('subtitles');
   }, [composition?.audioSegments, currentTime, duration, segment, setActivePanel, setEditingSubtitleId, setSegment]);
 
-  const handleImportSubtitleSrt = useCallback(async (file: File) => {
+  const handleImportSubtitleFile = useCallback(async (file: File) => {
     if (!segment) return;
     try {
       const content = await file.text();
-      const { segment: nextSegment, subtitles: importedSubtitles } = importSubtitleSrtIntoSegment(
+      const { segment: nextSegment, subtitles: importedSubtitles } = importSubtitleFileIntoSegment(
         segment,
-        content,
+        { fileName: file.name, content, mimeType: file.type },
         duration,
       );
       if (importedSubtitles.length === 0) {
-        console.error('[SubtitleSrt] import failed: no valid subtitles found');
+        console.error('[SubtitleImport] import failed: no valid subtitles found');
         return;
       }
       setSegment(nextSegment);
@@ -662,7 +662,7 @@ export function EditorMain({
       setEditingSubtitleId(importedSubtitles[0]?.id ?? null);
       setActivePanel('subtitles');
     } catch (error) {
-      console.error('[SubtitleSrt] import failed:', error);
+      console.error('[SubtitleImport] import failed:', error);
     }
   }, [
     clearAllSelections,
@@ -968,7 +968,7 @@ export function EditorMain({
           onClearTimelineFocus={clearTimelineFocus}
           onAddText={handleAddText}
           onAddSubtitle={subtitleTranslation.canCreateManualSubtitles ? handleAddSubtitle : undefined}
-          onPickSubtitleSrtFile={handleImportSubtitleSrt}
+          onPickSubtitleFile={handleImportSubtitleFile}
           onAddKeystrokeSegment={handleAddKeystrokeSegment}
           onAddPointerSegment={handleAddPointerSegment}
           isPlaying={isPlaying}

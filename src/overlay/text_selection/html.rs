@@ -21,12 +21,11 @@ pub fn get_localized_badge_text(lang: &str, is_continuous: bool) -> String {
 
 /// Get localized image badge text (always continuous mode since image badge only shows in continuous mode)
 pub fn get_localized_image_badge_text(lang: &str) -> String {
-    match lang {
-        "vi" => "Chọn vùng MH (Liên tục)",
-        "ko" => "화면 선택 (연속)",
-        _ => "Select area (Continuous)",
-    }
-    .to_string()
+    let locale = crate::gui::locale::LocaleText::get(lang);
+    format!(
+        "{} ({})",
+        locale.select_region_badge, locale.continuous_input_label
+    )
 }
 
 /// Generate the HTML content for the badge WebView

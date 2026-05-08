@@ -79,14 +79,14 @@ pub fn render_history_panel(
 
                 if !search_query.is_empty()
                     && icon_button(ui, Icon::Close)
-                        .on_hover_text("Clear search")
+                        .on_hover_text(text.history_clear_search_tooltip)
                         .clicked()
                 {
                     *search_query = "".to_string();
                 }
 
                 if icon_button(ui, Icon::Folder)
-                    .on_hover_text("Open Media Folder")
+                    .on_hover_text(text.history_open_media_folder_tooltip)
                     .clicked()
                 {
                     let config_dir = dirs::config_dir()
@@ -193,14 +193,14 @@ pub fn render_history_panel(
                                     egui::Layout::right_to_left(egui::Align::Center),
                                     |ui| {
                                         if icon_button(ui, Icon::DeleteLarge)
-                                            .on_hover_text("Delete")
+                                            .on_hover_text(text.history_delete_tooltip)
                                             .clicked()
                                         {
                                             id_to_delete = Some(item.id);
                                         }
 
                                         if icon_button(ui, Icon::Copy)
-                                            .on_hover_text("Copy Text")
+                                            .on_hover_text(text.history_copy_text_tooltip)
                                             .clicked()
                                         {
                                             crate::gui::utils::copy_to_clipboard_text(&item.text);

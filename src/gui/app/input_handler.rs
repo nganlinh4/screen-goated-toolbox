@@ -40,7 +40,7 @@ const VIDEO_EXTENSIONS: &[&str] = &[
 ];
 
 /// Subtitle file extensions routed to SGT Record.
-const SUBTITLE_EXTENSIONS: &[&str] = &["srt"];
+const SUBTITLE_EXTENSIONS: &[&str] = &["srt", "vtt"];
 
 /// Check if a file extension is an image type
 fn is_image_extension(ext: &str) -> bool {
@@ -378,7 +378,7 @@ fn open_audio_paths_in_screen_record(paths: &[std::path::PathBuf]) {
     });
 }
 
-fn open_subtitle_srt_in_screen_record(path: &Path) {
+fn open_subtitle_in_screen_record(path: &Path) {
     crate::overlay::screen_record::queue_subtitle_drop_action(path.to_string_lossy().to_string());
     crate::overlay::screen_record::show_screen_record();
     std::thread::spawn(move || {
@@ -463,7 +463,7 @@ pub fn process_file_path(path: &Path) {
         process_video_path(path);
     } else if is_subtitle_extension(ext) {
         crate::log_info!("Type detected: SUBTITLE");
-        open_subtitle_srt_in_screen_record(path);
+        open_subtitle_in_screen_record(path);
     } else if is_image_extension(ext) {
         crate::log_info!("Type detected: IMAGE");
         let (tx, rx) = mpsc::channel();

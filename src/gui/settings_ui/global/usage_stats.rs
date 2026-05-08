@@ -203,7 +203,7 @@ pub fn render_usage_modal(
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(text.usage_model_column).strong().size(11.0));
                             ui.add_space(120.0);
-                            ui.label("∞ Unlimited");
+                            ui.label(text.unlimited_label);
                         });
                         ui.add_space(4.0);
 
