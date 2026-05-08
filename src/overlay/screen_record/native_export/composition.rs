@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -10,12 +9,9 @@ use serde_json::json;
 use super::config::{
     CompositionExportClipJob, CompositionExportConfig, ExportConfig, ImportedAudioSegmentConfig,
 };
+use super::native_stitch::{StitchClip, StitchConfig, stitch_clips_to_mp4};
 use super::progress::{ExportProgressUpdate, push_export_progress_update};
 use super::staging;
-
-const NORMALIZED_AUDIO_SAMPLE_RATE: u32 = 48_000;
-const NORMALIZED_AUDIO_CHANNELS: u32 = 2;
-const NORMALIZED_AUDIO_BITRATE_KBPS: u32 = 192;
 
 fn temp_export_root(session_id: &str) -> PathBuf {
     dirs::data_local_dir()
@@ -31,170 +27,6 @@ fn output_base_dir(config: &CompositionExportConfig) -> PathBuf {
     } else {
         PathBuf::from(config.output_dir.trim())
     }
-}
-
-fn ffmpeg_exe() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or(PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("bin")
-        .join("ffmpeg.exe")
-}
-
-fn ffprobe_exe() -> PathBuf {
-    ffmpeg_exe().with_file_name("ffprobe.exe")
-}
-
-fn media_has_audio(path: &Path) -> bool {
-    let ffprobe = ffprobe_exe();
-    let path_str = path.to_string_lossy().to_string();
-    if ffprobe.exists()
-        && let Ok(output) = Command::new(&ffprobe)
-            .args([
-                "-v",
-                "error",
-                "-select_streams",
-                "a:0",
-                "-show_entries",
-                "stream=codec_type",
-                "-of",
-                "csv=p=0",
-                &path_str,
-            ])
-            .output()
-        && output.status.success()
-    {
-        return !String::from_utf8_lossy(&output.stdout).trim().is_empty();
-    }
-
-    let ffmpeg = ffmpeg_exe();
-    if !ffmpeg.exists() {
-        return false;
-    }
-
-    Command::new(&ffmpeg)
-        .args(["-i", &path_str])
-        .output()
-        .map(|output| String::from_utf8_lossy(&output.stderr).contains("Audio:"))
-        .unwrap_or(false)
-}
-
-fn normalize_concat_clip(input_path: &Path, output_path: &Path) -> Result<(), String> {
-    let ffmpeg = ffmpeg_exe();
-    if !ffmpeg.exists() {
-        return Err(format!(
-            "FFmpeg not found at {}. Please install it via the app setup.",
-            ffmpeg.display()
-        ));
-    }
-
-    let input_path_str = input_path.to_string_lossy().to_string();
-    let output_path_str = output_path.to_string_lossy().to_string();
-    let sample_rate = NORMALIZED_AUDIO_SAMPLE_RATE.to_string();
-    let channels = NORMALIZED_AUDIO_CHANNELS.to_string();
-    let audio_bitrate = format!("{NORMALIZED_AUDIO_BITRATE_KBPS}k");
-    let mut command = Command::new(&ffmpeg);
-    command.arg("-y").arg("-i").arg(&input_path_str);
-    if media_has_audio(input_path) {
-        command.args([
-            "-map",
-            "0:v:0",
-            "-map",
-            "0:a:0",
-            "-c:v",
-            "copy",
-            "-c:a",
-            "aac",
-            "-ar",
-            &sample_rate,
-            "-ac",
-            &channels,
-            "-b:a",
-            &audio_bitrate,
-            &output_path_str,
-        ]);
-    } else {
-        let null_audio =
-            format!("anullsrc=channel_layout=stereo:sample_rate={NORMALIZED_AUDIO_SAMPLE_RATE}");
-        command.args([
-            "-f",
-            "lavfi",
-            "-i",
-            &null_audio,
-            "-map",
-            "0:v:0",
-            "-map",
-            "1:a:0",
-            "-c:v",
-            "copy",
-            "-c:a",
-            "aac",
-            "-b:a",
-            &audio_bitrate,
-            "-shortest",
-            &output_path_str,
-        ]);
-    }
-
-    let output = command
-        .output()
-        .map_err(|e| format!("Failed to launch FFmpeg: {e}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "FFmpeg audio normalization failed:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    Ok(())
-}
-
-fn concat_mp4s(inputs: &[PathBuf], output_path: &Path) -> Result<(), String> {
-    let ffmpeg = ffmpeg_exe();
-    if !ffmpeg.exists() {
-        return Err(format!(
-            "FFmpeg not found at {}. Please install it via the app setup.",
-            ffmpeg.display()
-        ));
-    }
-    if inputs.is_empty() {
-        return Err("No rendered clips to concatenate".to_string());
-    }
-
-    let list_path = output_path.with_extension("concat.txt");
-    let mut list_contents = String::new();
-    for input in inputs {
-        let escaped = input.to_string_lossy().replace('\'', "'\\''");
-        list_contents.push_str(&format!("file '{}'\n", escaped));
-    }
-    fs::write(&list_path, list_contents)
-        .map_err(|e| format!("Failed to write concat list: {e}"))?;
-    let list_path_str = list_path.to_string_lossy().to_string();
-    let output_path_str = output_path.to_string_lossy().to_string();
-
-    let output = Command::new(&ffmpeg)
-        .args([
-            "-y",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            &list_path_str,
-            "-c",
-            "copy",
-            &output_path_str,
-        ])
-        .output()
-        .map_err(|e| format!("Failed to launch FFmpeg concat: {e}"))?;
-    let _ = fs::remove_file(&list_path);
-
-    if !output.status.success() {
-        return Err(format!(
-            "FFmpeg concat failed:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    Ok(())
 }
 
 fn build_single_clip_config(
@@ -288,19 +120,17 @@ fn slice_track_volume_points(
         time: 0.0,
         volume: volume_at(&sorted, clip_start),
     });
-    sliced.extend(sorted
-        .iter()
-        .filter_map(|point| {
-            let local = point.time - clip_start;
-            if local <= 0.0001 || local >= clip_duration - 0.0001 {
-                None
-            } else {
-                Some(super::config::DeviceAudioPoint {
-                    time: local,
-                    volume: point.volume,
-                })
-            }
-        }));
+    sliced.extend(sorted.iter().filter_map(|point| {
+        let local = point.time - clip_start;
+        if local <= 0.0001 || local >= clip_duration - 0.0001 {
+            None
+        } else {
+            Some(super::config::DeviceAudioPoint {
+                time: local,
+                volume: point.volume,
+            })
+        }
+    }));
     sliced.push(super::config::DeviceAudioPoint {
         time: clip_duration,
         volume: volume_at(&sorted, clip_start + clip_duration),
@@ -394,7 +224,8 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
     let render_phase_end = if wants_gif { 92.0 } else { 98.0 };
     let concat_phase_end = if wants_gif { 97.0 } else { 100.0 };
     let clip_count = export.clips.len() as u32;
-    let mut concat_ready_paths = Vec::with_capacity(export.clips.len());
+    let mut rendered_clip_paths = Vec::with_capacity(export.clips.len());
+    let mut rendered_clip_durations = Vec::with_capacity(export.clips.len());
 
     push_export_progress_update(ExportProgressUpdate {
         percent: 0.0,
@@ -454,11 +285,8 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
             let rendered_path = render_result["path"]
                 .as_str()
                 .ok_or("Composition clip render did not return an output path")?;
-            let normalized_path =
-                temp_root.join(format!("clip_{clip_index:03}_{}_norm.mp4", clip.clip_id));
-            normalize_concat_clip(Path::new(rendered_path), &normalized_path)?;
-            cleanup_file(Path::new(rendered_path));
-            concat_ready_paths.push(normalized_path);
+            rendered_clip_paths.push(PathBuf::from(rendered_path));
+            rendered_clip_durations.push(clip.duration.max(0.0));
         }
 
         if super::EXPORT_CANCELLED.load(Ordering::SeqCst) {
@@ -479,7 +307,28 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
         } else {
             &final_mp4_path
         };
-        concat_mp4s(&concat_ready_paths, concat_target)?;
+        let stitch_clips: Vec<StitchClip<'_>> = rendered_clip_paths
+            .iter()
+            .zip(rendered_clip_durations.iter())
+            .map(|(path, duration_sec)| StitchClip {
+                path,
+                trim_start_sec: 0.0,
+                duration_sec: *duration_sec,
+            })
+            .collect();
+        stitch_clips_to_mp4(
+            &stitch_clips,
+            concat_target,
+            &StitchConfig {
+                width: export.width,
+                height: export.height,
+                framerate: export.framerate,
+                bitrate_kbps: export.target_video_bitrate_kbps,
+            },
+        )?;
+        for path in &rendered_clip_paths {
+            cleanup_file(path);
+        }
 
         if super::EXPORT_CANCELLED.load(Ordering::SeqCst) {
             return Ok(json!({ "status": "cancelled" }));

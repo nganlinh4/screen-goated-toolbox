@@ -15,9 +15,11 @@ use self::{
     backgrounds::render_background_downloads_section,
     model_sections::{render_parakeet_card, render_qwen3_card},
     pointer_packs::render_pointer_pack_downloads_section,
+    utils::clear_downloaded_tools_caches,
     video_downloader::render_video_downloader_card,
     zipformer::render_zipformer_section,
 };
+use crate::gui::settings_ui::download_manager::{InstallStatus, UpdateStatus};
 
 const SECTION_TIMING_WARN_MS: f64 = 12.0;
 const SECTION_TIMING_LOG_INTERVAL: Duration = Duration::from_secs(2);
@@ -79,6 +81,8 @@ pub fn render_downloaded_tools_modal(
                     .auto_shrink([false; 2])
                     .show(ui, |ui| {
                         ui.add_space(8.0);
+                        render_clean_all_tools_row(ui, download_manager, text);
+                        ui.add_space(8.0);
 
                         ui.columns(2, |columns| {
                             columns[0].vertical(|ui| {
@@ -113,5 +117,106 @@ pub fn render_downloaded_tools_modal(
             });
 
         *show_modal = open;
+    }
+}
+
+fn render_clean_all_tools_row(
+    ui: &mut egui::Ui,
+    download_manager: &mut DownloadManager,
+    text: &LocaleText,
+) {
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .button(
+                    egui::RichText::new(text.downloaded_tools_clean_all).color(egui::Color32::RED),
+                )
+                .clicked()
+            {
+                clean_all_downloaded_tools(download_manager);
+            }
+        });
+    });
+}
+
+fn clean_all_downloaded_tools(download_manager: &mut DownloadManager) {
+    let bin_dir = &download_manager.bin_dir;
+
+    for name in [
+        "yt-dlp.exe",
+        "ffmpeg.exe",
+        "ffprobe.exe",
+        "ffmpeg.zip",
+        "ffmpeg_release_source.txt",
+        "deno.exe",
+        "deno.zip",
+        "yt-dlp.tmp",
+        "ffmpeg.tmp",
+        "deno.tmp",
+    ] {
+        let _ = std::fs::remove_file(bin_dir.join(name));
+    }
+
+    let _ = crate::unpack_dlls::remove_ai_runtime();
+    let _ = crate::api::realtime_audio::model_loader::remove_parakeet_model();
+    let _ = crate::api::realtime_audio::parakeet_tdt_assets::remove_parakeet_tdt_model();
+    let _ = crate::api::realtime_audio::qwen3::assets::remove_qwen3_model();
+    let _ = crate::api::realtime_audio::qwen3::assets::remove_qwen3_1_7b_model();
+    let _ = crate::api::realtime_audio::qwen3::server::remove_qwen3_server();
+    let _ = crate::api::realtime_audio::qwen3::runtime::remove_qwen3_runtime();
+    let _ =
+        std::fs::remove_dir_all(crate::api::realtime_audio::sherpa_onnx::dlls::sherpa_bin_dir());
+    for lang in [
+        crate::api::realtime_audio::sherpa_onnx::ZipformerLanguage::English,
+        crate::api::realtime_audio::sherpa_onnx::ZipformerLanguage::Korean,
+        crate::api::realtime_audio::sherpa_onnx::ZipformerLanguage::Chinese,
+        crate::api::realtime_audio::sherpa_onnx::ZipformerLanguage::French,
+        crate::api::realtime_audio::sherpa_onnx::ZipformerLanguage::German,
+        crate::api::realtime_audio::sherpa_onnx::ZipformerLanguage::Spanish,
+        crate::api::realtime_audio::sherpa_onnx::ZipformerLanguage::Russian,
+        crate::api::realtime_audio::sherpa_onnx::ZipformerLanguage::All8Lang,
+    ] {
+        let model_dir = dirs::data_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("screen-goated-toolbox")
+            .join("models")
+            .join(lang.model_dir_name());
+        let _ = std::fs::remove_dir_all(model_dir);
+    }
+
+    let _ = crate::overlay::screen_record::bg_download::delete_all_downloaded();
+    let _ = crate::gui::settings_ui::pointer_gallery::delete_downloaded_collections();
+
+    set_install_status_missing(&download_manager.ytdlp_status);
+    set_install_status_missing(&download_manager.ffmpeg_status);
+    set_install_status_missing(&download_manager.deno_status);
+    set_install_status_missing(&download_manager.zipformer_dlls_status);
+    for status in download_manager.zipformer_lang_statuses.values() {
+        set_install_status_missing(status);
+    }
+    set_update_status_idle(&download_manager.ytdlp_update_status);
+    set_update_status_idle(&download_manager.ffmpeg_update_status);
+    set_update_status_idle(&download_manager.deno_update_status);
+    if let Ok(mut version) = download_manager.ytdlp_version.lock() {
+        *version = None;
+    }
+    if let Ok(mut version) = download_manager.ffmpeg_version.lock() {
+        *version = None;
+    }
+    if let Ok(mut version) = download_manager.deno_version.lock() {
+        *version = None;
+    }
+    clear_downloaded_tools_caches();
+}
+
+fn set_install_status_missing(status: &std::sync::Arc<std::sync::Mutex<InstallStatus>>) {
+    if let Ok(mut status) = status.lock() {
+        *status = InstallStatus::Missing;
+    }
+}
+
+fn set_update_status_idle(status: &std::sync::Arc<std::sync::Mutex<UpdateStatus>>) {
+    if let Ok(mut status) = status.lock() {
+        *status = UpdateStatus::Idle;
     }
 }

@@ -142,7 +142,7 @@ export function CanvasResizeOverlay({
         if (type.includes('s')) newH = startH + dy * pxPerCanvas * 2;
         if (type.includes('n')) newH = startH - dy * pxPerCanvas * 2;
 
-        // Clamp to reasonable bounds, ensure even (for ffmpeg yuv420p)
+        // Clamp to reasonable bounds and keep dimensions encoder-friendly.
         newW = Math.max(100, Math.min(7680, Math.round(newW)));
         newH = Math.max(100, Math.min(4320, Math.round(newH)));
         if (newW % 2 !== 0) newW++;

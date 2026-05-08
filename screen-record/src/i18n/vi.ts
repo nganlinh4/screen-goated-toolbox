@@ -431,20 +431,20 @@ const vi: Translations = {
   pressKeys: 'Nhấn Phím...',
   pressKeysHint: 'Nhấn tổ hợp phím bạn muốn sử dụng.',
 
-  // Dialogs - FFmpeg Setup
+  // Dialogs - Recorder Setup
   downloadingDeps: 'Đang Tải Phụ Thuộc',
   settingUp: 'Đang Cài Đặt...',
   installFailed: 'Cài Đặt Thất Bại',
   installCancelled: 'Cài Đặt Đã Hủy',
   preparingRecorder: 'Đang Chuẩn Bị Quay Màn Hình',
-  ffmpegDesc: 'FFmpeg và ffprobe cần thiết để quay màn hình. Chúng tôi đang tải cho bạn.',
+  recorderDepsDesc: 'Đang chuẩn bị các thành phần media cho trình quay.',
   extractingDesc: 'Sắp xong! Đang giải nén file vào hệ thống.',
   cancelledDesc: 'Quá trình cài đặt đã bị dừng.',
   systemCheckDesc: 'Vui lòng đợi trong khi kiểm tra hệ thống.',
   tryAgain: 'Thử Lại',
   cancelInstallation: 'Hủy Cài Đặt',
   closeApp: 'Đóng Ứng Dụng',
-  ffmpegEssentials: 'FFmpeg Essentials',
+  recorderEssentials: 'Recorder Essentials',
   downloaded: 'đã tải',
 
   // Timeline

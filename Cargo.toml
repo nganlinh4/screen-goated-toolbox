@@ -2,6 +2,7 @@
 name = "screen-goated-toolbox"
 version = "5.1.0"
 edition = "2024"
+default-run = "screen-goated-toolbox"
 
 [build-dependencies]
 winres = "0.1"

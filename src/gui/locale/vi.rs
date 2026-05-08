@@ -200,6 +200,7 @@ pub fn get() -> LocaleText {
         tts_playground_exporting_mp3: "Đang xuất MP3...",
         tts_playground_ffmpeg_installing: "Đang cài FFmpeg",
         tts_playground_ffmpeg_downloading: "Đang tải FFmpeg để xuất MP3",
+        screen_record_gif_ffmpeg_downloading: "Đang tải FFmpeg để xuất GIF",
         tts_playground_ffmpeg_extracting: "Đang giải nén FFmpeg",
         tts_playground_ffmpeg_installed: "Đã cài FFmpeg",
         tts_playground_ffmpeg_failed: "Cài FFmpeg thất bại",
@@ -434,6 +435,7 @@ pub fn get() -> LocaleText {
 
         downloaded_tools_button: "Công cụ đã tải",
         downloaded_tools_title: "Quản lý công cụ đã tải",
+        downloaded_tools_clean_all: "Dọn tất cả công cụ đã tải",
         tool_ai_runtime: "DirectML + ONNX Runtime",
         tool_parakeet: "Mô hình Parakeet Realtime",
         tool_parakeet_tdt: "Parakeet TDT 0.6B v3",

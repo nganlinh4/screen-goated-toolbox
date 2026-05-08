@@ -431,20 +431,20 @@ const ko: Translations = {
   pressKeys: '키를 누르세요...',
   pressKeysHint: '사용할 키 조합을 누르세요.',
 
-  // Dialogs - FFmpeg Setup
+  // Dialogs - Recorder Setup
   downloadingDeps: '종속성 다운로드 중',
   settingUp: '설정 중...',
   installFailed: '설치 실패',
   installCancelled: '설치 취소됨',
   preparingRecorder: '화면 녹화 준비 중',
-  ffmpegDesc: '화면 녹화에 FFmpeg와 ffprobe가 필요합니다. 다운로드 중입니다.',
+  recorderDepsDesc: '화면 녹화 미디어 구성 요소를 준비 중입니다.',
   extractingDesc: '거의 완료! 바이너리를 시스템에 추출 중입니다.',
   cancelledDesc: '설치가 중단되었습니다.',
   systemCheckDesc: '시스템을 확인하는 동안 기다려주세요.',
   tryAgain: '다시 시도',
   cancelInstallation: '설치 취소',
   closeApp: '앱 닫기',
-  ffmpegEssentials: 'FFmpeg Essentials',
+  recorderEssentials: 'Recorder Essentials',
   downloaded: '다운로드됨',
 
   // Timeline

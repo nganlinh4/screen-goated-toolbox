@@ -168,6 +168,7 @@ pub struct LocaleText {
     pub tts_playground_exporting_mp3: &'static str,
     pub tts_playground_ffmpeg_installing: &'static str,
     pub tts_playground_ffmpeg_downloading: &'static str,
+    pub screen_record_gif_ffmpeg_downloading: &'static str,
     pub tts_playground_ffmpeg_extracting: &'static str,
     pub tts_playground_ffmpeg_installed: &'static str,
     pub tts_playground_ffmpeg_failed: &'static str,
@@ -394,6 +395,7 @@ pub struct LocaleText {
     // --- DOWNLOADED TOOLS MODAL ---
     pub downloaded_tools_button: &'static str,
     pub downloaded_tools_title: &'static str,
+    pub downloaded_tools_clean_all: &'static str,
     pub tool_ai_runtime: &'static str,
     pub tool_parakeet: &'static str,
     pub tool_parakeet_tdt: &'static str,

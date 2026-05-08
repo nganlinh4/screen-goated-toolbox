@@ -199,6 +199,7 @@ pub fn get() -> LocaleText {
         tts_playground_exporting_mp3: "Exporting MP3...",
         tts_playground_ffmpeg_installing: "Installing FFmpeg",
         tts_playground_ffmpeg_downloading: "Downloading FFmpeg for MP3 export",
+        screen_record_gif_ffmpeg_downloading: "Downloading FFmpeg for GIF export",
         tts_playground_ffmpeg_extracting: "Extracting FFmpeg",
         tts_playground_ffmpeg_installed: "FFmpeg installed",
         tts_playground_ffmpeg_failed: "FFmpeg install failed",
@@ -433,6 +434,7 @@ pub fn get() -> LocaleText {
 
         downloaded_tools_button: "Downloaded Tools",
         downloaded_tools_title: "Downloaded Tools Manager",
+        downloaded_tools_clean_all: "Clean All Downloaded Tools",
         tool_ai_runtime: "DirectML + ONNX Runtime",
         tool_parakeet: "Parakeet Realtime Model",
         tool_parakeet_tdt: "Parakeet TDT 0.6B v3",
