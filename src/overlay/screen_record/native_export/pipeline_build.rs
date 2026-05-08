@@ -12,7 +12,7 @@ use super::sampling::{sample_baked_path, sample_parsed_baked_cursor};
 use super::{background_presets, gif, staging};
 
 use super::gpu_export::{
-    create_uniforms, CompositorUniformParams, CompositorUniforms, GpuCompositor,
+    CompositorUniformParams, CompositorUniforms, GpuCompositor, create_uniforms,
 };
 use super::gpu_pipeline;
 use super::mf_decode;

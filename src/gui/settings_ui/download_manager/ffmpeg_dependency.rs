@@ -15,12 +15,19 @@ pub fn ffmpeg_exe_path() -> PathBuf {
 }
 
 pub fn ensure_ffmpeg_with_badge() -> Result<PathBuf, String> {
+    ensure_ffmpeg_with_badge_message("")
+}
+
+pub fn ensure_ffmpeg_with_badge_message(download_message: &str) -> Result<PathBuf, String> {
     let ffmpeg_path = ffmpeg_exe_path();
     if ffmpeg_path.exists() {
         return Ok(ffmpeg_path);
     }
 
-    let locale = localized_badge_text();
+    let mut locale = localized_badge_text();
+    if !download_message.trim().is_empty() {
+        locale.downloading = download_message.to_string();
+    }
 
     let bin_dir = ffmpeg_path
         .parent()

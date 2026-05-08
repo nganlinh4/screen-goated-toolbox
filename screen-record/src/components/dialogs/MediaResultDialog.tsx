@@ -213,6 +213,7 @@ export function MediaResultDialog({
   const [isVideoFullscreen, setIsVideoFullscreen] = useState(false);
   const streamSessionRef = useRef(false);
   const isVideoFullscreenRef = useRef(false);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
 
   const enterVideoFullscreen = useCallback(() => {
     (window as any).ipc?.postMessage('enter_fullscreen');
@@ -265,6 +266,18 @@ export function MediaResultDialog({
       }
     }).catch(console.error);
   }, [show, filePath]);
+
+  useEffect(() => {
+    if (!isRenaming) return;
+    const input = renameInputRef.current;
+    if (!input) return;
+    const extensionStart = renameValue.lastIndexOf('.');
+    const selectionEnd = extensionStart > 0 ? extensionStart : renameValue.length;
+    requestAnimationFrame(() => {
+      input.focus();
+      input.setSelectionRange(0, selectionEnd);
+    });
+  }, [isRenaming, renameValue]);
 
   if (!show) return null;
 
@@ -369,6 +382,7 @@ export function MediaResultDialog({
                 {isRenaming ? (
                   <div className="flex gap-2">
                     <input
+                      ref={renameInputRef}
                       autoFocus
                       value={renameValue}
                       onChange={(e) => setRenameValue(e.target.value)}

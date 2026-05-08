@@ -429,20 +429,20 @@ const en = {
   pressKeys: 'Press Keys...',
   pressKeysHint: 'Press the combination of keys you want to use.',
 
-  // Dialogs - FFmpeg Setup
+  // Dialogs - Recorder Setup
   downloadingDeps: 'Downloading Dependencies',
   settingUp: 'Setting Up...',
   installFailed: 'Installation Failed',
   installCancelled: 'Installation Cancelled',
   preparingRecorder: 'Preparing Screen Recorder',
-  ffmpegDesc: 'FFmpeg and ffprobe are required for screen recording. We are downloading them for you.',
+  recorderDepsDesc: 'Recorder media components are being prepared.',
   extractingDesc: 'Almost ready! Extracting binaries to your system.',
   cancelledDesc: 'The installation was stopped.',
   systemCheckDesc: 'Please wait while we check your system.',
   tryAgain: 'Try Again',
   cancelInstallation: 'Cancel Installation',
   closeApp: 'Close App',
-  ffmpegEssentials: 'FFmpeg Essentials',
+  recorderEssentials: 'Recorder Essentials',
   downloaded: 'downloaded',
 
   // Timeline

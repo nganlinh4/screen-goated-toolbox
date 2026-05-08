@@ -200,6 +200,7 @@ pub fn get() -> LocaleText {
         tts_playground_exporting_mp3: "MP3 내보내는 중...",
         tts_playground_ffmpeg_installing: "FFmpeg 설치 중",
         tts_playground_ffmpeg_downloading: "MP3 내보내기를 위해 FFmpeg 다운로드 중",
+        screen_record_gif_ffmpeg_downloading: "GIF 내보내기를 위해 FFmpeg 다운로드 중",
         tts_playground_ffmpeg_extracting: "FFmpeg 압축 해제 중",
         tts_playground_ffmpeg_installed: "FFmpeg 설치 완료",
         tts_playground_ffmpeg_failed: "FFmpeg 설치 실패",
@@ -354,6 +355,7 @@ pub fn get() -> LocaleText {
 
         downloaded_tools_button: "다운로드된 도구",
         downloaded_tools_title: "다운로드된 도구 관리",
+        downloaded_tools_clean_all: "다운로드된 도구 모두 정리",
         tool_ai_runtime: "DirectML + ONNX Runtime",
         tool_parakeet: "Parakeet 실시간 모델",
         tool_parakeet_tdt: "Parakeet TDT 0.6B v3",

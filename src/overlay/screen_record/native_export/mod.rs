@@ -8,6 +8,7 @@ pub mod config;
 mod cursor;
 mod cursor_path;
 mod gif;
+pub(crate) mod native_stitch;
 mod overlay;
 pub mod overlay_frames;
 mod pipeline;

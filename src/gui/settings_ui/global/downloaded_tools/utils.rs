@@ -140,6 +140,18 @@ pub(super) fn invalidate_u64_cache(key: &'static str) {
     }
 }
 
+pub(super) fn clear_downloaded_tools_caches() {
+    if let Ok(mut cache) = size_cache().lock() {
+        cache.clear();
+    }
+    if let Ok(mut cache) = probe_cache().lock() {
+        cache.clear();
+    }
+    if let Ok(mut cache) = u64_cache().lock() {
+        cache.clear();
+    }
+}
+
 pub(super) fn get_dir_size(path: &Path) -> u64 {
     cached_size(path, true)
 }
