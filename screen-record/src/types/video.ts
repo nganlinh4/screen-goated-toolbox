@@ -402,12 +402,12 @@ export interface ProjectComposition {
    * job is to provide normal video timing/export behavior for imported audio.
    */
   placeholderVideoForAudio?: boolean;
-  /** Marker for SRT-imported projects backed by a generated placeholder video. */
+  /** Marker for imported subtitle projects backed by a generated placeholder video. */
   placeholderVideoForSubtitles?: boolean;
   /**
    * Project has no source media; preview/export are driven directly by
    * timeline duration and overlays.
-   * Legacy only. New SRT imports create a generated placeholder video instead.
+   * Legacy only. New subtitle imports create a generated placeholder video instead.
    */
   timelineOnly?: boolean;
 }

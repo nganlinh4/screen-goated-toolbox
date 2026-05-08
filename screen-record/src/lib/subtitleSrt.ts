@@ -12,6 +12,15 @@ import {
   getSubtitleSourceGroupId,
 } from '@/lib/subtitleSourceGroups';
 
+export type SubtitleFileFormat = 'srt' | 'vtt';
+
+export interface SubtitleFileInput {
+  content: string;
+  fileName?: string;
+  format?: SubtitleFileFormat;
+  mimeType?: string;
+}
+
 export function buildSubtitleSrt(
   subtitles: SubtitleSegment[],
   range?: TrackSelectionRange | null,
@@ -111,10 +120,7 @@ export function parseSubtitleSrt(
   duration: number,
 ): SubtitleSegment[] {
   const safeDuration = Math.max(0, duration);
-  const normalized = srtContent
-    .replace(/^\uFEFF/, '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n');
+  const normalized = normalizeSubtitleText(srtContent);
   const blocks = normalized
     .split(/\n{2,}/)
     .map((block) => block.trim())
@@ -155,13 +161,107 @@ export function parseSubtitleSrt(
   return subtitles.sort((a, b) => a.startTime - b.startTime);
 }
 
-export function importSubtitleSrtIntoSegment(
+export function parseSubtitleVtt(
+  vttContent: string,
+  duration: number,
+): SubtitleSegment[] {
+  const safeDuration = Math.max(0, duration);
+  const lines = normalizeSubtitleText(vttContent).split('\n');
+  const subtitles: SubtitleSegment[] = [];
+  let index = 0;
+
+  if (lines[index]?.trim().replace(/^\uFEFF/, '').startsWith('WEBVTT')) {
+    index += 1;
+  }
+
+  while (index < lines.length) {
+    while (index < lines.length && !lines[index].trim()) index += 1;
+    if (index >= lines.length) break;
+
+    const blockKind = lines[index].trim();
+    if (blockKind.startsWith('NOTE')) {
+      index = skipVttBlock(lines, index + 1);
+      continue;
+    }
+    if (blockKind === 'STYLE' || blockKind === 'REGION') {
+      index = skipVttBlock(lines, index + 1);
+      continue;
+    }
+
+    let timingLine = lines[index].trim();
+    if (!timingLine.includes('-->') && index + 1 < lines.length) {
+      index += 1;
+      timingLine = lines[index].trim();
+    }
+    if (!timingLine.includes('-->')) {
+      index = skipVttBlock(lines, index + 1);
+      continue;
+    }
+
+    const timing = parseVttTimingLine(timingLine);
+    index += 1;
+    const textLines: string[] = [];
+    while (index < lines.length && lines[index].trim()) {
+      textLines.push(lines[index]);
+      index += 1;
+    }
+    if (!timing) continue;
+
+    const text = stripSubtitleMarkup(textLines.join('\n')).trim();
+    if (!text) continue;
+
+    const startTime = clampTime(timing.startTime, safeDuration);
+    const endTime = clampTime(timing.endTime, safeDuration);
+    if (endTime <= startTime) continue;
+
+    subtitles.push({
+      id: crypto.randomUUID(),
+      startTime,
+      endTime,
+      text,
+      style: defaultSubtitleStyle(),
+      sourceGroup: {
+        kind: 'video',
+        assignment: 'manual',
+      },
+    });
+  }
+
+  return subtitles.sort((a, b) => a.startTime - b.startTime);
+}
+
+export function detectSubtitleFileFormat(input: SubtitleFileInput): SubtitleFileFormat {
+  if (input.format) return input.format;
+  const fileName = input.fileName?.toLowerCase() ?? '';
+  if (fileName.endsWith('.vtt')) return 'vtt';
+  if (fileName.endsWith('.srt')) return 'srt';
+  if (input.mimeType === 'text/vtt') return 'vtt';
+  if (input.mimeType === 'application/x-subrip') return 'srt';
+  const trimmed = input.content.replace(/^\uFEFF/, '').trimStart();
+  if (trimmed.startsWith('WEBVTT')) return 'vtt';
+  return 'srt';
+}
+
+export function parseSubtitleFile(
+  input: SubtitleFileInput | string,
+  duration: number,
+): SubtitleSegment[] {
+  const normalizedInput = typeof input === 'string'
+    ? { content: input }
+    : input;
+  const format = detectSubtitleFileFormat(normalizedInput);
+  return format === 'vtt'
+    ? parseSubtitleVtt(normalizedInput.content, duration)
+    : parseSubtitleSrt(normalizedInput.content, duration);
+}
+
+export function importSubtitleFileIntoSegment(
   segment: VideoSegment,
-  srtContent: string,
+  input: SubtitleFileInput | string,
   duration: number,
 ): { segment: VideoSegment; subtitles: SubtitleSegment[] } {
   const isTimelineOnly = segment.mediaMode === 'timelineOnly';
-  const subtitles = parseSubtitleSrt(srtContent, isTimelineOnly ? 0 : duration);
+  const subtitles = parseSubtitleFile(input, isTimelineOnly ? 0 : duration);
   if (subtitles.length === 0) {
     return { segment, subtitles };
   }
@@ -200,6 +300,18 @@ export function importSubtitleSrtIntoSegment(
   };
 }
 
+export function importSubtitleSrtIntoSegment(
+  segment: VideoSegment,
+  srtContent: string,
+  duration: number,
+): { segment: VideoSegment; subtitles: SubtitleSegment[] } {
+  return importSubtitleFileIntoSegment(
+    segment,
+    { content: srtContent, format: 'srt' },
+    duration,
+  );
+}
+
 function formatSrtTime(totalSeconds: number): string {
   const clamped = Math.max(0, totalSeconds);
   const hours = Math.floor(clamped / 3600);
@@ -233,6 +345,54 @@ function parseSrtTime(value: string): number | null {
     + Number(seconds)
     + milliseconds / 1000;
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseVttTimingLine(line: string): { startTime: number; endTime: number } | null {
+  const [rawStart, rawEnd] = line.split('-->');
+  if (!rawStart || !rawEnd) return null;
+  const startTime = parseVttTime(rawStart.trim());
+  const endTime = parseVttTime(rawEnd.trim().split(/\s+/)[0] ?? '');
+  if (startTime === null || endTime === null) return null;
+  return { startTime, endTime };
+}
+
+function parseVttTime(value: string): number | null {
+  const normalized = value.replace(',', '.');
+  const match = normalized.match(/^(?:(\d+):)?(\d{2}):(\d{2})\.(\d{1,3})$/);
+  if (!match) return null;
+  const [, hours = '0', minutes, seconds, millis] = match;
+  const milliseconds = Number(millis.padEnd(3, '0'));
+  const parsed =
+    Number(hours) * 3600
+    + Number(minutes) * 60
+    + Number(seconds)
+    + milliseconds / 1000;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function skipVttBlock(lines: string[], startIndex: number): number {
+  let index = startIndex;
+  while (index < lines.length && lines[index].trim()) index += 1;
+  return index;
+}
+
+function normalizeSubtitleText(content: string): string {
+  return content
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+}
+
+function stripSubtitleMarkup(text: string): string {
+  return text
+    .replace(/<\d{1,2}:\d{2}:\d{2}\.\d{1,3}>/g, '')
+    .replace(/<\/?[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
 }
 
 function clampTime(value: number, duration: number): number {

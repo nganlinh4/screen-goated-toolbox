@@ -12,6 +12,7 @@ import {
   sortPointsByTime,
   subscribeToAdjustableLineDragVisualMode,
 } from "./adjustableLineUtils";
+import { useSettings } from "@/hooks/useSettings";
 
 const TRACK_TOP_PX = 5;
 const TRACK_BOTTOM_PX = 35;
@@ -78,6 +79,7 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
   commitBatch,
   onCommit,
 }) => {
+  const { t } = useSettings();
   const safeDuration = Math.max(duration, 0.0001);
   const effective = rawPoints.length > 0 ? rawPoints : buildFlatPoints(safeDuration);
   const sorted = sortPointsByTime(effective);
@@ -497,7 +499,7 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
           onMouseEnter={() => setHoveredIdx(i)}
           onMouseLeave={() => setHoveredIdx(null)}
           onPointerDown={(e) => handlePointPointerDown(e, i)}
-          title={`${point.time.toFixed(2)}s · ${(point.volume * 100).toFixed(0)}% (Delete to remove)`}
+          title={`${point.time.toFixed(2)}s · ${(point.volume * 100).toFixed(0)}% (${t.volumePointRemoveHint})`}
         />
       ))}
       {dragBadge && (

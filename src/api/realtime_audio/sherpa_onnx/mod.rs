@@ -197,6 +197,14 @@ impl ZipformerLanguage {
     }
 }
 
+pub(super) fn sherpa_locale() -> crate::gui::locale::LocaleText {
+    let ui_language = crate::APP
+        .lock()
+        .map(|app| app.config.ui_language.clone())
+        .unwrap_or_else(|_| "en".to_string());
+    crate::gui::locale::LocaleText::get(&ui_language)
+}
+
 fn model_dir(lang: ZipformerLanguage) -> std::path::PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
@@ -272,6 +280,8 @@ pub fn download_model(
     stop_signal: &AtomicBool,
     overlay_hwnd: HWND,
 ) -> Result<()> {
+    let locale = sherpa_locale();
+
     fn post_download_state() {
         use crate::overlay::realtime_webview::state::REALTIME_HWND;
         unsafe {
@@ -289,8 +299,10 @@ pub fn download_model(
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = format!("Downloading Zipformer {}", lang.display_name());
-        state.download_message = "Starting download...".to_string();
+        state.download_title = locale
+            .zipformer_downloading_title_fmt
+            .replace("{}", lang.display_name());
+        state.download_message = locale.zipformer_downloading_start.to_string();
         state.download_progress = 0.0;
     }
     post_download_state();
@@ -302,7 +314,9 @@ pub fn download_model(
         post_download_state();
         update_overlay_text(
             overlay_hwnd,
-            &format!("Downloading Zipformer {}...", lang.display_name()),
+            &locale
+                .zipformer_downloading_overlay_fmt
+                .replace("{}", lang.display_name()),
         );
     });
 
@@ -377,6 +391,7 @@ pub fn run_sherpa_transcription(
     state: SharedRealtimeState,
     session_id: u64,
 ) -> Result<()> {
+    let locale = sherpa_locale();
     if let Ok(mut s) = state.lock() {
         s.set_transcription_method(super::state::TranscriptionMethod::SherpaZipformer);
     }
@@ -393,7 +408,9 @@ pub fn run_sherpa_transcription(
     let lib = match ffi::load() {
         Ok(lib) => lib,
         Err(e) => {
-            let msg = format!("Zipformer requires sherpa-onnx DLLs: {e}");
+            let msg = locale
+                .zipformer_requires_dlls_fmt
+                .replace("{}", &e.to_string());
             crate::log_info!("[Sherpa] {}", msg);
             update_overlay_text(overlay_hwnd, &msg);
             std::thread::sleep(Duration::from_secs(5));
@@ -418,7 +435,9 @@ pub fn run_sherpa_transcription(
     if !is_model_downloaded(lang) {
         update_overlay_text(
             overlay_hwnd,
-            &format!("Downloading Zipformer {}...", lang.display_name()),
+            &locale
+                .zipformer_downloading_overlay_fmt
+                .replace("{}", lang.display_name()),
         );
         download_model(lang, &stop_signal, overlay_hwnd)?;
         if stop_signal.load(Ordering::Relaxed) {
@@ -428,7 +447,9 @@ pub fn run_sherpa_transcription(
 
     update_overlay_text(
         overlay_hwnd,
-        &format!("Loading Zipformer {}...", lang.display_name()),
+        &locale
+            .zipformer_loading_overlay_fmt
+            .replace("{}", lang.display_name()),
     );
 
     let (config, _strings) = build_recognizer_config(lang)?;

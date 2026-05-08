@@ -180,33 +180,8 @@ pub fn handle_ipc_command(
             super::take_pending_subtitle_drop_actions(),
         )
         .unwrap_or_else(|_| serde_json::json!([]))),
-        "read_subtitle_srt_path" => {
-            let path = args["path"].as_str().ok_or("Missing path")?;
-            let path = std::path::Path::new(path);
-            let extension = path
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .unwrap_or("")
-                .to_ascii_lowercase();
-            if extension != "srt" {
-                return Err("Only .srt subtitle files can be imported".to_string());
-            }
-            const MAX_SRT_BYTES: u64 = 10 * 1024 * 1024;
-            let metadata = std::fs::metadata(path)
-                .map_err(|error| format!("Subtitle file is unavailable: {error}"))?;
-            if metadata.len() > MAX_SRT_BYTES {
-                return Err("Subtitle file is too large".to_string());
-            }
-            let content = std::fs::read_to_string(path)
-                .map_err(|error| format!("Failed to read subtitle file: {error}"))?;
-            let file_name = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("subtitles.srt");
-            Ok(serde_json::json!({
-                "fileName": file_name,
-                "content": content,
-            }))
+        "read_subtitle_file_path" | "read_subtitle_srt_path" => {
+            handle_read_subtitle_file_path(&args)
         }
         "generate_thumbnails" => {
             let path = args["path"].as_str().ok_or("Missing path")?;
@@ -441,6 +416,41 @@ pub fn handle_ipc_command(
         },
         _ => Err(format!("Unknown command: {}", cmd)),
     }
+}
+
+fn handle_read_subtitle_file_path(args: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let path = args["path"].as_str().ok_or("Missing path")?;
+    let path = std::path::Path::new(path);
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if extension != "srt" && extension != "vtt" {
+        return Err("Only .srt and .vtt subtitle files can be imported".to_string());
+    }
+    const MAX_SUBTITLE_BYTES: u64 = 10 * 1024 * 1024;
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| format!("Subtitle file is unavailable: {error}"))?;
+    if metadata.len() > MAX_SUBTITLE_BYTES {
+        return Err("Subtitle file is too large".to_string());
+    }
+    let content = std::fs::read_to_string(path)
+        .map_err(|error| format!("Failed to read subtitle file: {error}"))?;
+    let fallback_name = if extension == "vtt" {
+        "subtitles.vtt"
+    } else {
+        "subtitles.srt"
+    };
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(fallback_name);
+    Ok(serde_json::json!({
+        "fileName": file_name,
+        "content": content,
+        "format": extension,
+    }))
 }
 
 fn handle_stage_export_data(args: &serde_json::Value) -> Result<serde_json::Value, String> {

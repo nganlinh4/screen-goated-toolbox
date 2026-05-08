@@ -158,16 +158,24 @@ pub fn download_file_with_progress(
 
 fn sync_download_badge(progress: f32) {
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
+    let ui_language = crate::APP
+        .lock()
+        .map(|app| app.config.ui_language.clone())
+        .unwrap_or_else(|_| "en".to_string());
+    let locale = crate::gui::locale::LocaleText::get(&ui_language);
 
     let (title, message) = if let Ok(state) = REALTIME_STATE.lock() {
         let title = if state.download_title.trim().is_empty() {
-            "Downloading...".to_string()
+            locale.realtime_download_default_title.to_string()
         } else {
             state.download_title.clone()
         };
         (title, state.download_message.clone())
     } else {
-        ("Downloading...".to_string(), String::new())
+        (
+            locale.realtime_download_default_title.to_string(),
+            String::new(),
+        )
     };
 
     crate::overlay::auto_copy_badge::show_progress_notification(&title, &message, progress);

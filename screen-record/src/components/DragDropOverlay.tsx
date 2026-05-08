@@ -9,19 +9,21 @@ interface DragDropOverlayProps {
   onDropVideo: (file: File) => void;
   onDropAudio?: (file: File) => void;
   onDropAudios?: (files: File[]) => void;
+  onDropSubtitle?: (file: File) => void;
   onDropSubtitleSrt?: (file: File) => void;
 }
 
 const AUDIO_EXT_RE = /\.(mp3|wav|m4a|flac|ogg|oga|aac|alac|aiff|aif|wma|opus|mka)$/i;
-const SUBTITLE_SRT_EXT_RE = /\.srt$/i;
+const SUBTITLE_EXT_RE = /\.(srt|vtt)$/i;
+const SUBTITLE_MIME_TYPES = new Set(['application/x-subrip', 'text/vtt']);
 
 function fileLooksLikeAudio(file: File): boolean {
   if (file.type.startsWith("audio/")) return true;
   return AUDIO_EXT_RE.test(file.name);
 }
 
-function fileLooksLikeSubtitleSrt(file: File): boolean {
-  return SUBTITLE_SRT_EXT_RE.test(file.name);
+function fileLooksLikeSubtitle(file: File): boolean {
+  return SUBTITLE_EXT_RE.test(file.name) || SUBTITLE_MIME_TYPES.has(file.type);
 }
 
 function classifyDragItems(items: DataTransferItemList | undefined): DragKind {
@@ -34,7 +36,7 @@ function classifyDragItems(items: DataTransferItemList | undefined): DragKind {
     if (it.kind !== "file") continue;
     if (it.type.startsWith("video/")) sawVideo = true;
     else if (it.type.startsWith("audio/")) sawAudio = true;
-    else if (it.type === "application/x-subrip") sawSubtitle = true;
+    else if (SUBTITLE_MIME_TYPES.has(it.type)) sawSubtitle = true;
   }
   const kinds = [sawVideo, sawAudio, sawSubtitle].filter(Boolean).length;
   if (kinds > 1) return "either";
@@ -51,6 +53,7 @@ export function DragDropOverlay({
   onDropVideo,
   onDropAudio,
   onDropAudios,
+  onDropSubtitle,
   onDropSubtitleSrt,
 }: DragDropOverlayProps) {
   const { t } = useSettings();
@@ -89,11 +92,12 @@ export function DragDropOverlay({
     const files = e.dataTransfer?.files;
     if (!files) return;
 
-    if (onDropSubtitleSrt) {
+    const dropSubtitle = onDropSubtitle ?? onDropSubtitleSrt;
+    if (dropSubtitle) {
       for (let i = 0; i < files.length; i += 1) {
         const file = files[i];
-        if (fileLooksLikeSubtitleSrt(file)) {
-          onDropSubtitleSrt(file);
+        if (fileLooksLikeSubtitle(file)) {
+          dropSubtitle(file);
           return;
         }
       }
@@ -120,7 +124,7 @@ export function DragDropOverlay({
         }
       }
     }
-  }, [disabled, onDropVideo, onDropAudio, onDropAudios, onDropSubtitleSrt]);
+  }, [disabled, onDropVideo, onDropAudio, onDropAudios, onDropSubtitle, onDropSubtitleSrt]);
 
   useEffect(() => {
     window.addEventListener("dragenter", handleDragEnter);
@@ -138,7 +142,7 @@ export function DragDropOverlay({
   if (!isVisible) return null;
 
   const audioCapable = !!onDropAudio;
-  const subtitleCapable = !!onDropSubtitleSrt;
+  const subtitleCapable = !!(onDropSubtitle ?? onDropSubtitleSrt);
   const showAudio = audioCapable && (dragKind === "audio" || dragKind === "either");
   const showSubtitle = subtitleCapable && (dragKind === "subtitle" || dragKind === "either");
   const showVideo = dragKind === "video" || dragKind === "either" || !audioCapable;

@@ -1,6 +1,7 @@
 import type { ProjectComposition } from "@/types/video";
 import type { SequenceTimelineModel } from "@/lib/sequenceTimeline";
 import { Plus, X } from "lucide-react";
+import { useSettings } from "@/hooks/useSettings";
 
 interface SequenceVideoTrackProps {
   composition: ProjectComposition;
@@ -19,6 +20,7 @@ export function SequenceVideoTrack({
   onInsertClip,
   onRemoveClip,
 }: SequenceVideoTrackProps) {
+  const { t } = useSettings();
   const safeDuration = Math.max(timeline.totalDuration, 0.001);
 
   return (
@@ -81,7 +83,7 @@ export function SequenceVideoTrack({
                       onRemoveClip(timelineClip.clipId);
                     }}
                     className="sequence-video-remove-btn ui-chip-button absolute left-1/2 top-1/2 z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white/90 hover:bg-red-500/90"
-                    title="Remove clip"
+                    title={t.sequenceRemoveClip}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -102,7 +104,7 @@ export function SequenceVideoTrack({
             event.stopPropagation();
             onInsertClip(null, "before");
           }}
-          title="Insert project at start"
+          title={t.sequenceInsertAtStart}
         >
           <Plus className="h-3 w-3" />
         </button>
@@ -123,8 +125,8 @@ export function SequenceVideoTrack({
             }}
             title={
               index === timeline.clips.length - 1
-                ? "Insert project at end"
-                : "Insert project between clips"
+                ? t.sequenceInsertAtEnd
+                : t.sequenceInsertHere
             }
           >
             <Plus className="h-3 w-3" />

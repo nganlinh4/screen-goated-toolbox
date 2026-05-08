@@ -122,15 +122,28 @@ export function CursorPanel({
     buildCursorVariantRow('text', t.cursorText),
     buildCursorVariantRow('pointer', t.cursorPointer),
     buildCursorVariantRow('openhand', t.cursorOpenHand),
-    buildCursorVariantRow('closehand', 'Closed Hand'),
-    buildCursorVariantRow('wait', 'Wait'),
-    buildCursorVariantRow('appstarting', 'App Starting'),
-    buildCursorVariantRow('crosshair', 'Crosshair'),
-    buildCursorVariantRow('resize-ns', 'Resize N-S'),
-    buildCursorVariantRow('resize-we', 'Resize W-E'),
-    buildCursorVariantRow('resize-nwse', 'Resize NW-SE'),
-    buildCursorVariantRow('resize-nesw', 'Resize NE-SW'),
-  ]), [t.cursorDefault, t.cursorText, t.cursorPointer, t.cursorOpenHand]);
+    buildCursorVariantRow('closehand', t.cursorClosedHand),
+    buildCursorVariantRow('wait', t.cursorWait),
+    buildCursorVariantRow('appstarting', t.cursorAppStarting),
+    buildCursorVariantRow('crosshair', t.cursorCrosshair),
+    buildCursorVariantRow('resize-ns', t.cursorResizeNS),
+    buildCursorVariantRow('resize-we', t.cursorResizeWE),
+    buildCursorVariantRow('resize-nwse', t.cursorResizeNWSE),
+    buildCursorVariantRow('resize-nesw', t.cursorResizeNESW),
+  ]), [
+    t.cursorDefault,
+    t.cursorText,
+    t.cursorPointer,
+    t.cursorOpenHand,
+    t.cursorClosedHand,
+    t.cursorWait,
+    t.cursorAppStarting,
+    t.cursorCrosshair,
+    t.cursorResizeNS,
+    t.cursorResizeWE,
+    t.cursorResizeNWSE,
+    t.cursorResizeNESW,
+  ]);
   const viewportHeight = CURSOR_VARIANT_VIEWPORT_HEIGHT;
   const totalHeight = rows.length * CURSOR_VARIANT_ROW_HEIGHT;
   const variantGridWidth = (CURSOR_PACKS.length * CURSOR_VARIANT_COLUMN_WIDTH)
@@ -235,7 +248,7 @@ export function CursorPanel({
             onChange={(val) => setBackgroundConfig(prev => ({ ...prev, cursorScale: val }))}
           />
         </SettingRow>
-        <SettingRow label="Shadow" valueDisplay={`${Math.round(backgroundConfig.cursorShadow ?? 35)}%`} className="cursor-shadow-field">
+        <SettingRow label={t.cursorShadow} valueDisplay={`${Math.round(backgroundConfig.cursorShadow ?? 35)}%`} className="cursor-shadow-field">
           <Slider
             min={0} max={200} step={1} value={backgroundConfig.cursorShadow ?? 35}
             onChange={(val) => setBackgroundConfig(prev => ({ ...prev, cursorShadow: val }))}

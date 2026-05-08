@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@/lib/ipc';
+import { useSettings } from '@/hooks/useSettings';
 
 type CursorAdjustment = {
   scale: number;
@@ -136,6 +137,7 @@ function makeDefaultAdjustments(): Record<string, CursorAdjustment> {
 }
 
 export default function CursorSvgLab() {
+  const { t } = useSettings();
   const [adjust, setAdjust] = useState<Record<string, CursorAdjustment>>(makeDefaultAdjustments);
   const [baselineAdjust, setBaselineAdjust] = useState<Record<string, CursorAdjustment>>(makeDefaultAdjustments);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
@@ -248,22 +250,48 @@ export default function CursorSvgLab() {
     }
   };
 
+  const cursorTypeLabel = (id: string) => {
+    switch (id) {
+      case 'default': return t.cursorDefault;
+      case 'text': return t.cursorText;
+      case 'pointer': return t.cursorPointer;
+      case 'openhand': return t.cursorOpenHand;
+      case 'closehand': return t.cursorClosedHand;
+      case 'wait': return t.cursorWait;
+      case 'appstarting': return t.cursorAppStarting;
+      case 'crosshair': return t.cursorCrosshair;
+      case 'resize-ns': return t.cursorResizeNS;
+      case 'resize-we': return t.cursorResizeWE;
+      case 'resize-nwse': return t.cursorResizeNWSE;
+      case 'resize-nesw': return t.cursorResizeNESW;
+      default: return id;
+    }
+  };
+
+  const itemDisplayLabel = (item: CursorItem) => {
+    const separator = item.label.indexOf(' • ');
+    const pack = separator >= 0 ? item.label.slice(0, separator) : '';
+    const match = item.src.match(/\/cursor-(.+)-[^/]+\.svg$/);
+    const label = cursorTypeLabel(match?.[1] ?? item.label);
+    return pack ? `${pack} • ${label}` : label;
+  };
+
   return (
     <div className="cursor-lab-page h-screen overflow-hidden bg-[var(--surface-dim)] text-[var(--on-surface)] p-4">
       <div className="cursor-lab-toolbar sticky top-0 z-20 bg-[var(--surface-dim)] py-2 mb-3 border-b border-[var(--ui-border)]">
         <div className="cursor-lab-toolbar-row flex items-center gap-2 flex-wrap">
-          <a href="#" className="cursor-lab-back-link ui-chip-button rounded px-2 py-1 text-xs">Back</a>
+          <a href="#" className="cursor-lab-back-link ui-chip-button rounded px-2 py-1 text-xs">{t.cursorLabBack}</a>
           <button
             onClick={copyJson}
             className="cursor-lab-copy-button ui-chip-button rounded px-2 py-1 text-xs text-[var(--primary-color)]"
           >
-            Copy JSON
+            {t.cursorLabCopyJson}
           </button>
           <span className="cursor-lab-copy-status text-xs text-[var(--on-surface-variant)]">
-            {copied === 'ok' ? 'Copied' : copied === 'fail' ? 'Copy failed' : ''}
+            {copied === 'ok' ? t.cursorLabCopied : copied === 'fail' ? t.cursorLabCopyFailed : ''}
           </span>
           <span className="cursor-lab-help-text text-xs text-[var(--on-surface-variant)]">
-            Drag: move cursor content (real SVG px), Slider: scale, Hotspot: fixed center
+            {t.cursorLabHelp}
           </span>
         </div>
       </div>
@@ -296,7 +324,7 @@ export default function CursorSvgLab() {
                   : ''
               }`}
             >
-              <div className="cursor-lab-title text-[10px] text-[var(--on-surface-variant)] truncate mb-1">{item.label}</div>
+              <div className="cursor-lab-title text-[10px] text-[var(--on-surface-variant)] truncate mb-1">{itemDisplayLabel(item)}</div>
               <div className="cursor-lab-src text-[10px] text-[var(--on-surface-variant)]/80 truncate mb-1">{item.src}</div>
               <div
                 className={`cursor-lab-stage relative overflow-hidden rounded-md border cursor-grab ${
@@ -402,7 +430,7 @@ export default function CursorSvgLab() {
 
               <div className="cursor-lab-controls mt-2 space-y-1.5">
                 <div className="cursor-lab-scale-row flex items-center gap-2">
-                  <span className="text-[10px] w-9 text-[var(--on-surface-variant)]">Scale</span>
+                  <span className="text-[10px] w-9 text-[var(--on-surface-variant)]">{t.cursorLabScale}</span>
                   <input
                     type="range"
                     min="0.2"
@@ -429,7 +457,7 @@ export default function CursorSvgLab() {
                 </div>
                 <div className="cursor-lab-meta-row flex items-center justify-between">
                   <span className="text-[10px] text-[var(--on-surface-variant)]">
-                    offset {a.offsetX.toFixed(2)}, {a.offsetY.toFixed(2)}
+                    {t.cursorLabOffset} {a.offsetX.toFixed(2)}, {a.offsetY.toFixed(2)}
                   </span>
                   <div className="flex items-center gap-1.5">
                     <button
@@ -437,16 +465,16 @@ export default function CursorSvgLab() {
                       disabled={Boolean(applying[item.key]) || !hasChanges}
                       className="cursor-lab-apply-button ui-chip-button px-2 py-0.5 rounded text-[10px] text-[var(--primary-color)] disabled:opacity-50"
                     >
-                      {applying[item.key] ? 'Applying...' : 'Apply'}
+                      {applying[item.key] ? t.cursorLabApplying : t.cursorLabApply}
                     </button>
                     <button
                       onClick={() => resetOne(item.key)}
                       className="cursor-lab-reset-button ui-chip-button px-2 py-0.5 rounded text-[10px]"
                     >
-                      Reset
+                      {t.cursorLabReset}
                     </button>
                     <span className="text-[10px] text-[var(--on-surface-variant)] min-w-7">
-                      {applyStatus[item.key] === 'ok' ? 'Done' : applyStatus[item.key] === 'fail' ? 'Err' : ''}
+                      {applyStatus[item.key] === 'ok' ? t.cursorLabDone : applyStatus[item.key] === 'fail' ? t.cursorLabErrorShort : ''}
                     </span>
                   </div>
                 </div>

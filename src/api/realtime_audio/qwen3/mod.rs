@@ -38,6 +38,13 @@ pub fn run_qwen3_transcription_variant(
     state: SharedRealtimeState,
     variant: Qwen3ModelVariant,
 ) -> Result<()> {
+    let locale = {
+        let ui_language = crate::APP
+            .lock()
+            .map(|app| app.config.ui_language.clone())
+            .unwrap_or_else(|_| "en".to_string());
+        crate::gui::locale::LocaleText::get(&ui_language)
+    };
     let capability = crate::runtime_support::supports_qwen3_local_runtime();
     if !capability.is_supported() {
         crate::runtime_support::notify_capability_issue(&capability);
@@ -51,11 +58,11 @@ pub fn run_qwen3_transcription_variant(
     let (is_downloaded, download_label) = match variant {
         Qwen3ModelVariant::Small => (
             assets::is_qwen3_model_downloaded(),
-            "Downloading Qwen3-ASR 0.6B model...",
+            locale.qwen3_model_downloading_small_overlay,
         ),
         Qwen3ModelVariant::Large => (
             assets::is_qwen3_1_7b_model_downloaded(),
-            "Downloading Qwen3-ASR 1.7B model...",
+            locale.qwen3_model_downloading_large_overlay,
         ),
     };
 
@@ -74,7 +81,7 @@ pub fn run_qwen3_transcription_variant(
     }
 
     if !runtime::is_qwen3_runtime_managed_installed() {
-        update_overlay_text(overlay_hwnd, "Installing Qwen3-ASR CUDA runtime...");
+        update_overlay_text(overlay_hwnd, locale.qwen3_runtime_installing_overlay);
         runtime::download_qwen3_runtime(stop_signal.clone(), true)?;
     }
 
@@ -83,8 +90,8 @@ pub fn run_qwen3_transcription_variant(
     }
 
     let load_label = match variant {
-        Qwen3ModelVariant::Small => "Loading Qwen3-ASR 0.6B model...",
-        Qwen3ModelVariant::Large => "Loading Qwen3-ASR 1.7B model...",
+        Qwen3ModelVariant::Small => locale.qwen3_model_loading_small_overlay,
+        Qwen3ModelVariant::Large => locale.qwen3_model_loading_large_overlay,
     };
     update_overlay_text(overlay_hwnd, load_label);
     let model_dir = match variant {

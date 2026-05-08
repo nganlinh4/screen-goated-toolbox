@@ -236,6 +236,14 @@ fn clear_runtime_notice() {
     *LAST_QWEN3_RUNTIME_NOTICE.lock().unwrap() = None;
 }
 
+fn runtime_locale() -> crate::gui::locale::LocaleText {
+    let ui_language = crate::APP
+        .lock()
+        .map(|app| app.config.ui_language.clone())
+        .unwrap_or_else(|_| "en".to_string());
+    crate::gui::locale::LocaleText::get(&ui_language)
+}
+
 pub fn current_qwen3_runtime_notice() -> Option<String> {
     LAST_QWEN3_RUNTIME_NOTICE.lock().ok()?.clone()
 }
@@ -245,13 +253,16 @@ fn sync_runtime_badge(progress: f32) {
 
     let (title, message) = if let Ok(state) = REALTIME_STATE.lock() {
         let title = if state.download_title.trim().is_empty() {
-            "Downloading...".to_string()
+            runtime_locale().realtime_download_default_title.to_string()
         } else {
             state.download_title.clone()
         };
         (title, state.download_message.clone())
     } else {
-        ("Downloading...".to_string(), String::new())
+        (
+            runtime_locale().realtime_download_default_title.to_string(),
+            String::new(),
+        )
     };
 
     crate::overlay::auto_copy_badge::show_progress_notification(&title, &message, progress);
@@ -591,12 +602,12 @@ pub fn download_qwen3_runtime(
         return Err(anyhow!("Runtime download did not complete successfully"));
     }
 
+    let locale = runtime_locale();
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = "Downloading Qwen3-ASR CUDA Runtime".to_string();
-        state.download_message =
-            "Please wait... runtime install may download/extract ~2.5 GB.".to_string();
+        state.download_title = locale.qwen3_runtime_downloading_title.to_string();
+        state.download_message = locale.qwen3_runtime_downloading_message.to_string();
         state.download_progress = 0.0;
     }
     clear_runtime_notice();
@@ -632,7 +643,9 @@ pub fn download_qwen3_runtime(
             let _ = std::fs::remove_file(&runtime_dll_path);
             let _ = std::fs::remove_file(&local_manifest_path);
             if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = format!("Downloading {}...", QWEN3_RUNTIME_DLL);
+                state.download_message = locale
+                    .qwen3_downloading_file
+                    .replace("{}", QWEN3_RUNTIME_DLL);
                 state.download_progress = 0.0;
             }
             post_download_state();
@@ -677,8 +690,7 @@ pub fn download_qwen3_runtime(
         // Step 2: Download libtorch from pytorch.org if needed
         if !qwen3_libtorch_required_files_present(&bin_dir) {
             if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message =
-                    "Downloading libtorch CUDA runtime (~2.5 GB)...".to_string();
+                state.download_message = locale.qwen3_runtime_downloading_libtorch.to_string();
             }
             post_download_state();
 
@@ -725,7 +737,9 @@ pub fn download_qwen3_runtime(
                             .unwrap_or(0);
                         let pct = (current_size as f64 / expected_size as f64 * 100.0).min(99.0);
                         let mb = current_size as f64 / 1_048_576.0;
-                        let msg = format!("Downloading libtorch... {:.0} MB / ~2500 MB", mb);
+                        let msg = locale
+                            .qwen3_runtime_libtorch_progress_fmt
+                            .replace("{}", &format!("{:.0}", mb));
                         let progress = pct as f32;
                         if let Ok(mut state) = REALTIME_STATE.lock() {
                             state.download_message = msg.clone();
@@ -742,7 +756,7 @@ pub fn download_qwen3_runtime(
             }
 
             if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = "Extracting libtorch DLLs...".to_string();
+                state.download_message = locale.qwen3_runtime_extracting_libtorch.to_string();
             }
             if use_badge {
                 sync_runtime_badge(80.0);
@@ -777,11 +791,10 @@ pub fn download_qwen3_runtime(
                     && file_name.to_string_lossy().ends_with(".dll")
                 {
                     extracted += 1;
-                    let msg = format!(
-                        "Extracting DLL {}/~50: {}",
-                        extracted,
-                        file_name.to_string_lossy()
-                    );
+                    let msg = locale
+                        .qwen3_runtime_extracting_dll_fmt
+                        .replacen("{}", &extracted.to_string(), 1)
+                        .replacen("{}", &file_name.to_string_lossy(), 1);
                     let progress = 80.0 + (extracted as f32 / 50.0) * 20.0;
                     if let Ok(mut state) = REALTIME_STATE.lock() {
                         state.download_message = msg.clone();

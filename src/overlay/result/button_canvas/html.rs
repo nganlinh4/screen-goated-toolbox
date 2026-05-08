@@ -25,6 +25,7 @@ pub fn generate_canvas_html() -> String {
         "back": locale.overlay_back_tooltip,
         "forward": locale.overlay_forward_tooltip,
         "opacity": locale.overlay_opacity_tooltip,
+        "cancel": locale.overlay_cancel_tooltip,
         "overlay_refine_placeholder": locale.overlay_refine_placeholder,
     })
     .to_string();

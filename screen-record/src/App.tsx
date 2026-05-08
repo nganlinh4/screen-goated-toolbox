@@ -32,7 +32,8 @@ import { EditorOverlays } from "@/components/EditorOverlays";
 import { DragDropOverlay } from "@/components/DragDropOverlay";
 import { useVideoImport } from "@/hooks/useVideoImport";
 import { useImportedAudioImport } from "@/hooks/useImportedAudioImport";
-import { useSubtitleSrtImport } from "@/hooks/useSubtitleSrtImport";
+import { useSubtitleImport } from "@/hooks/useSubtitleSrtImport";
+import type { SubtitleFileFormat } from "@/lib/subtitleSrt";
 import { useSubtitleGeneration } from "@/hooks/useSubtitleGeneration";
 import { EditorMain } from "@/components/EditorMain";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
@@ -64,9 +65,10 @@ type PendingSubtitleDropAction = {
   path?: string;
 };
 
-type ReadSubtitleSrtPathResult = {
+type ReadSubtitleFilePathResult = {
   fileName?: string;
   content?: string;
+  format?: SubtitleFileFormat;
 };
 
 function preserveSilentAudioLanes(
@@ -590,6 +592,7 @@ function App() {
     currentVideo,
     lastCaptureFps,
     composition,
+    getLatestComposition: () => currentProjectDataRef.current?.composition ?? composition,
     currentProjectId: projects.currentProjectId,
     resolveClipExportSourcePath,
     resolveClipExportMicAudioPath,
@@ -1596,10 +1599,10 @@ function App() {
   });
 
   const {
-    isImporting: isImportingSubtitleSrt,
-    importSubtitleSrtFile,
-    importSubtitleSrtPayload,
-  } = useSubtitleSrtImport({
+    isImporting: isImportingSubtitle,
+    importSubtitleFile,
+    importSubtitlePayload,
+  } = useSubtitleImport({
     segment,
     duration,
     getCurrentProjectId: () =>
@@ -1612,7 +1615,7 @@ function App() {
       selectedTextIdsRef.current = [];
     },
     onCreateSubtitleProject: async (project) => {
-      logToHost(`[SubtitleSrt][Frontend] load project start id="${project.id}"`);
+      logToHost(`[SubtitleImport][Frontend] load project start id="${project.id}"`);
       projects.setShowProjectsDialog(false);
       await projects.loadProjects();
       await projects.handleLoadProject(project.id);
@@ -1620,7 +1623,7 @@ function App() {
       if (project.composition) {
         setComposition(project.composition);
       }
-      logToHost(`[SubtitleSrt][Frontend] load project complete id="${project.id}"`);
+      logToHost(`[SubtitleImport][Frontend] load project complete id="${project.id}"`);
     },
   });
 
@@ -1672,14 +1675,15 @@ function App() {
           for (const action of actions) {
             const filePath = action.path?.trim();
             if (!filePath) continue;
-            const result = await invoke<ReadSubtitleSrtPathResult>(
-              "read_subtitle_srt_path",
+            const result = await invoke<ReadSubtitleFilePathResult>(
+              "read_subtitle_file_path",
               { path: filePath },
             );
             if (!result.content) continue;
-            await importSubtitleSrtPayload({
+            await importSubtitlePayload({
               fileName: result.fileName || filePath,
               content: result.content,
+              format: result.format,
             });
             break;
           }
@@ -1696,7 +1700,7 @@ function App() {
     return () => {
       window.removeEventListener("sgt-subtitle-drop-pending", drainPendingSubtitleDropActions);
     };
-  }, [importSubtitleSrtPayload]);
+  }, [importSubtitlePayload]);
 
   useEffect(() => {
     let isDraining = false;
@@ -1890,11 +1894,11 @@ function App() {
     <SettingsContext.Provider value={settings}>
       <div className="app-container min-h-screen bg-[var(--surface)]">
         <DragDropOverlay
-          disabled={isRecording || isImporting || isImportingAudio || isImportingSubtitleSrt}
+          disabled={isRecording || isImporting || isImportingAudio || isImportingSubtitle}
           onDropVideo={importVideo}
           onDropAudio={importAudio}
           onDropAudios={importAudios}
-          onDropSubtitleSrt={importSubtitleSrtFile}
+          onDropSubtitle={importSubtitleFile}
         />
         <ResizeBorders />
         <Header

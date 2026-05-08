@@ -6,6 +6,7 @@ import {
   getHandlePriorityThresholdTime,
   isTimeNearRangeBoundary,
 } from "./trackHoverUtils";
+import { useSettings } from "@/hooks/useSettings";
 
 function formatTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
@@ -34,6 +35,7 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
   isDraggingTrim,
   isSeeking,
 }) => {
+  const { t } = useSettings();
   const [hoverState, setHoverState] = useState<
     | { type: "split"; x: number; time: number; segment: TrimSegment }
     | { type: "add"; x: number; time: number }
@@ -241,7 +243,7 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
             }
             setHoverState(null);
           }}
-          title={hoverState.type === "split" ? "Split segment" : "Add segment"}
+          title={hoverState.type === "split" ? t.trimSplitSegment : t.trimAddSegment}
         >
           {hoverState.type === "split" ? (
             <Scissors className="w-3.5 h-3.5" />

@@ -3,8 +3,9 @@ import { DEFAULT_BACKGROUND_CONFIG } from "@/lib/appUtils";
 import { projectManager } from "@/lib/projectManager";
 import { createAudioPlaceholderVideo } from "@/lib/mediaServer";
 import {
-  importSubtitleSrtIntoSegment,
-  parseSubtitleSrt,
+  importSubtitleFileIntoSegment,
+  parseSubtitleFile,
+  type SubtitleFileFormat,
 } from "@/lib/subtitleSrt";
 import { createSubtitleTrackStateFromSegments } from "@/lib/subtitleTracks";
 import type {
@@ -21,12 +22,14 @@ const SUBTITLE_PLACEHOLDER_BACKGROUND_CONFIG: BackgroundConfig = {
   canvasHeight: 1080,
 };
 
-export interface SubtitleSrtImportPayload {
+export interface SubtitleImportPayload {
   fileName: string;
   content: string;
+  format?: SubtitleFileFormat;
+  mimeType?: string;
 }
 
-interface UseSubtitleSrtImportOpts {
+interface UseSubtitleImportOpts {
   segment: VideoSegment | null;
   duration: number;
   getCurrentProjectId: () => string | null;
@@ -38,7 +41,7 @@ interface UseSubtitleSrtImportOpts {
 }
 
 function buildSubtitleImportTraceId() {
-  return `subtitle-srt-import-${Date.now().toString(36)}-${Math.random()
+  return `subtitle-import-${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
 }
@@ -84,13 +87,13 @@ function buildSubtitlePlaceholderSegment(
   };
 }
 
-export function useSubtitleSrtImport(opts: UseSubtitleSrtImportOpts) {
+export function useSubtitleImport(opts: UseSubtitleImportOpts) {
   const [isImporting, setIsImporting] = useState(false);
   const isImportingRef = useRef(false);
 
   const createSubtitleProject = useCallback(
     async (
-      payload: SubtitleSrtImportPayload,
+      payload: SubtitleImportPayload,
       subtitles: SubtitleSegment[],
     ) => {
       const duration = subtitleDuration(subtitles);
@@ -142,8 +145,8 @@ export function useSubtitleSrtImport(opts: UseSubtitleSrtImportOpts) {
     [opts],
   );
 
-  const importSubtitleSrtPayload = useCallback(
-    async (payload: SubtitleSrtImportPayload) => {
+  const importSubtitlePayload = useCallback(
+    async (payload: SubtitleImportPayload) => {
       if (isImportingRef.current) return;
       isImportingRef.current = true;
       setIsImporting(true);
@@ -151,13 +154,13 @@ export function useSubtitleSrtImport(opts: UseSubtitleSrtImportOpts) {
       try {
         const projectId = opts.getCurrentProjectId();
         if (projectId && opts.segment) {
-          const { segment, subtitles } = importSubtitleSrtIntoSegment(
+          const { segment, subtitles } = importSubtitleFileIntoSegment(
             opts.segment,
-            payload.content,
+            payload,
             opts.duration,
           );
           if (subtitles.length === 0) {
-            console.error(`[SubtitleSrt:${traceId}] import failed: no valid subtitles found`);
+            console.error(`[SubtitleImport:${traceId}] import failed: no valid subtitles found`);
             return;
           }
           opts.setSegment(segment);
@@ -167,16 +170,16 @@ export function useSubtitleSrtImport(opts: UseSubtitleSrtImportOpts) {
           return;
         }
 
-        const subtitles = parseSubtitleSrt(payload.content, 0);
+        const subtitles = parseSubtitleFile(payload, 0);
         if (subtitles.length === 0) {
-          console.error(`[SubtitleSrt:${traceId}] import failed: no valid subtitles found`);
+          console.error(`[SubtitleImport:${traceId}] import failed: no valid subtitles found`);
           return;
         }
         await createSubtitleProject(payload, subtitles);
         opts.setEditingSubtitleId(subtitles[0]?.id ?? null);
         opts.setActivePanel("subtitles");
       } catch (error) {
-        console.error(`[SubtitleSrt:${traceId}] import failed`, error);
+        console.error(`[SubtitleImport:${traceId}] import failed`, error);
       } finally {
         isImportingRef.current = false;
         setIsImporting(false);
@@ -187,17 +190,23 @@ export function useSubtitleSrtImport(opts: UseSubtitleSrtImportOpts) {
 
   const importSubtitleSrtFile = useCallback(
     async (file: File) => {
-      await importSubtitleSrtPayload({
+      await importSubtitlePayload({
         fileName: file.name,
         content: await file.text(),
+        mimeType: file.type,
       });
     },
-    [importSubtitleSrtPayload],
+    [importSubtitlePayload],
   );
 
   return {
     isImporting,
+    importSubtitleFile: importSubtitleSrtFile,
+    importSubtitlePayload,
     importSubtitleSrtFile,
-    importSubtitleSrtPayload,
+    importSubtitleSrtPayload: importSubtitlePayload,
   };
 }
+
+export const useSubtitleSrtImport = useSubtitleImport;
+export type SubtitleSrtImportPayload = SubtitleImportPayload;

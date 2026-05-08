@@ -29,7 +29,10 @@ pub(super) fn render_studio_panel(
                 .hint_text(text.tts_playground_text_hint),
         )
         .changed();
-    ui.label(format!("{} chars", config.tts_playground.draft_text.chars().count()));
+    ui.label(text.char_count_fmt.replace(
+        "{}",
+        &config.tts_playground.draft_text.chars().count().to_string(),
+    ));
 
     ui.horizontal_wrapped(|ui| {
         if ui
@@ -292,8 +295,7 @@ fn start_mp3_export(artifact: TtsPlaygroundArtifact, state: &mut TtsPlaygroundUi
     state.is_exporting = true;
     state.error = None;
     std::thread::spawn(move || {
-        let result = export::save_mp3_dialog(&artifact)
-            .map(|path| path.display().to_string());
+        let result = export::save_mp3_dialog(&artifact).map(|path| path.display().to_string());
         let _ = tx.send(result);
     });
 }
@@ -320,10 +322,8 @@ fn render_recent(ui: &mut egui::Ui, text: &LocaleText, state: &mut TtsPlayground
                 );
                 let row_width = ui.available_width();
                 let row_height = 18.0;
-                let (row_rect, row_response) = ui.allocate_exact_size(
-                    egui::vec2(row_width, row_height),
-                    egui::Sense::click(),
-                );
+                let (row_rect, row_response) =
+                    ui.allocate_exact_size(egui::vec2(row_width, row_height), egui::Sense::click());
                 let delete_rect = egui::Rect::from_center_size(
                     egui::pos2(row_rect.right() - 9.0, row_rect.center().y),
                     egui::vec2(18.0, 18.0),
@@ -349,7 +349,8 @@ fn render_recent(ui: &mut egui::Ui, text: &LocaleText, state: &mut TtsPlayground
                 );
 
                 let delete_id_source = ui.id().with(("tts_recent_delete", artifact.id));
-                let delete_response = ui.interact(delete_rect, delete_id_source, egui::Sense::click());
+                let delete_response =
+                    ui.interact(delete_rect, delete_id_source, egui::Sense::click());
                 let icon_color = if delete_response.hovered() {
                     ui.visuals().widgets.hovered.fg_stroke.color
                 } else {
@@ -362,7 +363,10 @@ fn render_recent(ui: &mut egui::Ui, text: &LocaleText, state: &mut TtsPlayground
                     icon_color,
                 );
 
-                if delete_response.on_hover_text("Delete").clicked() {
+                if delete_response
+                    .on_hover_text(text.history_delete_tooltip)
+                    .clicked()
+                {
                     delete_id = Some(artifact.id);
                 } else if row_response.clicked() {
                     selected = Some(artifact.clone());
@@ -380,7 +384,11 @@ fn render_recent(ui: &mut egui::Ui, text: &LocaleText, state: &mut TtsPlayground
     }
 }
 
-fn play_artifact(state: &mut TtsPlaygroundUiState, artifact: &TtsPlaygroundArtifact, sample: usize) {
+fn play_artifact(
+    state: &mut TtsPlaygroundUiState,
+    artifact: &TtsPlaygroundArtifact,
+    sample: usize,
+) {
     let start_sample = if sample >= artifact.pcm_samples.len() {
         0
     } else {
@@ -424,10 +432,7 @@ fn update_finished_playback(state: &mut TtsPlaygroundUiState) {
             .current_sample(artifact.sample_rate, artifact.pcm_samples.len())
             >= artifact.pcm_samples.len()
     {
-        eprintln!(
-            "[TTS Playground] ui-play-complete artifact={}",
-            artifact.id
-        );
+        eprintln!("[TTS Playground] ui-play-complete artifact={}", artifact.id);
         state.player.reset();
     }
 }

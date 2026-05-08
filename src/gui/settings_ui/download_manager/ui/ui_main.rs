@@ -99,7 +99,7 @@ impl DownloadManager {
     ) {
         egui::Frame::default().inner_margin(8.0).show(ui, |ui| {
             // --- TAB STRIP ---
-            self.render_tab_strip(ui);
+            self.render_tab_strip(ui, text);
             ui.separator();
 
             let idx = self.active_idx();
@@ -129,7 +129,7 @@ impl DownloadManager {
         });
     }
 
-    fn render_tab_strip(&mut self, ui: &mut egui::Ui) {
+    fn render_tab_strip(&mut self, ui: &mut egui::Ui, text: &LocaleText) {
         ui.horizontal(|ui| {
             let mut close_tab_idx: Option<usize> = None;
             let mut switch_tab_idx: Option<usize> = None;
@@ -146,7 +146,11 @@ impl DownloadManager {
                 }
                 ui.add_space(2.0);
             }
-            if ui.small_button("+").on_hover_text("New tab").clicked() {
+            if ui
+                .small_button("+")
+                .on_hover_text(text.download_new_tab_tooltip)
+                .clicked()
+            {
                 self.add_tab();
             }
             if let Some(idx) = switch_tab_idx {

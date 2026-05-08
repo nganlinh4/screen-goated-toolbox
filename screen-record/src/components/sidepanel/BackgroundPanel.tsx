@@ -243,6 +243,7 @@ function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
   backgroundConfig: BackgroundConfig;
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
 }) {
+  const { t } = useSettings();
   const { state, startDownload, selectBg, deleteBg } = useDownloadableBg(bg, setBackgroundConfig);
 
   const [isApplying, setIsApplying] = useState(false);
@@ -274,11 +275,12 @@ function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
     <button
       onClick={handleClick}
       title={
-        isDownloading ? `Downloading... ${Math.round(progress)}%`
-        : isPrewarming ? 'Preparing image for export...'
+        isDownloading ? t.backgroundDownloadingProgress.replace('{progress}', String(Math.round(progress)))
+        : isPrewarming ? t.backgroundPreparingExport
         : isDownloaded ? bg.id
-        : state.status === 'error' ? `Error: ${(state as { status: 'error'; message: string }).message}. Click to retry.`
-        : 'Click to download'
+        : state.status === 'error'
+          ? t.backgroundDownloadError.replace('{message}', (state as { status: 'error'; message: string }).message)
+        : t.backgroundClickToDownload
       }
       className={`downloadable-bg-btn ui-choice-tile aspect-square h-10 rounded-lg relative overflow-hidden group ${
         isSelected
@@ -296,7 +298,7 @@ function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
         <div
           onClick={handleDelete}
           className="downloadable-bg-delete absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-sm bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-red-500/80 z-10"
-          title="Delete downloaded file"
+          title={t.backgroundDeleteDownloadedFile}
         >
           <Trash2 className="w-2 h-2 text-white" />
         </div>
@@ -451,8 +453,8 @@ export function BackgroundPanel({
                     onRemoveRecentUpload(imageUrl);
                   }}
                   className="uploaded-bg-delete absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-sm bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-red-500/80 z-10"
-                  title="Remove uploaded background"
-                  aria-label="Remove uploaded background"
+                  title={t.backgroundRemoveUploaded}
+                  aria-label={t.backgroundRemoveUploaded}
                 >
                   <Trash2 className="w-2.5 h-2.5 text-white" />
                 </div>

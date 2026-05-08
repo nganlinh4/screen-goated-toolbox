@@ -83,26 +83,26 @@ pub fn get(font_size: u32) -> String {
             if (translationModelSelect) {{
                 translationModelSelect.disabled = isS2s;
                 translationModelSelect.title = isS2s
-                    ? 'Gemini S2S uses the TTS Gemini Live model'
-                    : 'Translation Model';
+                    ? window.REALTIME_L10N.s2sTranslationModel
+                    : window.REALTIME_L10N.translationModel;
             }}
             if (langSelect) {{
                 langSelect.disabled = false;
                 langSelect.title = isS2s
-                    ? 'Change target language and restart the current S2S session'
-                    : 'Target Language';
+                    ? window.REALTIME_L10N.s2sTargetLanguage
+                    : window.REALTIME_L10N.targetLanguage;
             }}
             if (speakBtn) {{
                 speakBtn.classList.toggle('active', isS2s || ttsEnabled);
                 speakBtn.classList.toggle('locked', isS2s);
-                speakBtn.title = isS2s ? 'Direct speech output settings' : 'Text-to-Speech Settings';
+                speakBtn.title = isS2s ? window.REALTIME_L10N.directSpeech : window.REALTIME_L10N.ttsSettings;
             }}
             if (ttsToggle) {{
                 ttsToggle.classList.toggle('locked', isS2s);
                 ttsToggle.classList.toggle('on', isS2s || ttsEnabled);
                 ttsToggle.title = isS2s
-                    ? 'Direct speech output is always on for Gemini S2S'
-                    : 'Enable text-to-speech';
+                    ? window.REALTIME_L10N.ttsS2sLocked
+                    : window.REALTIME_L10N.ttsEnable;
             }}
         }}
 
