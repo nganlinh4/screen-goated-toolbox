@@ -64,6 +64,8 @@ pub struct SettingsApp {
     // 36 = Show native window, 37 = Re-enable custom chrome, 38 = Ready
     pub(crate) startup_stage: u8,
     pub(crate) custom_chrome_ready: bool,
+    pub(crate) custom_chrome_resize_pulse_stage: u8,
+    pub(crate) custom_chrome_restore_size: Option<(i32, i32)>,
 
     pub(crate) cached_audio_devices: Arc<Mutex<Vec<(String, String)>>>,
 

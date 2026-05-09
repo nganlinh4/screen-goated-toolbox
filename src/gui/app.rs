@@ -40,6 +40,9 @@ impl eframe::App for SettingsApp {
         // Theme & Tray
         self.update_theme_and_tray(ctx);
 
+        // Native resize pulse from the previous frame's custom chrome transition.
+        self.pulse_custom_chrome_resize_if_pending(ctx);
+
         // Startup Logic
         self.update_startup(ctx);
 
@@ -64,8 +67,10 @@ impl eframe::App for SettingsApp {
         // Tips Logic
         self.update_tips_logic(ctx);
 
+        let main_ui_ready = self.is_main_ui_ready();
+
         // --- RESIZE SUBCLASS (once, after window is visible) ---
-        if self.startup_stage >= 38 && self.custom_chrome_ready && !self.resize_subclass_installed {
+        if main_ui_ready && !self.resize_subclass_installed {
             unsafe {
                 use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
                 let class_name = windows::core::w!("eframe");
@@ -82,7 +87,7 @@ impl eframe::App for SettingsApp {
         }
 
         // --- UI LAYOUT ---
-        if self.startup_stage >= 38 {
+        if main_ui_ready {
             // Title Bar (Custom Windows Bar)
             if self.custom_chrome_ready {
                 self.render_title_bar(ctx);
@@ -121,7 +126,7 @@ impl eframe::App for SettingsApp {
         }
 
         // Render Drop Overlay when dragging files (Very Last)
-        if self.startup_stage >= 38 {
+        if main_ui_ready {
             self.render_drop_overlay(ctx);
         }
     }
