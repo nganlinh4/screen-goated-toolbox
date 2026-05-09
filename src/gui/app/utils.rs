@@ -2,11 +2,12 @@ use super::types::{REQUEST_OPEN_DOWNLOADED_TOOLS, RESTORE_SIGNAL, SettingsApp};
 use crate::config::save_config;
 use eframe::egui;
 use std::sync::atomic::Ordering;
-use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Foundation::{CloseHandle, RECT};
 use windows::Win32::System::Threading::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
+    FindWindowW, GetWindowRect, SW_RESTORE, SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow, SetWindowPos, ShowWindow,
 };
 use windows::core::*;
 
@@ -46,6 +47,39 @@ impl SettingsApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Transparent(true));
         self.custom_chrome_ready = true;
+        self.custom_chrome_resize_pulse_stage = 1;
+        self.custom_chrome_restore_size = None;
+        ctx.request_repaint();
+    }
+
+    pub(crate) fn pulse_custom_chrome_resize_if_pending(&mut self, ctx: &egui::Context) {
+        match self.custom_chrome_resize_pulse_stage {
+            0 => return,
+            1 => {
+                self.custom_chrome_restore_size = begin_main_window_resize_pulse();
+                self.custom_chrome_resize_pulse_stage = 2;
+            }
+            2 => {
+                if let Some((width, height)) = self.custom_chrome_restore_size {
+                    restore_main_window_resize_pulse(width, height);
+                } else {
+                    force_main_window_frame_changed();
+                }
+                self.custom_chrome_resize_pulse_stage = 3;
+            }
+            _ => {
+                force_main_window_frame_changed();
+                self.custom_chrome_resize_pulse_stage = 0;
+                self.custom_chrome_restore_size = None;
+            }
+        }
+        ctx.request_repaint();
+    }
+
+    pub(crate) fn is_main_ui_ready(&self) -> bool {
+        self.startup_stage >= 38
+            && self.custom_chrome_ready
+            && self.custom_chrome_resize_pulse_stage == 0
     }
 
     /// Sync screen_record_hotkeys from the global AppState.
@@ -126,12 +160,7 @@ impl SettingsApp {
 
 pub(crate) fn show_main_window_native() {
     unsafe {
-        let class_name = w!("eframe");
-        let mut hwnd = FindWindowW(class_name, None).unwrap_or_default();
-        if hwnd.is_invalid() {
-            let title = w!("Screen Goated Toolbox (SGT by nganlinh4)");
-            hwnd = FindWindowW(None, title).unwrap_or_default();
-        }
+        let hwnd = main_window_hwnd();
         if !hwnd.is_invalid() {
             let _ = ShowWindow(hwnd, SW_RESTORE);
             let _ = ShowWindow(hwnd, SW_SHOW);
@@ -139,6 +168,99 @@ pub(crate) fn show_main_window_native() {
             let _ = SetFocus(Some(hwnd));
         }
     }
+}
+
+fn force_main_window_frame_changed() {
+    unsafe {
+        let hwnd = main_window_hwnd();
+        if hwnd.is_invalid() {
+            return;
+        }
+
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+    }
+}
+
+fn begin_main_window_resize_pulse() -> Option<(i32, i32)> {
+    unsafe {
+        let hwnd = main_window_hwnd();
+        if hwnd.is_invalid() {
+            return None;
+        }
+
+        let mut rect = RECT::default();
+        if GetWindowRect(hwnd, &mut rect).is_err() {
+            force_main_window_frame_changed();
+            return None;
+        }
+
+        let width = rect.right - rect.left;
+        let height = rect.bottom - rect.top;
+        if width <= 0 || height <= 0 {
+            force_main_window_frame_changed();
+            return None;
+        }
+
+        crate::log_info!(
+            "[Startup] Pulsing main window resize after custom chrome: {}x{} -> {}x{}",
+            width,
+            height,
+            width + 1,
+            height
+        );
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            width + 1,
+            height,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+        Some((width, height))
+    }
+}
+
+fn restore_main_window_resize_pulse(width: i32, height: i32) {
+    unsafe {
+        let hwnd = main_window_hwnd();
+        if hwnd.is_invalid() {
+            return;
+        }
+
+        crate::log_info!(
+            "[Startup] Restoring main window size after custom chrome pulse: {}x{}",
+            width,
+            height
+        );
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            width,
+            height,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+    }
+}
+
+unsafe fn main_window_hwnd() -> windows::Win32::Foundation::HWND {
+    let class_name = w!("eframe");
+    let mut hwnd = unsafe { FindWindowW(class_name, None).unwrap_or_default() };
+    if hwnd.is_invalid() {
+        let title = w!("Screen Goated Toolbox (SGT by nganlinh4)");
+        hwnd = unsafe { FindWindowW(None, title).unwrap_or_default() };
+    }
+    hwnd
 }
 
 /// Robustly restart the application on Windows.

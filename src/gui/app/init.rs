@@ -312,6 +312,8 @@ impl SettingsApp {
             fade_in_start: None,
             startup_stage: 0,
             custom_chrome_ready: false,
+            custom_chrome_resize_pulse_stage: 0,
+            custom_chrome_restore_size: None,
             cached_audio_devices,
             snarl: None,
             last_edited_preset_key: None,
