@@ -9,7 +9,8 @@ pub(super) fn save_wav_dialog(artifact: &TtsPlaygroundArtifact) -> Result<PathBu
 }
 
 pub(super) fn save_mp3_dialog(artifact: &TtsPlaygroundArtifact) -> Result<PathBuf, String> {
-    let ffmpeg = crate::gui::settings_ui::download_manager::ffmpeg_dependency::ensure_ffmpeg_with_badge()?;
+    let ffmpeg =
+        crate::gui::settings_ui::download_manager::ffmpeg_dependency::ensure_ffmpeg_with_badge()?;
 
     let filename = default_filename(artifact, "mp3");
     let output_path = save_file_dialog(&filename, "MP3 Audio (*.mp3)", "*.mp3", "mp3")?;

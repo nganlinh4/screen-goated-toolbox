@@ -545,7 +545,13 @@ impl TranslationDiagnostics {
     ) {
         let model_chain = candidate_models
             .iter()
-            .map(|model| format!("{}:{}", model.provider, localized_model_label(model, ui_language)))
+            .map(|model| {
+                format!(
+                    "{}:{}",
+                    model.provider,
+                    localized_model_label(model, ui_language)
+                )
+            })
             .collect::<Vec<_>>()
             .join(" > ");
         eprintln!(
@@ -555,9 +561,15 @@ impl TranslationDiagnostics {
             chunk_count,
             chunk_mode.unwrap_or("auto"),
             target_language,
-            instructions.map(str::trim).is_some_and(|value| !value.is_empty()),
+            instructions
+                .map(str::trim)
+                .is_some_and(|value| !value.is_empty()),
             gtx_allowed,
-            if model_chain.is_empty() { "none" } else { &model_chain }
+            if model_chain.is_empty() {
+                "none"
+            } else {
+                &model_chain
+            }
         );
     }
 
@@ -567,10 +579,7 @@ impl TranslationDiagnostics {
             self.retry_success_count += 1;
             eprintln!(
                 "[SubtitleTranslation][job={}] retry-success model={} chunk_items={} attempts={}",
-                self.job_id,
-                model_id,
-                chunk_items,
-                attempts
+                self.job_id, model_id, chunk_items, attempts
             );
         }
     }

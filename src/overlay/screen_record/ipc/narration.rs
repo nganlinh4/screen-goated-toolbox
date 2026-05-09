@@ -55,11 +55,7 @@ struct EdgeVoiceConfigWire {
 
 impl From<EdgeVoiceConfigWire> for EdgeTtsVoiceConfig {
     fn from(wire: EdgeVoiceConfigWire) -> Self {
-        EdgeTtsVoiceConfig::new(
-            &wire.language_code,
-            &wire.language_name,
-            &wire.voice_name,
-        )
+        EdgeTtsVoiceConfig::new(&wire.language_code, &wire.language_name, &wire.voice_name)
     }
 }
 
@@ -98,14 +94,13 @@ impl From<TtsProfileWire> for TtsRequestProfile {
         // so a fresh narration tab "just works" without forcing the user to
         // choose every value before the first run.
         let defaults = crate::config::TtsPlaygroundSettings::default();
-        let trimmed_or =
-            |value: String, fallback: String| -> String {
-                if value.trim().is_empty() {
-                    fallback
-                } else {
-                    value
-                }
-            };
+        let trimmed_or = |value: String, fallback: String| -> String {
+            if value.trim().is_empty() {
+                fallback
+            } else {
+                value
+            }
+        };
         let edge_voice_configs: Vec<EdgeTtsVoiceConfig> = if wire.edge_voice_configs.is_empty() {
             defaults.edge_settings.voice_configs
         } else {
@@ -272,7 +267,10 @@ pub fn handle_start_subtitle_narration(
         edge_config_voice,
         edge_resolved_voice,
         profile.edge_voice,
-        narration_language_sample.chars().take(180).collect::<String>()
+        narration_language_sample
+            .chars()
+            .take(180)
+            .collect::<String>()
     );
     eprintln!(
         "[Narration] start request items={} method={:?} language_override='{}' gemini_model='{}' gemini_voice='{}' gemini_speed='{}' google_speed='{}' edge_voice='{}' edge_pitch={} edge_rate={} language_conditions={}",
@@ -328,9 +326,7 @@ fn normalize_language_to_639_3(language: &str) -> Option<String> {
     if language.is_empty() || language.eq_ignore_ascii_case("auto") {
         return None;
     }
-    if language.len() == 3
-        && isolang::Language::from_639_3(language).is_some()
-    {
+    if language.len() == 3 && isolang::Language::from_639_3(language).is_some() {
         return Some(language.to_ascii_lowercase());
     }
     if language.len() == 2
@@ -338,8 +334,7 @@ fn normalize_language_to_639_3(language: &str) -> Option<String> {
     {
         return Some(lang.to_639_3().to_string());
     }
-    isolang::Language::from_name(language)
-        .map(|lang| lang.to_639_3().to_string())
+    isolang::Language::from_name(language).map(|lang| lang.to_639_3().to_string())
 }
 
 fn build_narration_language_sample(items: &[SubtitleNarrationItemRequest]) -> String {
@@ -363,7 +358,6 @@ fn detect_narration_job_language(
     }
     (crate::lang_detect::detect_language(&sample), sample)
 }
-
 
 pub fn handle_get_subtitle_narration_status(
     args: &serde_json::Value,
@@ -426,7 +420,7 @@ pub fn handle_get_subtitle_narration_status(
         "errors": errors,
         "error": snapshot.error,
     }))
-        .map_err(|error| format!("Serialize subtitle narration status: {error}"))
+    .map_err(|error| format!("Serialize subtitle narration status: {error}"))
 }
 
 /// Returns the same option metadata the TTS Playground exposes so the
@@ -445,17 +439,13 @@ pub fn handle_get_narration_tts_metadata(
 
     let gemini_models: Vec<serde_json::Value> = tts_gemini_model_options()
         .iter()
-        .map(|(api_model, label)| {
-            serde_json::json!({ "apiModel": api_model, "label": label })
-        })
+        .map(|(api_model, label)| serde_json::json!({ "apiModel": api_model, "label": label }))
         .collect();
 
     let gemini_instruction_languages: Vec<serde_json::Value> =
         SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES
             .iter()
-            .map(|(code, name)| {
-                serde_json::json!({ "languageCode": code, "languageName": name })
-            })
+            .map(|(code, name)| serde_json::json!({ "languageCode": code, "languageName": name }))
             .collect();
 
     let default_language_conditions: Vec<serde_json::Value> = defaults
@@ -621,11 +611,7 @@ fn run_subtitle_narration(
     cancelled: Arc<AtomicBool>,
 ) {
     let total = request.items.len();
-    eprintln!(
-        "[Narration][job={}] running total_items={}",
-        job_id,
-        total
-    );
+    eprintln!("[Narration][job={}] running total_items={}", job_id, total);
     let _ = update_snapshot(&snapshot, |state| {
         state.state = "running".to_string();
         state.message = "Generating narration audio".to_string();
@@ -721,7 +707,9 @@ fn run_subtitle_narration(
                     state.results.push(result.clone());
                     state.results_revision += 1;
                     let revision = state.results_revision;
-                    state.result_events.push(SubtitleNarrationResultEvent { revision, result });
+                    state
+                        .result_events
+                        .push(SubtitleNarrationResultEvent { revision, result });
                 }
                 Err(message) => state.errors.push(SubtitleNarrationError {
                     subtitle_id: item.id.clone(),
@@ -769,10 +757,7 @@ fn run_subtitle_narration(
         for (i, error) in state.errors.iter().enumerate() {
             eprintln!(
                 "[Narration][job={}] error[{}] subtitle_id={} message={}",
-                job_id,
-                i,
-                error.subtitle_id,
-                error.message
+                job_id, i, error.subtitle_id, error.message
             );
         }
     }

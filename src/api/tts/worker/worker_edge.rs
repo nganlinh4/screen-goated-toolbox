@@ -26,17 +26,11 @@ pub(super) fn handle_edge_tts(
 
     // Get Settings
     let (voice_name, pitch, rate) = if let Some(profile) = request.req.profile.as_ref() {
-        let detected_code = profile
-            .language_code_override
-            .clone()
-            .unwrap_or_else(|| {
-                crate::lang_detect::detect_language(&text).unwrap_or_else(|| "eng".to_string())
-            });
+        let detected_code = profile.language_code_override.clone().unwrap_or_else(|| {
+            crate::lang_detect::detect_language(&text).unwrap_or_else(|| "eng".to_string())
+        });
         let (voice, code_2, _, source) =
-            crate::api::tts::utils::resolve_edge_voice_for_language(
-                profile,
-                Some(&detected_code),
-            );
+            crate::api::tts::utils::resolve_edge_voice_for_language(profile, Some(&detected_code));
         eprintln!(
             "[TTS Edge][VoiceRoute] detected_6393={} edge_lang={} source={} voice={}",
             detected_code, code_2, source, voice

@@ -175,8 +175,7 @@ pub fn snap_split_frames_to_silence(
                 best_index = window_index;
             }
         }
-        let snapped_frame =
-            (best_index * window_frames + window_frames / 2).min(total_frames - 1);
+        let snapped_frame = (best_index * window_frames + window_frames / 2).min(total_frames - 1);
         snapped.push(snapped_frame);
         min_window_floor = (best_index + 1).min(last_window);
     }

@@ -1,6 +1,5 @@
 use super::types::{
-    AudioEvent, QueuedRequest, SOURCE_SAMPLE_RATE, TtsCollectedAudio, TtsRequest,
-    TtsRequestProfile,
+    AudioEvent, QueuedRequest, SOURCE_SAMPLE_RATE, TtsCollectedAudio, TtsRequest, TtsRequestProfile,
 };
 use super::utils;
 use std::collections::VecDeque;

@@ -66,7 +66,6 @@ pub fn get_language_instruction_for_code(
     detected_code: &str,
     conditions: &[crate::config::TtsLanguageCondition],
 ) -> Option<String> {
-
     // Find matching condition
     for condition in conditions {
         if condition.language_code.eq_ignore_ascii_case(&detected_code) {
@@ -86,12 +85,11 @@ pub fn resolve_edge_voice_for_language(
         .unwrap_or("en")
         .to_string();
 
-    if let Some(config) = profile
-        .edge_settings
-        .voice_configs
-        .iter()
-        .find(|config| config.language_code.eq_ignore_ascii_case(&edge_language_code))
-    {
+    if let Some(config) = profile.edge_settings.voice_configs.iter().find(|config| {
+        config
+            .language_code
+            .eq_ignore_ascii_case(&edge_language_code)
+    }) {
         return (
             config.voice_name.clone(),
             edge_language_code,
@@ -104,7 +102,11 @@ pub fn resolve_edge_voice_for_language(
         .edge_settings
         .voice_configs
         .into_iter()
-        .find(|config| config.language_code.eq_ignore_ascii_case(&edge_language_code))
+        .find(|config| {
+            config
+                .language_code
+                .eq_ignore_ascii_case(&edge_language_code)
+        })
     {
         return (
             config.voice_name.clone(),
