@@ -32,6 +32,7 @@ import { EditorOverlays } from "@/components/EditorOverlays";
 import { DragDropOverlay } from "@/components/DragDropOverlay";
 import { useVideoImport } from "@/hooks/useVideoImport";
 import { useImportedAudioImport } from "@/hooks/useImportedAudioImport";
+import { useAudioDownload } from "@/hooks/useAudioDownload";
 import { useSubtitleImport } from "@/hooks/useSubtitleSrtImport";
 import type { SubtitleFileFormat } from "@/lib/subtitleSrt";
 import { useSubtitleGeneration } from "@/hooks/useSubtitleGeneration";
@@ -597,6 +598,36 @@ function App() {
     resolveClipExportSourcePath,
     resolveClipExportMicAudioPath,
     resolveClipExportWebcamPath,
+  });
+
+  const resolveCurrentExportSourcePath = useCallback((): string => {
+    const directRecordingPath =
+      currentVideo === videoFilePathOwnerUrl
+        ? videoFilePath
+        : "";
+    return (
+      directRecordingPath ||
+      currentRawVideoPath ||
+      lastRawSavedPath ||
+      ""
+    ).trim();
+  }, [
+    currentRawVideoPath,
+    currentVideo,
+    lastRawSavedPath,
+    videoFilePath,
+    videoFilePathOwnerUrl,
+  ]);
+
+  const audioDownloadHook = useAudioDownload({
+    videoRef,
+    segment,
+    sourceVideoPath: resolveCurrentExportSourcePath(),
+    micAudioPath: micAudioFilePath || currentRawMicAudioPath,
+    composition,
+    getLatestComposition: () => currentProjectDataRef.current?.composition ?? composition,
+    resolveClipExportSourcePath,
+    resolveClipExportMicAudioPath,
   });
 
   const {
@@ -2210,6 +2241,7 @@ function App() {
             const next: ProjectComposition = { ...baseComposition, narrationTrackVolumePoints: points };
             applyCurrentComposition(next, "update-narration-track-volume");
           }}
+          onAudioTrackDownload={audioDownloadHook.openAudioDownloadDialog}
         />
 
         <EditorOverlays
@@ -2236,6 +2268,7 @@ function App() {
           onCancelCrop={handleCancelCrop}
           onApplyCrop={handleApplyCrop}
           exportHook={exportHook}
+          audioDownloadHook={audioDownloadHook}
           videoRef={videoRef}
           showWindowSelect={showWindowSelect}
           onCloseWindowSelect={() => setShowWindowSelect(false)}

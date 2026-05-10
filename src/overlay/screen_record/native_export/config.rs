@@ -110,6 +110,64 @@ pub struct CompositionExportConfig {
     pub narration_track_volume_points: Vec<DeviceAudioPoint>,
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AudioDownloadTrackKind {
+    Device,
+    Mic,
+    Imported,
+    Narration,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AudioDownloadFormat {
+    Mp3,
+    Wav,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioDownloadClipJob {
+    pub clip_id: String,
+    pub clip_name: String,
+    #[serde(default)]
+    pub source_video_path: String,
+    #[serde(default)]
+    pub device_audio_path: String,
+    #[serde(default)]
+    pub mic_audio_path: String,
+    pub trim_start: f64,
+    pub duration: f64,
+    pub segment: VideoSegment,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioDownloadConfig {
+    pub track_kind: AudioDownloadTrackKind,
+    #[serde(default = "default_audio_download_format")]
+    pub format: AudioDownloadFormat,
+    #[serde(default)]
+    pub output_dir: String,
+    #[serde(default)]
+    pub track_label: String,
+    #[serde(default)]
+    pub clips: Vec<AudioDownloadClipJob>,
+    #[serde(default, alias = "musicSegments")]
+    pub audio_segments: Vec<ImportedAudioSegmentConfig>,
+    #[serde(default)]
+    pub audio_track_volume_points: Vec<DeviceAudioPoint>,
+    #[serde(default)]
+    pub narration_segments: Vec<ImportedAudioSegmentConfig>,
+    #[serde(default)]
+    pub narration_track_volume_points: Vec<DeviceAudioPoint>,
+}
+
+fn default_audio_download_format() -> AudioDownloadFormat {
+    AudioDownloadFormat::Mp3
+}
+
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ZoomKeyframe {

@@ -4,8 +4,9 @@ import type {
   NarrationSegment,
   SubtitleSourceGroup,
   VideoSegment,
+  AudioDownloadTrackKind,
 } from "@/types/video";
-import { AudioLines, Plus } from "lucide-react";
+import { AudioLines, Download, Plus } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import type { SubtitleGenerationIndicator } from "@/lib/subtitleGenerationPlan";
 import type { TrackSelectionRange } from "@/lib/timelineSegmentSelection";
@@ -137,6 +138,7 @@ interface TimelineAreaProps {
   onNarrationRangeChange?: (range: TrackSelectionRange | null) => void;
   narrationTrackVolumePoints?: import("@/types/video").AudioGainPoint[];
   onUpdateNarrationTrackVolumePoints?: (points: import("@/types/video").AudioGainPoint[]) => void;
+  onAudioTrackDownload?: (trackKind: AudioDownloadTrackKind, trackLabel: string) => void;
 }
 
 export const TimelineArea: React.FC<TimelineAreaProps> = ({
@@ -213,6 +215,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   onNarrationRangeChange,
   narrationTrackVolumePoints,
   onUpdateNarrationTrackVolumePoints,
+  onAudioTrackDownload,
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
@@ -228,6 +231,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     onChange,
     isAvailable,
     heightClassName,
+    action,
   }: {
     className: string;
     groupClassName: string;
@@ -236,6 +240,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     onChange: (value: number) => void;
     isAvailable: boolean;
     heightClassName: string;
+    action?: React.ReactNode;
   }) => (
     <div
       className={`${className} ${heightClassName} relative flex items-center ${
@@ -246,6 +251,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
       <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
         {label}
       </span>
+      {action}
       <div className="playback-keystroke-delay-popover absolute left-[calc(100%+8px)] top-1/2 z-30 -translate-y-1/2 w-[218px] px-2.5 py-2 rounded-lg border pointer-events-none opacity-0 translate-x-1 transition-all duration-150 group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:pointer-events-auto">
         <div className="flex items-center gap-3">
           <div className="flex-1 rounded-full px-1 py-[3px]">
@@ -284,6 +290,36 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   const showPointer = hasMouseData;
   const showImportedAudio = Boolean(onPickImportedAudioFile) || (audioSegments?.length ?? 0) > 0;
   const showNarration = (narrationSegments?.length ?? 0) > 0;
+
+  const renderDownloadButton = (
+    trackKind: AudioDownloadTrackKind,
+    label: string,
+    groupName: string,
+    disabled = false,
+    offsetIndex = 0,
+  ) => {
+    const hoverClass =
+      groupName === "imported-audio-label"
+        ? "group-hover/imported-audio-label:opacity-100"
+        : groupName === "device-audio-label"
+          ? "group-hover/device-audio-label:opacity-100"
+          : groupName === "mic-audio-label"
+            ? "group-hover/mic-audio-label:opacity-100"
+            : "group-hover/narration-label:opacity-100";
+    return (
+      <button
+        type="button"
+        onClick={() => onAudioTrackDownload?.(trackKind, label)}
+        disabled={disabled || !onAudioTrackDownload}
+        className={`timeline-label-audio-download ui-icon-button absolute left-full top-1/2 z-20 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--surface)]/95 text-[var(--primary-color)] opacity-0 shadow-sm transition-opacity duration-150 ${hoverClass} focus-visible:opacity-100 disabled:opacity-30`}
+        style={{ marginLeft: `${4 + offsetIndex * 24}px` }}
+        title={t.downloadAudioTrack}
+        aria-label={`${t.downloadAudioTrack}: ${label}`}
+      >
+        <Download className="h-3 w-3" strokeWidth={2.6} />
+      </button>
+    );
+  };
 
   const importedAudioFileInputRef = useRef<HTMLInputElement>(null);
   const subtitleFileInputRef = useRef<HTMLInputElement>(null);
@@ -676,6 +712,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                   {t.trackAudio}
                 </span>
+                {renderDownloadButton("imported", t.trackAudio, "imported-audio-label", (audioSegments?.length ?? 0) === 0, onPickImportedAudioFile ? 1 : 0)}
                 {onPickImportedAudioFile && (
                   <button
                     type="button"
@@ -690,15 +727,16 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               </div>
             )}
             {showDeviceAudio && (
-              <div className="timeline-label-device-audio h-7 flex items-center">
+              <div className="timeline-label-device-audio group/device-audio-label relative h-7 flex items-center">
                 <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                   {t.trackDeviceAudio}
                 </span>
+                {renderDownloadButton("device", t.trackDeviceAudio, "device-audio-label", !segment || segment.deviceAudioAvailable === false)}
               </div>
             )}
             {showMicAudio && renderTrackDelayLabel({
               className: "timeline-label-mic-audio",
-              groupClassName: "group",
+              groupClassName: "group group/mic-audio-label",
               label: t.trackMicAudio,
               value: segment?.micAudioOffsetSec ?? 0,
               onChange: (value) => {
@@ -707,6 +745,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               },
               isAvailable: true,
               heightClassName: "h-7",
+              action: renderDownloadButton("mic", t.trackMicAudio, "mic-audio-label", !segment || !currentRawMicAudioPath.trim()),
             })}
             {showWebcam && renderTrackDelayLabel({
               className: "timeline-label-webcam",
@@ -721,10 +760,11 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               heightClassName: "h-7",
             })}
             {showNarration && (
-              <div className="timeline-label-narration h-7 flex items-center">
+              <div className="timeline-label-narration group/narration-label relative h-7 flex items-center">
                 <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
                   {t.tabNarration || "Narration"}
                 </span>
+                {renderDownloadButton("narration", t.tabNarration || "Narration", "narration-label", (narrationSegments?.length ?? 0) === 0)}
               </div>
             )}
             <div className="timeline-label-subtitles group/subtitle-label relative h-7 flex items-center">

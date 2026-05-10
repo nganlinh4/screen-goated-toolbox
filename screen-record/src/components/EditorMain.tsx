@@ -191,6 +191,10 @@ export interface EditorMainProps {
   onCommitNarrationSegments?: () => void;
   narrationTrackVolumePoints?: import("@/types/video").AudioGainPoint[];
   onUpdateNarrationTrackVolumePoints?: (points: import("@/types/video").AudioGainPoint[]) => void;
+  onAudioTrackDownload?: (
+    trackKind: import("@/types/video").AudioDownloadTrackKind,
+    trackLabel: string,
+  ) => void;
 }
 
 function getNarrationTimelineDuration(segment: NarrationSegment) {
@@ -353,6 +357,7 @@ export function EditorMain({
   onCommitNarrationSegments,
   narrationTrackVolumePoints,
   onUpdateNarrationTrackVolumePoints,
+  onAudioTrackDownload,
 }: EditorMainProps) {
   const { t } = useSettings();
   const showPlaybackControls = Boolean(
@@ -1026,6 +1031,7 @@ export function EditorMain({
           selectedNarrationSegmentRange={selectedNarrationSegmentRange}
           onNarrationSelectionChange={handleNarrationSelectionChange}
           onNarrationRangeChange={handleNarrationRangeChange}
+          onAudioTrackDownload={onAudioTrackDownload}
         />
         {isOverlayMode && (
           <div className="timeline-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />

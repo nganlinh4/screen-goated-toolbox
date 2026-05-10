@@ -206,6 +206,16 @@ export interface AudioGainPoint {
 export type DeviceAudioPoint = AudioGainPoint;
 export type MicAudioPoint = AudioGainPoint;
 export type ImportedAudioGainPoint = AudioGainPoint;
+export type AudioDownloadTrackKind = "device" | "mic" | "imported" | "narration";
+export type AudioDownloadFormat = "mp3" | "wav";
+
+export interface AudioDownloadResult {
+  status?: string;
+  path?: string;
+  format?: AudioDownloadFormat;
+  bytes?: number;
+  trackKind?: AudioDownloadTrackKind;
+}
 
 /**
  * An imported audio file placed on the project-level Audio track. Distinct from

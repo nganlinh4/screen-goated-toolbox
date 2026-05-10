@@ -1,4 +1,5 @@
 pub mod anim_cache;
+mod audio_download;
 mod audio_mix;
 mod background_presets;
 mod camera_path;
@@ -28,6 +29,7 @@ use super::gpu_pipeline;
 use super::mf_decode;
 use super::mf_encode;
 
+pub use audio_download::start_audio_download;
 pub use composition::start_composition_export;
 pub(crate) use pipeline::run_native_export_with_staged;
 pub use pipeline::start_native_export;

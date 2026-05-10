@@ -18,7 +18,8 @@ export type { MonitorInfo, Hotkey, WindowInfo };
 // Re-export split dialog modules
 export { ExportDialog } from './ExportDialog';
 export { WindowSelectDialog } from './WindowSelectDialog';
-export { MediaResultDialog, RawVideoDialog, ExportSuccessDialog } from './MediaResultDialog';
+export { MediaResultDialog, RawVideoDialog, ExportSuccessDialog, AudioDownloadSuccessDialog } from './MediaResultDialog';
+export { AudioDownloadDialog } from './AudioDownloadDialog';
 
 // ============================================================================
 // ProcessingOverlay

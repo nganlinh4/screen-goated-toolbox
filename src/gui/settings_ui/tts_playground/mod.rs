@@ -33,7 +33,7 @@ pub fn render_tts_playground(
     let mut changed = false;
     let mut is_open = *open;
 
-    egui::Window::new(format!("{} {}", "🔊", text.tts_playground_title))
+    let window_response = egui::Window::new(format!("{} {}", "🔊", text.tts_playground_title))
         .collapsible(false)
         .resizable(true)
         .default_width(820.0)
@@ -81,6 +81,14 @@ pub fn render_tts_playground(
                 });
             });
         });
+    if window_response
+        .as_ref()
+        .is_some_and(|inner| inner.response.hovered())
+    {
+        ctx.data_mut(|data| {
+            data.insert_temp(egui::Id::new("tts_playground_hovered"), true);
+        });
+    }
 
     if !is_open {
         studio::stop_player(state);
