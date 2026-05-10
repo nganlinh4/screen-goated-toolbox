@@ -587,6 +587,19 @@ fn output_time_for_project_time(
         .map_source_time(project_time)
 }
 
+pub fn calculate_mix_output_duration(
+    trim_start: f64,
+    duration: f64,
+    trim_segments: &[TrimSegment],
+    speed_points: &[SpeedPoint],
+) -> f64 {
+    let normalized = normalized_trim_segments(trim_start, duration, trim_segments);
+    let Some(last_end) = normalized.last().map(|segment| segment.end_time) else {
+        return 0.0;
+    };
+    output_time_for_project_time(last_end, &normalized, speed_points).unwrap_or(duration.max(0.0))
+}
+
 fn average_output_tempo(
     source: &ExportAudioSource,
     trim_segments: &[TrimSegment],
@@ -855,6 +868,7 @@ fn mix_source_into_buffer(
     file_stem: &str,
     source_index: usize,
     fallback_duration: f64,
+    output_duration: f64,
     ffmpeg_path_cache: &mut Option<PathBuf>,
 ) -> Result<&'static str, String> {
     if let Some(retimed_source) = render_pitch_preserved_source_with_ffmpeg(
@@ -869,7 +883,7 @@ fn mix_source_into_buffer(
     )? {
         let identity_segments = vec![TrimSegment {
             start_time: 0.0,
-            end_time: fallback_duration
+            end_time: output_duration
                 .max(source_project_end_time(&retimed_source, fallback_duration)),
         }];
         if mix_wav_fast_source_into_buffer(mixer, &retimed_source, &[], &identity_segments)? {
@@ -909,7 +923,9 @@ pub fn build_preprocessed_audio_mix(
     fs::create_dir_all(temp_dir).map_err(|e| format!("Create audio mix temp dir: {e}"))?;
     let wav_path = temp_dir.join(format!("{file_stem}_audio_mix.wav"));
     let trim_segments = normalized_trim_segments(trim_start, duration, trim_segments);
-    let mut mixer = FloatMixBuffer::new(MIX_OUTPUT_CHANNELS as usize, duration);
+    let output_duration =
+        calculate_mix_output_duration(trim_start, duration, &trim_segments, speed_points);
+    let mut mixer = FloatMixBuffer::new(MIX_OUTPUT_CHANNELS as usize, output_duration);
     let result = (|| -> Result<Option<PathBuf>, String> {
         let mut wav_fast_sources = 0usize;
         let mut ffmpeg_atempo_sources = 0usize;
@@ -930,6 +946,7 @@ pub fn build_preprocessed_audio_mix(
                 file_stem,
                 source_index,
                 duration,
+                output_duration,
                 &mut ffmpeg_path_cache,
             )?;
             if path_kind == "wav_fast_path" {

@@ -1127,10 +1127,22 @@ body.dragging-seek * {
     color: var(--timeline-speed-color);
 }
 
+.timeline-chip[data-tone="speed"][data-active="true"] {
+    background: var(--timeline-speed-color);
+    border-color: var(--timeline-speed-color);
+    color: #ffffff;
+}
+
 .timeline-chip[data-tone="device-audio"] {
     background: color-mix(in srgb, var(--timeline-device-audio-color) 16%, var(--ui-surface-3));
     border-color: color-mix(in srgb, var(--timeline-device-audio-color) 36%, transparent);
     color: var(--timeline-device-audio-color);
+}
+
+.timeline-chip[data-tone="device-audio"][data-active="true"] {
+    background: var(--timeline-device-audio-color);
+    border-color: var(--timeline-device-audio-color);
+    color: #ffffff;
 }
 
 .timeline-chip[data-tone="mic-audio"] {
@@ -1139,10 +1151,22 @@ body.dragging-seek * {
     color: var(--timeline-mic-audio-color);
 }
 
+.timeline-chip[data-tone="mic-audio"][data-active="true"] {
+    background: var(--timeline-mic-audio-color);
+    border-color: var(--timeline-mic-audio-color);
+    color: #ffffff;
+}
+
 .timeline-chip[data-tone="webcam"] {
     background: color-mix(in srgb, var(--timeline-webcam-color) 16%, var(--ui-surface-3));
     border-color: color-mix(in srgb, var(--timeline-webcam-color) 36%, transparent);
     color: var(--timeline-webcam-color);
+}
+
+.timeline-chip[data-tone="webcam"][data-active="true"] {
+    background: var(--timeline-webcam-color);
+    border-color: var(--timeline-webcam-color);
+    color: #ffffff;
 }
 
 .timeline-handle-pill {

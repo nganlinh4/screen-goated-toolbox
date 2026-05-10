@@ -82,7 +82,7 @@ fn build_single_clip_config(
 
 /// Translate project-relative track volume points into clip-relative ones for
 /// the clip occupying `[clip_start, clip_start + clip_duration]`.
-fn slice_track_volume_points(
+pub(crate) fn slice_track_volume_points(
     points: &[super::config::DeviceAudioPoint],
     clip_start: f64,
     clip_duration: f64,
@@ -142,7 +142,7 @@ fn slice_track_volume_points(
 /// clip occupying `[clip_start, clip_start + clip_duration]` on the project
 /// timeline. Audio segments fully outside the clip are dropped; partial
 /// overlaps are trimmed to the clip range with adjusted in/out points.
-fn slice_audio_for_clip(
+pub(crate) fn slice_audio_for_clip(
     project_segments: &[ImportedAudioSegmentConfig],
     clip_start: f64,
     clip_duration: f64,

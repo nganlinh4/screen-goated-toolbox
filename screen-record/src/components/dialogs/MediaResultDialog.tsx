@@ -182,6 +182,106 @@ function CustomVideoPlayer({
   );
 }
 
+function CustomAudioPlayer({
+  src,
+  onReady,
+}: {
+  src: string;
+  onReady: () => void;
+}) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [time, setTime] = useState(0);
+  const [dur, setDur] = useState(0);
+  const [muted, setMuted] = useState(false);
+  const scrubbing = useRef(false);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const onMeta = () => { setDur(audio.duration); onReady(); };
+    const onCanPlay = () => onReady();
+    const onTime = () => { if (!scrubbing.current) setTime(audio.currentTime); };
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
+    audio.addEventListener('loadedmetadata', onMeta);
+    audio.addEventListener('canplay', onCanPlay);
+    audio.addEventListener('timeupdate', onTime);
+    audio.addEventListener('play', onPlay);
+    audio.addEventListener('pause', onPause);
+    audio.addEventListener('ended', onPause);
+    return () => {
+      audio.removeEventListener('loadedmetadata', onMeta);
+      audio.removeEventListener('canplay', onCanPlay);
+      audio.removeEventListener('timeupdate', onTime);
+      audio.removeEventListener('play', onPlay);
+      audio.removeEventListener('pause', onPause);
+      audio.removeEventListener('ended', onPause);
+    };
+  }, [onReady, src]);
+
+  const toggle = useCallback(() => {
+    const audio = audioRef.current;
+    if (audio) audio.paused ? audio.play() : audio.pause();
+  }, []);
+
+  const seekTo = (e: React.PointerEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const audio = audioRef.current;
+    if (audio && dur > 0) {
+      audio.currentTime = pct * dur;
+      setTime(pct * dur);
+    }
+  };
+
+  const progress = dur > 0 ? (time / dur) * 100 : 0;
+
+  return (
+    <div className="custom-audio-player flex h-full min-h-[180px] flex-col justify-center gap-5 border border-[var(--ui-border)] bg-[var(--ui-surface-3)] px-6">
+      <audio ref={audioRef} src={src} preload="metadata" />
+      <div className="audio-player-title text-center text-xs font-semibold uppercase tracking-[0.14em] text-[var(--on-surface-variant)]">
+        Audio
+      </div>
+      <div
+        className="custom-audio-seek group relative h-6 flex items-center cursor-pointer touch-none"
+        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); scrubbing.current = true; seekTo(e); }}
+        onPointerMove={(e) => scrubbing.current && seekTo(e)}
+        onPointerUp={() => { scrubbing.current = false; }}
+      >
+        <div className="custom-audio-seek-track h-[4px] w-full overflow-hidden rounded-full bg-[var(--ui-hover-strong)]">
+          <div className="custom-audio-seek-fill h-full rounded-full bg-[var(--primary-color)]" style={{ width: `${progress}%` }} />
+        </div>
+        <div
+          className="custom-audio-seek-thumb absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--primary-color)] shadow-md ring-2 ring-[var(--surface)] transition-transform group-hover:scale-110"
+          style={{ left: `${progress}%` }}
+        />
+      </div>
+      <div className="custom-audio-controls flex items-center gap-3 text-[var(--on-surface)]">
+        <button onClick={toggle} className="custom-audio-play-btn rounded-full bg-[var(--primary-color)] p-2.5 text-[var(--primary-foreground)] shadow-sm hover:brightness-105">
+          {playing ? <Pause className="h-5 w-5" /> : <Play className="ml-0.5 h-5 w-5" fill="currentColor" />}
+        </button>
+        <span className="custom-audio-time text-xs font-mono tabular-nums text-[var(--on-surface-variant)]">
+          {fmtTime(time)} / {fmtTime(dur)}
+        </span>
+        <div className="flex-1" />
+        <button
+          onClick={() => {
+            const audio = audioRef.current;
+            if (audio) {
+              audio.muted = !audio.muted;
+              setMuted(audio.muted);
+            }
+          }}
+          className="custom-audio-volume-btn rounded-full p-2 text-[var(--on-surface-variant)] hover:bg-[var(--ui-hover)] hover:text-[var(--on-surface)]"
+        >
+          {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ============================================================================
 // MediaResultDialog
 // ============================================================================
@@ -192,6 +292,7 @@ interface MediaResultDialogProps {
   filePath: string;
   onFilePathChange: (newPath: string) => void;
   isBusy?: boolean;
+  mediaKind?: 'video' | 'audio';
   extraControls?: ReactNode;
 }
 
@@ -202,9 +303,11 @@ export function MediaResultDialog({
   filePath,
   onFilePathChange,
   isBusy = false,
+  mediaKind = 'video',
   extraControls
 }: MediaResultDialogProps) {
   const { t } = useSettings();
+  const isAudio = mediaKind === 'audio';
   const isGif = filePath.toLowerCase().endsWith('.gif');
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
@@ -308,7 +411,7 @@ export function MediaResultDialog({
     return (
       <div className="media-result-dialog-backdrop fixed inset-0 z-[200] bg-black flex items-center justify-center">
         <div className="media-result-dialog fixed inset-0 bg-black flex flex-col">
-          {filePath && streamUrl && !isGif && (
+          {filePath && streamUrl && !isGif && !isAudio && (
             <div className="flex-1 relative min-h-0">
               <div className="absolute inset-0 overflow-hidden bg-[var(--ui-surface-2)]">
                 <CustomVideoPlayer
@@ -352,9 +455,14 @@ export function MediaResultDialog({
 
           {filePath ? (
             <div className="media-result-content flex flex-col gap-4">
-              <div className="media-preview-box relative aspect-video min-h-[220px] overflow-hidden bg-[var(--ui-surface-2)]">
+              <div className={`media-preview-box relative ${isAudio ? 'min-h-[220px]' : 'aspect-video min-h-[220px]'} overflow-hidden bg-[var(--ui-surface-2)]`}>
                 {streamUrl ? (
-                  isGif ? (
+                  isAudio ? (
+                    <CustomAudioPlayer
+                      src={streamUrl}
+                      onReady={() => setPreviewReady(true)}
+                    />
+                  ) : isGif ? (
                     <img
                       src={streamUrl}
                       alt="GIF preview"
@@ -425,7 +533,7 @@ export function MediaResultDialog({
                     data-active="true"
                     data-emphasis="strong"
                   >
-                    <Copy className="w-3.5 h-3.5 mr-1.5" /> {isGif ? t.copyGif : t.copyVideo}
+                    <Copy className="w-3.5 h-3.5 mr-1.5" /> {isAudio ? t.copyAudio : isGif ? t.copyGif : t.copyVideo}
                   </Button>
                 </div>
                 {extraControls}
@@ -526,6 +634,32 @@ export function ExportSuccessDialog({
           </label>
         </div>
       }
+    />
+  );
+}
+
+interface AudioDownloadSuccessDialogProps {
+  show: boolean;
+  onClose: () => void;
+  filePath: string;
+  onFilePathChange: (newPath: string) => void;
+}
+
+export function AudioDownloadSuccessDialog({
+  show,
+  onClose,
+  filePath,
+  onFilePathChange,
+}: AudioDownloadSuccessDialogProps) {
+  const { t } = useSettings();
+  return (
+    <MediaResultDialog
+      show={show}
+      onClose={onClose}
+      title={t.audioDownloadSuccessful}
+      filePath={filePath}
+      onFilePathChange={onFilePathChange}
+      mediaKind="audio"
     />
   );
 }

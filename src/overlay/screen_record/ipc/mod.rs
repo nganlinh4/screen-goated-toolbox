@@ -123,6 +123,7 @@ pub fn handle_ipc_command(
             native_export::persist_export_result(&result);
             result
         }
+        "start_audio_download" => native_export::start_audio_download(args),
         "get_export_capabilities" => Ok(native_export::get_export_capabilities()),
         "cancel_export" => {
             println!("[Cancel] IPC cancel_export received");

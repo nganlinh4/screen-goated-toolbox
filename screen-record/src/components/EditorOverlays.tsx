@@ -6,6 +6,8 @@ import {
   WindowSelectDialog,
   RawVideoDialog,
   ExportSuccessDialog,
+  AudioDownloadDialog,
+  AudioDownloadSuccessDialog,
   HotkeyDialog,
 } from "@/components/dialogs";
 import {
@@ -15,6 +17,7 @@ import {
 import { CropWorkspace } from "@/components/CropWorkspace";
 import { useSettings } from "@/hooks/useSettings";
 import type { WindowInfo } from "@/hooks/useAppHooks";
+import type { AudioDownloadFormat, AudioDownloadResult } from "@/types/video";
 
 export interface EditorOverlaysExportHook {
   isProcessing: boolean;
@@ -36,6 +39,23 @@ export interface EditorOverlaysExportHook {
   setShowExportSuccessDialog: (show: boolean) => void;
   lastExportedPath: string;
   lastExportArtifacts: ExportArtifact[];
+}
+
+export interface EditorOverlaysAudioDownloadHook {
+  isProcessing: boolean;
+  cancelAudioDownload: () => void;
+  showDialog: boolean;
+  setShowDialog: (show: boolean) => void;
+  pendingTrack: { trackLabel: string } | null;
+  format: AudioDownloadFormat;
+  setFormat: (format: AudioDownloadFormat) => void;
+  outputDir: string;
+  setOutputDir: (dir: string) => void;
+  startDownload: () => void;
+  showResultDialog: boolean;
+  setShowResultDialog: (show: boolean) => void;
+  result: AudioDownloadResult | null;
+  setResult: (result: AudioDownloadResult | null) => void;
 }
 
 export interface EditorOverlaysProps {
@@ -66,6 +86,7 @@ export interface EditorOverlaysProps {
   onApplyCrop: (crop: VideoSegment["crop"]) => void;
   // Dialogs
   exportHook: EditorOverlaysExportHook;
+  audioDownloadHook?: EditorOverlaysAudioDownloadHook;
   videoRef: RefObject<HTMLVideoElement | null>;
   showWindowSelect: boolean;
   onCloseWindowSelect: () => void;
@@ -111,6 +132,7 @@ export function EditorOverlays({
   onCancelCrop,
   onApplyCrop,
   exportHook,
+  audioDownloadHook,
   videoRef,
   showWindowSelect,
   onCloseWindowSelect,
@@ -176,9 +198,9 @@ export function EditorOverlays({
       )}
 
       <ProcessingOverlay
-        show={exportHook.isProcessing}
+        show={exportHook.isProcessing || Boolean(audioDownloadHook?.isProcessing)}
         exportProgress={0}
-        onCancel={exportHook.cancelExport}
+        onCancel={audioDownloadHook?.isProcessing ? audioDownloadHook.cancelAudioDownload : exportHook.cancelExport}
       />
       <WindowSelectDialog
         show={showWindowSelect}
@@ -227,6 +249,29 @@ export function EditorOverlays({
         autoCopyEnabled={exportHook.exportAutoCopyEnabled}
         onToggleAutoCopy={exportHook.setExportAutoCopyEnabled}
       />
+      {audioDownloadHook && (
+        <>
+          <AudioDownloadDialog
+            show={audioDownloadHook.showDialog}
+            onClose={() => audioDownloadHook.setShowDialog(false)}
+            trackLabel={audioDownloadHook.pendingTrack?.trackLabel ?? ""}
+            format={audioDownloadHook.format}
+            onFormatChange={audioDownloadHook.setFormat}
+            outputDir={audioDownloadHook.outputDir}
+            onOutputDirChange={audioDownloadHook.setOutputDir}
+            onDownload={audioDownloadHook.startDownload}
+          />
+          <AudioDownloadSuccessDialog
+            show={audioDownloadHook.showResultDialog}
+            onClose={() => audioDownloadHook.setShowResultDialog(false)}
+            filePath={audioDownloadHook.result?.path ?? ""}
+            onFilePathChange={(path) => audioDownloadHook.setResult({
+              ...(audioDownloadHook.result ?? {}),
+              path,
+            })}
+          />
+        </>
+      )}
       <HotkeyDialog show={showHotkeyDialog} onClose={onCloseHotkeyDialog} />
     </>
   );

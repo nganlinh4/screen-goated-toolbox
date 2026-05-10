@@ -505,7 +505,14 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
       {dragBadge && (
         <div
           className="track-volume-drag-badge timeline-chip fixed z-[100] -translate-x-1/2 -translate-y-full px-3 py-1.5 text-sm font-bold text-white pointer-events-none"
-          style={{ left: dragBadge.x, top: dragBadge.y }}
+          data-active="true"
+          style={{
+            left: dragBadge.x,
+            top: dragBadge.y,
+            background: `var(${colorVar})`,
+            borderColor: `var(${colorVar})`,
+            color: "#ffffff",
+          }}
         >
           {Math.round(dragBadge.volume * 100)}%
         </div>

@@ -30,7 +30,7 @@ impl eframe::App for SettingsApp {
             input_handler::process_file_path(&path);
         }
         input_handler::handle_dropped_files(ctx);
-        if !self.download_manager.show_window {
+        if !self.download_manager.show_window && !self.show_tts_playground {
             input_handler::handle_paste(ctx);
         }
 
@@ -95,6 +95,15 @@ impl eframe::App for SettingsApp {
 
             // Footer & Tips Modal
             self.render_footer_and_tips_modal(ctx);
+
+            let tts_playground_hovered = ctx
+                .data(|data| data.get_temp::<bool>(egui::Id::new("tts_playground_hovered")))
+                .unwrap_or(false);
+            if tts_playground_hovered {
+                ctx.input_mut(|input| {
+                    input.smooth_scroll_delta = egui::Vec2::ZERO;
+                });
+            }
 
             // Main Layout
             self.render_main_layout(ctx);
