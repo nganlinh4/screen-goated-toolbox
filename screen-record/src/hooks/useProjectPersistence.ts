@@ -214,7 +214,7 @@ export function useProjectPersistence({
         let micAudioBlob: Blob | undefined;
         let webcamBlob: Blob | undefined;
         let thumbnail: string | undefined;
-        if (activeClip.role === "root") {
+        if (activeClip.role === "root" && !options?.skipThumbnail) {
           const canvasSnapshot = (() => {
             try {
               return canvasRef.current?.toDataURL("image/jpeg", 0.8);

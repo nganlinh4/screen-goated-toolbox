@@ -12,6 +12,7 @@ export interface AudioWaveformResponse {
 
 const waveformCache = new Map<string, AudioWaveformResponse>();
 const waveformInflight = new Map<string, Promise<AudioWaveformResponse>>();
+const TARGET_BIN_BUCKET_SIZE = 64;
 
 function getWaveformCacheKey(path: string, targetBins: number) {
   return JSON.stringify({
@@ -29,7 +30,14 @@ export async function getAudioWaveform(
     return { bins: [], sourceDurationSec: 0 };
   }
 
-  const normalizedTargetBins = Math.max(16, Math.min(4096, Math.round(targetBins)));
+  const normalizedTargetBins = Math.max(
+    16,
+    Math.min(
+      4096,
+      Math.ceil(Math.round(targetBins) / TARGET_BIN_BUCKET_SIZE) *
+        TARGET_BIN_BUCKET_SIZE,
+    ),
+  );
   const cacheKey = getWaveformCacheKey(trimmedPath, normalizedTargetBins);
   const cached = waveformCache.get(cacheKey);
   if (cached) {

@@ -223,8 +223,10 @@ fn wnd_http_response(
 // --- PUBLIC API ---
 
 pub fn show_screen_record() {
+    crate::log_info!("[ScreenRecord] show_screen_record requested");
     let capability = crate::runtime_support::require_webview2("Screen record");
     if !capability.is_supported() {
+        crate::log_info!("[ScreenRecord] WebView2 capability unavailable");
         crate::runtime_support::notify_capability_issue(&capability);
         return;
     }
@@ -233,6 +235,7 @@ pub fn show_screen_record() {
         if !IS_WARMED_UP {
             if !IS_INITIALIZING {
                 IS_INITIALIZING = true;
+                crate::log_info!("[ScreenRecord] starting WebView thread");
                 std::thread::spawn(|| {
                     webview_setup::internal_create_sr_loop();
                 });

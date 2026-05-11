@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   VideoSegment,
   BackgroundConfig,
@@ -20,7 +20,7 @@ import { TextPanel } from './TextPanel';
 import { BlurPanel } from './BlurPanel';
 import { AudioPanel } from './AudioPanel';
 import { NarrationPanel } from './NarrationPanel';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import type { WebcamConfig } from '@/types/video';
 
 // ============================================================================
@@ -48,6 +48,7 @@ const PANEL_TAB_ORDER: ActivePanel[] = [
   'subtitles',
   'text',
 ];
+const PANEL_EXIT_MS = 320;
 
 // ============================================================================
 // PanelTabs
@@ -278,6 +279,29 @@ export function SidePanel({
   if (!hasSubtitlePanel) hiddenTabs.add('subtitles');
   if (!hasAudioSegments) hiddenTabs.add('audio');
   if (!hasNarrationContext) hiddenTabs.add('narration');
+  const hiddenTabKey = PANEL_TAB_ORDER
+    .filter((id) => hiddenTabs.has(id))
+    .join('|');
+  const [renderedHiddenTabs, setRenderedHiddenTabs] = useState<Set<ActivePanel>>(
+    () => new Set(hiddenTabs),
+  );
+  useEffect(() => {
+    const nextHiddenTabs = new Set(hiddenTabs);
+    setRenderedHiddenTabs((previous) => {
+      const visibleAgain = PANEL_TAB_ORDER.filter(
+        (id) => previous.has(id) && !nextHiddenTabs.has(id),
+      );
+      if (visibleAgain.length === 0) return previous;
+      const next = new Set(previous);
+      visibleAgain.forEach((id) => next.delete(id));
+      return next;
+    });
+    const timer = window.setTimeout(() => {
+      setRenderedHiddenTabs(nextHiddenTabs);
+    }, PANEL_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [hiddenTabKey]);
+
   const visiblePanelOrder = PANEL_TAB_ORDER.filter((id) => !hiddenTabs.has(id));
   // If active panel got hidden, fall back to first visible tab
   const effectivePanel = hiddenTabs.has(activePanel) ? (visiblePanelOrder[0] ?? 'background') : activePanel;
@@ -287,6 +311,27 @@ export function SidePanel({
   const prevCanonicalActiveRef = useRef(canonicalActiveIndex);
   useEffect(() => { prevCanonicalActiveRef.current = canonicalActiveIndex; });
   const prevCanonicalActive = prevCanonicalActiveRef.current;
+  const slideDirection = canonicalActiveIndex < prevCanonicalActive ? -1 : 1;
+  const panelMotionVariants = useMemo(
+    () => ({
+      initial: (direction: number) => ({
+        x: direction < 0 ? "-108%" : "108%",
+        opacity: 0.72,
+        scale: 0.985,
+      }),
+      animate: {
+        x: "0%",
+        opacity: 1,
+        scale: 1,
+      },
+      exit: (direction: number) => ({
+        x: direction < 0 ? "108%" : "-108%",
+        opacity: 0.72,
+        scale: 0.985,
+      }),
+    }),
+    [],
+  );
 
   const renderPanel = (panelId: ActivePanel) => {
     if (panelId === 'zoom') {
@@ -443,46 +488,27 @@ export function SidePanel({
 
   return (
     <div className="side-panel h-full min-h-0 flex flex-col">
-      <PanelTabs activePanel={effectivePanel} onPanelChange={setActivePanel} hiddenTabs={hiddenTabs} />
+      <PanelTabs activePanel={effectivePanel} onPanelChange={setActivePanel} hiddenTabs={renderedHiddenTabs} />
       <div className="side-panel-content mt-3 flex-1 min-h-0 overflow-hidden px-2 pb-2">
         <div className="side-panel-panels relative h-full">
-          {visiblePanelOrder.map((panelId) => {
-            const canonicalIndex = PANEL_TAB_ORDER.indexOf(panelId);
-            const relativeIndex = canonicalIndex - canonicalActiveIndex;
-            const isActive = relativeIndex === 0;
-
-            return (
-              <motion.div
-                key={panelId}
-                className="side-panel-pane absolute inset-0 overflow-y-auto thin-scrollbar pr-1 pb-2"
-                initial={{
-                  x: canonicalIndex < prevCanonicalActive ? "-108%" : "108%",
-                  opacity: 0.72,
-                  scale: 0.985,
-                }}
-                animate={{
-                  x:
-                    relativeIndex === 0
-                      ? "0%"
-                      : relativeIndex < 0
-                        ? "-108%"
-                        : "108%",
-                  opacity: isActive ? 1 : 0.72,
-                  scale: isActive ? 1 : 0.985,
-                }}
-                transition={{
-                  x: { type: "spring", stiffness: 360, damping: 34, mass: 0.9 },
-                  opacity: { duration: 0.24, ease: [0.22, 1, 0.36, 1] },
-                  scale: { duration: 0.24, ease: [0.22, 1, 0.36, 1] },
-                }}
-                style={{
-                  pointerEvents: isActive ? "auto" : "none",
-                }}
-              >
-                {renderPanel(panelId)}
-              </motion.div>
-            );
-          })}
+          <AnimatePresence initial={false} custom={slideDirection}>
+            <motion.div
+              key={effectivePanel}
+              custom={slideDirection}
+              variants={panelMotionVariants}
+              className="side-panel-pane absolute inset-0 overflow-y-auto thin-scrollbar pr-1 pb-2"
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{
+                x: { type: "spring", stiffness: 360, damping: 34, mass: 0.9 },
+                opacity: { duration: 0.24, ease: [0.22, 1, 0.36, 1] },
+                scale: { duration: 0.24, ease: [0.22, 1, 0.36, 1] },
+              }}
+            >
+              {renderPanel(effectivePanel)}
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
     </div>

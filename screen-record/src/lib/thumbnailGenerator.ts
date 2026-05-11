@@ -6,6 +6,9 @@ const THUMBNAIL_LOAD_TIMEOUT_MS = 8000;
 const THUMBNAIL_SEEK_TIMEOUT_MS = 4000;
 const TRANSPARENT_PIXEL =
   "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+const NATIVE_THUMBNAIL_TIME_PRECISION_SEC = 0.01;
+
+const nativeTimelineThumbnailCache = new Map<string, string>();
 
 function normalizeNativeThumbnailFrames(
   frames: string[],
@@ -42,6 +45,44 @@ function createThumbnailCanvas(
   canvas.width = width;
   canvas.height = height;
   return canvas;
+}
+
+function getTimelineThumbnailCacheKey(
+  filePath: string,
+  sourceTime: number,
+  width: number,
+  height: number,
+  quality: number,
+) {
+  const quantizedTime =
+    Math.round(sourceTime / NATIVE_THUMBNAIL_TIME_PRECISION_SEC) *
+    NATIVE_THUMBNAIL_TIME_PRECISION_SEC;
+  return JSON.stringify({
+    filePath: filePath.trim(),
+    sourceTime: quantizedTime.toFixed(2),
+    width,
+    height,
+    quality: Math.round(quality * 100),
+  });
+}
+
+function buildSegmentSourceTimes(
+  segment: VideoSegment,
+  sourceDuration: number,
+  count: number,
+) {
+  const activeDuration = Math.max(
+    getTotalTrimDuration(segment, sourceDuration),
+    0.001,
+  );
+  const safeCount = Math.max(1, count);
+  return Array.from({ length: safeCount }, (_, index) => {
+    const compactTime =
+      safeCount === 1
+        ? activeDuration * 0.5
+        : (index / (safeCount - 1)) * activeDuration;
+    return toSourceTime(compactTime, segment, sourceDuration);
+  });
 }
 
 function cleanupVideo(video: HTMLVideoElement) {
@@ -279,8 +320,75 @@ export class ThumbnailGenerator {
       width?: number;
       height?: number;
       quality?: number;
+      filePath?: string;
     },
   ): Promise<string[]> {
+    const filePath = options?.filePath?.trim();
+    if (filePath && !filePath.startsWith("blob:")) {
+      const width = options?.width || 160;
+      const height = options?.height || 90;
+      const quality = options?.quality || 0.5;
+      const sourceTimes = buildSegmentSourceTimes(
+        segment,
+        sourceDuration,
+        numThumbnails,
+      );
+      const cacheKeys = sourceTimes.map((sourceTime) =>
+        getTimelineThumbnailCacheKey(filePath, sourceTime, width, height, quality),
+      );
+      const cachedFrames = cacheKeys.map((key) =>
+        nativeTimelineThumbnailCache.get(key),
+      );
+      if (cachedFrames.every(Boolean)) {
+        return cachedFrames.map((frame) => frame || TRANSPARENT_PIXEL);
+      }
+
+      const missingTimes: number[] = [];
+      const missingIndexes: number[] = [];
+      cachedFrames.forEach((frame, index) => {
+        if (!frame) {
+          missingIndexes.push(index);
+          missingTimes.push(sourceTimes[index]);
+        }
+      });
+
+      try {
+        const nativeFrames = await invoke<string[]>("generate_timeline_thumbnails", {
+          path: filePath,
+          times: missingTimes,
+          width,
+          height,
+          quality,
+        });
+        const normalizedNativeFrames = normalizeNativeThumbnailFrames(nativeFrames);
+        if (normalizedNativeFrames) {
+          normalizedNativeFrames.forEach((frame, index) => {
+            const originalIndex = missingIndexes[index];
+            if (originalIndex === undefined) return;
+            nativeTimelineThumbnailCache.set(cacheKeys[originalIndex], frame);
+            cachedFrames[originalIndex] = frame;
+          });
+          if (cachedFrames.some(Boolean)) {
+            let fallbackFrame =
+              cachedFrames.find((frame): frame is string => Boolean(frame)) ||
+              TRANSPARENT_PIXEL;
+            return cachedFrames.map((frame) => {
+              if (frame) {
+                fallbackFrame = frame;
+                return frame;
+              }
+              return fallbackFrame;
+            });
+          }
+        }
+      } catch (error) {
+        console.warn(
+          "[Thumbnail] Native timeline generation failed, falling back to HTML5",
+          error,
+        );
+      }
+    }
+
     return generateHtmlSegmentThumbnails(
       source,
       segment,
@@ -290,7 +398,9 @@ export class ThumbnailGenerator {
     );
   }
 
-  destroy() {}
+  destroy() {
+    nativeTimelineThumbnailCache.clear();
+  }
 }
 
 export const thumbnailGenerator = new ThumbnailGenerator();

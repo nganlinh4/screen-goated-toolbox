@@ -345,6 +345,7 @@ export function useVideoPlayback({
               width: 240,
               height: 135,
               quality: 0.72,
+              filePath: options?.filePath?.trim() || undefined,
             },
           );
           if (thumbnailRequestIdRef.current !== requestId) return;

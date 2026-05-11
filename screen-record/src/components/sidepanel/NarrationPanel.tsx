@@ -45,10 +45,10 @@ interface NarrationPanelProps {
 }
 
 export function NarrationPanel({
-  visibleSubtitles,
+  visibleSubtitles = [],
   subtitleTracks,
   activeSubtitleView,
-  selectedSubtitleIds,
+  selectedSubtitleIds = [],
   selectedSubtitleRange,
   onApplyNarrationSegments,
   onFinalizeNarrationSegments,
@@ -127,9 +127,11 @@ export function NarrationPanel({
   const googleSpeedOptions = metadata?.googleSpeedOptions ?? ['Slow', 'Normal'];
   const edgeVoiceLanguages = metadata?.edgeVoiceLanguages ?? [];
   const edgeVoicesByLanguage = metadata?.edgeVoicesByLanguage ?? {};
+  const geminiLanguageConditions = settings.geminiLanguageConditions ?? [];
+  const edgeVoiceConfigs = settings.edgeVoiceConfigs ?? [];
 
   const usedConditionCodes = new Set(
-    settings.geminiLanguageConditions.map((condition) => condition.languageCode.toLowerCase()),
+    geminiLanguageConditions.map((condition) => condition.languageCode.toLowerCase()),
   );
   const availableConditionLanguages = geminiInstructionLanguages.filter(
     (language) => !usedConditionCodes.has(language.languageCode.toLowerCase()),
@@ -139,7 +141,7 @@ export function NarrationPanel({
     index: number,
     next: Partial<NarrationLanguageCondition>,
   ) => {
-    const updated = settings.geminiLanguageConditions.map((condition, i) =>
+    const updated = geminiLanguageConditions.map((condition, i) =>
       i === index ? { ...condition, ...next } : condition,
     );
     update('geminiLanguageConditions', updated);
@@ -148,13 +150,13 @@ export function NarrationPanel({
   const removeLanguageCondition = (index: number) => {
     update(
       'geminiLanguageConditions',
-      settings.geminiLanguageConditions.filter((_, i) => i !== index),
+      geminiLanguageConditions.filter((_, i) => i !== index),
     );
   };
 
   const addLanguageCondition = (languageCode: string, languageName: string) => {
     update('geminiLanguageConditions', [
-      ...settings.geminiLanguageConditions,
+      ...geminiLanguageConditions,
       { languageCode, languageName, instruction: '' },
     ]);
   };
@@ -169,27 +171,27 @@ export function NarrationPanel({
     next: Partial<NarrationEdgeVoiceConfig>,
   ) => {
     setEdgeVoiceConfigs(
-      settings.edgeVoiceConfigs.map((config, i) =>
+      edgeVoiceConfigs.map((config, i) =>
         i === index ? { ...config, ...next } : config,
       ),
     );
   };
 
   const removeEdgeVoiceConfig = (index: number) => {
-    setEdgeVoiceConfigs(settings.edgeVoiceConfigs.filter((_, i) => i !== index));
+    setEdgeVoiceConfigs(edgeVoiceConfigs.filter((_, i) => i !== index));
   };
 
   const addEdgeVoiceConfig = (languageCode: string, languageName: string) => {
     const voices = edgeVoicesByLanguage[languageCode] ?? [];
     const voiceName = voices[0]?.shortName ?? `${languageCode}-??-??Neural`;
     setEdgeVoiceConfigs([
-      ...settings.edgeVoiceConfigs,
+      ...edgeVoiceConfigs,
       { languageCode, languageName, voiceName },
     ]);
   };
 
   const usedEdgeVoiceCodes = new Set(
-    settings.edgeVoiceConfigs.map((config) => config.languageCode.toLowerCase()),
+    edgeVoiceConfigs.map((config) => config.languageCode.toLowerCase()),
   );
   const availableEdgeVoiceLanguages = edgeVoiceLanguages.filter(
     (language) => !usedEdgeVoiceCodes.has(language.languageCode.toLowerCase()),
@@ -408,7 +410,7 @@ export function NarrationPanel({
                 <span className="text-[11px] font-medium text-on-surface-variant">
                   {t.narrationTtsLanguageConditions}
                 </span>
-                {settings.geminiLanguageConditions.map((condition, index) => (
+                {geminiLanguageConditions.map((condition, index) => (
                   <div key={`${condition.languageCode}-${index}`} className="narration-panel-condition flex items-center gap-1.5">
                     <span className="w-20 flex-shrink-0 text-[11px] font-medium text-[var(--secondary-color)]">
                       {condition.languageName}
@@ -517,7 +519,7 @@ export function NarrationPanel({
                     {t.narrationTtsEdgeVoicesFailed}
                   </span>
                 )}
-                {settings.edgeVoiceConfigs.map((config, index) => {
+                {edgeVoiceConfigs.map((config, index) => {
                   const voiceOptions = edgeVoicesByLanguage[config.languageCode] ?? [];
                   const options = voiceOptions.length > 0
                     ? voiceOptions.map((voice) => ({

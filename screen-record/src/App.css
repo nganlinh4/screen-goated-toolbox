@@ -1294,6 +1294,11 @@ body.dragging-seek * {
     border-color: color-mix(in srgb, var(--timeline-zoom-color) 40%, var(--timeline-lane-border));
 }
 
+.timeline-block[data-tone="accent"][data-selected="true"],
+.timeline-block[data-tone="accent"][data-active="true"] {
+    background: color-mix(in srgb, var(--timeline-zoom-color) 15%, var(--ui-surface-3));
+}
+
 .timeline-block[data-tone="success"] {
     background: color-mix(in srgb, var(--timeline-success-color) 18%, var(--ui-surface-3));
     border-color: color-mix(in srgb, var(--timeline-success-color) 40%, var(--timeline-lane-border));

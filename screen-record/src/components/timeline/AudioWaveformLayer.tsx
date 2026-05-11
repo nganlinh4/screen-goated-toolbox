@@ -88,6 +88,7 @@ export const AudioWaveformLayer: React.FC<AudioWaveformLayerProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const requestIdRef = useRef(0);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const [isVisible, setIsVisible] = useState(true);
   const [waveform, setWaveform] = useState<AudioWaveformResponse | null>(null);
 
   useEffect(() => {
@@ -107,6 +108,25 @@ export const AudioWaveformLayer: React.FC<AudioWaveformLayerProps> = ({
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || typeof IntersectionObserver === "undefined") {
+      setIsVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        setIsVisible(Boolean(entry?.isIntersecting));
+      },
+      { root: null, rootMargin: "320px 960px" },
+    );
+
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, []);
+
   const targetBins = useMemo(() => {
     if (size.width <= 0) return 0;
     return getTargetBinCount(size.width);
@@ -116,6 +136,9 @@ export const AudioWaveformLayer: React.FC<AudioWaveformLayerProps> = ({
     const trimmedPath = sourcePath?.trim() ?? "";
     if (!trimmedPath || targetBins <= 0) {
       setWaveform(null);
+      return;
+    }
+    if (!isVisible) {
       return;
     }
 
@@ -136,7 +159,7 @@ export const AudioWaveformLayer: React.FC<AudioWaveformLayerProps> = ({
     return () => {
       window.clearTimeout(timer);
     };
-  }, [sourcePath, targetBins]);
+  }, [isVisible, sourcePath, targetBins]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -163,6 +186,7 @@ export const AudioWaveformLayer: React.FC<AudioWaveformLayerProps> = ({
       waveform.bins.length === 0 ||
       waveform.sourceDurationSec <= 0 ||
       duration <= 0 ||
+      !isVisible ||
       cssWidth <= 0 ||
       cssHeight <= 0
     ) {
@@ -258,6 +282,7 @@ export const AudioWaveformLayer: React.FC<AudioWaveformLayerProps> = ({
     gainTimeOffsetSec,
     gainPoints,
     getVolumeAtTime,
+    isVisible,
     offsetSec,
     size.height,
     size.width,

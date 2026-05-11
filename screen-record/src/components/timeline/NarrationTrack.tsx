@@ -1,4 +1,5 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import type { AudioGainPoint, NarrationSegment } from "@/types/video";
 import type { TrackSelectionRange } from "@/lib/timelineSegmentSelection";
 import { useTrackRangeSelect } from "./useTrackRangeSelect";
@@ -8,12 +9,13 @@ import { AudioWaveformLayer } from "./AudioWaveformLayer";
 import {
   SegmentBlocksCanvas,
   type TimelineVisibleRange,
-  overlapsVisibleRange,
 } from "./SegmentBlocksCanvas";
+import { buildTimelineRenderWindow } from "./timelineSegmentIndex";
 import {
   mergeLiveNarrationSegments,
   useLiveNarrationState,
 } from "@/lib/liveNarrationStreamStore";
+import { countFrontendRender } from "@/lib/frontendPerfDiagnostics";
 
 interface NarrationTrackProps {
   segments: NarrationSegment[];
@@ -44,6 +46,66 @@ const DENSE_SEGMENT_COUNT = 120;
 const MIN_INTERACTIVE_SEGMENT_PX = 8;
 const MIN_WAVEFORM_SEGMENT_PX = 28;
 
+function rangesOverlap(
+  a: { startTime: number; endTime: number },
+  b: { startTime: number; endTime: number },
+) {
+  return a.startTime < b.endTime && b.startTime < a.endTime;
+}
+
+function getOverlapRange(
+  segment: { startTime: number; endTime: number },
+  elevated: { startTime: number; endTime: number } | null,
+) {
+  if (!elevated || !rangesOverlap(segment, elevated)) return null;
+  const start = Math.max(segment.startTime, elevated.startTime);
+  const end = Math.min(segment.endTime, elevated.endTime);
+  const duration = Math.max(segment.endTime - segment.startTime, 0.0001);
+  return {
+    startPct: ((start - segment.startTime) / duration) * 100,
+    endPct: ((end - segment.startTime) / duration) * 100,
+  };
+}
+
+function buildContentMaskStyle(
+  ranges: Array<{ startPct: number; endPct: number }>,
+): CSSProperties | undefined {
+  if (ranges.length === 0) return undefined;
+  const merged = [...ranges]
+    .sort((a, b) => a.startPct - b.startPct)
+    .reduce<Array<{ startPct: number; endPct: number }>>((acc, range) => {
+      const startPct = Math.max(0, Math.min(100, range.startPct));
+      const endPct = Math.max(startPct, Math.min(100, range.endPct));
+      const last = acc[acc.length - 1];
+      if (last && startPct <= last.endPct) {
+        last.endPct = Math.max(last.endPct, endPct);
+      } else if (endPct > startPct) {
+        acc.push({ startPct, endPct });
+      }
+      return acc;
+    }, []);
+  if (merged.length === 0) return undefined;
+  const stops: string[] = ["black 0%"];
+  for (const range of merged) {
+    stops.push(`black ${range.startPct}%`);
+    stops.push(`transparent ${range.startPct}%`);
+    stops.push(`transparent ${range.endPct}%`);
+    stops.push(`black ${range.endPct}%`);
+  }
+  stops.push("black 100%");
+  const maskImage = `linear-gradient(to right, ${stops.join(", ")})`;
+  return { maskImage, WebkitMaskImage: maskImage };
+}
+
+function isSegmentStackedAbove(
+  index: number,
+  rank: number,
+  otherIndex: number,
+  otherRank: number,
+) {
+  return otherRank > rank || (otherRank === rank && otherIndex > index);
+}
+
 interface SelectableSegment {
   id: string;
   startTime: number;
@@ -72,11 +134,17 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
   canvasWidthPx = 0,
   visibleTimeRange,
 }) => {
+  countFrontendRender("NarrationTrack");
   const safeDuration = Math.max(duration, 0.001);
+  const [frontSegmentId, setFrontSegmentId] = useState<string | null>(null);
   const liveNarrationState = useLiveNarrationState(liveProjectId);
   const displayedSegments = useMemo(
     () => mergeLiveNarrationSegments(segments, liveNarrationState),
     [liveNarrationState, segments],
+  );
+  const segmentById = useMemo(
+    () => new Map(displayedSegments.map((segment) => [segment.id, segment])),
+    [displayedSegments],
   );
 
   const selectable = useMemo<SelectableSegment[]>(
@@ -117,13 +185,25 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
   const effectiveSelectedIds = externalSelectedIds ?? selectedIds;
   const effectiveSelectedRange = externalSelectedRange ?? selectedRange;
   const denseMode = displayedSegments.length >= DENSE_SEGMENT_COUNT;
+  const renderWindow = useMemo(
+    () => buildTimelineRenderWindow({
+      segments: selectable,
+      duration,
+      canvasWidthPx,
+      visibleRange: visibleTimeRange,
+      denseMode,
+      selectedIds: effectiveSelectedIds,
+      minInteractivePx: MIN_INTERACTIVE_SEGMENT_PX,
+    }),
+    [canvasWidthPx, denseMode, duration, effectiveSelectedIds, selectable, visibleTimeRange],
+  );
   const canvasSegments = useMemo(
     () =>
-      selectable.map((segment) => ({
+      renderWindow.canvasSegments.map((segment) => ({
         ...segment,
         selected: effectiveSelectedIds.has(segment.id),
       })),
-    [effectiveSelectedIds, selectable],
+    [effectiveSelectedIds, renderWindow.canvasSegments],
   );
   const {
     isDraggingAudioSegment,
@@ -160,16 +240,13 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
     const cosT = (1 - Math.cos(ratio * Math.PI)) / 2;
     return Math.max(0, Math.min(1, left.volume + (right.volume - left.volume) * cosT));
   };
-  const findSegmentAtTime = (time: number) =>
-    displayedSegments.find((segment) => {
-      const trimmed = Math.max(segment.outPoint - segment.inPoint, MIN_VISIBLE_SEC);
-      const rate = segment.playbackRate && segment.playbackRate > 0 ? segment.playbackRate : 1;
-      const visible = Math.max(trimmed / rate, MIN_VISIBLE_SEC);
-      return time >= segment.startTime && time <= segment.startTime + visible;
-    });
+  const findSegmentAtTime = (time: number) => {
+    const hit = renderWindow.index.hitTest(time);
+    return hit ? segmentById.get(hit.id) ?? null : null;
+  };
 
   const handleTrackPointerDownFast = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.target !== e.currentTarget || e.ctrlKey || !denseMode) {
+    if (e.ctrlKey || !denseMode) {
       handleTrackPointerDown(e);
       return;
     }
@@ -177,7 +254,7 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
     const time = ((e.clientX - rect.left) / Math.max(rect.width, 1)) * safeDuration;
     const hit = findSegmentAtTime(time);
     if (!hit) {
-      handleTrackPointerDown(e);
+      onEmptyClick?.(time);
       return;
     }
     e.stopPropagation();
@@ -186,8 +263,8 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
       return;
     }
     addSegmentSelection(hit.id);
+    setFrontSegmentId(hit.id);
     onSegmentClick?.(hit.id);
-    handleAudioSegmentPointerDown(e, hit);
   };
 
   return (
@@ -216,37 +293,53 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
         />
       )}
 
-      {displayedSegments.map((seg) => {
+      {renderWindow.domSegments.map((renderSegment, renderSegmentIndex) => {
+        const seg = segmentById.get(renderSegment.id);
+        if (!seg) return null;
         const trimmed = Math.max(seg.outPoint - seg.inPoint, MIN_VISIBLE_SEC);
         const rate = seg.playbackRate && seg.playbackRate > 0 ? seg.playbackRate : 1;
         const visible = Math.max(trimmed / rate, MIN_VISIBLE_SEC);
         const widthPct = Math.min(100, (visible / safeDuration) * 100);
         const leftPct = Math.min(100, Math.max(0, (seg.startTime / safeDuration) * 100));
         const isSelected = effectiveSelectedIds.has(seg.id);
+        const isFront = frontSegmentId === seg.id;
+        const stackRank = isFront ? 3 : isSelected ? 2 : 1;
+        const hasCoveredSegmentUnderneath = renderWindow.domSegments.some((other, otherIndex) => {
+          if (other.id === renderSegment.id || !rangesOverlap(renderSegment, other)) return false;
+          const otherRank = frontSegmentId === other.id ? 3 : effectiveSelectedIds.has(other.id) ? 2 : 1;
+          return !isSegmentStackedAbove(renderSegmentIndex, stackRank, otherIndex, otherRank);
+        });
+        const overlapRanges = renderWindow.domSegments
+          .map((other, otherIndex) => {
+            if (other.id === renderSegment.id) return null;
+            const otherRank = frontSegmentId === other.id ? 3 : effectiveSelectedIds.has(other.id) ? 2 : 1;
+            if (!isSegmentStackedAbove(renderSegmentIndex, stackRank, otherIndex, otherRank)) return null;
+            return getOverlapRange(renderSegment, other);
+          })
+          .filter((range): range is NonNullable<ReturnType<typeof getOverlapRange>> => Boolean(range));
+        const contentMaskStyle = buildContentMaskStyle(overlapRanges);
         const widthPx = (visible / safeDuration) * Math.max(canvasWidthPx, 1);
-        if (
-          denseMode &&
-          !isSelected &&
-          (widthPx < MIN_INTERACTIVE_SEGMENT_PX ||
-            !overlapsVisibleRange(seg.startTime, seg.startTime + visible, visibleTimeRange))
-        ) {
-          return null;
-        }
         const showSpeedBadge = Math.abs(rate - 1) > 0.001;
         const shouldRenderWaveform =
           viewMode === "volume" &&
           widthPx >= MIN_WAVEFORM_SEGMENT_PX &&
-          (!denseMode || isSelected || overlapsVisibleRange(seg.startTime, seg.startTime + visible, visibleTimeRange));
+          (!denseMode || isSelected || renderWindow.canvasSegments.some((entry) => entry.id === seg.id));
         return (
           <div
             key={seg.id}
-            className="narration-track-segment timeline-block absolute h-full cursor-move group"
+            className="narration-track-segment timeline-block absolute h-full cursor-move overflow-hidden group"
             data-tone="secondary"
             data-selected={isSelected ? "true" : undefined}
             style={{
               left: `${leftPct}%`,
               width: `${widthPct}%`,
-              background: "color-mix(in srgb, var(--secondary-color) 22%, var(--ui-surface-3))",
+              zIndex: isFront ? 5 : isSelected ? 4 : 3,
+              background:
+                hasCoveredSegmentUnderneath
+                  ? "color-mix(in srgb, var(--secondary-color) 34%, transparent)"
+                  : isSelected
+                    ? "color-mix(in srgb, var(--secondary-color) 18%, var(--ui-surface-3))"
+                  : "color-mix(in srgb, var(--secondary-color) 22%, var(--ui-surface-3))",
               borderColor: isSelected
                 ? "var(--secondary-color)"
                 : "color-mix(in srgb, var(--secondary-color) 56%, var(--timeline-lane-border))",
@@ -263,6 +356,7 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
               }
               if (e.button !== 0) return;
               addSegmentSelection(seg.id);
+              setFrontSegmentId(seg.id);
               onSegmentClick?.(seg.id);
               handleAudioSegmentPointerDown(e, seg);
             }}
@@ -287,8 +381,11 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
                 gainTimeOffsetSec={seg.startTime}
               />
             ) : (
-              <div className="narration-track-segment-content absolute inset-0 z-[1] flex items-center gap-1.5 overflow-hidden px-1.5 text-[10px] text-[var(--on-surface)]">
-                <span className="truncate font-medium">{seg.name}</span>
+              <div
+                className="narration-track-segment-content absolute inset-0 z-[1] flex min-w-0 items-center gap-1.5 overflow-hidden px-1.5 text-[10px] text-[var(--on-surface)]"
+                style={contentMaskStyle}
+              >
+                <span className="min-w-0 max-w-full truncate font-medium">{seg.name}</span>
                 {showSpeedBadge && (
                   <span className="narration-track-segment-speed ml-auto rounded bg-[var(--secondary-color)]/30 px-1 text-[9px] font-semibold leading-3">
                     {rate.toFixed(2)}×

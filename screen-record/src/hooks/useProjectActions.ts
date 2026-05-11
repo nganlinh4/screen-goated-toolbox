@@ -285,16 +285,7 @@ export function useProjectActions({
       canvasWidth: backgroundConfig.canvasWidth,
       canvasHeight: backgroundConfig.canvasHeight,
     });
-    void persistCurrentProjectNow({ refreshList: true, includeMedia: false });
-    if (canvasRef.current && currentVideo) {
-      try {
-        restoreImageRef.current = canvasRef.current.toDataURL("image/jpeg", 0.8);
-      } catch {
-        restoreImageRef.current = null;
-      }
-    } else {
-      restoreImageRef.current = null;
-    }
+    restoreImageRef.current = currentProjectData?.thumbnail ?? null;
     projectsPreviewTargetSnapshotRef.current = {
       stageRect: toPreviewRectSnapshot(
         previewContainerRef.current?.getBoundingClientRect() ?? null,
@@ -312,10 +303,9 @@ export function useProjectActions({
     backgroundConfig.canvasMode,
     backgroundConfig.canvasWidth,
     canvasRef,
-    currentVideo,
+    currentProjectData?.thumbnail,
     debugProject,
     isProjectInteractionShieldVisible,
-    persistCurrentProjectNow,
     previewContainerRef,
     projectsPreviewTargetSnapshotRef,
     projects,
