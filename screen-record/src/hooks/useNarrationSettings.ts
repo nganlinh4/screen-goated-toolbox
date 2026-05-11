@@ -101,15 +101,26 @@ function mergeWithDefaults(
   defaults: NarrationSettingsState,
   overrides: Partial<NarrationSettingsState> | null,
 ): NarrationSettingsState {
-  if (!overrides) return defaults;
-  return {
+  const normalizedDefaults = {
+    ...FALLBACK_DEFAULTS,
     ...defaults,
+    geminiLanguageConditions: Array.isArray(defaults.geminiLanguageConditions)
+      ? defaults.geminiLanguageConditions
+      : FALLBACK_DEFAULTS.geminiLanguageConditions,
+    edgeVoiceConfigs: Array.isArray(defaults.edgeVoiceConfigs)
+      ? defaults.edgeVoiceConfigs
+      : FALLBACK_DEFAULTS.edgeVoiceConfigs,
+  };
+  if (!overrides) return normalizedDefaults;
+  return {
+    ...normalizedDefaults,
     ...overrides,
-    geminiLanguageConditions:
-      overrides.geminiLanguageConditions ?? defaults.geminiLanguageConditions,
-    edgeVoiceConfigs: overrides.edgeVoiceConfigs?.length
+    geminiLanguageConditions: Array.isArray(overrides.geminiLanguageConditions)
+      ? overrides.geminiLanguageConditions
+      : normalizedDefaults.geminiLanguageConditions,
+    edgeVoiceConfigs: Array.isArray(overrides.edgeVoiceConfigs) && overrides.edgeVoiceConfigs.length
       ? overrides.edgeVoiceConfigs
-      : defaults.edgeVoiceConfigs,
+      : normalizedDefaults.edgeVoiceConfigs,
   };
 }
 

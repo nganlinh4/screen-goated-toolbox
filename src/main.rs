@@ -69,6 +69,8 @@ lazy_static! {
 }
 
 const PROCESS_WITH_SGT_FLAG: &str = "--process-with-sgt";
+const SCREEN_RECORD_WRY_SMOKE_FLAG: &str = "--screen-record-wry-smoke";
+const SCREEN_RECORD_WEBVIEW2_DEBUG_PORT_FLAG: &str = "--screen-record-webview2-debug-port";
 
 fn parse_arg_value(args: &[String], key: &str) -> Option<String> {
     let mut idx = 0usize;
@@ -108,6 +110,41 @@ fn resolve_replay_path(args: &[String]) -> Option<String> {
             None
         }
     })
+}
+
+fn configure_screen_record_wry_smoke(args: &[String]) -> bool {
+    let smoke_enabled = args.iter().any(|arg| arg == SCREEN_RECORD_WRY_SMOKE_FLAG);
+    let Some(port) = parse_arg_value(args, SCREEN_RECORD_WEBVIEW2_DEBUG_PORT_FLAG) else {
+        return smoke_enabled;
+    };
+    if port
+        .parse::<u16>()
+        .ok()
+        .filter(|value| *value > 0)
+        .is_none()
+    {
+        crate::log_info!("[WrySmoke] Ignoring invalid WebView2 debug port: {port}");
+        return smoke_enabled;
+    }
+    let remote_arg = format!("--remote-debugging-port={port} --remote-debugging-address=0.0.0.0");
+    let next_args = match std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
+        Ok(existing) if !existing.trim().is_empty() => format!("{existing} {remote_arg}"),
+        _ => remote_arg,
+    };
+    unsafe {
+        std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", next_args);
+        if std::env::var("SGT_SCREEN_RECORD_WEBVIEW2_DATA_DIR").is_err() {
+            std::env::set_var(
+                "SGT_SCREEN_RECORD_WEBVIEW2_DATA_DIR",
+                std::env::temp_dir()
+                    .join(format!("sgt-record-wry-smoke-webview2-{port}"))
+                    .to_string_lossy()
+                    .to_string(),
+            );
+        }
+    }
+    crate::log_info!("[WrySmoke] Enabled WebView2 remote debugging on port {port}");
+    smoke_enabled
 }
 
 fn load_replay_payload(replay_path: &str) -> std::result::Result<serde_json::Value, String> {
@@ -259,6 +296,7 @@ fn main() -> eframe::Result<()> {
     if let Some(exit_code) = maybe_run_headless_export_replay(&startup_args) {
         std::process::exit(exit_code);
     }
+    let screen_record_wry_smoke = configure_screen_record_wry_smoke(&startup_args);
 
     // Cleanup temp files
     initialization::cleanup_temporary_files();
@@ -293,7 +331,9 @@ fn main() -> eframe::Result<()> {
     let _single_instance_mutex = unsafe {
         let mutex_name = hotkey::single_instance_mutex_name_wide();
         let instance = CreateMutexW(None, true, PCWSTR(mutex_name.as_ptr()));
-        if let Ok(handle) = instance {
+        if screen_record_wry_smoke {
+            instance.ok()
+        } else if let Ok(handle) = instance {
             if GetLastError() == ERROR_ALREADY_EXISTS {
                 // Another instance is running - pass arguments via temp file and signal it
                 let args: Vec<String> = std::env::args().collect();
@@ -318,9 +358,11 @@ fn main() -> eframe::Result<()> {
     };
 
     // Start hotkey listener thread
-    std::thread::spawn(|| {
-        hotkey::run_hotkey_listener();
-    });
+    if !screen_record_wry_smoke {
+        std::thread::spawn(|| {
+            hotkey::run_hotkey_listener();
+        });
+    }
 
     // Initialize TTS
     api::tts::init_tts();
@@ -436,6 +478,14 @@ fn main() -> eframe::Result<()> {
 
             // Set native icon
             gui::utils::update_window_icon_native(effective_dark);
+
+            if screen_record_wry_smoke {
+                std::thread::spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    crate::log_info!("[WrySmoke] Opening SGT Record window");
+                    crate::overlay::screen_record::show_screen_record();
+                });
+            }
 
             Ok(Box::new(gui::SettingsApp::new(gui::SettingsAppInit {
                 config: initial_config,

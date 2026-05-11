@@ -8,7 +8,15 @@
     "postinstall": "node ../scripts/ensure-rollup-native.mjs",
     "prebuild": "node ../scripts/ensure-rollup-native.mjs",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:components": "vitest run tests/components",
+    "test:e2e": "playwright test tests/e2e",
+    "test:wry": "node tests/wry/run-wry-smoke.mjs",
+    "test:wry:playwright": "node tests/wry/ensure-windows-debug-build.mjs && playwright test tests/wry",
+    "test:perf": "playwright test tests/perf",
+    "test:perf:update": "SGT_UPDATE_PERF_BASELINE=1 playwright test tests/perf"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -30,15 +38,21 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^22.10.1",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.20",
+    "jsdom": "^29.1.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.16",
     "typescript": "^5.2.2",
-    "vite": "^5.3.1"
+    "vite": "^5.3.1",
+    "vitest": "^4.1.5"
   },
   "optionalDependencies": {
     "@rollup/rollup-linux-x64-gnu": "^4.60.1",

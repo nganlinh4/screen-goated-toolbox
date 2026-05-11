@@ -1,4 +1,5 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { Scissors } from 'lucide-react';
 import { VideoSegment, TextSegment } from '@/types/video';
 import {
@@ -7,6 +8,72 @@ import {
 } from "./trackHoverUtils";
 import { buildTextSplitPreview } from '@/lib/textSplitPreview';
 import { useTrackRangeSelect } from './useTrackRangeSelect';
+import type { TimelineVisibleRange } from './SegmentBlocksCanvas';
+import { buildTimelineRenderWindow } from './timelineSegmentIndex';
+import { countFrontendRender } from '@/lib/frontendPerfDiagnostics';
+
+const DENSE_TEXT_COUNT = 260;
+const MIN_INTERACTIVE_TEXT_PX = 7;
+
+function rangesOverlap(
+  a: { startTime: number; endTime: number },
+  b: { startTime: number; endTime: number },
+) {
+  return a.startTime < b.endTime && b.startTime < a.endTime;
+}
+
+function getOverlapRange(
+  segment: { startTime: number; endTime: number },
+  elevated: { startTime: number; endTime: number } | null,
+) {
+  if (!elevated || !rangesOverlap(segment, elevated)) return null;
+  const start = Math.max(segment.startTime, elevated.startTime);
+  const end = Math.min(segment.endTime, elevated.endTime);
+  const duration = Math.max(segment.endTime - segment.startTime, 0.0001);
+  return {
+    startPct: ((start - segment.startTime) / duration) * 100,
+    endPct: ((end - segment.startTime) / duration) * 100,
+  };
+}
+
+function buildContentMaskStyle(
+  ranges: Array<{ startPct: number; endPct: number }>,
+): CSSProperties | undefined {
+  if (ranges.length === 0) return undefined;
+  const merged = [...ranges]
+    .sort((a, b) => a.startPct - b.startPct)
+    .reduce<Array<{ startPct: number; endPct: number }>>((acc, range) => {
+      const startPct = Math.max(0, Math.min(100, range.startPct));
+      const endPct = Math.max(startPct, Math.min(100, range.endPct));
+      const last = acc[acc.length - 1];
+      if (last && startPct <= last.endPct) {
+        last.endPct = Math.max(last.endPct, endPct);
+      } else if (endPct > startPct) {
+        acc.push({ startPct, endPct });
+      }
+      return acc;
+    }, []);
+  if (merged.length === 0) return undefined;
+  const stops: string[] = ["black 0%"];
+  for (const range of merged) {
+    stops.push(`black ${range.startPct}%`);
+    stops.push(`transparent ${range.startPct}%`);
+    stops.push(`transparent ${range.endPct}%`);
+    stops.push(`black ${range.endPct}%`);
+  }
+  stops.push("black 100%");
+  const maskImage = `linear-gradient(to right, ${stops.join(", ")})`;
+  return { maskImage, WebkitMaskImage: maskImage };
+}
+
+function isSegmentStackedAbove(
+  index: number,
+  rank: number,
+  otherIndex: number,
+  otherRank: number,
+) {
+  return otherRank > rank || (otherRank === rank && otherIndex > index);
+}
 
 function buildFontVariationCSS(vars?: TextSegment['style']['fontVariations']): string | undefined {
   const parts: string[] = [];
@@ -29,6 +96,8 @@ interface TextTrackProps {
   onSelectionChange?: (ids: string[]) => void;
   clearSignal?: number;
   onEmptyClick?: (time: number) => void;
+  canvasWidthPx?: number;
+  visibleTimeRange?: TimelineVisibleRange | null;
 }
 
 export const TextTrack: React.FC<TextTrackProps> = ({
@@ -44,15 +113,20 @@ export const TextTrack: React.FC<TextTrackProps> = ({
   onSelectionChange,
   clearSignal,
   onEmptyClick,
+  canvasWidthPx = 0,
+  visibleTimeRange,
 }) => {
+  countFrontendRender('TextTrack');
   const [hoverState, setHoverState] = useState<
     | { type: 'split'; x: number; time: number; seg: TextSegment; preview: { leftText: string; rightText: string } | null }
     | { type: 'add'; x: number }
     | null
   >(null);
+  const [frontTextId, setFrontTextId] = useState<string | null>(null);
 
   const safeDuration = Math.max(duration, 0.001);
   const texts = segment.textSegments ?? [];
+  const denseMode = texts.length >= DENSE_TEXT_COUNT;
   const lastClickRef = useRef<{ id: string | null; time: number }>({ id: null, time: 0 });
   const DOUBLE_CLICK_MS = 350;
 
@@ -71,6 +145,20 @@ export const TextTrack: React.FC<TextTrackProps> = ({
     { onEmptyClick },
   );
 
+  const renderWindow = useMemo(
+    () => buildTimelineRenderWindow({
+      segments: texts,
+      duration,
+      canvasWidthPx,
+      visibleRange: visibleTimeRange,
+      denseMode,
+      selectedIds,
+      activeIds: editingTextId ? new Set([editingTextId]) : undefined,
+      minInteractivePx: MIN_INTERACTIVE_TEXT_PX,
+    }),
+    [canvasWidthPx, denseMode, duration, editingTextId, selectedIds, texts, visibleTimeRange],
+  );
+
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isDraggingRange.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -78,7 +166,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
     const time = (x / rect.width) * safeDuration;
     const thresholdTime = getHandlePriorityThresholdTime(safeDuration, rect.width);
 
-    const containing = texts.find(seg => time >= seg.startTime && time <= seg.endTime);
+    const containing = renderWindow.index.hitTest(time);
     if (containing) {
       const preview = buildTextSplitPreview({
         text: containing.text,
@@ -100,7 +188,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
       );
       return;
     }
-    if (isTimeNearRangeBoundary(time, texts, thresholdTime)) {
+    if (isTimeNearRangeBoundary(time, renderWindow.canvasSegments, thresholdTime)) {
       setHoverState(null);
       return;
     }
@@ -120,7 +208,28 @@ export const TextTrack: React.FC<TextTrackProps> = ({
       onPointerMove={handleTrackPointerMove}
       onPointerUp={handleTrackPointerUp}
     >
-      {texts.map((text) => (
+      {renderWindow.domSegments.map((text, textIndex) => (
+        (() => {
+          const isFront = frontTextId === text.id || editingTextId === text.id;
+          const isSelected = selectedIds.has(text.id);
+          const stackRank = isFront ? 3 : isSelected ? 2 : 1;
+          const hasCoveredSegmentUnderneath = renderWindow.domSegments.some((other, otherIndex) => {
+            if (other.id === text.id || !rangesOverlap(text, other)) return false;
+            const otherIsFront = frontTextId === other.id || editingTextId === other.id;
+            const otherRank = otherIsFront ? 3 : selectedIds.has(other.id) ? 2 : 1;
+            return !isSegmentStackedAbove(textIndex, stackRank, otherIndex, otherRank);
+          });
+          const overlapRanges = renderWindow.domSegments
+            .map((other, otherIndex) => {
+              if (other.id === text.id) return null;
+              const otherIsFront = frontTextId === other.id || editingTextId === other.id;
+              const otherRank = otherIsFront ? 3 : selectedIds.has(other.id) ? 2 : 1;
+              if (!isSegmentStackedAbove(textIndex, stackRank, otherIndex, otherRank)) return null;
+              return getOverlapRange(text, other);
+            })
+            .filter((range): range is NonNullable<ReturnType<typeof getOverlapRange>> => Boolean(range));
+          const contentMaskStyle = buildContentMaskStyle(overlapRanges);
+          return (
         <div
           key={text.id}
           onPointerDown={(e) => {
@@ -142,6 +251,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
               return;
             }
             lastClickRef.current = { id: text.id, time: now };
+            setFrontTextId(text.id);
             const preserveGroupDrag = selectedIds.has(text.id) && selectedIds.size > 1;
             if (!preserveGroupDrag) {
               addSegmentSelection(text.id);
@@ -155,22 +265,30 @@ export const TextTrack: React.FC<TextTrackProps> = ({
           }}
           onClick={(e) => {
             e.stopPropagation();
+            setFrontTextId(text.id);
             if (e.shiftKey) {
               addSegmentSelection(text.id, { shiftKey: true });
             }
             onTextClick(text.id);
           }}
-          className="text-segment timeline-block absolute h-full cursor-move group"
+          className="text-segment timeline-block absolute h-full cursor-move overflow-hidden group"
           data-tone="accent"
           data-active={editingTextId === text.id ? "true" : "false"}
           data-selected={selectedIds.has(text.id) ? "true" : undefined}
           style={{
             left: `${(text.startTime / safeDuration) * 100}%`,
             width: `${((text.endTime - text.startTime) / safeDuration) * 100}%`,
+            zIndex: isFront ? 5 : isSelected ? 4 : 3,
+            background: hasCoveredSegmentUnderneath
+              ? "color-mix(in srgb, var(--timeline-zoom-color) 34%, transparent)"
+              : undefined,
           }}
         >
-          <div className="text-segment-content absolute inset-0 flex items-center justify-center overflow-hidden px-1">
-            <span className="truncate text-[10px] text-[var(--on-surface)]"
+          <div
+            className="text-segment-content absolute inset-0 z-[1] flex min-w-0 items-center justify-center overflow-hidden px-1"
+            style={contentMaskStyle}
+          >
+            <span className="min-w-0 max-w-full truncate text-[10px] text-[var(--on-surface)]"
               style={{
                 fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif",
                 fontWeight: text.style.fontVariations?.wght ?? 400,
@@ -188,6 +306,8 @@ export const TextTrack: React.FC<TextTrackProps> = ({
             <div className="text-handle-bar timeline-handle-pill" />
           </div>
         </div>
+          );
+        })()
       ))}
 
       {rangeSelect && rangeWidth > 2 && (

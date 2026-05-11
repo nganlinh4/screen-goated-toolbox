@@ -192,6 +192,23 @@ pub fn handle_ipc_command(
             let result = super::mf_decode::generate_thumbnails(path, count, start, end)?;
             Ok(serde_json::json!(result))
         }
+        "generate_timeline_thumbnails" => {
+            let path = args["path"].as_str().ok_or("Missing path")?;
+            let times = args["times"]
+                .as_array()
+                .ok_or("Missing times")?
+                .iter()
+                .filter_map(|value| value.as_f64())
+                .collect::<Vec<_>>();
+            let width = args["width"].as_u64().unwrap_or(240) as u32;
+            let height = args["height"].as_u64().unwrap_or(135) as u32;
+            let quality = ((args["quality"].as_f64().unwrap_or(0.72) * 100.0).round() as i64)
+                .clamp(1, 100) as u8;
+            let result = super::mf_decode::generate_thumbnails_at_times(
+                path, &times, width, height, quality,
+            )?;
+            Ok(serde_json::json!(result))
+        }
         "get_audio_waveform" => audio_waveform::handle_get_audio_waveform(&args),
         "probe_video_metadata" => {
             let path = args["path"].as_str().ok_or("Missing path")?;

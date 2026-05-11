@@ -31,6 +31,7 @@ import * as operations from "./operations";
 export type PersistOptions = {
   refreshList?: boolean;
   includeMedia?: boolean;
+  skipThumbnail?: boolean;
   compositionOverride?: ProjectComposition;
   skipLiveCompositionSync?: boolean;
   allowDuringProjectTransition?: boolean;

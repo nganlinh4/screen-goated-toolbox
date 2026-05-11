@@ -3,7 +3,10 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import CursorSvgLab from "@/components/CursorSvgLab";
 import { TooltipProvider } from "@/components/ui/Tooltip";
+import { installBrowserTestIpcMock } from "@/testHarness/browserIpcMock";
 import "./App.css";
+
+installBrowserTestIpcMock();
 
 function RootRouter() {
   const [hash, setHash] = useState(() => window.location.hash);

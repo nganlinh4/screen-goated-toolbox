@@ -34,6 +34,7 @@ import {
   clampVisibilitySegmentsToDuration,
   mergePointerSegments,
 } from "@/lib/cursorHiding";
+import { countFrontendRender } from "@/lib/frontendPerfDiagnostics";
 import { buildTextSplitPreview } from "@/lib/textSplitPreview";
 import {
   deleteSubtitleIdsAcrossTracks,
@@ -217,6 +218,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   onUpdateNarrationTrackVolumePoints,
   onAudioTrackDownload,
 }) => {
+  countFrontendRender("TimelineArea");
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
   const [volumeViewEnabled, setVolumeViewEnabled] = useState(false);
@@ -298,6 +300,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     disabled = false,
     offsetIndex = 0,
   ) => {
+    if (disabled || !onAudioTrackDownload) return null;
     const hoverClass =
       groupName === "imported-audio-label"
         ? "group-hover/imported-audio-label:opacity-100"
@@ -310,8 +313,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
       <button
         type="button"
         onClick={() => onAudioTrackDownload?.(trackKind, label)}
-        disabled={disabled || !onAudioTrackDownload}
-        className={`timeline-label-audio-download ui-icon-button absolute left-full top-1/2 z-20 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--surface)]/95 text-[var(--primary-color)] opacity-0 shadow-sm transition-opacity duration-150 ${hoverClass} focus-visible:opacity-100 disabled:opacity-30`}
+        className={`timeline-label-audio-download ui-icon-button absolute left-full top-1/2 z-20 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--surface)]/95 text-[var(--primary-color)] opacity-0 shadow-sm transition-opacity duration-150 ${hoverClass} focus-visible:opacity-100`}
         style={{ marginLeft: `${4 + offsetIndex * 24}px` }}
         title={t.downloadAudioTrack}
         aria-label={`${t.downloadAudioTrack}: ${label}`}
@@ -1056,6 +1058,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                       onSelectionChange={onTextSelectionChange}
                       clearSignal={clearSelectionSignal}
                       onEmptyClick={handleEmptyTrackClick}
+                      canvasWidthPx={canvasWidthPx}
+                      visibleTimeRange={visibleTimeRange}
                     />
                   ) : (
                     <div className="text-track-empty timeline-track-empty h-7" />

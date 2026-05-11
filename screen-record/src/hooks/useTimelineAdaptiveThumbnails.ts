@@ -11,6 +11,8 @@ interface UseTimelineAdaptiveThumbnailsOptions {
   timelineCanvasWidthPx: number;
   segment: VideoSegment | null;
   currentVideo: string | null;
+  currentRawVideoPath?: string | null;
+  thumbnailsLength: number;
   isPlaying: boolean;
   generateThumbnailsForSource: (options?: {
     videoUrl?: string | null;
@@ -25,6 +27,8 @@ export function useTimelineAdaptiveThumbnails({
   timelineCanvasWidthPx,
   segment,
   currentVideo,
+  currentRawVideoPath,
+  thumbnailsLength,
   isPlaying,
   generateThumbnailsForSource,
 }: UseTimelineAdaptiveThumbnailsOptions) {
@@ -49,17 +53,24 @@ export function useTimelineAdaptiveThumbnails({
     }
 
     const lastIssuedCount = lastIssuedCountRef.current;
-    if (targetCount === baseCount && (lastIssuedCount === null || lastIssuedCount === baseCount)) {
+    const needsInitialStrip = thumbnailsLength === 0 && lastIssuedCount === null;
+    if (
+      !needsInitialStrip &&
+      targetCount === baseCount &&
+      (lastIssuedCount === null || lastIssuedCount === baseCount)
+    ) {
       return;
     }
-    if (lastIssuedCount === targetCount) return;
+    if (!needsInitialStrip && lastIssuedCount === targetCount) return;
+    const thumbnailCount = needsInitialStrip ? baseCount : targetCount;
 
     const timer = window.setTimeout(() => {
-      lastIssuedCountRef.current = targetCount;
+      lastIssuedCountRef.current = thumbnailCount;
       void generateThumbnailsForSource({
         videoUrl: currentVideo,
+        filePath: currentRawVideoPath?.trim() || undefined,
         segment,
-        thumbnailCount: targetCount,
+        thumbnailCount,
       });
     }, TIMELINE_THUMBNAIL_DEBOUNCE_MS);
 
@@ -67,10 +78,12 @@ export function useTimelineAdaptiveThumbnails({
   }, [
     baseCount,
     currentVideo,
+    currentRawVideoPath,
     generateThumbnailsForSource,
     isPlaying,
     segment,
     targetCount,
+    thumbnailsLength,
     timelineCanvasWidthPx,
   ]);
 }

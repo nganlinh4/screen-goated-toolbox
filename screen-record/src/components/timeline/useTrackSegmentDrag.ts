@@ -63,6 +63,8 @@ export function useTrackSegmentDrag({
   const subtitleDragIdsRef = useRef<string[]>([]);
   const textDragOriginalsRef = useRef<Map<string, DragOriginalBounds> | null>(null);
   const subtitleDragOriginalsRef = useRef<Map<string, DragOriginalBounds> | null>(null);
+  const pendingSubtitleDragClientXRef = useRef<number | null>(null);
+  const subtitleDragFrameRef = useRef<number | null>(null);
   const keystrokeDragOffsetRef = useRef(0);
   const pointerDragOffsetRef = useRef(0);
   const webcamDragOffsetRef = useRef(0);
@@ -187,7 +189,7 @@ export function useTrackSegmentDrag({
     }
   }, [beginBatch, resolveActiveDragIds, segment, selectedSubtitleIds, setEditingSubtitleId, setEditingTextId, setEditingKeystrokeId, setActivePanel]);
 
-  const handleSubtitleDrag = useCallback((clientX: number) => {
+  const applySubtitleDrag = useCallback((clientX: number) => {
     if ((!isDraggingSubtitleStart && !isDraggingSubtitleEnd && !isDraggingSubtitleBody) || !draggingSubtitleId || !segment) return;
     const newTime = getTimeFromClientX(clientX);
     if (newTime === null) return;
@@ -233,6 +235,19 @@ export function useTrackSegmentDrag({
         : updateSubtitleTimingAcrossTracks(segment, draggingSubtitleId, updater),
     );
   }, [isDraggingSubtitleStart, isDraggingSubtitleEnd, isDraggingSubtitleBody, draggingSubtitleId, segment, getTimeFromClientX, setSegment, duration]);
+
+  const handleSubtitleDrag = useCallback((clientX: number) => {
+    pendingSubtitleDragClientXRef.current = clientX;
+    if (subtitleDragFrameRef.current !== null) return;
+    subtitleDragFrameRef.current = requestAnimationFrame(() => {
+      subtitleDragFrameRef.current = null;
+      const pendingClientX = pendingSubtitleDragClientXRef.current;
+      pendingSubtitleDragClientXRef.current = null;
+      if (pendingClientX !== null) {
+        applySubtitleDrag(pendingClientX);
+      }
+    });
+  }, [applySubtitleDrag]);
 
   // Keystroke drag
   const handleKeystrokeDragStart = useCallback((id: string, type: 'start' | 'end' | 'body', offset?: number) => {
@@ -516,6 +531,15 @@ export function useTrackSegmentDrag({
   }, [isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, segment, setSegment, setEditingKeystrokeId, beginBatch, commitBatch, duration]);
 
   const resetTrackDragState = useCallback(() => {
+    const pendingClientX = pendingSubtitleDragClientXRef.current;
+    if (subtitleDragFrameRef.current !== null) {
+      cancelAnimationFrame(subtitleDragFrameRef.current);
+      subtitleDragFrameRef.current = null;
+    }
+    if (pendingClientX !== null) {
+      applySubtitleDrag(pendingClientX);
+    }
+    pendingSubtitleDragClientXRef.current = null;
     setIsDraggingTextStart(false);
     setIsDraggingTextEnd(false);
     setIsDraggingTextBody(false);
@@ -543,7 +567,7 @@ export function useTrackSegmentDrag({
     keystrokeDragOriginals.current = null;
     pointerDragOriginals.current = null;
     webcamDragOriginals.current = null;
-  }, []);
+  }, [applySubtitleDrag]);
 
   return {
     // State

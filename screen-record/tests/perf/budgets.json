@@ -1,0 +1,18 @@
+{
+  "syntheticHuge": {
+    "loadProjectMs": 6000,
+    "dragP95FrameDeltaMs": 24,
+    "wheelFirstVisualMs": 150,
+    "wheelAnchorDriftPx": 4,
+    "wheelP95FrameDeltaMs": 36,
+    "wheelMaxLongTaskMs": 100,
+    "projectsOpenMs": 700,
+    "projectsOpenMaxLongTaskMs": 900,
+    "maxLongTaskMs": 100,
+    "longTaskCount": 12,
+    "subtitleDomBlocks": 120,
+    "audioDomBlocks": 120,
+    "narrationDomBlocks": 160,
+    "totalTimelineBlocks": 520
+  }
+}

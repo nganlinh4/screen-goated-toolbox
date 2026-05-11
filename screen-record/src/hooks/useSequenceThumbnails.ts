@@ -81,6 +81,15 @@ export function useSequenceThumbnails({
           timelineClip.clip.segment,
           timelineClip.sourceDuration,
           10,
+          {
+            width: 240,
+            height: 135,
+            quality: 0.72,
+            filePath:
+              timelineClip.clip.rawVideoPath ||
+              currentProjectData?.rawVideoPath ||
+              undefined,
+          },
         );
 
         if (cancelled || requestIdRef.current !== requestId) return;

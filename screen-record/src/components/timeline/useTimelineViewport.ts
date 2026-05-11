@@ -44,6 +44,28 @@ function getMaxScroll(viewport: HTMLDivElement, contentWidth: number): number {
   return Math.max(0, contentWidth - getVisibleContentWidth(viewport));
 }
 
+function buildVisibleTimeRange(
+  scrollLeft: number,
+  visibleWidth: number,
+  contentWidth: number,
+  duration: number,
+): TimelineVisibleRange {
+  const visibleDuration = duration * (visibleWidth / Math.max(contentWidth, 1));
+  const buffer = Math.max(1, visibleDuration * 0.65);
+  return {
+    startTime: clamp(
+      (scrollLeft / Math.max(contentWidth, 1)) * duration - buffer,
+      0,
+      duration,
+    ),
+    endTime: clamp(
+      ((scrollLeft + visibleWidth) / Math.max(contentWidth, 1)) * duration + buffer,
+      0,
+      duration,
+    ),
+  };
+}
+
 interface UseTimelineViewportOptions {
   duration: number;
   currentTime: number;
@@ -89,6 +111,7 @@ export function useTimelineViewport({
   const [viewportWidth, setViewportWidth] = useState(0);
   const [visibleTimeRange, setVisibleTimeRange] = useState<TimelineVisibleRange | null>(null);
   const [showScrollbarState, setShowScrollbarState] = useState(false);
+  const pendingScrollbarRafRef = useRef<number | null>(null);
   const pendingVisibleRangeRafRef = useRef<number | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const releaseProgrammaticScrollRef = useRef<number | null>(null);
@@ -146,27 +169,21 @@ export function useTimelineViewport({
     }
     const visibleWidth = getVisibleContentWidth(viewport);
     const contentWidth = visibleWidth * activeZoom;
-    const visibleDuration = activeDuration * (visibleWidth / Math.max(contentWidth, 1));
-    const buffer = Math.max(1, visibleDuration * 0.65);
-    const start = clamp(
-      (viewport.scrollLeft / Math.max(contentWidth, 1)) * activeDuration - buffer,
-      0,
-      activeDuration,
-    );
-    const end = clamp(
-      ((viewport.scrollLeft + visibleWidth) / Math.max(contentWidth, 1)) * activeDuration + buffer,
-      0,
+    const nextRange = buildVisibleTimeRange(
+      viewport.scrollLeft,
+      visibleWidth,
+      contentWidth,
       activeDuration,
     );
     setVisibleTimeRange((previous) => {
       if (
         previous &&
-        Math.abs(previous.startTime - start) < 0.05 &&
-        Math.abs(previous.endTime - end) < 0.05
+        Math.abs(previous.startTime - nextRange.startTime) < 0.05 &&
+        Math.abs(previous.endTime - nextRange.endTime) < 0.05
       ) {
         return previous;
       }
-      return { startTime: start, endTime: end };
+      return nextRange;
     });
   }, []);
 
@@ -229,6 +246,14 @@ export function useTimelineViewport({
     thumb.style.transform = `translateX(${thumbLeft}px)`;
     setShowScrollbar(true);
   }, [setShowScrollbar, timelineRef]);
+
+  const scheduleScrollbarThumbSync = useCallback(() => {
+    if (pendingScrollbarRafRef.current !== null) return;
+    pendingScrollbarRafRef.current = requestAnimationFrame(() => {
+      pendingScrollbarRafRef.current = null;
+      syncScrollbarThumb();
+    });
+  }, [syncScrollbarThumb]);
 
   const scheduleFrame = useCallback(() => {
     if (animationFrameRef.current !== null) return;
@@ -445,13 +470,13 @@ export function useTimelineViewport({
       if (!programmaticScrollRef.current) {
         suppressFollow();
       }
-      syncScrollbarThumb();
+      scheduleScrollbarThumbSync();
       scheduleVisibleRangeSync();
     };
 
     viewport.addEventListener("scroll", handleScroll, { passive: true });
     return () => viewport.removeEventListener("scroll", handleScroll);
-  }, [suppressFollow, syncScrollbarThumb]);
+  }, [scheduleScrollbarThumbSync, scheduleVisibleRangeSync, suppressFollow]);
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -536,6 +561,9 @@ export function useTimelineViewport({
       if (pendingZoomRafRef.current !== null) {
         cancelAnimationFrame(pendingZoomRafRef.current);
       }
+      if (pendingScrollbarRafRef.current !== null) {
+        cancelAnimationFrame(pendingScrollbarRafRef.current);
+      }
       if (pendingVisibleRangeRafRef.current !== null) {
         cancelAnimationFrame(pendingVisibleRangeRafRef.current);
       }
@@ -544,9 +572,39 @@ export function useTimelineViewport({
 
   // Wheel zoom handler — registered natively with { passive: false } so
   // preventDefault() works without triggering "passive event listener" warnings.
-  // setZoom is RAF-throttled to avoid 60+ React re-renders per second during
-  // continuous wheel scrolling (each re-render rebuilds ruler ticks + all tracks).
+  // setZoom is RAF-throttled so the timeline responds on the next paint without
+  // rendering more often than the browser can display.
   const pendingZoomRafRef = useRef<number | null>(null);
+  const commitPendingWheelZoom = useCallback(() => {
+    pendingZoomRafRef.current = null;
+    const activeViewport = viewportRef.current;
+    const activeDurationForRange = durationRef.current;
+    const activeZoomForRange = zoomRef.current;
+    const pendingAnchor = pendingWheelAnchorRef.current;
+    if (activeViewport && segmentRef.current && activeDurationForRange > 0) {
+      const visibleWidthForRange = getVisibleContentWidth(activeViewport);
+      const contentWidthForRange = visibleWidthForRange * Math.max(activeZoomForRange, MIN_TIMELINE_ZOOM);
+      const scrollLeftForRange = pendingAnchor
+        ? clamp(
+            (pendingAnchor.anchorTime / activeDurationForRange) * contentWidthForRange -
+              pendingAnchor.pointerContentX,
+            0,
+            getMaxScroll(activeViewport, contentWidthForRange),
+          )
+        : activeViewport.scrollLeft;
+      setVisibleTimeRange(
+        activeZoomForRange <= MIN_TIMELINE_ZOOM + 0.001
+          ? null
+          : buildVisibleTimeRange(
+              scrollLeftForRange,
+              visibleWidthForRange,
+              contentWidthForRange,
+              activeDurationForRange,
+            ),
+      );
+    }
+    setZoom(zoomRef.current);
+  }, []);
   const wheelHandlerRef = useRef<(event: globalThis.WheelEvent) => void>(() => {});
   wheelHandlerRef.current = (event: globalThis.WheelEvent) => {
     const viewport = viewportRef.current;
@@ -597,14 +655,29 @@ export function useTimelineViewport({
     };
     suppressFollow();
     zoomRef.current = nextZoom;
-    // RAF-throttle the React state update: zoomRef is updated immediately for
-    // scroll math, but setZoom (which triggers full timeline re-render) is
-    // batched to at most once per animation frame.
+    const canvas = timelineRef.current?.parentElement;
+    const nextContentWidth = visibleWidth * Math.max(nextZoom, MIN_TIMELINE_ZOOM);
+    const nextScrollLeft = clamp(
+      (anchorTime / activeDuration) * nextContentWidth - pointerContentX,
+      0,
+      getMaxScroll(viewport, nextContentWidth),
+    );
+    if (canvas instanceof HTMLElement) {
+      canvas.style.width = `${Math.max(nextZoom, MIN_TIMELINE_ZOOM) * 100}%`;
+    }
+    programmaticScrollRef.current = true;
+    viewport.scrollLeft = nextScrollLeft;
+    followSpringRef.current.set(nextScrollLeft);
+    scheduleScrollbarThumbSync();
+    if (releaseProgrammaticScrollRef.current !== null) {
+      cancelAnimationFrame(releaseProgrammaticScrollRef.current);
+    }
+    releaseProgrammaticScrollRef.current = requestAnimationFrame(() => {
+      programmaticScrollRef.current = false;
+      releaseProgrammaticScrollRef.current = null;
+    });
     if (pendingZoomRafRef.current === null) {
-      pendingZoomRafRef.current = requestAnimationFrame(() => {
-        pendingZoomRafRef.current = null;
-        setZoom(zoomRef.current);
-      });
+      pendingZoomRafRef.current = requestAnimationFrame(commitPendingWheelZoom);
     }
   };
 

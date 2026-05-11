@@ -10,6 +10,8 @@ use windows::Win32::Graphics::Gdi::CreateSolidBrush;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::*;
+#[cfg(windows)]
+use wry::WebViewBuilderExtWindows;
 use wry::{Rect, WebContext, WebViewBuilder};
 
 use crate::assets::GOOGLE_SANS_FLEX;
@@ -30,6 +32,7 @@ use super::handle_ipc_command;
 
 pub(super) unsafe fn internal_create_sr_loop() {
     unsafe {
+        crate::log_info!("[ScreenRecord] WebView thread started");
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = windows::core::w!("ScreenRecord_Class");
 
@@ -92,8 +95,13 @@ pub(super) unsafe fn internal_create_sr_loop() {
 
         SR_WEB_CONTEXT.with(|ctx| {
             if ctx.borrow().is_none() {
-                let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
-                *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
+                let data_dir = std::env::var("SGT_SCREEN_RECORD_WEBVIEW2_DATA_DIR")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| crate::overlay::get_shared_webview_data_dir(Some("common")));
+                crate::log_info!("[ScreenRecord] WebView data dir: {}", data_dir.display());
+                *ctx.borrow_mut() = Some(WebContext::new(Some(data_dir)));
             }
         });
 
@@ -301,6 +309,16 @@ unsafe fn build_webview(
                 }
             })
             .with_url("screenrecord://localhost/index.html");
+
+        if let Ok(extra_args) = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
+            if !extra_args.trim().is_empty() {
+                let args = format!(
+                    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required {extra_args}",
+                );
+                crate::log_info!("[ScreenRecord] WebView2 additional args: {args}");
+                builder = builder.with_additional_browser_args(args);
+            }
+        }
 
         builder = crate::overlay::html_components::font_manager::configure_webview(builder);
         builder.build_as_child(wrapper)

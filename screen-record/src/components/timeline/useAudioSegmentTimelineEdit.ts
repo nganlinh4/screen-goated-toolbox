@@ -48,6 +48,8 @@ export function useAudioSegmentTimelineEdit<T extends AudioTimelineSegment>({
   const [isDraggingAudioSegment, setIsDraggingAudioSegment] = useState(false);
   const dragRef = useRef<DragState<T> | null>(null);
   const didMoveRef = useRef(false);
+  const pendingPointerTimeRef = useRef<number | null>(null);
+  const dragFrameRef = useRef<number | null>(null);
 
   const getTimeFromEvent = useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
@@ -90,12 +92,10 @@ export function useAudioSegmentTimelineEdit<T extends AudioTimelineSegment>({
     [beginBatch, getTimeFromEvent, onUpdateSegment],
   );
 
-  const handlePointerMove = useCallback(
-    (event: React.PointerEvent<HTMLElement>) => {
+  const applyPointerTime = useCallback(
+    (pointerTime: number) => {
       const drag = dragRef.current;
       if (!drag || !onUpdateSegment) return;
-      const pointerTime = getTimeFromEvent(event);
-      if (pointerTime === null) return;
       const { segment, mode } = drag;
       const rate = getRate(segment);
       const sourceMin = MIN_SOURCE_SEC * rate;
@@ -136,12 +136,36 @@ export function useAudioSegmentTimelineEdit<T extends AudioTimelineSegment>({
       );
       onUpdateSegment(segment.id, { outPoint } as Partial<T>);
     },
-    [duration, getTimeFromEvent, onUpdateSegment],
+    [duration, onUpdateSegment],
+  );
+
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      if (!dragRef.current || !onUpdateSegment) return;
+      const pointerTime = getTimeFromEvent(event);
+      if (pointerTime === null) return;
+      pendingPointerTimeRef.current = pointerTime;
+      if (dragFrameRef.current !== null) return;
+      dragFrameRef.current = requestAnimationFrame(() => {
+        dragFrameRef.current = null;
+        const pendingPointerTime = pendingPointerTimeRef.current;
+        pendingPointerTimeRef.current = null;
+        if (pendingPointerTime !== null) applyPointerTime(pendingPointerTime);
+      });
+    },
+    [applyPointerTime, getTimeFromEvent, onUpdateSegment],
   );
 
   const handlePointerUp = useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
       if (!dragRef.current) return;
+      if (dragFrameRef.current !== null) {
+        cancelAnimationFrame(dragFrameRef.current);
+        dragFrameRef.current = null;
+      }
+      const pendingPointerTime = pendingPointerTimeRef.current;
+      pendingPointerTimeRef.current = null;
+      if (pendingPointerTime !== null) applyPointerTime(pendingPointerTime);
       dragRef.current = null;
       setIsDraggingAudioSegment(false);
       try {
@@ -153,7 +177,7 @@ export function useAudioSegmentTimelineEdit<T extends AudioTimelineSegment>({
       if (didMoveRef.current) onCommitSegments?.();
       event.stopPropagation();
     },
-    [commitBatch, onCommitSegments],
+    [applyPointerTime, commitBatch, onCommitSegments],
   );
 
   return {

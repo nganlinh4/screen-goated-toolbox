@@ -11,7 +11,7 @@ import type {
   VideoSegment,
 } from "@/types/video";
 
-interface NativeAudioDownloadClipJob {
+export interface NativeAudioDownloadClipJob {
   clipId: string;
   clipName: string;
   sourceVideoPath: string;
@@ -26,7 +26,7 @@ interface NativeVideoMetadataProbe {
   duration: number;
 }
 
-interface AudioDownloadRequest {
+export interface AudioDownloadRequest {
   trackKind: AudioDownloadTrackKind;
   format: AudioDownloadFormat;
   outputDir: string;
@@ -126,9 +126,9 @@ async function buildCompositionClipJobs(options: StartAudioDownloadOptions): Pro
   return jobs;
 }
 
-export async function startAudioTrackDownload(options: StartAudioDownloadOptions): Promise<AudioDownloadResult> {
+export async function buildAudioDownloadRequest(options: StartAudioDownloadOptions): Promise<AudioDownloadRequest> {
   const clips = await buildCompositionClipJobs(options);
-  const request: AudioDownloadRequest = sanitizeNativeExportValue({
+  return sanitizeNativeExportValue({
     trackKind: options.trackKind,
     format: options.format,
     outputDir: options.outputDir,
@@ -139,5 +139,9 @@ export async function startAudioTrackDownload(options: StartAudioDownloadOptions
     narrationSegments: options.composition?.narrationSegments ?? [],
     narrationTrackVolumePoints: options.composition?.narrationTrackVolumePoints ?? [],
   });
+}
+
+export async function startAudioTrackDownload(options: StartAudioDownloadOptions): Promise<AudioDownloadResult> {
+  const request = await buildAudioDownloadRequest(options);
   return invoke<AudioDownloadResult>("start_audio_download", request as unknown as Record<string, unknown>);
 }
