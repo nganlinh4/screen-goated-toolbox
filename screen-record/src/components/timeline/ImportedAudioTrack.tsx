@@ -317,6 +317,7 @@ export const ImportedAudioTrack: React.FC<ImportedAudioTrackProps> = ({
           <div
             key={seg.id}
             className="audio-track-segment timeline-block absolute h-full cursor-move overflow-hidden group"
+            data-audio-segment-id={seg.id}
             data-tone="primary"
             data-selected={isSelected ? "true" : undefined}
             style={{

@@ -61,6 +61,20 @@ interface PanelTabsProps {
 
 function PanelTabs({ activePanel, onPanelChange, hiddenTabs }: PanelTabsProps) {
   const { t } = useSettings();
+  const visibleTabIds = PANEL_TAB_ORDER.filter((id) => !hiddenTabs?.has(id));
+  const useCompactLabels = visibleTabIds.length === 7;
+  const compactTabLabel = (id: ActivePanel) => {
+    switch (id) {
+      case 'background': return t.tabBackground === 'Nền' ? 'Nền' : 'Bg';
+      case 'cursor': return t.tabCursor === 'Con Trỏ' ? 'C.Trỏ' : t.tabCursor;
+      case 'blur': return t.tabBlur;
+      case 'audio': return t.tabAudio === 'Âm Thanh' ? 'Â.Thanh' : t.tabAudio;
+      case 'narration': return t.tabNarration === 'Thuyết Minh' ? 'T.Minh' : 'Narr.';
+      case 'subtitles': return t.tabSubtitles === 'Phụ Đề' ? 'P.Đề' : 'Subs';
+      case 'text': return t.tabText;
+      default: return tabLabel(id);
+    }
+  };
   const tabLabel = (id: ActivePanel) => {
     switch (id) {
       case 'zoom': return t.tabZoom;
@@ -74,9 +88,8 @@ function PanelTabs({ activePanel, onPanelChange, hiddenTabs }: PanelTabsProps) {
       case 'text': return t.tabText;
     }
   };
-  const tabs: { id: ActivePanel; label: string }[] = PANEL_TAB_ORDER
-    .filter((id) => !hiddenTabs?.has(id))
-    .map((id) => ({ id, label: tabLabel(id) }));
+  const tabs: { id: ActivePanel; label: string }[] = visibleTabIds
+    .map((id) => ({ id, label: useCompactLabels ? compactTabLabel(id) : tabLabel(id) }));
 
   return (
     <div className="panel-tabs ui-segmented relative flex flex-nowrap overflow-hidden">

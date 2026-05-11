@@ -14,6 +14,10 @@ const budgets = JSON.parse(
     wheelAnchorDriftPx: number;
     wheelP95FrameDeltaMs: number;
     wheelMaxLongTaskMs: number;
+    audioPanelSpeedScrubMs: number;
+    audioPanelTrimScrubMs: number;
+    audioPanelControlP95FrameDeltaMs: number;
+    audioPanelControlMaxLongTaskMs: number;
     projectsOpenMs: number;
     projectsOpenMaxLongTaskMs: number;
     maxLongTaskMs: number;
@@ -164,6 +168,31 @@ async function openProjectsAndMeasure(page: import("@playwright/test").Page) {
   });
 }
 
+async function scrubRangeAndMeasure(
+  page: import("@playwright/test").Page,
+  selector: string,
+  values: number[],
+) {
+  return page.evaluate(
+    async ({ selector: rangeSelector, values: nextValues }) => {
+      const slider = document.querySelector<HTMLInputElement>(rangeSelector);
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      if (!slider || !valueSetter) return Number.POSITIVE_INFINITY;
+      const startedAt = performance.now();
+      for (const value of nextValues) {
+        valueSetter.call(slider, String(value));
+        slider.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+        await Promise.race([
+          new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+          new Promise<void>((resolve) => setTimeout(resolve, 80)),
+        ]);
+      }
+      return performance.now() - startedAt;
+    },
+    { selector, values },
+  );
+}
+
 test("synthetic huge editor wheel zoom responds on the next frame", async ({ page }) => {
   await loadHugeFixture(page);
   const initialDom = await page.evaluate(() => window.__SGT_TEST__?.getDomStats());
@@ -208,6 +237,44 @@ test("synthetic huge editor wheel zoom responds on the next frame", async ({ pag
     budgets.syntheticHuge.wheelMaxLongTaskMs,
   );
   expect(finalDom?.totalTimelineBlocks ?? 0).toBeLessThanOrEqual(budgets.syntheticHuge.totalTimelineBlocks);
+});
+
+test("synthetic huge audio panel speed and trim scrubs stay responsive", async ({ page }) => {
+  await loadHugeFixture(page);
+  expect(await page.evaluate(() => window.__SGT_EDITOR_TEST__?.selectFirstAudioSegment())).toBe(true);
+  await expect(page.locator(".audio-panel-single-editor")).toBeVisible();
+
+  await page.evaluate(() => window.__SGT_TEST__?.resetPerf());
+  await page.evaluate(() => window.__SGT_TEST__?.startPerfProbe());
+
+  await page.evaluate(() => window.__SGT_TEST__?.startAction("scrub:audio-speed"));
+  const speedMs = await scrubRangeAndMeasure(
+    page,
+    ".audio-panel-speed-slider",
+    Array.from({ length: 40 }, (_, index) => 1 + index * 0.025),
+  );
+  await page.evaluate(() => window.__SGT_TEST__?.endAction("scrub:audio-speed"));
+
+  await page.evaluate(() => window.__SGT_TEST__?.startAction("scrub:audio-trim"));
+  const trimMs = await scrubRangeAndMeasure(
+    page,
+    ".audio-panel-trim-start-slider",
+    Array.from({ length: 40 }, (_, index) => index * 0.015),
+  );
+  await page.evaluate(() => window.__SGT_TEST__?.endAction("scrub:audio-trim"));
+
+  await page.waitForTimeout(120);
+  const frameProbe = await page.evaluate(() => window.__SGT_TEST__?.stopPerfProbe());
+  const perf = await page.evaluate(() => window.__SGT_TEST__?.getPerfSnapshot());
+
+  expect(speedMs).toBeLessThanOrEqual(budgets.syntheticHuge.audioPanelSpeedScrubMs);
+  expect(trimMs).toBeLessThanOrEqual(budgets.syntheticHuge.audioPanelTrimScrubMs);
+  expect(frameProbe?.p95FrameDeltaMs ?? 0).toBeLessThanOrEqual(
+    budgets.syntheticHuge.audioPanelControlP95FrameDeltaMs,
+  );
+  expect(Math.max(0, ...(perf?.longTasks.map((entry) => entry.duration) ?? []))).toBeLessThanOrEqual(
+    budgets.syntheticHuge.audioPanelControlMaxLongTaskMs,
+  );
 });
 
 test("synthetic huge editor fixture stays within attributed lag budget", async ({ page }) => {

@@ -279,6 +279,13 @@ input[type="range"]::-webkit-slider-thumb:active {
     --audio-trim-hit-height: 28px;
     --audio-trim-track-height: 4px;
     --audio-trim-thumb-size: 14px;
+    --audio-trim-track-top: calc((var(--audio-trim-hit-height) - var(--audio-trim-track-height)) / 2);
+}
+
+.audio-panel-trim-rail,
+.audio-panel-trim-active {
+    top: var(--audio-trim-track-top);
+    height: var(--audio-trim-track-height);
 }
 
 .audio-panel-trim-start-slider,
@@ -286,7 +293,8 @@ input[type="range"]::-webkit-slider-thumb:active {
     -webkit-appearance: none;
     appearance: none;
     pointer-events: none;
-    height: var(--audio-trim-hit-height);
+    top: var(--audio-trim-track-top);
+    height: var(--audio-trim-track-height);
     margin: 0;
     background: transparent !important;
     border-radius: 0;
@@ -337,6 +345,7 @@ input[type="range"]::-webkit-slider-thumb:active {
 .audio-panel-trim-end-slider::-moz-range-track {
     height: var(--audio-trim-track-height);
     background: transparent !important;
+    color: transparent;
     border: 0;
     box-shadow: none;
 }

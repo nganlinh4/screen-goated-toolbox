@@ -32,6 +32,7 @@ import {
 } from "@/lib/subtitleTrackMutations";
 import { getSubtitleTracks, getVisibleSubtitleSegments, updateAllSubtitleTracks } from "@/lib/subtitleTracks";
 import { inferAudioSourceGroupAtRange } from "@/lib/subtitleSourceGroups";
+import { isScreenRecordTestHarnessEnabled } from "@/testHarness/browserIpcMock";
 
 export interface EditorMainProps {
   // Error
@@ -474,6 +475,28 @@ export function EditorMain({
     setSelectedNarrationSegmentRange(null);
     setActivePanel('audio');
   }, [setActivePanel]);
+
+  useEffect(() => {
+    if (!isScreenRecordTestHarnessEnabled()) return;
+    const testWindow = window as Window & {
+      __SGT_EDITOR_TEST__?: { selectFirstAudioSegment: () => boolean };
+    };
+    const hooks = {
+      selectFirstAudioSegment: () => {
+        const id = composition?.audioSegments?.[0]?.id;
+        if (!id) return false;
+        setSelectedAudioSegmentIds([id]);
+        setSelectedAudioSegmentRange(null);
+        setActivePanel('audio');
+        return true;
+      },
+    };
+    testWindow.__SGT_EDITOR_TEST__ = hooks;
+    return () => {
+      if (testWindow.__SGT_EDITOR_TEST__ === hooks) delete testWindow.__SGT_EDITOR_TEST__;
+    };
+  }, [composition?.audioSegments, setActivePanel]);
+
   const handleAlignSubtitlesToNarration = useCallback(() => {
     if (!segment || !narrationSegments?.length) return;
     const selectedNarrations = narrationSegments

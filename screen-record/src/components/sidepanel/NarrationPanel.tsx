@@ -276,6 +276,7 @@ export function NarrationPanel({
               disabled={!narration.canGenerateNarration}
               onClick={narration.handleGenerateNarration}
               data-tone="primary"
+              data-emphasis="strong"
               className="narration-panel-generate-button ui-action-button flex h-8 items-center justify-center rounded-lg px-2.5 text-[11px] font-medium leading-tight"
             >
               {generateLabel}
