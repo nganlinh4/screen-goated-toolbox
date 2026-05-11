@@ -1209,7 +1209,7 @@ function App() {
         return;
       }
 
-      setComposition(nextComposition);
+      setCompositionSilently(nextComposition);
       const currentProject = currentProjectDataRef.current;
       if (currentProject) {
         currentProjectDataRef.current = {
@@ -1217,11 +1217,8 @@ function App() {
           composition: nextComposition,
         };
       }
-      setCurrentProjectData((prev) =>
-        prev ? { ...prev, composition: nextComposition } : prev,
-      );
     },
-    [applyCurrentComposition, composition],
+    [applyCurrentComposition, composition, setCompositionSilently],
   );
 
   const persistCurrentComposition = useCallback(
@@ -1259,7 +1256,7 @@ function App() {
         return;
       }
 
-      setComposition(nextComposition);
+      setCompositionSilently(nextComposition);
       const currentProject = currentProjectDataRef.current;
       if (currentProject) {
         currentProjectDataRef.current = {
@@ -1267,11 +1264,8 @@ function App() {
           composition: nextComposition,
         };
       }
-      setCurrentProjectData((prev) =>
-        prev ? { ...prev, composition: nextComposition } : prev,
-      );
     },
-    [applyCurrentComposition, composition],
+    [applyCurrentComposition, composition, setCompositionSilently],
   );
 
   const applyNarrationAudioSegments = useCallback(
@@ -2242,7 +2236,7 @@ function App() {
                   segment.id === id ? { ...segment, ...patch } : segment,
                 ),
               "update-audio-segment",
-              { persist: true },
+              { persist: false },
             );
           }}
           onDeleteAudioSegments={(ids) => {
@@ -2278,7 +2272,7 @@ function App() {
                   segment.id === id ? { ...segment, ...patch } : segment,
                 ),
               "update-narration-segment",
-              { persist: true },
+              { persist: false },
             );
           }}
           onDeleteNarrationSegments={(ids) => {

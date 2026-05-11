@@ -1,5 +1,5 @@
 import { AudioLines, Captions, Rows3 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { useSettings } from '@/hooks/useSettings';
 import type { ImportedAudioSegment, NarrationSegment, SubtitleSegment } from '@/types/video';
@@ -7,6 +7,8 @@ import type { ImportedAudioSegment, NarrationSegment, SubtitleSegment } from '@/
 type AudioPanelSegment =
   | (ImportedAudioSegment & { kind: 'imported' })
   | (NarrationSegment & { kind: 'narration' });
+
+type AudioPanelDraft = Partial<Pick<ImportedAudioSegment, 'playbackRate' | 'inPoint' | 'outPoint'>>;
 
 interface AudioPanelProps {
   importedSegments: ImportedAudioSegment[];
@@ -66,12 +68,18 @@ export function AudioPanel({
   const selectedRateSignature = selected
     .map((segment) => `${segment.kind}:${segment.id}:${segment.playbackRate ?? 1}`)
     .join('|');
+  const selectedKeySignature = selected
+    .map((segment) => `${segment.kind}:${segment.id}`)
+    .join('|');
   const getSelectedAverageRate = () => {
     if (selected.length === 0) return 1;
     const total = selected.reduce((sum, segment) => sum + (segment.playbackRate ?? 1), 0);
     return clampRate(total / selected.length);
   };
   const [bulkRate, setBulkRate] = useState(getSelectedAverageRate);
+  const [drafts, setDrafts] = useState<Record<string, AudioPanelDraft>>({});
+  const previewFrameRef = useRef<number | null>(null);
+  const pendingPreviewRef = useRef<Record<string, { segment: AudioPanelSegment; patch: AudioPanelDraft }>>({});
   const selectedNarrationWithSubtitleCount = selected.filter(
     (segment) => segment.kind === 'narration' && !!segment.sourceSubtitleId,
   ).length;
@@ -80,12 +88,112 @@ export function AudioPanel({
     setBulkRate(getSelectedAverageRate());
   }, [selectedRateSignature]);
 
+  useEffect(() => {
+    const liveKeys = new Set(selected.map((segment) => `${segment.kind}:${segment.id}`));
+    setDrafts((prev) => {
+      const next = Object.fromEntries(Object.entries(prev).filter(([key]) => liveKeys.has(key)));
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+  }, [selectedKeySignature]);
+
+  const getDraftKey = (segment: AudioPanelSegment) => `${segment.kind}:${segment.id}`;
+
+  const getEffectiveSegment = (segment: AudioPanelSegment): AudioPanelSegment => ({
+    ...segment,
+    ...(drafts[getDraftKey(segment)] ?? {}),
+  });
+
+  const setSegmentDraft = (segment: AudioPanelSegment, patch: AudioPanelDraft) => {
+    const key = getDraftKey(segment);
+    setDrafts((prev) => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] ?? {}),
+        ...patch,
+      },
+    }));
+  };
+
   const updateSegment = (segment: AudioPanelSegment, patch: Partial<ImportedAudioSegment | NarrationSegment>) => {
     if (segment.kind === 'narration') {
       onUpdateNarrationSegment(segment.id, patch as Partial<NarrationSegment>);
       return;
     }
     onUpdateImportedSegment(segment.id, patch as Partial<ImportedAudioSegment>);
+  };
+
+  const escapeSelectorValue = (value: string) => {
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value);
+    return value.replace(/["\\]/g, '\\$&');
+  };
+
+  const applyTimelineVisualDraft = (segment: AudioPanelSegment, patch: AudioPanelDraft) => {
+    const selector = segment.kind === 'narration'
+      ? `.narration-track-segment[data-narration-segment-id="${escapeSelectorValue(segment.id)}"]`
+      : `.audio-track-segment[data-audio-segment-id="${escapeSelectorValue(segment.id)}"]`;
+    const element = document.querySelector<HTMLElement>(selector);
+    if (!element) return;
+
+    const baseWidthPct = Number.parseFloat(
+      element.dataset.sgtPreviewBaseWidthPct || element.style.width || '0',
+    );
+    if (!Number.isFinite(baseWidthPct) || baseWidthPct <= 0) return;
+    element.dataset.sgtPreviewBaseWidthPct ||= String(baseWidthPct);
+
+    const baseTimelineLength = getTimelineDuration(segment);
+    if (baseTimelineLength <= 0) return;
+    const timelineDuration = baseTimelineLength / (baseWidthPct / 100);
+    if (!Number.isFinite(timelineDuration) || timelineDuration <= 0) return;
+
+    const previewSegment = { ...segment, ...patch };
+    const nextWidthPct = Math.max(0.001, (getTimelineDuration(previewSegment) / timelineDuration) * 100);
+    element.style.width = `${nextWidthPct}%`;
+  };
+
+  const flushPreviewDrafts = () => {
+    previewFrameRef.current = null;
+    const pending = pendingPreviewRef.current;
+    pendingPreviewRef.current = {};
+    Object.values(pending).forEach(({ segment, patch }) => applyTimelineVisualDraft(segment, patch));
+  };
+
+  const schedulePreviewDraft = (segment: AudioPanelSegment, patch: AudioPanelDraft) => {
+    const key = getDraftKey(segment);
+    const pending = pendingPreviewRef.current[key];
+    pendingPreviewRef.current[key] = {
+      segment,
+      patch: {
+        ...(pending?.patch ?? {}),
+        ...patch,
+      },
+    };
+    if (previewFrameRef.current !== null) return;
+    previewFrameRef.current = window.requestAnimationFrame(flushPreviewDrafts);
+  };
+
+  useEffect(() => () => {
+    if (previewFrameRef.current !== null) {
+      window.cancelAnimationFrame(previewFrameRef.current);
+      previewFrameRef.current = null;
+    }
+    pendingPreviewRef.current = {};
+  }, []);
+
+  const commitSegmentDraft = (segment: AudioPanelSegment) => {
+    if (previewFrameRef.current !== null) {
+      window.cancelAnimationFrame(previewFrameRef.current);
+      flushPreviewDrafts();
+    }
+    const key = getDraftKey(segment);
+    const draft = drafts[key];
+    if (draft && Object.keys(draft).length > 0) {
+      updateSegment(segment, draft);
+      setDrafts((prev) => {
+        const { [key]: _removed, ...rest } = prev;
+        return rest;
+      });
+      commitSegment(segment);
+    }
   };
 
   const commitSegment = (segment: AudioPanelSegment) => {
@@ -98,11 +206,14 @@ export function AudioPanel({
     if (targets.some((segment) => segment.kind === 'narration')) onCommitNarrationSegments?.();
   };
 
+  const finishPanelInteraction = (commit: () => void) => {
+    commit();
+  };
+
   const handleRateChange = (segment: AudioPanelSegment, rate: number) => {
-    beginBatch?.();
-    updateSegment(segment, { playbackRate: clampRate(rate) });
-    commitBatch?.();
-    commitSegment(segment);
+    const patch = { playbackRate: clampRate(rate) };
+    setSegmentDraft(segment, patch);
+    schedulePreviewDraft(segment, patch);
   };
 
   const handleTrimChange = (
@@ -113,18 +224,20 @@ export function AudioPanel({
     const outPoint = next.outPoint ?? seg.outPoint;
     const safeIn = Math.min(Math.max(inPoint, 0), Math.max(seg.duration - 0.05, 0));
     const safeOut = Math.min(Math.max(outPoint, safeIn + 0.05), seg.duration);
-    beginBatch?.();
-    updateSegment(seg, { inPoint: safeIn, outPoint: safeOut });
-    commitBatch?.();
-    commitSegment(seg);
+    const patch = { inPoint: safeIn, outPoint: safeOut };
+    setSegmentDraft(seg, patch);
+    schedulePreviewDraft(seg, patch);
   };
 
   const handleApplyRateToAll = (rate: number) => {
     const nextRate = clampRate(rate);
     setBulkRate(nextRate);
-    beginBatch?.();
+    selected.forEach((segment) => schedulePreviewDraft(segment, { playbackRate: nextRate }));
+  };
+
+  const commitApplyRateToAll = () => {
+    const nextRate = clampRate(bulkRate);
     selected.forEach((segment) => updateSegment(segment, { playbackRate: nextRate }));
-    commitBatch?.();
     commitSelected(selected);
   };
 
@@ -278,6 +391,7 @@ export function AudioPanel({
   const renderSpeedControl = (
     value: number,
     onChange: (rate: number) => void,
+    onCommit: () => void,
     label: string,
   ) => (
     <div className="audio-panel-speed-row flex items-center gap-2 rounded-lg border border-outline/30 bg-surface-container-high/40 p-2">
@@ -291,6 +405,10 @@ export function AudioPanel({
         step={0.05}
         value={value}
         onChange={(event) => onChange(parseFloat(event.target.value))}
+        onPointerUp={onCommit}
+        onPointerCancel={onCommit}
+        onKeyUp={onCommit}
+        onBlur={onCommit}
         className="audio-panel-speed-slider flex-1"
       />
       <span className="w-12 text-right text-[10px] tabular-nums text-on-surface">
@@ -313,9 +431,9 @@ export function AudioPanel({
           <span>{t.audioPanelTrimOut}</span>
         </div>
         <div className="audio-panel-trim-slider relative h-7">
-          <div className="audio-panel-trim-rail absolute left-0 right-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--ui-surface-1)]" />
+          <div className="audio-panel-trim-rail absolute left-0 right-0 rounded-full bg-[var(--ui-surface-1)]" />
           <div
-            className="audio-panel-trim-active absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--primary-color)]"
+            className="audio-panel-trim-active absolute rounded-full bg-[var(--primary-color)]"
             style={{ left: `${inPct}%`, right: `${100 - outPct}%` }}
           />
           <input
@@ -324,12 +442,16 @@ export function AudioPanel({
             max={segment.duration}
             step={0.01}
             value={segment.inPoint}
+            onPointerUp={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
+            onPointerCancel={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
+            onKeyUp={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
+            onBlur={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
             onChange={(event) =>
               handleTrimChange(segment, {
                 inPoint: Math.min(parseFloat(event.target.value), segment.outPoint - minGap),
               })
             }
-            className="audio-panel-trim-start-slider absolute inset-0 w-full appearance-none bg-transparent"
+            className="audio-panel-trim-start-slider absolute left-0 right-0 w-full appearance-none bg-transparent"
           />
           <input
             type="range"
@@ -337,12 +459,16 @@ export function AudioPanel({
             max={segment.duration}
             step={0.01}
             value={segment.outPoint}
+            onPointerUp={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
+            onPointerCancel={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
+            onKeyUp={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
+            onBlur={() => finishPanelInteraction(() => commitSegmentDraft(segment))}
             onChange={(event) =>
               handleTrimChange(segment, {
                 outPoint: Math.max(parseFloat(event.target.value), segment.inPoint + minGap),
               })
             }
-            className="audio-panel-trim-end-slider absolute inset-0 w-full appearance-none bg-transparent"
+            className="audio-panel-trim-end-slider absolute left-0 right-0 w-full appearance-none bg-transparent"
           />
         </div>
       </div>
@@ -389,7 +515,12 @@ export function AudioPanel({
                     </button>
                   )}
                 </div>
-                {renderSpeedControl(bulkRate, handleApplyRateToAll, t.audioPanelBulkSpeed)}
+                {renderSpeedControl(
+                  bulkRate,
+                  handleApplyRateToAll,
+                  () => finishPanelInteraction(commitApplyRateToAll),
+                  t.audioPanelBulkSpeed,
+                )}
               </div>
             ) : (
               <div className="audio-panel-single-editor w-full space-y-2 text-[11px] font-semibold text-on-surface">
@@ -402,11 +533,12 @@ export function AudioPanel({
                   </span>
                 </div>
                 {renderSpeedControl(
-                  selected[0].playbackRate ?? 1,
+                  getEffectiveSegment(selected[0]).playbackRate ?? 1,
                   (rate) => handleRateChange(selected[0], rate),
+                  () => finishPanelInteraction(() => commitSegmentDraft(selected[0])),
                   t.audioPanelSpeed,
                 )}
-                {renderTrimRange(selected[0])}
+                {renderTrimRange(getEffectiveSegment(selected[0]))}
               </div>
             )}
           </>

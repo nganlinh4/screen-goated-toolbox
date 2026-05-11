@@ -328,6 +328,7 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
           <div
             key={seg.id}
             className="narration-track-segment timeline-block absolute h-full cursor-move overflow-hidden group"
+            data-narration-segment-id={seg.id}
             data-tone="secondary"
             data-selected={isSelected ? "true" : undefined}
             style={{
