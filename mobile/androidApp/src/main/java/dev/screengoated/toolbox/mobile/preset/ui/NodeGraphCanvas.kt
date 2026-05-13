@@ -123,18 +123,14 @@ private data class NodeColors(
 
 /** Google Sans Flex at wdth=75 for condensed descriptive text. */
 private val condensedFontFamily: androidx.compose.ui.text.font.FontFamily by lazy {
-    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-        androidx.compose.ui.text.font.FontFamily(
-            androidx.compose.ui.text.font.Font(
-                resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
-                variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
-                    androidx.compose.ui.text.font.FontVariation.Setting("wdth", 75f),
-                ),
+    androidx.compose.ui.text.font.FontFamily(
+        androidx.compose.ui.text.font.Font(
+            resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
+            variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
+                androidx.compose.ui.text.font.FontVariation.Setting("wdth", 75f),
             ),
-        )
-    } else {
-        androidx.compose.ui.text.font.FontFamily.Default
-    }
+        ),
+    )
 }
 
 /** All ISO 639-1 language names, sorted — matches Windows get_all_languages() from isolang crate. */
@@ -435,13 +431,13 @@ private fun NodeCard(
     onOutputPinDrag: (Offset) -> Unit,
     onOutputPinDragEnd: () -> Unit,
     onMeasured: (heightPx: Float) -> Unit,
+    modifier: Modifier = Modifier,
     onBlockUpdated: (ProcessingBlock) -> Unit = {},
     onPromptEditRequest: () -> Unit = {},
     presetType: dev.screengoated.toolbox.mobile.shared.preset.PresetType =
         dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT,
     providerSettings: dev.screengoated.toolbox.mobile.preset.PresetProviderSettings =
         dev.screengoated.toolbox.mobile.preset.PresetProviderSettings(),
-    modifier: Modifier = Modifier,
     lang: String = "en",
 ) {
     val block = node.block
@@ -1066,8 +1062,8 @@ fun NodeGraphCanvas(
     onNodeDeleted: (nodeId: String) -> Unit,
     onBlockUpdated: (nodeId: String, block: ProcessingBlock) -> Unit,
     onNodeTapped: (nodeId: String) -> Unit,
-    onPromptEditRequest: (nodeId: String, currentPrompt: String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
+    onPromptEditRequest: (nodeId: String, currentPrompt: String) -> Unit = { _, _ -> },
     lang: String = "en",
     selectedNodeId: String? = null,
     presetType: dev.screengoated.toolbox.mobile.shared.preset.PresetType =

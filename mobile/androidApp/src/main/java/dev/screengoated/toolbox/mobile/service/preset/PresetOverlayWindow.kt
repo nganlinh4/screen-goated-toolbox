@@ -51,6 +51,8 @@ internal class PresetOverlayWindow(
     private val onBoundsChanged: (OverlayBounds) -> Unit = {},
     private val onOutsideTouch: () -> Unit = {},
 ) {
+    private val webViewContext = context
+    private val appContext = context.applicationContext
     private val logTag: String = "PresetOverlay"
     private val supportsFocus = spec.focusable
     private var currentFocusable = spec.focusable
@@ -125,53 +127,13 @@ internal class PresetOverlayWindow(
     private var recoverySource: OverlayRecoverySource? = null
     private var recoveryAttemptInFlight = false
 
-    private val webView = WebView(context).apply {
-        configureOverlayWebView(this, supportsFocus)
-        webChromeClient = object : WebChromeClient() {}
-        webViewClient = createOverlayWebViewClient(
-            appContext = context.applicationContext,
-            logTag = logTag,
-            tracker = managedLoadTracker,
-            onMessageLog = { Log.d(logTag, it) },
-            onMainFrameNavigationFailure = { failure ->
-                recoverFromNavigationFailure(failure)
-                onNavigationFailureListener?.invoke(failure)
-            },
-            onPageFinished = { url ->
-                pageReady = true
-                recoveryAttemptInFlight = false
-                flushPendingScripts()
-                onPageFinishedListener?.invoke(url)
-            },
-        )
-        addJavascriptInterface(
-            object {
-                @android.webkit.JavascriptInterface
-                fun postMessage(message: String) {
-                    post {
-                        if (!handleOverlayHostMessage(context.applicationContext, message, logTag)) {
-                            onMessage(message)
-                        }
-                    }
-                }
-            },
-            "sgtAndroid",
-        )
-    }
-    private val inputFocusCoordinator = OverlayInputFocusCoordinator(
-        context = context,
-        webView = webView,
-        focusable = supportsFocus,
-        showImeOnFocus = showImeOnFocus,
-    )
+    private var webView = createManagedWebView()
+    private var inputFocusCoordinator = createInputFocusCoordinator()
 
     init {
         rootView.addView(
             webView,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT,
-            ),
+            matchParentLayoutParams(),
         )
         when {
             spec.htmlContent != null -> loadHtmlContent(spec.htmlContent, spec.baseUrl)
@@ -481,6 +443,97 @@ internal class PresetOverlayWindow(
         )
     }
 
+    private fun createManagedWebView(): WebView {
+        return WebView(webViewContext).apply {
+            configureOverlayWebView(this, supportsFocus)
+            webChromeClient = object : WebChromeClient() {}
+            webViewClient = createOverlayWebViewClient(
+                appContext = appContext,
+                logTag = logTag,
+                tracker = managedLoadTracker,
+                onMessageLog = { Log.d(logTag, it) },
+                onRenderProcessGone = { deadView, detail ->
+                    recoverFromRenderProcessGone(deadView, detail)
+                },
+                onMainFrameNavigationFailure = { failure ->
+                    recoverFromNavigationFailure(failure)
+                    onNavigationFailureListener?.invoke(failure)
+                },
+                onPageFinished = { url ->
+                    pageReady = true
+                    recoveryAttemptInFlight = false
+                    flushPendingScripts()
+                    onPageFinishedListener?.invoke(url)
+                },
+            )
+            addJavascriptInterface(
+                object {
+                    @android.webkit.JavascriptInterface
+                    fun postMessage(message: String) {
+                        post {
+                            if (!handleOverlayHostMessage(appContext, message, logTag)) {
+                                onMessage(message)
+                            }
+                        }
+                    }
+                },
+                "sgtAndroid",
+            )
+        }
+    }
+
+    private fun createInputFocusCoordinator(): OverlayInputFocusCoordinator {
+        return OverlayInputFocusCoordinator(
+            context = webViewContext,
+            webView = webView,
+            focusable = supportsFocus,
+            showImeOnFocus = showImeOnFocus,
+        )
+    }
+
+    private fun recoverFromRenderProcessGone(
+        deadView: WebView?,
+        detail: android.webkit.RenderProcessGoneDetail?,
+    ): Boolean {
+        val source = recoverySource
+        pageReady = false
+        recoveryAttemptInFlight = false
+        pendingScripts.clear()
+        Log.w(
+            logTag,
+            "recoverFromRenderProcessGone crashed=${detail?.didCrash() ?: "null"} source=${source != null}",
+        )
+        val oldView = deadView ?: webView
+        runCatching { rootView.removeView(oldView) }
+        if (oldView === webView) {
+            webView = createManagedWebView()
+            inputFocusCoordinator = createInputFocusCoordinator()
+            rootView.addView(webView, matchParentLayoutParams())
+            if (currentFocusable && attached) {
+                inputFocusCoordinator.requestInitialFocus()
+            }
+            when (source) {
+                is OverlayRecoverySource.Asset -> loadAssetPage(source.assetPage)
+                is OverlayRecoverySource.Html -> loadHtmlContent(source.htmlContent, source.baseUrl)
+                null -> loadRecoveryFailureHtml(
+                    OverlayNavigationFailure(
+                        url = null,
+                        description = "renderer_gone",
+                    ),
+                )
+            }
+        }
+        runCatching { oldView.destroy() }
+        return true
+    }
+
+    private fun matchParentLayoutParams(): FrameLayout.LayoutParams {
+        return FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
+        )
+    }
+
     private fun scheduleLayoutApply() {
         if (layoutApplyScheduled) {
             return
@@ -501,60 +554,3 @@ internal data class OverlayHistoryState(
     val lastIndex: Int,
     val currentUrl: String?,
 )
-
-private fun overlayRecoveryFailureHtml(description: String): String {
-    val escaped = escapeHtml(description)
-    return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-                body {
-                    margin: 0;
-                    min-height: 100vh;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    background: linear-gradient(180deg, #101218, #171b24);
-                    color: #f5f7fb;
-                    font-family: 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif;
-                }
-                .card {
-                    max-width: 420px;
-                    margin: 20px;
-                    padding: 18px 20px;
-                    border-radius: 18px;
-                    background: rgba(27, 31, 43, 0.96);
-                    border: 1px solid rgba(255, 255, 255, 0.1);
-                    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
-                }
-                h1 {
-                    margin: 0 0 8px;
-                    font-size: 18px;
-                    font-weight: 700;
-                }
-                p {
-                    margin: 0;
-                    line-height: 1.45;
-                    color: #d7deeb;
-                    font-size: 14px;
-                }
-                .meta {
-                    margin-top: 10px;
-                    font-size: 12px;
-                    color: #99a6bd;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="card">
-                <h1>Overlay recovered</h1>
-                <p>The page hit a loading error, so the overlay restored a safe view instead of leaving the Android error page onscreen.</p>
-                <div class="meta">$escaped</div>
-            </div>
-        </body>
-        </html>
-    """.trimIndent()
-}

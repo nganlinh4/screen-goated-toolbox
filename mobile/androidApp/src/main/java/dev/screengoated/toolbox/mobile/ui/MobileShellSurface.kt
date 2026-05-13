@@ -9,7 +9,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -38,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.core.content.edit
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.history.HistoryUiState
@@ -143,7 +143,9 @@ internal fun MobileShellSurface(
         mutableStateOf(initial)
     }
     LaunchedEffect(selectedSection) {
-        prefs.edit().putString("last_tab", selectedSection.name).apply()
+        prefs.edit {
+            putString("last_tab", selectedSection.name)
+        }
     }
 
     Box(
@@ -195,7 +197,7 @@ internal fun MobileShellSurface(
                     shape = CircleShape,
                 ),
         )
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize()) {
             // Wide rail layout only for portrait tablets (wide AND tall).
             // Landscape phones (wide but short) use the pager layout to avoid
             // VerticalCarousel-in-scrollable-parent crashes.

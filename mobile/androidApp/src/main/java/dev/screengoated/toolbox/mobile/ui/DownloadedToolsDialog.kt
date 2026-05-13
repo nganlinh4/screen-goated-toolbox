@@ -78,7 +78,7 @@ internal fun DownloadedToolsDialog(
             text = { Text(desc) },
             confirmButton = {
                 TextButton(onClick = { helpDialog = null }) {
-                    Text("OK")
+                    Text(locale.closeLabel)
                 }
             },
         )
@@ -126,7 +126,7 @@ internal fun DownloadedToolsDialog(
                     onHelp = { helpDialog = it },
                 )
                 Text(
-                    text = "English-only streaming speech recognition",
+                    text = moonshineLanguageSummary(locale),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -139,9 +139,9 @@ internal fun DownloadedToolsDialog(
                             is MoonshineModelManager.MoonshineLangStatus.Missing ->
                                 locale.dlDepsNotInstalled
                             is MoonshineModelManager.MoonshineLangStatus.Downloading ->
-                                "Downloading... (${(status.progress * 100).toInt()}%)"
+                                downloadingStatus(locale, status.progress)
                             is MoonshineModelManager.MoonshineLangStatus.Installed ->
-                                "Installed (${formatMb(status.sizeBytes)} MB)"
+                                installedStatus(locale, status.sizeBytes)
                             is MoonshineModelManager.MoonshineLangStatus.Error ->
                                 status.message
                         },
@@ -154,7 +154,7 @@ internal fun DownloadedToolsDialog(
                         },
                         accent = MaterialTheme.colorScheme.secondary,
                         onHelpClick = {
-                            helpDialog = lang.displayName to "Moonshine Voice streaming model for English speech recognition."
+                            helpDialog = lang.displayName to moonshineHelpText(locale)
                         },
                         progressFraction = if (status is MoonshineModelManager.MoonshineLangStatus.Downloading) {
                             status.progress
@@ -196,7 +196,7 @@ internal fun DownloadedToolsDialog(
                     onHelp = { helpDialog = it },
                 )
                 Text(
-                    text = "8 languages · multilingual streaming",
+                    text = zipformerLanguageSummary(locale),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -209,9 +209,9 @@ internal fun DownloadedToolsDialog(
                             is MoonshineModelManager.ZipformerLangStatus.Missing ->
                                 locale.dlDepsNotInstalled
                             is MoonshineModelManager.ZipformerLangStatus.Downloading ->
-                                "Downloading... (${(status.progress * 100).toInt()}%)"
+                                downloadingStatus(locale, status.progress)
                             is MoonshineModelManager.ZipformerLangStatus.Installed ->
-                                "Installed (${formatMb(status.sizeBytes)} MB)"
+                                installedStatus(locale, status.sizeBytes)
                             is MoonshineModelManager.ZipformerLangStatus.Error ->
                                 status.message
                         },
@@ -224,7 +224,7 @@ internal fun DownloadedToolsDialog(
                         },
                         accent = MaterialTheme.colorScheme.secondary,
                         onHelpClick = {
-                            helpDialog = lang.displayName to "Zipformer streaming ASR model (sherpa-onnx)."
+                            helpDialog = lang.displayName to zipformerHelpText(locale)
                         },
                         progressFraction = if (status is MoonshineModelManager.ZipformerLangStatus.Downloading) {
                             status.progress
@@ -485,9 +485,9 @@ private fun NativeRuntimeRow(
         statusText = when (status) {
             is NativeLibManager.Status.Missing -> locale.dlDepsNotInstalled
             is NativeLibManager.Status.Downloading ->
-                "Downloading... (${(status.progress * 100).toInt()}%)"
+                downloadingStatus(locale, status.progress)
             is NativeLibManager.Status.Installed ->
-                "Installed (${formatMb(status.sizeBytes)} MB)"
+                installedStatus(locale, status.sizeBytes)
             is NativeLibManager.Status.Error -> status.message
         },
         statusColor = when (status) {
@@ -517,6 +517,36 @@ private fun NativeRuntimeRow(
             else -> null
         },
     )
+}
+
+private fun downloadingStatus(locale: MobileLocaleText, progress: Float): String =
+    "${locale.dlDepsDownloading} (${(progress * 100).toInt()}%)"
+
+private fun installedStatus(locale: MobileLocaleText, sizeBytes: Long): String =
+    "${locale.dlDepsReady} (${formatMb(sizeBytes)} MB)"
+
+private fun moonshineLanguageSummary(locale: MobileLocaleText): String = when (locale.closeLabel) {
+    "Đóng" -> "Nhận dạng giọng nói streaming chỉ hỗ trợ tiếng Anh"
+    "닫기" -> "영어 전용 스트리밍 음성 인식"
+    else -> "English-only streaming speech recognition"
+}
+
+private fun zipformerLanguageSummary(locale: MobileLocaleText): String = when (locale.closeLabel) {
+    "Đóng" -> "8 ngôn ngữ - streaming đa ngôn ngữ"
+    "닫기" -> "8개 언어 - 다국어 스트리밍"
+    else -> "8 languages - multilingual streaming"
+}
+
+private fun moonshineHelpText(locale: MobileLocaleText): String = when (locale.closeLabel) {
+    "Đóng" -> "Mô hình Moonshine Voice để nhận dạng giọng nói tiếng Anh dạng streaming."
+    "닫기" -> "영어 스트리밍 음성 인식을 위한 Moonshine Voice 모델입니다."
+    else -> "Moonshine Voice streaming model for English speech recognition."
+}
+
+private fun zipformerHelpText(locale: MobileLocaleText): String = when (locale.closeLabel) {
+    "Đóng" -> "Mô hình Zipformer streaming ASR dùng sherpa-onnx."
+    "닫기" -> "sherpa-onnx 기반 Zipformer 스트리밍 ASR 모델입니다."
+    else -> "Zipformer streaming ASR model (sherpa-onnx)."
 }
 
 private fun formatMb(bytes: Long): String = "%.1f".format(bytes / (1024.0 * 1024.0))

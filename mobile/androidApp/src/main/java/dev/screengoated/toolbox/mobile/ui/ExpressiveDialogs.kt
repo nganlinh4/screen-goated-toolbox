@@ -37,7 +37,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -65,12 +68,15 @@ internal fun ExpressiveDialogSurface(
     headerTrailing: @Composable (RowScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val configuration = LocalConfiguration.current
-    val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
-    val availableHeight = configuration.screenHeightDp.dp - 32.dp
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
+    val windowWidth = with(density) { windowInfo.containerSize.width.toDp() }
+    val windowHeight = with(density) { windowInfo.containerSize.height.toDp() }
+    val isLandscape = windowWidth > windowHeight
+    val availableHeight = windowHeight - 32.dp
     val targetHeight = when {
         isLandscape -> minOf(maxHeight, availableHeight)
-        else -> minOf(maxHeight, configuration.screenHeightDp.dp * heightFraction)
+        else -> minOf(maxHeight, windowHeight * heightFraction)
     }
 
     val bodyModifier = if (fitContentHeight) {
@@ -100,7 +106,8 @@ internal fun ExpressiveDialogSurface(
         Card(
             modifier = modifier
                 .fillMaxWidth(widthFraction)
-                .padding(16.dp),
+                .padding(16.dp)
+                .semantics { testTagsAsResourceId = true },
             shape = MaterialTheme.shapes.large,
             colors = CardDefaults.cardColors(
                 containerColor = lerp(
@@ -111,7 +118,7 @@ internal fun ExpressiveDialogSurface(
                 contentColor = MaterialTheme.colorScheme.onSurface,
             ),
         ) {
-            BoxWithConstraints(
+            Box(
                 modifier = bodyModifier
                     .padding(start = 20.dp, end = 14.dp, top = 16.dp, bottom = 18.dp),
             ) {

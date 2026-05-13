@@ -14,12 +14,16 @@ class SgtTileService : TileService() {
     override fun onClick() {
         super.onClick()
         if (BubbleService.isRunning) {
-            stopService(Intent(this, BubbleService::class.java))
+            val intent = Intent(this, BubbleService::class.java)
+            stopService(intent)
             qsTile?.state = Tile.STATE_INACTIVE
         } else {
             val intent = Intent(this, BubbleService::class.java)
-            startForegroundService(intent)
-            qsTile?.state = Tile.STATE_ACTIVE
+            qsTile?.state = if (tryStartForegroundService(this, intent, "SgtTileService")) {
+                Tile.STATE_ACTIVE
+            } else {
+                Tile.STATE_INACTIVE
+            }
         }
         qsTile?.updateTile()
     }

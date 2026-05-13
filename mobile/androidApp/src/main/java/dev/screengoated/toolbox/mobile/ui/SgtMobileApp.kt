@@ -45,6 +45,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
 
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -53,6 +54,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyScreen
 import dev.screengoated.toolbox.mobile.history.HistoryUiState
@@ -68,7 +70,6 @@ import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import android.widget.Toast
-import androidx.compose.ui.platform.LocalContext
 import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
 
@@ -102,6 +103,7 @@ fun SgtMobileApp(
     onGlobalTtsVoiceChanged: (String) -> Unit,
     onGlobalTtsConditionsChanged: (List<MobileTtsLanguageCondition>) -> Unit,
     onGlobalEdgeTtsSettingsChanged: (MobileEdgeTtsSettings) -> Unit,
+    onGlobalTtsSettingsChanged: (dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings) -> Unit,
     onVoiceSettingsShown: () -> Unit,
     onRetryEdgeVoiceCatalog: () -> Unit,
     onPreviewGeminiVoice: (String) -> Unit,
@@ -118,6 +120,10 @@ fun SgtMobileApp(
     onOverlayOpacityChanged: (Int) -> Unit = {},
 ) {
     val appContext = LocalContext.current
+    val appContainer = remember(appContext) {
+        (appContext.applicationContext as SgtMobileApplication).appContainer
+    }
+    val translationGummyState by appContainer.translationGummyRepository.state.collectAsState()
     var showTtsSettings by rememberSaveable { mutableStateOf(false) }
     var ttsGeminiOnly by rememberSaveable { mutableStateOf(false) }
     var showPresetRuntimeSettings by rememberSaveable { mutableStateOf(false) }
@@ -127,9 +133,7 @@ fun SgtMobileApp(
     var showDj by rememberSaveable { mutableStateOf(false) }
     var showTranslationGummy by rememberSaveable { mutableStateOf(false) }
     var activePresetId by rememberSaveable { mutableStateOf<String?>(null) }
-    val presetRepository = (LocalContext.current.applicationContext as SgtMobileApplication)
-        .appContainer
-        .presetRepository
+    val presetRepository = appContainer.presetRepository
     val presetCatalog by presetRepository.catalogState.collectAsState()
 
     if (showTtsSettings) {
@@ -163,7 +167,15 @@ fun SgtMobileApp(
             onPreviewGeminiVoice = onPreviewGeminiVoice,
             onPreviewEdgeVoice = onPreviewEdgeVoice,
             onPreviewGoogleTranslate = onPreviewGoogleTranslate,
+            onSettingsChanged = onGlobalTtsSettingsChanged,
             geminiOnly = ttsGeminiOnly,
+            translationGummyVolume = if (ttsGeminiOnly && showTranslationGummy) {
+                translationGummyState.volume
+            } else {
+                null
+            },
+            onTranslationGummyVolumeChanged = appContainer.translationGummyRepository::updateVolumePercent,
+            onTranslationGummyMuteToggle = appContainer.translationGummyRepository::toggleMuted,
         )
     }
 
@@ -200,6 +212,8 @@ fun SgtMobileApp(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .testTag("sgt-app-root")
+            .semantics { testTagsAsResourceId = true }
             .background(MaterialTheme.colorScheme.surface)
             .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) },
     ) {
@@ -327,6 +341,7 @@ fun SgtMobileApp(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .testTag("downloader-screen")
                     .background(MaterialTheme.colorScheme.surface),
             ) {
                 DownloaderScreenWrapper(locale = locale, onBack = { showDownloader = false })
@@ -356,6 +371,7 @@ fun SgtMobileApp(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .testTag("dj-screen")
                     .background(MaterialTheme.colorScheme.surface),
             ) {
                 DjScreen(
@@ -428,6 +444,7 @@ fun SgtMobileApp(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .testTag("translation-gummy-screen")
                     .background(MaterialTheme.colorScheme.surface),
             ) {
                 TranslationGummyScreen(
@@ -437,9 +454,9 @@ fun SgtMobileApp(
                         ttsGeminiOnly = true
                         showTtsSettings = true
                         val hint = when (uiPreferences.uiLanguage) {
-                            "vi" -> "Đổi model Gemini Live và giọng nói theo ý bạn!"
-                            "ko" -> "Gemini Live 모델과 음성을 원하는 대로 변경하세요!"
-                            else -> "Change Gemini Live model and voice to your liking!"
+                            "vi" -> "Đổi model Gemini Live, giọng nói và âm lượng theo ý bạn!"
+                            "ko" -> "Gemini Live 모델, 음성, 볼륨을 원하는 대로 변경하세요!"
+                            else -> "Change Gemini Live model, voice, and volume to your liking!"
                         }
                         Toast.makeText(appContext, hint, Toast.LENGTH_SHORT).show()
                     },
@@ -448,4 +465,3 @@ fun SgtMobileApp(
         }
     }
 }
-

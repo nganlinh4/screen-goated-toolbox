@@ -3,6 +3,7 @@
 package dev.screengoated.toolbox.mobile.storage
 
 import android.content.Context
+import androidx.core.content.edit
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
@@ -38,9 +39,9 @@ class SecureSettingsStore(
     }
 
     fun saveConfig(config: LiveSessionConfig) {
-        prefs.edit()
-            .putString(KEY_SESSION_CONFIG, json.encodeToString(LiveSessionConfig.serializer(), config))
-            .apply()
+        prefs.edit {
+            putString(KEY_SESSION_CONFIG, json.encodeToString(LiveSessionConfig.serializer(), config))
+        }
     }
 
     fun loadTranslationGummyConfig(): TranslationGummyConfig {
@@ -53,13 +54,13 @@ class SecureSettingsStore(
     }
 
     fun saveTranslationGummyConfig(config: TranslationGummyConfig) {
-        prefs.edit()
-            .putString(
+        prefs.edit {
+            putString(
                 KEY_TRANSLATION_GUMMY_CONFIG,
                 json.encodeToString(TranslationGummyConfig.serializer(), config),
             )
-            .remove(LEGACY_KEY_BILINGUAL_RELAY_CONFIG)
-            .apply()
+            remove(LEGACY_KEY_BILINGUAL_RELAY_CONFIG)
+        }
     }
 
     fun loadTranslationGummyTranscripts(): List<TranslationGummyTranscriptItem> {
@@ -72,13 +73,13 @@ class SecureSettingsStore(
     }
 
     fun saveTranslationGummyTranscripts(transcripts: List<TranslationGummyTranscriptItem>) {
-        prefs.edit()
-            .putString(
+        prefs.edit {
+            putString(
                 KEY_TRANSLATION_GUMMY_TRANSCRIPTS,
                 json.encodeToString(transcripts),
             )
-            .remove(LEGACY_KEY_BILINGUAL_RELAY_TRANSCRIPTS)
-            .apply()
+            remove(LEGACY_KEY_BILINGUAL_RELAY_TRANSCRIPTS)
+        }
     }
 
     fun loadApiKey(): String {
@@ -86,9 +87,9 @@ class SecureSettingsStore(
     }
 
     fun saveApiKey(apiKey: String) {
-        prefs.edit()
-            .putString(KEY_GEMINI_API_KEY, apiKey)
-            .apply()
+        prefs.edit {
+            putString(KEY_GEMINI_API_KEY, apiKey)
+        }
     }
 
     fun loadCerebrasApiKey(): String {
@@ -96,9 +97,9 @@ class SecureSettingsStore(
     }
 
     fun saveCerebrasApiKey(apiKey: String) {
-        prefs.edit()
-            .putString(KEY_CEREBRAS_API_KEY, apiKey)
-            .apply()
+        prefs.edit {
+            putString(KEY_CEREBRAS_API_KEY, apiKey)
+        }
     }
 
     fun loadGroqApiKey(): String {
@@ -106,9 +107,9 @@ class SecureSettingsStore(
     }
 
     fun saveGroqApiKey(apiKey: String) {
-        prefs.edit()
-            .putString(KEY_GROQ_API_KEY, apiKey)
-            .apply()
+        prefs.edit {
+            putString(KEY_GROQ_API_KEY, apiKey)
+        }
     }
 
     fun loadOpenRouterApiKey(): String {
@@ -116,9 +117,9 @@ class SecureSettingsStore(
     }
 
     fun saveOpenRouterApiKey(apiKey: String) {
-        prefs.edit()
-            .putString(KEY_OPENROUTER_API_KEY, apiKey)
-            .apply()
+        prefs.edit {
+            putString(KEY_OPENROUTER_API_KEY, apiKey)
+        }
     }
 
     fun loadOllamaUrl(): String {
@@ -126,9 +127,9 @@ class SecureSettingsStore(
     }
 
     fun saveOllamaUrl(url: String) {
-        prefs.edit()
-            .putString(KEY_OLLAMA_URL, url)
-            .apply()
+        prefs.edit {
+            putString(KEY_OLLAMA_URL, url)
+        }
     }
 
     fun loadPresetRuntimeSettings(): PresetRuntimeSettings {
@@ -139,12 +140,12 @@ class SecureSettingsStore(
     }
 
     fun savePresetRuntimeSettings(settings: PresetRuntimeSettings) {
-        prefs.edit()
-            .putString(
+        prefs.edit {
+            putString(
                 KEY_PRESET_RUNTIME_SETTINGS,
                 json.encodeToString(PresetRuntimeSettings.serializer(), settings),
             )
-            .apply()
+        }
     }
 
     fun loadPaneFontSizes(): RealtimePaneFontSizes {
@@ -155,10 +156,10 @@ class SecureSettingsStore(
     }
 
     fun savePaneFontSizes(fontSizes: RealtimePaneFontSizes) {
-        prefs.edit()
-            .putInt(KEY_TRANSCRIPTION_FONT_SIZE, fontSizes.transcriptionSp)
-            .putInt(KEY_TRANSLATION_FONT_SIZE, fontSizes.translationSp)
-            .apply()
+        prefs.edit {
+            putInt(KEY_TRANSCRIPTION_FONT_SIZE, fontSizes.transcriptionSp)
+            putInt(KEY_TRANSLATION_FONT_SIZE, fontSizes.translationSp)
+        }
     }
 
     fun loadRealtimeTtsSettings(): RealtimeTtsSettings {
@@ -185,24 +186,24 @@ class SecureSettingsStore(
     }
 
     fun saveRealtimeTtsSettings(settings: RealtimeTtsSettings) {
-        prefs.edit()
-            .putBoolean(KEY_TTS_ENABLED, settings.enabled)
-            .putInt(KEY_TTS_SPEED, settings.speedPercent)
-            .putBoolean(KEY_TTS_AUTO_SPEED, settings.autoSpeed)
-            .putInt(KEY_TTS_VOLUME, settings.volumePercent)
-            .apply()
+        prefs.edit {
+            putBoolean(KEY_TTS_ENABLED, settings.enabled)
+            putInt(KEY_TTS_SPEED, settings.speedPercent)
+            putBoolean(KEY_TTS_AUTO_SPEED, settings.autoSpeed)
+            putInt(KEY_TTS_VOLUME, settings.volumePercent)
+        }
     }
 
     fun saveUiPreferences(preferences: MobileUiPreferences) {
-        prefs.edit()
-            .putString(KEY_UI_PREFERENCES, json.encodeToString(MobileUiPreferences.serializer(), preferences))
-            .apply()
+        prefs.edit {
+            putString(KEY_UI_PREFERENCES, json.encodeToString(MobileUiPreferences.serializer(), preferences))
+        }
     }
 
     fun saveGlobalTtsSettings(settings: MobileGlobalTtsSettings) {
-        prefs.edit()
-            .putString(KEY_GLOBAL_TTS_SETTINGS, json.encodeToString(MobileGlobalTtsSettings.serializer(), settings))
-            .apply()
+        prefs.edit {
+            putString(KEY_GLOBAL_TTS_SETTINGS, json.encodeToString(MobileGlobalTtsSettings.serializer(), settings))
+        }
     }
 
     fun loadEdgeVoiceCatalog(): CachedEdgeVoiceCatalog? {
@@ -213,9 +214,9 @@ class SecureSettingsStore(
     }
 
     fun saveEdgeVoiceCatalog(catalog: CachedEdgeVoiceCatalog) {
-        prefs.edit()
-            .putString(KEY_EDGE_VOICE_CATALOG, json.encodeToString(CachedEdgeVoiceCatalog.serializer(), catalog))
-            .apply()
+        prefs.edit {
+            putString(KEY_EDGE_VOICE_CATALOG, json.encodeToString(CachedEdgeVoiceCatalog.serializer(), catalog))
+        }
     }
 
     companion object {

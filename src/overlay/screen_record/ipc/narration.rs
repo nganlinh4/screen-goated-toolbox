@@ -132,6 +132,11 @@ impl From<TtsProfileWire> for TtsRequestProfile {
                 volume: 0,
                 voice_configs: edge_voice_configs,
             },
+            // Kokoro is currently the only open-weights provider with a
+            // functional offline worker; mirror its defaults so narration jobs
+            // pointed at Kokoro pick up voice/speed/language from the catalog.
+            // Fish/Step/Magpie/Voxtral are deferred and intentionally absent.
+            kokoro_settings: defaults.kokoro_settings,
             language_code_override: None,
         }
     }
@@ -556,6 +561,11 @@ pub fn handle_get_narration_tts_metadata(
         TtsMethod::GeminiLive => "GeminiLive",
         TtsMethod::GoogleTranslate => "GoogleTranslate",
         TtsMethod::EdgeTTS => "EdgeTTS",
+        TtsMethod::FishAudioS2Pro => "FishAudioS2Pro",
+        TtsMethod::StepAudioEditX => "StepAudioEditX",
+        TtsMethod::MagpieMultilingual => "MagpieMultilingual",
+        TtsMethod::Kokoro => "Kokoro",
+        TtsMethod::VoxtralTts => "VoxtralTts",
     };
 
     Ok(serde_json::json!({

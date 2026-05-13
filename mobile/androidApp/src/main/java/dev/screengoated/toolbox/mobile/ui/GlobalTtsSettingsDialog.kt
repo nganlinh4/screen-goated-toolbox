@@ -7,6 +7,7 @@ import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
+import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyVolumeState
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.ttssettings.RenderGlobalTtsSettingsDialog
 
@@ -26,7 +27,11 @@ fun GlobalTtsSettingsDialog(
     onPreviewGeminiVoice: (String) -> Unit,
     onPreviewEdgeVoice: (String, String) -> Unit,
     onPreviewGoogleTranslate: () -> Unit,
+    onSettingsChanged: (MobileGlobalTtsSettings) -> Unit = {},
     geminiOnly: Boolean = false,
+    translationGummyVolume: TranslationGummyVolumeState? = null,
+    onTranslationGummyVolumeChanged: (Int) -> Unit = {},
+    onTranslationGummyMuteToggle: () -> Unit = {},
 ) {
     RenderGlobalTtsSettingsDialog(
         settings = settings,
@@ -43,6 +48,10 @@ fun GlobalTtsSettingsDialog(
         onPreviewGeminiVoice = onPreviewGeminiVoice,
         onPreviewEdgeVoice = onPreviewEdgeVoice,
         onPreviewGoogleTranslate = onPreviewGoogleTranslate,
+        onSettingsChanged = onSettingsChanged,
         geminiOnly = geminiOnly,
+        translationGummyVolume = translationGummyVolume,
+        onTranslationGummyVolumeChanged = onTranslationGummyVolumeChanged,
+        onTranslationGummyMuteToggle = onTranslationGummyMuteToggle,
     )
 }

@@ -2,7 +2,6 @@
 
 package dev.screengoated.toolbox.mobile.ui.theme
 
-import android.os.Build
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.ExperimentalTextApi
@@ -16,20 +15,16 @@ import dev.screengoated.toolbox.mobile.R
 
 @OptIn(ExperimentalTextApi::class)
 private fun roundedGoogleSansFlex(weight: FontWeight): Font {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        Font(
-            resId = R.font.google_sans_flex,
-            weight = weight,
-            variationSettings = FontVariation.Settings(
-                FontVariation.weight(weight.weight),
-                FontVariation.Setting("ROND", 100f),
-                FontVariation.Setting("ROUN", 100f),
-                FontVariation.Setting("RNDS", 100f),
-            ),
-        )
-    } else {
-        Font(R.font.google_sans_flex, weight)
-    }
+    return Font(
+        resId = R.font.google_sans_flex,
+        weight = weight,
+        variationSettings = FontVariation.Settings(
+            FontVariation.weight(weight.weight),
+            FontVariation.Setting("ROND", 100f),
+            FontVariation.Setting("ROUN", 100f),
+            FontVariation.Setting("RNDS", 100f),
+        ),
+    )
 }
 
 private val GoogleSansFlexFamily = FontFamily(

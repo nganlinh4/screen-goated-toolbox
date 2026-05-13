@@ -2,6 +2,7 @@
 
 package dev.screengoated.toolbox.mobile.preset.ui
 
+import android.content.ClipData
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,17 +37,20 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.preset.PresetExecutionState
 import dev.screengoated.toolbox.mobile.preset.PresetRepository
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import dev.screengoated.toolbox.mobile.shared.preset.PresetType
+import kotlinx.coroutines.launch
 
 @Composable
 fun PresetExecutionScreen(
@@ -82,6 +86,7 @@ fun PresetExecutionScreen(
                 PresetType.TEXT_INPUT -> TextInputPresetContent(
                     preset = preset,
                     state = state,
+                    lang = lang,
                     onExecute = { text ->
                         presetRepository.executePreset(preset, PresetInput.Text(text))
                     },
@@ -90,6 +95,7 @@ fun PresetExecutionScreen(
                 PresetType.TEXT_SELECT -> TextSelectPresetContent(
                     preset = preset,
                     state = state,
+                    lang = lang,
                     onExecute = { text ->
                         presetRepository.executePreset(preset, PresetInput.Text(text))
                     },
@@ -102,7 +108,12 @@ fun PresetExecutionScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            "Coming soon — requires ${preset.presetType.name} capture",
+                            presetExecutionText(
+                                lang = lang,
+                                en = "Coming soon - requires ${preset.presetType.name} capture",
+                                vi = "Sắp có - cần capture ${preset.presetType.name}",
+                                ko = "준비 중 - ${preset.presetType.name} 캡처 필요",
+                            ),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -117,11 +128,11 @@ fun PresetExecutionScreen(
 private fun TextInputPresetContent(
     preset: Preset,
     state: PresetExecutionState,
+    lang: String,
     onExecute: (String) -> Unit,
     onCancel: () -> Unit,
 ) {
     var inputText by remember { mutableStateOf("") }
-    val clipboard = LocalClipboardManager.current
 
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -131,7 +142,15 @@ private fun TextInputPresetContent(
         OutlinedTextField(
             value = inputText,
             onValueChange = { inputText = it },
-            label = { Text(if (preset.promptMode == "dynamic") "Type your question..." else "Input") },
+            label = {
+                Text(
+                    if (preset.promptMode == "dynamic") {
+                        presetExecutionText(lang, "Type your question...", "Nhập câu hỏi của bạn...", "질문을 입력하세요...")
+                    } else {
+                        presetExecutionText(lang, "Input", "Đầu vào", "입력")
+                    },
+                )
+            },
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large,
             minLines = 3,
@@ -141,13 +160,16 @@ private fun TextInputPresetContent(
                     onClick = { onExecute(inputText) },
                     enabled = inputText.isNotBlank() && !state.isExecuting,
                 ) {
-                    Icon(painterResource(R.drawable.ms_send), contentDescription = "Send")
+                    Icon(
+                        painterResource(R.drawable.ms_send),
+                        contentDescription = presetExecutionText(lang, "Send", "Gửi", "보내기"),
+                    )
                 }
             },
         )
 
         // Result area
-        ResultArea(state = state, onCancel = onCancel, clipboard = clipboard)
+        ResultArea(state = state, lang = lang, onCancel = onCancel)
     }
 }
 
@@ -155,11 +177,14 @@ private fun TextInputPresetContent(
 private fun TextSelectPresetContent(
     preset: Preset,
     state: PresetExecutionState,
+    lang: String,
     onExecute: (String) -> Unit,
     onCancel: () -> Unit,
 ) {
     var inputText by remember { mutableStateOf("") }
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -169,7 +194,16 @@ private fun TextSelectPresetContent(
         OutlinedTextField(
             value = inputText,
             onValueChange = { inputText = it },
-            label = { Text("Paste or type text to process") },
+            label = {
+                Text(
+                    presetExecutionText(
+                        lang,
+                        "Paste or type text to process",
+                        "Dán hoặc nhập văn bản để xử lý",
+                        "처리할 텍스트를 붙여넣거나 입력",
+                    ),
+                )
+            },
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large,
             minLines = 3,
@@ -179,10 +213,18 @@ private fun TextSelectPresetContent(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilledTonalButton(
                 onClick = {
-                    clipboard.getText()?.text?.let { inputText = it }
+                    scope.launch {
+                        clipboard.getClipEntry()
+                            ?.clipData
+                            ?.takeIf { it.itemCount > 0 }
+                            ?.getItemAt(0)
+                            ?.coerceToText(context)
+                            ?.toString()
+                            ?.let { inputText = it }
+                    }
                 },
             ) {
-                Text("Paste")
+                Text(presetExecutionText(lang, "Paste", "Dán", "붙여넣기"))
             }
             FilledTonalButton(
                 onClick = { onExecute(inputText) },
@@ -190,21 +232,23 @@ private fun TextSelectPresetContent(
             ) {
                 Icon(painterResource(R.drawable.ms_send), contentDescription = null, Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("Process")
+                Text(presetExecutionText(lang, "Process", "Xử lý", "처리"))
             }
         }
 
         // Result area
-        ResultArea(state = state, onCancel = onCancel, clipboard = clipboard)
+        ResultArea(state = state, lang = lang, onCancel = onCancel)
     }
 }
 
 @Composable
 private fun ResultArea(
     state: PresetExecutionState,
+    lang: String,
     onCancel: () -> Unit,
-    clipboard: androidx.compose.ui.platform.ClipboardManager,
 ) {
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
     val combinedText = state.resultWindows.joinToString(separator = "\n\n") { it.markdownText }
 
     // Progress
@@ -246,20 +290,35 @@ private fun ResultArea(
                         FilledTonalButton(onClick = onCancel) {
                             Icon(painterResource(R.drawable.ms_stop), contentDescription = null, Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Stop")
+                            Text(presetExecutionText(lang, "Stop", "Dừng", "중지"))
                         }
                     }
                     if (state.isComplete || combinedText.isNotBlank()) {
                         FilledTonalButton(onClick = {
-                            clipboard.setText(AnnotatedString(combinedText))
+                            scope.launch {
+                                clipboard.setClipEntry(
+                                    ClipEntry(
+                                        ClipData.newPlainText(
+                                            presetExecutionText(lang, "Preset result", "Kết quả preset", "프리셋 결과"),
+                                            combinedText,
+                                        ),
+                                    ),
+                                )
+                            }
                         }) {
                             Icon(painterResource(R.drawable.ms_content_copy), contentDescription = null, Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Copy")
+                            Text(presetExecutionText(lang, "Copy", "Sao chép", "복사"))
                         }
                     }
                 }
             }
         }
     }
+}
+
+private fun presetExecutionText(lang: String, en: String, vi: String, ko: String): String = when (lang) {
+    "vi" -> vi
+    "ko" -> ko
+    else -> en
 }

@@ -1,12 +1,17 @@
 package dev.screengoated.toolbox.mobile.service.dj
 
+import android.annotation.SuppressLint
 import android.webkit.WebView
 
 /**
  * Singleton that keeps the DJ WebView alive across navigation.
  * When the user leaves DjScreen, the WebView is detached from the view
  * hierarchy but NOT destroyed, so AudioContext keeps playing.
+ *
+ * DjScreen creates this WebView with the application context before attaching
+ * it here, so this holder does not retain an Activity instance.
  */
+@SuppressLint("StaticFieldLeak")
 object DjWebViewHolder {
     var webView: WebView? = null
         private set

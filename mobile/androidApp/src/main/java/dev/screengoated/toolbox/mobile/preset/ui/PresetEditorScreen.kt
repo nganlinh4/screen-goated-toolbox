@@ -50,6 +50,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -71,18 +72,14 @@ import dev.screengoated.toolbox.mobile.shared.preset.PresetType
 
 // Google Sans Flex at wdth=80 — prevents long labels from wrapping in toggle buttons
 private val condensedButtonFont: androidx.compose.ui.text.font.FontFamily by lazy {
-    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-        androidx.compose.ui.text.font.FontFamily(
-            androidx.compose.ui.text.font.Font(
-                resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
-                variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
-                    androidx.compose.ui.text.font.FontVariation.Setting("wdth", 80f),
-                ),
+    androidx.compose.ui.text.font.FontFamily(
+        androidx.compose.ui.text.font.Font(
+            resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
+            variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
+                androidx.compose.ui.text.font.FontVariation.Setting("wdth", 80f),
             ),
-        )
-    } else {
-        androidx.compose.ui.text.font.FontFamily.Default
-    }
+        ),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +151,7 @@ fun PresetEditorScreen(
 ) {
     val isBuiltIn = preset.id.startsWith("preset_")
     var editState by remember(preset) { mutableStateOf(preset.copy()) }
-    var resetCounter by remember { mutableStateOf(0) }
+    var resetCounter by remember { mutableIntStateOf(0) }
 
     fun autoSave(newState: Preset) {
         editState = newState
@@ -210,8 +207,11 @@ fun PresetEditorScreen(
             )
         },
     ) { padding ->
-        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-        val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
+        val windowInfo = androidx.compose.ui.platform.LocalWindowInfo.current
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val windowWidth = with(density) { windowInfo.containerSize.width.toDp() }
+        val windowHeight = with(density) { windowInfo.containerSize.height.toDp() }
+        val isLandscape = windowWidth > windowHeight
 
         if (isLandscape) {
             Row(

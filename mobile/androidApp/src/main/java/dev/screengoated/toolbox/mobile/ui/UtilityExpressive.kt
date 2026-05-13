@@ -65,8 +65,8 @@ internal fun UtilityHeaderRow(
     @androidx.annotation.DrawableRes icon: Int,
     title: String,
     accent: Color,
-    supporting: String? = null,
     modifier: Modifier = Modifier,
+    supporting: String? = null,
     morphPair: ExpressiveMorphPair = ExpressiveMorphPair(MaterialShapes.Square, MaterialShapes.Cookie6Sided),
     trailing: @Composable (RowScope.() -> Unit)? = null,
 ) {

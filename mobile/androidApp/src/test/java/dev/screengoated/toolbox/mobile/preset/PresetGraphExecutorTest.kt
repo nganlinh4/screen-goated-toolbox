@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.preset
 
+import dev.screengoated.toolbox.mobile.AppToastBus
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import dev.screengoated.toolbox.mobile.shared.preset.PresetType
@@ -113,6 +114,7 @@ class PresetGraphExecutorTest {
             runtimeSettings = { PresetRuntimeSettings() },
             uiLanguage = { "en" },
             executionState = state,
+            toastBus = AppToastBus(),
             postProcessActions = postProcessActions,
         )
     }

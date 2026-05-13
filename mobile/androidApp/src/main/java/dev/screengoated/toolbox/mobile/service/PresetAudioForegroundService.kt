@@ -13,8 +13,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.service.preset.PresetAudioForegroundMode
@@ -35,15 +35,10 @@ class PresetAudioForegroundService : Service() {
 
         ensureChannel()
         val notification = buildNotification(mode)
-        val serviceType = when (mode) {
-            PresetAudioForegroundMode.MEDIA_PROJECTION -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            PresetAudioForegroundMode.MICROPHONE -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            PresetAudioForegroundMode.NONE -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-        }
 
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                startForeground(NOTIFICATION_ID, notification, serviceType)
+                startForeground(NOTIFICATION_ID, notification, foregroundServiceType(mode))
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
@@ -56,14 +51,23 @@ class PresetAudioForegroundService : Service() {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private fun foregroundServiceType(mode: PresetAudioForegroundMode): Int {
+        return when (mode) {
+            PresetAudioForegroundMode.MEDIA_PROJECTION -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            PresetAudioForegroundMode.MICROPHONE -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            PresetAudioForegroundMode.NONE -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        }
+    }
+
     private fun ensureChannel() {
         val manager = getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "SGT Preset Audio",
+            getString(R.string.preset_audio_channel_name),
             NotificationManager.IMPORTANCE_MIN,
         ).apply {
-            description = "Foreground notification for preset audio capture"
+            description = getString(R.string.preset_audio_channel_description)
             setSound(null as Uri?, null as AudioAttributes?)
             enableVibration(false)
             setShowBadge(false)
@@ -80,13 +84,13 @@ class PresetAudioForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val text = when (mode) {
-            PresetAudioForegroundMode.MEDIA_PROJECTION -> "Capturing device audio for preset"
-            PresetAudioForegroundMode.MICROPHONE -> "Capturing microphone audio for preset"
-            PresetAudioForegroundMode.NONE -> "Preset audio capture idle"
+            PresetAudioForegroundMode.MEDIA_PROJECTION -> getString(R.string.preset_audio_notification_device)
+            PresetAudioForegroundMode.MICROPHONE -> getString(R.string.preset_audio_notification_microphone)
+            PresetAudioForegroundMode.NONE -> getString(R.string.preset_audio_notification_idle)
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("SGT Audio Preset")
+            .setContentTitle(getString(R.string.preset_audio_notification_title))
             .setContentText(text)
             .setContentIntent(openAppIntent)
             .setOngoing(true)
@@ -111,7 +115,7 @@ class PresetAudioForegroundService : Service() {
             if (mode == PresetAudioForegroundMode.NONE) {
                 context.startService(intent)
             } else {
-                ContextCompat.startForegroundService(context, intent)
+                tryStartForegroundService(context, intent, TAG)
             }
         }
 

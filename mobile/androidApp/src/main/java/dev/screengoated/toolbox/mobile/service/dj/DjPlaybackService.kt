@@ -14,6 +14,7 @@ import androidx.media3.session.MediaSessionService
 import androidx.media3.session.MediaStyleNotificationHelper
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
+import dev.screengoated.toolbox.mobile.service.tryStartForegroundService
 
 /**
  * Foreground service that keeps the DJ audio alive in background and
@@ -33,6 +34,7 @@ class DjPlaybackService : MediaSessionService() {
         playerRef = djPlayer
         mediaSession = MediaSession.Builder(this, djPlayer)
             .setId("dj-playback")
+            .setCallback(TrustedControllerCallback(packageName))
             .build()
     }
 
@@ -47,8 +49,8 @@ class DjPlaybackService : MediaSessionService() {
         )
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("Be a DJ")
-            .setContentText("Playing music")
+            .setContentTitle(getString(R.string.dj_notification_title))
+            .setContentText(getString(R.string.dj_notification_text))
             .setContentIntent(openAppIntent)
             .setOngoing(true)
             .setSilent(true)
@@ -86,10 +88,10 @@ class DjPlaybackService : MediaSessionService() {
     private fun ensureNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "DJ Playback",
+            getString(R.string.dj_playback_channel_name),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "Background music playback for Be a DJ"
+            description = getString(R.string.dj_playback_channel_description)
             setSound(null, null)
             enableVibration(false)
             setShowBadge(false)
@@ -106,16 +108,34 @@ class DjPlaybackService : MediaSessionService() {
         var playerRef: DjWebViewPlayer? = null
             private set
 
-        fun start(context: Context) {
-            context.startForegroundService(
-                Intent(context, DjPlaybackService::class.java)
+        fun start(context: Context): Boolean {
+            return tryStartForegroundService(
+                context,
+                Intent(context, DjPlaybackService::class.java),
+                "DjPlaybackService",
             )
         }
 
         fun stop(context: Context) {
-            context.stopService(
-                Intent(context, DjPlaybackService::class.java)
-            )
+            val intent = Intent(context, DjPlaybackService::class.java)
+            context.stopService(intent)
+        }
+    }
+
+    private class TrustedControllerCallback(
+        private val appPackageName: String,
+    ) : MediaSession.Callback {
+        override fun onConnect(
+            session: MediaSession,
+            controllerInfo: MediaSession.ControllerInfo,
+        ): MediaSession.ConnectionResult {
+            if (controllerInfo.isTrusted || controllerInfo.packageName == appPackageName) {
+                return MediaSession.ConnectionResult.accept(
+                    MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS,
+                    MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS,
+                )
+            }
+            return MediaSession.ConnectionResult.reject()
         }
     }
 }

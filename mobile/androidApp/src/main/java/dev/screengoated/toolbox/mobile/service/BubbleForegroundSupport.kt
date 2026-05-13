@@ -4,6 +4,7 @@ import android.app.Notification
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import dev.screengoated.toolbox.mobile.service.preset.PresetAudioForegroundMode
 
 internal fun applyBubbleForegroundMode(
@@ -11,13 +12,16 @@ internal fun applyBubbleForegroundMode(
     mode: PresetAudioForegroundMode,
     notification: Notification,
 ) {
-    val serviceType = resolveBubbleForegroundServiceType(mode)
     if (service.currentAudioForegroundMode == mode) {
         return
     }
     try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            service.startForeground(BubbleService.NOTIFICATION_ID, notification, serviceType)
+            service.startForeground(
+                BubbleService.NOTIFICATION_ID,
+                notification,
+                resolveBubbleForegroundServiceType(mode),
+            )
         } else {
             service.startForeground(BubbleService.NOTIFICATION_ID, notification)
         }
@@ -30,6 +34,7 @@ internal fun applyBubbleForegroundMode(
     }
 }
 
+@RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
 internal fun resolveBubbleForegroundServiceType(mode: PresetAudioForegroundMode): Int {
     return when (mode) {
         PresetAudioForegroundMode.NONE -> ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE

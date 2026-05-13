@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material3.MaterialShapes
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
@@ -148,7 +149,10 @@ fun TranslationGummyScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onNavigateToTtsSettings) {
+                    IconButton(
+                        onClick = onNavigateToTtsSettings,
+                        modifier = Modifier.testTag("translation-gummy-tts-settings"),
+                    ) {
                         MorphBadge(
                             from = MaterialShapes.Cookie6Sided,
                             to = MaterialShapes.Cookie6Sided,
@@ -158,7 +162,7 @@ fun TranslationGummyScreen(
                         ) {
                             Icon(
                                 painterResource(R.drawable.ms_settings),
-                                contentDescription = "TTS Settings",
+                                contentDescription = locale.voiceSettingsButton,
                                 tint = CoralAccent,
                                 modifier = Modifier.size(18.dp),
                             )
@@ -698,7 +702,7 @@ private fun CompactWaveform(
     modifier: Modifier = Modifier,
 ) {
     // Real RMS-driven scrolling bars (matches Windows recording indicator pattern)
-    val barHeights = remember { FloatArray(WF_NUM_BARS + 2) { 0f } }
+    val barHeights = remember { FloatArray(WF_NUM_BARS + 2) }
     var scrollProgress by remember { mutableFloatStateOf(0f) }
     var lastFrameNanos by remember { mutableLongStateOf(0L) }
 

@@ -38,7 +38,7 @@ internal fun buildTranslationGummySetupPayload(
     val generationConfig = JSONObject()
         .put("responseModalities", JSONArray().put("AUDIO"))
         .put("mediaResolution", "MEDIA_RESOLUTION_LOW")
-        .put("thinkingConfig", JSONObject().put("thinkingLevel", "minimal"))
+        .put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
         .put(
             "speechConfig",
             JSONObject().put(

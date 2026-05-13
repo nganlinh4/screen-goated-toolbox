@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.preset
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
+import androidx.core.graphics.scale
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -245,11 +246,9 @@ private fun buildGeminiLiveStillFrame(
 ): Pair<ByteArray, String> {
     val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
         ?: return imageBytes to mimeType
-    val scaled = Bitmap.createScaledBitmap(
-        bitmap,
+    val scaled = bitmap.scale(
         (bitmap.width / 4).coerceAtLeast(1),
         (bitmap.height / 4).coerceAtLeast(1),
-        true,
     )
     val jpegBytes = PreparedImageBytes.encodeJpeg(scaled)
     if (scaled !== bitmap) {

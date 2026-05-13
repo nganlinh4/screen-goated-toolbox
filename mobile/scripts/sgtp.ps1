@@ -12,6 +12,21 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Add-AndroidPlatformToolsToPath {
+    $sdkRoot = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { $env:ANDROID_SDK_ROOT }
+    if (-not $sdkRoot) {
+        return
+    }
+
+    $platformTools = Join-Path $sdkRoot "platform-tools"
+    $adbPath = Join-Path $platformTools "adb.exe"
+    if ((Test-Path $adbPath) -and -not ($env:Path.Split(";") -contains $platformTools)) {
+        $env:Path = "$platformTools;$env:Path"
+    }
+}
+
+Add-AndroidPlatformToolsToPath
+
 function Get-RepoRoot {
     return (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 }

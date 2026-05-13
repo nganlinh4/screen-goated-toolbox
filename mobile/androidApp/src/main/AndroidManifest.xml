@@ -26,11 +26,14 @@
         android:name=".SgtMobileApplication"
         android:allowAudioPlaybackCapture="false"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.SGTMobile">
+        android:theme="@style/Theme.SGTMobile"
+        tools:targetApi="s">
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -109,7 +112,8 @@
             android:name=".service.dj.DjPlaybackService"
             android:enabled="true"
             android:exported="true"
-            android:foregroundServiceType="mediaPlayback">
+            android:foregroundServiceType="mediaPlayback"
+            tools:ignore="ExportedService">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>

@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.service.preset
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -20,6 +21,9 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.graphics.get
+import androidx.core.graphics.withClip
+import dev.screengoated.toolbox.mobile.R
 import java.io.ByteArrayOutputStream
 import kotlin.math.max
 import kotlin.math.min
@@ -58,9 +62,7 @@ internal class PresetImageSelectionOverlay(
         gravity = Gravity.TOP or Gravity.START
         x = overlayBounds.left
         y = overlayBounds.top
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-        }
+        layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
     }
     private val root = FrameLayout(context).apply {
         setBackgroundColor(Color.TRANSPARENT)
@@ -84,27 +86,29 @@ internal class PresetImageSelectionOverlay(
     ): View {
         val density = context.resources.displayMetrics.density
         val typeface = condensedRoundedTypeface(context)
-        val estimatedInsets = estimatedSystemBarInsets(context)
+        val estimatedInsets = estimatedSystemBarInsets(context, windowManager)
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding((12 * density).roundToInt(), estimatedInsets.top + (12 * density).roundToInt(), (12 * density).roundToInt(), 0)
         }
         val label = TextView(context).apply {
-            text = "$title • " + overlayLocalized(
-                uiLanguage,
-                "Drag to select, tap to pick color, pinch to zoom",
-                "Kéo: chọn, chạm: lấy màu, chụm: zoom",
-                "드래그로 선택, 탭으로 색상 추출, 핀치로 확대",
+            text = context.getString(
+                R.string.preset_image_selection_overlay_label,
+                title,
+                overlayLocalized(
+                    uiLanguage,
+                    "Drag to select, tap to pick color, pinch to zoom",
+                    "Kéo: chọn, chạm: lấy màu, chụm: zoom",
+                    "드래그로 선택, 탭으로 색상 추출, 핀치로 확대",
+                ),
             )
             setTextColor(Color.WHITE)
             textSize = 11.5f
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
             typeface?.let { this.typeface = it }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                fontVariationSettings = "'wght' 615, 'wdth' 68, 'ROND' 100"
-            }
+            fontVariationSettings = "'wght' 615, 'wdth' 68, 'ROND' 100"
             setPadding((6 * density).roundToInt(), (10 * density).roundToInt(), (6 * density).roundToInt(), (10 * density).roundToInt())
             setShadowLayer(14f, 0f, 3f, Color.argb(180, 0, 0, 0))
         }
@@ -118,9 +122,7 @@ internal class PresetImageSelectionOverlay(
                 strokeWidthPx = density,
             )
             typeface?.let { this.typeface = it }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                fontVariationSettings = "'wght' 640, 'wdth' 82, 'ROND' 100"
-            }
+            fontVariationSettings = "'wght' 640, 'wdth' 82, 'ROND' 100"
             setPadding((16 * density).roundToInt(), (11 * density).roundToInt(), (16 * density).roundToInt(), (11 * density).roundToInt())
             elevation = 4 * density
             setOnClickListener { onCancelled() }
@@ -146,18 +148,16 @@ internal class PresetImageSelectionOverlay(
     }
 
     private fun applyGestureExclusion() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val w = root.width
-            val h = root.height
-            if (w > 0 && h > 0) {
-                val edgePx = (48f * root.resources.displayMetrics.density).roundToInt()
-                val rects = listOf(
-                    Rect(0, 0, edgePx, h),
-                    Rect(w - edgePx, 0, w, h),
-                )
-                root.systemGestureExclusionRects = rects
-                selectionView.systemGestureExclusionRects = rects
-            }
+        val w = root.width
+        val h = root.height
+        if (w > 0 && h > 0) {
+            val edgePx = (48f * root.resources.displayMetrics.density).roundToInt()
+            val rects = listOf(
+                Rect(0, 0, edgePx, h),
+                Rect(w - edgePx, 0, w, h),
+            )
+            root.systemGestureExclusionRects = rects
+            selectionView.systemGestureExclusionRects = rects
         }
     }
 
@@ -171,6 +171,7 @@ internal class PresetImageSelectionOverlay(
     }
 }
 
+@SuppressLint("ViewConstructor")
 private class PresetImageSelectionView(
     context: Context,
     private val trace: ImageCaptureTrace,
@@ -217,6 +218,12 @@ private class PresetImageSelectionView(
         super.onSizeChanged(w, h, oldw, oldh)
         updateViewport()
     }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (baseRect.isEmpty) {
@@ -225,18 +232,16 @@ private class PresetImageSelectionView(
         }
         val displayBitmap = sourceBitmap
         val displayRect = currentDisplayRect()
-        canvas.save()
-        canvas.clipRect(contentBounds)
-        canvas.drawBitmap(displayBitmap, null, displayRect, null)
-        canvas.restore()
+        canvas.withClip(contentBounds) {
+            drawBitmap(displayBitmap, null, displayRect, null)
+        }
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), dimPaint)
 
         val selectionRect = currentSelectionImageRect()?.let(::imageRectToViewRect)
         if (selectionRect != null) {
-            canvas.save()
-            canvas.clipRect(selectionRect)
-            canvas.drawBitmap(displayBitmap, null, displayRect, null)
-            canvas.restore()
+            canvas.withClip(selectionRect) {
+                drawBitmap(displayBitmap, null, displayRect, null)
+            }
             canvas.drawRect(selectionRect, selectionBorderPaint)
             drawHandle(canvas, selectionRect.left, selectionRect.top)
             drawHandle(canvas, selectionRect.right, selectionRect.top)
@@ -292,6 +297,7 @@ private class PresetImageSelectionView(
 
             MotionEvent.ACTION_UP -> {
                 if (selecting) {
+                    performClick()
                     finishSelection()
                 }
                 selecting = false
@@ -339,7 +345,7 @@ private class PresetImageSelectionView(
         invalidate()
     }
     private fun resolveViewportInsets(): ViewportInsets {
-        val estimated = sanitizedInsets(estimatedSystemBarInsets(context))
+        val estimated = sanitizedInsets(estimatedSystemBarInsets(context, windowManager))
         val metrics = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             windowManager.currentWindowMetrics
                 .windowInsets
@@ -422,7 +428,7 @@ private class PresetImageSelectionView(
             val point = lastTapImagePoint ?: return
             val x = point.x.toInt().coerceIn(0, displayBitmap.width - 1)
             val y = point.y.toInt().coerceIn(0, displayBitmap.height - 1)
-            val color = displayBitmap.getPixel(x, y)
+            val color = displayBitmap[x, y]
             logImageCaptureTrace(trace, "color_pick_sampled", "x=$x y=$y")
             onColorPicked(
                 "#%02X%02X%02X".format(

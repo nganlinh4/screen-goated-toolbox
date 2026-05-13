@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 
 /**
@@ -12,6 +13,7 @@ import androidx.media3.common.util.UnstableApi
  * Called from JS when playback state changes, so we can update
  * the native MediaSession / notification.
  */
+@OptIn(UnstableApi::class)
 class DjJsBridge(private val context: Context) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var serviceStarted = false
@@ -36,7 +38,6 @@ class DjJsBridge(private val context: Context) {
             }
 
             // Forward state to the virtual player (updates notification)
-            @OptIn(UnstableApi::class)
             DjPlaybackService.playerRef?.updateFromWebView(state, null)
 
             // Only kill service on explicit stop — never on pause/buffering
@@ -52,7 +53,6 @@ class DjJsBridge(private val context: Context) {
     fun onTitleChanged(title: String) {
         mainHandler.post {
             val currentState = if (DjWebViewHolder.isPlaying) "playing" else "paused"
-            @OptIn(UnstableApi::class)
             DjPlaybackService.playerRef?.updateFromWebView(currentState, title)
         }
     }

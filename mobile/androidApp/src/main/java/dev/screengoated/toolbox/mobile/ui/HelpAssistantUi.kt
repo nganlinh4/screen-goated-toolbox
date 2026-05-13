@@ -28,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
@@ -121,13 +123,17 @@ private fun HelpAssistantDialog(
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
+    val windowWidth = with(density) { windowInfo.containerSize.width.toDp() }
+    val windowHeight = with(density) { windowInfo.containerSize.height.toDp() }
     val uiLanguage = (context.applicationContext as SgtMobileApplication)
         .appContainer
         .repository
         .currentUiPreferences()
         .uiLanguage
-    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val compactLandscape = isLandscape && configuration.screenHeightDp <= 430
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE || windowWidth > windowHeight
+    val compactLandscape = isLandscape && windowHeight <= 430.dp
     var question by rememberSaveable { mutableStateOf("") }
     val trimmedQuestion = question.trim()
 

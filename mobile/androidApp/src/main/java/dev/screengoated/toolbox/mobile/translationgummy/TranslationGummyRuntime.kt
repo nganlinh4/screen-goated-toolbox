@@ -313,7 +313,7 @@ class TranslationGummyRuntime(
             audioPlayer.playPcm24k(
                 pcm24k = pcm24k,
                 speedPercent = 100,
-                volumePercent = 100,
+                volumePercent = repository.currentOutputVolumePercent(),
             )
         }
         if (update.interrupted) {

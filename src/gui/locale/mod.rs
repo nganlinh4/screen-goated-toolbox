@@ -344,6 +344,9 @@ pub struct LocaleText {
     pub parakeet_tdt_downloading_title: &'static str,
     pub parakeet_downloading_message: &'static str,
     pub parakeet_downloading_file: &'static str, // "Downloading {}..."
+    pub kokoro_downloading_title: &'static str,
+    pub kokoro_downloading_message: &'static str,
+    pub kokoro_downloading_file: &'static str, // "Downloading {}..."
     pub qwen3_downloading_title: &'static str,
     pub qwen3_1_7b_downloading_title: &'static str,
     pub qwen3_downloading_message: &'static str,
@@ -516,6 +519,9 @@ pub struct LocaleText {
     pub tool_update_available: &'static str,
     pub tool_parakeet_card: &'static str,
     pub tool_qwen3_card: &'static str,
+    pub tool_kokoro_card: &'static str,
+    pub tool_kokoro: &'static str,
+    pub tool_desc_kokoro: &'static str,
     pub tool_video_downloader_card: &'static str,
     pub tool_zipformer_card: &'static str,
     pub tool_zipformer_runtime_dlls: &'static str,

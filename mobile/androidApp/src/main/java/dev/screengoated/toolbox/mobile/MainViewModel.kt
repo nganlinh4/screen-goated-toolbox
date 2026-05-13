@@ -207,6 +207,10 @@ class MainViewModel(
         )
     }
 
+    fun onGlobalTtsSettingsChanged(settings: dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings) {
+        repository.updateGlobalTtsSettings(settings)
+    }
+
     fun onVoiceSettingsShown() {
         ttsRuntimeService.ensureEdgeVoiceCatalog()
     }

@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.service.preset
 
+import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Context
@@ -15,8 +16,10 @@ import android.view.inputmethod.InputMethodManager
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.core.net.toUri
 import org.json.JSONObject
 import java.util.Base64
 
@@ -103,6 +106,7 @@ internal fun createOverlayWebViewClient(
     logTag: String,
     tracker: OverlayManagedLoadTracker,
     onMessageLog: (String) -> Unit = {},
+    onRenderProcessGone: (WebView?, android.webkit.RenderProcessGoneDetail?) -> Boolean = { _, _ -> false },
     onMainFrameNavigationFailure: (OverlayNavigationFailure) -> Unit,
     onPageFinished: (String?) -> Unit,
 ): WebViewClient {
@@ -118,7 +122,7 @@ internal fun createOverlayWebViewClient(
             if (isManagedWebViewUrl(url)) {
                 return false
             }
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            val intent = Intent(Intent.ACTION_VIEW, url.toUri()).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             return try {
@@ -202,7 +206,7 @@ internal fun createOverlayWebViewClient(
                 "renderProcessGone crashed=${detail?.didCrash() ?: "null"}" +
                     " priority=${detail?.rendererPriorityAtExit() ?: "null"}",
             )
-            return false
+            return onRenderProcessGone(view, detail)
         }
     }
 }
@@ -269,6 +273,7 @@ internal fun buildOverlayWindowFlags(
     return flags
 }
 
+@SuppressLint("SetJavaScriptEnabled")
 internal fun configureOverlayWebView(
     webView: WebView,
     focusable: Boolean,
@@ -279,11 +284,15 @@ internal fun configureOverlayWebView(
     webView.isHorizontalScrollBarEnabled = false
     webView.isFocusable = focusable
     webView.isFocusableInTouchMode = focusable
+    webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
     webView.settings.javaScriptEnabled = true
     webView.settings.domStorageEnabled = true
     webView.settings.allowFileAccess = true
+    webView.settings.allowContentAccess = false
     @Suppress("DEPRECATION")
-    webView.settings.allowFileAccessFromFileURLs = true
+    webView.settings.allowFileAccessFromFileURLs = false
+    @Suppress("DEPRECATION")
+    webView.settings.allowUniversalAccessFromFileURLs = false
     webView.settings.mediaPlaybackRequiresUserGesture = false
     webView.settings.builtInZoomControls = false
     webView.settings.displayZoomControls = false

@@ -157,9 +157,30 @@ Set-Location '$repo_root_windows\\mobile'
 run_sgtp_ps1() {
     local repo_root="$1"
     shift
+    local android_sdk
+    android_sdk="$(pick_android_sdk)"
     local script_windows
     script_windows="$(wslpath -w "$repo_root/mobile/scripts/sgtp.ps1")"
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$script_windows" "$@"
+
+    local sgtp_args=()
+    local argument
+    for argument in "$@"; do
+        sgtp_args+=("'${argument//\'/\'\'}'")
+    done
+    local sgtp_args_csv=""
+    if [ ${#sgtp_args[@]} -gt 0 ]; then
+        local old_ifs="$IFS"
+        IFS=", "
+        sgtp_args_csv="${sgtp_args[*]}"
+        IFS="$old_ifs"
+    fi
+
+    run_windows_powershell "
+\$env:ANDROID_HOME = '$android_sdk'
+\$env:ANDROID_SDK_ROOT = '$android_sdk'
+\$env:Path = '$android_sdk\\platform-tools;' + \$env:Path
+& '$script_windows' @($sgtp_args_csv)
+"
 }
 
 main() {

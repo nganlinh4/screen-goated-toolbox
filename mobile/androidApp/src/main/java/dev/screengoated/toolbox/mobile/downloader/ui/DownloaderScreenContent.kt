@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.res.painterResource
+import androidx.core.net.toUri
 import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonGroupDefaults
@@ -72,6 +73,7 @@ internal fun FolderBar(
     path: String,
     changeFolderLabel: String,
     deleteDepsLabel: String,
+    settingsLabel: String,
     onChangeFolder: () -> Unit,
     onDeleteDeps: () -> Unit,
     depsSize: String,
@@ -93,7 +95,7 @@ internal fun FolderBar(
         )
         Box {
             IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(28.dp)) {
-                Icon(painterResource(R.drawable.ms_settings), contentDescription = "Settings", modifier = Modifier.size(16.dp))
+                Icon(painterResource(R.drawable.ms_settings), contentDescription = settingsLabel, modifier = Modifier.size(16.dp))
             }
             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                 DropdownMenuItem(
@@ -160,7 +162,7 @@ internal fun SessionContent(
                     Row {
                         if (session.inputUrl.isNotEmpty()) {
                             IconButton(onClick = { viewModel.updateUrl("") }) {
-                                Icon(painterResource(R.drawable.ms_close), contentDescription = "Clear", modifier = Modifier.size(20.dp))
+                                Icon(painterResource(R.drawable.ms_close), contentDescription = downloaderClearLabel(locale), modifier = Modifier.size(20.dp))
                             }
                         }
                         FilledTonalIconButton(
@@ -181,7 +183,7 @@ internal fun SessionContent(
                         ) {
                             Icon(
                                 painterResource(R.drawable.ms_content_paste),
-                                contentDescription = "Paste",
+                                contentDescription = downloaderPasteLabel(locale),
                                 modifier = Modifier.graphicsLayer { rotationZ = -90f },
                             )
                         }
@@ -398,7 +400,11 @@ internal fun SessionContent(
                                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                         }
                                         context.startActivity(intent)
-                                    } catch (_: Exception) {}
+                                    } catch (_: Exception) {
+                                        android.widget.Toast
+                                            .makeText(context, downloaderOpenFileFailedText(locale), android.widget.Toast.LENGTH_SHORT)
+                                            .show()
+                                    }
                                 }
                             }) {
                                 Icon(painterResource(R.drawable.ms_open_in_new), contentDescription = null, Modifier.size(16.dp))
@@ -411,17 +417,15 @@ internal fun SessionContent(
                                     val storagePath = folder.absolutePath
                                         .removePrefix("/storage/emulated/0/")
                                         .replace("/", "%2F")
-                                    val docUri = android.net.Uri.parse(
-                                        "content://com.android.externalstorage.documents/document/primary%3A$storagePath"
-                                    )
-                                    try {
+                                    val docUri =
+                                        "content://com.android.externalstorage.documents/document/primary%3A$storagePath".toUri()
+                                    val opened = runCatching {
                                         val intent = Intent(Intent.ACTION_VIEW).apply {
                                             setDataAndType(docUri, "vnd.android.document/directory")
                                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                         }
                                         context.startActivity(intent)
-                                    } catch (_: Exception) {
-                                        try {
+                                    }.recoverCatching {
                                             val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
                                                 putExtra(
                                                     android.provider.DocumentsContract.EXTRA_INITIAL_URI,
@@ -429,7 +433,11 @@ internal fun SessionContent(
                                                 )
                                             }
                                             context.startActivity(intent)
-                                        } catch (_: Exception) {}
+                                    }.isSuccess
+                                    if (!opened) {
+                                        android.widget.Toast
+                                            .makeText(context, downloaderOpenFolderFailedText(locale), android.widget.Toast.LENGTH_SHORT)
+                                            .show()
                                     }
                                 }
                             }) {

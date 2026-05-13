@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import dev.screengoated.toolbox.mobile.R
 import androidx.compose.material3.MaterialShapes
@@ -43,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -78,8 +78,8 @@ fun PresetRuntimeSettingsDialog(
     onDismiss: () -> Unit,
     onSave: (PresetRuntimeSettings) -> Unit,
 ) {
-    var imageChain by remember(settings) { mutableStateOf(settings.modelPriorityChains.imageToText.toMutableList()) }
-    var textChain by remember(settings) { mutableStateOf(settings.modelPriorityChains.textToText.toMutableList()) }
+    var imageChain by remember(settings) { mutableStateOf(settings.modelPriorityChains.imageToText) }
+    var textChain by remember(settings) { mutableStateOf(settings.modelPriorityChains.textToText) }
     var showHelpDialog by remember { mutableStateOf(false) }
 
     if (showHelpDialog) {
@@ -110,8 +110,11 @@ fun PresetRuntimeSettingsDialog(
         )))
     }
 
-    val configuration = LocalConfiguration.current
-    val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
+    val windowWidth = with(density) { windowInfo.containerSize.width.toDp() }
+    val windowHeight = with(density) { windowInfo.containerSize.height.toDp() }
+    val isLandscape = windowWidth > windowHeight
 
     ExpressiveDialogSurface(
         title = locale.presetRuntimeTitle,
@@ -153,7 +156,7 @@ fun PresetRuntimeSettingsDialog(
                         locale = locale,
                         uiLanguage = uiLanguage,
                         accent = MaterialTheme.colorScheme.primary,
-                        onChainChanged = { imageChain = it.toMutableList(); applyChanges(img = it) },
+                        onChainChanged = { imageChain = it; applyChanges(img = it) },
                     )
                 }
                 Column(
@@ -169,7 +172,7 @@ fun PresetRuntimeSettingsDialog(
                         locale = locale,
                         uiLanguage = uiLanguage,
                         accent = MaterialTheme.colorScheme.secondary,
-                        onChainChanged = { textChain = it.toMutableList(); applyChanges(txt = it) },
+                        onChainChanged = { textChain = it; applyChanges(txt = it) },
                     )
                 }
             }
@@ -189,7 +192,7 @@ fun PresetRuntimeSettingsDialog(
                     locale = locale,
                     uiLanguage = uiLanguage,
                     accent = MaterialTheme.colorScheme.primary,
-                    onChainChanged = { imageChain = it.toMutableList(); applyChanges(img = it) },
+                    onChainChanged = { imageChain = it; applyChanges(img = it) },
                 )
                 ChainEditor(
                     title = locale.presetRuntimeTextChainLabel,
@@ -199,7 +202,7 @@ fun PresetRuntimeSettingsDialog(
                     locale = locale,
                     uiLanguage = uiLanguage,
                     accent = MaterialTheme.colorScheme.secondary,
-                    onChainChanged = { textChain = it.toMutableList(); applyChanges(txt = it) },
+                    onChainChanged = { textChain = it; applyChanges(txt = it) },
                 )
             }
         }

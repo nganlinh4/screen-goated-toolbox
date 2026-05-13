@@ -14,6 +14,7 @@ import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
 import java.io.File
 import java.util.concurrent.Executors
@@ -86,9 +87,9 @@ class SgtAccessibilityService : AccessibilityService() {
         for (window in windows) {
             val root = window.root ?: continue
             val pkg = root.packageName?.toString() ?: "?"
-            val copyNode = findNodeByText(root, "Copy")
-                ?: findNodeByText(root, "COPY")
-                ?: findNodeByContentDescription(root, "Copy")
+            val copyNode = COPY_ACTION_LABELS.firstNotNullOfOrNull { label ->
+                findNodeByText(root, label) ?: findNodeByContentDescription(root, label)
+            }
             if (copyNode != null) {
                 val clicked = copyNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 Log.d(TAG, "eagerCaptureSelection clicked Copy on $pkg: $clicked")
@@ -265,10 +266,14 @@ class SgtAccessibilityService : AccessibilityService() {
     }
 
     private fun findNodeByContentDescription(root: AccessibilityNodeInfo, desc: String): AccessibilityNodeInfo? {
-        val nodes = root.findAccessibilityNodeInfosByText(desc)
-        for (node in nodes) {
-            if (node.isClickable && node.contentDescription?.toString()?.trim().equals(desc, ignoreCase = true)) {
-                return node
+        if (root.isClickable && root.contentDescription?.toString()?.trim().equals(desc, ignoreCase = true)) {
+            return root
+        }
+        for (index in 0 until root.childCount) {
+            val child = root.getChild(index) ?: continue
+            val result = findNodeByContentDescription(child, desc)
+            if (result != null) {
+                return result
             }
         }
         return null
@@ -370,7 +375,7 @@ class SgtAccessibilityService : AccessibilityService() {
         } finally {
             if (originalClip != null) {
                 cm.setPrimaryClip(originalClip)
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            } else {
                 cm.clearPrimaryClip()
             }
         }
@@ -410,6 +415,18 @@ class SgtAccessibilityService : AccessibilityService() {
             )
             return
         }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            postScreenshotResult(
+                callback,
+                ScreenshotCaptureResult.Failure(ScreenshotCaptureFailureReason.API_TOO_OLD),
+            )
+            return
+        }
+        captureScreenshotApi30(callback)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun captureScreenshotApi30(callback: (ScreenshotCaptureResult) -> Unit) {
         try {
             takeScreenshot(
                 Display.DEFAULT_DISPLAY,
@@ -511,6 +528,7 @@ class SgtAccessibilityService : AccessibilityService() {
         private const val IMAGE_CLIPBOARD_DIR = "clipboard-images"
         private const val IMAGE_CLIPBOARD_FILE = "latest-screenshot.png"
         private const val NO_WRITABLE_TARGET_COOLDOWN_MS = 3_000L
+        private val COPY_ACTION_LABELS = listOf("Copy", "COPY", "Sao chép", "복사")
         @Volatile
         private var lastNoWritableTargetToastAtMs: Long = 0L
 

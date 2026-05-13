@@ -1,3 +1,7 @@
+use crate::api::realtime_audio::kokoro_assets::{
+    current_kokoro_model_notice, download_kokoro_model, get_kokoro_model_dir,
+    is_kokoro_model_downloaded, remove_kokoro_model,
+};
 use crate::api::realtime_audio::model_loader::{
     current_parakeet_model_notice, download_parakeet_model, get_parakeet_model_dir,
     is_model_downloaded, remove_parakeet_model,
@@ -30,6 +34,7 @@ use super::utils::{
 
 const PROBE_PARAKEET_EOU: &str = "downloaded-tools:parakeet-eou";
 const PROBE_PARAKEET_TDT: &str = "downloaded-tools:parakeet-tdt";
+const PROBE_KOKORO_V1: &str = "downloaded-tools:kokoro-v1";
 const PROBE_QWEN3_SMALL: &str = "downloaded-tools:qwen3-small";
 const PROBE_QWEN3_LARGE: &str = "downloaded-tools:qwen3-large";
 const PROBE_QWEN3_RUNTIME: &str = "downloaded-tools:qwen3-runtime";
@@ -50,6 +55,71 @@ pub(super) fn render_parakeet_card(ui: &mut egui::Ui, text: &LocaleText) {
         ui.add_space(4.0);
         render_parakeet_tdt_content(ui, text);
     });
+}
+
+pub(super) fn render_kokoro_card(ui: &mut egui::Ui, text: &LocaleText) {
+    ui.group(|ui| {
+        ui.heading(text.tool_kokoro_card);
+        ui.add_space(4.0);
+        render_kokoro_content(ui, text);
+    });
+}
+
+fn render_kokoro_content(ui: &mut egui::Ui, text: &LocaleText) {
+    let notice = current_kokoro_model_notice();
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(text.tool_kokoro).strong());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let is_downloading = {
+                if let Ok(state) = REALTIME_STATE.lock() {
+                    state.is_downloading && state.download_title == text.kokoro_downloading_title
+                } else {
+                    false
+                }
+            };
+
+            if is_downloading {
+                let progress = {
+                    if let Ok(state) = REALTIME_STATE.lock() {
+                        state.download_progress
+                    } else {
+                        0.0
+                    }
+                };
+                ui.label(format!("{progress:.0}%"));
+                ui.spinner();
+            } else if cached_probe(PROBE_KOKORO_V1, is_kokoro_model_downloaded) {
+                if ui
+                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
+                    .clicked()
+                {
+                    invalidate_size_cache(&get_kokoro_model_dir());
+                    invalidate_probe_cache(PROBE_KOKORO_V1);
+                    let _ = remove_kokoro_model();
+                }
+                let size = get_dir_size(&get_kokoro_model_dir());
+                ui.label(
+                    egui::RichText::new(
+                        text.tool_status_installed.replace("{}", &format_size(size)),
+                    )
+                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                );
+            } else {
+                if ui.button(text.tool_action_download).clicked() {
+                    let stop_signal = Arc::new(AtomicBool::new(false));
+                    thread::spawn(move || {
+                        let _ = download_kokoro_model(stop_signal, false);
+                    });
+                }
+                ui.label(egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY));
+            }
+        });
+    });
+    ui.label(text.tool_desc_kokoro);
+    if let Some(message) = notice {
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+    }
 }
 
 pub(super) fn render_qwen3_card(ui: &mut egui::Ui, text: &LocaleText) {
