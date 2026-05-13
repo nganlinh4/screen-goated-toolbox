@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.downloader
 
 import android.content.Context
 import android.os.Environment
+import androidx.core.content.edit
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
@@ -132,7 +133,7 @@ class DownloaderRepository(
                     // Clear version prefs to force fresh extraction from new zip source
                     try {
                         context.getSharedPreferences("youtubedl-android", Context.MODE_PRIVATE)
-                            .edit().clear().apply()
+                            .edit { clear() }
                     } catch (_: Exception) {}
                     // Delete old extracted packages so init re-extracts
                     val packagesDir = File(context.noBackupFilesDir, "youtubedl-android/packages")
@@ -259,7 +260,7 @@ class DownloaderRepository(
                 for (name in prefNames) {
                     try {
                         context.getSharedPreferences(name, android.content.Context.MODE_PRIVATE)
-                            .edit().clear().apply()
+                            .edit { clear() }
                     } catch (_: Exception) {}
                 }
                 // log:"deleteTools: files + prefs cleared")

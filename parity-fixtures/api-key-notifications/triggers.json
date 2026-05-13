@@ -5,25 +5,41 @@
       "name": "preset_result_missing_key",
       "raw_error": "NO_API_KEY:gemini",
       "surface": "preset_result_overlay",
-      "expected_notice": true
+      "expected_notice": true,
+      "expected_provider": "Google Gemini",
+      "expected_en": "You haven't entered a Google Gemini API key!"
     },
     {
       "name": "preset_input_voice_missing_key",
       "raw_error": "NO_API_KEY:google",
       "surface": "preset_input_voice",
-      "expected_notice": true
+      "expected_notice": true,
+      "expected_provider": "Google Gemini",
+      "expected_en": "You haven't entered a Google Gemini API key!"
     },
     {
       "name": "read_aloud_missing_key",
       "raw_error": "NO_API_KEY:gemini",
       "surface": "read_aloud_tts",
-      "expected_notice": true
+      "expected_notice": true,
+      "expected_provider": "Google Gemini",
+      "expected_en": "You haven't entered a Google Gemini API key!"
     },
     {
       "name": "translation_gummy_missing_key",
       "raw_error": "Add your Gemini API key before starting Translation Gummy.",
       "surface": "translation_gummy_start",
-      "expected_notice": true
+      "expected_notice": true,
+      "expected_provider": "Google Gemini",
+      "expected_en": "Add your Gemini API key before starting Translation Gummy."
+    },
+    {
+      "name": "invalid_openrouter_key",
+      "raw_error": "INVALID_API_KEY:openrouter",
+      "surface": "preset_result_overlay",
+      "expected_notice": true,
+      "expected_provider": "OpenRouter",
+      "expected_en": "Invalid OpenRouter API key!"
     }
   ]
 }

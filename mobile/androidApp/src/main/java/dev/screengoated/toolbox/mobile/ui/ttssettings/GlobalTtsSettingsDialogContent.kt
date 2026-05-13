@@ -50,6 +50,7 @@ import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
+import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyVolumeState
 import dev.screengoated.toolbox.mobile.ui.ExpressiveDialogSectionCard
 import dev.screengoated.toolbox.mobile.ui.ExpressiveDialogSurface
 import dev.screengoated.toolbox.mobile.ui.ExpressiveMorphPair
@@ -72,7 +73,11 @@ internal fun RenderGlobalTtsSettingsDialog(
     onPreviewGeminiVoice: (String) -> Unit,
     onPreviewEdgeVoice: (String, String) -> Unit,
     onPreviewGoogleTranslate: () -> Unit,
+    onSettingsChanged: (MobileGlobalTtsSettings) -> Unit = {},
     geminiOnly: Boolean = false,
+    translationGummyVolume: TranslationGummyVolumeState? = null,
+    onTranslationGummyVolumeChanged: (Int) -> Unit = {},
+    onTranslationGummyMuteToggle: () -> Unit = {},
 ) {
     val isLandscape =
         LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -152,6 +157,9 @@ internal fun RenderGlobalTtsSettingsDialog(
                         onModelChanged = onGeminiModelChanged,
                         onVoiceChanged = onVoiceChanged,
                         onPreviewVoice = onPreviewGeminiVoice,
+                        translationGummyVolume = translationGummyVolume,
+                        onTranslationGummyVolumeChanged = onTranslationGummyVolumeChanged,
+                        onTranslationGummyMuteToggle = onTranslationGummyMuteToggle,
                     )
                 } else {
                     when (settings.method) {

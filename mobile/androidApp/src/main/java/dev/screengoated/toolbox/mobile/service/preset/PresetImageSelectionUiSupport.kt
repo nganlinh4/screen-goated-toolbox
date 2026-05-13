@@ -2,7 +2,6 @@ package dev.screengoated.toolbox.mobile.service.preset
 
 import android.content.Context
 import android.content.res.Configuration
-import android.content.res.Resources
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Matrix
@@ -15,6 +14,7 @@ import android.graphics.Typeface
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.view.WindowInsets
 import android.view.WindowManager
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialShapes
@@ -51,15 +51,29 @@ internal fun puffyBackground(
     )
 }
 
-internal fun estimatedSystemBarInsets(context: Context): Rect {
+internal fun estimatedSystemBarInsets(
+    context: Context,
+    windowManager: WindowManager,
+): Rect {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        return windowManager.currentWindowMetrics
+            .windowInsets
+            .getInsetsIgnoringVisibility(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
+            )
+            .let { Rect(it.left, it.top, it.right, it.bottom) }
+    }
+
     val resources = context.resources
     val orientation = resources.configuration.orientation
-    val statusBar = systemDimenPx(resources, "status_bar_height")
+    val density = resources.displayMetrics.density
+    val statusBar = (24f * density).toInt()
+    val navigationBar = (48f * density).toInt()
     return if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
         Rect(
             0,
             statusBar,
-            systemDimenPx(resources, "navigation_bar_width"),
+            navigationBar,
             0,
         )
     } else {
@@ -67,17 +81,9 @@ internal fun estimatedSystemBarInsets(context: Context): Rect {
             0,
             statusBar,
             0,
-            systemDimenPx(resources, "navigation_bar_height"),
+            navigationBar,
         )
     }
-}
-
-internal fun systemDimenPx(
-    resources: Resources,
-    name: String,
-): Int {
-    val id = resources.getIdentifier(name, "dimen", "android")
-    return if (id > 0) resources.getDimensionPixelSize(id) else 0
 }
 
 internal fun fullOverlayBounds(

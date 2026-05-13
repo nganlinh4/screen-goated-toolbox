@@ -39,17 +39,18 @@ class ServiceNotificationFactory(
 
     fun snapshot(state: LiveSessionState): ServiceNotificationSnapshot {
         val contentText = when (state.phase) {
-            SessionPhase.AWAITING_PERMISSIONS -> "Waiting for permissions"
+            SessionPhase.AWAITING_PERMISSIONS -> context.getString(R.string.live_translate_notification_waiting_permissions)
             SessionPhase.STARTING,
             SessionPhase.LISTENING,
             SessionPhase.TRANSLATING,
-            -> "Live translate is running"
-            SessionPhase.ERROR -> state.lastError?.trim()?.take(80).orEmpty().ifBlank { "Live translate stopped" }
-            SessionPhase.STOPPED -> "Live translate stopped"
+            -> context.getString(R.string.live_translate_notification_running)
+            SessionPhase.ERROR -> state.lastError?.trim()?.take(80).orEmpty()
+                .ifBlank { context.getString(R.string.live_translate_notification_stopped) }
+            SessionPhase.STOPPED -> context.getString(R.string.live_translate_notification_stopped)
             SessionPhase.IDLE -> context.getString(R.string.live_translate_notification_text)
         }
         return ServiceNotificationSnapshot(
-            title = "SGT Live Translate",
+            title = context.getString(R.string.live_translate_notification_title),
             contentText = contentText,
         )
     }
@@ -86,7 +87,7 @@ class ServiceNotificationFactory(
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setLocalOnly(true)
             .setShowWhen(false)
-            .addAction(0, "Stop", stopIntent)
+            .addAction(0, context.getString(R.string.notification_action_stop), stopIntent)
             .build()
     }
 

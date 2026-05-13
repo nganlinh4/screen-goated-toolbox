@@ -8,7 +8,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
-import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -16,6 +15,7 @@ import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialShapes
+import androidx.core.graphics.withRotation
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.toPath
 import kotlin.math.roundToInt
@@ -223,6 +223,7 @@ internal class MorphDismissZone(
             coordinateScale: Float,
             targets: List<DismissTargetDef>,
             previousDistanceSq: FloatArray? = null,
+            layoutDirection: Int = View.LAYOUT_DIRECTION_LTR,
         ): DismissHitResult {
             val proximities = FloatArray(targets.size)
             val distanceSq = FloatArray(targets.size)
@@ -233,6 +234,7 @@ internal class MorphDismissZone(
                     density = density,
                     coordinateScale = coordinateScale,
                     target = target,
+                    layoutDirection = layoutDirection,
                 )
                 val dx = rawX - center.first
                 val dy = rawY - center.second
@@ -260,6 +262,7 @@ internal class MorphDismissZone(
             density: Float,
             coordinateScale: Float,
             target: DismissTargetDef,
+            layoutDirection: Int,
         ): Pair<Float, Float> {
             val unitScale = coordinateScale.takeIf { it > 0f } ?: 1f
             val cellSize = scaledDp(CELL_SIZE_DP.toFloat(), density, unitScale)
@@ -268,10 +271,22 @@ internal class MorphDismissZone(
             val rightMargin = scaledDp(target.rightMarginDp.toFloat(), density, unitScale)
             val screenLeft = screenBounds.left / unitScale
             val screenRight = screenBounds.right / unitScale
-            val absoluteGravity = Gravity.getAbsoluteGravity(target.gravity, View.LAYOUT_DIRECTION_LTR)
-            val centerX = when (absoluteGravity and Gravity.HORIZONTAL_GRAVITY_MASK) {
-                Gravity.LEFT -> screenLeft + leftMargin + (cellSize / 2f)
-                Gravity.RIGHT -> screenRight - rightMargin - (cellSize / 2f)
+            val relativeGravity = target.gravity and Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK
+            val centerX = when (relativeGravity) {
+                Gravity.START -> {
+                    if (layoutDirection == View.LAYOUT_DIRECTION_RTL) {
+                        screenRight - rightMargin - (cellSize / 2f)
+                    } else {
+                        screenLeft + leftMargin + (cellSize / 2f)
+                    }
+                }
+                Gravity.END -> {
+                    if (layoutDirection == View.LAYOUT_DIRECTION_RTL) {
+                        screenLeft + leftMargin + (cellSize / 2f)
+                    } else {
+                        screenRight - rightMargin - (cellSize / 2f)
+                    }
+                }
                 else -> screenBounds.exactCenterX() / unitScale
             }
             val centerY = (screenBounds.bottom / unitScale) - bottomMargin - (cellSize / 2f)
@@ -307,12 +322,12 @@ internal class MorphDismissZone(
             textSize = 20f * context.resources.displayMetrics.density
             val tf = condensedRoundedTypeface(context)
             if (tf != null) typeface = tf
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                fontVariationSettings = "'wght' 615, 'wdth' 68, 'ROND' 100"
-            }
+            fontVariationSettings = "'wght' 615, 'wdth' 68, 'ROND' 100"
         }
         private val shapePath = Path()
         private val pathMatrix = Matrix()
+        private val srcBounds = RectF()
+        private val dstBounds = RectF()
 
         init {
             alpha = 0f
@@ -377,21 +392,19 @@ internal class MorphDismissZone(
             // Build morphed path scaled to shapeSize, centered in the (larger) view
             shapePath.rewind()
             morph.toPath(morphProgress, shapePath)
-            val srcBounds = RectF()
             shapePath.computeBounds(srcBounds, true)
             if (srcBounds.isEmpty) return
             val inset = (w - s) / 2f
-            val dstBounds = RectF(inset, (h - s) / 2f, inset + s, (h + s) / 2f)
+            dstBounds.set(inset, (h - s) / 2f, inset + s, (h + s) / 2f)
             pathMatrix.reset()
             if (pathMatrix.setRectToRect(srcBounds, dstBounds, Matrix.ScaleToFit.CENTER)) {
                 shapePath.transform(pathMatrix)
             }
 
             // Rotate shape only (not the whole canvas)
-            val rotSave = canvas.save()
-            canvas.rotate(shapeRotation, cx, cy)
-            canvas.drawPath(shapePath, shapePaint)
-            canvas.restoreToCount(rotSave)
+            canvas.withRotation(shapeRotation, cx, cy) {
+                drawPath(shapePath, shapePaint)
+            }
 
             // Draw text un-rotated
             val textY = cy - (labelPaint.descent() + labelPaint.ascent()) / 2f

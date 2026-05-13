@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import android.widget.Toast
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.updater.AppUpdateStatus
 import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
@@ -123,7 +124,15 @@ internal fun AppUpdateSection(
                     }
                     UpdateSectionPrimaryButton(
                         text = locale.downloadUpdateButton,
-                        onClick = { openAppUpdate(context, state) },
+                        onClick = {
+                            if (!openAppUpdate(context, state)) {
+                                Toast.makeText(
+                                    context,
+                                    locale.updateFailedLabel,
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        },
                     )
                 }
 

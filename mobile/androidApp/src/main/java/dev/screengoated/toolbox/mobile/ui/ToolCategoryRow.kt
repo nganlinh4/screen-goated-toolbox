@@ -59,21 +59,17 @@ import kotlinx.coroutines.launch
 
 /** Font family at a specific wdth axis value. */
 private fun flexFontFamily(wdth: Int): FontFamily {
-    return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-        FontFamily(
-            androidx.compose.ui.text.font.Font(
-                resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
-                weight = FontWeight.Medium,
-                variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
-                    androidx.compose.ui.text.font.FontVariation.weight(FontWeight.Medium.weight),
-                    androidx.compose.ui.text.font.FontVariation.Setting("ROND", 100f),
-                    androidx.compose.ui.text.font.FontVariation.Setting("wdth", wdth.toFloat()),
-                ),
+    return FontFamily(
+        androidx.compose.ui.text.font.Font(
+            resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
+            weight = FontWeight.Medium,
+            variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
+                androidx.compose.ui.text.font.FontVariation.weight(FontWeight.Medium.weight),
+                androidx.compose.ui.text.font.FontVariation.Setting("ROND", 100f),
+                androidx.compose.ui.text.font.FontVariation.Setting("wdth", wdth.toFloat()),
             ),
-        )
-    } else {
-        FontFamily.Default
-    }
+        ),
+    )
 }
 
 /** Condense steps: 100 → 90 → 80 → 70 → 62 (Google Sans Flex minimum). */

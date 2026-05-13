@@ -13,7 +13,7 @@ mod zipformer;
 
 use self::{
     backgrounds::render_background_downloads_section,
-    model_sections::{render_parakeet_card, render_qwen3_card},
+    model_sections::{render_kokoro_card, render_parakeet_card, render_qwen3_card},
     pointer_packs::render_pointer_pack_downloads_section,
     utils::clear_downloaded_tools_caches,
     video_downloader::render_video_downloader_card,
@@ -110,6 +110,10 @@ pub fn render_downloaded_tools_modal(
                                 ui.add_space(8.0);
                                 time_downloaded_tools_section("zipformer", || {
                                     render_zipformer_section(ui, download_manager, text)
+                                });
+                                ui.add_space(8.0);
+                                time_downloaded_tools_section("kokoro", || {
+                                    render_kokoro_card(ui, text)
                                 });
                             });
                         });

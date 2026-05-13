@@ -12,6 +12,13 @@
   - `accent` is optional
   - `tone` is optional
 - Gemini Live model and Gemini voice for this feature come from the global TTS settings on both platforms, even when the active global TTS method is Edge TTS or Google Translate.
+- Translation Gummy output volume is feature-local:
+  - default is `100`
+  - accepted range is `0..100`
+  - UI increments are 5 percent
+  - mute sets volume to `0`
+  - unmute restores the previous nonzero value, falling back to `100`
+  - changing volume affects playback scaling only and does not restart the Gemini Live session
 - The system instruction is built from the same contract on both platforms:
   - identify which of the two configured languages the user spoke
   - answer only in the other configured language
@@ -66,7 +73,9 @@
 - Android does not expose a feature-specific hotkey.
 - Android uses native Compose instead of a shared WebView surface because this feature was explicitly requested to follow the downloader-style Kotlin-native app pattern rather than the Windows-web parity pattern.
 - Windows closes and stops the session when the mini app window is closed.
+- Android places the Translation Gummy volume slider in the TTS settings modal opened from the Translation Gummy gear instead of the Windows header hover popup, because touch has no hover state and the user requested this modal placement.
 
 ## Fixtures
 - Prompt fixture: [parity-fixtures/translation-gummy/prompt-contract.json](../../parity-fixtures/translation-gummy/prompt-contract.json)
 - Onboarding fixture: [parity-fixtures/translation-gummy/onboarding-contract.json](../../parity-fixtures/translation-gummy/onboarding-contract.json)
+- Volume fixture: [parity-fixtures/translation-gummy/volume-control.json](../../parity-fixtures/translation-gummy/volume-control.json)

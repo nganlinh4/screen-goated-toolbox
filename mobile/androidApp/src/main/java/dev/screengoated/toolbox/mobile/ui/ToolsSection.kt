@@ -192,9 +192,9 @@ private val toolCategories = listOf(
 @Composable
 internal fun ToolsSection(
     locale: MobileLocaleText,
+    modifier: Modifier = Modifier,
     onPresetClick: (String) -> Unit = {},
     onPagerSwipeLockChanged: (Boolean) -> Unit = {},
-    modifier: Modifier = Modifier,
 ) {
     val presetRepository = (LocalContext.current.applicationContext as SgtMobileApplication)
         .appContainer
@@ -349,6 +349,7 @@ internal fun ToolsSection(
             floatingActionButton = {
                 MorphingCreateFab(
                     expanded = fabMenuExpanded,
+                    contentDescription = when (lang) { "vi" -> "Tạo"; "ko" -> "생성"; else -> "Create" },
                     onClick = { fabMenuExpanded = !fabMenuExpanded },
                 )
             },
@@ -470,6 +471,7 @@ internal enum class ToolbarMode { NONE, DUPLICATE, FAVORITE, DELETE }
 @Composable
 private fun MorphingCreateFab(
     expanded: Boolean,
+    contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -509,7 +511,7 @@ private fun MorphingCreateFab(
         }
         Icon(
             painter = painterResource(R.drawable.ms_add),
-            contentDescription = "Create",
+            contentDescription = contentDescription,
             tint = iconColor,
             modifier = Modifier
                 .size(24.dp)

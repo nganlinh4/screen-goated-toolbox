@@ -1,7 +1,6 @@
 package dev.screengoated.toolbox.mobile
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
@@ -10,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.core.net.toUri
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -158,6 +158,7 @@ class MainActivity : ComponentActivity() {
                     onGlobalTtsVoiceChanged = viewModel::onGlobalTtsVoiceChanged,
                     onGlobalTtsConditionsChanged = viewModel::onGlobalTtsConditionsChanged,
                     onGlobalEdgeTtsSettingsChanged = viewModel::onGlobalEdgeTtsSettingsChanged,
+                    onGlobalTtsSettingsChanged = viewModel::onGlobalTtsSettingsChanged,
                     onVoiceSettingsShown = viewModel::onVoiceSettingsShown,
                     onRetryEdgeVoiceCatalog = viewModel::retryEdgeVoiceCatalog,
                     onPreviewGeminiVoice = viewModel::previewGeminiVoice,
@@ -239,7 +240,7 @@ class MainActivity : ComponentActivity() {
                 overlayLauncher.launch(
                     Intent(
                         Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:$packageName"),
+                        "package:$packageName".toUri(),
                     ),
                 )
             }

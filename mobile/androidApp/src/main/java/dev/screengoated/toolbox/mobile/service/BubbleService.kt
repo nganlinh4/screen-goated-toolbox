@@ -23,6 +23,8 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
@@ -41,7 +43,7 @@ import kotlin.math.abs
 class BubbleService : Service() {
 
     private lateinit var windowManager: WindowManager
-    private lateinit var bubbleView: ImageView
+    private lateinit var bubbleView: BubbleImageView
     private lateinit var layoutParams: WindowManager.LayoutParams
     private lateinit var positionPrefs: android.content.SharedPreferences
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -66,10 +68,10 @@ class BubbleService : Service() {
         startBubbleForeground()
 
         if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "Overlay permission is required for the SGT bubble.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.bubble_overlay_permission_required), Toast.LENGTH_SHORT).show()
             val intent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName"),
+                "package:$packageName".toUri(),
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
             stopSelf()
@@ -83,7 +85,7 @@ class BubbleService : Service() {
             val density = resources.displayMetrics.density
             val sizePx = dp(currentBubbleSizeDp())
 
-            bubbleView = ImageView(this).apply {
+            bubbleView = BubbleImageView { togglePanelFromBubble() }.apply {
                 val isDark = MobileBrandAssets.isDarkTheme(resources.configuration)
                 setImageResource(MobileBrandAssets.appIcon(isDark))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -131,7 +133,7 @@ class BubbleService : Service() {
             isRunning = true
         }.onFailure {
             Log.e(TAG, "BubbleService failed to start", it)
-            Toast.makeText(this, "SGT bubble could not start.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.bubble_start_failed), Toast.LENGTH_SHORT).show()
             stopSelf()
         }
     }
@@ -159,10 +161,10 @@ class BubbleService : Service() {
         val manager = getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "SGT Bubble",
+            getString(R.string.bubble_channel_name),
             NotificationManager.IMPORTANCE_MIN,
         ).apply {
-            description = "Floating bubble overlay"
+            description = getString(R.string.bubble_channel_description)
             setSound(null as Uri?, null as AudioAttributes?)
             enableVibration(false)
             setShowBadge(false)
@@ -186,8 +188,8 @@ class BubbleService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("SGT Bubble")
-            .setContentText("Floating bubble is active")
+            .setContentTitle(getString(R.string.bubble_notification_title))
+            .setContentText(getString(R.string.bubble_notification_text))
             .setContentIntent(openAppIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -196,7 +198,7 @@ class BubbleService : Service() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setLocalOnly(true)
             .setShowWhen(false)
-            .addAction(0, "Stop", stopIntent)
+            .addAction(0, getString(R.string.notification_action_stop), stopIntent)
             .build()
     }
 
@@ -278,12 +280,7 @@ class BubbleService : Service() {
                         }
                     } else {
                         recordBubbleInteraction()
-                        runCatching {
-                            presetOverlayController?.togglePanel()
-                        }.onFailure {
-                            Log.e(TAG, "Bubble panel failed to open", it)
-                            Toast.makeText(this@BubbleService, "Bubble panel failed to open.", Toast.LENGTH_SHORT).show()
-                        }
+                        view.performClick()
                     }
                     return true
                 }
@@ -294,6 +291,25 @@ class BubbleService : Service() {
                 }
             }
             return false
+        }
+    }
+
+    private inner class BubbleImageView(
+        private val onBubbleClick: () -> Unit,
+    ) : ImageView(this@BubbleService) {
+        override fun performClick(): Boolean {
+            super.performClick()
+            onBubbleClick()
+            return true
+        }
+    }
+
+    private fun togglePanelFromBubble() {
+        runCatching {
+            presetOverlayController?.togglePanel()
+        }.onFailure {
+            Log.e(TAG, "Bubble panel failed to open", it)
+            Toast.makeText(this@BubbleService, getString(R.string.bubble_panel_open_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -334,9 +350,9 @@ class BubbleService : Service() {
     }
 
     private fun setKeepOpenEnabled(enabled: Boolean) {
-        positionPrefs.edit()
-            .putBoolean(KEY_KEEP_OPEN, enabled)
-            .apply()
+        positionPrefs.edit {
+            putBoolean(KEY_KEEP_OPEN, enabled)
+        }
     }
 
     private fun setPanelExpanded(expanded: Boolean) {
@@ -398,11 +414,11 @@ class BubbleService : Service() {
         layoutParams.height = newSizePx
         layoutParams.x = (centerX - (newSizePx / 2)).coerceAtLeast(0)
         layoutParams.y = (centerY - (newSizePx / 2)).coerceAtLeast(0)
-        positionPrefs.edit()
-            .putInt(KEY_BUBBLE_SIZE_DP, newSizeDp)
-            .putInt(KEY_BUBBLE_X, layoutParams.x)
-            .putInt(KEY_BUBBLE_Y, layoutParams.y)
-            .apply()
+        positionPrefs.edit {
+            putInt(KEY_BUBBLE_SIZE_DP, newSizeDp)
+            putInt(KEY_BUBBLE_X, layoutParams.x)
+            putInt(KEY_BUBBLE_Y, layoutParams.y)
+        }
         if (attached) {
             runCatching { windowManager.updateViewLayout(bubbleView, layoutParams) }
                 .onFailure { Log.w(TAG, "Could not resize bubble", it) }
@@ -473,6 +489,7 @@ class BubbleService : Service() {
             coordinateScale = 1f,
             targets = dismissTargets,
             previousDistanceSq = lastFingerDistanceSq,
+            layoutDirection = resources.configuration.layoutDirection,
         ).also { it.distanceSq.copyInto(lastFingerDistanceSq) }
     }
 
@@ -486,10 +503,10 @@ class BubbleService : Service() {
         if (!::positionPrefs.isInitialized) {
             return
         }
-        positionPrefs.edit()
-            .putInt(KEY_BUBBLE_X, layoutParams.x)
-            .putInt(KEY_BUBBLE_Y, layoutParams.y)
-            .apply()
+        positionPrefs.edit {
+            putInt(KEY_BUBBLE_X, layoutParams.x)
+            putInt(KEY_BUBBLE_Y, layoutParams.y)
+        }
     }
 
     private fun resetBubblePosition() {
@@ -497,10 +514,10 @@ class BubbleService : Service() {
             return
         }
         val defaultY = (200 * resources.displayMetrics.density).toInt()
-        positionPrefs.edit()
-            .putInt(KEY_BUBBLE_X, defaultBubbleX())
-            .putInt(KEY_BUBBLE_Y, defaultY)
-            .apply()
+        positionPrefs.edit {
+            putInt(KEY_BUBBLE_X, defaultBubbleX())
+            putInt(KEY_BUBBLE_Y, defaultY)
+        }
     }
 
     private fun defaultBubbleX(): Int {

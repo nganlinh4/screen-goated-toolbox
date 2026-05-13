@@ -95,6 +95,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
@@ -135,17 +136,21 @@ internal fun SectionSegmentedRow(
         modifier = modifier,
         content = {
             sections.forEachIndexed { index, section ->
-                val fraction = if (pagerState != null && pagerState.isScrollInProgress) {
-                    val page = pagerState.currentPage
-                    val offset = pagerState.currentPageOffsetFraction
-                    when (index) {
-                        page -> (1f - kotlin.math.abs(offset)).coerceIn(0f, 1f)
-                        page + 1 -> offset.coerceIn(0f, 1f)
-                        page - 1 -> (-offset).coerceIn(0f, 1f)
-                        else -> 0f
+                val fraction by remember(pagerState, selectedSection, section) {
+                    androidx.compose.runtime.derivedStateOf {
+                        if (pagerState != null && pagerState.isScrollInProgress) {
+                            val page = pagerState.currentPage
+                            val offset = pagerState.currentPageOffsetFraction
+                            when (index) {
+                                page -> (1f - kotlin.math.abs(offset)).coerceIn(0f, 1f)
+                                page + 1 -> offset.coerceIn(0f, 1f)
+                                page - 1 -> (-offset).coerceIn(0f, 1f)
+                                else -> 0f
+                            }
+                        } else {
+                            if (selectedSection == section) 1f else 0f
+                        }
                     }
-                } else {
-                    if (selectedSection == section) 1f else 0f
                 }
                 val bgColor = androidx.compose.ui.graphics.lerp(inactiveBg, activeBg, fraction)
                 val contentColor = androidx.compose.ui.graphics.lerp(inactiveContent, activeContent, fraction)
@@ -171,10 +176,12 @@ internal fun SectionSegmentedRow(
                     tonalElevation = if (fraction > 0f) 3.dp else 0.dp,
                     shadowElevation = if (fraction > 0.6f) 8.dp else 0.dp,
                     shape = MaterialTheme.shapes.extraLarge,
-                    modifier = Modifier.graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                    },
+                    modifier = Modifier
+                        .testTag("shell-tab-${section.name.lowercase()}")
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                        },
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
@@ -457,63 +464,69 @@ internal fun SectionDetail(
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
 ) {
-    when (selectedSection) {
-        MobileShellSection.APPS -> AppsCarouselSection(
-            state = state,
-            locale = locale,
-            onSessionToggle = onSessionToggle,
-            canToggle = canToggle,
-            onDownloaderClick = onDownloaderClick,
-            onDjClick = onDjClick,
-            onTranslationGummyClick = onTranslationGummyClick,
-            onPagerSwipeLockChanged = onPagerSwipeLockChanged,
-            sharedTransitionScope = sharedTransitionScope,
-            animatedVisibilityScope = animatedVisibilityScope,
-        )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("shell-section-${selectedSection.name.lowercase()}"),
+    ) {
+        when (selectedSection) {
+            MobileShellSection.APPS -> AppsCarouselSection(
+                state = state,
+                locale = locale,
+                onSessionToggle = onSessionToggle,
+                canToggle = canToggle,
+                onDownloaderClick = onDownloaderClick,
+                onDjClick = onDjClick,
+                onTranslationGummyClick = onTranslationGummyClick,
+                onPagerSwipeLockChanged = onPagerSwipeLockChanged,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+            )
 
-        MobileShellSection.TOOLS -> ToolsSection(
-            locale = locale,
-            onPresetClick = onPresetClick,
-            onPagerSwipeLockChanged = onPagerSwipeLockChanged,
-            modifier = Modifier.fillMaxSize(),
-        )
+            MobileShellSection.TOOLS -> ToolsSection(
+                locale = locale,
+                onPresetClick = onPresetClick,
+                onPagerSwipeLockChanged = onPagerSwipeLockChanged,
+                modifier = Modifier.fillMaxSize(),
+            )
 
-        MobileShellSection.SETTINGS -> GlobalSection(
-            apiKey = apiKey,
-            cerebrasApiKey = cerebrasApiKey,
-            groqApiKey = groqApiKey,
-            openRouterApiKey = openRouterApiKey,
-            ollamaUrl = ollamaUrl,
-            globalTtsSettings = globalTtsSettings,
-            presetRuntimeSettings = presetRuntimeSettings,
-            overlayOpacityPercent = uiPreferences.overlayOpacityPercent,
-            appUpdateState = appUpdateState,
-            locale = locale,
-            wideLayout = wideLayout,
-            onApiKeyChanged = onApiKeyChanged,
-            onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
-            onGroqApiKeyChanged = onGroqApiKeyChanged,
-            onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
-            onOllamaUrlChanged = onOllamaUrlChanged,
-            onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
-            onUsageStatsClick = onUsageStatsClick,
-            onDownloadedToolsClick = onDownloadedToolsClick,
-            onResetDefaults = onResetDefaults,
-            onVoiceSettingsClick = onVoiceSettingsClick,
-            onOverlayOpacityChanged = onOverlayOpacityChanged,
-            onCheckForAppUpdates = onCheckForAppUpdates,
-        )
+            MobileShellSection.SETTINGS -> GlobalSection(
+                apiKey = apiKey,
+                cerebrasApiKey = cerebrasApiKey,
+                groqApiKey = groqApiKey,
+                openRouterApiKey = openRouterApiKey,
+                ollamaUrl = ollamaUrl,
+                globalTtsSettings = globalTtsSettings,
+                presetRuntimeSettings = presetRuntimeSettings,
+                overlayOpacityPercent = uiPreferences.overlayOpacityPercent,
+                appUpdateState = appUpdateState,
+                locale = locale,
+                wideLayout = wideLayout,
+                onApiKeyChanged = onApiKeyChanged,
+                onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
+                onGroqApiKeyChanged = onGroqApiKeyChanged,
+                onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
+                onOllamaUrlChanged = onOllamaUrlChanged,
+                onPresetRuntimeSettingsClick = onPresetRuntimeSettingsClick,
+                onUsageStatsClick = onUsageStatsClick,
+                onDownloadedToolsClick = onDownloadedToolsClick,
+                onResetDefaults = onResetDefaults,
+                onVoiceSettingsClick = onVoiceSettingsClick,
+                onOverlayOpacityChanged = onOverlayOpacityChanged,
+                onCheckForAppUpdates = onCheckForAppUpdates,
+            )
 
-        MobileShellSection.HISTORY -> HistorySection(
-            state = historyState,
-            searchQuery = historySearchQuery,
-            locale = locale,
-            onSearchQueryChanged = onHistorySearchQueryChanged,
-            onClearSearchQuery = onClearHistorySearchQuery,
-            onMaxItemsChanged = onHistoryMaxItemsChanged,
-            onDeleteItem = onDeleteHistoryItem,
-            onClearAll = onClearHistoryItems,
-        )
+            MobileShellSection.HISTORY -> HistorySection(
+                state = historyState,
+                searchQuery = historySearchQuery,
+                locale = locale,
+                onSearchQueryChanged = onHistorySearchQueryChanged,
+                onClearSearchQuery = onClearHistorySearchQuery,
+                onMaxItemsChanged = onHistoryMaxItemsChanged,
+                onDeleteItem = onDeleteHistoryItem,
+                onClearAll = onClearHistoryItems,
+            )
+        }
     }
 }
 

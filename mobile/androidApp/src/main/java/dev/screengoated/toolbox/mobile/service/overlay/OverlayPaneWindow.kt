@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.service.overlay
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Outline
@@ -89,8 +90,16 @@ internal class OverlayPaneWindow(
     private var attached = false
 
     init {
+        attachResizeGestureForwarder()
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun attachResizeGestureForwarder() {
         webView.setOnTouchListener { _, event ->
             scaleDetector.onTouchEvent(event)
+            // Keep returning false so WebView owns normal click, link, and text
+            // selection handling. Calling performClick() here would duplicate
+            // the WebView's own click dispatch.
             false
         }
     }

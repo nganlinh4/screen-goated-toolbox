@@ -13,6 +13,7 @@
       "gemini-3.1-flash-lite-preview"
     ],
     "text_to_text": [
+      "qwen_3_235b_a22b_instruct_2507",
       "gemma-4-26b-a4b",
       "text_accurate_kimi",
       "text_gemini_3_1_flash_lite"

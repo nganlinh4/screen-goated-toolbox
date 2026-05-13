@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.res.painterResource
 import dev.screengoated.toolbox.mobile.R
@@ -22,6 +23,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
 import androidx.compose.runtime.Composable
@@ -31,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -42,10 +45,12 @@ import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsCatalog
 import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
+import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyVolumeState
 import dev.screengoated.toolbox.mobile.ui.ExpressiveDialogSectionCard
 import dev.screengoated.toolbox.mobile.ui.UtilityActionButton
 import dev.screengoated.toolbox.mobile.ui.UtilityHeaderRow
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+import kotlin.math.roundToInt
 
 @Composable
 internal fun GeminiLiveModelAndVoiceOnly(
@@ -54,6 +59,9 @@ internal fun GeminiLiveModelAndVoiceOnly(
     onModelChanged: (String) -> Unit,
     onVoiceChanged: (String) -> Unit,
     onPreviewVoice: (String) -> Unit,
+    translationGummyVolume: TranslationGummyVolumeState? = null,
+    onTranslationGummyVolumeChanged: (Int) -> Unit = {},
+    onTranslationGummyMuteToggle: () -> Unit = {},
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         GeminiModelCard(
@@ -61,6 +69,14 @@ internal fun GeminiLiveModelAndVoiceOnly(
             locale = locale,
             onChanged = onModelChanged,
         )
+        translationGummyVolume?.let { volume ->
+            TranslationGummyVolumeCard(
+                volume = volume,
+                locale = locale,
+                onVolumeChanged = onTranslationGummyVolumeChanged,
+                onMuteToggle = onTranslationGummyMuteToggle,
+            )
+        }
         ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.tertiary) {
             UtilityHeaderRow(
                 icon = R.drawable.ms_volume_up,
@@ -74,6 +90,60 @@ internal fun GeminiLiveModelAndVoiceOnly(
                 onPreviewVoice = onPreviewVoice,
             )
         }
+    }
+}
+
+@Composable
+private fun TranslationGummyVolumeCard(
+    volume: TranslationGummyVolumeState,
+    locale: MobileLocaleText,
+    onVolumeChanged: (Int) -> Unit,
+    onMuteToggle: () -> Unit,
+) {
+    val accent = MaterialTheme.colorScheme.primary
+    ExpressiveDialogSectionCard(accent = accent) {
+        UtilityHeaderRow(
+            icon = if (volume.muted) R.drawable.ms_volume_off else R.drawable.ms_volume_up,
+            title = locale.overlay.ttsVolume,
+            accent = accent,
+            trailing = {
+                Text(
+                    text = "${volume.percent}%",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = accent,
+                    modifier = Modifier.testTag("translation-gummy-volume-value"),
+                )
+                IconButton(
+                    onClick = onMuteToggle,
+                    modifier = Modifier.testTag("translation-gummy-volume-mute"),
+                ) {
+                    Icon(
+                        painterResource(if (volume.muted) R.drawable.ms_volume_off else R.drawable.ms_volume_up),
+                        contentDescription = locale.overlay.ttsVolume,
+                        tint = accent,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            },
+        )
+        Slider(
+            value = volume.percent.toFloat(),
+            onValueChange = { rawValue ->
+                val snapped = ((rawValue / TranslationGummyVolumeState.STEP_PERCENT).roundToInt() *
+                    TranslationGummyVolumeState.STEP_PERCENT)
+                    .coerceIn(
+                        TranslationGummyVolumeState.MIN_VOLUME_PERCENT,
+                        TranslationGummyVolumeState.MAX_VOLUME_PERCENT,
+                    )
+                onVolumeChanged(snapped)
+            },
+            valueRange = TranslationGummyVolumeState.MIN_VOLUME_PERCENT.toFloat()..
+                TranslationGummyVolumeState.MAX_VOLUME_PERCENT.toFloat(),
+            steps = (TranslationGummyVolumeState.MAX_VOLUME_PERCENT /
+                TranslationGummyVolumeState.STEP_PERCENT) - 1,
+            modifier = Modifier.testTag("translation-gummy-volume-slider"),
+        )
     }
 }
 

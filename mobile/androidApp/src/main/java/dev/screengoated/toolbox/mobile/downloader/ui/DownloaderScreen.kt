@@ -21,7 +21,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.res.painterResource
+import androidx.core.net.toUri
 import dev.screengoated.toolbox.mobile.R
+import dev.screengoated.toolbox.mobile.downloader.downloadTreePathToFilesystemPath
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -61,12 +63,19 @@ fun DownloaderScreen(
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
         if (uri != null) {
-            val path = uri.path?.replace("/tree/primary:", "/storage/emulated/0/")
-            viewModel.setDownloadPath(path)
+            val path = downloadTreePathToFilesystemPath(uri.encodedPath)
+            if (path != null) {
+                viewModel.setDownloadPath(path)
+            } else {
+                android.widget.Toast
+                    .makeText(context, downloaderUnsupportedFolderText(locale), android.widget.Toast.LENGTH_SHORT)
+                    .show()
+            }
         }
     }
 
@@ -86,7 +95,6 @@ fun DownloaderScreen(
                 actions = {
                     if (state.toolsReady) {
                         val dlDisplayPath = state.settings.customDownloadPath ?: "Downloads/SGT"
-                        val context = androidx.compose.ui.platform.LocalContext.current
                         val actualDir = remember(dlDisplayPath) { viewModel.getDownloadDir() }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -95,15 +103,18 @@ fun DownloaderScreen(
                                     val storagePath = actualDir.absolutePath
                                         .removePrefix("/storage/emulated/0/")
                                         .replace("/", "%2F")
-                                    val docUri = android.net.Uri.parse(
-                                        "content://com.android.externalstorage.documents/document/primary%3A$storagePath"
-                                    )
+                                    val docUri =
+                                        "content://com.android.externalstorage.documents/document/primary%3A$storagePath".toUri()
                                     val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
                                         setDataAndType(docUri, "vnd.android.document/directory")
                                         addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     }
                                     context.startActivity(intent)
-                                } catch (_: Exception) {}
+                                } catch (_: Exception) {
+                                    android.widget.Toast
+                                        .makeText(context, downloaderOpenFolderFailedText(locale), android.widget.Toast.LENGTH_SHORT)
+                                        .show()
+                                }
                             },
                         ) {
                             Icon(painterResource(R.drawable.ms_folder), contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -121,7 +132,11 @@ fun DownloaderScreen(
                         var menuExpanded by remember { mutableStateOf(false) }
                         Box {
                             IconButton(onClick = { menuExpanded = true }) {
-                                Icon(painterResource(R.drawable.ms_settings), contentDescription = null, modifier = Modifier.size(20.dp))
+                                Icon(
+                                    painterResource(R.drawable.ms_settings),
+                                    contentDescription = downloaderSettingsLabel(locale),
+                                    modifier = Modifier.size(20.dp),
+                                )
                             }
                             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                                 DropdownMenuItem(
@@ -166,6 +181,7 @@ fun DownloaderScreen(
                 TabStrip(
                     tabs = state.sessions.map { it.tabName },
                     activeIndex = state.activeTabIndex,
+                    locale = locale,
                     onTabClick = { viewModel.switchTab(it) },
                     onTabClose = { viewModel.closeTab(it) },
                     onAddTab = { viewModel.addTab() },
@@ -301,6 +317,7 @@ private fun ToolStatusRow(name: String, tool: dev.screengoated.toolbox.mobile.do
 private fun TabStrip(
     tabs: List<String>,
     activeIndex: Int,
+    locale: dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText,
     onTabClick: (Int) -> Unit,
     onTabClose: (Int) -> Unit,
     onAddTab: () -> Unit,
@@ -322,13 +339,13 @@ private fun TabStrip(
                         onClick = { onTabClose(idx) },
                         modifier = Modifier.size(16.dp),
                     ) {
-                        Icon(painterResource(R.drawable.ms_close), contentDescription = "Close", modifier = Modifier.size(12.dp))
+                        Icon(painterResource(R.drawable.ms_close), contentDescription = locale.closeLabel, modifier = Modifier.size(12.dp))
                     }
                 },
             )
         }
         IconButton(onClick = onAddTab, modifier = Modifier.size(32.dp)) {
-            Icon(painterResource(R.drawable.ms_add), contentDescription = "New tab", modifier = Modifier.size(18.dp))
+            Icon(painterResource(R.drawable.ms_add), contentDescription = downloaderNewTabLabel(locale), modifier = Modifier.size(18.dp))
         }
     }
 }

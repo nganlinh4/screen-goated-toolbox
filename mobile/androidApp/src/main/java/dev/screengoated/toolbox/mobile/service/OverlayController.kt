@@ -10,6 +10,7 @@ import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import android.view.WindowManager
+import androidx.core.content.edit
 import dev.screengoated.toolbox.mobile.ProjectionConsentProxyActivity
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
@@ -644,12 +645,12 @@ class OverlayController(
         paneId: OverlayPaneId,
         bounds: OverlayBounds,
     ) {
-        prefs.edit()
-            .putInt(keyFor(paneId, "x"), bounds.x)
-            .putInt(keyFor(paneId, "y"), bounds.y)
-            .putInt(keyFor(paneId, "width"), bounds.width)
-            .putInt(keyFor(paneId, "height"), bounds.height)
-            .apply()
+        prefs.edit {
+            putInt(keyFor(paneId, "x"), bounds.x)
+            putInt(keyFor(paneId, "y"), bounds.y)
+            putInt(keyFor(paneId, "width"), bounds.width)
+            putInt(keyFor(paneId, "height"), bounds.height)
+        }
     }
 
     private fun defaultBounds(paneId: OverlayPaneId): OverlayBounds {
@@ -754,6 +755,7 @@ class OverlayController(
             coordinateScale = density,
             targets = dismissTargets,
             previousDistanceSq = lastDismissDistanceSq,
+            layoutDirection = context.resources.configuration.layoutDirection,
         )
         hit.distanceSq.copyInto(lastDismissDistanceSq)
         return hit.proximities.firstOrNull() ?: 0f

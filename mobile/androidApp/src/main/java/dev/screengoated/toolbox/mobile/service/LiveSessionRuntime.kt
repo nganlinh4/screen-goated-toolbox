@@ -315,8 +315,13 @@ class LiveSessionRuntime(
                 throw e
             }
             if (!moonshineManager.isInstalled(lang)) {
-                repository.updateTranscriptionModel(RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5)
-                return
+                val state = moonshineManager.downloadState.value
+                val message = if (state is dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager.DownloadState.Error) {
+                    state.message
+                } else {
+                    "Download failed for ${lang.displayName}"
+                }
+                error(message)
             }
         }
 

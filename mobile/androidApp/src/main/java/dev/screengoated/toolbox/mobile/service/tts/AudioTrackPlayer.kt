@@ -325,11 +325,7 @@ internal class AudioTrackPlayer(
         return AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-            .apply {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE)
-                }
-            }
+            .setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE)
             .build()
     }
 

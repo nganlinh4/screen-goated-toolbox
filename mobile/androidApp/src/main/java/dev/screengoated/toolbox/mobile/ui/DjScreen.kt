@@ -23,7 +23,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import dev.screengoated.toolbox.mobile.service.dj.DjJsBridge
 import dev.screengoated.toolbox.mobile.service.dj.DjWebViewHolder
 
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("JavascriptInterface", "SetJavaScriptEnabled")
 @Composable
 internal fun DjScreen(
     apiKey: String,
@@ -32,13 +32,14 @@ internal fun DjScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val appContext = context.applicationContext
     val handler = remember { Handler(Looper.getMainLooper()) }
-    val jsBridge = remember { DjJsBridge(context) }
+    val jsBridge = remember { DjJsBridge(appContext) }
 
     // Reuse or create the WebView via the holder singleton
     val isReuse = DjWebViewHolder.webView != null
     val webView = remember {
-        DjWebViewHolder.webView ?: WebView(context).apply {
+        DjWebViewHolder.webView ?: WebView(appContext).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,

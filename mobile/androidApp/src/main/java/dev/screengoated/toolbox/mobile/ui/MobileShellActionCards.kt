@@ -101,8 +101,8 @@ internal fun OverlayOpacityCard(
     opacityPercent: Int,
     locale: MobileLocaleText,
     onOpacityChanged: (Int) -> Unit,
-    compact: Boolean = false,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     ExpressiveSettingsCard(
         modifier = modifier.fillMaxWidth(),

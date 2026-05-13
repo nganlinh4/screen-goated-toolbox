@@ -46,4 +46,4 @@
 - Shared fixture: [parity-fixtures/preset-system/audio-runtime.json](../../parity-fixtures/preset-system/audio-runtime.json)
 
 ## Deviations
-- None currently documented.
+- Android does not currently implement the Windows local `parakeet-local` preset audio runtime. Until a real mobile Parakeet runtime is wired, presets that depend on `parakeet-local` must be marked unsupported with an explicit provider/runtime placeholder instead of launching and failing at execution time.

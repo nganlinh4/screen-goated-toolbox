@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.preset
 
+import dev.screengoated.toolbox.mobile.AppToastBus
 import dev.screengoated.toolbox.mobile.preset.PresetPlaceholderReason
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -8,6 +9,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.float
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -188,6 +191,55 @@ class PresetRepositoryTest {
     }
 
     @Test
+    fun audioRuntimeFixtureMatchesAndroidAudioDefaultsAndExplicitGaps() {
+        val fixture = audioRuntimeFixture()
+        val repository = createRepository(InMemoryPresetOverrideStore())
+        val thresholds = fixture.getValue("auto_stop_thresholds").jsonObject
+
+        assertEquals(0.001f, thresholds.getValue("warmup_rms").jsonPrimitive.float)
+        assertEquals(0.015f, thresholds.getValue("speech_rms").jsonPrimitive.float)
+        assertEquals(800, thresholds.getValue("silence_ms").jsonPrimitive.int)
+        assertEquals(2000, thresholds.getValue("min_speech_ms").jsonPrimitive.int)
+
+        val autoStopIds = fixture.getValue("default_auto_stop_presets").jsonArray
+            .map { it.jsonPrimitive.content }
+        autoStopIds.forEach { presetId ->
+            assertEquals(
+                "autoStopRecording for $presetId",
+                true,
+                requireNotNull(DefaultPresetLookup.byId(presetId)).autoStopRecording,
+            )
+        }
+
+        val micContract = fixture.getValue("shared_mic_button_contract").jsonObject
+        val transcribePreset = requireNotNull(
+            DefaultPresetLookup.byId(micContract.getValue("text_input").jsonPrimitive.content),
+        )
+        assertEquals(
+            micContract.getValue("preset_transcribe_prompt").jsonPrimitive.content,
+            transcribePreset.blocks.first().prompt,
+        )
+
+        fixture.getValue("android_explicit_unsupported_presets").jsonArray.forEach { element ->
+            val gap = element.jsonObject
+            val resolved = requireNotNull(
+                repository.getResolvedPreset(gap.getValue("preset_id").jsonPrimitive.content),
+            )
+            assertEquals(false, resolved.executionCapability.supported)
+            assertEquals(
+                gap.getValue("reason").jsonPrimitive.content,
+                resolved.executionCapability.reason?.name,
+            )
+            assertEquals(
+                gap.getValue("model_id").jsonPrimitive.content,
+                resolved.preset.blocks.first { block ->
+                    block.blockType == dev.screengoated.toolbox.mobile.shared.preset.BlockType.AUDIO
+                }.model,
+            )
+        }
+    }
+
+    @Test
     fun presetModelCatalogIncludesGemma4FamilyAcrossModalities() {
         val textModel = requireNotNull(PresetModelCatalog.getById("gemma-4-26b-a4b"))
         val visionModel = requireNotNull(PresetModelCatalog.getById("gemma-4-26b-a4b-vision"))
@@ -228,6 +280,7 @@ class PresetRepositoryTest {
             runtimeSettings = { PresetRuntimeSettings() },
             uiLanguage = { "en" },
             overrideStore = store,
+            toastBus = AppToastBus(),
             mainDispatcher = dispatcher,
         )
     }
@@ -258,6 +311,20 @@ class PresetRepositoryTest {
         )
         return candidates.firstOrNull(Files::exists)
             ?: error("Could not locate preset parity fixture.")
+    }
+
+    private fun audioRuntimeFixture(): JsonObject {
+        return json.parseToJsonElement(Files.readAllBytes(audioRuntimeFixturePath()).decodeToString()).jsonObject
+    }
+
+    private fun audioRuntimeFixturePath(): Path {
+        val candidates = listOf(
+            Paths.get("..", "parity-fixtures", "preset-system", "audio-runtime.json"),
+            Paths.get("..", "..", "parity-fixtures", "preset-system", "audio-runtime.json"),
+            Paths.get("parity-fixtures", "preset-system", "audio-runtime.json"),
+        )
+        return candidates.firstOrNull(Files::exists)
+            ?: error("Could not locate audio-runtime parity fixture.")
     }
 
     private data class FixtureCase(

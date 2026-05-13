@@ -85,6 +85,7 @@ internal class PresetOverlayDismissTarget(
             coordinateScale = density,
             targets = dismissTargets(),
             previousDistanceSq = lastDistanceSq,
+            layoutDirection = context.resources.configuration.layoutDirection,
         )
         hit.distanceSq.copyInto(lastDistanceSq)
         return PresetOverlayDismissHit(

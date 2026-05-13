@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "defaultVolumePercent": 100,
+  "range": {
+    "min": 0,
+    "max": 100,
+    "step": 5
+  },
+  "cases": [
+    {
+      "name": "clamps slider values",
+      "initial": {
+        "percent": 100,
+        "restorePercent": 100
+      },
+      "steps": [
+        {
+          "type": "setVolume",
+          "value": 140
+        },
+        {
+          "type": "setVolume",
+          "value": -10
+        }
+      ],
+      "expected": {
+        "percent": 0,
+        "restorePercent": 100
+      }
+    },
+    {
+      "name": "nonzero slider value updates restore target",
+      "initial": {
+        "percent": 100,
+        "restorePercent": 100
+      },
+      "steps": [
+        {
+          "type": "setVolume",
+          "value": 65
+        },
+        {
+          "type": "toggleMute"
+        },
+        {
+          "type": "toggleMute"
+        }
+      ],
+      "expected": {
+        "percent": 65,
+        "restorePercent": 65
+      }
+    },
+    {
+      "name": "mute restore falls back to default",
+      "initial": {
+        "percent": 0,
+        "restorePercent": 0
+      },
+      "steps": [
+        {
+          "type": "toggleMute"
+        }
+      ],
+      "expected": {
+        "percent": 100,
+        "restorePercent": 100
+      }
+    }
+  ]
+}

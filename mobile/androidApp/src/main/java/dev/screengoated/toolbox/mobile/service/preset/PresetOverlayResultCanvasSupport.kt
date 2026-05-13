@@ -250,7 +250,21 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
                 putExtra(Intent.EXTRA_TEXT, text)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            context.startActivity(Intent.createChooser(shareIntent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            val opened = runCatching {
+                context.startActivity(Intent.createChooser(shareIntent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }.isSuccess
+            if (!opened) {
+                Toast.makeText(
+                    context,
+                    overlayLocalized(
+                        uiLanguage(),
+                        "Could not open the share sheet.",
+                        "Không thể mở bảng chia sẻ.",
+                        "공유 창을 열 수 없습니다.",
+                    ),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
             setActiveResultWindow(window.id)
         }
         "placeholder_action" -> showPlaceholderActionSupport(context, payload.optString("placeholder"), uiLanguage())

@@ -124,10 +124,10 @@ class GeminiLiveSocketClient(
                         silenceBuffer.addAll(realAudio)
                         val doubleChunk = SAMPLES_PER_100MS * 2
                         if (silenceBuffer.size >= doubleChunk) {
-                            val toSend = ShortArray(doubleChunk) { silenceBuffer.removeFirst() }
+                            val toSend = ShortArray(doubleChunk) { silenceBuffer.removeAt(0) }
                             sendChunked(session.socket, toSend, CHUNK_SIZE)
                         } else if (silenceBuffer.isNotEmpty()) {
-                            val toSend = ShortArray(silenceBuffer.size) { silenceBuffer.removeFirst() }
+                            val toSend = ShortArray(silenceBuffer.size) { silenceBuffer.removeAt(0) }
                             sendChunked(session.socket, toSend, CHUNK_SIZE)
                         } else {
                             true

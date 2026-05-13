@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.preset
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
+import androidx.core.graphics.scale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -125,7 +126,7 @@ internal fun prepareImage(rawBytes: ByteArray): PreparedImage {
             val ratio = 2048f / bitmap.height
             (bitmap.width * ratio).toInt() to 2048
         }
-        val scaled = Bitmap.createScaledBitmap(bitmap, newW, newH, true)
+        val scaled = bitmap.scale(newW, newH)
         if (scaled !== bitmap) bitmap.recycle()
         scaled
     } else {

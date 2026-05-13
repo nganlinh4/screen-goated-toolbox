@@ -30,7 +30,7 @@ class ProjectionConsentProxyActivity : ComponentActivity() {
                             appContainer.audioPresetLaunchStore.clear()
                             Toast.makeText(
                                 this,
-                                "The requested realtime audio preset is unavailable.",
+                                getString(R.string.projection_realtime_preset_unavailable),
                                 Toast.LENGTH_SHORT,
                             ).show()
                         } else {
@@ -55,7 +55,7 @@ class ProjectionConsentProxyActivity : ComponentActivity() {
             }
             Toast.makeText(
                 this,
-                "Device audio capture consent was cancelled.",
+                getString(R.string.projection_audio_consent_cancelled),
                 Toast.LENGTH_SHORT,
             ).show()
         }
@@ -72,7 +72,7 @@ class ProjectionConsentProxyActivity : ComponentActivity() {
     private fun launchProjectionConsent() {
         val projectionManager = getSystemService(MediaProjectionManager::class.java)
         if (projectionManager == null) {
-            Toast.makeText(this, "MediaProjection is unavailable on this device.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.projection_unavailable), Toast.LENGTH_SHORT).show()
             finishProxy()
             return
         }

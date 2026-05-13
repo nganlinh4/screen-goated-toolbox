@@ -18,6 +18,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.graphics.toColorInt
 import dev.screengoated.toolbox.mobile.model.LanguageCatalog
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
 
@@ -59,8 +60,8 @@ internal class OverlayLanguagePicker(
             else -> ((screen.height() - cardHeight) / 2).coerceAtLeast(margin)
         }
 
-        val textColor = if (isDark) Color.parseColor("#F4F2F8") else Color.parseColor("#17151B")
-        val subtextColor = if (isDark) Color.parseColor("#A19CA9") else Color.parseColor("#6E6874")
+        val textColor = if (isDark) "#F4F2F8".toColorInt() else "#17151B".toColorInt()
+        val subtextColor = if (isDark) "#A19CA9".toColorInt() else "#6E6874".toColorInt()
 
         val root = FrameLayout(context).apply {
             layoutParams = ViewGroup.LayoutParams(
@@ -77,7 +78,7 @@ internal class OverlayLanguagePicker(
             background = GradientDrawable().apply {
                 cornerRadius = dp(18).toFloat()
                 setColor(if (isDark) Color.argb(250, 30, 30, 35) else Color.argb(250, 252, 248, 255))
-                setStroke(dp(1), if (isDark) Color.parseColor("#40A8FF") else Color.parseColor("#66A8FF"))
+                setStroke(dp(1), if (isDark) "#40A8FF".toColorInt() else "#66A8FF".toColorInt())
             }
             elevation = dp(12).toFloat()
             setPadding(dp(14), dp(14), dp(14), dp(14))
@@ -208,7 +209,7 @@ internal class OverlayLanguagePicker(
         selected: Boolean,
         isDark: Boolean,
     ): LinearLayout {
-        val accent = if (selected) Color.parseColor("#00C8FF") else Color.TRANSPARENT
+        val accent = if (selected) "#00C8FF".toColorInt() else Color.TRANSPARENT
         val (primary, secondaryRaw) = splitLabel(language)
         val secondary = secondaryRaw.ifBlank { LanguageCatalog.codeForName(primary) }
         return LinearLayout(context).apply {
@@ -241,7 +242,7 @@ internal class OverlayLanguagePicker(
             addView(
                 TextView(context).apply {
                     text = primary
-                    setTextColor(if (isDark) Color.parseColor("#F4F2F8") else Color.parseColor("#17151B"))
+                    setTextColor(if (isDark) "#F4F2F8".toColorInt() else "#17151B".toColorInt())
                     textSize = 13f
                     typeface = this@OverlayLanguagePicker.typeface
                     ellipsize = TextUtils.TruncateAt.END
@@ -252,7 +253,7 @@ internal class OverlayLanguagePicker(
             addView(
                 TextView(context).apply {
                     text = secondary
-                    setTextColor(if (selected) Color.parseColor("#00C8FF") else if (isDark) Color.parseColor("#A19CA9") else Color.parseColor("#6E6874"))
+                    setTextColor(if (selected) "#00C8FF".toColorInt() else if (isDark) "#A19CA9".toColorInt() else "#6E6874".toColorInt())
                     textSize = 11f
                     typeface = Typeface.create(this@OverlayLanguagePicker.typeface, Typeface.BOLD)
                 },

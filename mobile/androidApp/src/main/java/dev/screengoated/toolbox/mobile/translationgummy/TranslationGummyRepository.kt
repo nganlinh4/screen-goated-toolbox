@@ -160,6 +160,20 @@ class TranslationGummyRepository(
         ).normalize()
     }
 
+    fun updateVolumePercent(volumePercent: Int) {
+        mutableState.value = mutableState.value.copy(
+            volume = mutableState.value.volume.withPercent(volumePercent),
+        ).normalize()
+    }
+
+    fun toggleMuted() {
+        mutableState.value = mutableState.value.copy(
+            volume = mutableState.value.volume.toggleMuted(),
+        ).normalize()
+    }
+
+    fun currentOutputVolumePercent(): Int = mutableState.value.volume.percent
+
     fun upsertTranscript(
         role: TranslationGummyTranscriptRole,
         text: String,

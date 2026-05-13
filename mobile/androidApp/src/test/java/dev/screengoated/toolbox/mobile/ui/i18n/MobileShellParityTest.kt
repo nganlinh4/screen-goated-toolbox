@@ -7,34 +7,51 @@ import dev.screengoated.toolbox.mobile.ui.MobileShellSection
 import dev.screengoated.toolbox.mobile.ui.credentialsProviderOrder
 import dev.screengoated.toolbox.mobile.ui.layoutBehavior
 import dev.screengoated.toolbox.mobile.ui.shouldLockPagerForCarouselTouch
+import java.io.File
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MobileShellParityTest {
+    private val json = Json { ignoreUnknownKeys = true }
+
     @Test
     fun themeCycleMatchesWindowsTitleBarOrder() {
-        assertEquals(MobileThemeMode.DARK, MobileThemeMode.SYSTEM.next())
-        assertEquals(MobileThemeMode.LIGHT, MobileThemeMode.DARK.next())
-        assertEquals(MobileThemeMode.SYSTEM, MobileThemeMode.LIGHT.next())
+        val case = mobileShellFixtureCase("theme_cycle_matches_windows_title_bar")
+        val cycle = case.getValue("expected_cycle").jsonArray.map { it.jsonPrimitive.content }
+        var mode = MobileThemeMode.valueOf(case.getValue("initial_theme_mode").jsonPrimitive.content)
+
+        cycle.forEach { expected ->
+            mode = mode.next()
+            assertEquals(MobileThemeMode.valueOf(expected), mode)
+        }
     }
 
     @Test
     fun languageChoicesMatchWindowsVisibleOptions() {
+        val case = mobileShellFixtureCase("ui_language_choices_match_windows_title_bar")
         val options = MobileLocaleText.forLanguage("en").languageOptions.map { it.code }
-        assertEquals(listOf("en", "vi", "ko"), options)
+        val expected = case.getValue("expected_language_codes").jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(expected, options)
     }
 
     @Test
     fun previewTextComesFromUiLocaleBundle() {
-        val en = MobileLocaleText.forLanguage("en").ttsPreviewTexts.first()
-        val vi = MobileLocaleText.forLanguage("vi").ttsPreviewTexts.first()
-        val ko = MobileLocaleText.forLanguage("ko").ttsPreviewTexts.first()
-
-        assertTrue(en.startsWith("Hello"))
-        assertTrue(vi.startsWith("Xin chào"))
-        assertTrue(ko.startsWith("안녕하세요"))
+        val case = mobileShellFixtureCase("localized_preview_text_comes_from_ui_language_bundle")
+        case.getValue("locales").jsonArray.forEach { localeCase ->
+            val localeObject = localeCase.jsonObject
+            val text = MobileLocaleText
+                .forLanguage(localeObject.getValue("ui_language").jsonPrimitive.content)
+                .ttsPreviewTexts
+                .first()
+            assertTrue(text.startsWith(localeObject.getValue("expected_prefix").jsonPrimitive.content))
+        }
     }
 
     @Test
@@ -67,51 +84,64 @@ class MobileShellParityTest {
 
     @Test
     fun credentialsProviderOrderMatchesWindowsGlobalSettings() {
+        val case = credentialsFixtureCase("windows_global_settings_credentials_provider_order")
         assertEquals(
-            listOf("Groq", "Cerebras", "Gemini", "OpenRouter", "Ollama"),
+            case.getValue("order").jsonArray.map { it.jsonPrimitive.content },
             credentialsProviderOrder().map { it.label },
         )
     }
 
     @Test
     fun windowsBrandIconPairIsTheCanonicalMobileBrandSource() {
-        assertEquals("assets/app-icon-small.png", MobileBrandAssets.WINDOWS_DARK_ICON_SOURCE)
-        assertEquals("assets/app-icon-small-light.png", MobileBrandAssets.WINDOWS_LIGHT_ICON_SOURCE)
+        val case = mobileShellFixtureCase("mobile_branding_uses_windows_app_icon_pair")
+        assertEquals(case.getValue("expected_dark_asset").jsonPrimitive.content, MobileBrandAssets.WINDOWS_DARK_ICON_SOURCE)
+        assertEquals(case.getValue("expected_light_asset").jsonPrimitive.content, MobileBrandAssets.WINDOWS_LIGHT_ICON_SOURCE)
     }
 
     @Test
     fun toolsTabOwnsItsScrollAndViewportFooter() {
+        val case = mobileShellFixtureCase("tools_tab_owns_scroll_and_uses_viewport_footer")
         val behavior = MobileShellSection.TOOLS.layoutBehavior()
 
-        assertEquals(false, behavior.usesOuterScroll)
-        assertEquals(true, behavior.usesViewportFooter)
+        assertEquals(case.getValue("expected_outer_scroll_owner").jsonPrimitive.boolean, behavior.usesOuterScroll)
+        assertEquals(case.getValue("expected_viewport_footer").jsonPrimitive.boolean, behavior.usesViewportFooter)
     }
 
     @Test
     fun nestedCarouselLocksPagerForAnyTouchWhileInnerHorizontalScrollExists() {
-        assertTrue(
-            shouldLockPagerForCarouselTouch(
-                canScrollBackward = true,
-                canScrollForward = false,
-            ),
-        )
-        assertTrue(
-            shouldLockPagerForCarouselTouch(
-                canScrollBackward = false,
-                canScrollForward = true,
-            ),
-        )
-        assertTrue(
-            shouldLockPagerForCarouselTouch(
-                canScrollBackward = true,
-                canScrollForward = true,
-            ),
-        )
-        assertFalse(
-            shouldLockPagerForCarouselTouch(
-                canScrollBackward = false,
-                canScrollForward = false,
-            ),
-        )
+        val case = mobileShellFixtureCase("nested_carousel_locks_outer_pager_for_the_full_touch_when_inner_scroll_exists")
+        case.getValue("touch_cases").jsonArray.forEach { element ->
+            val touchCase = element.jsonObject
+            assertEquals(
+                touchCase.getValue("expected_lock").jsonPrimitive.boolean,
+                shouldLockPagerForCarouselTouch(
+                    canScrollBackward = touchCase.getValue("can_scroll_backward").jsonPrimitive.boolean,
+                    canScrollForward = touchCase.getValue("can_scroll_forward").jsonPrimitive.boolean,
+                ),
+            )
+        }
+    }
+
+    private fun mobileShellFixtureCase(name: String) =
+        fixtureCase("parity-fixtures/mobile-shell/ui-language-theme.json", name)
+
+    private fun credentialsFixtureCase(name: String) =
+        fixtureCase("parity-fixtures/mobile-shell/credentials-provider-order.json", name)
+
+    private fun fixtureCase(path: String, name: String) =
+        loadFixture(path).getValue("cases").jsonArray
+            .map { it.jsonObject }
+            .first { it.getValue("name").jsonPrimitive.content == name }
+
+    private fun loadFixture(path: String) =
+        json.parseToJsonElement(File(repoRoot(), path).readText()).jsonObject
+
+    private fun repoRoot(): File {
+        val workingDirectory = requireNotNull(System.getProperty("user.dir"))
+        return generateSequence(File(workingDirectory).absoluteFile) { current ->
+            current.parentFile ?: return@generateSequence null
+        }.firstOrNull { root ->
+            File(root, "parity-fixtures/mobile-shell/ui-language-theme.json").exists()
+        } ?: error("Could not locate repo root from $workingDirectory")
     }
 }

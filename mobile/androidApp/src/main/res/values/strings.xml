@@ -5,6 +5,31 @@
     <string name="live_translate_channel_description">Foreground session status for SGT mobile live translation.</string>
     <string name="live_translate_notification_title">SGT Live Translate</string>
     <string name="live_translate_notification_text">Listening for speech and translating in real time.</string>
+    <string name="live_translate_notification_waiting_permissions">Waiting for permissions</string>
+    <string name="live_translate_notification_running">Live translate is running</string>
+    <string name="live_translate_notification_stopped">Live translate stopped</string>
+    <string name="notification_action_stop">Stop</string>
+    <string name="preset_audio_channel_name">SGT Preset Audio</string>
+    <string name="preset_audio_channel_description">Foreground notification for preset audio capture</string>
+    <string name="preset_audio_notification_title">SGT Audio Preset</string>
+    <string name="preset_audio_notification_device">Capturing device audio for preset</string>
+    <string name="preset_audio_notification_microphone">Capturing microphone audio for preset</string>
+    <string name="preset_audio_notification_idle">Preset audio capture idle</string>
+    <string name="bubble_channel_name">SGT Bubble</string>
+    <string name="bubble_channel_description">Floating bubble overlay</string>
+    <string name="bubble_notification_title">SGT Bubble</string>
+    <string name="bubble_notification_text">Floating bubble is active</string>
+    <string name="bubble_overlay_permission_required">Overlay permission is required for the SGT bubble.</string>
+    <string name="bubble_start_failed">SGT bubble could not start.</string>
+    <string name="bubble_panel_open_failed">Bubble panel failed to open.</string>
+    <string name="help_assistant_overlay_permission_required">Overlay permission is required for Help Assistant.</string>
+    <string name="projection_realtime_preset_unavailable">The requested realtime audio preset is unavailable.</string>
+    <string name="projection_audio_consent_cancelled">Device audio capture consent was cancelled.</string>
+    <string name="projection_unavailable">MediaProjection is unavailable on this device.</string>
+    <string name="dj_playback_channel_name">DJ Playback</string>
+    <string name="dj_playback_channel_description">Background music playback for Be a DJ</string>
+    <string name="dj_notification_title">Be a DJ</string>
+    <string name="dj_notification_text">Playing music</string>
     <string name="accessibility_service_description">Screen Goated Toolbox uses accessibility to read selected text from any app and paste AI results back. Required for text-selection presets.</string>
+    <string name="preset_image_selection_overlay_label">%1$s • %2$s</string>
 </resources>
-

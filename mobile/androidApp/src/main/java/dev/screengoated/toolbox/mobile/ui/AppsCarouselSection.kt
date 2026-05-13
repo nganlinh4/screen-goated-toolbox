@@ -50,6 +50,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -71,6 +74,14 @@ private data class ShapeInstance(
     val sizeFrac: Float, val alpha: Float,
     val rotation: Float,
 )
+
+private fun appCardTag(index: Int): String = when (index) {
+    0 -> "app-card-live-translate"
+    1 -> "app-card-translation-gummy"
+    2 -> "app-card-video-downloader"
+    3 -> "app-card-dj"
+    else -> "app-card-placeholder-$index"
+}
 
 private val allDecoShapes by lazy { listOf(
     MaterialShapes.Arch, MaterialShapes.Arrow, MaterialShapes.Boom, MaterialShapes.Bun,
@@ -125,8 +136,8 @@ private fun generateNonOverlappingShapes(seed: Long): List<ShapeInstance> {
 private fun AnimatedShapesCanvas(
     color: Color,
     seed: Long,
-    isScrolling: Boolean = false,
     modifier: Modifier = Modifier,
+    isScrolling: Boolean = false,
 ) {
     val placements = remember(seed) { generateNonOverlappingShapes(seed) }
 
@@ -279,6 +290,7 @@ private fun AppsItemContent(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .testTag(appCardTag(index))
             .then(
                 when (index) {
                     1 -> Modifier.clickable(onClick = onTranslationGummyClick)
@@ -321,7 +333,9 @@ private fun AppsVerticalCarousel(
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
-    val screenH = LocalConfiguration.current.screenHeightDp.dp
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
+    val screenH = with(density) { windowInfo.containerSize.height.toDp() }
     val available = (screenH - 170.dp).coerceAtLeast(320.dp)
     val itemHeight = ((available - 40.dp) / 3.2f).coerceIn(140.dp, 200.dp)
     val carouselHeight = available.coerceAtMost(700.dp)
@@ -369,8 +383,10 @@ private fun AppsHorizontalCarousel(
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
-    val screenH = LocalConfiguration.current.screenHeightDp.dp
-    val screenW = LocalConfiguration.current.screenWidthDp.dp
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
+    val screenH = with(density) { windowInfo.containerSize.height.toDp() }
+    val screenW = with(density) { windowInfo.containerSize.width.toDp() }
     val itemWidth = ((screenW - 120.dp) / 3.2f).coerceIn(220.dp, 320.dp)
     val carouselHeight = (screenH - 100.dp).coerceIn(160.dp, 300.dp)
     val fadeSize = 24.dp
@@ -442,21 +458,17 @@ private fun LiveTranslateCarouselTile(
             isScrolling = isRunning, // morph faster when live translate is active
         )
         val stretchedFamily = remember {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                FontFamily(
-                    androidx.compose.ui.text.font.Font(
-                        resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
-                        weight = FontWeight.Black,
-                        variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
-                            androidx.compose.ui.text.font.FontVariation.weight(FontWeight.Black.weight),
-                            androidx.compose.ui.text.font.FontVariation.Setting("ROND", 100f),
-                            androidx.compose.ui.text.font.FontVariation.Setting("wdth", 125f),
-                        ),
+            FontFamily(
+                androidx.compose.ui.text.font.Font(
+                    resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
+                    weight = FontWeight.Black,
+                    variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
+                        androidx.compose.ui.text.font.FontVariation.weight(FontWeight.Black.weight),
+                        androidx.compose.ui.text.font.FontVariation.Setting("ROND", 100f),
+                        androidx.compose.ui.text.font.FontVariation.Setting("wdth", 125f),
                     ),
-                )
-            } else {
-                FontFamily.Default
-            }
+                ),
+            )
         }
         if (isLandscape) {
             Box(
@@ -494,7 +506,9 @@ private fun LiveTranslateCarouselTile(
                     } else {
                         ButtonDefaults.buttonColors()
                     },
-                    modifier = Modifier.align(Alignment.TopEnd),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .testTag("live-translate-toggle"),
                 ) {
                     Icon(
                         painterResource(if (isRunning) R.drawable.ms_stop else R.drawable.ms_play_arrow),
@@ -554,6 +568,7 @@ private fun LiveTranslateCarouselTile(
                         } else {
                             ButtonDefaults.buttonColors()
                         },
+                        modifier = Modifier.testTag("live-translate-toggle"),
                     ) {
                         Icon(
                             painterResource(if (isRunning) R.drawable.ms_stop else R.drawable.ms_play_arrow),
@@ -588,21 +603,17 @@ private fun AppTile(
             seed = slotColor.hashCode().toLong(),
         )
         val stretchedFamily = remember {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                FontFamily(
-                    androidx.compose.ui.text.font.Font(
-                        resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
-                        weight = FontWeight.Black,
-                        variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
-                            androidx.compose.ui.text.font.FontVariation.weight(FontWeight.Black.weight),
-                            androidx.compose.ui.text.font.FontVariation.Setting("ROND", 100f),
-                            androidx.compose.ui.text.font.FontVariation.Setting("wdth", 125f),
-                        ),
+            FontFamily(
+                androidx.compose.ui.text.font.Font(
+                    resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
+                    weight = FontWeight.Black,
+                    variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
+                        androidx.compose.ui.text.font.FontVariation.weight(FontWeight.Black.weight),
+                        androidx.compose.ui.text.font.FontVariation.Setting("ROND", 100f),
+                        androidx.compose.ui.text.font.FontVariation.Setting("wdth", 125f),
                     ),
-                )
-            } else {
-                FontFamily.Default
-            }
+                ),
+            )
         }
         if (isLandscape) {
             Column(
