@@ -50,6 +50,20 @@ third_party/qwen3-asr-rs/target_stream_check/
 # Native Qwen3 runtime crate artifacts
 native/qwen3_runtime/target/
 native/qwen3_runtime/Cargo.lock
+
+# Native TTS runtime build artifacts
+native/sgt_tts_runtime/target/
+native/magpie_runtime/build/
+!native/magpie_runtime/dist/
+native/magpie_runtime/dist/*.zip
+native/magpie_runtime/dist/*.part*
+native/magpie_runtime/dist/*.sha256
+!native/magpie_runtime/dist/.gitkeep
+!native/magpie_runtime/dist/sgt_magpie_runtime.manifest.json
+!native/step_audio_runtime/dist/
+!native/step_audio_runtime/dist/.gitkeep
+!native/voxtral_runtime/dist/
+!native/voxtral_runtime/dist/.gitkeep
 third_party/moonshine-voice/
 third_party/sherpa-onnx-win/
 docs/index.bleve/

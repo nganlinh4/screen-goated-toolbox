@@ -442,6 +442,39 @@ fn voice_label(config: &Config) -> String {
         TtsMethod::GeminiLive => config.tts_playground.gemini_voice.clone(),
         TtsMethod::GoogleTranslate => "Google Translate".to_string(),
         TtsMethod::EdgeTTS => config.tts_playground.edge_voice.clone(),
+        TtsMethod::FishAudioS2Pro => "Removed TTS model".to_string(),
+        TtsMethod::StepAudioEditX => {
+            let v = config.tts_playground.step_audio_settings.voice.trim();
+            if v.is_empty() {
+                "Step Audio EditX".to_string()
+            } else {
+                format!("Step · {v}")
+            }
+        }
+        TtsMethod::MagpieMultilingual => {
+            let v = config.tts_playground.magpie_settings.voice.trim();
+            if v.is_empty() {
+                "NVIDIA Magpie-Multilingual 357M".to_string()
+            } else {
+                format!("NVIDIA Magpie-Multilingual 357M · {v}")
+            }
+        }
+        TtsMethod::Kokoro => {
+            let v = config.tts_playground.kokoro_settings.voice.trim();
+            if v.is_empty() {
+                "Kokoro 82M v1.0".to_string()
+            } else {
+                format!("Kokoro 82M v1.0 · {v}")
+            }
+        }
+        TtsMethod::VoxtralTts => {
+            let v = config.tts_playground.voxtral_settings.voice.trim();
+            if v.is_empty() {
+                "Mistral Voxtral 4B TTS".to_string()
+            } else {
+                format!("Mistral Voxtral 4B TTS · {v}")
+            }
+        }
     }
 }
 

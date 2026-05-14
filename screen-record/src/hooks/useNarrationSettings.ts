@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@/lib/ipc';
 
-export type NarrationTtsMethod = 'GeminiLive' | 'GoogleTranslate' | 'EdgeTTS';
+export type NarrationTtsMethod =
+  | 'GeminiLive'
+  | 'GoogleTranslate'
+  | 'EdgeTTS'
+  | 'Kokoro'
+  | 'MagpieMultilingual';
 
 export interface NarrationLanguageCondition {
   languageCode: string;
@@ -13,6 +18,18 @@ export interface NarrationEdgeVoiceConfig {
   languageCode: string;
   languageName: string;
   voiceName: string;
+}
+
+export interface NarrationKokoroVoiceConfig {
+  languageCode: string;
+  languageName: string;
+  voiceId: string;
+}
+
+export interface NarrationMagpieVoiceConfig {
+  languageCode: string;
+  languageName: string;
+  voiceId: string;
 }
 
 export interface NarrationSettingsState {
@@ -27,6 +44,12 @@ export interface NarrationSettingsState {
   edgePitch: number;
   edgeRate: number;
   edgeVoiceConfigs: NarrationEdgeVoiceConfig[];
+  kokoroVoice: string;
+  kokoroSpeed: number;
+  kokoroNumThreads: number;
+  kokoroVoiceConfigs: NarrationKokoroVoiceConfig[];
+  magpieVoice: string;
+  magpieVoiceConfigs: NarrationMagpieVoiceConfig[];
 }
 
 export interface NarrationProfilePayload extends NarrationSettingsState {}
@@ -58,12 +81,33 @@ export interface NarrationEdgeVoiceOption {
   locale: string;
 }
 
+export interface NarrationTtsProviderOption {
+  method: NarrationTtsMethod;
+  label: string;
+}
+
+export interface NarrationKokoroVoice {
+  id: string;
+  label: string;
+  languageCode: string;
+}
+
+export interface NarrationMagpieVoice {
+  id: string;
+  label: string;
+}
+
 interface NarrationTtsMetadata {
+  providers?: NarrationTtsProviderOption[];
   geminiVoices: NarrationGeminiVoice[];
   geminiModels: NarrationGeminiModel[];
   geminiInstructionLanguages: NarrationGeminiInstructionLanguage[];
   geminiSpeedOptions: string[];
   googleSpeedOptions: string[];
+  kokoroVoices?: NarrationKokoroVoice[];
+  kokoroVoiceLanguages?: NarrationGeminiInstructionLanguage[];
+  magpieVoices?: NarrationMagpieVoice[];
+  magpieVoiceLanguages?: NarrationGeminiInstructionLanguage[];
   edgeVoiceState?: 'idle' | 'loading' | 'loaded' | 'error';
   edgeVoiceError?: string | null;
   edgeVoiceLanguages?: NarrationEdgeVoiceLanguage[];
@@ -71,7 +115,7 @@ interface NarrationTtsMetadata {
   defaults: NarrationSettingsState;
 }
 
-const STORAGE_KEY = 'screen-record-narration-tts-v2';
+const STORAGE_KEY = 'screen-record-narration-tts-v3';
 
 const FALLBACK_DEFAULTS: NarrationSettingsState = {
   method: 'GeminiLive',
@@ -85,6 +129,12 @@ const FALLBACK_DEFAULTS: NarrationSettingsState = {
   edgePitch: 0,
   edgeRate: 0,
   edgeVoiceConfigs: [],
+  kokoroVoice: 'af_heart',
+  kokoroSpeed: 1,
+  kokoroNumThreads: 2,
+  kokoroVoiceConfigs: [],
+  magpieVoice: '',
+  magpieVoiceConfigs: [],
 };
 
 function readStoredOverrides(): Partial<NarrationSettingsState> | null {
@@ -110,6 +160,12 @@ function mergeWithDefaults(
     edgeVoiceConfigs: Array.isArray(defaults.edgeVoiceConfigs)
       ? defaults.edgeVoiceConfigs
       : FALLBACK_DEFAULTS.edgeVoiceConfigs,
+    kokoroVoiceConfigs: Array.isArray(defaults.kokoroVoiceConfigs)
+      ? defaults.kokoroVoiceConfigs
+      : FALLBACK_DEFAULTS.kokoroVoiceConfigs,
+    magpieVoiceConfigs: Array.isArray(defaults.magpieVoiceConfigs)
+      ? defaults.magpieVoiceConfigs
+      : FALLBACK_DEFAULTS.magpieVoiceConfigs,
   };
   if (!overrides) return normalizedDefaults;
   return {
@@ -121,6 +177,12 @@ function mergeWithDefaults(
     edgeVoiceConfigs: Array.isArray(overrides.edgeVoiceConfigs) && overrides.edgeVoiceConfigs.length
       ? overrides.edgeVoiceConfigs
       : normalizedDefaults.edgeVoiceConfigs,
+    kokoroVoiceConfigs: Array.isArray(overrides.kokoroVoiceConfigs) && overrides.kokoroVoiceConfigs.length
+      ? overrides.kokoroVoiceConfigs
+      : normalizedDefaults.kokoroVoiceConfigs,
+    magpieVoiceConfigs: Array.isArray(overrides.magpieVoiceConfigs) && overrides.magpieVoiceConfigs.length
+      ? overrides.magpieVoiceConfigs
+      : normalizedDefaults.magpieVoiceConfigs,
   };
 }
 

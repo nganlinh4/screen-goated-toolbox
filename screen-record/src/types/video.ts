@@ -279,6 +279,20 @@ export interface TtsProfileSnapshot {
     languageName: string;
     voiceName: string;
   }>;
+  magpieVoice?: string;
+  magpieVoiceConfigs?: Array<{
+    languageCode: string;
+    languageName: string;
+    voiceId: string;
+  }>;
+  kokoroVoice?: string;
+  kokoroSpeed?: number;
+  kokoroNumThreads?: number;
+  kokoroVoiceConfigs?: Array<{
+    languageCode: string;
+    languageName: string;
+    voiceId: string;
+  }>;
 }
 
 export type RecordingMode = "withoutCursor" | "withCursor" | "imported";

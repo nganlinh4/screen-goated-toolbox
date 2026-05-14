@@ -1,0 +1,14 @@
+{
+  "version": "2026.05.14",
+  "abiVersion": 1,
+  "entrypoint": "magpie-sidecar/magpie-sidecar.exe",
+  "installedSize": 1628104142,
+  "chunks": [
+    {
+      "filename": "sgt-magpie-runtime-2026.05.14.zip.part001",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-magpie-runtime-2026.05.14.zip.part001",
+      "sha256": "51bb1507a2558d9fd8996a72157ded1844f6a89b1ce67f795f301cdf93e3b200",
+      "size": 513774849
+    }
+  ]
+}

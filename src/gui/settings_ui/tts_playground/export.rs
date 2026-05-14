@@ -46,6 +46,11 @@ fn default_filename(artifact: &TtsPlaygroundArtifact, ext: &str) -> String {
         crate::config::TtsMethod::GeminiLive => "gemini",
         crate::config::TtsMethod::GoogleTranslate => "google",
         crate::config::TtsMethod::EdgeTTS => "edge",
+        crate::config::TtsMethod::FishAudioS2Pro => "removed-tts-model",
+        crate::config::TtsMethod::StepAudioEditX => "step-editx",
+        crate::config::TtsMethod::MagpieMultilingual => "magpie",
+        crate::config::TtsMethod::Kokoro => "kokoro",
+        crate::config::TtsMethod::VoxtralTts => "voxtral",
     };
     let voice = artifact
         .voice_label

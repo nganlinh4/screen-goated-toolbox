@@ -34,6 +34,57 @@ pub fn is_sherpa_dlls_installed() -> bool {
     required_dlls_present(&dir)
 }
 
+pub fn remove_sherpa_dlls() -> Result<()> {
+    let dir = sherpa_bin_dir();
+    if !dir.exists() {
+        return Ok(());
+    }
+
+    let mut failures = Vec::new();
+    for name in REQUIRED_DLLS {
+        let path = dir.join(name);
+        if !path.exists() {
+            continue;
+        }
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(remove_err) => {
+                let pending = dir.join(format!("{name}.delete-pending"));
+                let _ = std::fs::remove_file(&pending);
+                match std::fs::rename(&path, &pending) {
+                    Ok(()) => {}
+                    Err(rename_err) => failures.push(format!(
+                        "{name}: remove failed ({remove_err}); rename failed ({rename_err})"
+                    )),
+                }
+            }
+        }
+    }
+
+    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.ends_with(".delete-pending"))
+            .unwrap_or(false)
+        {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    let _ = std::fs::remove_dir(&dir);
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "Some sherpa-onnx DLLs are still in use. Close active realtime/Kokoro sessions or restart the app, then remove again. {}",
+            failures.join("; ")
+        ))
+    }
+}
+
 /// Downloads and installs sherpa-onnx DLLs.
 /// `on_progress(p)` with p in 0.0..=1.0.
 /// Returns Ok(()) if already installed or after successful install.
@@ -41,6 +92,7 @@ pub fn download_sherpa_dlls_with_progress(
     stop_signal: Arc<AtomicBool>,
     on_progress: impl Fn(f32),
 ) -> Result<()> {
+    cleanup_pending_delete_files(&sherpa_bin_dir());
     if is_sherpa_dlls_installed() {
         return Ok(());
     }
@@ -111,6 +163,7 @@ pub fn download_sherpa_dlls_with_progress(
 }
 
 pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) -> Result<()> {
+    cleanup_pending_delete_files(&sherpa_bin_dir());
     if is_sherpa_dlls_installed() {
         return Ok(());
     }
@@ -264,6 +317,22 @@ fn required_dlls_present(dir: &std::path::Path) -> bool {
     REQUIRED_DLLS
         .iter()
         .all(|name| has_nonempty_file(&dir.join(name)))
+}
+
+fn cleanup_pending_delete_files(dir: &std::path::Path) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.ends_with(".delete-pending"))
+                .unwrap_or(false)
+            {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
 }
 
 fn has_nonempty_file(path: &std::path::Path) -> bool {

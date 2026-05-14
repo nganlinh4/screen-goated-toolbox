@@ -91,6 +91,10 @@ internal fun RenderGlobalTtsSettingsDialog(
         MobileTtsMethod.GEMINI_LIVE -> MaterialTheme.colorScheme.primary
         MobileTtsMethod.EDGE_TTS -> MaterialTheme.colorScheme.tertiary
         MobileTtsMethod.GOOGLE_TRANSLATE -> MaterialTheme.colorScheme.secondary
+        MobileTtsMethod.STEP_AUDIO_EDITX,
+        MobileTtsMethod.MAGPIE_MULTILINGUAL,
+        MobileTtsMethod.KOKORO,
+        MobileTtsMethod.VOXTRAL_TTS -> MaterialTheme.colorScheme.primary
     }
 
     ExpressiveDialogSurface(
@@ -99,6 +103,10 @@ internal fun RenderGlobalTtsSettingsDialog(
             MobileTtsMethod.GEMINI_LIVE -> R.drawable.ms_auto_awesome
             MobileTtsMethod.EDGE_TTS -> R.drawable.ms_graphic_eq
             MobileTtsMethod.GOOGLE_TRANSLATE -> R.drawable.ms_language
+            MobileTtsMethod.STEP_AUDIO_EDITX,
+            MobileTtsMethod.MAGPIE_MULTILINGUAL,
+            MobileTtsMethod.KOKORO,
+            MobileTtsMethod.VOXTRAL_TTS -> R.drawable.ms_graphic_eq
         },
         accent = accent,
         morphPair = ExpressiveMorphPair(MaterialShapes.Square, MaterialShapes.Cookie6Sided),
@@ -107,6 +115,10 @@ internal fun RenderGlobalTtsSettingsDialog(
             MobileTtsMethod.GEMINI_LIVE -> locale.ttsMethodStandard
             MobileTtsMethod.EDGE_TTS -> locale.ttsMethodEdge
             MobileTtsMethod.GOOGLE_TRANSLATE -> locale.ttsMethodFast
+            MobileTtsMethod.STEP_AUDIO_EDITX -> "Step Audio EditX"
+            MobileTtsMethod.MAGPIE_MULTILINGUAL -> "NVIDIA Magpie-Multilingual 357M"
+            MobileTtsMethod.KOKORO -> "Kokoro 82M v1.0"
+            MobileTtsMethod.VOXTRAL_TTS -> "Mistral Voxtral 4B TTS"
         },
         headerTrailing = if (isLandscape && !geminiOnly) {
             {
@@ -187,6 +199,15 @@ internal fun RenderGlobalTtsSettingsDialog(
                             onChanged = onEdgeSettingsChanged,
                             onRetryCatalog = onRetryEdgeVoiceCatalog,
                             onPreviewVoice = onPreviewEdgeVoice,
+                        )
+
+                        MobileTtsMethod.STEP_AUDIO_EDITX,
+                        MobileTtsMethod.MAGPIE_MULTILINGUAL,
+                        MobileTtsMethod.KOKORO,
+                        MobileTtsMethod.VOXTRAL_TTS -> OpenWeightsSection(
+                            settings = settings,
+                            method = settings.method,
+                            onSettingsChanged = onSettingsChanged,
                         )
                     }
                 }
@@ -328,6 +349,10 @@ private fun compactMethodLabel(
             MobileTtsMethod.GEMINI_LIVE -> locale.ttsMethodStandard
             MobileTtsMethod.EDGE_TTS -> locale.ttsMethodEdge
             MobileTtsMethod.GOOGLE_TRANSLATE -> locale.ttsMethodFast
+            MobileTtsMethod.STEP_AUDIO_EDITX -> "Step Audio EditX"
+            MobileTtsMethod.MAGPIE_MULTILINGUAL -> "NVIDIA Magpie-Multilingual 357M"
+            MobileTtsMethod.KOKORO -> "Kokoro 82M v1.0"
+            MobileTtsMethod.VOXTRAL_TTS -> "Mistral Voxtral 4B TTS"
         }
     }
     return when {
@@ -335,16 +360,28 @@ private fun compactMethodLabel(
             MobileTtsMethod.GEMINI_LIVE -> "Xịn"
             MobileTtsMethod.EDGE_TTS -> "Tốt"
             MobileTtsMethod.GOOGLE_TRANSLATE -> "Nhanh"
+            MobileTtsMethod.STEP_AUDIO_EDITX -> "Step Audio EditX"
+            MobileTtsMethod.MAGPIE_MULTILINGUAL -> "NVIDIA Magpie-Multilingual 357M"
+            MobileTtsMethod.KOKORO -> "Kokoro 82M v1.0"
+            MobileTtsMethod.VOXTRAL_TTS -> "Mistral Voxtral 4B TTS"
         }
         locale.ttsMethodFast.contains("빠름") -> when (method) {
             MobileTtsMethod.GEMINI_LIVE -> "표준"
             MobileTtsMethod.EDGE_TTS -> "좋음"
             MobileTtsMethod.GOOGLE_TRANSLATE -> "빠름"
+            MobileTtsMethod.STEP_AUDIO_EDITX -> "Step Audio EditX"
+            MobileTtsMethod.MAGPIE_MULTILINGUAL -> "NVIDIA Magpie-Multilingual 357M"
+            MobileTtsMethod.KOKORO -> "Kokoro 82M v1.0"
+            MobileTtsMethod.VOXTRAL_TTS -> "Mistral Voxtral 4B TTS"
         }
         else -> when (method) {
             MobileTtsMethod.GEMINI_LIVE -> "Standard"
             MobileTtsMethod.EDGE_TTS -> "Edge"
             MobileTtsMethod.GOOGLE_TRANSLATE -> "Google Trans."
+            MobileTtsMethod.STEP_AUDIO_EDITX -> "Step Audio EditX"
+            MobileTtsMethod.MAGPIE_MULTILINGUAL -> "NVIDIA Magpie-Multilingual 357M"
+            MobileTtsMethod.KOKORO -> "Kokoro 82M v1.0"
+            MobileTtsMethod.VOXTRAL_TTS -> "Mistral Voxtral 4B TTS"
         }
     }
 }

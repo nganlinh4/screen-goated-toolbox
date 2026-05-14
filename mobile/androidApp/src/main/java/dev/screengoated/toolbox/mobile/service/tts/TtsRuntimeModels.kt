@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.service.tts
 
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
+import dev.screengoated.toolbox.mobile.model.MobileKokoroSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
@@ -42,6 +43,7 @@ data class TtsRequestSettingsSnapshot(
     val speedPreset: MobileTtsSpeedPreset,
     val languageConditions: List<MobileTtsLanguageCondition>,
     val edgeSettings: MobileEdgeTtsSettings,
+    val kokoroSettings: MobileKokoroSettings = MobileKokoroSettings(),
     val targetLanguage: String? = null,
     val realtimeSpeedPercent: Int = 100,
     val realtimeAutoSpeed: Boolean = true,
@@ -105,6 +107,7 @@ fun MobileGlobalTtsSettings.toRuntimeSnapshot(
         speedPreset = speedPreset,
         languageConditions = languageConditions,
         edgeSettings = edgeSettings,
+        kokoroSettings = kokoroSettings,
         targetLanguage = targetLanguage,
         realtimeSpeedPercent = realtimeSettings?.speedPercent ?: 100,
         realtimeAutoSpeed = realtimeSettings?.autoSpeed ?: true,

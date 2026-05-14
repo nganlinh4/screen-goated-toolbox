@@ -1,0 +1,15 @@
+name: sgt-magpie-runtime
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pytorch
+  - pytorch-cuda=12.8
+  - numpy
+  - omegaconf
+  - pip:
+      - "nemo_toolkit[tts]"
+      - kaldialign

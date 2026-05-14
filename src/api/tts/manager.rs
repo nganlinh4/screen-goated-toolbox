@@ -89,6 +89,11 @@ impl TtsManager {
         text: &str,
         profile: TtsRequestProfile,
     ) -> anyhow::Result<TtsCollectedAudio> {
+        let timeout = if matches!(profile.method, crate::config::TtsMethod::MagpieMultilingual) {
+            std::time::Duration::from_secs(240)
+        } else {
+            std::time::Duration::from_secs(90)
+        };
         let id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
         let generation = self.interrupt_generation.load(Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
@@ -113,7 +118,7 @@ impl TtsManager {
 
         let mut audio_bytes = Vec::new();
         loop {
-            match rx.recv_timeout(std::time::Duration::from_secs(90)) {
+            match rx.recv_timeout(timeout) {
                 Ok(AudioEvent::Data(data)) => audio_bytes.extend_from_slice(&data),
                 Ok(AudioEvent::End) => break,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {

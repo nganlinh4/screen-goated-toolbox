@@ -204,15 +204,35 @@ impl DownloadManager {
 
     pub fn start_download_zipformer_lang(&self, lang: ZipformerLanguage) {
         let status = self.zipformer_lang_statuses[&lang].clone();
+        let dll_status = self.zipformer_dlls_status.clone();
         *status.lock().unwrap() = InstallStatus::Downloading(0.0);
         let stop = Arc::new(AtomicBool::new(false));
         std::thread::spawn(move || {
-            let status_cb = status.clone();
-            let result = sherpa_onnx::download_model_with_progress(lang, &stop, move |p| {
-                *status_cb.lock().unwrap() = InstallStatus::Downloading(p);
-            });
+            let result = (|| -> anyhow::Result<()> {
+                if !sherpa_onnx::dlls::is_sherpa_dlls_installed() {
+                    *dll_status.lock().unwrap() = InstallStatus::Downloading(0.0);
+                    let dll_status_cb = dll_status.clone();
+                    sherpa_onnx::dlls::download_sherpa_dlls_with_progress(
+                        stop.clone(),
+                        move |p| {
+                            *dll_status_cb.lock().unwrap() = InstallStatus::Downloading(p);
+                        },
+                    )?;
+                    *dll_status.lock().unwrap() = InstallStatus::Installed;
+                }
+
+                let status_cb = status.clone();
+                sherpa_onnx::download_model_with_progress(lang, &stop, move |p| {
+                    *status_cb.lock().unwrap() = InstallStatus::Downloading(p);
+                })
+            })();
             let s = status_after_result(result);
             *status.lock().unwrap() = s;
+            if !sherpa_onnx::dlls::is_sherpa_dlls_installed()
+                && !matches!(*dll_status.lock().unwrap(), InstallStatus::Downloading(_))
+            {
+                *dll_status.lock().unwrap() = InstallStatus::Missing;
+            }
         });
     }
 }

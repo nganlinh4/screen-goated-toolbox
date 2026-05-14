@@ -60,6 +60,18 @@
         "request_mode": "INTERRUPT",
         "preview_text_source": "locale.tts_preview_texts"
       }
+    },
+    {
+      "name": "edge_ssml_volume_is_not_applied_again_by_player",
+      "initial_settings": {
+        "method": "EDGE_TTS",
+        "edge_volume": 40
+      },
+      "action": "play_edge_tts_request",
+      "expected": {
+        "ssml_volume_percent": 40,
+        "playback_volume_percent": 100
+      }
     }
   ]
 }

@@ -68,6 +68,12 @@ function profileToSnapshot(profile: NarrationProfilePayload): TtsProfileSnapshot
     edgePitch: profile.edgePitch,
     edgeRate: profile.edgeRate,
     edgeVoiceConfigs: profile.edgeVoiceConfigs,
+    magpieVoice: profile.magpieVoice,
+    magpieVoiceConfigs: profile.magpieVoiceConfigs,
+    kokoroVoice: profile.kokoroVoice,
+    kokoroSpeed: profile.kokoroSpeed,
+    kokoroNumThreads: profile.kokoroNumThreads,
+    kokoroVoiceConfigs: profile.kokoroVoiceConfigs,
   };
 }
 

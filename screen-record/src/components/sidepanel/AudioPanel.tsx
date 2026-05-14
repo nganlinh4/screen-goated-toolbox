@@ -41,6 +41,11 @@ function getTimelineDuration(segment: AudioPanelSegment) {
   return Math.max(0.05, (segment.outPoint - segment.inPoint) / clampRate(segment.playbackRate ?? 1));
 }
 
+function readFiniteNumber(value: string | undefined, fallback: number) {
+  const parsed = Number.parseFloat(value ?? '');
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export function AudioPanel({
   importedSegments,
   narrationSegments,
@@ -127,6 +132,16 @@ export function AudioPanel({
     return value.replace(/["\\]/g, '\\$&');
   };
 
+  const resetTimelineVisualDraft = (segment: AudioPanelSegment) => {
+    const selector = segment.kind === 'narration'
+      ? `.narration-track-segment[data-narration-segment-id="${escapeSelectorValue(segment.id)}"]`
+      : `.audio-track-segment[data-audio-segment-id="${escapeSelectorValue(segment.id)}"]`;
+    const element = document.querySelector<HTMLElement>(selector);
+    if (!element) return;
+    delete element.dataset.sgtPreviewBaseWidthPct;
+    delete element.dataset.sgtPreviewBaseLeftPct;
+  };
+
   const applyTimelineVisualDraft = (segment: AudioPanelSegment, patch: AudioPanelDraft) => {
     const selector = segment.kind === 'narration'
       ? `.narration-track-segment[data-narration-segment-id="${escapeSelectorValue(segment.id)}"]`
@@ -134,20 +149,46 @@ export function AudioPanel({
     const element = document.querySelector<HTMLElement>(selector);
     if (!element) return;
 
-    const baseWidthPct = Number.parseFloat(
-      element.dataset.sgtPreviewBaseWidthPct || element.style.width || '0',
-    );
-    if (!Number.isFinite(baseWidthPct) || baseWidthPct <= 0) return;
-    element.dataset.sgtPreviewBaseWidthPct ||= String(baseWidthPct);
-
-    const baseTimelineLength = getTimelineDuration(segment);
-    if (baseTimelineLength <= 0) return;
-    const timelineDuration = baseTimelineLength / (baseWidthPct / 100);
+    const timelineDuration = readFiniteNumber(element.dataset.timelineDuration, 0);
     if (!Number.isFinite(timelineDuration) || timelineDuration <= 0) return;
 
-    const previewSegment = { ...segment, ...patch };
-    const nextWidthPct = Math.max(0.001, (getTimelineDuration(previewSegment) / timelineDuration) * 100);
+    const previewSegment: AudioPanelSegment = {
+      ...segment,
+      duration: readFiniteNumber(element.dataset.duration, segment.duration),
+      startTime: readFiniteNumber(element.dataset.startTime, segment.startTime),
+      inPoint: readFiniteNumber(element.dataset.inPoint, segment.inPoint),
+      outPoint: readFiniteNumber(element.dataset.outPoint, segment.outPoint),
+      playbackRate: readFiniteNumber(element.dataset.playbackRate, segment.playbackRate ?? 1),
+      ...patch,
+    };
+    const leftPct = Math.min(100, Math.max(0, (previewSegment.startTime / timelineDuration) * 100));
+    const nextWidthPct = Math.min(100, Math.max(0.001, (getTimelineDuration(previewSegment) / timelineDuration) * 100));
+    element.dataset.sgtPreviewBaseLeftPct ||= element.style.left || `${leftPct}%`;
+    element.dataset.sgtPreviewBaseWidthPct ||= element.style.width || `${nextWidthPct}%`;
+    element.style.left = `${leftPct}%`;
     element.style.width = `${nextWidthPct}%`;
+
+    const rate = clampRate(previewSegment.playbackRate ?? 1);
+    let speedBadge = element.querySelector<HTMLElement>(
+      segment.kind === 'narration' ? '.narration-track-segment-speed' : '.audio-track-segment-speed',
+    );
+    if (!speedBadge) {
+      const content = element.querySelector<HTMLElement>(
+        segment.kind === 'narration' ? '.narration-track-segment-content' : '.audio-track-segment-content',
+      );
+      if (content) {
+        speedBadge = document.createElement('span');
+        speedBadge.className = segment.kind === 'narration'
+          ? 'narration-track-segment-speed ml-auto rounded bg-[var(--secondary-color)]/30 px-1 text-[9px] font-semibold leading-3'
+          : 'audio-track-segment-speed ml-auto rounded bg-[var(--primary-color)]/30 px-1 text-[9px] font-semibold leading-3';
+        speedBadge.dataset.sgtPreviewCreated = 'true';
+        content.appendChild(speedBadge);
+      }
+    }
+    if (speedBadge) {
+      speedBadge.textContent = `${rate.toFixed(2)}×`;
+      speedBadge.style.display = Math.abs(rate - 1) > 0.001 ? '' : 'none';
+    }
   };
 
   const flushPreviewDrafts = () => {
@@ -192,6 +233,7 @@ export function AudioPanel({
         const { [key]: _removed, ...rest } = prev;
         return rest;
       });
+      resetTimelineVisualDraft(segment);
       commitSegment(segment);
     }
   };

@@ -7,6 +7,9 @@
 //! every 2 seconds for new sentence chunks.
 
 mod capture;
+pub mod kokoro_assets;
+pub mod magpie_assets;
+pub mod magpie_runtime;
 pub mod model_loader;
 pub mod parakeet;
 pub mod parakeet_tdt_assets;
@@ -16,10 +19,14 @@ pub mod sherpa_onnx;
 mod state;
 #[cfg(test)]
 mod state_tests;
+pub mod step_audio_assets;
 pub(crate) mod transcript_state;
 mod transcription;
 mod translation;
+pub mod tts_libtorch_runtime;
+pub mod tts_libtorch_runtime_assets;
 mod utils;
+pub mod voxtral_assets;
 pub mod websocket;
 
 use windows::Win32::UI::WindowsAndMessaging::WM_APP;

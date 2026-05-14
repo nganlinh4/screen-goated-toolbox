@@ -74,9 +74,11 @@ pub(super) fn render_zipformer_section(
                             .clicked()
                         {
                             invalidate_probe_cache(PROBE_ZIPFORMER_DLLS);
-                            let _ = std::fs::remove_dir_all(sherpa_onnx::dlls::sherpa_bin_dir());
-                            *download_manager.zipformer_dlls_status.lock().unwrap() =
-                                InstallStatus::Missing;
+                            let next_status = match sherpa_onnx::dlls::remove_sherpa_dlls() {
+                                Ok(()) => InstallStatus::Missing,
+                                Err(err) => InstallStatus::Error(err.to_string()),
+                            };
+                            *download_manager.zipformer_dlls_status.lock().unwrap() = next_status;
                         }
                         let size = get_dir_size(&sherpa_onnx::dlls::sherpa_bin_dir());
                         ui.label(
