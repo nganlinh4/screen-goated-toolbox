@@ -228,6 +228,27 @@ class AndroidTtsRuntimeService(
                         request = job.request,
                         sink = job.audioEvents,
                     )
+
+                    // Offline leaderboard TTS providers are tracked under the
+                    // Android parity spec deviation. Keep the worker exhaustive
+                    // and return one user-facing unavailable message.
+                    MobileTtsMethod.STEP_AUDIO_EDITX,
+                    MobileTtsMethod.MAGPIE_MULTILINGUAL,
+                    MobileTtsMethod.KOKORO,
+                    MobileTtsMethod.VOXTRAL_TTS -> {
+                        val name = when (method) {
+                            MobileTtsMethod.STEP_AUDIO_EDITX -> "Step Audio EditX"
+                            MobileTtsMethod.MAGPIE_MULTILINGUAL -> "NVIDIA Magpie-Multilingual 357M"
+                            MobileTtsMethod.KOKORO -> "Kokoro 82M v1.0"
+                            MobileTtsMethod.VOXTRAL_TTS -> "Mistral Voxtral 4B TTS"
+                            else -> method.name
+                        }
+                        job.audioEvents.offer(
+                            ProviderAudioEvent.Error(
+                                "$name: offline pipeline not yet available on Android."
+                            )
+                        )
+                    }
                 }
             }.also {
                 // Pre-connect next warm socket after each Gemini request
@@ -330,14 +351,7 @@ class AndroidTtsRuntimeService(
     }
 
     private fun effectiveVolumeFor(request: TtsRequest): Int {
-        return if (request.requestMode == TtsRequestMode.REALTIME) {
-            request.settingsSnapshot.realtimeVolumePercent.coerceIn(0, 200)
-        } else {
-            when (request.settingsSnapshot.method) {
-                MobileTtsMethod.EDGE_TTS -> (100 + request.settingsSnapshot.edgeSettings.volume).coerceIn(0, 200)
-                else -> 100
-            }
-        }
+        return playbackVolumePercent(request)
     }
 
     private fun syncState(activeRequest: TtsRequest? = activePlayback.get()?.request) {
@@ -386,5 +400,13 @@ class AndroidTtsRuntimeService(
     private companion object {
         private const val WORKER_COUNT = 2
         private const val WAIT_TIMEOUT_MS = 500L
+    }
+}
+
+internal fun playbackVolumePercent(request: TtsRequest): Int {
+    return if (request.requestMode == TtsRequestMode.REALTIME) {
+        request.settingsSnapshot.realtimeVolumePercent.coerceIn(0, 200)
+    } else {
+        100
     }
 }

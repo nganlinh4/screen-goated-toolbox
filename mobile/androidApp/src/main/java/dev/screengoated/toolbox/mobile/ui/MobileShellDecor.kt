@@ -74,5 +74,9 @@ internal fun methodLabel(
         MobileTtsMethod.GEMINI_LIVE -> "Gemini Live"
         MobileTtsMethod.EDGE_TTS -> "Edge TTS"
         MobileTtsMethod.GOOGLE_TRANSLATE -> "Google Trans."
+        MobileTtsMethod.STEP_AUDIO_EDITX -> "Step Audio EditX"
+        MobileTtsMethod.MAGPIE_MULTILINGUAL -> "NVIDIA Magpie-Multilingual 357M"
+        MobileTtsMethod.KOKORO -> "Kokoro 82M v1.0"
+        MobileTtsMethod.VOXTRAL_TTS -> "Mistral Voxtral 4B TTS"
     }
 }

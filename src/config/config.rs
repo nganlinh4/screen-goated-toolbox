@@ -4,9 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
-    DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey, ModelPriorityChains,
-    PresetProfile, ThemeMode, TranslationGummySettings, TtsLanguageCondition, TtsMethod,
-    TtsPlaygroundSettings, default_tts_language_conditions, get_system_ui_language,
+    DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey, KokoroSettings,
+    MagpieSettings, ModelPriorityChains, PresetProfile, StepAudioSettings, ThemeMode,
+    TranslationGummySettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
+    VoxtralSettings, default_tts_language_conditions, get_system_ui_language,
 };
 
 // ============================================================================
@@ -51,6 +52,22 @@ fn default_tts_method() -> TtsMethod {
 
 fn default_edge_tts_settings() -> EdgeTtsSettings {
     EdgeTtsSettings::default()
+}
+
+fn default_step_audio_settings() -> StepAudioSettings {
+    StepAudioSettings::default()
+}
+
+fn default_magpie_settings() -> MagpieSettings {
+    MagpieSettings::default()
+}
+
+fn default_kokoro_settings() -> KokoroSettings {
+    KokoroSettings::default()
+}
+
+fn default_voxtral_settings() -> VoxtralSettings {
+    VoxtralSettings::default()
 }
 
 fn default_tts_playground_settings() -> TtsPlaygroundSettings {
@@ -287,6 +304,22 @@ pub struct Config {
     /// Edge TTS specific settings
     #[serde(default = "default_edge_tts_settings")]
     pub edge_tts_settings: EdgeTtsSettings,
+
+    /// Step Audio EditX settings (user-hosted local server).
+    #[serde(default = "default_step_audio_settings")]
+    pub step_audio_settings: StepAudioSettings,
+
+    /// NVIDIA Magpie-Multilingual 357M settings (NIM-style local server).
+    #[serde(default = "default_magpie_settings")]
+    pub magpie_settings: MagpieSettings,
+
+    /// Kokoro 82M v1.0 settings (Kokoro-FastAPI OpenAI-compatible).
+    #[serde(default = "default_kokoro_settings")]
+    pub kokoro_settings: KokoroSettings,
+
+    /// Mistral Voxtral TTS settings (La Plateforme / self-host).
+    #[serde(default = "default_voxtral_settings")]
+    pub voxtral_settings: VoxtralSettings,
 
     /// Independent sandbox profile for the TTS Playground mini app.
     #[serde(default = "default_tts_playground_settings")]
@@ -566,6 +599,10 @@ impl Default for Config {
             tts_output_device: String::new(),
             tts_language_conditions: default_tts_language_conditions(),
             edge_tts_settings: EdgeTtsSettings::default(),
+            step_audio_settings: StepAudioSettings::default(),
+            magpie_settings: MagpieSettings::default(),
+            kokoro_settings: KokoroSettings::default(),
+            voxtral_settings: VoxtralSettings::default(),
             tts_playground: TtsPlaygroundSettings::default(),
 
             // Favorite Bubble

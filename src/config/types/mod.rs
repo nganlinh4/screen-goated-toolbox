@@ -28,6 +28,7 @@ pub use model_priority::ModelPriorityChains;
 pub use profile::PresetProfile;
 
 pub use tts::{
-    EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
-    default_tts_language_conditions,
+    EdgeTtsSettings, EdgeTtsVoiceConfig, KokoroSettings, KokoroVoiceConfig, MagpieSettings,
+    MagpieVoiceConfig, StepAudioSettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
+    VoxtralSettings, default_tts_language_conditions,
 };

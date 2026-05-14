@@ -278,6 +278,14 @@ fn maybe_run_headless_export_replay(args: &[String]) -> Option<i32> {
 }
 
 fn main() -> eframe::Result<()> {
+    let startup_args: Vec<String> = std::env::args().collect();
+    if startup_args
+        .iter()
+        .any(|arg| arg == api::realtime_audio::sherpa_onnx::ffi_tts::SHERPA_TTS_LOAD_PROBE_FLAG)
+    {
+        std::process::exit(api::realtime_audio::sherpa_onnx::ffi_tts::run_load_probe_process());
+    }
+
     crate::log_info!("========================================");
     crate::log_info!(
         "Screen Goated Toolbox v{} STARTUP",
@@ -292,7 +300,6 @@ fn main() -> eframe::Result<()> {
     // Unpack embedded DLLs
     unpack_dlls::unpack_dlls();
 
-    let startup_args: Vec<String> = std::env::args().collect();
     if let Some(exit_code) = maybe_run_headless_export_replay(&startup_args) {
         std::process::exit(exit_code);
     }

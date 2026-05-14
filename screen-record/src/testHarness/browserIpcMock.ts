@@ -52,11 +52,25 @@ function defaultResponse(cmd: string, args?: Record<string, unknown>): unknown {
       return { methods: [], available: false, reason: "test harness" };
     case "get_narration_tts_metadata":
       return {
+        providers: [
+          { method: "GeminiLive", label: "Gemini Live" },
+          { method: "EdgeTTS", label: "Edge TTS" },
+          { method: "GoogleTranslate", label: "Google Translate" },
+          { method: "Kokoro", label: "Kokoro 82M v1.0" },
+        ],
         geminiVoices: [],
         geminiModels: [],
         geminiInstructionLanguages: [],
         geminiSpeedOptions: ["Slow", "Normal", "Fast"],
         googleSpeedOptions: ["Slow", "Normal"],
+        kokoroVoiceLanguages: [
+          { languageCode: "eng", languageName: "English" },
+          { languageCode: "jpn", languageName: "Japanese" },
+        ],
+        kokoroVoices: [
+          { id: "af_heart", label: "Heart", languageCode: "en-us" },
+          { id: "jf_alpha", label: "Alpha", languageCode: "ja" },
+        ],
         edgeVoiceState: "loaded",
         edgeVoiceLanguages: [],
         edgeVoicesByLanguage: {},
@@ -72,6 +86,13 @@ function defaultResponse(cmd: string, args?: Record<string, unknown>): unknown {
           edgePitch: 0,
           edgeRate: 0,
           edgeVoiceConfigs: [],
+          kokoroVoice: "af_heart",
+          kokoroSpeed: 1,
+          kokoroNumThreads: 2,
+          kokoroVoiceConfigs: [
+            { languageCode: "eng", languageName: "English", voiceId: "af_heart" },
+            { languageCode: "jpn", languageName: "Japanese", voiceId: "jf_alpha" },
+          ],
         },
       };
     case "probe_video_metadata":

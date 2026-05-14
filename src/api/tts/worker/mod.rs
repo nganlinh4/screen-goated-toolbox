@@ -14,8 +14,13 @@ use super::websocket::{
 
 use crate::APP;
 
+mod open_weights;
 mod worker_edge;
 mod worker_google;
+mod worker_kokoro;
+mod worker_magpie;
+mod worker_step_audio;
+mod worker_voxtral;
 
 // ---- Warm socket pool for instant TTS ----
 use native_tls::TlsStream;
@@ -130,20 +135,45 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
 
         eprintln!("[TTS Worker] Using TTS method: {:?}", tts_method);
 
-        if tts_method == crate::config::TtsMethod::GoogleTranslate {
-            eprintln!("[TTS Worker] Routing to Google Translate TTS");
-            worker_google::handle_google_tts(manager.clone(), request, tx);
-            continue;
+        match tts_method {
+            crate::config::TtsMethod::GoogleTranslate => {
+                eprintln!("[TTS Worker] Routing to Google Translate TTS");
+                worker_google::handle_google_tts(manager.clone(), request, tx);
+            }
+            crate::config::TtsMethod::EdgeTTS => {
+                eprintln!("[TTS Worker] Routing to Edge TTS");
+                worker_edge::handle_edge_tts(manager.clone(), request, tx);
+            }
+            crate::config::TtsMethod::FishAudioS2Pro => {
+                eprintln!("[TTS Worker] Fish Audio S2 Pro has been removed");
+                open_weights::fail_request(
+                    "Fish Audio S2 Pro",
+                    request.req.hwnd,
+                    &tx,
+                    "Fish Audio S2 Pro was removed because it requires workstation-class GPU memory.",
+                );
+            }
+            crate::config::TtsMethod::StepAudioEditX => {
+                eprintln!("[TTS Worker] Routing to Step Audio EditX");
+                worker_step_audio::handle_step_audio_tts(manager.clone(), request, tx);
+            }
+            crate::config::TtsMethod::MagpieMultilingual => {
+                eprintln!("[TTS Worker] Routing to NVIDIA Magpie-Multilingual");
+                worker_magpie::handle_magpie_tts(manager.clone(), request, tx);
+            }
+            crate::config::TtsMethod::Kokoro => {
+                eprintln!("[TTS Worker] Routing to Kokoro 82M v1.0");
+                worker_kokoro::handle_kokoro_tts(manager.clone(), request, tx);
+            }
+            crate::config::TtsMethod::VoxtralTts => {
+                eprintln!("[TTS Worker] Routing to Mistral Voxtral TTS");
+                worker_voxtral::handle_voxtral_tts(manager.clone(), request, tx);
+            }
+            crate::config::TtsMethod::GeminiLive => {
+                eprintln!("[TTS Worker] Using Gemini TTS");
+                handle_gemini_tts(&manager, request, tx);
+            }
         }
-
-        if tts_method == crate::config::TtsMethod::EdgeTTS {
-            eprintln!("[TTS Worker] Routing to Edge TTS");
-            worker_edge::handle_edge_tts(manager.clone(), request, tx);
-            continue;
-        }
-
-        eprintln!("[TTS Worker] Using Gemini TTS");
-        handle_gemini_tts(&manager, request, tx);
     }
 }
 

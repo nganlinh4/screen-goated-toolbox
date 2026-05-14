@@ -1,10 +1,16 @@
 package dev.screengoated.toolbox.mobile.service.tts
 
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
+import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.model.withMethod
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,8 +20,13 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
 
 class RealtimeTtsCoordinatorTest {
+    private val json = Json { ignoreUnknownKeys = true }
+
     @Test
     fun `realtime skips existing history on first enable`() = runBlocking {
         val runtime = FakeTtsRuntimeService()
@@ -85,6 +96,53 @@ class RealtimeTtsCoordinatorTest {
 
         assertEquals(MobileTtsMethod.GOOGLE_TRANSLATE, next.method)
         assertEquals(MobileTtsSpeedPreset.NORMAL, next.speedPreset)
+    }
+
+    @Test
+    fun `edge ssml volume is not applied again by player`() {
+        val case = fixtureCase("edge_ssml_volume_is_not_applied_again_by_player")
+        val edgeVolume = case.getValue("initial_settings")
+            .jsonObject
+            .getValue("edge_volume")
+            .jsonPrimitive
+            .int
+        val expectedPlaybackVolume = case.getValue("expected")
+            .jsonObject
+            .getValue("playback_volume_percent")
+            .jsonPrimitive
+            .int
+        val request = TtsRequest(
+            text = "Preview",
+            consumer = TtsConsumer.SETTINGS_PREVIEW,
+            priority = TtsPriority.PREVIEW,
+            requestMode = TtsRequestMode.INTERRUPT,
+            settingsSnapshot = MobileGlobalTtsSettings(
+                method = MobileTtsMethod.EDGE_TTS,
+                edgeSettings = MobileEdgeTtsSettings(volume = edgeVolume),
+            ).toRuntimeSnapshot(),
+            ownerToken = "settings-preview",
+        )
+
+        assertEquals(expectedPlaybackVolume, playbackVolumePercent(request))
+    }
+
+    private fun fixtureCase(name: String) = json
+        .parseToJsonElement(Files.readAllBytes(fixturePath()).decodeToString())
+        .jsonObject
+        .getValue("cases")
+        .jsonArray
+        .map { it.jsonObject }
+        .firstOrNull { it.getValue("name").jsonPrimitive.content == name }
+        ?: error("Missing fixture case: $name")
+
+    private fun fixturePath(): Path {
+        val candidates = listOf(
+            Paths.get("..", "parity-fixtures", "tts-runtime", "queue-semantics.json"),
+            Paths.get("..", "..", "parity-fixtures", "tts-runtime", "queue-semantics.json"),
+            Paths.get("parity-fixtures", "tts-runtime", "queue-semantics.json"),
+        )
+        return candidates.firstOrNull { Files.exists(it) }
+            ?: error("Missing TTS runtime fixture. Tried: $candidates")
     }
 }
 

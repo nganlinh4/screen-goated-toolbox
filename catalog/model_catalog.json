@@ -23,7 +23,7 @@
   "defaults": {
     "tts_gemini_live_model": "gemini-3.1-flash-live-preview",
     "realtime_transcription_model": "gemini-live-audio",
-    "live_session_transcription_provider_id": "zipformer",
+    "live_session_transcription_provider_id": "gemini-live-audio",
     "live_session_translation_provider_id": "cerebras-oss"
   },
   "preset_defaults": {
@@ -106,6 +106,72 @@
     {
       "api_model": "gemini-3.1-flash-live-preview",
       "label": "Live 3.1"
+    }
+  ],
+  "tts_open_models": [
+    {
+      "id": "kokoro-82m-v1",
+      "method": "Kokoro",
+      "label": "Kokoro 82M v1.0",
+      "elo": 1056,
+      "runtime": "sherpa-onnx",
+      "install_dir": "models/kokoro_v1",
+      "download_primary": "https://huggingface.co/csukuangfj/sherpa-onnx-kokoro-multi-lang-v1_0/resolve/main",
+      "download_fallback_modelscope": "https://modelscope.cn/models/csukuangfj/sherpa-onnx-kokoro-multi-lang-v1_0/resolve/master",
+      "required_files": ["model.onnx", "voices.bin", "tokens.txt"],
+      "required_archives": [
+        {
+          "filename": "espeak-ng-data.tar.bz2",
+          "extracted_marker": "espeak-ng-data/phontab"
+        }
+      ],
+      "approx_size_mb": 310,
+      "offline_available": true,
+      "notes": "Supports English, Mandarin Chinese, Japanese, Spanish, French, Hindi, Italian, and Portuguese."
+    },
+    {
+      "id": "step-audio-editx",
+      "method": "StepAudioEditX",
+      "label": "Step Audio EditX",
+      "elo": 1104,
+      "runtime": "libtorch-shim",
+      "install_dir": "models/step_audio_editx",
+      "download_primary": "https://huggingface.co/stepfun-ai/Step-Audio-EditX/resolve/main",
+      "download_fallback_modelscope": "https://modelscope.cn/models/stepfun-ai/Step-Audio-EditX/resolve/master",
+      "runtime_dll_url": "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/step_audio_runtime/dist/sgt_step_audio_runtime.dll",
+      "approx_size_mb": 6000,
+      "offline_available": true,
+      "notes": "Supports Mandarin, English, Sichuanese, Cantonese, Japanese, and Korean."
+    },
+    {
+      "id": "magpie-multilingual-357m",
+      "method": "MagpieMultilingual",
+      "label": "NVIDIA Magpie-Multilingual 357M",
+      "elo": 1063,
+      "runtime": "managed-python-nemo",
+      "install_dir": "models/magpie_multilingual_357m",
+      "download_primary": "https://huggingface.co/nvidia/magpie_tts_multilingual_357m/resolve/main",
+      "download_fallback_modelscope": "https://modelscope.cn/models/nvidia/magpie_tts_multilingual_357m/resolve/master",
+      "runtime_manifest_url": "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/magpie_runtime/dist/sgt_magpie_runtime.manifest.json",
+      "required_files": ["magpie_tts_multilingual_357m.nemo", "nemo-nano-codec-22khz-1.89kbps-21.5fps.nemo"],
+      "approx_size_mb": 1560,
+      "offline_available": true,
+      "notes": "Supports English, Spanish, German, French, Vietnamese, Italian, Mandarin Chinese, Hindi, and Japanese."
+    },
+    {
+      "id": "voxtral-tts-26-03",
+      "method": "VoxtralTts",
+      "label": "Mistral Voxtral 4B TTS",
+      "elo": 1056,
+      "runtime": "libtorch-shim",
+      "install_dir": "models/voxtral_tts_2603",
+      "download_primary": "https://huggingface.co/mistralai/Voxtral-4B-TTS-2603/resolve/main",
+      "download_fallback_modelscope": "https://modelscope.cn/models/mistralai/Voxtral-4B-TTS-2603/resolve/master",
+      "runtime_dll_url": "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/voxtral_runtime/dist/sgt_voxtral_runtime.dll",
+      "approx_size_mb": 8000,
+      "offline_available": true,
+      "license": "CC BY-NC 4.0",
+      "notes": "Supports English, French, Spanish, German, Italian, Portuguese, Dutch, Arabic, and Hindi."
     }
   ],
   "live_translation_providers": [

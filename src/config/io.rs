@@ -73,6 +73,7 @@ fn migrate_config(config: &mut Config) {
         ModelType::Text,
     );
     normalize_translation_gummy_settings(config);
+    normalize_removed_tts_methods(config);
 
     if config.realtime_translation_model == "taalas-rt" {
         config.realtime_translation_model =
@@ -80,6 +81,15 @@ fn migrate_config(config: &mut Config) {
     }
 
     config.sync_active_profile_from_presets();
+}
+
+fn normalize_removed_tts_methods(config: &mut Config) {
+    if config.tts_method == crate::config::TtsMethod::FishAudioS2Pro {
+        config.tts_method = crate::config::TtsMethod::GeminiLive;
+    }
+    if config.tts_playground.method == crate::config::TtsMethod::FishAudioS2Pro {
+        config.tts_playground.method = crate::config::TtsMethod::GeminiLive;
+    }
 }
 
 fn migrate_preset_list(presets: &mut Vec<Preset>, default_presets: &[Preset]) {

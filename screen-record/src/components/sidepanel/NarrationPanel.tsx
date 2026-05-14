@@ -8,7 +8,9 @@ import { useSubtitleNarration } from '@/hooks/useSubtitleNarration';
 import {
   useNarrationSettings,
   type NarrationEdgeVoiceConfig,
+  type NarrationKokoroVoiceConfig,
   type NarrationLanguageCondition,
+  type NarrationMagpieVoiceConfig,
   type NarrationTtsMethod,
 } from '@/hooks/useNarrationSettings';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
@@ -27,6 +29,30 @@ function getInitialReadUnsplitSubtitles() {
     return raw === null ? true : raw === 'true';
   } catch {
     return true;
+  }
+}
+
+function kokoroVoiceLanguageForCondition(languageCode: string) {
+  switch (languageCode.toLowerCase()) {
+    case 'eng':
+      return 'en-us';
+    case 'cmn':
+    case 'zho':
+      return 'zh';
+    case 'jpn':
+      return 'ja';
+    case 'spa':
+      return 'es';
+    case 'fra':
+      return 'fr';
+    case 'hin':
+      return 'hi';
+    case 'ita':
+      return 'it';
+    case 'por':
+      return 'pt-br';
+    default:
+      return '';
   }
 }
 
@@ -125,10 +151,44 @@ export function NarrationPanel({
   const geminiInstructionLanguages = metadata?.geminiInstructionLanguages ?? [];
   const geminiSpeedOptions = metadata?.geminiSpeedOptions ?? ['Slow', 'Normal', 'Fast'];
   const googleSpeedOptions = metadata?.googleSpeedOptions ?? ['Slow', 'Normal'];
+  const kokoroVoices = metadata?.kokoroVoices ?? [];
+  const kokoroVoiceLanguages = metadata?.kokoroVoiceLanguages ?? [];
+  const magpieVoices = metadata?.magpieVoices ?? [];
+  const magpieVoiceLanguages = metadata?.magpieVoiceLanguages ?? [];
   const edgeVoiceLanguages = metadata?.edgeVoiceLanguages ?? [];
   const edgeVoicesByLanguage = metadata?.edgeVoicesByLanguage ?? {};
   const geminiLanguageConditions = settings.geminiLanguageConditions ?? [];
   const edgeVoiceConfigs = settings.edgeVoiceConfigs ?? [];
+  const kokoroVoiceConfigs = settings.kokoroVoiceConfigs ?? [];
+  const magpieVoiceConfigs = settings.magpieVoiceConfigs ?? [];
+  const methodLabel = (method: NarrationTtsMethod, fallback: string) => {
+    switch (method) {
+      case 'GeminiLive':
+        return t.narrationTtsMethodGemini;
+      case 'EdgeTTS':
+        return t.narrationTtsMethodEdge;
+      case 'GoogleTranslate':
+        return t.narrationTtsMethodGoogle;
+      case 'Kokoro':
+        return t.narrationTtsMethodKokoro;
+      case 'MagpieMultilingual':
+        return 'NVIDIA Magpie-Multilingual 357M';
+      default:
+        return fallback;
+    }
+  };
+  const providerOptions = (metadata?.providers?.length
+    ? metadata.providers
+    : [
+        { method: 'GeminiLive' as const, label: 'Gemini Live' },
+        { method: 'EdgeTTS' as const, label: 'Edge TTS' },
+        { method: 'GoogleTranslate' as const, label: 'Google Translate' },
+        { method: 'Kokoro' as const, label: 'Kokoro 82M v1.0' },
+        { method: 'MagpieMultilingual' as const, label: 'NVIDIA Magpie-Multilingual 357M' },
+      ]).map((provider) => ({
+        value: provider.method,
+        label: methodLabel(provider.method, provider.label),
+      }));
 
   const usedConditionCodes = new Set(
     geminiLanguageConditions.map((condition) => condition.languageCode.toLowerCase()),
@@ -195,6 +255,69 @@ export function NarrationPanel({
   );
   const availableEdgeVoiceLanguages = edgeVoiceLanguages.filter(
     (language) => !usedEdgeVoiceCodes.has(language.languageCode.toLowerCase()),
+  );
+
+  const setKokoroVoiceConfigs = (configs: NarrationKokoroVoiceConfig[]) => {
+    update('kokoroVoiceConfigs', configs);
+    update('kokoroVoice', configs[0]?.voiceId ?? settings.kokoroVoice);
+  };
+  const updateKokoroVoiceConfig = (
+    index: number,
+    next: Partial<NarrationKokoroVoiceConfig>,
+  ) => {
+    setKokoroVoiceConfigs(
+      kokoroVoiceConfigs.map((config, i) =>
+        i === index ? { ...config, ...next } : config,
+      ),
+    );
+  };
+  const removeKokoroVoiceConfig = (index: number) => {
+    setKokoroVoiceConfigs(kokoroVoiceConfigs.filter((_, i) => i !== index));
+  };
+  const addKokoroVoiceConfig = (languageCode: string, languageName: string) => {
+    const normalized = kokoroVoiceLanguageForCondition(languageCode);
+    const voiceId = kokoroVoices.find((voice) => voice.languageCode === normalized)?.id
+      ?? kokoroVoices[0]?.id
+      ?? 'af_heart';
+    setKokoroVoiceConfigs([
+      ...kokoroVoiceConfigs,
+      { languageCode, languageName, voiceId },
+    ]);
+  };
+  const usedKokoroVoiceCodes = new Set(
+    kokoroVoiceConfigs.map((config) => config.languageCode.toLowerCase()),
+  );
+  const availableKokoroVoiceLanguages = kokoroVoiceLanguages.filter(
+    (language) => !usedKokoroVoiceCodes.has(language.languageCode.toLowerCase()),
+  );
+
+  const setMagpieVoiceConfigs = (configs: NarrationMagpieVoiceConfig[]) => {
+    update('magpieVoiceConfigs', configs);
+  };
+  const updateMagpieVoiceConfig = (
+    index: number,
+    next: Partial<NarrationMagpieVoiceConfig>,
+  ) => {
+    setMagpieVoiceConfigs(
+      magpieVoiceConfigs.map((config, i) =>
+        i === index ? { ...config, ...next } : config,
+      ),
+    );
+  };
+  const removeMagpieVoiceConfig = (index: number) => {
+    setMagpieVoiceConfigs(magpieVoiceConfigs.filter((_, i) => i !== index));
+  };
+  const addMagpieVoiceConfig = (languageCode: string, languageName: string) => {
+    setMagpieVoiceConfigs([
+      ...magpieVoiceConfigs,
+      { languageCode, languageName, voiceId: magpieVoices[0]?.id ?? 'Sofia' },
+    ]);
+  };
+  const usedMagpieVoiceCodes = new Set(
+    magpieVoiceConfigs.map((config) => config.languageCode.toLowerCase()),
+  );
+  const availableMagpieVoiceLanguages = magpieVoiceLanguages.filter(
+    (language) => !usedMagpieVoiceCodes.has(language.languageCode.toLowerCase()),
   );
 
   const narration = useSubtitleNarration({
@@ -335,11 +458,7 @@ export function NarrationPanel({
             </span>
             <PanelSelect
               value={settings.method}
-              options={[
-                { value: 'GeminiLive', label: t.narrationTtsMethodGemini },
-                { value: 'EdgeTTS', label: t.narrationTtsMethodEdge },
-                { value: 'GoogleTranslate', label: t.narrationTtsMethodGoogle },
-              ]}
+              options={providerOptions}
               onChange={(value) => update('method', value as NarrationTtsMethod)}
               triggerClassName="narration-method-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
               contentClassName="narration-method-menu"
@@ -468,6 +587,151 @@ export function NarrationPanel({
                 contentClassName="narration-google-speed-menu"
               />
             </div>
+          )}
+
+          {settings.method === 'Kokoro' && (
+            <>
+              <div className="narration-panel-kokoro-voices mb-2 flex flex-col gap-1.5">
+                <span className="text-[11px] font-medium text-on-surface-variant">
+                  {t.narrationTtsKokoroVoiceConfigs}
+                </span>
+                {kokoroVoiceConfigs.map((config, index) => {
+                  const target = kokoroVoiceLanguageForCondition(config.languageCode);
+                  const options = (target
+                    ? kokoroVoices.filter((voice) => voice.languageCode === target)
+                    : kokoroVoices
+                  ).map((voice) => ({ value: voice.id, label: `${voice.id} · ${voice.label}` }));
+                  return (
+                    <div key={`${config.languageCode}-${index}`} className="narration-panel-kokoro-voice-config flex items-center gap-1.5">
+                      <span className="w-20 flex-shrink-0 truncate text-[11px] font-medium text-[var(--secondary-color)]">
+                        {config.languageName}
+                      </span>
+                      <PanelSelect
+                        value={config.voiceId}
+                        options={options}
+                        onChange={(value) => updateKokoroVoiceConfig(index, { voiceId: value })}
+                        triggerClassName="narration-kokoro-voice-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+                        contentClassName="narration-kokoro-voice-menu"
+                        searchable={options.length > 8}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeKokoroVoiceConfig(index)}
+                        className="ui-icon-button h-6 w-6 rounded-full text-on-surface-variant hover:text-[var(--tertiary-color)]"
+                        title={t.narrationTtsLanguageConditionRemove}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+                {availableKokoroVoiceLanguages.length > 0 && (
+                  <PanelSelect
+                    value={t.narrationTtsKokoroVoiceConfigAdd}
+                    options={availableKokoroVoiceLanguages.map((language) => ({
+                      value: language.languageCode,
+                      label: language.languageName,
+                    }))}
+                    onChange={(value) => {
+                      const language = availableKokoroVoiceLanguages.find(
+                        (item) => item.languageCode === value,
+                      );
+                      if (language) addKokoroVoiceConfig(language.languageCode, language.languageName);
+                    }}
+                    triggerClassName="narration-kokoro-voice-add h-8 self-start rounded-lg px-2.5 text-[11px]"
+                    contentClassName="narration-kokoro-voice-add-menu"
+                    searchable
+                  />
+                )}
+              </div>
+              <div className="narration-panel-row mb-2 flex items-center gap-2">
+                <span className="w-20 flex-shrink-0 text-[10px] font-medium text-on-surface-variant">
+                  {t.narrationTtsSpeed}
+                </span>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={2}
+                  step={0.05}
+                  value={settings.kokoroSpeed}
+                  onChange={(event) => update('kokoroSpeed', parseFloat(event.target.value))}
+                  className="narration-kokoro-speed-slider flex-1"
+                />
+                <span className="w-12 text-right text-[10px] tabular-nums text-on-surface">
+                  {settings.kokoroSpeed.toFixed(2)}x
+                </span>
+              </div>
+              <div className="narration-panel-row flex items-center gap-2">
+                <span className="w-20 flex-shrink-0 text-[10px] font-medium text-on-surface-variant">
+                  {t.narrationTtsKokoroThreads}
+                </span>
+                <input
+                  type="range"
+                  min={1}
+                  max={8}
+                  step={1}
+                  value={settings.kokoroNumThreads}
+                  onChange={(event) => update('kokoroNumThreads', parseInt(event.target.value, 10))}
+                  className="narration-kokoro-threads-slider flex-1"
+                />
+                <span className="w-12 text-right text-[10px] tabular-nums text-on-surface">
+                  {settings.kokoroNumThreads}
+                </span>
+              </div>
+            </>
+          )}
+
+          {settings.method === 'MagpieMultilingual' && (
+            <>
+              <div className="narration-panel-magpie-voices mb-2 flex flex-col gap-1.5">
+                <span className="text-[11px] font-medium text-on-surface-variant">
+                  {t.narrationTtsKokoroVoiceConfigs}
+                </span>
+                {magpieVoiceConfigs.map((config, index) => (
+                  <div key={`${config.languageCode}-${index}`} className="narration-panel-magpie-voice-config flex items-center gap-1.5">
+                    <span className="w-20 flex-shrink-0 truncate text-[11px] font-medium text-[var(--secondary-color)]">
+                      {config.languageName}
+                    </span>
+                    <PanelSelect
+                      value={config.voiceId}
+                      options={magpieVoices.map((voice) => ({
+                        value: voice.id,
+                        label: voice.label,
+                      }))}
+                      onChange={(value) => updateMagpieVoiceConfig(index, { voiceId: value })}
+                      triggerClassName="narration-magpie-voice-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+                      contentClassName="narration-magpie-voice-menu"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeMagpieVoiceConfig(index)}
+                      className="ui-icon-button h-6 w-6 rounded-full text-on-surface-variant hover:text-[var(--tertiary-color)]"
+                      title={t.narrationTtsLanguageConditionRemove}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+                {availableMagpieVoiceLanguages.length > 0 && (
+                  <PanelSelect
+                    value={t.narrationTtsKokoroVoiceConfigAdd}
+                    options={availableMagpieVoiceLanguages.map((language) => ({
+                      value: language.languageCode,
+                      label: language.languageName,
+                    }))}
+                    onChange={(value) => {
+                      const language = availableMagpieVoiceLanguages.find(
+                        (item) => item.languageCode === value,
+                      );
+                      if (language) addMagpieVoiceConfig(language.languageCode, language.languageName);
+                    }}
+                    triggerClassName="narration-magpie-voice-add h-8 self-start rounded-lg px-2.5 text-[11px]"
+                    contentClassName="narration-magpie-voice-add-menu"
+                    searchable
+                  />
+                )}
+              </div>
+            </>
           )}
 
           {settings.method === 'EdgeTTS' && (

@@ -1,0 +1,21 @@
+[package]
+name = "sgt_tts_runtime"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "sgt_tts_runtime"
+crate-type = ["cdylib"]
+
+[dependencies]
+hound = "3.5"
+
+[dev-dependencies]
+libloading = "0.8"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "z"
+strip = true

@@ -4,8 +4,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::api::tts::TTS_MANAGER;
 use crate::api::tts::types::TtsRequestProfile;
+use crate::config::tts_catalog::{
+    KOKORO_VOICES, MAGPIE_VOICE_LANGUAGES, MAGPIE_VOICES, narration_tts_providers,
+    normalize_kokoro_lang, normalize_magpie_voice, tts_method_id,
+};
 use crate::config::{
-    EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
+    EdgeTtsSettings, EdgeTtsVoiceConfig, KokoroSettings, KokoroVoiceConfig, MagpieSettings,
+    MagpieVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
 };
 use crate::gui::settings_ui::tts_playground_data::{
     GEMINI_VOICES, SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES,
@@ -53,9 +58,37 @@ struct EdgeVoiceConfigWire {
     voice_name: String,
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KokoroVoiceConfigWire {
+    language_code: String,
+    language_name: String,
+    voice_id: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MagpieVoiceConfigWire {
+    language_code: String,
+    language_name: String,
+    voice_id: String,
+}
+
+impl From<KokoroVoiceConfigWire> for KokoroVoiceConfig {
+    fn from(wire: KokoroVoiceConfigWire) -> Self {
+        KokoroVoiceConfig::new(&wire.language_code, &wire.language_name, &wire.voice_id)
+    }
+}
+
 impl From<EdgeVoiceConfigWire> for EdgeTtsVoiceConfig {
     fn from(wire: EdgeVoiceConfigWire) -> Self {
         EdgeTtsVoiceConfig::new(&wire.language_code, &wire.language_name, &wire.voice_name)
+    }
+}
+
+impl From<MagpieVoiceConfigWire> for MagpieVoiceConfig {
+    fn from(wire: MagpieVoiceConfigWire) -> Self {
+        MagpieVoiceConfig::new(&wire.language_code, &wire.language_name, &wire.voice_id)
     }
 }
 
@@ -86,10 +119,22 @@ struct TtsProfileWire {
     edge_rate: i32,
     #[serde(default)]
     edge_voice_configs: Vec<EdgeVoiceConfigWire>,
+    #[serde(default)]
+    magpie_voice: String,
+    #[serde(default)]
+    magpie_voice_configs: Vec<MagpieVoiceConfigWire>,
+    #[serde(default)]
+    kokoro_voice: String,
+    #[serde(default)]
+    kokoro_speed: Option<f32>,
+    #[serde(default)]
+    kokoro_num_threads: Option<i32>,
+    #[serde(default)]
+    kokoro_voice_configs: Vec<KokoroVoiceConfigWire>,
 }
 
-impl From<TtsProfileWire> for TtsRequestProfile {
-    fn from(wire: TtsProfileWire) -> Self {
+impl TtsProfileWire {
+    fn into_request_profile(self, language_code_override: Option<String>) -> TtsRequestProfile {
         // Pull catalog defaults whenever the frontend left a field blank,
         // so a fresh narration tab "just works" without forcing the user to
         // choose every value before the first run.
@@ -101,43 +146,76 @@ impl From<TtsProfileWire> for TtsRequestProfile {
                 value
             }
         };
-        let edge_voice_configs: Vec<EdgeTtsVoiceConfig> = if wire.edge_voice_configs.is_empty() {
+        let edge_voice_configs: Vec<EdgeTtsVoiceConfig> = if self.edge_voice_configs.is_empty() {
             defaults.edge_settings.voice_configs
         } else {
-            wire.edge_voice_configs
+            self.edge_voice_configs
                 .into_iter()
                 .map(EdgeTtsVoiceConfig::from)
                 .collect()
         };
+        let kokoro_voice = trimmed_or(self.kokoro_voice, defaults.kokoro_settings.voice.clone());
+        let magpie_voice = normalize_magpie_voice(&trimmed_or(
+            self.magpie_voice,
+            defaults.magpie_settings.voice.clone(),
+        ));
+        let magpie_voice_configs = if self.magpie_voice_configs.is_empty() {
+            defaults.magpie_settings.voice_configs
+        } else {
+            self.magpie_voice_configs
+                .into_iter()
+                .map(MagpieVoiceConfig::from)
+                .collect()
+        };
+        let kokoro_voice_configs = if self.kokoro_voice_configs.is_empty() {
+            defaults.kokoro_settings.voice_configs
+        } else {
+            self.kokoro_voice_configs
+                .into_iter()
+                .map(KokoroVoiceConfig::from)
+                .collect()
+        };
 
-        Self {
-            method: wire.method,
-            gemini_model: trimmed_or(wire.gemini_model, defaults.gemini_model),
-            gemini_voice: trimmed_or(wire.gemini_voice, defaults.gemini_voice),
-            gemini_speed: trimmed_or(wire.gemini_speed, defaults.gemini_speed),
-            gemini_instruction: wire.gemini_instruction,
-            gemini_language_conditions: if wire.gemini_language_conditions.is_empty() {
+        TtsRequestProfile {
+            method: self.method,
+            gemini_model: trimmed_or(self.gemini_model, defaults.gemini_model),
+            gemini_voice: trimmed_or(self.gemini_voice, defaults.gemini_voice),
+            gemini_speed: trimmed_or(self.gemini_speed, defaults.gemini_speed),
+            gemini_instruction: self.gemini_instruction,
+            gemini_language_conditions: if self.gemini_language_conditions.is_empty() {
                 defaults.gemini_language_conditions
             } else {
-                wire.gemini_language_conditions
+                self.gemini_language_conditions
                     .into_iter()
                     .map(TtsLanguageCondition::from)
                     .collect()
             },
-            google_speed: trimmed_or(wire.google_speed, defaults.google_speed),
-            edge_voice: trimmed_or(wire.edge_voice, defaults.edge_voice),
+            google_speed: trimmed_or(self.google_speed, defaults.google_speed),
+            edge_voice: trimmed_or(self.edge_voice, defaults.edge_voice),
             edge_settings: EdgeTtsSettings {
-                pitch: wire.edge_pitch,
-                rate: wire.edge_rate,
+                pitch: self.edge_pitch,
+                rate: self.edge_rate,
                 volume: 0,
                 voice_configs: edge_voice_configs,
             },
-            // Kokoro is currently the only open-weights provider with a
-            // functional offline worker; mirror its defaults so narration jobs
-            // pointed at Kokoro pick up voice/speed/language from the catalog.
-            // Fish/Step/Magpie/Voxtral are deferred and intentionally absent.
-            kokoro_settings: defaults.kokoro_settings,
-            language_code_override: None,
+            magpie_settings: MagpieSettings {
+                voice: magpie_voice,
+                voice_configs: magpie_voice_configs,
+            },
+            kokoro_settings: KokoroSettings {
+                voice: kokoro_voice,
+                speed: self
+                    .kokoro_speed
+                    .unwrap_or(defaults.kokoro_settings.speed)
+                    .clamp(0.5, 2.0),
+                lang: String::new(),
+                num_threads: self
+                    .kokoro_num_threads
+                    .unwrap_or(defaults.kokoro_settings.num_threads)
+                    .clamp(1, 8),
+                voice_configs: kokoro_voice_configs,
+            },
+            language_code_override,
         }
     }
 }
@@ -241,7 +319,6 @@ pub fn handle_start_subtitle_narration(
         return Err("No subtitle text is available for narration".to_string());
     }
 
-    let mut profile: TtsRequestProfile = request.profile.clone().into();
     let source_language_code = request
         .source_language_code
         .as_deref()
@@ -254,7 +331,10 @@ pub fn handle_start_subtitle_narration(
     let narration_language_code = source_language_code
         .clone()
         .or(detected_language_code.clone());
-    profile.language_code_override = narration_language_code.clone();
+    let profile = request
+        .profile
+        .clone()
+        .into_request_profile(narration_language_code.clone());
     let (edge_resolved_voice, edge_language_code, edge_config_voice, edge_voice_source) =
         crate::api::tts::utils::resolve_edge_voice_for_language(
             &profile,
@@ -557,23 +637,55 @@ pub fn handle_get_narration_tts_metadata(
         )
     };
 
-    let default_method = match defaults.method {
-        TtsMethod::GeminiLive => "GeminiLive",
-        TtsMethod::GoogleTranslate => "GoogleTranslate",
-        TtsMethod::EdgeTTS => "EdgeTTS",
-        TtsMethod::FishAudioS2Pro => "FishAudioS2Pro",
-        TtsMethod::StepAudioEditX => "StepAudioEditX",
-        TtsMethod::MagpieMultilingual => "MagpieMultilingual",
-        TtsMethod::Kokoro => "Kokoro",
-        TtsMethod::VoxtralTts => "VoxtralTts",
-    };
+    let providers: Vec<serde_json::Value> = narration_tts_providers()
+        .map(|provider| {
+            serde_json::json!({
+                "method": provider.id,
+                "label": provider.label,
+            })
+        })
+        .collect();
+    let kokoro_voice_languages: Vec<serde_json::Value> = SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES
+        .iter()
+        .filter(|(code, _)| normalize_kokoro_lang(code).is_some())
+        .map(|(code, name)| serde_json::json!({ "languageCode": code, "languageName": name }))
+        .collect();
+    let kokoro_voices: Vec<serde_json::Value> = KOKORO_VOICES
+        .iter()
+        .map(|voice| {
+            serde_json::json!({
+                "id": voice.id,
+                "label": voice.label,
+                "languageCode": voice.language_code,
+            })
+        })
+        .collect();
+    let magpie_voices: Vec<serde_json::Value> = MAGPIE_VOICES
+        .iter()
+        .map(|voice| {
+            serde_json::json!({
+                "id": voice.id,
+                "label": voice.label,
+            })
+        })
+        .collect();
+    let magpie_voice_languages: Vec<serde_json::Value> = MAGPIE_VOICE_LANGUAGES
+        .iter()
+        .map(|(code, name)| serde_json::json!({ "languageCode": code, "languageName": name }))
+        .collect();
+    let default_method = tts_method_id(&defaults.method);
 
     Ok(serde_json::json!({
+        "providers": providers,
         "geminiVoices": gemini_voices,
         "geminiModels": gemini_models,
         "geminiInstructionLanguages": gemini_instruction_languages,
         "geminiSpeedOptions": ["Slow", "Normal", "Fast"],
         "googleSpeedOptions": ["Slow", "Normal"],
+        "kokoroVoices": kokoro_voices,
+        "kokoroVoiceLanguages": kokoro_voice_languages,
+        "magpieVoices": magpie_voices,
+        "magpieVoiceLanguages": magpie_voice_languages,
         "edgeVoiceState": edge_voice_state,
         "edgeVoiceError": edge_voice_error,
         "edgeVoiceLanguages": edge_voice_languages,
@@ -590,6 +702,20 @@ pub fn handle_get_narration_tts_metadata(
             "edgePitch": defaults.edge_settings.pitch,
             "edgeRate": defaults.edge_settings.rate,
             "edgeVoiceConfigs": default_edge_voice_configs,
+            "magpieVoice": defaults.magpie_settings.voice,
+            "magpieVoiceConfigs": defaults.magpie_settings.voice_configs.iter().map(|config| serde_json::json!({
+                "languageCode": config.language_code,
+                "languageName": config.language_name,
+                "voiceId": config.voice_id,
+            })).collect::<Vec<_>>(),
+            "kokoroVoice": defaults.kokoro_settings.voice,
+            "kokoroSpeed": defaults.kokoro_settings.speed,
+            "kokoroNumThreads": defaults.kokoro_settings.num_threads,
+            "kokoroVoiceConfigs": defaults.kokoro_settings.voice_configs.iter().map(|config| serde_json::json!({
+                "languageCode": config.language_code,
+                "languageName": config.language_name,
+                "voiceId": config.voice_id,
+            })).collect::<Vec<_>>(),
         },
     }))
 }

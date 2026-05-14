@@ -1,4 +1,9 @@
-use crate::config::{Config, TtsMethod};
+use crate::config::tts_catalog::{
+    KOKORO_VOICE_LANGUAGES, KOKORO_VOICES, MAGPIE_VOICE_LANGUAGES, MAGPIE_VOICES,
+    default_kokoro_voice_for_lang, default_magpie_voice_for_lang,
+    kokoro_voice_language_for_condition, normalize_magpie_voice,
+};
+use crate::config::{Config, KokoroVoiceConfig, MagpieVoiceConfig, TtsMethod};
 use crate::gui::icons::{Icon, icon_button};
 use crate::gui::locale::LocaleText;
 use eframe::egui;
@@ -108,7 +113,7 @@ pub fn render_tts_settings_modal(
             ui.add_space(8.0);
 
             // === TTS METHOD SELECTION ===
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(egui::RichText::new(text.tts_method_label).strong());
 
                 // Gemini Live (Premium)
@@ -126,6 +131,40 @@ pub fn render_tts_settings_modal(
                     if config.tts_speed == "Fast" {
                         config.tts_speed = "Normal".to_string();
                     }
+                    changed = true;
+                }
+
+                // Open-weights leaderboard providers
+                if ui
+                    .radio_value(&mut config.tts_method, TtsMethod::StepAudioEditX, "Step Audio EditX")
+                    .on_hover_text("Supports Mandarin, English, Sichuanese, Cantonese, Japanese, and Korean.")
+                    .clicked()
+                {
+                    changed = true;
+                }
+                if ui
+                    .radio_value(
+                        &mut config.tts_method,
+                        TtsMethod::MagpieMultilingual,
+                        "NVIDIA Magpie-Multilingual 357M",
+                    )
+                    .on_hover_text("Supports English, Spanish, German, French, Vietnamese, Italian, Mandarin Chinese, Hindi, and Japanese.")
+                    .clicked()
+                {
+                    changed = true;
+                }
+                if ui
+                    .radio_value(&mut config.tts_method, TtsMethod::Kokoro, "Kokoro 82M v1.0")
+                    .on_hover_text("Supports English, Mandarin Chinese, Japanese, Spanish, French, Hindi, Italian, and Portuguese.")
+                    .clicked()
+                {
+                    changed = true;
+                }
+                if ui
+                    .radio_value(&mut config.tts_method, TtsMethod::VoxtralTts, "Mistral Voxtral 4B TTS")
+                    .on_hover_text("Supports English, French, Spanish, German, Italian, Portuguese, Dutch, Arabic, and Hindi.")
+                    .clicked()
+                {
                     changed = true;
                 }
             });
@@ -511,8 +550,307 @@ pub fn render_tts_settings_modal(
                         ui.label(text.tts_initializing_voices);
                     });
                 }
+            } else if config.tts_method == TtsMethod::StepAudioEditX {
+                changed |= render_step_audio_settings(ui, config, text);
+            } else if config.tts_method == TtsMethod::MagpieMultilingual {
+                changed |= render_magpie_settings(ui, config, text);
+            } else if config.tts_method == TtsMethod::Kokoro {
+                changed |= render_kokoro_settings(ui, config, text);
+            } else if config.tts_method == TtsMethod::VoxtralTts {
+                changed |= render_voxtral_settings(ui, config, text);
             }
         });
 
     changed
+}
+
+// ============================================================================
+// OPEN-WEIGHTS PROVIDER SETTINGS PANELS
+// ============================================================================
+//
+// Each provider exposes the same shape: base URL, optional API key, voice/id,
+// speed slider, plus any provider-specific knobs. We render them inline rather
+// than in sub-modals to keep navigation flat — the user picks the method radio
+// at the top, the matching block appears below.
+
+fn render_open_weights_header(ui: &mut egui::Ui, title: &str, description: &str) {
+    ui.vertical_centered(|ui| {
+        ui.add_space(10.0);
+        ui.label(egui::RichText::new(title).size(18.0).strong());
+        ui.add_space(5.0);
+        ui.label(description);
+        ui.add_space(15.0);
+    });
+}
+
+fn render_speed_row(ui: &mut egui::Ui, label: &str, value: &mut f32, min: f32, max: f32) -> bool {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(label).strong());
+        ui.add(egui::Slider::new(value, min..=max).step_by(0.05))
+    })
+    .inner
+    .changed()
+}
+
+fn render_deferred_offline_panel(ui: &mut egui::Ui, title: &str, elo: u32, detail: &str) {
+    render_open_weights_header(ui, title, &format!("Open-weights leaderboard Elo ~{elo}."));
+    ui.colored_label(
+        egui::Color32::from_rgb(255, 165, 0),
+        format!("{detail} Offline voice generation is not available for this model yet."),
+    );
+}
+
+fn render_step_audio_settings(ui: &mut egui::Ui, _config: &mut Config, _text: &LocaleText) -> bool {
+    render_deferred_offline_panel(
+        ui,
+        "Step Audio EditX",
+        1104,
+        "Supports Mandarin, English, Sichuanese, Cantonese, Japanese, and Korean.",
+    );
+    false
+}
+
+fn render_magpie_settings(ui: &mut egui::Ui, config: &mut Config, text: &LocaleText) -> bool {
+    let mut changed = false;
+    render_open_weights_header(
+        ui,
+        "NVIDIA Magpie-Multilingual 357M",
+        "Supports English, Spanish, German, French, Vietnamese, Italian, Mandarin Chinese, Hindi, and Japanese.",
+    );
+    changed |= render_magpie_voice_config_rows(ui, config, text);
+    changed
+}
+
+fn render_magpie_voice_config_rows(
+    ui: &mut egui::Ui,
+    config: &mut Config,
+    text: &LocaleText,
+) -> bool {
+    let mut changed = false;
+    ui.add_space(15.0);
+    ui.separator();
+    ui.add_space(10.0);
+    ui.label(egui::RichText::new(text.tts_voice_per_language_label).strong());
+    ui.add_space(5.0);
+
+    egui::ScrollArea::vertical()
+        .max_height(180.0)
+        .show(ui, |ui| {
+            let mut to_remove: Option<usize> = None;
+            for (idx, voice_config) in config.magpie_settings.voice_configs.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(&voice_config.language_name)
+                            .strong()
+                            .color(egui::Color32::from_rgb(100, 180, 100)),
+                    );
+                    ui.label("→");
+                    egui::ComboBox::from_id_salt(format!("magpie_voice_{}", idx))
+                        .selected_text(normalize_magpie_voice(&voice_config.voice_id))
+                        .width(220.0)
+                        .show_ui(ui, |ui| {
+                            for voice in MAGPIE_VOICES {
+                                changed |= ui
+                                    .selectable_value(
+                                        &mut voice_config.voice_id,
+                                        voice.id.to_string(),
+                                        voice.label,
+                                    )
+                                    .changed();
+                            }
+                        });
+                    if icon_button(ui, Icon::Close)
+                        .on_hover_text(text.remove_label)
+                        .clicked()
+                    {
+                        to_remove = Some(idx);
+                    }
+                });
+            }
+            if let Some(idx) = to_remove {
+                config.magpie_settings.voice_configs.remove(idx);
+                changed = true;
+            }
+        });
+
+    ui.add_space(10.0);
+    ui.horizontal(|ui| {
+        let used_codes: Vec<_> = config
+            .magpie_settings
+            .voice_configs
+            .iter()
+            .map(|voice_config| voice_config.language_code.as_str())
+            .collect();
+        let available: Vec<_> = MAGPIE_VOICE_LANGUAGES
+            .iter()
+            .filter(|(code, _)| !used_codes.contains(code))
+            .collect();
+
+        if !available.is_empty() {
+            egui::ComboBox::from_id_salt("magpie_add_language")
+                .selected_text(text.tts_add_language_label)
+                .width(150.0)
+                .show_ui(ui, |ui| {
+                    for (code, name) in &available {
+                        if ui.selectable_label(false, *name).clicked() {
+                            config
+                                .magpie_settings
+                                .voice_configs
+                                .push(MagpieVoiceConfig::new(
+                                    code,
+                                    name,
+                                    default_magpie_voice_for_lang(code),
+                                ));
+                            changed = true;
+                        }
+                    }
+                });
+        }
+
+        if ui.button(text.tts_reset_to_defaults_label).clicked() {
+            config.magpie_settings.voice_configs =
+                crate::config::MagpieSettings::default().voice_configs;
+            changed = true;
+        }
+    });
+    changed
+}
+
+fn render_kokoro_settings(ui: &mut egui::Ui, config: &mut Config, text: &LocaleText) -> bool {
+    let mut changed = false;
+    render_open_weights_header(ui, text.tts_kokoro_title, text.tts_kokoro_desc);
+    let s = &mut config.kokoro_settings;
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(text.tts_cpu_threads_label).strong());
+        changed |= ui
+            .add(egui::Slider::new(&mut s.num_threads, 1..=8))
+            .changed();
+    });
+    changed |= render_speed_row(ui, text.tts_speed_label, &mut s.speed, 0.5, 2.0);
+    changed |= render_kokoro_voice_config_rows(ui, config, text);
+    changed
+}
+
+fn render_kokoro_voice_config_rows(
+    ui: &mut egui::Ui,
+    config: &mut Config,
+    text: &LocaleText,
+) -> bool {
+    let mut changed = false;
+    ui.add_space(15.0);
+    ui.separator();
+    ui.add_space(10.0);
+    ui.label(egui::RichText::new(text.tts_voice_per_language_label).strong());
+    ui.add_space(5.0);
+
+    egui::ScrollArea::vertical()
+        .max_height(180.0)
+        .show(ui, |ui| {
+            let mut to_remove: Option<usize> = None;
+            for (idx, voice_config) in config.kokoro_settings.voice_configs.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(&voice_config.language_name)
+                            .strong()
+                            .color(egui::Color32::from_rgb(100, 180, 100)),
+                    );
+                    ui.label("→");
+
+                    let voice_lang =
+                        kokoro_voice_language_for_condition(&voice_config.language_code)
+                            .unwrap_or("en-us");
+                    egui::ComboBox::from_id_salt(format!("kokoro_voice_{idx}"))
+                        .selected_text(&voice_config.voice_id)
+                        .width(220.0)
+                        .show_ui(ui, |ui| {
+                            for voice in KOKORO_VOICES
+                                .iter()
+                                .filter(|voice| voice.language_code == voice_lang)
+                            {
+                                let display = format!("{} ({})", voice.id, voice.label);
+                                if ui
+                                    .selectable_label(voice_config.voice_id == voice.id, &display)
+                                    .clicked()
+                                {
+                                    voice_config.voice_id = voice.id.to_string();
+                                    changed = true;
+                                }
+                            }
+                        });
+
+                    if icon_button(ui, Icon::Speaker)
+                        .on_hover_text(text.tts_preview_label)
+                        .clicked()
+                    {
+                        speak_settings_preview(text, &voice_config.voice_id);
+                    }
+                    if icon_button(ui, Icon::Close)
+                        .on_hover_text(text.remove_label)
+                        .clicked()
+                    {
+                        to_remove = Some(idx);
+                    }
+                });
+            }
+
+            if let Some(idx) = to_remove {
+                config.kokoro_settings.voice_configs.remove(idx);
+                changed = true;
+            }
+        });
+
+    ui.add_space(10.0);
+    ui.horizontal(|ui| {
+        let used_codes: Vec<_> = config
+            .kokoro_settings
+            .voice_configs
+            .iter()
+            .map(|voice_config| voice_config.language_code.as_str())
+            .collect();
+        let available: Vec<_> = KOKORO_VOICE_LANGUAGES
+            .iter()
+            .filter(|(code, _)| !used_codes.contains(code))
+            .collect();
+
+        if !available.is_empty() {
+            egui::ComboBox::from_id_salt("kokoro_add_language")
+                .selected_text(text.tts_add_language_label)
+                .width(150.0)
+                .show_ui(ui, |ui| {
+                    for (code, name) in &available {
+                        if ui.selectable_label(false, *name).clicked() {
+                            let voice_lang =
+                                kokoro_voice_language_for_condition(code).unwrap_or("en-us");
+                            config
+                                .kokoro_settings
+                                .voice_configs
+                                .push(KokoroVoiceConfig {
+                                    language_code: (*code).to_string(),
+                                    language_name: (*name).to_string(),
+                                    voice_id: default_kokoro_voice_for_lang(voice_lang).to_string(),
+                                });
+                            changed = true;
+                        }
+                    }
+                });
+        }
+
+        if ui.button(text.tts_reset_to_defaults_label).clicked() {
+            config.kokoro_settings.voice_configs =
+                crate::config::KokoroSettings::default().voice_configs;
+            changed = true;
+        }
+    });
+
+    changed
+}
+
+fn render_voxtral_settings(ui: &mut egui::Ui, _config: &mut Config, _text: &LocaleText) -> bool {
+    render_deferred_offline_panel(
+        ui,
+        "Mistral Voxtral 4B TTS",
+        1056,
+        "Supports English, French, Spanish, German, Italian, Portuguese, Dutch, Arabic, and Hindi.",
+    );
+    false
 }

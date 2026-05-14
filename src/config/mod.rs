@@ -32,6 +32,7 @@
 mod config;
 mod io;
 pub mod preset;
+pub mod tts_catalog;
 pub mod types;
 
 // ============================================================================
@@ -62,7 +63,8 @@ pub use types::ModelPriorityChains;
 
 // TTS types
 pub use types::{
-    EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
+    EdgeTtsSettings, EdgeTtsVoiceConfig, KokoroSettings, KokoroVoiceConfig, MagpieSettings,
+    MagpieVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
 };
 
 // Translation Gummy
