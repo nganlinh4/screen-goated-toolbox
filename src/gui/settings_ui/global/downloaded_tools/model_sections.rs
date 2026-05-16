@@ -19,6 +19,10 @@ use crate::api::realtime_audio::qwen3::server::{
     current_qwen3_server_notice, download_qwen3_server, get_active_qwen3_server_path,
     get_qwen3_server_path, is_qwen3_server_managed, remove_qwen3_server,
 };
+use crate::api::realtime_audio::supertonic_assets::{
+    current_supertonic_model_notice, download_supertonic_model, get_supertonic_model_dir,
+    is_supertonic_model_downloaded, remove_supertonic_model,
+};
 use crate::gui::locale::LocaleText;
 use crate::overlay::realtime_webview::state::REALTIME_STATE;
 use eframe::egui;
@@ -35,6 +39,7 @@ use super::utils::{
 const PROBE_PARAKEET_EOU: &str = "downloaded-tools:parakeet-eou";
 const PROBE_PARAKEET_TDT: &str = "downloaded-tools:parakeet-tdt";
 const PROBE_KOKORO_V1: &str = "downloaded-tools:kokoro-v1";
+const PROBE_SUPERTONIC_3: &str = "downloaded-tools:supertonic-3";
 const PROBE_QWEN3_SMALL: &str = "downloaded-tools:qwen3-small";
 const PROBE_QWEN3_LARGE: &str = "downloaded-tools:qwen3-large";
 const PROBE_QWEN3_RUNTIME: &str = "downloaded-tools:qwen3-runtime";
@@ -63,6 +68,69 @@ pub(super) fn render_kokoro_card(ui: &mut egui::Ui, text: &LocaleText) {
         ui.add_space(4.0);
         render_kokoro_content(ui, text);
     });
+}
+
+pub(super) fn render_supertonic_card(ui: &mut egui::Ui, _text: &LocaleText) {
+    ui.group(|ui| {
+        ui.heading("Supertonic 3");
+        ui.add_space(4.0);
+        render_supertonic_content(ui);
+    });
+}
+
+fn render_supertonic_content(ui: &mut egui::Ui) {
+    let notice = current_supertonic_model_notice();
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Supertonic 3 model").strong());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let is_downloading = {
+                if let Ok(state) = REALTIME_STATE.lock() {
+                    state.is_downloading && state.download_title == "Downloading Supertonic 3"
+                } else {
+                    false
+                }
+            };
+
+            if is_downloading {
+                let progress = {
+                    if let Ok(state) = REALTIME_STATE.lock() {
+                        state.download_progress
+                    } else {
+                        0.0
+                    }
+                };
+                ui.label(format!("{progress:.0}%"));
+                ui.spinner();
+            } else if cached_probe(PROBE_SUPERTONIC_3, is_supertonic_model_downloaded) {
+                if ui
+                    .button(egui::RichText::new("Delete").color(egui::Color32::RED))
+                    .clicked()
+                {
+                    invalidate_size_cache(&get_supertonic_model_dir());
+                    invalidate_probe_cache(PROBE_SUPERTONIC_3);
+                    let _ = remove_supertonic_model();
+                }
+                let size = get_dir_size(&get_supertonic_model_dir());
+                ui.label(
+                    egui::RichText::new(format!("Installed ({})", format_size(size)))
+                        .color(egui::Color32::from_rgb(34, 139, 34)),
+                );
+            } else {
+                if ui.button("Download").clicked() {
+                    let stop_signal = Arc::new(AtomicBool::new(false));
+                    thread::spawn(move || {
+                        let _ = download_supertonic_model(stop_signal, false);
+                    });
+                }
+                ui.label(egui::RichText::new("Missing").color(egui::Color32::GRAY));
+            }
+        });
+    });
+    ui.label("Local Supertonic 3 ONNX TTS model. Supports English, Korean, Japanese, Arabic, Bulgarian, Czech, Danish, German, Greek, Spanish, Estonian, Finnish, French, Hindi, Croatian, Hungarian, Indonesian, Italian, Lithuanian, Latvian, Dutch, Polish, Portuguese, Romanian, Russian, Slovak, Slovenian, Swedish, Turkish, Ukrainian, and Vietnamese.");
+    if let Some(message) = notice {
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+    }
 }
 
 fn render_kokoro_content(ui: &mut egui::Ui, text: &LocaleText) {

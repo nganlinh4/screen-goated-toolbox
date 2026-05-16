@@ -10,9 +10,14 @@ use crate::api::realtime_audio::step_audio_assets::{
     current_step_audio_notice, download_step_audio_model, get_step_audio_model_dir,
     is_step_audio_model_downloaded, remove_step_audio_model,
 };
+use crate::api::realtime_audio::step_audio_runtime::{
+    current_step_audio_runtime_notice, download_step_audio_runtime,
+    is_step_audio_runtime_downloading, is_step_audio_runtime_installed, remove_step_audio_runtime,
+    step_audio_runtime_installed_size,
+};
 use crate::api::realtime_audio::tts_libtorch_runtime_assets::{
-    STEP_AUDIO_RUNTIME, TtsRuntimeSpec, VOXTRAL_RUNTIME, current_tts_runtime_notice,
-    download_tts_runtime, is_tts_runtime_installed, remove_tts_runtime, tts_runtime_installed_size,
+    TtsRuntimeSpec, VOXTRAL_RUNTIME, current_tts_runtime_notice, download_tts_runtime,
+    is_tts_runtime_installed, remove_tts_runtime, tts_runtime_installed_size,
 };
 use crate::api::realtime_audio::voxtral_assets::{
     current_voxtral_notice, download_voxtral_model, get_voxtral_model_dir,
@@ -55,25 +60,30 @@ struct TtsCardSpec {
 }
 
 pub(super) fn render_step_audio_card(ui: &mut egui::Ui, text: &LocaleText) {
-    render_tts_card(
-        ui,
-        text,
-        TtsCardSpec {
+    ui.group(|ui| {
+        let spec = TtsCardSpec {
             title: "Step Audio EditX",
             model_probe: PROBE_STEP_AUDIO,
             runtime_probe: PROBE_STEP_RUNTIME,
             runtime_size_key: "downloaded-tools:step-audio-runtime-size",
             description: text.tool_desc_step_audio,
-            model_title: "Step Audio weights",
+            model_title: "Step Audio AWQ model + tokenizer",
             model_download_title: text.step_audio_downloading_title,
             model_notice: current_step_audio_notice,
             is_model_downloaded: is_step_audio_model_downloaded,
             model_dir: get_step_audio_model_dir,
             download_model: download_step_audio_model,
             remove_model: remove_step_audio_model,
-            runtime: STEP_AUDIO_RUNTIME,
-        },
-    );
+            runtime: VOXTRAL_RUNTIME,
+        };
+        ui.heading(spec.title);
+        ui.add_space(4.0);
+        ui.label(spec.description);
+        ui.add_space(6.0);
+        render_model_row(ui, text, &spec);
+        ui.add_space(4.0);
+        render_step_audio_runtime_row(ui, text);
+    });
 }
 
 pub(super) fn render_magpie_card(ui: &mut egui::Ui, text: &LocaleText) {
@@ -91,7 +101,7 @@ pub(super) fn render_magpie_card(ui: &mut egui::Ui, text: &LocaleText) {
             model_dir: get_magpie_model_dir,
             download_model: download_magpie_model,
             remove_model: remove_magpie_model,
-            runtime: STEP_AUDIO_RUNTIME,
+            runtime: VOXTRAL_RUNTIME,
         };
         ui.heading(spec.title);
         ui.add_space(4.0);
@@ -101,6 +111,60 @@ pub(super) fn render_magpie_card(ui: &mut egui::Ui, text: &LocaleText) {
         ui.add_space(4.0);
         render_magpie_runtime_row(ui, text);
     });
+}
+
+fn render_step_audio_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Step Audio managed runtime").strong());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let is_downloading = is_step_audio_runtime_downloading()
+                || REALTIME_STATE
+                    .lock()
+                    .map(|s| {
+                        s.is_downloading && s.download_title == "Downloading Step Audio runtime"
+                    })
+                    .unwrap_or(false);
+            if is_downloading {
+                let progress = REALTIME_STATE
+                    .lock()
+                    .map(|s| s.download_progress)
+                    .unwrap_or(0.0);
+                ui.label(format!("{progress:.0}%"));
+                ui.spinner();
+            } else if cached_probe(PROBE_STEP_RUNTIME, is_step_audio_runtime_installed) {
+                if ui
+                    .button(egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED))
+                    .clicked()
+                {
+                    invalidate_probe_cache(PROBE_STEP_RUNTIME);
+                    invalidate_u64_cache("downloaded-tools:step-audio-runtime-size");
+                    let _ = remove_step_audio_runtime();
+                }
+                let size = cached_u64(
+                    "downloaded-tools:step-audio-runtime-size",
+                    step_audio_runtime_installed_size,
+                );
+                ui.label(
+                    egui::RichText::new(
+                        text.tool_status_installed.replace("{}", &format_size(size)),
+                    )
+                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                );
+            } else {
+                if ui.button(text.tool_action_download).clicked() {
+                    let stop_signal = Arc::new(AtomicBool::new(false));
+                    thread::spawn(move || {
+                        let _ = download_step_audio_runtime(stop_signal, false);
+                    });
+                }
+                ui.label(egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY));
+            }
+        });
+    });
+    ui.label("Python, PyTorch CUDA, official Step-Audio-EditX source, and prompt voices; no system Python or pip required.");
+    if let Some(message) = current_step_audio_runtime_notice() {
+        ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+    }
 }
 
 pub(super) fn render_voxtral_card(ui: &mut egui::Ui, text: &LocaleText) {

@@ -8,6 +8,17 @@ pub(super) fn save_wav_dialog(artifact: &TtsPlaygroundArtifact) -> Result<PathBu
     Ok(path)
 }
 
+pub(super) fn pick_audio_file_dialog() -> Result<Option<PathBuf>, String> {
+    #[cfg(windows)]
+    {
+        pick_audio_file_dialog_windows()
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(None)
+    }
+}
+
 pub(super) fn save_mp3_dialog(artifact: &TtsPlaygroundArtifact) -> Result<PathBuf, String> {
     let ffmpeg =
         crate::gui::settings_ui::download_manager::ffmpeg_dependency::ensure_ffmpeg_with_badge()?;
@@ -41,6 +52,73 @@ pub(super) fn save_mp3_dialog(artifact: &TtsPlaygroundArtifact) -> Result<PathBu
     Ok(output_path)
 }
 
+#[cfg(windows)]
+fn pick_audio_file_dialog_windows() -> Result<Option<PathBuf>, String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::Win32::System::Com::{
+        CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
+        CoUninitialize,
+    };
+    use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
+    use windows::Win32::UI::Shell::{
+        FOLDERID_Music, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST, FileOpenDialog,
+        IFileOpenDialog, IShellItem, KNOWN_FOLDER_FLAG, SHCreateItemFromParsingName,
+        SHGetKnownFolderPath, SIGDN_FILESYSPATH,
+    };
+    use windows::core::PCWSTR;
+
+    let wide = |s: &str| -> Vec<u16> {
+        std::ffi::OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    };
+
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let dialog: IFileOpenDialog =
+            CoCreateInstance(&FileOpenDialog, None, CLSCTX_ALL).map_err(|err| err.to_string())?;
+        let _ = dialog.SetOptions(FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM);
+        let audio_name = wide("Audio files");
+        let audio_pattern = wide("*.wav;*.flac;*.ogg;*.aiff;*.aif");
+        let all_name = wide("All files");
+        let all_pattern = wide("*.*");
+        let file_types = [
+            COMDLG_FILTERSPEC {
+                pszName: PCWSTR(audio_name.as_ptr()),
+                pszSpec: PCWSTR(audio_pattern.as_ptr()),
+            },
+            COMDLG_FILTERSPEC {
+                pszName: PCWSTR(all_name.as_ptr()),
+                pszSpec: PCWSTR(all_pattern.as_ptr()),
+            },
+        ];
+        let _ = dialog.SetFileTypes(&file_types);
+        if let Ok(music_path) = SHGetKnownFolderPath(&FOLDERID_Music, KNOWN_FOLDER_FLAG(0), None)
+            && let Ok(folder_item) =
+                SHCreateItemFromParsingName::<PCWSTR, _, IShellItem>(PCWSTR(music_path.0), None)
+        {
+            let _ = dialog.SetFolder(&folder_item);
+        }
+        if dialog.Show(None).is_err() {
+            CoUninitialize();
+            return Ok(None);
+        }
+        let result = dialog.GetResult().map_err(|err| {
+            CoUninitialize();
+            err.to_string()
+        })?;
+        let path = result.GetDisplayName(SIGDN_FILESYSPATH).map_err(|err| {
+            CoUninitialize();
+            err.to_string()
+        })?;
+        let path_str = path.to_string().unwrap_or_default();
+        CoTaskMemFree(Some(path.0 as *const _));
+        CoUninitialize();
+        Ok((!path_str.is_empty()).then(|| PathBuf::from(path_str)))
+    }
+}
+
 fn default_filename(artifact: &TtsPlaygroundArtifact, ext: &str) -> String {
     let method = match artifact.method {
         crate::config::TtsMethod::GeminiLive => "gemini",
@@ -50,6 +128,7 @@ fn default_filename(artifact: &TtsPlaygroundArtifact, ext: &str) -> String {
         crate::config::TtsMethod::StepAudioEditX => "step-editx",
         crate::config::TtsMethod::MagpieMultilingual => "magpie",
         crate::config::TtsMethod::Kokoro => "kokoro",
+        crate::config::TtsMethod::Supertonic => "supertonic",
         crate::config::TtsMethod::VoxtralTts => "voxtral",
     };
     let voice = artifact

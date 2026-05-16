@@ -1,12 +1,12 @@
-//! Runtime-loaded FFI for sherpa-onnx C API — OfflineTts (Kokoro).
+//! Runtime-loaded FFI for sherpa-onnx C API — OfflineTts.
 //!
 //! Mirrors the layout of [`super::ffi`] but only binds the OfflineTts entry
-//! points needed to synthesise speech from a Kokoro v1.0 bundle on disk. The
+//! points needed to synthesise speech from sherpa-backed TTS bundles on disk. The
 //! shared sherpa-onnx-c-api.dll is downloaded on demand by
 //! [`super::dlls`]; this module just locates and resolves the symbols.
 //!
 //! Layout matches sherpa-onnx upstream `c-api.h` exactly (verified against
-//! release tag v1.12.35). Keep field order in lock-step with the header when
+//! release tag v1.13.2). Keep field order in lock-step with the header when
 //! bumping the version.
 
 #![allow(non_camel_case_types)]
@@ -132,7 +132,7 @@ pub struct SherpaOnnxOfflineTtsConfig {
 
 impl SherpaOnnxOfflineTtsConfig {
     /// Create a zeroed config (all pointers null, all numerics zero). Callers
-    /// are expected to populate the Kokoro substruct + `provider` + `num_threads`.
+    /// are expected to populate the model substruct + `provider` + `num_threads`.
     pub fn zeroed() -> Self {
         unsafe { std::mem::zeroed() }
     }
@@ -148,6 +148,25 @@ pub struct SherpaOnnxGeneratedAudioStruct {
     pub sample_rate: c_int,
 }
 
+#[repr(C)]
+pub struct SherpaOnnxGenerationConfig {
+    pub silence_scale: c_float,
+    pub speed: c_float,
+    pub sid: c_int,
+    pub reference_audio: *const c_float,
+    pub reference_audio_len: c_int,
+    pub reference_sample_rate: c_int,
+    pub reference_text: *const c_char,
+    pub num_steps: c_int,
+    pub extra: *const c_char,
+}
+
+impl SherpaOnnxGenerationConfig {
+    pub fn zeroed() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+
 // ---- Function pointer types ----
 
 type FnCreateTts =
@@ -159,6 +178,14 @@ type FnGenerate = unsafe extern "C" fn(
     c_int,
     c_float,
 ) -> *const SherpaOnnxGeneratedAudioStruct;
+type FnProgressCallbackWithArg = Option<unsafe extern "C" fn(c_int, c_int, *mut c_void) -> c_int>;
+type FnGenerateWithConfig = unsafe extern "C" fn(
+    *const SherpaOnnxOfflineTts,
+    *const c_char,
+    *const SherpaOnnxGenerationConfig,
+    FnProgressCallbackWithArg,
+    *mut c_void,
+) -> *const SherpaOnnxGeneratedAudioStruct;
 type FnDestroyGenerated = unsafe extern "C" fn(*const SherpaOnnxGeneratedAudioStruct);
 
 pub struct SherpaTtsLib {
@@ -167,6 +194,7 @@ pub struct SherpaTtsLib {
     pub create_tts: FnCreateTts,
     pub destroy_tts: FnDestroyTts,
     pub generate: FnGenerate,
+    pub generate_with_config: FnGenerateWithConfig,
     pub destroy_generated: FnDestroyGenerated,
 }
 
@@ -296,6 +324,8 @@ fn load_dlls_for_probe(
             .map_err(|e| e.to_string())?;
         lib.get::<FnGenerate>(b"SherpaOnnxOfflineTtsGenerate")
             .map_err(|e| e.to_string())?;
+        lib.get::<FnGenerateWithConfig>(b"SherpaOnnxOfflineTtsGenerateWithConfig")
+            .map_err(|e| e.to_string())?;
         lib.get::<FnDestroyGenerated>(b"SherpaOnnxDestroyOfflineTtsGeneratedAudio")
             .map_err(|e| e.to_string())?;
     }
@@ -335,6 +365,9 @@ pub fn load() -> Result<&'static SherpaTtsLib> {
                 let generate = *lib
                     .get::<FnGenerate>(b"SherpaOnnxOfflineTtsGenerate")
                     .map_err(|e| e.to_string())?;
+                let generate_with_config = *lib
+                    .get::<FnGenerateWithConfig>(b"SherpaOnnxOfflineTtsGenerateWithConfig")
+                    .map_err(|e| e.to_string())?;
                 let destroy_generated = *lib
                     .get::<FnDestroyGenerated>(b"SherpaOnnxDestroyOfflineTtsGeneratedAudio")
                     .map_err(|e| e.to_string())?;
@@ -349,6 +382,9 @@ pub fn load() -> Result<&'static SherpaTtsLib> {
                     ),
                     generate: std::mem::transmute::<*const c_void, FnGenerate>(
                         generate as *const c_void,
+                    ),
+                    generate_with_config: std::mem::transmute::<*const c_void, FnGenerateWithConfig>(
+                        generate_with_config as *const c_void,
                     ),
                     destroy_generated: std::mem::transmute::<*const c_void, FnDestroyGenerated>(
                         destroy_generated as *const c_void,

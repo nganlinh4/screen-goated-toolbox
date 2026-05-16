@@ -8,7 +8,7 @@ runs the matching model's reference inference, and writes a WAV file to
 stdout. stderr carries diagnostics.
 
 Request shape (single line of JSON on stdin):
-    {"model": "step_audio" | "voxtral",
+    {"model": "voxtral",
      "model_dir": "<path to downloaded weights>",
      "text": "<utf-8 text>",
      "voice": "<voice id or empty>",
@@ -72,25 +72,6 @@ def f32_to_pcm16(samples) -> bytes:
 # missing, the script exits with a clear, actionable error.
 
 
-def synth_step_audio(req: dict) -> None:
-    """Step Audio EditX — clone stepfun-ai/Step-Audio-EditX and add to PYTHONPATH."""
-    try:
-        from step_audio_editx.inference import EditXInference  # type: ignore
-    except ImportError as e:
-        emit_error(
-            "Step Audio EditX reference package not installed. "
-            "Clone https://github.com/stepfun-ai/Step-Audio-EditX and add it to PYTHONPATH, "
-            f"then re-run. Original error: {e}",
-            code=2,
-        )
-
-    model_dir = req["model_dir"]
-    text = req["text"]
-    inf = EditXInference(model_dir=model_dir)  # type: ignore[call-arg]
-    audio, sr = inf.synthesize(text)
-    write_wav(f32_to_pcm16(audio), sr)
-
-
 def synth_voxtral(req: dict) -> None:
     """Mistral Voxtral 4B TTS — `pip install mistral-common`."""
     try:
@@ -115,7 +96,6 @@ def synth_voxtral(req: dict) -> None:
 
 
 DISPATCH = {
-    "step_audio": synth_step_audio,
     "voxtral": synth_voxtral,
 }
 

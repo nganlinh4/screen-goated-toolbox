@@ -58,15 +58,17 @@ pub(super) fn stream_pcm_samples(
 }
 
 /// Short-circuit a request that hit a fatal error (model missing, runtime
-/// unavailable, etc.). Emits `AudioEvent::End` so the player drains cleanly
-/// and clears UI loading state. Callers can simply `return` after invoking.
+/// unavailable, etc.). Emits the reason before `AudioEvent::End` so artifact
+/// callers can show the actual failure instead of treating it as empty audio.
 pub(super) fn fail_request(
     provider: &str,
     hwnd: isize,
     tx: &std::sync::mpsc::Sender<AudioEvent>,
     reason: impl AsRef<str>,
 ) {
-    eprintln!("[TTS {provider}] {}", reason.as_ref());
+    let reason = reason.as_ref().to_string();
+    eprintln!("[TTS {provider}] {reason}");
+    let _ = tx.send(AudioEvent::Error(reason));
     let _ = tx.send(AudioEvent::End);
     clear_tts_loading_state(hwnd);
     clear_tts_state(hwnd);

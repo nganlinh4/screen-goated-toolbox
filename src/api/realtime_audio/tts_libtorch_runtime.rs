@@ -4,8 +4,7 @@
 //! but is **TTS-shaped** instead of ASR-shaped — instead of `append_pcm16` +
 //! streaming `step`, the FFI is a one-shot `synthesize(text) -> pcm16`.
 //!
-//! Each offline TTS model (Step Audio EditX, Magpie, Voxtral)
-//! ships its own `sgt_<model>_runtime.dll` at
+//! Each compatible offline TTS model ships its own `sgt_<model>_runtime.dll` at
 //! `native/<model>_runtime/dist/sgt_<model>_runtime.dll`, committed to the
 //! `main` branch of the project repo and downloaded via raw.githubusercontent.
 //!

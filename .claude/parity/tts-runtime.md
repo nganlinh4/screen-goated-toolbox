@@ -37,7 +37,8 @@
   - Edge pitch/rate/volume shaping belongs to SSML; the shared player must not apply Edge volume a second time
   - Google Translate TTS uses HTTP MP3 -> decode -> shared player
   - Kokoro 82M v1.0 runs fully offline: the worker drives sherpa-onnx's `SherpaOnnxCreateOfflineTts` against the downloaded `model.onnx` + `voices.bin` + `tokens.txt` + `espeak-ng-data/` bundle, producing 24 kHz float32 samples that get converted to PCM16 LE and chunked into `AudioEvent::Data` for the shared player. No network round-trip per request.
-  - Step Audio EditX, NVIDIA Magpie-Multilingual, and Mistral Voxtral 4B run through the **shared libtorch-shim DLL pattern** mirroring `qwen3/runtime.rs`: each model has a custom `sgt_<model>_runtime.dll` committed under `native/<model>_runtime/dist/` and pulled via `raw.githubusercontent.com` on first use. All DLLs implement the `sgt_tts_runtime_*` C ABI documented in `native/README_TTS_RUNTIME_FFI.md` (single ABI version 1) and reuse the libtorch DLLs the Qwen3 runtime already installs. The worker emits a clear "DLL not available — build it per native/<model>_runtime/README.md" notice until the binary lands; once present, every request runs fully offline through `synthesize() -> int16 LE PCM`.
+  - Step Audio EditX and NVIDIA Magpie-Multilingual run through managed persistent Python sidecars. Each runtime is a downloadable app-owned bundle with Python/PyTorch and model-specific source code; customer machines must not run `pip`.
+  - Mistral Voxtral 4B still uses the shared libtorch-shim placeholder pattern until a real runtime is selected.
   - All open-weights workers must emit PCM16 mono at 24 kHz (the same rail Gemini and Edge ride). Higher source rates are resampled in `super::resample_audio`.
 - Asset download contract (Kokoro is the canonical example; future offline TTS providers must follow it):
   - Files land in `dirs::data_dir()/screen-goated-toolbox/models/<id>/` (e.g. `models/kokoro_v1/`).
@@ -49,7 +50,7 @@
   - Google Translate only exposes `Slow` and `Normal`
   - switching to Google Translate while current speed is `Fast` must coerce the saved speed to `Normal`
   - Kokoro settings expose: `voice` (string, e.g. `af_heart`), `speed` (0.5–2.0), `lang` (optional BCP-47), `num_threads` (1–8). No API key, no base URL — all inference is local.
-  - The four libtorch-shim providers (Fish-Speech, Step Audio EditX, Magpie, Voxtral) install via `Settings → Downloaded Tools` — the "Open-weights TTS (libtorch)" card surfaces one row per model with the standard download/delete/size affordances used by Parakeet and Qwen3.
+  - Open-weight providers install via `Settings → Downloaded Tools`; each model card has separate model-weight and runtime rows with the standard download/delete/size affordances used by Parakeet and Qwen3.
   - Gemini / Edge / Google preview interrupts current speech; preview text comes from the active UI locale bundle's `tts_preview_texts`.
   - Edge voice list is loaded from the live Edge catalog endpoint and cached locally.
 

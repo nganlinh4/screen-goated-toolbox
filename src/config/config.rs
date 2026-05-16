@@ -5,9 +5,10 @@ use serde::{Deserialize, Serialize};
 use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
     DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey, KokoroSettings,
-    MagpieSettings, ModelPriorityChains, PresetProfile, StepAudioSettings, ThemeMode,
-    TranslationGummySettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
-    VoxtralSettings, default_tts_language_conditions, get_system_ui_language,
+    MagpieSettings, ModelPriorityChains, PresetProfile, StepAudioReferenceVoice, StepAudioSettings,
+    SupertonicSettings, ThemeMode, TranslationGummySettings, TtsLanguageCondition, TtsMethod,
+    TtsPlaygroundSettings, VoxtralSettings, default_tts_language_conditions,
+    get_system_ui_language,
 };
 
 // ============================================================================
@@ -58,12 +59,20 @@ fn default_step_audio_settings() -> StepAudioSettings {
     StepAudioSettings::default()
 }
 
+fn default_step_audio_reference_voices() -> Vec<StepAudioReferenceVoice> {
+    Vec::new()
+}
+
 fn default_magpie_settings() -> MagpieSettings {
     MagpieSettings::default()
 }
 
 fn default_kokoro_settings() -> KokoroSettings {
     KokoroSettings::default()
+}
+
+fn default_supertonic_settings() -> SupertonicSettings {
+    SupertonicSettings::default()
 }
 
 fn default_voxtral_settings() -> VoxtralSettings {
@@ -305,19 +314,28 @@ pub struct Config {
     #[serde(default = "default_edge_tts_settings")]
     pub edge_tts_settings: EdgeTtsSettings,
 
-    /// Step Audio EditX settings (user-hosted local server).
+    /// Step Audio EditX settings (managed local sidecar).
     #[serde(default = "default_step_audio_settings")]
     pub step_audio_settings: StepAudioSettings,
 
-    /// NVIDIA Magpie-Multilingual 357M settings (NIM-style local server).
+    /// Shared Step Audio reference voices for global TTS, narration, and the
+    /// TTS Playground.
+    #[serde(default = "default_step_audio_reference_voices")]
+    pub step_audio_reference_voices: Vec<StepAudioReferenceVoice>,
+
+    /// NVIDIA Magpie-Multilingual 357M settings (managed local sidecar).
     #[serde(default = "default_magpie_settings")]
     pub magpie_settings: MagpieSettings,
 
-    /// Kokoro 82M v1.0 settings (Kokoro-FastAPI OpenAI-compatible).
+    /// Kokoro 82M v1.0 settings (sherpa-onnx local TTS).
     #[serde(default = "default_kokoro_settings")]
     pub kokoro_settings: KokoroSettings,
 
-    /// Mistral Voxtral TTS settings (La Plateforme / self-host).
+    /// Supertonic 3 settings (sherpa-onnx local TTS).
+    #[serde(default = "default_supertonic_settings")]
+    pub supertonic_settings: SupertonicSettings,
+
+    /// Mistral Voxtral TTS settings (deferred local runtime).
     #[serde(default = "default_voxtral_settings")]
     pub voxtral_settings: VoxtralSettings,
 
@@ -600,8 +618,10 @@ impl Default for Config {
             tts_language_conditions: default_tts_language_conditions(),
             edge_tts_settings: EdgeTtsSettings::default(),
             step_audio_settings: StepAudioSettings::default(),
+            step_audio_reference_voices: Vec::new(),
             magpie_settings: MagpieSettings::default(),
             kokoro_settings: KokoroSettings::default(),
+            supertonic_settings: SupertonicSettings::default(),
             voxtral_settings: VoxtralSettings::default(),
             tts_playground: TtsPlaygroundSettings::default(),
 

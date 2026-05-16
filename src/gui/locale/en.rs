@@ -390,7 +390,7 @@ pub fn get() -> LocaleText {
         kokoro_downloading_title: "Downloading Kokoro 82M (0.3 GB)",
         kokoro_downloading_message: "Please wait...",
         kokoro_downloading_file: "Downloading {}...",
-        step_audio_downloading_title: "Downloading Step Audio EditX (~6 GB)",
+        step_audio_downloading_title: "Downloading Step Audio EditX + Tokenizer (~4.2 GB)",
         step_audio_downloading_message: "Please wait...",
         step_audio_downloading_file: "Downloading {}...",
         magpie_downloading_title: "Downloading Magpie-Multilingual + NanoCodec (~1.5 GB)",

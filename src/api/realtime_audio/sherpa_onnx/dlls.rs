@@ -10,12 +10,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::Foundation::HWND;
 
-const SHERPA_ONNX_VERSION: &str = "1.12.35";
+const SHERPA_ONNX_VERSION: &str = "1.13.2";
 /// Official sherpa-onnx shared-lib release for Windows x64 (MD/Release build)
 const SHERPA_DLLS_URL: &str = concat!(
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/",
-    "v1.12.35/",
-    "sherpa-onnx-v1.12.35-win-x64-shared-MD-Release.tar.bz2"
+    "v1.13.2/",
+    "sherpa-onnx-v1.13.2-win-x64-shared-MD-Release.tar.bz2"
 );
 
 const REQUIRED_DLLS: &[&str] = &[
@@ -25,13 +25,15 @@ const REQUIRED_DLLS: &[&str] = &[
     "onnxruntime_providers_shared.dll",
 ];
 
+const VERSION_MARKER: &str = "sherpa_onnx_version.txt";
+
 pub fn sherpa_bin_dir() -> std::path::PathBuf {
     crate::unpack_dlls::private_bin_dir().join("sherpa-onnx")
 }
 
 pub fn is_sherpa_dlls_installed() -> bool {
     let dir = sherpa_bin_dir();
-    required_dlls_present(&dir)
+    required_dlls_present(&dir) && installed_version_matches(&dir)
 }
 
 pub fn remove_sherpa_dlls() -> Result<()> {
@@ -102,7 +104,9 @@ pub fn download_sherpa_dlls_with_progress(
 
     on_progress(0.05);
 
-    let archive_path = bin_dir.join("sherpa-onnx-v1.12.35-win-x64-shared-MD-Release.tar.bz2");
+    let archive_path = bin_dir.join(format!(
+        "sherpa-onnx-v{SHERPA_ONNX_VERSION}-win-x64-shared-MD-Release.tar.bz2"
+    ));
 
     crate::api::realtime_audio::model_loader::download_file_with_progress(
         SHERPA_DLLS_URL,
@@ -148,6 +152,7 @@ pub fn download_sherpa_dlls_with_progress(
     }
 
     install_dlls_from_tree(&temp_dir, &bin_dir)?;
+    write_version_marker(&bin_dir)?;
 
     let _ = std::fs::remove_dir_all(&temp_dir);
     let _ = std::fs::remove_file(&archive_path);
@@ -203,7 +208,9 @@ pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) ->
     post_download_state();
 
     let result: Result<()> = (|| {
-        let archive_path = bin_dir.join("sherpa-onnx-v1.12.35-win-x64-shared-MD-Release.tar.bz2");
+        let archive_path = bin_dir.join(format!(
+            "sherpa-onnx-v{SHERPA_ONNX_VERSION}-win-x64-shared-MD-Release.tar.bz2"
+        ));
 
         if let Ok(mut state) = REALTIME_STATE.lock() {
             state.download_message = locale
@@ -263,6 +270,7 @@ pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) ->
 
         // Find and stage DLLs from any subfolder before touching the live runtime dir.
         install_dlls_from_tree(&temp_dir, &bin_dir)?;
+        write_version_marker(&bin_dir)?;
 
         let _ = std::fs::remove_dir_all(&temp_dir);
         let _ = std::fs::remove_file(&archive_path);
@@ -317,6 +325,18 @@ fn required_dlls_present(dir: &std::path::Path) -> bool {
     REQUIRED_DLLS
         .iter()
         .all(|name| has_nonempty_file(&dir.join(name)))
+}
+
+fn installed_version_matches(dir: &std::path::Path) -> bool {
+    let marker = dir.join(VERSION_MARKER);
+    std::fs::read_to_string(marker)
+        .map(|version| version.trim() == SHERPA_ONNX_VERSION)
+        .unwrap_or(false)
+}
+
+fn write_version_marker(dir: &std::path::Path) -> Result<()> {
+    std::fs::write(dir.join(VERSION_MARKER), SHERPA_ONNX_VERSION)
+        .map_err(|err| anyhow!("Failed to write sherpa-onnx version marker: {err}"))
 }
 
 fn cleanup_pending_delete_files(dir: &std::path::Path) {

@@ -244,6 +244,14 @@ pub fn handle_ipc_command(
                 None => serde_json::Value::Null,
             })
         }
+        "pick_audio_file" => {
+            let selected =
+                crate::gui::settings_ui::tts_playground::pick_step_audio_reference_audio()?;
+            Ok(match selected {
+                Some(path) => serde_json::json!(path.display().to_string()),
+                None => serde_json::Value::Null,
+            })
+        }
         "save_raw_video_copy" => {
             let source_path = args["sourcePath"].as_str().ok_or("Missing sourcePath")?;
             let target_dir = args["targetDir"].as_str().ok_or("Missing targetDir")?;

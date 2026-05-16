@@ -1,0 +1,29 @@
+name: sgt-step-audio-runtime
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - torch>=2.9.1
+      - torchaudio>=2.9.1
+      - torchvision>=0.23.0
+      - transformers==4.57.3
+      - huggingface-hub<1.0
+      - accelerate>=1.10.1
+      - compressed-tensors>=0.11.0
+      - sentencepiece
+      - onnxruntime-gpu>=1.23.2
+      - openai-whisper>=20250625
+      - funasr>=1.3.0
+      - librosa>=0.11.0
+      - soundfile
+      - sox>=1.5.0
+      - hyperpyyaml>=1.2.3
+      - conformer>=0.3.2
+      - torch-complex>=0.4.4
+      - rotary-embedding-torch>=0.8.9
+      - einops
+      - pyinstaller

@@ -3,12 +3,15 @@ use crate::api::tts::TTS_MANAGER;
 use crate::api::tts::types::TtsRequestProfile;
 use crate::config::tts_catalog::{
     KOKORO_VOICE_LANGUAGES, KOKORO_VOICES, MAGPIE_VOICE_LANGUAGES, MAGPIE_VOICES,
-    default_kokoro_voice_for_lang, default_magpie_voice_for_lang,
-    kokoro_voice_language_for_condition, normalize_magpie_voice,
+    SUPERTONIC_LANGUAGES, SUPERTONIC_VOICES, default_kokoro_voice_for_lang,
+    default_magpie_voice_for_lang, default_supertonic_voice_for_lang,
+    kokoro_voice_language_for_condition, normalize_magpie_voice, normalize_supertonic_lang,
+    normalize_supertonic_voice,
 };
 use crate::config::{
     Config, EdgeTtsSettings, EdgeTtsVoiceConfig, KokoroVoiceConfig, MagpieVoiceConfig,
-    TtsLanguageCondition, TtsMethod,
+    SupertonicVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundMode,
+    TtsPlaygroundSettings,
 };
 use crate::gui::icons::{Icon, icon_button};
 use crate::gui::locale::LocaleText;
@@ -20,12 +23,19 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod export;
 mod library;
+mod reference_library;
 mod state;
 mod studio;
 
+use state::MicRecordingState;
 pub use state::TtsPlaygroundUiState;
 
 static LAST_PLAYGROUND_PREVIEW_IDX: AtomicUsize = AtomicUsize::new(9999);
+const SUPERTONIC_LANGUAGE_SUMMARY: &str = "Supports English, Korean, Japanese, Arabic, Bulgarian, Czech, Danish, German, Greek, Spanish, Estonian, Finnish, French, Hindi, Croatian, Hungarian, Indonesian, Italian, Lithuanian, Latvian, Dutch, Polish, Portuguese, Romanian, Russian, Slovak, Slovenian, Swedish, Turkish, Ukrainian, and Vietnamese.";
+
+pub fn pick_step_audio_reference_audio() -> Result<Option<std::path::PathBuf>, String> {
+    export::pick_audio_file_dialog()
+}
 
 pub fn render_tts_playground(
     ctx: &egui::Context,
@@ -64,34 +74,50 @@ pub fn render_tts_playground(
                         .max_height(available_height)
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            changed |= render_method_picker(ui, config, text);
+                            changed |= render_mode_tabs(ui, config);
                             ui.add_space(4.0);
-
-                            match config.tts_playground.method {
-                                TtsMethod::GeminiLive => {
-                                    changed |= render_gemini_controls(ui, config, text);
+                            match config.tts_playground.mode {
+                                TtsPlaygroundMode::TtsClone => {
+                                    changed |= render_method_picker(ui, config, text);
+                                    ui.add_space(4.0);
+                                    match config.tts_playground.method {
+                                        TtsMethod::GeminiLive => {
+                                            changed |= render_gemini_controls(ui, config, text);
+                                        }
+                                        TtsMethod::GoogleTranslate => {
+                                            changed |= render_google_controls(ui, config, text);
+                                        }
+                                        TtsMethod::FishAudioS2Pro => {
+                                            config.tts_playground.method = TtsMethod::GeminiLive;
+                                            changed = true;
+                                        }
+                                        TtsMethod::EdgeTTS => {
+                                            changed |= render_edge_controls(ui, config, text);
+                                        }
+                                        TtsMethod::StepAudioEditX => {
+                                            changed |= render_step_audio_controls(ui, config);
+                                        }
+                                        TtsMethod::MagpieMultilingual => {
+                                            changed |= render_magpie_controls(ui, config);
+                                        }
+                                        TtsMethod::Kokoro => {
+                                            changed |= render_kokoro_controls(ui, config, text);
+                                        }
+                                        TtsMethod::Supertonic => {
+                                            changed |= render_supertonic_controls(ui, config, text);
+                                        }
+                                        TtsMethod::VoxtralTts => {
+                                            changed |= render_voxtral_controls(ui, config);
+                                        }
+                                    }
                                 }
-                                TtsMethod::GoogleTranslate => {
-                                    changed |= render_google_controls(ui, config, text);
+                                TtsPlaygroundMode::AudioEdit => {
+                                    changed |= render_step_audio_edit_controls(ui, config, state);
                                 }
-                                TtsMethod::FishAudioS2Pro => {
-                                    config.tts_playground.method = TtsMethod::GeminiLive;
-                                    changed = true;
-                                }
-                                TtsMethod::EdgeTTS => {
-                                    changed |= render_edge_controls(ui, config, text);
-                                }
-                                TtsMethod::StepAudioEditX => {
-                                    changed |= render_step_audio_controls(ui, config);
-                                }
-                                TtsMethod::MagpieMultilingual => {
-                                    changed |= render_magpie_controls(ui, config);
-                                }
-                                TtsMethod::Kokoro => {
-                                    changed |= render_kokoro_controls(ui, config, text);
-                                }
-                                TtsMethod::VoxtralTts => {
-                                    changed |= render_voxtral_controls(ui, config);
+                                TtsPlaygroundMode::ReferenceLibrary => {
+                                    changed |= reference_library::render_reference_library(
+                                        ui, config, state,
+                                    );
                                 }
                             }
                         });
@@ -119,6 +145,48 @@ pub fn render_tts_playground(
     }
     *open = is_open;
 
+    changed
+}
+
+fn render_mode_tabs(ui: &mut egui::Ui, config: &mut Config) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        if ui
+            .selectable_value(
+                &mut config.tts_playground.mode,
+                TtsPlaygroundMode::TtsClone,
+                "TTS / Clone",
+            )
+            .changed()
+        {
+            changed = true;
+        }
+        if ui
+            .selectable_value(
+                &mut config.tts_playground.mode,
+                TtsPlaygroundMode::AudioEdit,
+                "Audio Edit",
+            )
+            .changed()
+        {
+            changed = true;
+        }
+        if ui
+            .selectable_value(
+                &mut config.tts_playground.mode,
+                TtsPlaygroundMode::ReferenceLibrary,
+                "Reference voice library",
+            )
+            .changed()
+        {
+            if config.tts_playground.draft_text.trim().is_empty()
+                || config.tts_playground.draft_text == TtsPlaygroundSettings::default().draft_text
+            {
+                config.tts_playground.draft_text = reference_library::TAG_EXAMPLE_TEXT.to_string();
+            }
+            changed = true;
+        }
+    });
     changed
 }
 
@@ -171,6 +239,13 @@ fn render_method_picker(ui: &mut egui::Ui, config: &mut Config, text: &LocaleTex
         changed |= ui
             .radio_value(
                 &mut config.tts_playground.method,
+                TtsMethod::Supertonic,
+                "Supertonic 3",
+            )
+            .changed();
+        changed |= ui
+            .radio_value(
+                &mut config.tts_playground.method,
                 TtsMethod::VoxtralTts,
                 "Mistral Voxtral 4B TTS",
             )
@@ -212,9 +287,227 @@ fn render_deferred_notice(ui: &mut egui::Ui, title: &str) {
     );
 }
 
-fn render_step_audio_controls(ui: &mut egui::Ui, _config: &mut Config) -> bool {
-    render_deferred_notice(ui, "Step Audio EditX (deferred)");
-    false
+fn render_step_audio_controls(ui: &mut egui::Ui, config: &mut Config) -> bool {
+    let mut changed = false;
+    ui.label(egui::RichText::new("Step Audio EditX").strong());
+    ui.label(
+        egui::RichText::new(
+            "Supports Mandarin, English, Sichuanese, Cantonese, Japanese, and Korean.",
+        )
+        .color(egui::Color32::from_rgb(96, 125, 139)),
+    );
+    changed |= reference_library::render_reference_voice_selector(
+        ui,
+        &config.step_audio_reference_voices,
+        &mut config.tts_playground.step_audio_settings,
+        "tts_playground_step_audio_reference",
+    );
+    changed
+}
+
+fn render_step_audio_edit_controls(
+    ui: &mut egui::Ui,
+    config: &mut Config,
+    state: &mut TtsPlaygroundUiState,
+) -> bool {
+    let mut changed = false;
+    let settings = &mut config.tts_playground.step_audio_edit_settings;
+    ui.label(egui::RichText::new("Step Audio EditX Audio Edit").strong());
+    ui.horizontal_wrapped(|ui| {
+        if ui.button("Pick source audio").clicked() {
+            if let Ok(Some(path)) = export::pick_audio_file_dialog() {
+                settings.source_audio_path = path.display().to_string();
+                changed = true;
+            }
+        }
+        if ui.button("Use current clip").clicked()
+            && let Some(current) = &state.current
+            && let Ok(path) = library::save_managed_wav("edit-source-current", &current.wav_data)
+        {
+            settings.source_audio_path = path.display().to_string();
+            if settings.source_text.trim().is_empty() {
+                settings.source_text = current.text.clone();
+            }
+            changed = true;
+        }
+        if state.mic_recording.is_some() {
+            if ui.button("Stop mic").clicked() {
+                if let Some(recording) = state.mic_recording.take() {
+                    recording
+                        .stop
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    drop(recording.stream);
+                    if let Ok(samples) = recording.samples.lock()
+                        && let Ok(path) =
+                            library::encode_managed_wav("edit-source-mic", &samples, 16_000)
+                    {
+                        settings.source_audio_path = path.display().to_string();
+                        changed = true;
+                    }
+                }
+            }
+        } else if ui.button("Record mic").clicked() {
+            let samples = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let pause = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            if let Ok(stream) =
+                crate::api::realtime_audio::start_mic_capture(samples.clone(), stop.clone(), pause)
+            {
+                state.mic_recording = Some(MicRecordingState {
+                    samples,
+                    stop,
+                    stream,
+                });
+            }
+        }
+    });
+    ui.label(
+        egui::RichText::new(if settings.source_audio_path.trim().is_empty() {
+            "No source audio selected"
+        } else {
+            settings.source_audio_path.as_str()
+        })
+        .small()
+        .color(egui::Color32::from_rgb(96, 125, 139)),
+    );
+    ui.label("Exact source transcript:");
+    changed |= ui
+        .add(
+            egui::TextEdit::multiline(&mut settings.source_text)
+                .desired_rows(4)
+                .desired_width(f32::INFINITY),
+        )
+        .changed();
+    ui.horizontal(|ui| {
+        ui.label("Task:");
+        egui::ComboBox::from_id_salt("tts_playground_step_audio_edit_type")
+            .selected_text(&settings.edit_type)
+            .show_ui(ui, |ui| {
+                for task in [
+                    "emotion",
+                    "style",
+                    "speed",
+                    "denoise",
+                    "vad",
+                    "paralinguistic",
+                ] {
+                    changed |= ui
+                        .selectable_value(&mut settings.edit_type, task.to_string(), task)
+                        .changed();
+                }
+            });
+    });
+    let options = step_audio_edit_info_options(&settings.edit_type);
+    if !options.is_empty() {
+        ui.horizontal(|ui| {
+            ui.label("Sub-task:");
+            egui::ComboBox::from_id_salt("tts_playground_step_audio_edit_info")
+                .selected_text(if settings.edit_info.trim().is_empty() {
+                    options[0]
+                } else {
+                    &settings.edit_info
+                })
+                .show_ui(ui, |ui| {
+                    for option in options {
+                        changed |= ui
+                            .selectable_value(&mut settings.edit_info, option.to_string(), *option)
+                            .changed();
+                    }
+                });
+        });
+    }
+    if settings.edit_type == "paralinguistic" {
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Inline sound tag:");
+            egui::ComboBox::from_id_salt("tts_playground_step_audio_paralinguistic_tag")
+                .selected_text("Insert tag")
+                .width(130.0)
+                .show_ui(ui, |ui| {
+                    for tag in reference_library::STEP_AUDIO_PARALINGUISTIC_TAGS {
+                        if ui.selectable_label(false, *tag).clicked() {
+                            append_inline_tag(&mut settings.target_text, tag);
+                            changed = true;
+                        }
+                    }
+                });
+        });
+        ui.label("Target text:");
+        changed |= ui
+            .add(
+                egui::TextEdit::multiline(&mut settings.target_text)
+                    .desired_rows(3)
+                    .desired_width(f32::INFINITY),
+            )
+            .changed();
+    }
+    changed
+}
+
+fn append_inline_tag(text: &mut String, tag: &str) {
+    if !text.is_empty() && !text.ends_with(char::is_whitespace) {
+        text.push(' ');
+    }
+    text.push_str(tag);
+    text.push(' ');
+}
+
+fn step_audio_edit_info_options(edit_type: &str) -> &'static [&'static str] {
+    match edit_type {
+        "emotion" => &[
+            "happy",
+            "angry",
+            "sad",
+            "humour",
+            "confusion",
+            "disgusted",
+            "empathy",
+            "embarrass",
+            "fear",
+            "surprised",
+            "excited",
+            "depressed",
+            "coldness",
+            "admiration",
+            "remove",
+        ],
+        "style" => &[
+            "serious",
+            "arrogant",
+            "child",
+            "older",
+            "girl",
+            "pure",
+            "sister",
+            "sweet",
+            "ethereal",
+            "whisper",
+            "gentle",
+            "recite",
+            "generous",
+            "act_coy",
+            "warm",
+            "shy",
+            "comfort",
+            "authority",
+            "chat",
+            "radio",
+            "soulful",
+            "story",
+            "vivid",
+            "program",
+            "news",
+            "advertising",
+            "roar",
+            "murmur",
+            "shout",
+            "deeply",
+            "loudly",
+            "remove",
+            "exaggerated",
+        ],
+        "speed" => &["faster", "slower", "more faster", "more slower"],
+        _ => &[],
+    }
 }
 
 fn render_magpie_controls(ui: &mut egui::Ui, config: &mut Config) -> bool {
@@ -455,6 +748,135 @@ fn render_kokoro_voice_config_rows(
         if ui.button(text.tts_reset_to_defaults_label).clicked() {
             config.tts_playground.kokoro_settings.voice_configs =
                 crate::config::KokoroSettings::default().voice_configs;
+            changed = true;
+        }
+    });
+
+    changed
+}
+
+fn render_supertonic_controls(ui: &mut egui::Ui, config: &mut Config, text: &LocaleText) -> bool {
+    let mut changed = false;
+    let s = &mut config.tts_playground.supertonic_settings;
+    ui.label(egui::RichText::new("Supertonic 3").strong());
+    ui.label(
+        egui::RichText::new(SUPERTONIC_LANGUAGE_SUMMARY)
+            .color(egui::Color32::from_rgb(96, 125, 139)),
+    );
+    changed |= provider_speed_slider(ui, text.tts_speed_label, &mut s.speed, 0.5, 2.0);
+    ui.horizontal(|ui| {
+        ui.label(text.tts_cpu_threads_label);
+        changed |= ui
+            .add(egui::Slider::new(&mut s.num_threads, 1..=8))
+            .changed();
+    });
+    ui.horizontal(|ui| {
+        ui.label("Quality steps");
+        changed |= ui
+            .add(egui::Slider::new(&mut s.num_steps, 1..=20))
+            .changed();
+    });
+    changed |= render_supertonic_voice_config_rows(ui, config, text);
+    changed
+}
+
+fn render_supertonic_voice_config_rows(
+    ui: &mut egui::Ui,
+    config: &mut Config,
+    text: &LocaleText,
+) -> bool {
+    let mut changed = false;
+    ui.add_space(10.0);
+    ui.separator();
+    ui.add_space(6.0);
+    ui.label(egui::RichText::new(text.tts_voice_per_language_label).strong());
+
+    egui::ScrollArea::vertical()
+        .max_height(180.0)
+        .show(ui, |ui| {
+            let mut to_remove: Option<usize> = None;
+            for (idx, voice_config) in config
+                .tts_playground
+                .supertonic_settings
+                .voice_configs
+                .iter_mut()
+                .enumerate()
+            {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(&voice_config.language_name)
+                            .strong()
+                            .color(egui::Color32::from_rgb(100, 180, 100)),
+                    );
+                    ui.label("→");
+                    egui::ComboBox::from_id_salt(format!("tts_playground_supertonic_voice_{idx}"))
+                        .selected_text(normalize_supertonic_voice(&voice_config.voice_id))
+                        .width(160.0)
+                        .show_ui(ui, |ui| {
+                            for voice in SUPERTONIC_VOICES {
+                                changed |= ui
+                                    .selectable_value(
+                                        &mut voice_config.voice_id,
+                                        voice.id.to_string(),
+                                        voice.label,
+                                    )
+                                    .changed();
+                            }
+                        });
+                    if icon_button(ui, Icon::Close).clicked() {
+                        to_remove = Some(idx);
+                    }
+                });
+            }
+            if let Some(idx) = to_remove {
+                config
+                    .tts_playground
+                    .supertonic_settings
+                    .voice_configs
+                    .remove(idx);
+                changed = true;
+            }
+        });
+
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        let used_codes: Vec<_> = config
+            .tts_playground
+            .supertonic_settings
+            .voice_configs
+            .iter()
+            .filter_map(|voice_config| normalize_supertonic_lang(&voice_config.language_code))
+            .collect();
+        let available: Vec<_> = SUPERTONIC_LANGUAGES
+            .iter()
+            .filter(|lang| !used_codes.iter().any(|code| code == lang.code))
+            .collect();
+
+        if !available.is_empty() {
+            egui::ComboBox::from_id_salt("tts_playground_supertonic_add_language")
+                .selected_text(text.tts_add_language_label)
+                .width(160.0)
+                .show_ui(ui, |ui| {
+                    for lang in &available {
+                        if ui.selectable_label(false, lang.label).clicked() {
+                            config
+                                .tts_playground
+                                .supertonic_settings
+                                .voice_configs
+                                .push(SupertonicVoiceConfig::new(
+                                    lang.code,
+                                    lang.label,
+                                    default_supertonic_voice_for_lang(lang.code),
+                                ));
+                            changed = true;
+                        }
+                    }
+                });
+        }
+
+        if ui.button(text.tts_reset_to_defaults_label).clicked() {
+            config.tts_playground.supertonic_settings.voice_configs =
+                crate::config::SupertonicSettings::default().voice_configs;
             changed = true;
         }
     });

@@ -1,6 +1,9 @@
 use crate::config::TtsMethod;
+use eframe::egui::text::CCursorRange;
 use std::collections::VecDeque;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 pub(super) const MAX_RECENT_ARTIFACTS: usize = 5;
@@ -40,17 +43,24 @@ impl TtsPlaygroundArtifact {
 
 pub(super) type ArtifactResult = Result<TtsPlaygroundArtifact, String>;
 pub(super) type ExportResult = Result<String, String>;
+pub(super) type TranscriptResult = Result<(String, String), String>;
 
 pub struct TtsPlaygroundUiState {
     pub(super) current: Option<TtsPlaygroundArtifact>,
     pub(super) recent: VecDeque<TtsPlaygroundArtifact>,
     pub(super) job_rx: Option<Receiver<ArtifactResult>>,
+    pub(super) generation_cancel: Option<Arc<AtomicBool>>,
     pub(super) is_generating: bool,
     pub(super) export_rx: Option<Receiver<ExportResult>>,
     pub(super) is_exporting: bool,
     pub(super) status: String,
     pub(super) error: Option<String>,
     pub(super) player: PlayerState,
+    pub(super) draft_text_cursor_range: Option<CCursorRange>,
+    pub(super) mic_recording: Option<MicRecordingState>,
+    pub(super) reference_transcript_rx: Option<Receiver<TranscriptResult>>,
+    pub(super) is_recognizing_reference: bool,
+    pub(super) reference_preview: Option<ReferencePreviewState>,
 }
 
 impl TtsPlaygroundUiState {
@@ -61,12 +71,18 @@ impl TtsPlaygroundUiState {
             current,
             recent,
             job_rx: None,
+            generation_cancel: None,
             is_generating: false,
             export_rx: None,
             is_exporting: false,
             status: String::new(),
             error: None,
             player: PlayerState::default(),
+            draft_text_cursor_range: None,
+            mic_recording: None,
+            reference_transcript_rx: None,
+            is_recognizing_reference: false,
+            reference_preview: None,
         }
     }
 
@@ -87,6 +103,18 @@ impl TtsPlaygroundUiState {
         }
         super::library::save_recent(&self.recent);
     }
+}
+
+pub(super) struct MicRecordingState {
+    pub samples: Arc<Mutex<Vec<i16>>>,
+    pub stop: Arc<AtomicBool>,
+    pub stream: cpal::Stream,
+}
+
+pub(super) struct ReferencePreviewState {
+    pub reference_id: String,
+    pub started_at: Instant,
+    pub samples_len: usize,
 }
 
 impl Default for TtsPlaygroundUiState {

@@ -20,6 +20,8 @@ mod state;
 #[cfg(test)]
 mod state_tests;
 pub mod step_audio_assets;
+pub mod step_audio_runtime;
+pub mod supertonic_assets;
 pub(crate) mod transcript_state;
 mod transcription;
 mod translation;

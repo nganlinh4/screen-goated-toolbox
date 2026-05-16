@@ -118,7 +118,11 @@
       "install_dir": "models/kokoro_v1",
       "download_primary": "https://huggingface.co/csukuangfj/sherpa-onnx-kokoro-multi-lang-v1_0/resolve/main",
       "download_fallback_modelscope": "https://modelscope.cn/models/csukuangfj/sherpa-onnx-kokoro-multi-lang-v1_0/resolve/master",
-      "required_files": ["model.onnx", "voices.bin", "tokens.txt"],
+      "required_files": [
+        "model.onnx",
+        "voices.bin",
+        "tokens.txt"
+      ],
       "required_archives": [
         {
           "filename": "espeak-ng-data.tar.bz2",
@@ -134,14 +138,23 @@
       "method": "StepAudioEditX",
       "label": "Step Audio EditX",
       "elo": 1104,
-      "runtime": "libtorch-shim",
+      "runtime": "managed-python-step-audio",
       "install_dir": "models/step_audio_editx",
-      "download_primary": "https://huggingface.co/stepfun-ai/Step-Audio-EditX/resolve/main",
-      "download_fallback_modelscope": "https://modelscope.cn/models/stepfun-ai/Step-Audio-EditX/resolve/master",
-      "runtime_dll_url": "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/step_audio_runtime/dist/sgt_step_audio_runtime.dll",
-      "approx_size_mb": 6000,
+      "download_primary": "https://huggingface.co/stepfun-ai/Step-Audio-EditX-AWQ-4bit/resolve/main",
+      "download_fallback_modelscope": "https://modelscope.cn/models/stepfun-ai/Step-Audio-EditX-AWQ-4bit/resolve/master",
+      "approx_size_mb": 4200,
       "offline_available": true,
-      "notes": "Supports Mandarin, English, Sichuanese, Cantonese, Japanese, and Korean."
+      "notes": "Supports Mandarin, English, Sichuanese, Cantonese, Japanese, and Korean. Uses the official AWQ 4-bit checkpoint plus Step-Audio-Tokenizer.",
+      "runtime_manifest_url": "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/step_audio_runtime/dist/sgt_step_audio_runtime.manifest.json",
+      "required_files": [
+        "editx_awq/model.safetensors",
+        "editx_awq/CosyVoice-300M-25Hz/flow.pt",
+        "editx_awq/CosyVoice-300M-25Hz/hift.pt",
+        "editx_awq/CosyVoice-300M-25Hz/speech_tokenizer_v1.onnx",
+        "tokenizer/linguistic_tokenizer.npy",
+        "tokenizer/speech_tokenizer_v1.onnx",
+        "tokenizer/dengcunqin/speech_paraformer-large_asr_nat-zh-cantonese-en-16k-vocab8501-online/model.pt"
+      ]
     },
     {
       "id": "magpie-multilingual-357m",
@@ -153,7 +166,10 @@
       "download_primary": "https://huggingface.co/nvidia/magpie_tts_multilingual_357m/resolve/main",
       "download_fallback_modelscope": "https://modelscope.cn/models/nvidia/magpie_tts_multilingual_357m/resolve/master",
       "runtime_manifest_url": "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/magpie_runtime/dist/sgt_magpie_runtime.manifest.json",
-      "required_files": ["magpie_tts_multilingual_357m.nemo", "nemo-nano-codec-22khz-1.89kbps-21.5fps.nemo"],
+      "required_files": [
+        "magpie_tts_multilingual_357m.nemo",
+        "nemo-nano-codec-22khz-1.89kbps-21.5fps.nemo"
+      ],
       "approx_size_mb": 1560,
       "offline_available": true,
       "notes": "Supports English, Spanish, German, French, Vietnamese, Italian, Mandarin Chinese, Hindi, and Japanese."

@@ -20,6 +20,7 @@ mod worker_google;
 mod worker_kokoro;
 mod worker_magpie;
 mod worker_step_audio;
+mod worker_supertonic;
 mod worker_voxtral;
 
 // ---- Warm socket pool for instant TTS ----
@@ -52,6 +53,24 @@ fn acquire_warm_socket(api_key: &str) -> Option<WebSocket<TlsStream<TcpStream>>>
 
 pub fn start_warm_up_public(api_key: String) {
     start_warm_up(api_key);
+}
+
+pub fn synthesize_step_audio_edit_to_wav_cancel(
+    source_audio_path: String,
+    source_text: String,
+    edit_type: String,
+    edit_info: String,
+    target_text: String,
+    cancel: Arc<std::sync::atomic::AtomicBool>,
+) -> anyhow::Result<super::types::TtsCollectedAudio> {
+    worker_step_audio::synthesize_step_audio_edit_to_wav(
+        source_audio_path,
+        source_text,
+        edit_type,
+        edit_info,
+        target_text,
+        Some(cancel),
+    )
 }
 
 fn start_warm_up(api_key: String) {
@@ -164,6 +183,10 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
             crate::config::TtsMethod::Kokoro => {
                 eprintln!("[TTS Worker] Routing to Kokoro 82M v1.0");
                 worker_kokoro::handle_kokoro_tts(manager.clone(), request, tx);
+            }
+            crate::config::TtsMethod::Supertonic => {
+                eprintln!("[TTS Worker] Routing to Supertonic 3");
+                worker_supertonic::handle_supertonic_tts(manager.clone(), request, tx);
             }
             crate::config::TtsMethod::VoxtralTts => {
                 eprintln!("[TTS Worker] Routing to Mistral Voxtral TTS");

@@ -7,6 +7,7 @@ pub const PLAYBACK_SAMPLE_RATE: u32 = 48000;
 /// Events passed from socket workers to the player thread
 pub enum AudioEvent {
     Data(Vec<u8>),
+    Error(String),
     End,
 }
 
@@ -38,12 +39,12 @@ pub struct TtsRequestProfile {
     pub google_speed: String,
     pub edge_voice: String,
     pub edge_settings: crate::config::EdgeTtsSettings,
+    pub step_audio_settings: crate::config::StepAudioSettings,
     pub magpie_settings: crate::config::MagpieSettings,
-    /// Kokoro is the only offline TTS provider with a functional Rust worker
-    /// today; settings flow through the profile so the playground can override
-    /// voice/speed/lang per session. The other four leaderboard providers are
-    /// deferred (see worker_*.rs) and read no per-request state.
+    /// Local open-weights providers read their per-request settings here so
+    /// playground/narration callers can override voice routing per session.
     pub kokoro_settings: crate::config::KokoroSettings,
+    pub supertonic_settings: crate::config::SupertonicSettings,
     /// Optional ISO 639-3 language hint for batched callers such as subtitle narration.
     pub language_code_override: Option<String>,
 }
@@ -60,8 +61,10 @@ impl From<&crate::config::TtsPlaygroundSettings> for TtsRequestProfile {
             google_speed: settings.google_speed.clone(),
             edge_voice: settings.edge_voice.clone(),
             edge_settings: settings.edge_settings.clone(),
+            step_audio_settings: settings.step_audio_settings.clone(),
             magpie_settings: settings.magpie_settings.clone(),
             kokoro_settings: settings.kokoro_settings.clone(),
+            supertonic_settings: settings.supertonic_settings.clone(),
             language_code_override: None,
         }
     }
