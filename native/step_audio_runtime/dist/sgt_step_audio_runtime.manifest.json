@@ -1,20 +1,20 @@
 {
-    "version":  "2026.05.15",
-    "abiVersion":  1,
-    "entrypoint":  "step-audio-sidecar/step-audio-sidecar.exe",
-    "installedSize":  5512741765,
-    "chunks":  [
-                   {
-                       "filename":  "sgt-step-audio-runtime-2026.05.15.zip.part001",
-                       "url":  "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-step-audio-runtime-2026.05.15.zip.part001",
-                       "sha256":  "898ed58c7684053ba7a2f9a72871d010c0457301f86bbfbef187a989f9044063",
-                       "size":  1992294400
-                   },
-                   {
-                       "filename":  "sgt-step-audio-runtime-2026.05.15.zip.part002",
-                       "url":  "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-step-audio-runtime-2026.05.15.zip.part002",
-                       "sha256":  "217bc3a09baee8c808f423f071b1a3a3d0cc1d7278306eb85b7fc5d7be7162be",
-                       "size":  1263102044
-                   }
-               ]
+  "version": "2026.05.15",
+  "abiVersion": 1,
+  "entrypoint": "step-audio-sidecar/step-audio-sidecar.exe",
+  "installedSize": 5512741765,
+  "chunks": [
+    {
+      "filename": "sgt-step-audio-runtime-2026.05.15.zip.part001",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-step-audio-runtime-2026.05.15.zip.part001",
+      "sha256": "898ed58c7684053ba7a2f9a72871d010c0457301f86bbfbef187a989f9044063",
+      "size": 1992294400
+    },
+    {
+      "filename": "sgt-step-audio-runtime-2026.05.15.zip.part002",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-step-audio-runtime-2026.05.15.zip.part002",
+      "sha256": "217bc3a09baee8c808f423f071b1a3a3d0cc1d7278306eb85b7fc5d7be7162be",
+      "size": 1263102044
+    }
+  ]
 }
