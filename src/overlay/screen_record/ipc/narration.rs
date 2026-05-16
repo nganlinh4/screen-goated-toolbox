@@ -5,12 +5,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 use crate::api::tts::TTS_MANAGER;
 use crate::api::tts::types::TtsRequestProfile;
 use crate::config::tts_catalog::{
-    KOKORO_VOICES, MAGPIE_VOICE_LANGUAGES, MAGPIE_VOICES, narration_tts_providers,
-    normalize_kokoro_lang, normalize_magpie_voice, tts_method_id,
+    KOKORO_VOICES, MAGPIE_VOICE_LANGUAGES, MAGPIE_VOICES, SUPERTONIC_LANGUAGES, SUPERTONIC_VOICES,
+    narration_tts_providers, normalize_kokoro_lang, normalize_magpie_voice, tts_method_id,
 };
 use crate::config::{
     EdgeTtsSettings, EdgeTtsVoiceConfig, KokoroSettings, KokoroVoiceConfig, MagpieSettings,
-    MagpieVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
+    MagpieVoiceConfig, StepAudioVoiceConfig, SupertonicSettings, SupertonicVoiceConfig,
+    TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
 };
 use crate::gui::settings_ui::tts_playground_data::{
     GEMINI_VOICES, SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES,
@@ -74,6 +75,22 @@ struct MagpieVoiceConfigWire {
     voice_id: String,
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StepAudioVoiceConfigWire {
+    language_code: String,
+    language_name: String,
+    voice_id: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SupertonicVoiceConfigWire {
+    language_code: String,
+    language_name: String,
+    voice_id: String,
+}
+
 impl From<KokoroVoiceConfigWire> for KokoroVoiceConfig {
     fn from(wire: KokoroVoiceConfigWire) -> Self {
         KokoroVoiceConfig::new(&wire.language_code, &wire.language_name, &wire.voice_id)
@@ -89,6 +106,18 @@ impl From<EdgeVoiceConfigWire> for EdgeTtsVoiceConfig {
 impl From<MagpieVoiceConfigWire> for MagpieVoiceConfig {
     fn from(wire: MagpieVoiceConfigWire) -> Self {
         MagpieVoiceConfig::new(&wire.language_code, &wire.language_name, &wire.voice_id)
+    }
+}
+
+impl From<StepAudioVoiceConfigWire> for StepAudioVoiceConfig {
+    fn from(wire: StepAudioVoiceConfigWire) -> Self {
+        StepAudioVoiceConfig::new(&wire.language_code, &wire.language_name, &wire.voice_id)
+    }
+}
+
+impl From<SupertonicVoiceConfigWire> for SupertonicVoiceConfig {
+    fn from(wire: SupertonicVoiceConfigWire) -> Self {
+        SupertonicVoiceConfig::new(&wire.language_code, &wire.language_name, &wire.voice_id)
     }
 }
 
@@ -120,6 +149,22 @@ struct TtsProfileWire {
     #[serde(default)]
     edge_voice_configs: Vec<EdgeVoiceConfigWire>,
     #[serde(default)]
+    step_audio_voice: String,
+    #[serde(default)]
+    step_audio_reference_voice_id: String,
+    #[serde(default)]
+    step_audio_voice_configs: Vec<StepAudioVoiceConfigWire>,
+    #[serde(default)]
+    step_audio_prompt_text: String,
+    #[serde(default)]
+    step_audio_use_custom_reference: bool,
+    #[serde(default)]
+    step_audio_reference_audio_path: String,
+    #[serde(default)]
+    step_audio_reference_text: String,
+    #[serde(default)]
+    step_audio_reference_label: String,
+    #[serde(default)]
     magpie_voice: String,
     #[serde(default)]
     magpie_voice_configs: Vec<MagpieVoiceConfigWire>,
@@ -131,6 +176,14 @@ struct TtsProfileWire {
     kokoro_num_threads: Option<i32>,
     #[serde(default)]
     kokoro_voice_configs: Vec<KokoroVoiceConfigWire>,
+    #[serde(default)]
+    supertonic_speed: Option<f32>,
+    #[serde(default)]
+    supertonic_num_steps: Option<i32>,
+    #[serde(default)]
+    supertonic_num_threads: Option<i32>,
+    #[serde(default)]
+    supertonic_voice_configs: Vec<SupertonicVoiceConfigWire>,
 }
 
 impl TtsProfileWire {
@@ -175,6 +228,14 @@ impl TtsProfileWire {
                 .map(KokoroVoiceConfig::from)
                 .collect()
         };
+        let supertonic_voice_configs = if self.supertonic_voice_configs.is_empty() {
+            defaults.supertonic_settings.voice_configs
+        } else {
+            self.supertonic_voice_configs
+                .into_iter()
+                .map(SupertonicVoiceConfig::from)
+                .collect()
+        };
 
         TtsRequestProfile {
             method: self.method,
@@ -198,6 +259,26 @@ impl TtsProfileWire {
                 volume: 0,
                 voice_configs: edge_voice_configs,
             },
+            step_audio_settings: crate::config::StepAudioSettings {
+                voice: trimmed_or(
+                    self.step_audio_voice,
+                    defaults.step_audio_settings.voice.clone(),
+                ),
+                voice_configs: if self.step_audio_voice_configs.is_empty() {
+                    defaults.step_audio_settings.voice_configs
+                } else {
+                    self.step_audio_voice_configs
+                        .into_iter()
+                        .map(StepAudioVoiceConfig::from)
+                        .collect()
+                },
+                reference_voice_id: self.step_audio_reference_voice_id,
+                use_custom_reference: self.step_audio_use_custom_reference,
+                reference_audio_path: self.step_audio_reference_audio_path,
+                reference_text: self.step_audio_reference_text,
+                reference_label: self.step_audio_reference_label,
+                style_prompt: self.step_audio_prompt_text,
+            },
             magpie_settings: MagpieSettings {
                 voice: magpie_voice,
                 voice_configs: magpie_voice_configs,
@@ -214,6 +295,25 @@ impl TtsProfileWire {
                     .unwrap_or(defaults.kokoro_settings.num_threads)
                     .clamp(1, 8),
                 voice_configs: kokoro_voice_configs,
+            },
+            supertonic_settings: SupertonicSettings {
+                speaker_id: defaults.supertonic_settings.speaker_id,
+                speed: self
+                    .supertonic_speed
+                    .unwrap_or(defaults.supertonic_settings.speed)
+                    .clamp(0.5, 2.0),
+                num_steps: self
+                    .supertonic_num_steps
+                    .unwrap_or(defaults.supertonic_settings.num_steps)
+                    .clamp(1, 20),
+                num_threads: self
+                    .supertonic_num_threads
+                    .unwrap_or(defaults.supertonic_settings.num_threads)
+                    .clamp(1, 8),
+                lang: String::new(),
+                voice_configs: supertonic_voice_configs,
+                silence_duration: defaults.supertonic_settings.silence_duration,
+                seed: defaults.supertonic_settings.seed,
             },
             language_code_override,
         }
@@ -673,7 +773,117 @@ pub fn handle_get_narration_tts_metadata(
         .iter()
         .map(|(code, name)| serde_json::json!({ "languageCode": code, "languageName": name }))
         .collect();
+    let supertonic_languages: Vec<serde_json::Value> = SUPERTONIC_LANGUAGES
+        .iter()
+        .map(|lang| serde_json::json!({ "languageCode": lang.code, "languageName": lang.label }))
+        .collect();
+    let supertonic_voices: Vec<serde_json::Value> = SUPERTONIC_VOICES
+        .iter()
+        .map(|voice| {
+            serde_json::json!({
+                "id": voice.id,
+                "label": voice.label,
+            })
+        })
+        .collect();
+    let step_audio_reference_voices: Vec<serde_json::Value> = crate::APP
+        .lock()
+        .map(|app| {
+            app.config
+                .step_audio_reference_voices
+                .iter()
+                .map(|reference| {
+                    serde_json::json!({
+                        "id": reference.id,
+                        "label": reference.label,
+                        "audioPath": reference.audio_path,
+                        "transcript": reference.transcript,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let step_audio_voices: Vec<serde_json::Value> = step_audio_reference_voices
+        .iter()
+        .filter_map(|voice| {
+            let id = voice.get("id")?.as_str()?;
+            let label = voice
+                .get("label")
+                .and_then(|value| value.as_str())
+                .unwrap_or(id);
+            Some(serde_json::json!({
+                "id": id,
+                "label": if label.trim().is_empty() { "Untitled reference" } else { label },
+            }))
+        })
+        .collect();
     let default_method = tts_method_id(&defaults.method);
+    let default_magpie_voice_configs: Vec<serde_json::Value> = defaults
+        .magpie_settings
+        .voice_configs
+        .iter()
+        .map(|config| {
+            serde_json::json!({
+                "languageCode": config.language_code,
+                "languageName": config.language_name,
+                "voiceId": config.voice_id,
+            })
+        })
+        .collect();
+    let default_kokoro_voice_configs: Vec<serde_json::Value> = defaults
+        .kokoro_settings
+        .voice_configs
+        .iter()
+        .map(|config| {
+            serde_json::json!({
+                "languageCode": config.language_code,
+                "languageName": config.language_name,
+                "voiceId": config.voice_id,
+            })
+        })
+        .collect();
+    let default_supertonic_voice_configs: Vec<serde_json::Value> = defaults
+        .supertonic_settings
+        .voice_configs
+        .iter()
+        .map(|config| {
+            serde_json::json!({
+                "languageCode": config.language_code,
+                "languageName": config.language_name,
+                "voiceId": config.voice_id,
+            })
+        })
+        .collect();
+    let defaults_json = serde_json::json!({
+        "method": default_method,
+        "geminiModel": defaults.gemini_model,
+        "geminiVoice": defaults.gemini_voice,
+        "geminiSpeed": defaults.gemini_speed,
+        "geminiInstruction": defaults.gemini_instruction,
+        "geminiLanguageConditions": default_language_conditions,
+        "googleSpeed": defaults.google_speed,
+        "edgeVoice": defaults.edge_voice,
+        "edgePitch": defaults.edge_settings.pitch,
+        "edgeRate": defaults.edge_settings.rate,
+        "edgeVoiceConfigs": default_edge_voice_configs,
+        "stepAudioVoice": defaults.step_audio_settings.voice,
+        "stepAudioReferenceVoiceId": defaults.step_audio_settings.reference_voice_id,
+        "stepAudioPromptText": defaults.step_audio_settings.style_prompt,
+        "stepAudioUseCustomReference": defaults.step_audio_settings.use_custom_reference,
+        "stepAudioReferenceAudioPath": defaults.step_audio_settings.reference_audio_path,
+        "stepAudioReferenceText": defaults.step_audio_settings.reference_text,
+        "stepAudioReferenceLabel": defaults.step_audio_settings.reference_label,
+        "magpieVoice": defaults.magpie_settings.voice,
+        "magpieVoiceConfigs": default_magpie_voice_configs,
+        "kokoroVoice": defaults.kokoro_settings.voice,
+        "kokoroSpeed": defaults.kokoro_settings.speed,
+        "kokoroNumThreads": defaults.kokoro_settings.num_threads,
+        "kokoroVoiceConfigs": default_kokoro_voice_configs,
+        "supertonicSpeed": defaults.supertonic_settings.speed,
+        "supertonicNumSteps": defaults.supertonic_settings.num_steps,
+        "supertonicNumThreads": defaults.supertonic_settings.num_threads,
+        "supertonicVoiceConfigs": default_supertonic_voice_configs,
+    });
 
     Ok(serde_json::json!({
         "providers": providers,
@@ -686,37 +896,15 @@ pub fn handle_get_narration_tts_metadata(
         "kokoroVoiceLanguages": kokoro_voice_languages,
         "magpieVoices": magpie_voices,
         "magpieVoiceLanguages": magpie_voice_languages,
+        "supertonicLanguages": supertonic_languages,
+        "supertonicVoices": supertonic_voices,
+        "stepAudioVoices": step_audio_voices,
+        "stepAudioReferenceVoices": step_audio_reference_voices,
         "edgeVoiceState": edge_voice_state,
         "edgeVoiceError": edge_voice_error,
         "edgeVoiceLanguages": edge_voice_languages,
         "edgeVoicesByLanguage": edge_voices_by_language,
-        "defaults": {
-            "method": default_method,
-            "geminiModel": defaults.gemini_model,
-            "geminiVoice": defaults.gemini_voice,
-            "geminiSpeed": defaults.gemini_speed,
-            "geminiInstruction": defaults.gemini_instruction,
-            "geminiLanguageConditions": default_language_conditions,
-            "googleSpeed": defaults.google_speed,
-            "edgeVoice": defaults.edge_voice,
-            "edgePitch": defaults.edge_settings.pitch,
-            "edgeRate": defaults.edge_settings.rate,
-            "edgeVoiceConfigs": default_edge_voice_configs,
-            "magpieVoice": defaults.magpie_settings.voice,
-            "magpieVoiceConfigs": defaults.magpie_settings.voice_configs.iter().map(|config| serde_json::json!({
-                "languageCode": config.language_code,
-                "languageName": config.language_name,
-                "voiceId": config.voice_id,
-            })).collect::<Vec<_>>(),
-            "kokoroVoice": defaults.kokoro_settings.voice,
-            "kokoroSpeed": defaults.kokoro_settings.speed,
-            "kokoroNumThreads": defaults.kokoro_settings.num_threads,
-            "kokoroVoiceConfigs": defaults.kokoro_settings.voice_configs.iter().map(|config| serde_json::json!({
-                "languageCode": config.language_code,
-                "languageName": config.language_name,
-                "voiceId": config.voice_id,
-            })).collect::<Vec<_>>(),
-        },
+        "defaults": defaults_json,
     }))
 }
 
@@ -801,9 +989,16 @@ fn run_subtitle_narration(
             clean_text.chars().take(60).collect::<String>()
         );
 
-        let result = synthesize_narration_item_with_retries(
-            job_id, index, total, item, clean_text, &profile, &snapshot, &cancelled,
-        );
+        let result = synthesize_narration_item_with_retries(NarrationSynthesisAttempt {
+            job_id,
+            index,
+            total,
+            item,
+            clean_text,
+            profile: &profile,
+            snapshot: &snapshot,
+            cancelled: &cancelled,
+        });
 
         match &result {
             Ok((path, duration, attempts)) => eprintln!(
@@ -899,16 +1094,30 @@ fn run_subtitle_narration(
     }
 }
 
-fn synthesize_narration_item_with_retries(
-    job_id: &str,
+struct NarrationSynthesisAttempt<'a> {
+    job_id: &'a str,
     index: usize,
     total: usize,
-    item: &SubtitleNarrationItemRequest,
-    clean_text: &str,
-    profile: &TtsRequestProfile,
-    snapshot: &Arc<Mutex<SubtitleNarrationJobSnapshot>>,
-    cancelled: &Arc<AtomicBool>,
+    item: &'a SubtitleNarrationItemRequest,
+    clean_text: &'a str,
+    profile: &'a TtsRequestProfile,
+    snapshot: &'a Arc<Mutex<SubtitleNarrationJobSnapshot>>,
+    cancelled: &'a Arc<AtomicBool>,
+}
+
+fn synthesize_narration_item_with_retries(
+    attempt_ctx: NarrationSynthesisAttempt<'_>,
 ) -> Result<(String, f64, usize), String> {
+    let NarrationSynthesisAttempt {
+        job_id,
+        index,
+        total,
+        item,
+        clean_text,
+        profile,
+        snapshot,
+        cancelled,
+    } = attempt_ctx;
     let mut last_error = String::new();
     for attempt in 1..=NARRATION_TTS_MAX_ATTEMPTS {
         if cancelled.load(Ordering::SeqCst) {
@@ -990,4 +1199,47 @@ fn uuid() -> String {
         chrono::Utc::now().timestamp_millis(),
         std::process::id()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TtsProfileWire, handle_get_narration_tts_metadata};
+    use crate::config::TtsMethod;
+
+    #[test]
+    fn step_audio_profile_wire_preserves_reference_id_and_prompt() {
+        let wire: TtsProfileWire = serde_json::from_value(serde_json::json!({
+            "method": "StepAudioEditX",
+            "stepAudioVoice": "",
+            "stepAudioReferenceVoiceId": "ref-demo",
+            "stepAudioPromptText": "Use a calm narration delivery."
+        }))
+        .expect("deserialize Step Audio narration profile");
+
+        let profile = wire.into_request_profile(Some("cmn".to_string()));
+
+        assert_eq!(profile.method, TtsMethod::StepAudioEditX);
+        assert_eq!(profile.language_code_override.as_deref(), Some("cmn"));
+        assert_eq!(
+            profile.step_audio_settings.style_prompt,
+            "Use a calm narration delivery."
+        );
+        assert_eq!(profile.step_audio_settings.reference_voice_id, "ref-demo");
+    }
+
+    #[test]
+    fn narration_tts_metadata_exposes_step_audio_options() {
+        let metadata = handle_get_narration_tts_metadata(&serde_json::Value::Null)
+            .expect("get narration TTS metadata");
+
+        assert!(
+            metadata["providers"]
+                .as_array()
+                .expect("providers array")
+                .iter()
+                .any(|provider| provider["method"] == "StepAudioEditX")
+        );
+        assert!(metadata["stepAudioReferenceVoices"].is_array());
+        assert!(metadata["defaults"]["stepAudioReferenceVoiceId"].is_string());
+    }
 }

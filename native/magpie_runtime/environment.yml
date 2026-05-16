@@ -13,3 +13,5 @@ dependencies:
   - pip:
       - "nemo_toolkit[tts]"
       - kaldialign
+      - jieba
+      - pyopenjtalk

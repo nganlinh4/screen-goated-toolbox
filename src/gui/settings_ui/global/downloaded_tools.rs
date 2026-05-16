@@ -14,7 +14,9 @@ mod zipformer;
 
 use self::{
     backgrounds::render_background_downloads_section,
-    model_sections::{render_kokoro_card, render_parakeet_card, render_qwen3_card},
+    model_sections::{
+        render_kokoro_card, render_parakeet_card, render_qwen3_card, render_supertonic_card,
+    },
     pointer_packs::render_pointer_pack_downloads_section,
     tts_models::{render_magpie_card, render_step_audio_card, render_voxtral_card},
     utils::clear_downloaded_tools_caches,
@@ -118,6 +120,10 @@ pub fn render_downloaded_tools_modal(
                                     render_kokoro_card(ui, text)
                                 });
                                 ui.add_space(8.0);
+                                time_downloaded_tools_section("supertonic-tts", || {
+                                    render_supertonic_card(ui, text)
+                                });
+                                ui.add_space(8.0);
                                 time_downloaded_tools_section("step-audio-tts", || {
                                     render_step_audio_card(ui, text)
                                 });
@@ -182,6 +188,7 @@ fn clean_all_downloaded_tools(download_manager: &mut DownloadManager) {
     let _ = crate::api::realtime_audio::qwen3::assets::remove_qwen3_1_7b_model();
     let _ = crate::api::realtime_audio::qwen3::server::remove_qwen3_server();
     let _ = crate::api::realtime_audio::qwen3::runtime::remove_qwen3_runtime();
+    let _ = crate::api::realtime_audio::supertonic_assets::remove_supertonic_model();
     let _ =
         std::fs::remove_dir_all(crate::api::realtime_audio::sherpa_onnx::dlls::sherpa_bin_dir());
     for lang in [

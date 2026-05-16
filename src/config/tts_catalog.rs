@@ -23,6 +23,19 @@ pub struct MagpieVoiceOption {
     pub label: &'static str,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct SupertonicLanguageOption {
+    pub code: &'static str,
+    pub label: &'static str,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SupertonicVoiceOption {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub speaker_id: i32,
+}
+
 pub const TTS_PROVIDERS: &[TtsProviderInfo] = &[
     TtsProviderInfo {
         method: TtsMethod::GeminiLive,
@@ -49,10 +62,16 @@ pub const TTS_PROVIDERS: &[TtsProviderInfo] = &[
         narration_supported: true,
     },
     TtsProviderInfo {
+        method: TtsMethod::Supertonic,
+        id: "Supertonic",
+        label: "Supertonic 3",
+        narration_supported: true,
+    },
+    TtsProviderInfo {
         method: TtsMethod::StepAudioEditX,
         id: "StepAudioEditX",
         label: "Step Audio EditX",
-        narration_supported: false,
+        narration_supported: true,
     },
     TtsProviderInfo {
         method: TtsMethod::MagpieMultilingual,
@@ -157,6 +176,53 @@ pub const KOKORO_VOICE_LANGUAGES: &[(&str, &str)] = &[
     ("por", "Portuguese"),
 ];
 
+pub const SUPERTONIC_LANGUAGES: &[SupertonicLanguageOption] = &[
+    supertonic_lang("en", "English"),
+    supertonic_lang("ko", "Korean"),
+    supertonic_lang("ja", "Japanese"),
+    supertonic_lang("ar", "Arabic"),
+    supertonic_lang("bg", "Bulgarian"),
+    supertonic_lang("cs", "Czech"),
+    supertonic_lang("da", "Danish"),
+    supertonic_lang("de", "German"),
+    supertonic_lang("el", "Greek"),
+    supertonic_lang("es", "Spanish"),
+    supertonic_lang("et", "Estonian"),
+    supertonic_lang("fi", "Finnish"),
+    supertonic_lang("fr", "French"),
+    supertonic_lang("hi", "Hindi"),
+    supertonic_lang("hr", "Croatian"),
+    supertonic_lang("hu", "Hungarian"),
+    supertonic_lang("id", "Indonesian"),
+    supertonic_lang("it", "Italian"),
+    supertonic_lang("lt", "Lithuanian"),
+    supertonic_lang("lv", "Latvian"),
+    supertonic_lang("nl", "Dutch"),
+    supertonic_lang("pl", "Polish"),
+    supertonic_lang("pt", "Portuguese"),
+    supertonic_lang("ro", "Romanian"),
+    supertonic_lang("ru", "Russian"),
+    supertonic_lang("sk", "Slovak"),
+    supertonic_lang("sl", "Slovenian"),
+    supertonic_lang("sv", "Swedish"),
+    supertonic_lang("tr", "Turkish"),
+    supertonic_lang("uk", "Ukrainian"),
+    supertonic_lang("vi", "Vietnamese"),
+];
+
+pub const SUPERTONIC_VOICES: &[SupertonicVoiceOption] = &[
+    supertonic_voice("F1", "F1", 0),
+    supertonic_voice("F2", "F2", 1),
+    supertonic_voice("F3", "F3", 2),
+    supertonic_voice("F4", "F4", 3),
+    supertonic_voice("F5", "F5", 4),
+    supertonic_voice("M1", "M1", 5),
+    supertonic_voice("M2", "M2", 6),
+    supertonic_voice("M3", "M3", 7),
+    supertonic_voice("M4", "M4", 8),
+    supertonic_voice("M5", "M5", 9),
+];
+
 const fn voice(
     id: &'static str,
     label: &'static str,
@@ -171,6 +237,22 @@ const fn voice(
 
 const fn magpie_voice(id: &'static str, label: &'static str) -> MagpieVoiceOption {
     MagpieVoiceOption { id, label }
+}
+
+const fn supertonic_lang(code: &'static str, label: &'static str) -> SupertonicLanguageOption {
+    SupertonicLanguageOption { code, label }
+}
+
+const fn supertonic_voice(
+    id: &'static str,
+    label: &'static str,
+    speaker_id: i32,
+) -> SupertonicVoiceOption {
+    SupertonicVoiceOption {
+        id,
+        label,
+        speaker_id,
+    }
 }
 
 pub fn tts_method_id(method: &TtsMethod) -> &'static str {
@@ -248,6 +330,79 @@ pub fn default_magpie_voice_for_lang(lang: &str) -> &'static str {
         Some("hi") => "Jason",
         Some("ja") => "Sofia",
         _ => "John",
+    }
+}
+
+pub fn normalize_supertonic_lang(value: &str) -> Option<String> {
+    let value = value.trim().to_ascii_lowercase().replace('_', "-");
+    if value.is_empty() || value == "auto" {
+        return None;
+    }
+    let normalized = match value.as_str() {
+        "eng" | "en" | "en-us" | "en-gb" | "english" => "en",
+        "kor" | "ko" | "kr" | "korean" => "ko",
+        "jpn" | "ja" | "jp" | "japanese" => "ja",
+        "ara" | "ar" | "arabic" => "ar",
+        "bul" | "bg" | "bulgarian" => "bg",
+        "ces" | "cze" | "cs" | "czech" => "cs",
+        "dan" | "da" | "danish" => "da",
+        "deu" | "ger" | "de" | "german" => "de",
+        "ell" | "gre" | "el" | "greek" => "el",
+        "spa" | "es" | "spanish" => "es",
+        "est" | "et" | "estonian" => "et",
+        "fin" | "fi" | "finnish" => "fi",
+        "fra" | "fre" | "fr" | "french" => "fr",
+        "hin" | "hi" | "hindi" => "hi",
+        "hrv" | "hr" | "croatian" => "hr",
+        "hun" | "hu" | "hungarian" => "hu",
+        "ind" | "id" | "indonesian" => "id",
+        "ita" | "it" | "italian" => "it",
+        "lit" | "lt" | "lithuanian" => "lt",
+        "lav" | "lv" | "latvian" => "lv",
+        "nld" | "dut" | "nl" | "dutch" => "nl",
+        "pol" | "pl" | "polish" => "pl",
+        "por" | "pt" | "portuguese" => "pt",
+        "ron" | "rum" | "ro" | "romanian" => "ro",
+        "rus" | "ru" | "russian" => "ru",
+        "slk" | "slo" | "sk" | "slovak" => "sk",
+        "slv" | "sl" | "slovenian" => "sl",
+        "swe" | "sv" | "swedish" => "sv",
+        "tur" | "tr" | "turkish" => "tr",
+        "ukr" | "uk" | "ukrainian" => "uk",
+        "vie" | "vi" | "vietnamese" => "vi",
+        _ => return None,
+    };
+    Some(normalized.to_string())
+}
+
+pub fn supertonic_voice_by_id(id: &str) -> Option<&'static SupertonicVoiceOption> {
+    SUPERTONIC_VOICES
+        .iter()
+        .find(|voice| voice.id.eq_ignore_ascii_case(id.trim()))
+}
+
+pub fn normalize_supertonic_voice(value: &str) -> String {
+    supertonic_voice_by_id(value)
+        .map(|voice| voice.id.to_string())
+        .unwrap_or_else(|| "M1".to_string())
+}
+
+pub fn supertonic_speaker_id_for_voice(value: &str) -> i32 {
+    supertonic_voice_by_id(value)
+        .map(|voice| voice.speaker_id)
+        .unwrap_or(5)
+}
+
+pub fn default_supertonic_voice_for_lang(lang: &str) -> &'static str {
+    match normalize_supertonic_lang(lang).as_deref() {
+        Some("en") => "M1",
+        Some("vi") => "F1",
+        Some("ko") => "F2",
+        Some("ja") => "F3",
+        Some("es") => "M2",
+        Some("fr") => "F4",
+        Some("pt") => "M3",
+        _ => "M1",
     }
 }
 

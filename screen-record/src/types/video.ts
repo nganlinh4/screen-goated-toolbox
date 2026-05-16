@@ -279,6 +279,13 @@ export interface TtsProfileSnapshot {
     languageName: string;
     voiceName: string;
   }>;
+  stepAudioVoice?: string;
+  stepAudioReferenceVoiceId?: string;
+  stepAudioPromptText?: string;
+  stepAudioUseCustomReference?: boolean;
+  stepAudioReferenceAudioPath?: string;
+  stepAudioReferenceText?: string;
+  stepAudioReferenceLabel?: string;
   magpieVoice?: string;
   magpieVoiceConfigs?: Array<{
     languageCode: string;
@@ -289,6 +296,14 @@ export interface TtsProfileSnapshot {
   kokoroSpeed?: number;
   kokoroNumThreads?: number;
   kokoroVoiceConfigs?: Array<{
+    languageCode: string;
+    languageName: string;
+    voiceId: string;
+  }>;
+  supertonicSpeed?: number;
+  supertonicNumSteps?: number;
+  supertonicNumThreads?: number;
+  supertonicVoiceConfigs?: Array<{
     languageCode: string;
     languageName: string;
     voiceId: string;

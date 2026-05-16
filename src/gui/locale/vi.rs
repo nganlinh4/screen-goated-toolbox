@@ -391,7 +391,7 @@ pub fn get() -> LocaleText {
         kokoro_downloading_title: "Đang tải Kokoro 82M (0.3 GB)",
         kokoro_downloading_message: "Vui lòng đợi...",
         kokoro_downloading_file: "Đang tải {}...",
-        step_audio_downloading_title: "Đang tải Step Audio EditX (~6 GB)",
+        step_audio_downloading_title: "Đang tải Step Audio EditX + Tokenizer (~4,2 GB)",
         step_audio_downloading_message: "Vui lòng đợi...",
         step_audio_downloading_file: "Đang tải {}...",
         magpie_downloading_title: "Đang tải Magpie-Multilingual + NanoCodec (~1,5 GB)",

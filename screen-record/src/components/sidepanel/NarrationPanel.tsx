@@ -11,6 +11,7 @@ import {
   type NarrationKokoroVoiceConfig,
   type NarrationLanguageCondition,
   type NarrationMagpieVoiceConfig,
+  type NarrationSupertonicVoiceConfig,
   type NarrationTtsMethod,
 } from '@/hooks/useNarrationSettings';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
@@ -155,12 +156,16 @@ export function NarrationPanel({
   const kokoroVoiceLanguages = metadata?.kokoroVoiceLanguages ?? [];
   const magpieVoices = metadata?.magpieVoices ?? [];
   const magpieVoiceLanguages = metadata?.magpieVoiceLanguages ?? [];
+  const supertonicLanguages = metadata?.supertonicLanguages ?? [];
+  const supertonicVoices = metadata?.supertonicVoices ?? [];
+  const stepAudioVoices = metadata?.stepAudioVoices ?? [];
   const edgeVoiceLanguages = metadata?.edgeVoiceLanguages ?? [];
   const edgeVoicesByLanguage = metadata?.edgeVoicesByLanguage ?? {};
   const geminiLanguageConditions = settings.geminiLanguageConditions ?? [];
   const edgeVoiceConfigs = settings.edgeVoiceConfigs ?? [];
   const kokoroVoiceConfigs = settings.kokoroVoiceConfigs ?? [];
   const magpieVoiceConfigs = settings.magpieVoiceConfigs ?? [];
+  const supertonicVoiceConfigs = settings.supertonicVoiceConfigs ?? [];
   const methodLabel = (method: NarrationTtsMethod, fallback: string) => {
     switch (method) {
       case 'GeminiLive':
@@ -171,6 +176,10 @@ export function NarrationPanel({
         return t.narrationTtsMethodGoogle;
       case 'Kokoro':
         return t.narrationTtsMethodKokoro;
+      case 'Supertonic':
+        return 'Supertonic 3';
+      case 'StepAudioEditX':
+        return 'Step Audio EditX';
       case 'MagpieMultilingual':
         return 'NVIDIA Magpie-Multilingual 357M';
       default:
@@ -184,6 +193,8 @@ export function NarrationPanel({
         { method: 'EdgeTTS' as const, label: 'Edge TTS' },
         { method: 'GoogleTranslate' as const, label: 'Google Translate' },
         { method: 'Kokoro' as const, label: 'Kokoro 82M v1.0' },
+        { method: 'Supertonic' as const, label: 'Supertonic 3' },
+        { method: 'StepAudioEditX' as const, label: 'Step Audio EditX' },
         { method: 'MagpieMultilingual' as const, label: 'NVIDIA Magpie-Multilingual 357M' },
       ]).map((provider) => ({
         value: provider.method,
@@ -318,6 +329,35 @@ export function NarrationPanel({
   );
   const availableMagpieVoiceLanguages = magpieVoiceLanguages.filter(
     (language) => !usedMagpieVoiceCodes.has(language.languageCode.toLowerCase()),
+  );
+
+  const setSupertonicVoiceConfigs = (configs: NarrationSupertonicVoiceConfig[]) => {
+    update('supertonicVoiceConfigs', configs);
+  };
+  const updateSupertonicVoiceConfig = (
+    index: number,
+    next: Partial<NarrationSupertonicVoiceConfig>,
+  ) => {
+    setSupertonicVoiceConfigs(
+      supertonicVoiceConfigs.map((config, i) =>
+        i === index ? { ...config, ...next } : config,
+      ),
+    );
+  };
+  const removeSupertonicVoiceConfig = (index: number) => {
+    setSupertonicVoiceConfigs(supertonicVoiceConfigs.filter((_, i) => i !== index));
+  };
+  const addSupertonicVoiceConfig = (languageCode: string, languageName: string) => {
+    setSupertonicVoiceConfigs([
+      ...supertonicVoiceConfigs,
+      { languageCode, languageName, voiceId: supertonicVoices[0]?.id ?? 'M1' },
+    ]);
+  };
+  const usedSupertonicVoiceCodes = new Set(
+    supertonicVoiceConfigs.map((config) => config.languageCode.toLowerCase()),
+  );
+  const availableSupertonicLanguages = supertonicLanguages.filter(
+    (language) => !usedSupertonicVoiceCodes.has(language.languageCode.toLowerCase()),
   );
 
   const narration = useSubtitleNarration({
@@ -681,6 +721,110 @@ export function NarrationPanel({
             </>
           )}
 
+          {settings.method === 'Supertonic' && (
+            <>
+              <div className="narration-panel-supertonic-voices mb-2 flex flex-col gap-1.5">
+                <span className="text-[11px] font-medium text-on-surface-variant">
+                  Voice per language
+                </span>
+                {supertonicVoiceConfigs.map((config, index) => (
+                  <div key={`${config.languageCode}-${index}`} className="narration-panel-supertonic-voice-config flex items-center gap-1.5">
+                    <span className="w-20 flex-shrink-0 truncate text-[11px] font-medium text-[var(--secondary-color)]">
+                      {config.languageName}
+                    </span>
+                    <PanelSelect
+                      value={config.voiceId}
+                      options={supertonicVoices.map((voice) => ({
+                        value: voice.id,
+                        label: voice.label,
+                      }))}
+                      onChange={(value) => updateSupertonicVoiceConfig(index, { voiceId: value })}
+                      triggerClassName="narration-supertonic-voice-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+                      contentClassName="narration-supertonic-voice-menu"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeSupertonicVoiceConfig(index)}
+                      className="ui-icon-button h-6 w-6 rounded-full text-on-surface-variant hover:text-[var(--tertiary-color)]"
+                      title={t.narrationTtsLanguageConditionRemove}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+                {availableSupertonicLanguages.length > 0 && (
+                  <PanelSelect
+                    value="Add language"
+                    options={availableSupertonicLanguages.map((language) => ({
+                      value: language.languageCode,
+                      label: language.languageName,
+                    }))}
+                    onChange={(value) => {
+                      const language = availableSupertonicLanguages.find(
+                        (item) => item.languageCode === value,
+                      );
+                      if (language) addSupertonicVoiceConfig(language.languageCode, language.languageName);
+                    }}
+                    triggerClassName="narration-supertonic-voice-add h-8 self-start rounded-lg px-2.5 text-[11px]"
+                    contentClassName="narration-supertonic-voice-add-menu"
+                    searchable
+                  />
+                )}
+              </div>
+              <div className="narration-panel-row mb-2 flex items-center gap-2">
+                <span className="w-20 flex-shrink-0 text-[10px] font-medium text-on-surface-variant">
+                  {t.narrationTtsSpeed}
+                </span>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={2}
+                  step={0.05}
+                  value={settings.supertonicSpeed}
+                  onChange={(event) => update('supertonicSpeed', parseFloat(event.target.value))}
+                  className="narration-supertonic-speed-slider flex-1"
+                />
+                <span className="w-12 text-right text-[10px] tabular-nums text-on-surface">
+                  {settings.supertonicSpeed.toFixed(2)}x
+                </span>
+              </div>
+              <div className="narration-panel-row mb-2 flex items-center gap-2">
+                <span className="w-20 flex-shrink-0 text-[10px] font-medium text-on-surface-variant">
+                  Steps
+                </span>
+                <input
+                  type="range"
+                  min={1}
+                  max={20}
+                  step={1}
+                  value={settings.supertonicNumSteps}
+                  onChange={(event) => update('supertonicNumSteps', parseInt(event.target.value, 10))}
+                  className="narration-supertonic-steps-slider flex-1"
+                />
+                <span className="w-12 text-right text-[10px] tabular-nums text-on-surface">
+                  {settings.supertonicNumSteps}
+                </span>
+              </div>
+              <div className="narration-panel-row flex items-center gap-2">
+                <span className="w-20 flex-shrink-0 text-[10px] font-medium text-on-surface-variant">
+                  Threads
+                </span>
+                <input
+                  type="range"
+                  min={1}
+                  max={8}
+                  step={1}
+                  value={settings.supertonicNumThreads}
+                  onChange={(event) => update('supertonicNumThreads', parseInt(event.target.value, 10))}
+                  className="narration-supertonic-threads-slider flex-1"
+                />
+                <span className="w-12 text-right text-[10px] tabular-nums text-on-surface">
+                  {settings.supertonicNumThreads}
+                </span>
+              </div>
+            </>
+          )}
+
           {settings.method === 'MagpieMultilingual' && (
             <>
               <div className="narration-panel-magpie-voices mb-2 flex flex-col gap-1.5">
@@ -730,6 +874,30 @@ export function NarrationPanel({
                     searchable
                   />
                 )}
+              </div>
+            </>
+          )}
+
+          {settings.method === 'StepAudioEditX' && (
+            <>
+              <div className="narration-panel-step-audio-reference mb-2 flex flex-col gap-1.5">
+                <span className="text-[11px] font-medium text-on-surface-variant">
+                  Reference voice
+                </span>
+                <PanelSelect
+                  value={settings.stepAudioReferenceVoiceId}
+                  options={[
+                    { value: '', label: 'Bundled default reference' },
+                    ...stepAudioVoices.map((voice) => ({
+                      value: voice.id,
+                      label: voice.label || 'Untitled reference',
+                    })),
+                  ]}
+                  onChange={(value) => update('stepAudioReferenceVoiceId', value)}
+                  triggerClassName="narration-step-audio-reference-select h-8 rounded-lg px-2.5 text-[11px]"
+                  contentClassName="narration-step-audio-reference-menu"
+                  searchable
+                />
               </div>
             </>
           )}

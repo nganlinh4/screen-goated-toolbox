@@ -1,10 +1,9 @@
 //! sgt_tts_runtime — shared Rust cdylib that exposes the `sgt_tts_*` C ABI
-//! for offline open-weights TTS models (Step Audio EditX, Mistral Voxtral 4B).
+//! for offline open-weights TTS models that use the C ABI runtime path.
 //!
-//! The DLL is built once with `cargo build --release` and copied four times
-//! into the app's private bin dir under model-specific filenames. The
-//! parent Rust app's `tts_libtorch_runtime.rs` loader resolves the symbols
-//! identically regardless of filename.
+//! The DLL is built per model and installed under the app's private bin dir.
+//! The parent Rust app's `tts_libtorch_runtime.rs` loader resolves the symbols
+//! through the same ABI for each compatible runtime.
 //!
 //! Inference path: this DLL is a thin shim that **dispatches to Python**.
 //! On `sgt_tts_synthesize`, it spawns a short-lived Python process running
@@ -13,7 +12,7 @@
 //! for actually loading each model's reference inference code and producing
 //! audio. This mirrors the qwen3-server pattern of `src/api/realtime_audio/
 //! qwen3/server.rs` but bakes the spawn-and-talk loop inside the DLL so the
-//! main Rust app sees a uniform C ABI for *all* offline TTS providers.
+//! main Rust app sees a uniform C ABI for compatible offline TTS providers.
 //!
 //! See `native/README_TTS_RUNTIME_FFI.md` for the C ABI specification.
 
@@ -44,24 +43,19 @@ struct Runtime {
 
 #[derive(Clone, Copy, Debug)]
 enum ModelId {
-    StepAudio,
     Voxtral,
     Unknown,
 }
 
 impl ModelId {
-    /// Detect the model from the trailing directory name. The parent app
-    /// passes paths like `…\models\step_audio_editx`, so a substring match on
-    /// the basename is enough to dispatch correctly.
+    /// Detect the model from the trailing directory name.
     fn from_path(p: &std::path::Path) -> Self {
         let name = p
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
-        if name.contains("step") {
-            Self::StepAudio
-        } else if name.contains("voxtral") {
+        if name.contains("voxtral") {
             Self::Voxtral
         } else {
             Self::Unknown
@@ -70,7 +64,6 @@ impl ModelId {
 
     fn arg(&self) -> &'static str {
         match self {
-            Self::StepAudio => "step_audio",
             Self::Voxtral => "voxtral",
             Self::Unknown => "unknown",
         }

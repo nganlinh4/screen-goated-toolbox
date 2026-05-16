@@ -5,36 +5,35 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-const RUNTIME_MANIFEST_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/magpie_runtime/dist/sgt_magpie_runtime.manifest.json";
-const MANAGED_MANIFEST_FILE: &str = "sgt_magpie_runtime.manifest.json";
+const RUNTIME_MANIFEST_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/step_audio_runtime/dist/sgt_step_audio_runtime.manifest.json";
+const MANAGED_MANIFEST_FILE: &str = "sgt_step_audio_runtime.manifest.json";
 const MIN_RUNTIME_ABI: u32 = 1;
 
 lazy_static::lazy_static! {
-    static ref LAST_MAGPIE_RUNTIME_NOTICE: Mutex<Option<String>> = Mutex::new(None);
+    static ref LAST_STEP_AUDIO_RUNTIME_NOTICE: Mutex<Option<String>> = Mutex::new(None);
 }
 
-static MAGPIE_RUNTIME_DOWNLOADING: AtomicBool = AtomicBool::new(false);
+static STEP_AUDIO_RUNTIME_DOWNLOADING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MagpieRuntimeManifest {
+pub struct StepAudioRuntimeManifest {
     pub version: String,
     pub abi_version: u32,
     pub entrypoint: String,
     #[serde(default)]
     pub installed_size: u64,
-    pub chunks: Vec<MagpieRuntimeChunk>,
+    pub chunks: Vec<StepAudioRuntimeChunk>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MagpieRuntimeChunk {
+pub struct StepAudioRuntimeChunk {
     pub filename: String,
     pub url: String,
     pub sha256: String,
@@ -42,19 +41,19 @@ pub struct MagpieRuntimeChunk {
 }
 
 fn set_notice(message: impl Into<String>) {
-    *LAST_MAGPIE_RUNTIME_NOTICE.lock().unwrap() = Some(message.into());
+    *LAST_STEP_AUDIO_RUNTIME_NOTICE.lock().unwrap() = Some(message.into());
 }
 
 fn clear_notice() {
-    *LAST_MAGPIE_RUNTIME_NOTICE.lock().unwrap() = None;
+    *LAST_STEP_AUDIO_RUNTIME_NOTICE.lock().unwrap() = None;
 }
 
-pub fn current_magpie_runtime_notice() -> Option<String> {
-    LAST_MAGPIE_RUNTIME_NOTICE.lock().ok()?.clone()
+pub fn current_step_audio_runtime_notice() -> Option<String> {
+    LAST_STEP_AUDIO_RUNTIME_NOTICE.lock().ok()?.clone()
 }
 
-pub fn is_magpie_runtime_downloading() -> bool {
-    MAGPIE_RUNTIME_DOWNLOADING.load(Ordering::Relaxed)
+pub fn is_step_audio_runtime_downloading() -> bool {
+    STEP_AUDIO_RUNTIME_DOWNLOADING.load(Ordering::Relaxed)
 }
 
 fn post_download_state() {
@@ -79,19 +78,19 @@ fn locale() -> crate::gui::locale::LocaleText {
     crate::gui::locale::LocaleText::get(&ui_language)
 }
 
-pub fn get_magpie_runtime_dir() -> PathBuf {
+pub fn get_step_audio_runtime_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("screen-goated-toolbox")
         .join("bin")
-        .join("magpie_runtime")
+        .join("step_audio_runtime")
 }
 
 fn manifest_path() -> PathBuf {
-    get_magpie_runtime_dir().join(MANAGED_MANIFEST_FILE)
+    get_step_audio_runtime_dir().join(MANAGED_MANIFEST_FILE)
 }
 
-pub fn magpie_runtime_installed_size() -> u64 {
+pub fn step_audio_runtime_installed_size() -> u64 {
     fn dir_size(path: &Path) -> u64 {
         let Ok(entries) = fs::read_dir(path) else {
             return 0;
@@ -113,99 +112,54 @@ pub fn magpie_runtime_installed_size() -> u64 {
             })
             .sum()
     }
-    dir_size(&get_magpie_runtime_dir())
+    dir_size(&get_step_audio_runtime_dir())
 }
 
-pub fn read_installed_manifest() -> Result<MagpieRuntimeManifest> {
-    let body = fs::read_to_string(manifest_path()).context("Magpie runtime manifest is missing")?;
-    let manifest: MagpieRuntimeManifest =
-        serde_json::from_str(&body).context("Magpie runtime manifest is invalid")?;
+pub fn read_step_audio_installed_manifest() -> Result<StepAudioRuntimeManifest> {
+    let body =
+        fs::read_to_string(manifest_path()).context("Step Audio runtime manifest is missing")?;
+    let manifest: StepAudioRuntimeManifest =
+        serde_json::from_str(&body).context("Step Audio runtime manifest is invalid")?;
     validate_manifest(&manifest)?;
     Ok(manifest)
 }
 
-pub fn get_magpie_runtime_entrypoint() -> Result<PathBuf> {
+pub fn get_step_audio_runtime_entrypoint() -> Result<PathBuf> {
     if let Some(path) = local_sidecar_candidate().filter(|path| path.is_file()) {
-        ensure_magpie_runtime_imports(&path)?;
         return Ok(path);
     }
 
     let direct = default_managed_entrypoint();
     if direct.is_file() {
-        ensure_magpie_runtime_imports(&direct)?;
         return Ok(direct);
     }
 
-    match read_installed_manifest() {
+    match read_step_audio_installed_manifest() {
         Ok(manifest) => {
-            let path = get_magpie_runtime_dir().join(manifest.entrypoint);
+            let path = get_step_audio_runtime_dir().join(manifest.entrypoint);
             if path.is_file() {
-                ensure_magpie_runtime_imports(&path)?;
                 Ok(path)
             } else {
                 Err(anyhow!(
-                    "Magpie runtime manifest points to missing entrypoint '{}'. Expected direct entrypoint '{}'.",
+                    "Step Audio runtime manifest points to missing entrypoint '{}'. Expected direct entrypoint '{}'.",
                     path.display(),
                     direct.display()
                 ))
             }
         }
         Err(err) => Err(anyhow!(
-            "Magpie runtime is not installed. Expected '{}'. Manifest check failed: {err}",
+            "Step Audio runtime is not installed. Expected '{}'. Manifest check failed: {err}",
             direct.display()
         )),
     }
 }
 
-fn ensure_magpie_runtime_imports(entrypoint: &Path) -> Result<()> {
-    let python = entrypoint
-        .parent()
-        .ok_or_else(|| anyhow!("Magpie entrypoint has no parent directory"))?
-        .join("python_runtime")
-        .join(if cfg!(windows) {
-            "Scripts/python.exe"
-        } else {
-            "bin/python"
-        });
-    if !python.is_file() {
-        return Ok(());
-    }
-    for module in ["jieba", "pyopenjtalk"] {
-        if python_import_ok(&python, module) {
-            continue;
-        }
-
-        set_notice(format!(
-            "Repairing Magpie runtime dependency: installing {module}..."
-        ));
-        let status = Command::new(&python)
-            .args(["-m", "pip", "install", module])
-            .status()
-            .map_err(|err| anyhow!("Failed to start Magpie runtime pip repair: {err}"))?;
-        if !status.success() || !python_import_ok(&python, module) {
-            bail!(
-                "Magpie runtime is missing Python package '{module}'. Reinstall the Magpie runtime or run '{} -m pip install {module}'.",
-                python.display()
-            );
-        }
-    }
-    clear_notice();
-    Ok(())
+pub fn is_step_audio_runtime_installed() -> bool {
+    get_step_audio_runtime_entrypoint().is_ok()
 }
 
-fn python_import_ok(python: &Path, module: &str) -> bool {
-    Command::new(python)
-        .args(["-c", &format!("import {module}")])
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-pub fn is_magpie_runtime_installed() -> bool {
-    get_magpie_runtime_entrypoint().is_ok()
-}
-
-pub fn remove_magpie_runtime() -> Result<()> {
-    let dir = get_magpie_runtime_dir();
+pub fn remove_step_audio_runtime() -> Result<()> {
+    let dir = get_step_audio_runtime_dir();
     if dir.exists() {
         fs::remove_dir_all(&dir)
             .map_err(|err| anyhow!("Failed to remove '{}': {err}", dir.display()))?;
@@ -214,31 +168,31 @@ pub fn remove_magpie_runtime() -> Result<()> {
     Ok(())
 }
 
-pub fn download_magpie_runtime(stop_signal: Arc<AtomicBool>, use_badge: bool) -> Result<()> {
-    if is_magpie_runtime_installed() {
+pub fn download_step_audio_runtime(stop_signal: Arc<AtomicBool>, use_badge: bool) -> Result<()> {
+    if is_step_audio_runtime_installed() {
         return Ok(());
     }
-    if MAGPIE_RUNTIME_DOWNLOADING
+    if STEP_AUDIO_RUNTIME_DOWNLOADING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
-        while is_magpie_runtime_downloading() {
+        while is_step_audio_runtime_downloading() {
             if stop_signal.load(Ordering::Relaxed) {
                 return Err(anyhow!("Download cancelled while waiting"));
             }
             std::thread::sleep(std::time::Duration::from_millis(300));
         }
-        return if is_magpie_runtime_installed() {
+        return if is_step_audio_runtime_installed() {
             Ok(())
         } else {
             Err(anyhow!(
-                "Magpie runtime download did not complete successfully"
+                "Step Audio runtime download did not complete successfully"
             ))
         };
     }
 
-    let result = download_magpie_runtime_inner(&stop_signal, use_badge);
-    MAGPIE_RUNTIME_DOWNLOADING.store(false, Ordering::SeqCst);
+    let result = download_step_audio_runtime_inner(&stop_signal, use_badge);
+    STEP_AUDIO_RUNTIME_DOWNLOADING.store(false, Ordering::SeqCst);
     post_download_state();
     if let Err(err) = &result {
         if !err.to_string().contains("cancelled") {
@@ -250,20 +204,20 @@ pub fn download_magpie_runtime(stop_signal: Arc<AtomicBool>, use_badge: bool) ->
     result
 }
 
-fn download_magpie_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) -> Result<()> {
+fn download_step_audio_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) -> Result<()> {
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
 
     let loc = locale();
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = "Downloading Magpie runtime".to_string();
+        state.download_title = "Downloading Step Audio runtime".to_string();
         state.download_message = "Fetching runtime manifest...".to_string();
         state.download_progress = 0.0;
     }
     post_download_state();
     if use_badge {
         crate::overlay::auto_copy_badge::show_progress_notification(
-            "Downloading Magpie runtime",
+            "Downloading Step Audio runtime",
             "Fetching runtime manifest...",
             0.0,
         );
@@ -272,9 +226,9 @@ fn download_magpie_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) -> R
     let result = (|| {
         let manifest = fetch_manifest()?;
         validate_manifest(&manifest)?;
-        let dir = get_magpie_runtime_dir();
+        let dir = get_step_audio_runtime_dir();
         let stage = dir.with_extension("download_tmp");
-        let archive = stage.join("magpie-runtime.zip");
+        let archive = stage.join("step-audio-runtime.zip");
         let _ = fs::remove_dir_all(&stage);
         fs::create_dir_all(&stage)?;
 
@@ -301,7 +255,7 @@ fn download_magpie_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) -> R
                 }
                 if use_badge {
                     crate::overlay::auto_copy_badge::show_progress_notification(
-                        "Downloading Magpie runtime",
+                        "Downloading Step Audio runtime",
                         &format!("Downloading {}...", chunk.filename),
                         progress,
                     );
@@ -313,7 +267,7 @@ fn download_magpie_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) -> R
         }
 
         if let Ok(mut state) = REALTIME_STATE.lock() {
-            state.download_message = "Preparing Magpie runtime...".to_string();
+            state.download_message = "Preparing Step Audio runtime...".to_string();
             state.download_progress = 80.0;
         }
         post_download_state();
@@ -325,7 +279,7 @@ fn download_magpie_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) -> R
         let entrypoint = stage.join(&manifest.entrypoint);
         if !entrypoint.is_file() {
             bail!(
-                "Magpie runtime archive is missing entrypoint '{}'",
+                "Step Audio runtime archive is missing entrypoint '{}'",
                 manifest.entrypoint
             );
         }
@@ -337,8 +291,8 @@ fn download_magpie_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) -> R
             fs::remove_dir_all(&stage)?;
         }
         fs::write(manifest_path(), serde_json::to_vec_pretty(&manifest)?)?;
-        if !is_magpie_runtime_installed() {
-            bail!("Magpie runtime install is incomplete after extraction");
+        if !is_step_audio_runtime_installed() {
+            bail!("Step Audio runtime install is incomplete after extraction");
         }
         Ok(())
     })();
@@ -347,7 +301,7 @@ fn download_magpie_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) -> R
         state.is_downloading = false;
         state.download_progress = if result.is_ok() { 100.0 } else { 0.0 };
         if result.is_err() {
-            state.download_message = loc.magpie_downloading_message.to_string();
+            state.download_message = loc.step_audio_downloading_message.to_string();
         }
     }
     if use_badge {
@@ -356,33 +310,33 @@ fn download_magpie_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) -> R
     result
 }
 
-fn fetch_manifest() -> Result<MagpieRuntimeManifest> {
+fn fetch_manifest() -> Result<StepAudioRuntimeManifest> {
     let response = ureq::get(RUNTIME_MANIFEST_URL)
         .header("User-Agent", "ScreenGoatedToolbox")
         .call()
-        .map_err(|err| anyhow!("Failed to fetch Magpie runtime manifest: {err}"))?;
+        .map_err(|err| anyhow!("Failed to fetch Step Audio runtime manifest: {err}"))?;
     let mut body = String::new();
     response
         .into_body()
         .into_reader()
         .read_to_string(&mut body)?;
     serde_json::from_str(&body)
-        .map_err(|err| anyhow!("Failed to parse Magpie runtime manifest: {err}"))
+        .map_err(|err| anyhow!("Failed to parse Step Audio runtime manifest: {err}"))
 }
 
-fn validate_manifest(manifest: &MagpieRuntimeManifest) -> Result<()> {
+fn validate_manifest(manifest: &StepAudioRuntimeManifest) -> Result<()> {
     if manifest.abi_version < MIN_RUNTIME_ABI {
         bail!(
-            "Magpie runtime ABI {} is older than required ABI {}",
+            "Step Audio runtime ABI {} is older than required ABI {}",
             manifest.abi_version,
             MIN_RUNTIME_ABI
         );
     }
     if manifest.entrypoint.trim().is_empty() || manifest.entrypoint.contains("..") {
-        bail!("Magpie runtime manifest has an unsafe entrypoint");
+        bail!("Step Audio runtime manifest has an unsafe entrypoint");
     }
     if manifest.chunks.is_empty() {
-        bail!("Magpie runtime manifest has no downloadable chunks");
+        bail!("Step Audio runtime manifest has no downloadable chunks");
     }
     for chunk in &manifest.chunks {
         if chunk.filename.trim().is_empty()
@@ -390,14 +344,14 @@ fn validate_manifest(manifest: &MagpieRuntimeManifest) -> Result<()> {
             || chunk.sha256.trim().len() != 64
             || chunk.size == 0
         {
-            bail!("Magpie runtime manifest has an invalid chunk entry");
+            bail!("Step Audio runtime manifest has an invalid chunk entry");
         }
     }
     Ok(())
 }
 
 fn download_verified_chunk(
-    chunk: &MagpieRuntimeChunk,
+    chunk: &StepAudioRuntimeChunk,
     path: &Path,
     stop_signal: &AtomicBool,
     on_progress: impl Fn(u64),
@@ -412,7 +366,7 @@ fn download_verified_chunk(
     if metadata.len() != chunk.size {
         let _ = fs::remove_file(path);
         bail!(
-            "Magpie runtime chunk '{}' size mismatch: expected {}, got {}",
+            "Step Audio runtime chunk '{}' size mismatch: expected {}, got {}",
             chunk.filename,
             chunk.size,
             metadata.len()
@@ -422,7 +376,7 @@ fn download_verified_chunk(
     if actual != chunk.sha256.to_ascii_lowercase() {
         let _ = fs::remove_file(path);
         bail!(
-            "Magpie runtime chunk '{}' checksum mismatch",
+            "Step Audio runtime chunk '{}' checksum mismatch",
             chunk.filename
         );
     }
@@ -441,7 +395,8 @@ fn concatenate_chunks(chunks: &[PathBuf], output: &Path) -> Result<()> {
 
 fn extract_runtime_archive(archive: &Path, stage: &Path) -> Result<()> {
     let file = fs::File::open(archive)?;
-    let mut zip = zip::ZipArchive::new(file).context("Failed to open Magpie runtime archive")?;
+    let mut zip =
+        zip::ZipArchive::new(file).context("Failed to open Step Audio runtime archive")?;
     for idx in 0..zip.len() {
         let mut entry = zip.by_index(idx)?;
         let Some(name) = entry.enclosed_name().map(|path| path.to_path_buf()) else {
@@ -505,14 +460,14 @@ fn local_sidecar_candidate() -> Option<PathBuf> {
     loop {
         for base in [
             dir.join("native")
-                .join("magpie_runtime")
+                .join("step_audio_runtime")
                 .join("dist")
-                .join("magpie-sidecar"),
+                .join("step-audio-sidecar"),
             dir.join("native")
-                .join("magpie_runtime")
+                .join("step_audio_runtime")
                 .join("build")
                 .join("package")
-                .join("magpie-sidecar"),
+                .join("step-audio-sidecar"),
         ] {
             let candidate = base.join(sidecar_exe_name());
             if candidate.is_file() {
@@ -526,15 +481,15 @@ fn local_sidecar_candidate() -> Option<PathBuf> {
 }
 
 fn default_managed_entrypoint() -> PathBuf {
-    get_magpie_runtime_dir()
-        .join("magpie-sidecar")
+    get_step_audio_runtime_dir()
+        .join("step-audio-sidecar")
         .join(sidecar_exe_name())
 }
 
 fn sidecar_exe_name() -> &'static str {
     if cfg!(windows) {
-        "magpie-sidecar.exe"
+        "step-audio-sidecar.exe"
     } else {
-        "magpie-sidecar"
+        "step-audio-sidecar"
     }
 }

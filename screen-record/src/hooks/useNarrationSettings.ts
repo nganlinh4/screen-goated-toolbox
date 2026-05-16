@@ -6,6 +6,8 @@ export type NarrationTtsMethod =
   | 'GoogleTranslate'
   | 'EdgeTTS'
   | 'Kokoro'
+  | 'Supertonic'
+  | 'StepAudioEditX'
   | 'MagpieMultilingual';
 
 export interface NarrationLanguageCondition {
@@ -32,6 +34,17 @@ export interface NarrationMagpieVoiceConfig {
   voiceId: string;
 }
 
+export interface NarrationSupertonicVoiceConfig {
+  languageCode: string;
+  languageName: string;
+  voiceId: string;
+}
+
+export interface NarrationStepAudioVoice {
+  id: string;
+  label: string;
+}
+
 export interface NarrationSettingsState {
   method: NarrationTtsMethod;
   geminiModel: string;
@@ -48,8 +61,19 @@ export interface NarrationSettingsState {
   kokoroSpeed: number;
   kokoroNumThreads: number;
   kokoroVoiceConfigs: NarrationKokoroVoiceConfig[];
+  stepAudioVoice: string;
+  stepAudioReferenceVoiceId: string;
+  stepAudioPromptText: string;
+  stepAudioUseCustomReference: boolean;
+  stepAudioReferenceAudioPath: string;
+  stepAudioReferenceText: string;
+  stepAudioReferenceLabel: string;
   magpieVoice: string;
   magpieVoiceConfigs: NarrationMagpieVoiceConfig[];
+  supertonicSpeed: number;
+  supertonicNumSteps: number;
+  supertonicNumThreads: number;
+  supertonicVoiceConfigs: NarrationSupertonicVoiceConfig[];
 }
 
 export interface NarrationProfilePayload extends NarrationSettingsState {}
@@ -97,6 +121,16 @@ export interface NarrationMagpieVoice {
   label: string;
 }
 
+export interface NarrationSupertonicLanguage {
+  languageCode: string;
+  languageName: string;
+}
+
+export interface NarrationSupertonicVoice {
+  id: string;
+  label: string;
+}
+
 interface NarrationTtsMetadata {
   providers?: NarrationTtsProviderOption[];
   geminiVoices: NarrationGeminiVoice[];
@@ -108,6 +142,10 @@ interface NarrationTtsMetadata {
   kokoroVoiceLanguages?: NarrationGeminiInstructionLanguage[];
   magpieVoices?: NarrationMagpieVoice[];
   magpieVoiceLanguages?: NarrationGeminiInstructionLanguage[];
+  supertonicLanguages?: NarrationSupertonicLanguage[];
+  supertonicVoices?: NarrationSupertonicVoice[];
+  stepAudioVoices?: NarrationStepAudioVoice[];
+  stepAudioReferenceVoices?: NarrationStepAudioVoice[];
   edgeVoiceState?: 'idle' | 'loading' | 'loaded' | 'error';
   edgeVoiceError?: string | null;
   edgeVoiceLanguages?: NarrationEdgeVoiceLanguage[];
@@ -133,8 +171,19 @@ const FALLBACK_DEFAULTS: NarrationSettingsState = {
   kokoroSpeed: 1,
   kokoroNumThreads: 2,
   kokoroVoiceConfigs: [],
+  stepAudioVoice: 'default_en',
+  stepAudioReferenceVoiceId: '',
+  stepAudioPromptText: '',
+  stepAudioUseCustomReference: false,
+  stepAudioReferenceAudioPath: '',
+  stepAudioReferenceText: '',
+  stepAudioReferenceLabel: '',
   magpieVoice: '',
   magpieVoiceConfigs: [],
+  supertonicSpeed: 1,
+  supertonicNumSteps: 5,
+  supertonicNumThreads: 2,
+  supertonicVoiceConfigs: [],
 };
 
 function readStoredOverrides(): Partial<NarrationSettingsState> | null {
@@ -166,6 +215,9 @@ function mergeWithDefaults(
     magpieVoiceConfigs: Array.isArray(defaults.magpieVoiceConfigs)
       ? defaults.magpieVoiceConfigs
       : FALLBACK_DEFAULTS.magpieVoiceConfigs,
+    supertonicVoiceConfigs: Array.isArray(defaults.supertonicVoiceConfigs)
+      ? defaults.supertonicVoiceConfigs
+      : FALLBACK_DEFAULTS.supertonicVoiceConfigs,
   };
   if (!overrides) return normalizedDefaults;
   return {
@@ -183,6 +235,9 @@ function mergeWithDefaults(
     magpieVoiceConfigs: Array.isArray(overrides.magpieVoiceConfigs) && overrides.magpieVoiceConfigs.length
       ? overrides.magpieVoiceConfigs
       : normalizedDefaults.magpieVoiceConfigs,
+    supertonicVoiceConfigs: Array.isArray(overrides.supertonicVoiceConfigs) && overrides.supertonicVoiceConfigs.length
+      ? overrides.supertonicVoiceConfigs
+      : normalizedDefaults.supertonicVoiceConfigs,
   };
 }
 

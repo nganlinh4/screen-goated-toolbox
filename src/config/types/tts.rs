@@ -13,9 +13,10 @@ pub enum TtsMethod {
     GoogleTranslate,    // Fast (Google Translate)
     EdgeTTS,            // Good (Edge TTS)
     FishAudioS2Pro,     // Deprecated/hidden: removed because S2 Pro needs 24GB+ VRAM
-    StepAudioEditX,     // Step Audio EditX (local server)
+    StepAudioEditX,     // Step Audio EditX (managed local sidecar)
     MagpieMultilingual, // NVIDIA Magpie-Multilingual 357M (local NIM-style server)
     Kokoro,             // Kokoro 82M v1.0 (Kokoro-FastAPI OpenAI-compat)
+    Supertonic,         // Supertonic 3 (local sherpa-onnx)
     VoxtralTts,         // Mistral Voxtral TTS (open weights / La Plateforme)
 }
 
@@ -27,6 +28,7 @@ pub enum TtsMethod {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct TtsPlaygroundSettings {
+    pub mode: TtsPlaygroundMode,
     pub method: TtsMethod,
     pub gemini_model: String,
     pub gemini_voice: String,
@@ -41,13 +43,16 @@ pub struct TtsPlaygroundSettings {
     pub step_audio_settings: StepAudioSettings,
     pub magpie_settings: MagpieSettings,
     pub kokoro_settings: KokoroSettings,
+    pub supertonic_settings: SupertonicSettings,
     pub voxtral_settings: VoxtralSettings,
+    pub step_audio_edit_settings: StepAudioEditSettings,
     pub draft_text: String,
 }
 
 impl Default for TtsPlaygroundSettings {
     fn default() -> Self {
         Self {
+            mode: TtsPlaygroundMode::TtsClone,
             method: TtsMethod::GeminiLive,
             gemini_model: crate::model_config::DEFAULT_GEMINI_LIVE_TTS_MODEL.to_string(),
             gemini_voice: "Aoede".to_string(),
@@ -62,10 +67,20 @@ impl Default for TtsPlaygroundSettings {
             step_audio_settings: StepAudioSettings::default(),
             magpie_settings: MagpieSettings::default(),
             kokoro_settings: KokoroSettings::default(),
+            supertonic_settings: SupertonicSettings::default(),
             voxtral_settings: VoxtralSettings::default(),
+            step_audio_edit_settings: StepAudioEditSettings::default(),
             draft_text: "Write anything here and test how it sounds.".to_string(),
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub enum TtsPlaygroundMode {
+    #[default]
+    TtsClone,
+    AudioEdit,
+    ReferenceLibrary,
 }
 
 // ============================================================================
@@ -168,7 +183,7 @@ pub fn default_tts_language_conditions() -> Vec<TtsLanguageCondition> {
 }
 
 // ============================================================================
-// OFFLINE OPEN-WEIGHTS TTS PROVIDERS (Kokoro implemented, others deferred)
+// OFFLINE OPEN-WEIGHTS TTS PROVIDERS
 // ============================================================================
 //
 // These providers run fully on-device with model weights downloaded from
@@ -177,9 +192,10 @@ pub fn default_tts_language_conditions() -> Vec<TtsLanguageCondition> {
 // tokens — only voice/speed knobs and language hints that the local
 // ONNX/Sherpa inference path consumes directly.
 //
-// Kokoro 82M v1.0 runs through sherpa-onnx. Magpie runs through a managed
-// Python/NeMo sidecar because the upstream checkpoint is a `.nemo` model and
-// needs NanoCodec. Step Audio EditX and Mistral Voxtral are still deferred.
+// Kokoro 82M v1.0 and Supertonic 3 run through sherpa-onnx. Magpie and Step
+// Audio EditX run through managed Python sidecars because their public
+// checkpoints depend on Python-native inference stacks. Mistral Voxtral is
+// still deferred.
 
 /// Kokoro 82M v1.0 — runs locally via sherpa-onnx OfflineTts using model
 /// files downloaded into `dirs::data_dir()/screen-goated-toolbox/models/kokoro/`.
@@ -244,15 +260,273 @@ pub fn default_kokoro_voice_configs() -> Vec<KokoroVoiceConfig> {
     ]
 }
 
-/// Step Audio EditX — deferred offline. The 3B-param checkpoint ships as
-/// PyTorch only; no community ONNX export, no sherpa-onnx support yet.
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+/// Supertonic 3 — local multilingual TTS via sherpa-onnx OfflineTts.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct SupertonicSettings {
+    /// Legacy fallback speaker index inside `voice.bin`.
+    pub speaker_id: i32,
+    /// Speed multiplier (0.5 – 2.0; 1.0 = natural).
+    pub speed: f32,
+    /// Generation denoising steps. sherpa-onnx defaults to 5.
+    pub num_steps: i32,
+    /// Number of CPU threads to give the ONNX runtime.
+    pub num_threads: i32,
+    /// Legacy fixed ISO 639-1 language code. Empty means detect per request.
+    pub lang: String,
+    /// Per-language Supertonic voice routing. Language codes are normalized at
+    /// runtime, so both ISO 639-1 and app language-detection codes work.
+    pub voice_configs: Vec<SupertonicVoiceConfig>,
+    /// Silence inserted between internally chunked text segments.
+    pub silence_duration: f32,
+    /// Deterministic seed. `-1` lets sherpa choose a random seed.
+    pub seed: i32,
+}
+
+impl Default for SupertonicSettings {
+    fn default() -> Self {
+        Self {
+            speaker_id: 0,
+            speed: 1.0,
+            num_steps: 5,
+            num_threads: 2,
+            lang: String::new(),
+            voice_configs: default_supertonic_voice_configs(),
+            silence_duration: 0.3,
+            seed: -1,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SupertonicVoiceConfig {
+    pub language_code: String,
+    pub language_name: String,
+    pub voice_id: String,
+}
+
+impl SupertonicVoiceConfig {
+    pub fn new(language_code: &str, language_name: &str, voice_id: &str) -> Self {
+        Self {
+            language_code: language_code.to_string(),
+            language_name: language_name.to_string(),
+            voice_id: voice_id.to_string(),
+        }
+    }
+}
+
+pub fn default_supertonic_voice_configs() -> Vec<SupertonicVoiceConfig> {
+    vec![
+        SupertonicVoiceConfig::new("en", "English", "M1"),
+        SupertonicVoiceConfig::new("vi", "Vietnamese", "F1"),
+        SupertonicVoiceConfig::new("ko", "Korean", "F2"),
+        SupertonicVoiceConfig::new("ja", "Japanese", "F3"),
+        SupertonicVoiceConfig::new("es", "Spanish", "M2"),
+        SupertonicVoiceConfig::new("fr", "French", "F4"),
+        SupertonicVoiceConfig::new("pt", "Portuguese", "M3"),
+    ]
+}
+
+/// Step Audio EditX — local managed Python/PyTorch sidecar.
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct StepAudioSettings {
-    /// Speaker id reserved for the future offline worker.
+    /// Legacy fallback prompt voice id. Normal routing uses language detection
+    /// and `voice_configs`.
     pub voice: String,
-    /// Edit / style prompt reserved for the future offline worker.
+    /// Per-language prompt voice routing. Language codes use ISO 639-3 to
+    /// match the existing app language detection path.
+    pub voice_configs: Vec<StepAudioVoiceConfig>,
+    /// Selected shared reference voice id. Empty falls back to bundled default
+    /// reference audio.
+    pub reference_voice_id: String,
+    /// Use `reference_audio_path` and `reference_text` instead of bundled
+    /// prompt voices.
+    pub use_custom_reference: bool,
+    /// App-managed or user-selected reference audio path for cloning.
+    pub reference_audio_path: String,
+    /// Exact transcript of `reference_audio_path`.
+    pub reference_text: String,
+    /// Optional user-facing label for the reference.
+    pub reference_label: String,
+    /// Optional reference prompt text override for advanced cloning tests.
+    /// Deprecated; kept for config compatibility only.
     pub style_prompt: String,
+}
+
+impl Default for StepAudioSettings {
+    fn default() -> Self {
+        Self {
+            voice: String::new(),
+            voice_configs: default_step_audio_voice_configs(),
+            reference_voice_id: String::new(),
+            use_custom_reference: false,
+            reference_audio_path: String::new(),
+            reference_text: String::new(),
+            reference_label: String::new(),
+            style_prompt: String::new(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct StepAudioReferenceVoice {
+    pub id: String,
+    pub label: String,
+    pub audio_path: String,
+    pub transcript: String,
+}
+
+impl Default for StepAudioReferenceVoice {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            label: "Reference voice".to_string(),
+            audio_path: String::new(),
+            transcript: String::new(),
+        }
+    }
+}
+
+impl StepAudioReferenceVoice {
+    pub fn new(id: String, label: String) -> Self {
+        Self {
+            id,
+            label,
+            ..Self::default()
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct StepAudioEditSettings {
+    pub source_audio_path: String,
+    pub source_text: String,
+    pub target_text: String,
+    pub edit_type: String,
+    pub edit_info: String,
+}
+
+impl Default for StepAudioEditSettings {
+    fn default() -> Self {
+        Self {
+            source_audio_path: String::new(),
+            source_text: String::new(),
+            target_text: String::new(),
+            edit_type: "emotion".to_string(),
+            edit_info: "happy".to_string(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct StepAudioVoiceConfig {
+    pub language_code: String,
+    pub language_name: String,
+    pub voice_id: String,
+}
+
+impl StepAudioVoiceConfig {
+    pub fn new(language_code: &str, language_name: &str, voice_id: &str) -> Self {
+        Self {
+            language_code: language_code.to_string(),
+            language_name: language_name.to_string(),
+            voice_id: voice_id.to_string(),
+        }
+    }
+}
+
+pub fn default_step_audio_voice_configs() -> Vec<StepAudioVoiceConfig> {
+    vec![
+        StepAudioVoiceConfig::new("eng", "English", "default_en"),
+        StepAudioVoiceConfig::new("cmn", "Mandarin Chinese", "default_zh"),
+        StepAudioVoiceConfig::new("yue", "Cantonese", "default_zh"),
+        StepAudioVoiceConfig::new("jpn", "Japanese", "default_en"),
+        StepAudioVoiceConfig::new("kor", "Korean", "default_en"),
+    ]
+}
+
+pub const STEP_AUDIO_SUPPORTED_LANGUAGE_HINT: &str = "Step Audio EditX TTS supports English, Mandarin, Sichuanese, Cantonese, Japanese, and Korean. Vietnamese text is not supported by this model.";
+
+pub fn step_audio_tts_text_issue(text: &str) -> Option<&'static str> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    for ch in trimmed.chars() {
+        if ch.is_ascii() || is_step_audio_supported_cjk(ch) || is_common_non_latin_punctuation(ch) {
+            continue;
+        }
+        if ch.is_alphabetic() || is_combining_mark(ch) {
+            return Some(STEP_AUDIO_SUPPORTED_LANGUAGE_HINT);
+        }
+    }
+
+    None
+}
+
+fn is_step_audio_supported_cjk(ch: char) -> bool {
+    let code = ch as u32;
+    matches!(
+        code,
+        0x3040..=0x30ff
+            | 0x3400..=0x4dbf
+            | 0x4e00..=0x9fff
+            | 0xac00..=0xd7af
+            | 0xf900..=0xfaff
+    )
+}
+
+fn is_combining_mark(ch: char) -> bool {
+    let code = ch as u32;
+    matches!(code, 0x0300..=0x036f | 0x1ab0..=0x1aff | 0x1dc0..=0x1dff)
+}
+
+fn is_common_non_latin_punctuation(ch: char) -> bool {
+    matches!(
+        ch,
+        '，' | '。'
+            | '、'
+            | '？'
+            | '！'
+            | '；'
+            | '：'
+            | '“'
+            | '”'
+            | '‘'
+            | '’'
+            | '（'
+            | '）'
+            | '《'
+            | '》'
+            | '「'
+            | '」'
+            | '『'
+            | '』'
+            | 'ー'
+            | '…'
+    )
+}
+
+#[cfg(test)]
+mod step_audio_tests {
+    use super::step_audio_tts_text_issue;
+
+    #[test]
+    fn step_audio_text_issue_allows_verified_scripts() {
+        assert!(step_audio_tts_text_issue("Hello there.").is_none());
+        assert!(step_audio_tts_text_issue("你好，今天怎么样？").is_none());
+        assert!(step_audio_tts_text_issue("[Japanese] こんにちは。").is_none());
+        assert!(step_audio_tts_text_issue("[Korean] 안녕하세요.").is_none());
+    }
+
+    #[test]
+    fn step_audio_text_issue_blocks_vietnamese_latin_text() {
+        assert!(step_audio_tts_text_issue("Xin chào, tôi muốn đọc văn bản này.").is_some());
+    }
 }
 
 /// NVIDIA Magpie-Multilingual 357M — local managed Python/NeMo sidecar.

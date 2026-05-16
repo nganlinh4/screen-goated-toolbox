@@ -6,7 +6,6 @@ DLLs are:
 
 | Model | DLL path (committed to `main`) | Rust worker |
 | --- | --- | --- |
-| Step Audio EditX | `native/step_audio_runtime/dist/sgt_step_audio_runtime.dll` | `src/api/tts/worker/worker_step_audio.rs` |
 | Mistral Voxtral 4B TTS | `native/voxtral_runtime/dist/sgt_voxtral_runtime.dll` | `src/api/tts/worker/worker_voxtral.rs` |
 
 Each DLL links statically against the **shared libtorch installation** that
@@ -103,9 +102,8 @@ the first time the user selects the matching TTS method.
 
 ## Model-specific notes
 
-- **Step Audio EditX** — 3B PyTorch checkpoint. Implement the autoregressive
-  text→audio path described in
-  [stepfun-ai/Step-Audio-EditX](https://github.com/stepfun-ai/Step-Audio-EditX).
+- **Step Audio EditX** does not use this FFI. It runs through the managed
+  Python/PyTorch sidecar documented in `native/step_audio_runtime/`.
 
 - **NVIDIA Magpie-Multilingual 357M** does not use this FFI. It runs through
   the managed Python/NeMo sidecar documented in `native/magpie_runtime/`.

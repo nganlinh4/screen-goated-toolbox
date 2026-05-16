@@ -68,12 +68,23 @@ function profileToSnapshot(profile: NarrationProfilePayload): TtsProfileSnapshot
     edgePitch: profile.edgePitch,
     edgeRate: profile.edgeRate,
     edgeVoiceConfigs: profile.edgeVoiceConfigs,
+    stepAudioVoice: profile.stepAudioVoice,
+    stepAudioReferenceVoiceId: profile.stepAudioReferenceVoiceId,
+    stepAudioPromptText: profile.stepAudioPromptText,
+    stepAudioUseCustomReference: profile.stepAudioUseCustomReference,
+    stepAudioReferenceAudioPath: profile.stepAudioReferenceAudioPath,
+    stepAudioReferenceText: profile.stepAudioReferenceText,
+    stepAudioReferenceLabel: profile.stepAudioReferenceLabel,
     magpieVoice: profile.magpieVoice,
     magpieVoiceConfigs: profile.magpieVoiceConfigs,
     kokoroVoice: profile.kokoroVoice,
     kokoroSpeed: profile.kokoroSpeed,
     kokoroNumThreads: profile.kokoroNumThreads,
     kokoroVoiceConfigs: profile.kokoroVoiceConfigs,
+    supertonicSpeed: profile.supertonicSpeed,
+    supertonicNumSteps: profile.supertonicNumSteps,
+    supertonicNumThreads: profile.supertonicNumThreads,
+    supertonicVoiceConfigs: profile.supertonicVoiceConfigs,
   };
 }
 

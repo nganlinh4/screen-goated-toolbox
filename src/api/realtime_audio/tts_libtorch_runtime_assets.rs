@@ -12,7 +12,6 @@ const LIBTORCH_REQUIRED_DLLS: &[&str] =
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum TtsLibtorchProvider {
-    StepAudio,
     Voxtral,
 }
 
@@ -25,13 +24,6 @@ pub struct TtsRuntimeSpec {
     pub download_title: &'static str,
 }
 
-pub const STEP_AUDIO_RUNTIME: TtsRuntimeSpec = TtsRuntimeSpec {
-    provider: TtsLibtorchProvider::StepAudio,
-    label: "Step Audio runtime DLL",
-    dll_filename: "sgt_step_audio_runtime.dll",
-    dll_url: "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/step_audio_runtime/dist/sgt_step_audio_runtime.dll",
-    download_title: "Downloading Step Audio runtime",
-};
 pub const VOXTRAL_RUNTIME: TtsRuntimeSpec = TtsRuntimeSpec {
     provider: TtsLibtorchProvider::Voxtral,
     label: "Voxtral runtime DLL",

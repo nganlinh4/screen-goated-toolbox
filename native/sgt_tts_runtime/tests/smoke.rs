@@ -35,7 +35,7 @@ fn dll_path() -> PathBuf {
         .join("screen-goated-toolbox")
         .join("bin")
         .join("x64")
-        .join("sgt_step_audio_runtime.dll")
+        .join("sgt_voxtral_runtime.dll")
 }
 
 unsafe fn read_err(
@@ -84,7 +84,7 @@ fn smoke_through_real_dll() {
     assert_eq!(abi, 1, "ABI version mismatch");
 
     // 2. Create runtime
-    let model_dir = b"C:\\fake\\step_audio_editx";
+    let model_dir = b"C:\\fake\\voxtral_tts_2603";
     let mut rt: *mut c_void = std::ptr::null_mut();
     let rc = unsafe {
         create(
@@ -127,7 +127,7 @@ fn smoke_through_real_dll() {
     };
     println!("sgt_tts_synthesize rc={rc2} pcm={:p} count={count} sr={sr}", pcm);
     if rc2 == 0 {
-        // unlikely without Step Audio EditX installed, but verify we can free
+        // unlikely without Voxtral installed, but verify we can free
         let free_rc = unsafe { free_audio(rt, pcm) };
         println!("sgt_tts_free_audio rc={free_rc}");
         assert_eq!(free_rc, 0);

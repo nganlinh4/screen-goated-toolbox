@@ -69,24 +69,15 @@ fn resolve_all_symbols(path: &std::path::Path) {
 }
 
 #[test]
-fn step_audio_dll_passes_symbol_resolution() {
-    resolve_all_symbols(&dll_path_for("step_audio"));
-}
-
-#[test]
 fn voxtral_dll_passes_symbol_resolution() {
     resolve_all_symbols(&dll_path_for("voxtral"));
 }
 
 #[test]
 fn model_dispatch_is_correct() {
-    // Each renamed DLL should detect its model from the directory passed to
-    // sgt_tts_create. This verifies the basename-substring dispatch logic
-    // works across all four model paths the main app uses.
-    let cases = &[
-        ("step_audio", "C:\\fake\\step_audio_editx", "step_audio"),
-        ("voxtral", "C:\\fake\\voxtral_tts_2603", "voxtral"),
-    ];
+    // Each DLL should detect its model from the directory passed to
+    // sgt_tts_create.
+    let cases = &[("voxtral", "C:\\fake\\voxtral_tts_2603", "voxtral")];
 
     for (alias, model_dir, expected_python_alias) in cases {
         let lib = unsafe { libloading::Library::new(dll_path_for(alias)) }.unwrap();
@@ -160,7 +151,6 @@ fn model_dispatch_is_correct() {
 
 fn matches_via_known_keywords(model: &str, err: &str) -> bool {
     let needles: &[&str] = match model {
-        "step_audio" => &["step_audio", "step-audio", "stepfun"],
         "voxtral" => &["voxtral", "mistral"],
         _ => &[],
     };

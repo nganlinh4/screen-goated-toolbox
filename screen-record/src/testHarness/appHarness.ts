@@ -12,6 +12,7 @@ import type { Project, ProjectComposition, VideoSegment } from "@/types/video";
 import { isScreenRecordTestHarnessEnabled } from "./browserIpcMock";
 import {
   createSyntheticProjectFixture,
+  type SyntheticProjectOptions,
   type SyntheticProjectProfile,
 } from "./syntheticProject";
 
@@ -34,7 +35,9 @@ export interface ScreenRecordDomStats {
 
 export interface ScreenRecordTestHarness {
   loadSyntheticProject: (profile?: SyntheticProjectProfile) => ScreenRecordEditorStateSnapshot;
+  loadSyntheticProjectWithOptions: (options?: SyntheticProjectOptions) => ScreenRecordEditorStateSnapshot;
   getEditorState: () => ScreenRecordEditorStateSnapshot;
+  getNarrationAudioPaths: () => string[];
   setCurrentTime: (time: number) => void;
   startPerfProbe: () => void;
   stopPerfProbe: () => FrontendFrameProbeSummary;
@@ -97,7 +100,16 @@ export function installScreenRecordAppTestHarness(options: InstallAppTestHarness
       options.loadProject(project);
       return summarizeProject(project);
     },
+    loadSyntheticProjectWithOptions: (fixtureOptions = {}) => {
+      const project = createSyntheticProjectFixture(fixtureOptions);
+      options.loadProject(project);
+      return summarizeProject(project);
+    },
     getEditorState: () => summarizeState(options),
+    getNarrationAudioPaths: () =>
+      (options.getComposition()?.narrationSegments ?? [])
+        .map((segment) => segment.rawAudioPath)
+        .filter((path): path is string => typeof path === "string" && path.length > 0),
     setCurrentTime: (time: number) => {
       const duration = Math.max(options.getDuration(), 0);
       const nextTime = Number.isFinite(time)

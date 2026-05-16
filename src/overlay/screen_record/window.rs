@@ -178,6 +178,13 @@ pub(super) unsafe fn internal_create_sr_loop() {
         // Set window icon based on initial theme
         crate::gui::utils::set_window_icon(hwnd, init_theme == "dark");
 
+        let test_harness_init =
+            if std::env::var("SGT_SCREEN_RECORD_TEST_HARNESS").ok().as_deref() == Some("1") {
+                "try { window.history.replaceState(null, '', '/index.html?sgtTestHarness=1'); } catch (_) {}"
+            } else {
+                ""
+            };
+
         let init_script = format!(
             r#"
         (function() {{
@@ -200,6 +207,7 @@ pub(super) unsafe fn internal_create_sr_loop() {
             // Set initial settings synchronously so React can read on mount
             window.__SR_INITIAL_THEME__ = '{init_theme}';
             window.__SR_INITIAL_LANG__ = '{init_lang}';
+            {test_harness_init}
             document.title = 'SGT Record';
             if (document.documentElement) {{
                 if ('{init_theme}' === 'dark') {{

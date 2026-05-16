@@ -1,14 +1,20 @@
 {
-  "version": "2026.05.14",
+  "version": "2026.05.15",
   "abiVersion": 1,
   "entrypoint": "magpie-sidecar/magpie-sidecar.exe",
-  "installedSize": 1628104142,
+  "installedSize": 5616638783,
   "chunks": [
     {
-      "filename": "sgt-magpie-runtime-2026.05.14.zip.part001",
-      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-magpie-runtime-2026.05.14.zip.part001",
-      "sha256": "51bb1507a2558d9fd8996a72157ded1844f6a89b1ce67f795f301cdf93e3b200",
-      "size": 513774849
+      "filename": "sgt-magpie-runtime-2026.05.15.zip.part001",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-magpie-runtime-2026.05.15.zip.part001",
+      "sha256": "f2ed9cc78b80edc76bffc67a5fc282a363ed8d2a0c96a474626806761c9e971c",
+      "size": 1992294400
+    },
+    {
+      "filename": "sgt-magpie-runtime-2026.05.15.zip.part002",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-magpie-runtime-2026.05.15.zip.part002",
+      "sha256": "3ae8536b4cf7f1333c6a5fb494387f42ff03327b7e52ac3b9d7ef93d9b430bfb",
+      "size": 1180269646
     }
   ]
 }

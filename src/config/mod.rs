@@ -64,7 +64,9 @@ pub use types::ModelPriorityChains;
 // TTS types
 pub use types::{
     EdgeTtsSettings, EdgeTtsVoiceConfig, KokoroSettings, KokoroVoiceConfig, MagpieSettings,
-    MagpieVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
+    MagpieVoiceConfig, StepAudioReferenceVoice, StepAudioSettings, StepAudioVoiceConfig,
+    SupertonicSettings, SupertonicVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundMode,
+    TtsPlaygroundSettings, step_audio_tts_text_issue,
 };
 
 // Translation Gummy

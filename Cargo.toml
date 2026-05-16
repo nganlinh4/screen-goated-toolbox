@@ -46,6 +46,7 @@ urlencoding = "2.1"
 
 # Language Data
 isolang = { version = "2.4", features = ["serde", "english_names"] }
+unicode-normalization = "0.1"
 
 # GUI & Media
 eframe = { version = "0.33", default-features = false, features = ["glow"] }

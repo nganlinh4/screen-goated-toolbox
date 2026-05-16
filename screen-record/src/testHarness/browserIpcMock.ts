@@ -5,6 +5,7 @@ type IpcCall = {
 };
 
 type TestWindow = Window & {
+  isWry?: boolean;
   invoke?: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
   ipc?: {
     postMessage: (message: string) => void;
@@ -57,6 +58,9 @@ function defaultResponse(cmd: string, args?: Record<string, unknown>): unknown {
           { method: "EdgeTTS", label: "Edge TTS" },
           { method: "GoogleTranslate", label: "Google Translate" },
           { method: "Kokoro", label: "Kokoro 82M v1.0" },
+          { method: "Supertonic", label: "Supertonic 3" },
+          { method: "StepAudioEditX", label: "Step Audio EditX" },
+          { method: "MagpieMultilingual", label: "Magpie Multilingual" },
         ],
         geminiVoices: [],
         geminiModels: [],
@@ -70,6 +74,20 @@ function defaultResponse(cmd: string, args?: Record<string, unknown>): unknown {
         kokoroVoices: [
           { id: "af_heart", label: "Heart", languageCode: "en-us" },
           { id: "jf_alpha", label: "Alpha", languageCode: "ja" },
+        ],
+        supertonicLanguages: [
+          { languageCode: "en", languageName: "English" },
+          { languageCode: "vi", languageName: "Vietnamese" },
+        ],
+        supertonicVoices: [
+          { id: "F1", label: "F1" },
+          { id: "M1", label: "M1" },
+        ],
+        stepAudioVoices: [
+          { id: "ref-demo", label: "Demo reference" },
+        ],
+        stepAudioReferenceVoices: [
+          { id: "ref-demo", label: "Demo reference", audioPath: "", transcript: "" },
         ],
         edgeVoiceState: "loaded",
         edgeVoiceLanguages: [],
@@ -92,6 +110,22 @@ function defaultResponse(cmd: string, args?: Record<string, unknown>): unknown {
           kokoroVoiceConfigs: [
             { languageCode: "eng", languageName: "English", voiceId: "af_heart" },
             { languageCode: "jpn", languageName: "Japanese", voiceId: "jf_alpha" },
+          ],
+          stepAudioVoice: "default_en",
+          stepAudioReferenceVoiceId: "",
+          stepAudioPromptText: "",
+          stepAudioUseCustomReference: false,
+          stepAudioReferenceAudioPath: "",
+          stepAudioReferenceText: "",
+          stepAudioReferenceLabel: "",
+          magpieVoice: "",
+          magpieVoiceConfigs: [],
+          supertonicSpeed: 1,
+          supertonicNumSteps: 5,
+          supertonicNumThreads: 2,
+          supertonicVoiceConfigs: [
+            { languageCode: "en", languageName: "English", voiceId: "M1" },
+            { languageCode: "vi", languageName: "Vietnamese", voiceId: "F1" },
           ],
         },
       };
@@ -120,6 +154,7 @@ function defaultResponse(cmd: string, args?: Record<string, unknown>): unknown {
 export function installBrowserTestIpcMock() {
   if (!isScreenRecordTestHarnessEnabled()) return;
   const testWindow = window as TestWindow;
+  if (testWindow.isWry || typeof testWindow.invoke === "function") return;
   const calls: IpcCall[] = [];
   testWindow.__SGT_TEST_IPC_CALLS__ = calls;
   testWindow.invoke = async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {

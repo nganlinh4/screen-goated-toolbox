@@ -517,7 +517,7 @@ pub fn get() -> LocaleText {
         kokoro_downloading_title: "Kokoro 82M 모델 다운로드 중 (0.3 GB)",
         kokoro_downloading_message: "잠시만 기다려주세요...",
         kokoro_downloading_file: "{} 다운로드 중...",
-        step_audio_downloading_title: "Step Audio EditX 다운로드 중 (~6 GB)",
+        step_audio_downloading_title: "Step Audio EditX + Tokenizer 다운로드 중 (~4.2 GB)",
         step_audio_downloading_message: "잠시만 기다려주세요...",
         step_audio_downloading_file: "{} 다운로드 중...",
         magpie_downloading_title: "Magpie-Multilingual + NanoCodec 다운로드 중 (~1.5 GB)",

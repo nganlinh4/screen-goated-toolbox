@@ -91,6 +91,14 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
                         }
                         audio_player.play(&data, is_realtime);
                     }
+                    Ok(AudioEvent::Error(error)) => {
+                        if !is_realtime {
+                            eprintln!("[TTS Player] AudioEvent::Error: {error}");
+                        }
+                        audio_player.stop();
+                        clear_tts_state(hwnd);
+                        break;
+                    }
                     Ok(AudioEvent::End) => {
                         if !is_realtime {
                             eprintln!(

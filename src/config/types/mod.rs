@@ -29,6 +29,8 @@ pub use profile::PresetProfile;
 
 pub use tts::{
     EdgeTtsSettings, EdgeTtsVoiceConfig, KokoroSettings, KokoroVoiceConfig, MagpieSettings,
-    MagpieVoiceConfig, StepAudioSettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
-    VoxtralSettings, default_tts_language_conditions,
+    MagpieVoiceConfig, StepAudioReferenceVoice, StepAudioSettings, StepAudioVoiceConfig,
+    SupertonicSettings, SupertonicVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundMode,
+    TtsPlaygroundSettings, VoxtralSettings, default_tts_language_conditions,
+    step_audio_tts_text_issue,
 };

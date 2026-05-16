@@ -69,7 +69,7 @@ fn load_text_file(path: &Path) -> Option<String> {
 
 /// Load an audio file and convert to WAV format using symphonia
 /// Supports: WAV, MP3, FLAC, OGG, AAC, ALAC, AIFF, etc.
-fn load_audio_file(path: &Path) -> Option<Vec<u8>> {
+pub(crate) fn load_audio_file(path: &Path) -> Option<Vec<u8>> {
     use symphonia::core::audio::SampleBuffer;
     use symphonia::core::codecs::DecoderOptions;
     use symphonia::core::formats::FormatOptions;

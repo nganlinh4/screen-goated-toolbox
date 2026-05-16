@@ -1,9 +1,13 @@
 use crate::config::tts_catalog::{
     KOKORO_VOICE_LANGUAGES, KOKORO_VOICES, MAGPIE_VOICE_LANGUAGES, MAGPIE_VOICES,
-    default_kokoro_voice_for_lang, default_magpie_voice_for_lang,
-    kokoro_voice_language_for_condition, normalize_magpie_voice,
+    SUPERTONIC_LANGUAGES, SUPERTONIC_VOICES, default_kokoro_voice_for_lang,
+    default_magpie_voice_for_lang, default_supertonic_voice_for_lang,
+    kokoro_voice_language_for_condition, normalize_magpie_voice, normalize_supertonic_lang,
+    normalize_supertonic_voice,
 };
-use crate::config::{Config, KokoroVoiceConfig, MagpieVoiceConfig, TtsMethod};
+use crate::config::{
+    Config, KokoroVoiceConfig, MagpieVoiceConfig, SupertonicVoiceConfig, TtsMethod,
+};
 use crate::gui::icons::{Icon, icon_button};
 use crate::gui::locale::LocaleText;
 use eframe::egui;
@@ -13,6 +17,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static LAST_TTS_PREVIEW_IDX: AtomicUsize = AtomicUsize::new(9999);
+
+const SUPERTONIC_LANGUAGE_SUMMARY: &str = "Supports English, Korean, Japanese, Arabic, Bulgarian, Czech, Danish, German, Greek, Spanish, Estonian, Finnish, French, Hindi, Croatian, Hungarian, Indonesian, Italian, Lithuanian, Latvian, Dutch, Polish, Portuguese, Romanian, Russian, Slovak, Slovenian, Swedish, Turkish, Ukrainian, and Vietnamese.";
 
 fn speak_settings_preview(text: &LocaleText, speaker_name: &str) {
     if !text.tts_preview_texts.is_empty() {
@@ -156,6 +162,13 @@ pub fn render_tts_settings_modal(
                 if ui
                     .radio_value(&mut config.tts_method, TtsMethod::Kokoro, "Kokoro 82M v1.0")
                     .on_hover_text("Supports English, Mandarin Chinese, Japanese, Spanish, French, Hindi, Italian, and Portuguese.")
+                    .clicked()
+                {
+                    changed = true;
+                }
+                if ui
+                    .radio_value(&mut config.tts_method, TtsMethod::Supertonic, "Supertonic 3")
+                    .on_hover_text(SUPERTONIC_LANGUAGE_SUMMARY)
                     .clicked()
                 {
                     changed = true;
@@ -556,6 +569,8 @@ pub fn render_tts_settings_modal(
                 changed |= render_magpie_settings(ui, config, text);
             } else if config.tts_method == TtsMethod::Kokoro {
                 changed |= render_kokoro_settings(ui, config, text);
+            } else if config.tts_method == TtsMethod::Supertonic {
+                changed |= render_supertonic_settings(ui, config, text);
             } else if config.tts_method == TtsMethod::VoxtralTts {
                 changed |= render_voxtral_settings(ui, config, text);
             }
@@ -600,14 +615,54 @@ fn render_deferred_offline_panel(ui: &mut egui::Ui, title: &str, elo: u32, detai
     );
 }
 
-fn render_step_audio_settings(ui: &mut egui::Ui, _config: &mut Config, _text: &LocaleText) -> bool {
-    render_deferred_offline_panel(
+fn render_step_audio_settings(ui: &mut egui::Ui, config: &mut Config, _text: &LocaleText) -> bool {
+    let mut changed = false;
+    render_open_weights_header(
         ui,
         "Step Audio EditX",
-        1104,
         "Supports Mandarin, English, Sichuanese, Cantonese, Japanese, and Korean.",
     );
-    false
+    changed |= render_step_audio_reference_controls(ui, config);
+    changed
+}
+
+fn render_step_audio_reference_controls(ui: &mut egui::Ui, config: &mut Config) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label("Reference voice:");
+        let selected = config
+            .step_audio_reference_voices
+            .iter()
+            .find(|item| item.id == config.step_audio_settings.reference_voice_id)
+            .map(|item| item.label.as_str())
+            .unwrap_or("Bundled default reference");
+        egui::ComboBox::from_id_salt("step_audio_global_reference_voice")
+            .selected_text(selected)
+            .width(240.0)
+            .show_ui(ui, |ui| {
+                changed |= ui
+                    .selectable_value(
+                        &mut config.step_audio_settings.reference_voice_id,
+                        String::new(),
+                        "Bundled default reference",
+                    )
+                    .changed();
+                for reference in &config.step_audio_reference_voices {
+                    changed |= ui
+                        .selectable_value(
+                            &mut config.step_audio_settings.reference_voice_id,
+                            reference.id.clone(),
+                            if reference.label.trim().is_empty() {
+                                "Untitled reference"
+                            } else {
+                                reference.label.as_str()
+                            },
+                        )
+                        .changed();
+                }
+            });
+    });
+    changed
 }
 
 fn render_magpie_settings(ui: &mut egui::Ui, config: &mut Config, text: &LocaleText) -> bool {
@@ -838,6 +893,126 @@ fn render_kokoro_voice_config_rows(
         if ui.button(text.tts_reset_to_defaults_label).clicked() {
             config.kokoro_settings.voice_configs =
                 crate::config::KokoroSettings::default().voice_configs;
+            changed = true;
+        }
+    });
+
+    changed
+}
+
+fn render_supertonic_settings(ui: &mut egui::Ui, config: &mut Config, text: &LocaleText) -> bool {
+    let mut changed = false;
+    render_open_weights_header(ui, "Supertonic 3", SUPERTONIC_LANGUAGE_SUMMARY);
+    let s = &mut config.supertonic_settings;
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(text.tts_cpu_threads_label).strong());
+        changed |= ui
+            .add(egui::Slider::new(&mut s.num_threads, 1..=8))
+            .changed();
+    });
+    changed |= render_speed_row(ui, text.tts_speed_label, &mut s.speed, 0.5, 2.0);
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Quality steps").strong());
+        changed |= ui
+            .add(egui::Slider::new(&mut s.num_steps, 1..=20))
+            .changed();
+    });
+    changed |= render_supertonic_voice_config_rows(ui, config, text);
+    changed
+}
+
+fn render_supertonic_voice_config_rows(
+    ui: &mut egui::Ui,
+    config: &mut Config,
+    text: &LocaleText,
+) -> bool {
+    let mut changed = false;
+    ui.add_space(15.0);
+    ui.separator();
+    ui.add_space(10.0);
+    ui.label(egui::RichText::new(text.tts_voice_per_language_label).strong());
+
+    egui::ScrollArea::vertical()
+        .max_height(180.0)
+        .show(ui, |ui| {
+            let mut to_remove: Option<usize> = None;
+            for (idx, voice_config) in config
+                .supertonic_settings
+                .voice_configs
+                .iter_mut()
+                .enumerate()
+            {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(&voice_config.language_name)
+                            .strong()
+                            .color(egui::Color32::from_rgb(100, 180, 100)),
+                    );
+                    ui.label("→");
+                    egui::ComboBox::from_id_salt(format!("supertonic_voice_{idx}"))
+                        .selected_text(normalize_supertonic_voice(&voice_config.voice_id))
+                        .width(160.0)
+                        .show_ui(ui, |ui| {
+                            for voice in SUPERTONIC_VOICES {
+                                changed |= ui
+                                    .selectable_value(
+                                        &mut voice_config.voice_id,
+                                        voice.id.to_string(),
+                                        voice.label,
+                                    )
+                                    .changed();
+                            }
+                        });
+                    if icon_button(ui, Icon::Close)
+                        .on_hover_text(text.remove_label)
+                        .clicked()
+                    {
+                        to_remove = Some(idx);
+                    }
+                });
+            }
+            if let Some(idx) = to_remove {
+                config.supertonic_settings.voice_configs.remove(idx);
+                changed = true;
+            }
+        });
+
+    ui.add_space(10.0);
+    ui.horizontal(|ui| {
+        let used_codes: Vec<_> = config
+            .supertonic_settings
+            .voice_configs
+            .iter()
+            .filter_map(|voice_config| normalize_supertonic_lang(&voice_config.language_code))
+            .collect();
+        let available: Vec<_> = SUPERTONIC_LANGUAGES
+            .iter()
+            .filter(|lang| !used_codes.iter().any(|code| code == lang.code))
+            .collect();
+
+        if !available.is_empty() {
+            egui::ComboBox::from_id_salt("supertonic_add_language")
+                .selected_text(text.tts_add_language_label)
+                .width(150.0)
+                .show_ui(ui, |ui| {
+                    for lang in &available {
+                        if ui.selectable_label(false, lang.label).clicked() {
+                            config.supertonic_settings.voice_configs.push(
+                                SupertonicVoiceConfig::new(
+                                    lang.code,
+                                    lang.label,
+                                    default_supertonic_voice_for_lang(lang.code),
+                                ),
+                            );
+                            changed = true;
+                        }
+                    }
+                });
+        }
+
+        if ui.button(text.tts_reset_to_defaults_label).clicked() {
+            config.supertonic_settings.voice_configs =
+                crate::config::SupertonicSettings::default().voice_configs;
             changed = true;
         }
     });

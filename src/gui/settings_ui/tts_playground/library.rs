@@ -71,6 +71,30 @@ pub(super) fn save_recent(clips: &std::collections::VecDeque<TtsPlaygroundArtifa
     }
 }
 
+pub(super) fn save_managed_wav(prefix: &str, wav_data: &[u8]) -> Result<PathBuf, String> {
+    let (_, _, dir) = paths();
+    let id = chrono::Local::now()
+        .timestamp_nanos_opt()
+        .unwrap_or_default()
+        .unsigned_abs();
+    let safe_prefix = prefix
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+        .collect::<String>();
+    let path = dir.join(format!("{safe_prefix}_{id}.wav"));
+    std::fs::write(&path, wav_data).map_err(|err| err.to_string())?;
+    Ok(path)
+}
+
+pub(super) fn encode_managed_wav(
+    prefix: &str,
+    samples: &[i16],
+    sample_rate: u32,
+) -> Result<PathBuf, String> {
+    let wav_data = crate::api::audio::encode_wav(samples, sample_rate, 1);
+    save_managed_wav(prefix, &wav_data)
+}
+
 fn paths() -> (PathBuf, PathBuf, PathBuf) {
     let config_dir = dirs::config_dir()
         .unwrap_or_default()
@@ -81,7 +105,7 @@ fn paths() -> (PathBuf, PathBuf, PathBuf) {
     (config_dir, db_path, dir)
 }
 
-fn decode_wav_to_24khz_mono(wav_data: &[u8]) -> Result<Vec<i16>, String> {
+pub(super) fn decode_wav_to_24khz_mono(wav_data: &[u8]) -> Result<Vec<i16>, String> {
     let cursor = std::io::Cursor::new(wav_data);
     let reader = hound::WavReader::new(cursor).map_err(|err| err.to_string())?;
     let spec = reader.spec();
