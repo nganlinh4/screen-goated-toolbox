@@ -21,6 +21,7 @@ mod worker_kokoro;
 mod worker_magpie;
 mod worker_step_audio;
 mod worker_supertonic;
+mod worker_vieneu;
 mod worker_voxtral;
 
 // ---- Warm socket pool for instant TTS ----
@@ -187,6 +188,10 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
             crate::config::TtsMethod::Supertonic => {
                 eprintln!("[TTS Worker] Routing to Supertonic 3");
                 worker_supertonic::handle_supertonic_tts(manager.clone(), request, tx);
+            }
+            crate::config::TtsMethod::VieneuTts => {
+                eprintln!("[TTS Worker] Routing to VieNeu-TTS v2");
+                worker_vieneu::handle_vieneu_tts(manager.clone(), request, tx);
             }
             crate::config::TtsMethod::VoxtralTts => {
                 eprintln!("[TTS Worker] Routing to Mistral Voxtral TTS");

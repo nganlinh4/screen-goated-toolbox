@@ -28,6 +28,7 @@ mod translation;
 pub mod tts_libtorch_runtime;
 pub mod tts_libtorch_runtime_assets;
 mod utils;
+pub mod vieneu_runtime;
 pub mod voxtral_assets;
 pub mod websocket;
 

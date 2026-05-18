@@ -598,6 +598,7 @@ mod tests {
                     magpie_settings: Default::default(),
                     kokoro_settings: Default::default(),
                     supertonic_settings: Default::default(),
+                    vieneu_settings: Default::default(),
                     language_code_override: Some("eng".to_string()),
                 }),
             },

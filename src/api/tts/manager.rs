@@ -102,12 +102,11 @@ impl TtsManager {
         profile: TtsRequestProfile,
         cancel: Arc<AtomicBool>,
     ) -> anyhow::Result<TtsCollectedAudio> {
-        let timeout = if matches!(profile.method, crate::config::TtsMethod::StepAudioEditX) {
-            std::time::Duration::from_secs(300)
-        } else if matches!(profile.method, crate::config::TtsMethod::MagpieMultilingual) {
-            std::time::Duration::from_secs(240)
-        } else {
-            std::time::Duration::from_secs(90)
+        let timeout = match profile.method {
+            crate::config::TtsMethod::VieneuTts => std::time::Duration::from_secs(900),
+            crate::config::TtsMethod::StepAudioEditX => std::time::Duration::from_secs(300),
+            crate::config::TtsMethod::MagpieMultilingual => std::time::Duration::from_secs(240),
+            _ => std::time::Duration::from_secs(90),
         };
         let id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
         let generation = self.interrupt_generation.load(Ordering::SeqCst);
@@ -438,6 +437,7 @@ mod tests {
             magpie_settings: Default::default(),
             kokoro_settings: Default::default(),
             supertonic_settings: Default::default(),
+            vieneu_settings: Default::default(),
             language_code_override: Some("eng".to_string()),
         }
     }

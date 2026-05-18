@@ -174,20 +174,9 @@ fn ensure_magpie_runtime_imports(entrypoint: &Path) -> Result<()> {
         if python_import_ok(&python, module) {
             continue;
         }
-
-        set_notice(format!(
-            "Repairing Magpie runtime dependency: installing {module}..."
-        ));
-        let status = Command::new(&python)
-            .args(["-m", "pip", "install", module])
-            .status()
-            .map_err(|err| anyhow!("Failed to start Magpie runtime pip repair: {err}"))?;
-        if !status.success() || !python_import_ok(&python, module) {
-            bail!(
-                "Magpie runtime is missing Python package '{module}'. Reinstall the Magpie runtime or run '{} -m pip install {module}'.",
-                python.display()
-            );
-        }
+        bail!(
+            "Magpie runtime is missing bundled Python package '{module}'. Delete and reinstall the managed Magpie runtime."
+        );
     }
     clear_notice();
     Ok(())

@@ -7,6 +7,7 @@ export type NarrationTtsMethod =
   | 'EdgeTTS'
   | 'Kokoro'
   | 'Supertonic'
+  | 'VieneuTts'
   | 'StepAudioEditX'
   | 'MagpieMultilingual';
 
@@ -74,6 +75,9 @@ export interface NarrationSettingsState {
   supertonicNumSteps: number;
   supertonicNumThreads: number;
   supertonicVoiceConfigs: NarrationSupertonicVoiceConfig[];
+  vieneuVariant: string;
+  vieneuEmotion: string;
+  vieneuReferenceVoiceId: string;
 }
 
 export interface NarrationProfilePayload extends NarrationSettingsState {}
@@ -184,6 +188,9 @@ const FALLBACK_DEFAULTS: NarrationSettingsState = {
   supertonicNumSteps: 5,
   supertonicNumThreads: 2,
   supertonicVoiceConfigs: [],
+  vieneuVariant: 'v2-turbo-gpu',
+  vieneuEmotion: 'natural',
+  vieneuReferenceVoiceId: '',
 };
 
 function readStoredOverrides(): Partial<NarrationSettingsState> | null {

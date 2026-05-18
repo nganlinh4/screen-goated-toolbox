@@ -59,6 +59,7 @@ function defaultResponse(cmd: string, args?: Record<string, unknown>): unknown {
           { method: "GoogleTranslate", label: "Google Translate" },
           { method: "Kokoro", label: "Kokoro 82M v1.0" },
           { method: "Supertonic", label: "Supertonic 3" },
+          { method: "VieneuTts", label: "VieNeu-TTS v2" },
           { method: "StepAudioEditX", label: "Step Audio EditX" },
           { method: "MagpieMultilingual", label: "Magpie Multilingual" },
         ],
@@ -127,6 +128,9 @@ function defaultResponse(cmd: string, args?: Record<string, unknown>): unknown {
             { languageCode: "en", languageName: "English", voiceId: "M1" },
             { languageCode: "vi", languageName: "Vietnamese", voiceId: "F1" },
           ],
+          vieneuVariant: "v2-turbo-gpu",
+          vieneuEmotion: "natural",
+          vieneuReferenceVoiceId: "",
         },
       };
     case "probe_video_metadata":

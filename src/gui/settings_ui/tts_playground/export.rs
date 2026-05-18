@@ -129,6 +129,7 @@ fn default_filename(artifact: &TtsPlaygroundArtifact, ext: &str) -> String {
         crate::config::TtsMethod::MagpieMultilingual => "magpie",
         crate::config::TtsMethod::Kokoro => "kokoro",
         crate::config::TtsMethod::Supertonic => "supertonic",
+        crate::config::TtsMethod::VieneuTts => "vieneu",
         crate::config::TtsMethod::VoxtralTts => "voxtral",
     };
     let voice = artifact

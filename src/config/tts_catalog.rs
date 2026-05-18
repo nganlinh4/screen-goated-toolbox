@@ -36,6 +36,16 @@ pub struct SupertonicVoiceOption {
     pub speaker_id: i32,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct VieneuVariantOption {
+    pub id: &'static str,
+    pub mode: &'static str,
+    pub backbone_repo: &'static str,
+    pub backbone_device: &'static str,
+    pub codec_device: &'static str,
+    pub backend: &'static str,
+}
+
 pub const TTS_PROVIDERS: &[TtsProviderInfo] = &[
     TtsProviderInfo {
         method: TtsMethod::GeminiLive,
@@ -68,6 +78,12 @@ pub const TTS_PROVIDERS: &[TtsProviderInfo] = &[
         narration_supported: true,
     },
     TtsProviderInfo {
+        method: TtsMethod::VieneuTts,
+        id: "VieneuTts",
+        label: "VieNeu-TTS v2",
+        narration_supported: true,
+    },
+    TtsProviderInfo {
         method: TtsMethod::StepAudioEditX,
         id: "StepAudioEditX",
         label: "Step Audio EditX",
@@ -86,6 +102,26 @@ pub const TTS_PROVIDERS: &[TtsProviderInfo] = &[
         narration_supported: false,
     },
 ];
+
+pub const VIENEU_VARIANTS: &[VieneuVariantOption] = &[vieneu_variant(
+    "v2-turbo-gpu",
+    "turbo_gpu",
+    "pnnbao-ump/VieNeu-TTS-v2-Turbo",
+    "cuda",
+    "cpu",
+    "standard",
+)];
+
+pub fn default_vieneu_variant_id() -> &'static str {
+    "v2-turbo-gpu"
+}
+
+pub fn vieneu_variant_by_id(id: &str) -> &'static VieneuVariantOption {
+    VIENEU_VARIANTS
+        .iter()
+        .find(|variant| variant.id == id)
+        .unwrap_or(&VIENEU_VARIANTS[0])
+}
 
 pub const MAGPIE_VOICES: &[MagpieVoiceOption] = &[
     magpie_voice("John", "John"),
@@ -252,6 +288,24 @@ const fn supertonic_voice(
         id,
         label,
         speaker_id,
+    }
+}
+
+const fn vieneu_variant(
+    id: &'static str,
+    mode: &'static str,
+    backbone_repo: &'static str,
+    backbone_device: &'static str,
+    codec_device: &'static str,
+    backend: &'static str,
+) -> VieneuVariantOption {
+    VieneuVariantOption {
+        id,
+        mode,
+        backbone_repo,
+        backbone_device,
+        codec_device,
+        backend,
     }
 }
 

@@ -184,6 +184,12 @@ struct TtsProfileWire {
     supertonic_num_threads: Option<i32>,
     #[serde(default)]
     supertonic_voice_configs: Vec<SupertonicVoiceConfigWire>,
+    #[serde(default)]
+    vieneu_variant: String,
+    #[serde(default)]
+    vieneu_emotion: String,
+    #[serde(default)]
+    vieneu_reference_voice_id: String,
 }
 
 impl TtsProfileWire {
@@ -314,6 +320,15 @@ impl TtsProfileWire {
                 voice_configs: supertonic_voice_configs,
                 silence_duration: defaults.supertonic_settings.silence_duration,
                 seed: defaults.supertonic_settings.seed,
+            },
+            vieneu_settings: crate::config::VieneuSettings {
+                variant: trimmed_or(self.vieneu_variant, defaults.vieneu_settings.variant),
+                emotion: trimmed_or(self.vieneu_emotion, defaults.vieneu_settings.emotion),
+                reference_voice_id: self.vieneu_reference_voice_id,
+                use_custom_reference: false,
+                reference_audio_path: String::new(),
+                reference_text: String::new(),
+                reference_label: String::new(),
             },
             language_code_override,
         }
@@ -883,6 +898,9 @@ pub fn handle_get_narration_tts_metadata(
         "supertonicNumSteps": defaults.supertonic_settings.num_steps,
         "supertonicNumThreads": defaults.supertonic_settings.num_threads,
         "supertonicVoiceConfigs": default_supertonic_voice_configs,
+        "vieneuVariant": defaults.vieneu_settings.variant,
+        "vieneuEmotion": defaults.vieneu_settings.emotion,
+        "vieneuReferenceVoiceId": defaults.vieneu_settings.reference_voice_id,
     });
 
     Ok(serde_json::json!({
