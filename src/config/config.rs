@@ -7,7 +7,7 @@ use crate::config::types::{
     DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey, KokoroSettings,
     MagpieSettings, ModelPriorityChains, PresetProfile, StepAudioReferenceVoice, StepAudioSettings,
     SupertonicSettings, ThemeMode, TranslationGummySettings, TtsLanguageCondition, TtsMethod,
-    TtsPlaygroundSettings, VoxtralSettings, default_tts_language_conditions,
+    TtsPlaygroundSettings, VieneuSettings, VoxtralSettings, default_tts_language_conditions,
     get_system_ui_language,
 };
 
@@ -73,6 +73,10 @@ fn default_kokoro_settings() -> KokoroSettings {
 
 fn default_supertonic_settings() -> SupertonicSettings {
     SupertonicSettings::default()
+}
+
+fn default_vieneu_settings() -> VieneuSettings {
+    VieneuSettings::default()
 }
 
 fn default_voxtral_settings() -> VoxtralSettings {
@@ -334,6 +338,10 @@ pub struct Config {
     /// Supertonic 3 settings (sherpa-onnx local TTS).
     #[serde(default = "default_supertonic_settings")]
     pub supertonic_settings: SupertonicSettings,
+
+    /// VieNeu-TTS v2 settings (managed local SDK runtime).
+    #[serde(default = "default_vieneu_settings")]
+    pub vieneu_settings: VieneuSettings,
 
     /// Mistral Voxtral TTS settings (deferred local runtime).
     #[serde(default = "default_voxtral_settings")]
@@ -622,6 +630,7 @@ impl Default for Config {
             magpie_settings: MagpieSettings::default(),
             kokoro_settings: KokoroSettings::default(),
             supertonic_settings: SupertonicSettings::default(),
+            vieneu_settings: VieneuSettings::default(),
             voxtral_settings: VoxtralSettings::default(),
             tts_playground: TtsPlaygroundSettings::default(),
 

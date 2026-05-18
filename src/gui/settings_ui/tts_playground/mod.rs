@@ -106,6 +106,9 @@ pub fn render_tts_playground(
                                         TtsMethod::Supertonic => {
                                             changed |= render_supertonic_controls(ui, config, text);
                                         }
+                                        TtsMethod::VieneuTts => {
+                                            changed |= render_vieneu_controls(ui, config);
+                                        }
                                         TtsMethod::VoxtralTts => {
                                             changed |= render_voxtral_controls(ui, config);
                                         }
@@ -241,6 +244,13 @@ fn render_method_picker(ui: &mut egui::Ui, config: &mut Config, text: &LocaleTex
                 &mut config.tts_playground.method,
                 TtsMethod::Supertonic,
                 "Supertonic 3",
+            )
+            .changed();
+        changed |= ui
+            .radio_value(
+                &mut config.tts_playground.method,
+                TtsMethod::VieneuTts,
+                "VieNeu-TTS v2",
             )
             .changed();
         changed |= ui
@@ -887,6 +897,64 @@ fn render_supertonic_voice_config_rows(
 fn render_voxtral_controls(ui: &mut egui::Ui, _config: &mut Config) -> bool {
     render_deferred_notice(ui, "Mistral Voxtral 4B TTS (deferred)");
     false
+}
+
+fn render_vieneu_controls(ui: &mut egui::Ui, config: &mut Config) -> bool {
+    let mut changed = false;
+    ui.label(egui::RichText::new("VieNeu-TTS v2").strong());
+    ui.label(
+        egui::RichText::new("Vietnamese-first local TTS with English/Vietnamese code-switching and zero-shot voice cloning.")
+            .color(egui::Color32::from_rgb(96, 125, 139)),
+    );
+    ui.label(
+        egui::RichText::new(
+            "Uses the verified VieNeu-TTS-v2 Turbo GPU path. Reference voice is the only supported user control.",
+        )
+            .small()
+            .color(egui::Color32::from_rgb(96, 125, 139)),
+    );
+    changed |= render_vieneu_reference_selector(ui, config);
+    changed
+}
+
+fn render_vieneu_reference_selector(ui: &mut egui::Ui, config: &mut Config) -> bool {
+    let mut changed = false;
+    let settings = &mut config.tts_playground.vieneu_settings;
+    ui.horizontal(|ui| {
+        ui.label("Reference voice:");
+        let selected = if settings.reference_voice_id.trim().is_empty() {
+            "Model default voice".to_string()
+        } else {
+            config
+                .step_audio_reference_voices
+                .iter()
+                .find(|reference| reference.id == settings.reference_voice_id)
+                .map(reference_library::reference_label)
+                .unwrap_or_else(|| "Missing reference".to_string())
+        };
+        egui::ComboBox::from_id_salt("tts_playground_vieneu_reference")
+            .selected_text(selected)
+            .width(220.0)
+            .show_ui(ui, |ui| {
+                changed |= ui
+                    .selectable_value(
+                        &mut settings.reference_voice_id,
+                        String::new(),
+                        "Model default voice",
+                    )
+                    .changed();
+                for reference in &config.step_audio_reference_voices {
+                    changed |= ui
+                        .selectable_value(
+                            &mut settings.reference_voice_id,
+                            reference.id.clone(),
+                            reference_library::reference_label(reference),
+                        )
+                        .changed();
+                }
+            });
+    });
+    changed
 }
 
 fn render_gemini_controls(ui: &mut egui::Ui, config: &mut Config, text: &LocaleText) -> bool {

@@ -17,6 +17,7 @@ pub enum TtsMethod {
     MagpieMultilingual, // NVIDIA Magpie-Multilingual 357M (local NIM-style server)
     Kokoro,             // Kokoro 82M v1.0 (Kokoro-FastAPI OpenAI-compat)
     Supertonic,         // Supertonic 3 (local sherpa-onnx)
+    VieneuTts,          // VieNeu-TTS v2 (Vietnamese-first local clone TTS)
     VoxtralTts,         // Mistral Voxtral TTS (open weights / La Plateforme)
 }
 
@@ -44,6 +45,7 @@ pub struct TtsPlaygroundSettings {
     pub magpie_settings: MagpieSettings,
     pub kokoro_settings: KokoroSettings,
     pub supertonic_settings: SupertonicSettings,
+    pub vieneu_settings: VieneuSettings,
     pub voxtral_settings: VoxtralSettings,
     pub step_audio_edit_settings: StepAudioEditSettings,
     pub draft_text: String,
@@ -68,6 +70,7 @@ impl Default for TtsPlaygroundSettings {
             magpie_settings: MagpieSettings::default(),
             kokoro_settings: KokoroSettings::default(),
             supertonic_settings: SupertonicSettings::default(),
+            vieneu_settings: VieneuSettings::default(),
             voxtral_settings: VoxtralSettings::default(),
             step_audio_edit_settings: StepAudioEditSettings::default(),
             draft_text: "Write anything here and test how it sounds.".to_string(),
@@ -325,6 +328,38 @@ pub fn default_supertonic_voice_configs() -> Vec<SupertonicVoiceConfig> {
         SupertonicVoiceConfig::new("fr", "French", "F4"),
         SupertonicVoiceConfig::new("pt", "Portuguese", "M3"),
     ]
+}
+
+/// VieNeu-TTS v2 — Vietnamese-first local TTS with zero-shot reference cloning.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct VieneuSettings {
+    /// Runtime/model variant id from `tts_catalog::VIENEU_VARIANTS`.
+    pub variant: String,
+    /// SDK emotion preset. Current public SDK exposes `natural` and `storytelling`.
+    pub emotion: String,
+    /// Selected shared reference voice id. Empty uses the model's default voice.
+    pub reference_voice_id: String,
+    /// Use ad-hoc reference audio instead of the shared reference library.
+    pub use_custom_reference: bool,
+    pub reference_audio_path: String,
+    /// Exact transcript of the reference audio. Required for standard/fast modes.
+    pub reference_text: String,
+    pub reference_label: String,
+}
+
+impl Default for VieneuSettings {
+    fn default() -> Self {
+        Self {
+            variant: crate::config::tts_catalog::default_vieneu_variant_id().to_string(),
+            emotion: "natural".to_string(),
+            reference_voice_id: String::new(),
+            use_custom_reference: false,
+            reference_audio_path: String::new(),
+            reference_text: String::new(),
+            reference_label: String::new(),
+        }
+    }
 }
 
 /// Step Audio EditX — local managed Python/PyTorch sidecar.

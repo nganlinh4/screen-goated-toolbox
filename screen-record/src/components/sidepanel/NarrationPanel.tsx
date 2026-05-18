@@ -159,6 +159,7 @@ export function NarrationPanel({
   const supertonicLanguages = metadata?.supertonicLanguages ?? [];
   const supertonicVoices = metadata?.supertonicVoices ?? [];
   const stepAudioVoices = metadata?.stepAudioVoices ?? [];
+  const referenceVoices = metadata?.stepAudioReferenceVoices ?? stepAudioVoices;
   const edgeVoiceLanguages = metadata?.edgeVoiceLanguages ?? [];
   const edgeVoicesByLanguage = metadata?.edgeVoicesByLanguage ?? {};
   const geminiLanguageConditions = settings.geminiLanguageConditions ?? [];
@@ -178,6 +179,8 @@ export function NarrationPanel({
         return t.narrationTtsMethodKokoro;
       case 'Supertonic':
         return 'Supertonic 3';
+      case 'VieneuTts':
+        return 'VieNeu-TTS v2';
       case 'StepAudioEditX':
         return 'Step Audio EditX';
       case 'MagpieMultilingual':
@@ -194,6 +197,7 @@ export function NarrationPanel({
         { method: 'GoogleTranslate' as const, label: 'Google Translate' },
         { method: 'Kokoro' as const, label: 'Kokoro 82M v1.0' },
         { method: 'Supertonic' as const, label: 'Supertonic 3' },
+        { method: 'VieneuTts' as const, label: 'VieNeu-TTS v2' },
         { method: 'StepAudioEditX' as const, label: 'Step Audio EditX' },
         { method: 'MagpieMultilingual' as const, label: 'NVIDIA Magpie-Multilingual 357M' },
       ]).map((provider) => ({
@@ -896,6 +900,30 @@ export function NarrationPanel({
                   onChange={(value) => update('stepAudioReferenceVoiceId', value)}
                   triggerClassName="narration-step-audio-reference-select h-8 rounded-lg px-2.5 text-[11px]"
                   contentClassName="narration-step-audio-reference-menu"
+                  searchable
+                />
+              </div>
+            </>
+          )}
+
+          {settings.method === 'VieneuTts' && (
+            <>
+              <div className="narration-panel-vieneu-reference mb-2 flex flex-col gap-1.5">
+                <span className="text-[11px] font-medium text-on-surface-variant">
+                  Reference voice
+                </span>
+                <PanelSelect
+                  value={settings.vieneuReferenceVoiceId}
+                  options={[
+                    { value: '', label: 'Model default voice' },
+                    ...referenceVoices.map((voice) => ({
+                      value: voice.id,
+                      label: voice.label || 'Untitled reference',
+                    })),
+                  ]}
+                  onChange={(value) => update('vieneuReferenceVoiceId', value)}
+                  triggerClassName="narration-vieneu-reference-select h-8 rounded-lg px-2.5 text-[11px]"
+                  contentClassName="narration-vieneu-reference-menu"
                   searchable
                 />
               </div>

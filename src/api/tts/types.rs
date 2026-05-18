@@ -45,6 +45,7 @@ pub struct TtsRequestProfile {
     /// playground/narration callers can override voice routing per session.
     pub kokoro_settings: crate::config::KokoroSettings,
     pub supertonic_settings: crate::config::SupertonicSettings,
+    pub vieneu_settings: crate::config::VieneuSettings,
     /// Optional ISO 639-3 language hint for batched callers such as subtitle narration.
     pub language_code_override: Option<String>,
 }
@@ -65,6 +66,7 @@ impl From<&crate::config::TtsPlaygroundSettings> for TtsRequestProfile {
             magpie_settings: settings.magpie_settings.clone(),
             kokoro_settings: settings.kokoro_settings.clone(),
             supertonic_settings: settings.supertonic_settings.clone(),
+            vieneu_settings: settings.vieneu_settings.clone(),
             language_code_override: None,
         }
     }

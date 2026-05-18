@@ -19,6 +19,10 @@ use crate::api::realtime_audio::tts_libtorch_runtime_assets::{
     TtsRuntimeSpec, VOXTRAL_RUNTIME, current_tts_runtime_notice, download_tts_runtime,
     is_tts_runtime_installed, remove_tts_runtime, tts_runtime_installed_size,
 };
+use crate::api::realtime_audio::vieneu_runtime::{
+    current_vieneu_runtime_notice, download_vieneu_runtime, is_vieneu_runtime_downloading,
+    is_vieneu_runtime_installed_for_variant, remove_vieneu_runtime, vieneu_runtime_installed_size,
+};
 use crate::api::realtime_audio::voxtral_assets::{
     current_voxtral_notice, download_voxtral_model, get_voxtral_model_dir,
     is_voxtral_model_downloaded, remove_voxtral_model,
@@ -42,6 +46,7 @@ const PROBE_VOXTRAL: &str = "downloaded-tools:voxtral-4b";
 const PROBE_STEP_RUNTIME: &str = "downloaded-tools:step-audio-runtime";
 const PROBE_MAGPIE_RUNTIME: &str = "downloaded-tools:magpie-runtime";
 const PROBE_VOXTRAL_RUNTIME: &str = "downloaded-tools:voxtral-runtime";
+const PROBE_VIENEU_RUNTIME: &str = "downloaded-tools:vieneu-runtime";
 
 struct TtsCardSpec {
     title: &'static str,
@@ -187,6 +192,77 @@ pub(super) fn render_voxtral_card(ui: &mut egui::Ui, text: &LocaleText) {
             runtime: VOXTRAL_RUNTIME,
         },
     );
+}
+
+pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
+    ui.group(|ui| {
+        ui.heading("VieNeu-TTS v2");
+        ui.add_space(4.0);
+        ui.label(text.tool_desc_vieneu);
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("VieNeu managed runtime").strong());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let is_downloading = is_vieneu_runtime_downloading()
+                    || REALTIME_STATE
+                        .lock()
+                        .map(|s| {
+                            s.is_downloading && s.download_title == text.vieneu_runtime_downloading_title
+                        })
+                        .unwrap_or(false);
+                let probe_variant = crate::config::tts_catalog::default_vieneu_variant_id();
+                if is_downloading {
+                    let progress = REALTIME_STATE
+                        .lock()
+                        .map(|s| s.download_progress)
+                        .unwrap_or(0.0);
+                    ui.label(format!("{progress:.0}%"));
+                    ui.spinner();
+                } else if cached_probe(PROBE_VIENEU_RUNTIME, move || {
+                    is_vieneu_runtime_installed_for_variant(probe_variant)
+                }) {
+                    if ui
+                        .button(
+                            egui::RichText::new(text.tool_action_delete)
+                                .color(egui::Color32::RED),
+                        )
+                        .clicked()
+                    {
+                        invalidate_probe_cache(PROBE_VIENEU_RUNTIME);
+                        invalidate_u64_cache("downloaded-tools:vieneu-runtime-size");
+                        let _ = remove_vieneu_runtime();
+                    }
+                    let size = cached_u64(
+                        "downloaded-tools:vieneu-runtime-size",
+                        vieneu_runtime_installed_size,
+                    );
+                    ui.label(
+                        egui::RichText::new(
+                            text.tool_status_installed.replace("{}", &format_size(size)),
+                        )
+                        .color(egui::Color32::from_rgb(34, 139, 34)),
+                    );
+                } else {
+                    if ui.button(text.tool_action_download).clicked() {
+                        let stop_signal = Arc::new(AtomicBool::new(false));
+                        let install_variant =
+                            crate::config::tts_catalog::default_vieneu_variant_id().to_string();
+                        thread::spawn(move || {
+                            let _ = download_vieneu_runtime(stop_signal, false, install_variant);
+                        });
+                    }
+                    ui.label(
+                        egui::RichText::new(text.tool_status_missing)
+                            .color(egui::Color32::GRAY),
+                    );
+                }
+            });
+        });
+        if let Some(notice) = current_vieneu_runtime_notice() {
+            ui.label(egui::RichText::new(notice).color(egui::Color32::from_rgb(180, 90, 0)));
+        }
+        ui.label("Managed VieNeu runtime bundle. No system Python or live pip build is required; model weights are still cached by the VieNeu SDK on first use.");
+    });
 }
 
 fn render_tts_card(ui: &mut egui::Ui, text: &LocaleText, spec: TtsCardSpec) {

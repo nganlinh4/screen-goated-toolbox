@@ -1,0 +1,20 @@
+{
+    "version":  "2026.05.17.cuda5",
+    "abiVersion":  1,
+    "entrypoint":  "vieneu-sidecar/vieneu_sidecar.py",
+    "installedSize":  6684463567,
+    "chunks":  [
+                   {
+                       "filename":  "sgt-vieneu-runtime-2026.05.17.cuda5.zip.part001",
+                       "url":  "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-vieneu-runtime-2026.05.17.cuda5.zip.part001",
+                       "sha256":  "3fa919880e62c2b38380fb8099549bc26fce983e972d30537d9b85865b178c88",
+                       "size":  1992294400
+                   },
+                   {
+                       "filename":  "sgt-vieneu-runtime-2026.05.17.cuda5.zip.part002",
+                       "url":  "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-vieneu-runtime-2026.05.17.cuda5.zip.part002",
+                       "sha256":  "e79f7f463ce27bf9fd2f67eccaba9fda18534e63cd5178bbec841356e29a96a3",
+                       "size":  1585882016
+                   }
+               ]
+}

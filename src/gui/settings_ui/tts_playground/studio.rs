@@ -618,6 +618,7 @@ fn voice_label(config: &Config) -> String {
                 .unwrap_or("M1");
             format!("Supertonic 3 · {voice}")
         }
+        TtsMethod::VieneuTts => "VieNeu-TTS-v2 Turbo GPU".to_string(),
         TtsMethod::VoxtralTts => {
             let v = config.tts_playground.voxtral_settings.voice.trim();
             if v.is_empty() {

@@ -67,6 +67,13 @@ native/step_audio_runtime/dist/*.part*
 native/step_audio_runtime/dist/*.sha256
 !native/step_audio_runtime/dist/.gitkeep
 !native/step_audio_runtime/dist/sgt_step_audio_runtime.manifest.json
+native/vieneu_runtime/build/
+!native/vieneu_runtime/dist/
+native/vieneu_runtime/dist/*.zip
+native/vieneu_runtime/dist/*.part*
+native/vieneu_runtime/dist/*.sha256
+!native/vieneu_runtime/dist/.gitkeep
+!native/vieneu_runtime/dist/sgt_vieneu_runtime.manifest.json
 !native/voxtral_runtime/dist/
 !native/voxtral_runtime/dist/.gitkeep
 *-sidecar.spec

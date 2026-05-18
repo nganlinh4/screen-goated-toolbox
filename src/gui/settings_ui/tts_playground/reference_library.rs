@@ -492,7 +492,7 @@ fn selected_reference_label(
         .unwrap_or_else(|| "Bundled default reference".to_string())
 }
 
-fn reference_label(reference: &StepAudioReferenceVoice) -> String {
+pub(super) fn reference_label(reference: &StepAudioReferenceVoice) -> String {
     if reference.label.trim().is_empty() {
         "Untitled reference".to_string()
     } else {
