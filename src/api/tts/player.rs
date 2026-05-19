@@ -15,13 +15,6 @@ use super::wsola::WsolaStretcher;
 
 struct AutoSpeedState {
     speed: u32,
-    base_speed: u32,
-    text_queue_len: usize,
-    s2s_segment_backlog: u32,
-    s2s_delay_ms: u32,
-    s2s_backlog_ms: u32,
-    s2s_ready_backlog_ms: u32,
-    effective_delay_ms: u32,
 }
 
 /// Main Player thread - consumes audio streams sequentially
@@ -237,16 +230,7 @@ fn compute_realtime_auto_speed() -> AutoSpeedState {
     }
     .clamp(50, 200);
 
-    AutoSpeedState {
-        speed,
-        base_speed,
-        text_queue_len,
-        s2s_segment_backlog,
-        s2s_delay_ms,
-        s2s_backlog_ms,
-        s2s_ready_backlog_ms,
-        effective_delay_ms,
-    }
+    AutoSpeedState { speed }
 }
 
 /// Simple audio player using Windows WASAPI with loopback exclusion
@@ -526,17 +510,6 @@ impl AudioPlayer {
             // Update current speed for UI if it changed
             let old_speed = CURRENT_TTS_SPEED.swap(speed, Ordering::Relaxed);
             if old_speed != speed {
-                eprintln!(
-                    "[TTS AutoSpeed] speed={} base={} text_queue={} s2s_queue={} delay_ms={} s2s_delay_ms={} s2s_backlog_ms={} s2s_ready_ms={}",
-                    speed,
-                    auto_speed.base_speed,
-                    auto_speed.text_queue_len,
-                    auto_speed.s2s_segment_backlog,
-                    auto_speed.effective_delay_ms,
-                    auto_speed.s2s_delay_ms,
-                    auto_speed.s2s_backlog_ms,
-                    auto_speed.s2s_ready_backlog_ms
-                );
                 unsafe {
                     use crate::overlay::realtime_webview::state::TRANSLATION_HWND;
                     use windows::Win32::Foundation::{LPARAM, WPARAM};

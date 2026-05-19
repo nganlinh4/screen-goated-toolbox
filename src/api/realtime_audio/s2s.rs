@@ -37,10 +37,21 @@ const MAX_SEGMENT_SAMPLES: usize = 80_000;
 const END_SILENCE_FRAMES: usize = 3;
 const AUDIO_IDLE_FINISH_MS: u128 = 1_200;
 const DISPLAY_SEGMENT_LIMIT: usize = 8;
-const FIRST_AUDIO_RETRY_MS: u128 = 5_500;
+const FIRST_AUDIO_SILENT_RETRY_MS: u128 = 3_800;
+const FIRST_AUDIO_ACTIVE_RETRY_MS: u128 = 5_200;
 const CONTEXT_SEGMENT_LIMIT: usize = 5;
 const CONTEXT_LINE_CHAR_LIMIT: usize = 240;
 const CONTEXT_TOTAL_CHAR_LIMIT: usize = 1_500;
+const SPEECH_THRESHOLD_MULTIPLIER: f32 = 2.2;
+const MIN_SPEECH_THRESHOLD: f32 = 0.012;
+const MAX_SPEECH_THRESHOLD: f32 = 0.035;
+const ABSOLUTE_SPEECH_RMS: f32 = 0.045;
+const NOISE_LEARN_MAX_RMS: f32 = 0.018;
+const NOISE_LEARN_THRESHOLD_RATIO: f32 = 0.60;
+const MIN_SEGMENT_SPEECH_FRAMES: usize = 4;
+const MIN_SEGMENT_PEAK_RMS: f32 = 0.025;
+const MIN_SEGMENT_SPEECH_RATIO: f32 = 0.08;
+const MIN_TEXT_OVERLAP_CHARS: usize = 3;
 
 static S2S_PLAYBACK_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -56,10 +67,9 @@ struct S2sContextMemory {
     completed: VecDeque<S2sContextEntry>,
 }
 
+#[derive(Clone)]
 struct S2sContextSnapshot {
     text: String,
-    segment_count: usize,
-    char_count: usize,
 }
 
 impl S2sContextMemory {
@@ -90,8 +100,6 @@ impl S2sContextMemory {
         if entries.is_empty() {
             return S2sContextSnapshot {
                 text: String::new(),
-                segment_count: 0,
-                char_count: 0,
             };
         }
 
@@ -117,19 +125,16 @@ impl S2sContextMemory {
         if text.chars().count() > CONTEXT_TOTAL_CHAR_LIMIT {
             text = truncate_chars(&text, CONTEXT_TOTAL_CHAR_LIMIT);
         }
-        let char_count = text.chars().count();
-        S2sContextSnapshot {
-            text,
-            segment_count: ordered.len(),
-            char_count,
-        }
+        S2sContextSnapshot { text }
     }
 }
 
+#[derive(Clone)]
 struct Segment {
     id: u64,
     samples: Vec<i16>,
-    queued_at: Instant,
+    speech_frames: usize,
+    peak_rms: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -138,6 +143,7 @@ enum SegmentOutcome {
     RetryFresh,
 }
 
+#[derive(Clone)]
 enum S2sEvent {
     Queued {
         id: u64,
@@ -164,6 +170,21 @@ enum S2sEvent {
         message: String,
     },
     Interrupt,
+}
+
+enum S2sRaceEvent {
+    Event {
+        attempt: usize,
+        event: S2sEvent,
+    },
+    Finished {
+        attempt: usize,
+        outcome: SegmentOutcome,
+    },
+    Error {
+        attempt: usize,
+        message: String,
+    },
 }
 
 pub fn run_gemini_live_s2s(
@@ -344,16 +365,18 @@ fn run_vad_loop(
     let mut pending = Vec::<i16>::new();
     let mut preroll = VecDeque::<i16>::new();
     let mut active = Vec::<i16>::new();
+    let mut active_speech_frames = 0usize;
+    let mut active_peak_rms = 0.0f32;
     let mut segment_id = 0u64;
     let mut silence_frames = 0usize;
     let mut noise_floor = 0.004f32;
 
     while !stop_signal.load(Ordering::Relaxed) {
-        if is_stale_session(session_id)
-            || AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
-            || TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
-            || LANGUAGE_CHANGE.load(Ordering::SeqCst)
-        {
+        let stale_session = is_stale_session(session_id);
+        let audio_changed = AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst);
+        let model_changed = TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst);
+        let language_changed = LANGUAGE_CHANGE.load(Ordering::SeqCst);
+        if stale_session || audio_changed || model_changed || language_changed {
             break;
         }
 
@@ -389,11 +412,9 @@ fn run_vad_loop(
                 }
             }
 
-            let speech_threshold = (noise_floor * 3.0).max(0.012);
-            let is_speech = rms >= speech_threshold;
-            if !is_speech {
-                noise_floor = (noise_floor * 0.98) + (rms * 0.02);
-            }
+            let speech_threshold = speech_threshold_for_noise(noise_floor);
+            let is_speech = rms >= speech_threshold || rms >= ABSOLUTE_SPEECH_RMS;
+            noise_floor = update_noise_floor(noise_floor, rms, speech_threshold, is_speech);
 
             if active.is_empty() {
                 preroll.extend(frame.iter().copied());
@@ -403,12 +424,18 @@ fn run_vad_loop(
                 if is_speech {
                     active.extend(preroll.drain(..));
                     active.extend(frame);
+                    active_speech_frames = 1;
+                    active_peak_rms = rms;
                     silence_frames = 0;
                 }
                 continue;
             }
 
             active.extend(frame);
+            active_peak_rms = active_peak_rms.max(rms);
+            if is_speech {
+                active_speech_frames += 1;
+            }
             silence_frames = if is_speech { 0 } else { silence_frames + 1 };
 
             let long_enough = active.len() >= MIN_SEGMENT_SAMPLES;
@@ -417,22 +444,25 @@ fn run_vad_loop(
             let silence_hit = target_hit && silence_frames >= END_SILENCE_FRAMES;
             if long_enough && (silence_hit || max_hit) {
                 let queued_at = Instant::now();
+                let samples = std::mem::take(&mut active);
+                let speech_frames = active_speech_frames;
+                let peak_rms = active_peak_rms;
+                active_speech_frames = 0;
+                active_peak_rms = 0.0;
                 let segment = Segment {
                     id: segment_id,
-                    samples: std::mem::take(&mut active),
-                    queued_at,
+                    samples,
+                    speech_frames,
+                    peak_rms,
                 };
                 let worker = (segment.id as usize) % segment_senders.len();
                 let audio_ms = samples_to_ms(segment.samples.len());
-                eprintln!(
-                    "[RealtimeS2S] queued segment={} worker={} audio_ms={} reason={} backlog={}",
-                    segment.id,
-                    worker,
-                    audio_ms,
-                    if max_hit { "max" } else { "silence" },
-                    crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_BACKLOG
-                        .load(Ordering::Relaxed)
-                );
+                if !is_segment_worth_sending(&segment) {
+                    segment_id += 1;
+                    silence_frames = 0;
+                    preroll.clear();
+                    continue;
+                }
                 let _ = event_tx.send(S2sEvent::Queued {
                     id: segment.id,
                     audio_ms,
@@ -459,24 +489,21 @@ fn run_vad_loop(
         let worker = (segment_id as usize) % segment_senders.len();
         let audio_ms = samples_to_ms(active.len());
         let queued_at = Instant::now();
+        let segment = Segment {
+            id: segment_id,
+            samples: active,
+            speech_frames: active_speech_frames,
+            peak_rms: active_peak_rms,
+        };
+        if !is_segment_worth_sending(&segment) {
+            return;
+        }
         let _ = event_tx.send(S2sEvent::Queued {
             id: segment_id,
             audio_ms,
             queued_at,
         });
-        let _ = segment_senders[worker].send(Segment {
-            id: segment_id,
-            samples: active,
-            queued_at,
-        });
-        eprintln!(
-            "[RealtimeS2S] queued segment={} worker={} audio_ms={} reason=final backlog={}",
-            segment_id,
-            worker,
-            audio_ms,
-            crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_BACKLOG
-                .load(Ordering::Relaxed)
-        );
+        let _ = segment_senders[worker].send(segment);
         crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_BACKLOG
             .fetch_add(1, Ordering::Relaxed);
         crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_BACKLOG_MS
@@ -537,44 +564,33 @@ fn run_single_segment_session(
         .map(|memory| memory.snapshot())
         .unwrap_or_else(|_| S2sContextSnapshot {
             text: String::new(),
-            segment_count: 0,
-            char_count: 0,
         });
-    let mut socket =
-        open_fresh_socket_session(session_index, generation, settings, &context, &stop_signal)?;
-    let outcome = process_segment(
+    let outcome = run_hedged_segment_session(
         session_index,
         generation,
-        &mut socket,
-        &segment,
-        event_tx,
-        &stop_signal,
+        segment.clone(),
+        event_tx.clone(),
+        stop_signal.clone(),
+        settings.clone(),
+        context.clone(),
         false,
     )?;
-    let _ = socket.close(None);
     if outcome == SegmentOutcome::RetryFresh && !stop_signal.load(Ordering::SeqCst) {
         let retry_generation = generation + 1_000_000;
         eprintln!(
             "[RealtimeS2S] retry segment={} session={} gen={} fresh_gen={}",
             segment.id, session_index, generation, retry_generation
         );
-        let mut retry_socket = open_fresh_socket_session(
+        let retry_outcome = run_hedged_segment_session(
             session_index,
             retry_generation,
-            settings,
-            &context,
-            &stop_signal,
-        )?;
-        let retry_outcome = process_segment(
-            session_index,
-            retry_generation,
-            &mut retry_socket,
-            &segment,
-            event_tx,
-            &stop_signal,
+            segment.clone(),
+            event_tx.clone(),
+            stop_signal.clone(),
+            settings.clone(),
+            context,
             true,
         )?;
-        let _ = retry_socket.close(None);
         if retry_outcome == SegmentOutcome::RetryFresh {
             let _ = event_tx.send(S2sEvent::Done { id: segment.id });
         }
@@ -582,32 +598,204 @@ fn run_single_segment_session(
     Ok(())
 }
 
-fn open_fresh_socket_session(
+fn run_hedged_segment_session(
     session_index: usize,
     generation: u64,
+    segment: Segment,
+    event_tx: mpsc::Sender<S2sEvent>,
+    stop_signal: Arc<AtomicBool>,
+    settings: S2sSettings,
+    context: S2sContextSnapshot,
+    final_attempt: bool,
+) -> Result<SegmentOutcome> {
+    const HEDGE_ATTEMPTS: usize = 2;
+
+    let (race_tx, race_rx) = mpsc::channel::<S2sRaceEvent>();
+    let mut cancel_flags = Vec::with_capacity(HEDGE_ATTEMPTS);
+    let mut saw_audio = [false; HEDGE_ATTEMPTS];
+    let mut finished = [false; HEDGE_ATTEMPTS];
+    let mut buffered_events = [Vec::<S2sEvent>::new(), Vec::<S2sEvent>::new()];
+    let mut winner: Option<usize> = None;
+
+    for attempt in 0..HEDGE_ATTEMPTS {
+        let attempt_generation = generation + (attempt as u64 * 100_000);
+        let attempt_cancel = Arc::new(AtomicBool::new(false));
+        cancel_flags.push(attempt_cancel.clone());
+        spawn_hedged_attempt(
+            session_index,
+            attempt,
+            attempt_generation,
+            segment.clone(),
+            settings.clone(),
+            context.clone(),
+            stop_signal.clone(),
+            attempt_cancel,
+            race_tx.clone(),
+            final_attempt,
+        );
+    }
+    drop(race_tx);
+
+    while !stop_signal.load(Ordering::SeqCst) {
+        match race_rx.recv_timeout(Duration::from_millis(50)) {
+            Ok(S2sRaceEvent::Event { attempt, event }) => {
+                if matches!(event, S2sEvent::Audio { .. }) {
+                    saw_audio[attempt] = true;
+                    if winner.is_none() {
+                        winner = Some(attempt);
+                        for (index, cancel) in cancel_flags.iter().enumerate() {
+                            if index != attempt {
+                                cancel.store(true, Ordering::SeqCst);
+                            }
+                        }
+                        for buffered in buffered_events[attempt].drain(..) {
+                            let _ = event_tx.send(buffered);
+                        }
+                    }
+                }
+
+                if winner == Some(attempt) {
+                    let done = matches!(event, S2sEvent::Done { .. } | S2sEvent::Error { .. });
+                    let _ = event_tx.send(event);
+                    if done {
+                        return Ok(if saw_audio[attempt] {
+                            SegmentOutcome::Healthy
+                        } else {
+                            SegmentOutcome::RetryFresh
+                        });
+                    }
+                } else if winner.is_none() {
+                    buffered_events[attempt].push(event);
+                }
+            }
+            Ok(S2sRaceEvent::Finished { attempt, outcome }) => {
+                finished[attempt] = true;
+                if winner == Some(attempt) {
+                    continue;
+                }
+                if winner.is_none() && outcome == SegmentOutcome::Healthy && saw_audio[attempt] {
+                    winner = Some(attempt);
+                    for (index, cancel) in cancel_flags.iter().enumerate() {
+                        if index != attempt {
+                            cancel.store(true, Ordering::SeqCst);
+                        }
+                    }
+                    for buffered in buffered_events[attempt].drain(..) {
+                        let _ = event_tx.send(buffered);
+                    }
+                    continue;
+                }
+                if finished.iter().all(|done| *done) && winner.is_none() {
+                    eprintln!(
+                        "[RealtimeS2S] hedge-empty segment={} session={} gen={} attempts={}",
+                        segment.id, session_index, generation, HEDGE_ATTEMPTS
+                    );
+                    return Ok(SegmentOutcome::RetryFresh);
+                }
+            }
+            Ok(S2sRaceEvent::Error { attempt, message }) => {
+                finished[attempt] = true;
+                eprintln!(
+                    "[RealtimeS2S] hedge-attempt-error segment={} session={} gen={} attempt={} error={}",
+                    segment.id, session_index, generation, attempt, message
+                );
+                if winner == Some(attempt) {
+                    let _ = event_tx.send(S2sEvent::Error {
+                        id: segment.id,
+                        message,
+                    });
+                    return Ok(SegmentOutcome::RetryFresh);
+                }
+                if finished.iter().all(|done| *done) && winner.is_none() {
+                    return Ok(SegmentOutcome::RetryFresh);
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    Ok(SegmentOutcome::RetryFresh)
+}
+
+fn spawn_hedged_attempt(
+    session_index: usize,
+    attempt: usize,
+    generation: u64,
+    segment: Segment,
+    settings: S2sSettings,
+    context: S2sContextSnapshot,
+    stop_signal: Arc<AtomicBool>,
+    cancel_signal: Arc<AtomicBool>,
+    race_tx: mpsc::Sender<S2sRaceEvent>,
+    final_attempt: bool,
+) {
+    std::thread::spawn(move || {
+        let (attempt_tx, attempt_rx) = mpsc::channel::<S2sEvent>();
+        let forward_tx = race_tx.clone();
+        let forwarder = std::thread::spawn(move || {
+            while let Ok(event) = attempt_rx.recv() {
+                if forward_tx
+                    .send(S2sRaceEvent::Event { attempt, event })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+
+        let outcome = match open_fresh_socket_session(
+            session_index,
+            generation,
+            &settings,
+            &context,
+            &stop_signal,
+        ) {
+            Ok(mut socket) => {
+                let result = process_segment(
+                    session_index,
+                    generation,
+                    &mut socket,
+                    &segment,
+                    &attempt_tx,
+                    &stop_signal,
+                    Some(&cancel_signal),
+                    final_attempt,
+                );
+                let _ = socket.close(None);
+                result
+            }
+            Err(err) => Err(err),
+        };
+        drop(attempt_tx);
+        let _ = forwarder.join();
+
+        match outcome {
+            Ok(outcome) => {
+                let _ = race_tx.send(S2sRaceEvent::Finished { attempt, outcome });
+            }
+            Err(err) => {
+                let _ = race_tx.send(S2sRaceEvent::Error {
+                    attempt,
+                    message: err.to_string(),
+                });
+            }
+        }
+    });
+}
+
+fn open_fresh_socket_session(
+    _session_index: usize,
+    _generation: u64,
     settings: &S2sSettings,
     context: &S2sContextSnapshot,
     stop_signal: &Arc<AtomicBool>,
 ) -> Result<tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>> {
-    let setup_started = Instant::now();
     let mut socket = connect_websocket(&settings.api_key)?;
     send_s2s_setup(&mut socket, settings, context)?;
     set_socket_short_timeout(&mut socket)?;
     wait_for_setup(&mut socket, stop_signal.clone())?;
     set_socket_nonblocking(&mut socket)?;
-    eprintln!(
-        "[RealtimeS2S] session={session_index} ready gen={} setup_ms={} model={} voice={} speed={} target={} custom_len={} context_segments={} context_chars={} playback_speed={}",
-        generation,
-        setup_started.elapsed().as_millis(),
-        settings.model,
-        settings.voice,
-        settings.speed,
-        settings.target_language,
-        settings.custom_instruction.len(),
-        context.segment_count,
-        context.char_count,
-        crate::overlay::realtime_webview::state::REALTIME_TTS_SPEED.load(Ordering::Relaxed)
-    );
     Ok(socket)
 }
 
@@ -706,6 +894,13 @@ fn wait_for_setup(
     Err(anyhow::anyhow!("stopped"))
 }
 
+fn s2s_should_stop(stop_signal: &Arc<AtomicBool>, cancel_signal: Option<&Arc<AtomicBool>>) -> bool {
+    stop_signal.load(Ordering::SeqCst)
+        || cancel_signal
+            .map(|cancel| cancel.load(Ordering::SeqCst))
+            .unwrap_or(false)
+}
+
 fn process_segment(
     session_index: usize,
     generation: u64,
@@ -713,17 +908,12 @@ fn process_segment(
     segment: &Segment,
     event_tx: &mpsc::Sender<S2sEvent>,
     stop_signal: &Arc<AtomicBool>,
+    cancel_signal: Option<&Arc<AtomicBool>>,
     final_attempt: bool,
 ) -> Result<SegmentOutcome> {
     let segment_id = segment.id;
-    let audio_ms = samples_to_ms(segment.samples.len());
-    let queued_wait_ms = segment.queued_at.elapsed().as_millis();
-    eprintln!(
-        "[RealtimeS2S] start segment={} session={} gen={} audio_ms={} queued_wait_ms={}",
-        segment_id, session_index, generation, audio_ms, queued_wait_ms
-    );
     for chunk in segment.samples.chunks(FRAME_SAMPLES) {
-        if stop_signal.load(Ordering::SeqCst) {
+        if s2s_should_stop(stop_signal, cancel_signal) {
             return Ok(SegmentOutcome::RetryFresh);
         }
         send_audio_chunk(socket, chunk)?;
@@ -735,20 +925,16 @@ fn process_segment(
     let mut last_audio_at: Option<Instant> = None;
     let mut first_audio_ms: Option<u128> = None;
     let mut audio_chunks = 0usize;
-    while !stop_signal.load(Ordering::SeqCst) {
+    let mut text_updates = 0usize;
+    while !s2s_should_stop(stop_signal, cancel_signal) {
         match socket.read() {
             Ok(Message::Text(msg)) => {
-                let new_chunks = handle_s2s_message(segment_id, msg.as_str(), event_tx)?;
+                let message_update = handle_s2s_message(segment_id, msg.as_str(), event_tx)?;
+                let new_chunks = message_update.audio_chunks;
+                text_updates += message_update.text_updates;
                 if new_chunks > 0 && first_audio_ms.is_none() {
                     last_audio_at = Some(Instant::now());
                     first_audio_ms = Some(started.elapsed().as_millis());
-                    eprintln!(
-                        "[RealtimeS2S] first-audio segment={} session={} gen={} elapsed_ms={}",
-                        segment_id,
-                        session_index,
-                        generation,
-                        first_audio_ms.unwrap()
-                    );
                 }
                 if new_chunks > 0 {
                     last_audio_at = Some(Instant::now());
@@ -756,19 +942,18 @@ fn process_segment(
                 audio_chunks += new_chunks;
                 last_update = Instant::now();
                 if parse_s2s_update(msg.as_str()).turn_complete {
-                    eprintln!(
-                        "[RealtimeS2S] done segment={} session={} gen={} elapsed_ms={} reason=turn_complete chunks={} first_audio_ms={}",
-                        segment_id,
-                        session_index,
-                        generation,
-                        started.elapsed().as_millis(),
-                        audio_chunks,
-                        first_audio_ms
-                            .map(|value| value.to_string())
-                            .unwrap_or_else(|| "none".to_string())
-                    );
                     if audio_chunks == 0 && !final_attempt {
+                        eprintln!(
+                            "[RealtimeS2S] empty-audio segment={} session={} gen={} reason=turn_complete text_updates={} final_attempt={}",
+                            segment_id, session_index, generation, text_updates, final_attempt
+                        );
                         return Ok(SegmentOutcome::RetryFresh);
+                    }
+                    if audio_chunks == 0 {
+                        eprintln!(
+                            "[RealtimeS2S] empty-audio segment={} session={} gen={} reason=turn_complete text_updates={} final_attempt={}",
+                            segment_id, session_index, generation, text_updates, final_attempt
+                        );
                     }
                     let _ = event_tx.send(S2sEvent::Done { id: segment_id });
                     return Ok(if audio_chunks > 0 {
@@ -780,17 +965,12 @@ fn process_segment(
             }
             Ok(Message::Binary(data)) => {
                 if let Ok(text) = String::from_utf8(data.to_vec()) {
-                    let new_chunks = handle_s2s_message(segment_id, &text, event_tx)?;
+                    let message_update = handle_s2s_message(segment_id, &text, event_tx)?;
+                    let new_chunks = message_update.audio_chunks;
+                    text_updates += message_update.text_updates;
                     if new_chunks > 0 && first_audio_ms.is_none() {
                         last_audio_at = Some(Instant::now());
                         first_audio_ms = Some(started.elapsed().as_millis());
-                        eprintln!(
-                            "[RealtimeS2S] first-audio segment={} session={} gen={} elapsed_ms={}",
-                            segment_id,
-                            session_index,
-                            generation,
-                            first_audio_ms.unwrap()
-                        );
                     }
                     if new_chunks > 0 {
                         last_audio_at = Some(Instant::now());
@@ -798,19 +978,18 @@ fn process_segment(
                     audio_chunks += new_chunks;
                     last_update = Instant::now();
                     if parse_s2s_update(&text).turn_complete {
-                        eprintln!(
-                            "[RealtimeS2S] done segment={} session={} gen={} elapsed_ms={} reason=turn_complete chunks={} first_audio_ms={}",
-                            segment_id,
-                            session_index,
-                            generation,
-                            started.elapsed().as_millis(),
-                            audio_chunks,
-                            first_audio_ms
-                                .map(|value| value.to_string())
-                                .unwrap_or_else(|| "none".to_string())
-                        );
                         if audio_chunks == 0 && !final_attempt {
+                            eprintln!(
+                                "[RealtimeS2S] empty-audio segment={} session={} gen={} reason=turn_complete text_updates={} final_attempt={}",
+                                segment_id, session_index, generation, text_updates, final_attempt
+                            );
                             return Ok(SegmentOutcome::RetryFresh);
+                        }
+                        if audio_chunks == 0 {
+                            eprintln!(
+                                "[RealtimeS2S] empty-audio segment={} session={} gen={} reason=turn_complete text_updates={} final_attempt={}",
+                                segment_id, session_index, generation, text_updates, final_attempt
+                            );
                         }
                         let _ = event_tx.send(S2sEvent::Done { id: segment_id });
                         return Ok(if audio_chunks > 0 {
@@ -838,29 +1017,22 @@ fn process_segment(
                         .unwrap_or(false)
                 {
                     let _ = event_tx.send(S2sEvent::Done { id: segment_id });
+                    return Ok(SegmentOutcome::Healthy);
+                }
+                let no_first_audio_retry_ms = if text_updates == 0 {
+                    FIRST_AUDIO_SILENT_RETRY_MS
+                } else {
+                    FIRST_AUDIO_ACTIVE_RETRY_MS
+                };
+                if audio_chunks == 0 && started.elapsed().as_millis() >= no_first_audio_retry_ms {
                     eprintln!(
-                        "[RealtimeS2S] done segment={} session={} gen={} elapsed_ms={} reason=audio_idle idle_ms={} chunks={} first_audio_ms={}",
+                        "[RealtimeS2S] done segment={} session={} gen={} elapsed_ms={} reason=no_first_audio_retry retry_ms={} text_updates={} chunks=0 first_audio_ms=none",
                         segment_id,
                         session_index,
                         generation,
                         started.elapsed().as_millis(),
-                        last_audio_at
-                            .map(|last| last.elapsed().as_millis())
-                            .unwrap_or_default(),
-                        audio_chunks,
-                        first_audio_ms
-                            .map(|value| value.to_string())
-                            .unwrap_or_else(|| "none".to_string())
-                    );
-                    return Ok(SegmentOutcome::Healthy);
-                }
-                if audio_chunks == 0 && started.elapsed().as_millis() >= FIRST_AUDIO_RETRY_MS {
-                    eprintln!(
-                        "[RealtimeS2S] done segment={} session={} gen={} elapsed_ms={} reason=no_first_audio_retry chunks=0 first_audio_ms=none",
-                        segment_id,
-                        session_index,
-                        generation,
-                        started.elapsed().as_millis()
+                        no_first_audio_retry_ms,
+                        text_updates
                     );
                     if final_attempt {
                         let _ = event_tx.send(S2sEvent::Done { id: segment_id });
@@ -896,26 +1068,44 @@ fn process_segment(
     Ok(SegmentOutcome::RetryFresh)
 }
 
-fn handle_s2s_message(id: u64, message: &str, event_tx: &mpsc::Sender<S2sEvent>) -> Result<usize> {
+struct HandledS2sMessage {
+    audio_chunks: usize,
+    text_updates: usize,
+}
+
+fn handle_s2s_message(
+    id: u64,
+    message: &str,
+    event_tx: &mpsc::Sender<S2sEvent>,
+) -> Result<HandledS2sMessage> {
     let update = parse_s2s_update(message);
     if let Some(error) = update.error {
         let _ = event_tx.send(S2sEvent::Error { id, message: error });
-        return Ok(0);
+        return Ok(HandledS2sMessage {
+            audio_chunks: 0,
+            text_updates: 0,
+        });
     }
     if update.interrupted {
         let _ = event_tx.send(S2sEvent::Interrupt);
     }
+    let mut text_updates = 0usize;
     if let Some(text) = update.input_transcript {
         let _ = event_tx.send(S2sEvent::InputText { id, text });
+        text_updates += 1;
     }
     if let Some(text) = update.output_transcript {
         let _ = event_tx.send(S2sEvent::OutputText { id, text });
+        text_updates += 1;
     }
     let chunk_count = update.audio_chunks.len();
     for bytes in update.audio_chunks {
         let _ = event_tx.send(S2sEvent::Audio { id, bytes });
     }
-    Ok(chunk_count)
+    Ok(HandledS2sMessage {
+        audio_chunks: chunk_count,
+        text_updates,
+    })
 }
 
 struct S2sParsedUpdate {
@@ -1058,13 +1248,6 @@ fn coordinate_output(
                 }
                 S2sEvent::Audio { id, bytes } => {
                     let segment = segments.entry(id).or_insert_with(SegmentPlayback::new);
-                    if segment.chunk_count == 0 {
-                        eprintln!(
-                            "[RealtimeS2S] audio-ready segment={} bytes={}",
-                            id,
-                            bytes.len()
-                        );
-                    }
                     segment.chunk_count += 1;
                     segment.byte_count += bytes.len();
                     segment.chunks.push_back(bytes);
@@ -1132,15 +1315,6 @@ fn drain_ordered_audio(
             let delay_ms = segment_delay_ms(segment);
             crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_DELAY_MS
                 .store(delay_ms as u32, Ordering::Relaxed);
-            eprintln!(
-                "[RealtimeS2S] play-start segment={} chunks={} bytes={} delay_ms={} backlog_ms={} speed={}",
-                next_play_id,
-                segment.chunk_count,
-                segment.byte_count,
-                delay_ms,
-                s2s_backlog_ms(),
-                crate::overlay::realtime_webview::state::CURRENT_TTS_SPEED.load(Ordering::Relaxed)
-            );
             *playback = Some(RealtimePlaybackBridge::new(hwnd.0 as isize));
         }
         if let Some(player) = playback.as_ref() {
@@ -1149,24 +1323,12 @@ fn drain_ordered_audio(
             }
         }
         if segment.done && segment.chunks.is_empty() {
-            let delay_ms = segment_delay_ms(segment);
-            let chunk_count = segment.chunk_count;
-            let byte_count = segment.byte_count;
             let source_audio_ms = segment.source_audio_ms;
             let next_id = *next_play_id + 1;
             let _ = segment;
             let next_ready = segments
                 .get(&next_id)
                 .is_some_and(|next| !next.chunks.is_empty());
-            eprintln!(
-                "[RealtimeS2S] play-end segment={} chunks={} bytes={} delay_ms={} backlog_ms={} next_ready={}",
-                next_play_id,
-                chunk_count,
-                byte_count,
-                delay_ms,
-                s2s_backlog_ms(),
-                next_ready
-            );
             segments.remove(next_play_id);
             decrement_s2s_backlog(source_audio_ms);
             *next_play_id += 1;
@@ -1186,22 +1348,24 @@ fn publish_text(
     inputs: &BTreeMap<u64, String>,
     outputs: &BTreeMap<u64, String>,
 ) {
-    let source_history = join_ordered(inputs);
-    let target_history = join_ordered(outputs);
-    let source_recent = join_recent_ordered(inputs, DISPLAY_SEGMENT_LIMIT);
-    let target_recent = join_recent_ordered(outputs, DISPLAY_SEGMENT_LIMIT);
+    let source_display = split_recent_for_s2s_visuals(inputs, DISPLAY_SEGMENT_LIMIT);
+    let target_display = split_recent_for_s2s_visuals(outputs, DISPLAY_SEGMENT_LIMIT);
     let (source_display, target_display) = if let Ok(mut s) = state.lock() {
-        s.full_transcript = source_history;
+        s.full_transcript = source_display.full.clone();
+        s.transcript_committed_pos = source_display.committed_len;
+        s.last_committed_pos = s.transcript_committed_pos;
+        s.uncommitted_source_start = source_display.committed_len;
+        s.uncommitted_source_end = source_display.full.len();
         s.display_transcript = if s.frozen_prefix.is_empty() {
-            source_recent
-        } else if source_recent.is_empty() {
+            source_display.full.clone()
+        } else if source_display.full.is_empty() {
             s.frozen_prefix.clone()
         } else {
-            format!("{}\n\n{}", s.frozen_prefix, source_recent)
+            format!("{}\n\n{}", s.frozen_prefix, source_display.full)
         };
-        s.committed_translation = target_history;
-        s.uncommitted_translation.clear();
-        s.display_translation = target_recent;
+        s.committed_translation = target_display.committed;
+        s.uncommitted_translation = target_display.draft;
+        s.display_translation = target_display.full;
         (s.display_transcript.clone(), s.display_translation.clone())
     } else {
         (String::new(), String::new())
@@ -1212,13 +1376,50 @@ fn publish_text(
     }
 }
 
-fn join_ordered(items: &BTreeMap<u64, String>) -> String {
-    items
-        .values()
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| value.trim())
-        .collect::<Vec<_>>()
-        .join(" ")
+struct S2sVisualText {
+    committed: String,
+    draft: String,
+    full: String,
+    committed_len: usize,
+}
+
+fn split_recent_for_s2s_visuals(items: &BTreeMap<u64, String>, limit: usize) -> S2sVisualText {
+    let mut recent = items
+        .iter()
+        .rev()
+        .filter_map(|(_, value)| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+        .take(limit)
+        .collect::<Vec<_>>();
+    recent.reverse();
+
+    let draft = recent.pop().unwrap_or_default().to_string();
+    let committed = recent.join(" ");
+    let full = if committed.is_empty() {
+        draft.clone()
+    } else if draft.is_empty() {
+        committed.clone()
+    } else {
+        format!("{committed} {draft}")
+    };
+    let committed_len = if committed.is_empty() {
+        0
+    } else {
+        committed.len()
+    };
+
+    S2sVisualText {
+        committed,
+        draft,
+        full,
+        committed_len,
+    }
 }
 
 fn push_completed_context(
@@ -1273,27 +1474,18 @@ fn largest_suffix_prefix_overlap(existing: &str, incoming: &str) -> usize {
         .char_indices()
         .map(|(idx, _)| idx)
         .chain(std::iter::once(incoming.len()))
-        .filter(|&len| len > 0 && len <= max && existing.ends_with(&incoming[..len]))
+        .filter(|&len| {
+            len > 0
+                && len <= max
+                && existing.ends_with(&incoming[..len])
+                && is_meaningful_text_overlap(&incoming[..len])
+        })
         .max()
         .unwrap_or(0)
 }
 
-fn join_recent_ordered(items: &BTreeMap<u64, String>, limit: usize) -> String {
-    let mut recent = items
-        .iter()
-        .rev()
-        .filter_map(|(_, value)| {
-            let trimmed = value.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed)
-            }
-        })
-        .take(limit)
-        .collect::<Vec<_>>();
-    recent.reverse();
-    recent.join(" ")
+fn is_meaningful_text_overlap(overlap: &str) -> bool {
+    overlap.chars().any(char::is_whitespace) || overlap.chars().count() >= MIN_TEXT_OVERLAP_CHARS
 }
 
 struct RealtimePlaybackBridge {
@@ -1334,6 +1526,34 @@ fn calculate_rms(samples: &[i16]) -> f32 {
         })
         .sum::<f32>();
     (sum / samples.len() as f32).sqrt()
+}
+
+fn speech_threshold_for_noise(noise_floor: f32) -> f32 {
+    (noise_floor * SPEECH_THRESHOLD_MULTIPLIER).clamp(MIN_SPEECH_THRESHOLD, MAX_SPEECH_THRESHOLD)
+}
+
+fn update_noise_floor(noise_floor: f32, rms: f32, speech_threshold: f32, is_speech: bool) -> f32 {
+    if is_speech {
+        return noise_floor;
+    }
+
+    let learn_limit = NOISE_LEARN_MAX_RMS.min(speech_threshold * NOISE_LEARN_THRESHOLD_RATIO);
+    if rms <= learn_limit {
+        return (noise_floor * 0.98) + (rms * 0.02);
+    }
+
+    noise_floor.min(MAX_SPEECH_THRESHOLD / SPEECH_THRESHOLD_MULTIPLIER) * 0.995
+}
+
+fn is_segment_worth_sending(segment: &Segment) -> bool {
+    segment.speech_frames >= MIN_SEGMENT_SPEECH_FRAMES
+        || segment.peak_rms >= MIN_SEGMENT_PEAK_RMS
+        || segment_speech_ratio(segment) >= MIN_SEGMENT_SPEECH_RATIO
+}
+
+fn segment_speech_ratio(segment: &Segment) -> f32 {
+    let frame_count = segment.samples.len().div_ceil(FRAME_SAMPLES).max(1);
+    segment.speech_frames as f32 / frame_count as f32
 }
 
 fn samples_to_ms(samples: usize) -> usize {
@@ -1439,4 +1659,27 @@ fn truncate_chars(value: &str, max_chars: usize) -> String {
 fn is_stale_session(session_id: u64) -> bool {
     crate::overlay::realtime_webview::state::REALTIME_SESSION_ID.load(Ordering::SeqCst)
         != session_id
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_segment_text;
+
+    #[test]
+    fn s2s_text_merge_preserves_short_word_boundaries() {
+        let mut text = String::from("anh ta đang làm");
+        merge_segment_text(&mut text, "một hệ điều hành");
+        assert_eq!(text, "anh ta đang làm một hệ điều hành");
+
+        let mut text = String::from("một việc lớn chuyên");
+        merge_segment_text(&mut text, "nghiệp đâu");
+        assert_eq!(text, "một việc lớn chuyên nghiệp đâu");
+    }
+
+    #[test]
+    fn s2s_text_merge_keeps_real_partial_overlap() {
+        let mut text = String::from("cái thú vui đó phát tri");
+        merge_segment_text(&mut text, "triển thành một");
+        assert_eq!(text, "cái thú vui đó phát triển thành một");
+    }
 }

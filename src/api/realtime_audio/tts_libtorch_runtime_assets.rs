@@ -48,10 +48,6 @@ pub fn is_tts_runtime_downloading() -> bool {
     TTS_RUNTIME_DOWNLOAD_IN_PROGRESS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-pub fn current_tts_runtime_notice(provider: TtsLibtorchProvider) -> Option<String> {
-    LAST_TTS_RUNTIME_NOTICE.lock().ok()?.get(&provider).cloned()
-}
-
 fn set_tts_runtime_notice(provider: TtsLibtorchProvider, message: impl Into<String>) {
     if let Ok(mut notices) = LAST_TTS_RUNTIME_NOTICE.lock() {
         notices.insert(provider, message.into());
@@ -91,25 +87,6 @@ fn libtorch_required_files_present(dir: &Path) -> bool {
 pub fn is_tts_runtime_installed(spec: TtsRuntimeSpec) -> bool {
     let bin_dir = crate::unpack_dlls::private_bin_dir();
     bin_dir.join(spec.dll_filename).is_file() && libtorch_required_files_present(&bin_dir)
-}
-
-pub fn tts_runtime_installed_size(spec: TtsRuntimeSpec) -> u64 {
-    let bin_dir = crate::unpack_dlls::private_bin_dir();
-    let dll_size = std::fs::metadata(bin_dir.join(spec.dll_filename))
-        .map(|metadata| metadata.len())
-        .unwrap_or(0);
-    let libtorch_size = LIBTORCH_REQUIRED_DLLS
-        .iter()
-        .filter_map(|name| std::fs::metadata(bin_dir.join(name)).ok())
-        .map(|metadata| metadata.len())
-        .sum::<u64>();
-    dll_size + libtorch_size
-}
-
-pub fn remove_tts_runtime(spec: TtsRuntimeSpec) -> Result<()> {
-    let _ = std::fs::remove_file(tts_runtime_dll_path(spec));
-    clear_tts_runtime_notice(spec.provider);
-    Ok(())
 }
 
 pub fn ensure_tts_runtime(
