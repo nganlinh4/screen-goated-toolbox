@@ -110,7 +110,9 @@ pub fn render_tts_playground(
                                             changed |= render_vieneu_controls(ui, config);
                                         }
                                         TtsMethod::VoxtralTts => {
-                                            changed |= render_voxtral_controls(ui, config);
+                                            config.tts_playground.method = TtsMethod::VieneuTts;
+                                            let _ = render_vieneu_controls(ui, config);
+                                            changed = true;
                                         }
                                     }
                                 }
@@ -253,13 +255,6 @@ fn render_method_picker(ui: &mut egui::Ui, config: &mut Config, text: &LocaleTex
                 "VieNeu-TTS v2",
             )
             .changed();
-        changed |= ui
-            .radio_value(
-                &mut config.tts_playground.method,
-                TtsMethod::VoxtralTts,
-                "Mistral Voxtral 4B TTS",
-            )
-            .changed();
     });
     changed
 }
@@ -286,15 +281,6 @@ fn provider_speed_slider(
     })
     .inner
     .changed()
-}
-
-fn render_deferred_notice(ui: &mut egui::Ui, title: &str) {
-    ui.label(egui::RichText::new(title).strong());
-    ui.add_space(4.0);
-    ui.label(
-        egui::RichText::new("Offline voice generation is not available for this model yet.")
-            .color(egui::Color32::from_rgb(255, 165, 0)),
-    );
 }
 
 fn render_step_audio_controls(ui: &mut egui::Ui, config: &mut Config) -> bool {
@@ -892,11 +878,6 @@ fn render_supertonic_voice_config_rows(
     });
 
     changed
-}
-
-fn render_voxtral_controls(ui: &mut egui::Ui, _config: &mut Config) -> bool {
-    render_deferred_notice(ui, "Mistral Voxtral 4B TTS (deferred)");
-    false
 }
 
 fn render_vieneu_controls(ui: &mut egui::Ui, config: &mut Config) -> bool {

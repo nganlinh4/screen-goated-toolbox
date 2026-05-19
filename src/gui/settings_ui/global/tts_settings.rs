@@ -118,6 +118,11 @@ pub fn render_tts_settings_modal(
             ui.separator();
             ui.add_space(8.0);
 
+            if config.tts_method == TtsMethod::VoxtralTts {
+                config.tts_method = TtsMethod::VieneuTts;
+                changed = true;
+            }
+
             // === TTS METHOD SELECTION ===
             ui.horizontal_wrapped(|ui| {
                 ui.label(egui::RichText::new(text.tts_method_label).strong());
@@ -176,13 +181,6 @@ pub fn render_tts_settings_modal(
                 if ui
                     .radio_value(&mut config.tts_method, TtsMethod::VieneuTts, "VieNeu-TTS v2")
                     .on_hover_text("Vietnamese-first local TTS with English/Vietnamese code-switching and zero-shot voice cloning.")
-                    .clicked()
-                {
-                    changed = true;
-                }
-                if ui
-                    .radio_value(&mut config.tts_method, TtsMethod::VoxtralTts, "Mistral Voxtral 4B TTS")
-                    .on_hover_text("Supports English, French, Spanish, German, Italian, Portuguese, Dutch, Arabic, and Hindi.")
                     .clicked()
                 {
                     changed = true;
@@ -580,8 +578,6 @@ pub fn render_tts_settings_modal(
                 changed |= render_supertonic_settings(ui, config, text);
             } else if config.tts_method == TtsMethod::VieneuTts {
                 changed |= render_vieneu_settings(ui, config);
-            } else if config.tts_method == TtsMethod::VoxtralTts {
-                changed |= render_voxtral_settings(ui, config, text);
             }
         });
 
@@ -614,14 +610,6 @@ fn render_speed_row(ui: &mut egui::Ui, label: &str, value: &mut f32, min: f32, m
     })
     .inner
     .changed()
-}
-
-fn render_deferred_offline_panel(ui: &mut egui::Ui, title: &str, elo: u32, detail: &str) {
-    render_open_weights_header(ui, title, &format!("Open-weights leaderboard Elo ~{elo}."));
-    ui.colored_label(
-        egui::Color32::from_rgb(255, 165, 0),
-        format!("{detail} Offline voice generation is not available for this model yet."),
-    );
 }
 
 fn render_step_audio_settings(ui: &mut egui::Ui, config: &mut Config, _text: &LocaleText) -> bool {
@@ -1027,16 +1015,6 @@ fn render_supertonic_voice_config_rows(
     });
 
     changed
-}
-
-fn render_voxtral_settings(ui: &mut egui::Ui, _config: &mut Config, _text: &LocaleText) -> bool {
-    render_deferred_offline_panel(
-        ui,
-        "Mistral Voxtral 4B TTS",
-        1056,
-        "Supports English, French, Spanish, German, Italian, Portuguese, Dutch, Arabic, and Hindi.",
-    );
-    false
 }
 
 fn render_vieneu_settings(ui: &mut egui::Ui, config: &mut Config) -> bool {

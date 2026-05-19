@@ -2,7 +2,7 @@
 
 use super::controller;
 use super::state::*;
-use super::webview::{replace_webview_text, update_webview_text, update_webview_theme};
+use super::webview::{update_webview_text, update_webview_theme};
 use crate::api::realtime_audio::{
     REALTIME_RMS, WM_COPY_TEXT, WM_DOWNLOAD_PROGRESS, WM_EXEC_SCRIPT, WM_MODEL_SWITCH,
     WM_REALTIME_UPDATE, WM_START_DRAG, WM_THEME_UPDATE, WM_TOGGLE_MIC, WM_TOGGLE_TRANS,
@@ -311,40 +311,24 @@ pub unsafe extern "system" fn translation_wnd_proc(
                     });
                 }
 
-                let (is_s2s, display_translation, old_text, new_text): (
-                    bool,
-                    String,
-                    String,
-                    String,
-                ) = {
+                let (is_s2s, old_text, new_text): (bool, String, String) = {
                     if let Ok(state) = REALTIME_STATE.lock() {
                         let is_s2s = state.transcription_method
                             == crate::api::realtime_audio::TranscriptionMethod::GeminiLiveS2s;
-                        let display_translation = state.display_translation.clone();
                         let old = state.committed_translation.trim_end();
                         let new = state.uncommitted_translation.trim_start();
                         if !old.is_empty() && !new.is_empty() {
-                            (
-                                is_s2s,
-                                display_translation,
-                                old.to_string(),
-                                format!(" {}", new),
-                            )
+                            (is_s2s, old.to_string(), format!(" {}", new))
                         } else {
-                            (
-                                is_s2s,
-                                display_translation,
-                                old.to_string(),
-                                new.to_string(),
-                            )
+                            (is_s2s, old.to_string(), new.to_string())
                         }
                     } else {
-                        (false, String::new(), String::new(), String::new())
+                        (false, String::new(), String::new())
                     }
                 };
 
                 if is_s2s {
-                    replace_webview_text(hwnd, &display_translation);
+                    update_webview_text(hwnd, &old_text, &new_text);
                     return LRESULT(0);
                 }
 

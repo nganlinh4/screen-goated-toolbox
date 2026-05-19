@@ -52,10 +52,6 @@ fn set_notice(message: impl Into<String>) {
 fn clear_notice() {
     *LAST_NOTICE.lock().unwrap() = None;
 }
-pub fn current_voxtral_notice() -> Option<String> {
-    LAST_NOTICE.lock().unwrap().clone()
-}
-
 fn post_state() {
     use crate::overlay::realtime_webview::state::REALTIME_HWND;
     unsafe {
@@ -92,15 +88,6 @@ pub fn get_voxtral_model_dir() -> PathBuf {
 pub fn is_voxtral_model_downloaded() -> bool {
     let dir = get_voxtral_model_dir();
     FILES.iter().all(|f| has_nonempty(&dir.join(f)))
-}
-
-pub fn remove_voxtral_model() -> Result<()> {
-    let dir = get_voxtral_model_dir();
-    if dir.exists() {
-        fs::remove_dir_all(&dir).map_err(|e| anyhow!("remove {}: {e}", dir.display()))?;
-    }
-    clear_notice();
-    Ok(())
 }
 
 fn dl_with_fallback(

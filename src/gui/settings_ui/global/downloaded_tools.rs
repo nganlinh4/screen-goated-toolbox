@@ -18,9 +18,7 @@ use self::{
         render_kokoro_card, render_parakeet_card, render_qwen3_card, render_supertonic_card,
     },
     pointer_packs::render_pointer_pack_downloads_section,
-    tts_models::{
-        render_magpie_card, render_step_audio_card, render_vieneu_card, render_voxtral_card,
-    },
+    tts_models::{render_magpie_card, render_step_audio_card, render_vieneu_card},
     utils::clear_downloaded_tools_caches,
     video_downloader::render_video_downloader_card,
     zipformer::render_zipformer_section,
@@ -136,10 +134,6 @@ pub fn render_downloaded_tools_modal(
                                 ui.add_space(8.0);
                                 time_downloaded_tools_section("vieneu-tts", || {
                                     render_vieneu_card(ui, text)
-                                });
-                                ui.add_space(8.0);
-                                time_downloaded_tools_section("voxtral-tts", || {
-                                    render_voxtral_card(ui, text)
                                 });
                             });
                         });

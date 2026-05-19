@@ -95,12 +95,6 @@ pub const TTS_PROVIDERS: &[TtsProviderInfo] = &[
         label: "NVIDIA Magpie-Multilingual 357M",
         narration_supported: true,
     },
-    TtsProviderInfo {
-        method: TtsMethod::VoxtralTts,
-        id: "VoxtralTts",
-        label: "Mistral Voxtral 4B TTS",
-        narration_supported: false,
-    },
 ];
 
 pub const VIENEU_VARIANTS: &[VieneuVariantOption] = &[vieneu_variant(

@@ -619,14 +619,7 @@ fn voice_label(config: &Config) -> String {
             format!("Supertonic 3 · {voice}")
         }
         TtsMethod::VieneuTts => "VieNeu-TTS-v2 Turbo GPU".to_string(),
-        TtsMethod::VoxtralTts => {
-            let v = config.tts_playground.voxtral_settings.voice.trim();
-            if v.is_empty() {
-                "Mistral Voxtral 4B TTS".to_string()
-            } else {
-                format!("Mistral Voxtral 4B TTS · {v}")
-            }
-        }
+        TtsMethod::VoxtralTts => "Removed TTS provider".to_string(),
     }
 }
 

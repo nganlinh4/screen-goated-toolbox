@@ -37,6 +37,34 @@ thread_local! {
     static PDJ_WEB_CONTEXT: std::cell::RefCell<Option<WebContext>> = const { std::cell::RefCell::new(None) };
 }
 
+fn with_pdj_webview(action: impl FnOnce(&wry::WebView)) {
+    PDJ_WEBVIEW.with(|cell| match cell.try_borrow() {
+        Ok(webview_slot) => {
+            if let Some(webview) = webview_slot.as_ref() {
+                action(webview);
+            }
+        }
+        Err(error) => {
+            crate::log_info!("[PromptDJ] skipped re-entrant WebView access: {}", error);
+        }
+    });
+}
+
+fn clear_pdj_webview(reason: &str) {
+    PDJ_WEBVIEW.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut webview_slot) => {
+            *webview_slot = None;
+        }
+        Err(error) => {
+            crate::log_info!(
+                "[PromptDJ] deferred WebView clear during {}: {}",
+                reason,
+                error
+            );
+        }
+    });
+}
+
 // Assets (single bundle — no code splitting)
 const INDEX_HTML: &[u8] = include_bytes!("dist/index.html");
 const ASSET_INDEX_JS: &[u8] = include_bytes!("dist/assets/index.js");
@@ -197,19 +225,17 @@ unsafe extern "system" fn pdj_wnd_proc(
                 let is_dark = theme_str == "dark";
                 crate::gui::utils::set_window_icon(hwnd, is_dark);
 
-                PDJ_WEBVIEW.with(|wv| {
-                    if let Some(webview) = wv.borrow().as_ref() {
-                        let script = format!(
-                            r#"
+                with_pdj_webview(|webview| {
+                    let script = format!(
+                        r#"
                         if (window.postMessage) {{
                             window.postMessage({{ type: 'pm-dj-set-api-key', apiKey: '{}', lang: '{}' }}, '*');
                             window.postMessage({{ type: 'pm-dj-set-theme', theme: '{}' }}, '*');
                         }}
                         "#,
-                            api_key, lang, theme_str
-                        );
-                        let _ = webview.evaluate_script(&script);
-                    }
+                        api_key, lang, theme_str
+                    );
+                    let _ = webview.evaluate_script(&script);
                 });
 
                 let _ = ShowWindow(hwnd, SW_SHOW);
@@ -243,38 +269,31 @@ unsafe extern "system" fn pdj_wnd_proc(
                 let is_dark = theme_str == "dark";
                 crate::gui::utils::set_window_icon(hwnd, is_dark);
 
-                PDJ_WEBVIEW.with(|wv| {
-                    if let Some(webview) = wv.borrow().as_ref() {
-                        let script = format!(
-                            r#"
+                with_pdj_webview(|webview| {
+                    let script = format!(
+                        r#"
                         if (window.postMessage) {{
                             window.postMessage({{ type: 'pm-dj-set-api-key', apiKey: '{}', lang: '{}' }}, '*');
                             window.postMessage({{ type: 'pm-dj-set-theme', theme: '{}' }}, '*');
                         }}
                         "#,
-                            api_key, lang, theme_str
-                        );
-                        let _ = webview.evaluate_script(&script);
-                    }
+                        api_key, lang, theme_str
+                    );
+                    let _ = webview.evaluate_script(&script);
                 });
                 LRESULT(0)
             }
             WM_CLOSE => {
                 crate::log_info!("[PromptDJ] close requested; destroying window");
-                PDJ_WEBVIEW.with(|wv| {
-                    if let Some(webview) = wv.borrow().as_ref() {
-                        let _ = webview.evaluate_script(
-                            "window.postMessage({ type: 'pm-dj-stop-audio' }, '*')",
-                        );
-                    }
+                with_pdj_webview(|webview| {
+                    let _ = webview
+                        .evaluate_script("window.postMessage({ type: 'pm-dj-stop-audio' }, '*')");
                 });
                 let _ = DestroyWindow(hwnd);
                 LRESULT(0)
             }
             WM_DESTROY => {
-                PDJ_WEBVIEW.with(|wv| {
-                    *wv.borrow_mut() = None;
-                });
+                clear_pdj_webview("WM_DESTROY");
                 PDJ_HWND = SendHwnd::default();
                 IS_WARMED_UP = false;
                 PostQuitMessage(0);
@@ -289,22 +308,20 @@ unsafe extern "system" fn pdj_wnd_proc(
                 }
             }
             WM_SIZE => {
-                PDJ_WEBVIEW.with(|wv| {
-                    if let Some(webview) = wv.borrow().as_ref() {
-                        let mut r = RECT::default();
-                        let _ = GetClientRect(hwnd, &mut r);
-                        let width = r.right - r.left;
-                        let height = r.bottom - r.top;
-                        let _ = webview.set_bounds(Rect {
-                            position: wry::dpi::Position::Physical(
-                                wry::dpi::PhysicalPosition::new(0, 0),
-                            ),
-                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                                width as u32,
-                                height as u32,
-                            )),
-                        });
-                    }
+                with_pdj_webview(|webview| {
+                    let mut r = RECT::default();
+                    let _ = GetClientRect(hwnd, &mut r);
+                    let width = r.right - r.left;
+                    let height = r.bottom - r.top;
+                    let _ = webview.set_bounds(Rect {
+                        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
+                            0, 0,
+                        )),
+                        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                            width as u32,
+                            height as u32,
+                        )),
+                    });
                 });
                 LRESULT(0)
             }
@@ -719,9 +736,22 @@ unsafe fn internal_create_pdj_loop() {
             )),
         });
 
-        PDJ_WEBVIEW.with(|wv| {
-            *wv.borrow_mut() = Some(webview);
+        let stored_webview = PDJ_WEBVIEW.with(|wv| match wv.try_borrow_mut() {
+            Ok(mut slot) => {
+                *slot = Some(webview);
+                true
+            }
+            Err(error) => {
+                crate::log_info!("[PromptDJ] failed to store WebView: {}", error);
+                false
+            }
         });
+        if !stored_webview {
+            let _ = DestroyWindow(hwnd);
+            PDJ_HWND = SendHwnd::default();
+            IS_INITIALIZING = false;
+            return;
+        }
 
         // Mark as warmed up and ready
         IS_WARMED_UP = true;
@@ -739,9 +769,7 @@ unsafe fn internal_create_pdj_loop() {
             let _ = DispatchMessageW(&msg);
         }
 
-        PDJ_WEBVIEW.with(|wv| {
-            *wv.borrow_mut() = None;
-        });
+        clear_pdj_webview("message loop exit");
         PDJ_HWND = SendHwnd::default();
         IS_WARMED_UP = false;
         IS_INITIALIZING = false;

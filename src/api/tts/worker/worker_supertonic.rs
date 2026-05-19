@@ -337,11 +337,32 @@ fn clean_supertonic_text(chars: impl Iterator<Item = char>) -> String {
 }
 
 fn normalize_supertonic_text_for_lang(text: &str, lang: &str) -> String {
+    let text = strip_unverified_supertonic_tags(text);
     if lang == "vi" {
         clean_supertonic_text(text.nfd())
     } else {
-        normalize_supertonic_text(text)
+        normalize_supertonic_text(&text)
     }
+}
+
+fn strip_unverified_supertonic_tags(text: &str) -> String {
+    const UNSAFE_TAGS: &[&str] = &[
+        "<laugh>",
+        "<breath>",
+        "<sigh>",
+        "<scream>",
+        "<whisper>",
+        "<gasp>",
+        "<cough>",
+        "<chuckle>",
+        "<giggle>",
+        "<yawn>",
+    ];
+    let mut cleaned = text.to_string();
+    for tag in UNSAFE_TAGS {
+        cleaned = cleaned.replace(tag, " ");
+    }
+    cleaned
 }
 
 fn contains_vietnamese_marker(text: &str) -> bool {
@@ -445,6 +466,15 @@ mod tests {
         assert!(normalized.contains("o\u{323}"));
         assert!(normalized.contains("o\u{302}\u{303}"));
         assert!(normalized.contains("a\u{302}\u{303}"));
+    }
+
+    #[test]
+    fn strips_supertonic_tags_that_are_spoken_by_local_runtime() {
+        let normalized = super::normalize_supertonic_text_for_lang(
+            "what <breath> <laugh> <sigh> <cough> poison",
+            "en",
+        );
+        assert_eq!(normalized, "what poison.");
     }
 
     #[test]

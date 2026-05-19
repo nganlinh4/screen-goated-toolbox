@@ -12,6 +12,56 @@ use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::{Rect, WebViewBuilder};
+
+pub fn sync_session_settings_to_webviews(reason: &str) {
+    let config = controller::load_session_config();
+    let payload = serde_json::json!({
+        "audioSource": config.audio_source,
+        "targetLanguage": config.target_language,
+        "translationModel": config.translation_model,
+        "transcriptionModel": config.transcription_model,
+        "transcriptionLanguage": config.transcription_language.to_uppercase(),
+        "fontSize": config.font_size,
+    });
+    let script = format!(
+        "if(window.updateSettings) window.updateSettings({});",
+        payload
+    );
+
+    unsafe {
+        let realtime_hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
+        let translation_hwnd = std::ptr::addr_of!(TRANSLATION_HWND).read();
+        crate::log_info!(
+            "[Realtime] syncing session settings to WebViews reason={} transcription_model={} translation_model={} target_language={}",
+            reason,
+            payload["transcriptionModel"].as_str().unwrap_or_default(),
+            payload["translationModel"].as_str().unwrap_or_default(),
+            payload["targetLanguage"].as_str().unwrap_or_default()
+        );
+
+        REALTIME_WEBVIEWS.with(|wvs| {
+            let wvs = wvs.borrow();
+            for hwnd in [realtime_hwnd, translation_hwnd] {
+                if hwnd.is_invalid() {
+                    continue;
+                }
+                let hwnd_key = hwnd.0 as isize;
+                if let Some(webview) = wvs.get(&hwnd_key) {
+                    if let Err(error) = webview.evaluate_script(&script) {
+                        crate::log_info!(
+                            "[Realtime] failed to sync settings to hwnd={:?}: {:?}",
+                            hwnd,
+                            error
+                        );
+                    }
+                } else {
+                    crate::log_info!("[Realtime] no WebView for settings sync hwnd={:?}", hwnd);
+                }
+            }
+        });
+    }
+}
+
 pub fn create_realtime_webview(
     hwnd: HWND,
     is_translation: bool,
@@ -272,14 +322,19 @@ pub fn create_realtime_webview(
                         }
                     } else if let Some(source) = body.strip_prefix("audioSource:") {
                         controller::set_audio_source(source);
+                        sync_session_settings_to_webviews("audio-source-ipc");
                     } else if let Some(lang) = body.strip_prefix("language:") {
                         controller::set_target_language(lang);
+                        sync_session_settings_to_webviews("target-language-ipc");
                     } else if let Some(model) = body.strip_prefix("translationModel:") {
                         controller::set_translation_model(model);
+                        sync_session_settings_to_webviews("translation-model-ipc");
                     } else if let Some(model) = body.strip_prefix("transcriptionModel:") {
                         controller::set_transcription_model(model);
+                        sync_session_settings_to_webviews("transcription-model-ipc");
                     } else if let Some(lang_code) = body.strip_prefix("transcriptionLanguage:") {
                         controller::set_transcription_language(lang_code);
+                        sync_session_settings_to_webviews("transcription-language-ipc");
                     } else if let Some(coords) = body.strip_prefix("resize:") {
                         // Resize window by delta
                         if let Some((dx_str, dy_str)) = coords.split_once(',')
@@ -401,26 +456,6 @@ pub fn update_webview_text(hwnd: HWND, old_text: &str, new_text: &str) {
     let escaped_new = escape_js(new_text);
 
     let script = format!("window.updateText('{}', '{}');", escaped_old, escaped_new);
-
-    REALTIME_WEBVIEWS.with(|wvs| {
-        if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-            let _ = webview.evaluate_script(&script);
-        }
-    });
-}
-
-pub fn replace_webview_text(hwnd: HWND, text: &str) {
-    let hwnd_key = hwnd.0 as isize;
-
-    fn escape_js(text: &str) -> String {
-        text.replace('\\', "\\\\")
-            .replace('\'', "\\'")
-            .replace('\n', "\\n")
-            .replace('\r', "")
-    }
-
-    let escaped_text = escape_js(text);
-    let script = format!("window.replaceText('{}');", escaped_text);
 
     REALTIME_WEBVIEWS.with(|wvs| {
         if let Some(webview) = wvs.borrow().get(&hwnd_key) {
