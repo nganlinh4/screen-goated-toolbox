@@ -34,4 +34,26 @@ class LiveSessionStoreTest {
         assertFalse(incomplete.readyFor(config, overlaySupported = true))
         assertTrue(complete.readyFor(config, overlaySupported = true))
     }
+
+    @Test
+    fun gemini_s2s_display_simulates_committed_and_draft_windows() {
+        val store = LiveSessionStore()
+
+        store.setGeminiS2sDisplay(
+            sourceCommitted = "Hello world.",
+            sourceDraft = "Next phrase",
+            targetCommitted = "Bonjour monde.",
+            targetDraft = "Next translated phrase",
+            nowMs = 1_000,
+        )
+
+        val liveText = store.state.value.liveText
+        assertEquals("Hello world. Next phrase", liveText.fullTranscript)
+        assertEquals("Hello world. Next phrase", liveText.displayTranscript)
+        assertEquals("Next phrase", liveText.currentSourceDraft)
+        assertEquals("Bonjour monde.", liveText.committedTranslation)
+        assertEquals("Next translated phrase", liveText.uncommittedTranslation)
+        assertEquals("Bonjour monde. Next translated phrase", liveText.displayTranslation)
+        assertEquals(TranscriptionMethod.GEMINI_LIVE_S2S, store.state.value.transcriptionMethod)
+    }
 }

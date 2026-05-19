@@ -193,8 +193,15 @@ internal fun overlayMobileShim(): String {
             }
 
             window.setTtsState = function(enabled, speed, autoSpeed, volume) {
-                if (ttsToggle) ttsToggle.classList.toggle('on', !!enabled);
-                if (speakBtn) speakBtn.classList.toggle('active', !!enabled);
+                const s2sMode = document.body && document.body.dataset.s2s === '1';
+                if (ttsToggle) {
+                    ttsToggle.classList.toggle('on', s2sMode || !!enabled);
+                    ttsToggle.classList.toggle('locked', s2sMode);
+                }
+                if (speakBtn) {
+                    speakBtn.classList.toggle('active', s2sMode || !!enabled);
+                    speakBtn.classList.toggle('locked', s2sMode);
+                }
                 if (speedSlider) speedSlider.value = speed;
                 if (speedValue) speedValue.textContent = (speed / 100).toFixed(1) + 'x';
                 if (autoToggle) autoToggle.classList.toggle('on', !!autoSpeed);

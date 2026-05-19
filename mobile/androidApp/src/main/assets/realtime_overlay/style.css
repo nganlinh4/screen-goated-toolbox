@@ -238,6 +238,12 @@
             border-color: {{PRIMARY}}80;
             box-shadow: 0 2px 8px {{PRIMARY}}30;
         }
+        .model-dropdown.disabled,
+        .model-dropdown:disabled {
+            opacity: 0.55;
+            cursor: default;
+            pointer-events: none;
+        }
         .model-dropdown option {
             background: {{BG_COLOR}};
             color: {{TEXT_COLOR}};

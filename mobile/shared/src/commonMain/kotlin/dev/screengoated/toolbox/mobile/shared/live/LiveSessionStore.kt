@@ -137,6 +137,28 @@ class LiveSessionStore(
         }
     }
 
+    fun setGeminiS2sDisplay(
+        sourceCommitted: String,
+        sourceDraft: String,
+        targetCommitted: String,
+        targetDraft: String,
+        nowMs: Long,
+    ) {
+        mutableState.update { current ->
+            current.copy(
+                liveText = LiveTranslateParity.setGeminiS2sDisplay(
+                    state = current.liveText,
+                    sourceCommitted = sourceCommitted,
+                    sourceDraft = sourceDraft,
+                    targetCommitted = targetCommitted,
+                    targetDraft = targetDraft,
+                    nowMs = nowMs,
+                ),
+                lastError = null,
+            )
+        }
+    }
+
     fun claimTranslationRequest(): TranslationRequest? {
         return LiveTranslateParity.claimTranslationRequest(mutableState.value.liveText)
     }

@@ -18,6 +18,7 @@ import dev.screengoated.toolbox.mobile.preset.TextApiClient
 import dev.screengoated.toolbox.mobile.preset.VisionApiClient
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.PermissionSnapshotEvaluator
+import dev.screengoated.toolbox.mobile.service.GeminiS2sClient
 import dev.screengoated.toolbox.mobile.service.GeminiLiveSocketClient
 import dev.screengoated.toolbox.mobile.service.RealtimeTranslationClient
 import dev.screengoated.toolbox.mobile.service.tts.AndroidTtsRuntimeService
@@ -110,6 +111,7 @@ class AppContainer(
     )
 
     val geminiLiveSocketClient = GeminiLiveSocketClient(httpClient)
+    val geminiS2sClient = GeminiS2sClient(appContext, httpClient)
     val realtimeTranslationClient = RealtimeTranslationClient(httpClient)
     val translationGummyRuntime = TranslationGummyRuntime(
         context = appContext,
