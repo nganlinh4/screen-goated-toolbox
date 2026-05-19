@@ -76,6 +76,7 @@
 - Missing BYOK key blocks session start.
 - Stop preserves the latest display state in memory until the next session start resets it.
 - Overlay lifetime is not tied to a transient provider failure. Recoverable transcription, translation, TTS, or capture failures must not silently close the floating overlay.
+- On Windows, `device` source plus realtime Read/TTS requires per-app capture when TTS is enabled. If no app is selected, the app selector must reopen instead of starting Gemini Live with no capture stream; cancelling selection exits that capture attempt cleanly rather than running a dead zero-audio session.
 - Translation failure must follow the Windows model fallback contract:
   - `cerebras-oss -> google-gtx`
   - `google-gtx -> cerebras-oss`
@@ -109,6 +110,6 @@
 - Android keeps the Windows glass/tint look and animated blur/mask text appearance. Mobile-specific performance work must preserve the same visible effect rather than swapping in a different animation.
 - Android uses a native overlay language picker window for the target-language control while keeping the same ISO-639-1-backed language list and selected-language semantics as Windows.
 - Android overlay windows must stay non-focusable so the system IME can still open while the floating panes remain on screen.
-- Android routes its own TTS through non-capturable audio attributes and disables playback capture for the app in the manifest, so mobile does not expose the Windows app-selection/per-app-capture UI. This is the approved mobile deviation for avoiding TTS feedback in `device` mode.
+- Android routes its own TTS through non-capturable audio attributes and disables playback capture for the app in the manifest, so mobile does not expose the Windows app-selection/per-app-capture UI or the Windows no-selected-app selector recovery path. This is the approved mobile deviation for avoiding TTS feedback in `device` mode.
 - Android realtime Read setting changes must apply to the remaining unread committed text without dropping it. Volume/speed changes must not stay stuck behind already queued stale utterances.
 - Android requests transient ducking audio focus while realtime Read is actively speaking so competing app audio is pushed down under TTS. This improves audibility but still depends on the foreground app honoring audio focus.

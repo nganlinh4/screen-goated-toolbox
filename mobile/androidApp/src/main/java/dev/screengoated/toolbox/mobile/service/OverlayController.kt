@@ -393,7 +393,11 @@ class OverlayController(
         snapshot: OverlaySnapshot,
         force: Boolean,
     ) {
-        val ttsState = overlayTtsState(snapshot.ttsSettings, lastRuntimeTtsState)
+        val ttsState = overlayTtsState(
+            settings = snapshot.ttsSettings,
+            runtimeState = lastRuntimeTtsState,
+            forceEnabled = snapshot.state.config.transcriptionProvider.id == dev.screengoated.toolbox.mobile.model.RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S,
+        )
         if (force || lastTtsState != ttsState) {
             lastTtsState = ttsState
             translationWindow?.evaluate(
@@ -482,15 +486,21 @@ class OverlayController(
 
     private fun showTranscriptionModelPicker() {
         val anchor = transcriptionWindow?.currentBounds() ?: return
+        val geminiS2sLabel = currentOverlayLocale().geminiS2sTitle
         val models = listOf(
             "Gemini Live | 100+ languages",
+            geminiS2sLabel,
             "Moonshine Tiny | 1 language",
             "Moonshine Small | 1 language",
             "Moonshine Medium | 1 language",
             "Zipformer | 8 languages",
         )
         val currentId = repository.transcriptionModelId()
-        val currentLabel = TRANSCRIPTION_MODEL_LABELS[currentId] ?: "Gemini Live | 100+ languages"
+        val currentLabel = if (currentId == dev.screengoated.toolbox.mobile.model.RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S) {
+            geminiS2sLabel
+        } else {
+            TRANSCRIPTION_MODEL_LABELS[currentId] ?: "Gemini Live | 100+ languages"
+        }
         transcriptionModelPicker.show(
             anchorBounds = anchor,
             selectedLanguage = currentLabel,
@@ -501,12 +511,24 @@ class OverlayController(
     }
 
     private fun onTranscriptionModelSelected(label: String) {
-        val modelId = TRANSCRIPTION_MODEL_IDS[label] ?: return
+        val modelId = if (label == currentOverlayLocale().geminiS2sTitle) {
+            dev.screengoated.toolbox.mobile.model.RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S
+        } else {
+            TRANSCRIPTION_MODEL_IDS[label] ?: return
+        }
         if (repository.transcriptionModelId() != modelId) {
             repository.updateTranscriptionModel(modelId)
             // Reset language to English when switching models to avoid stale
             // language codes that don't exist in the new model's language list
-            repository.updateTranscriptionLanguage("en")
+            repository.updateTranscriptionLanguage(
+                if (modelId == dev.screengoated.toolbox.mobile.model.RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S ||
+                    modelId == dev.screengoated.toolbox.mobile.model.RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5
+                ) {
+                    "all"
+                } else {
+                    "en"
+                },
+            )
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                 restartRequested()
             }, 300)
@@ -514,6 +536,9 @@ class OverlayController(
     }
 
     private fun showTranslationModelPicker() {
+        if (repository.transcriptionModelId() == dev.screengoated.toolbox.mobile.model.RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S) {
+            return
+        }
         val anchor = translationWindow?.currentBounds() ?: return
         val models = listOf("Gemma", "Cerebras", "GTX")
         val currentId = repository.currentConfig().translationProvider.id
@@ -820,9 +845,10 @@ internal data class OverlayTtsState(
 internal fun overlayTtsState(
     settings: RealtimeTtsSettings,
     runtimeState: TtsRuntimeState,
+    forceEnabled: Boolean = false,
 ): OverlayTtsState {
     val displayedSpeed = if (
-        settings.enabled &&
+        (settings.enabled || forceEnabled) &&
         runtimeState.isPlaying &&
         runtimeState.activeConsumer == TtsConsumer.REALTIME
     ) {
@@ -831,7 +857,7 @@ internal fun overlayTtsState(
         settings.speedPercent
     }
     return OverlayTtsState(
-        enabled = settings.enabled,
+        enabled = settings.enabled || forceEnabled,
         speedPercent = displayedSpeed,
         autoSpeed = settings.autoSpeed,
         volumePercent = settings.volumePercent,

@@ -27,6 +27,7 @@
             deviceAudioTitle: 'Device audio',
             geminiLive25Title: 'Gemini Live 2.5 (Cloud)',
             geminiLive31Title: 'Gemini Live 3.1 (Cloud)',
+            geminiS2sTitle: 'Gemini S2S',
             gemmaTitle: 'AI Translation (Gemma)',
             cerebrasTitle: 'Instant AI (Cerebras)',
             gtxTitle: 'Unlimited Translation (Google)',
@@ -40,6 +41,7 @@
             pleaseWaitText: 'Please wait...',
             cancelText: 'Cancel',
         };
+        let s2sMode = false;
 
         function restoreControlsScroll(pinnedScrollLeft) {
             if (!controls) return;
@@ -127,6 +129,25 @@
             'zipformer': 'Zipformer',
         };
 
+        function applyS2sMode(enabled) {
+            s2sMode = !!enabled;
+            document.documentElement.dataset.s2s = s2sMode ? '1' : '0';
+            document.body.dataset.s2s = s2sMode ? '1' : '0';
+            const translationBtn = document.getElementById('translation-model-btn');
+            if (translationBtn) {
+                translationBtn.disabled = s2sMode;
+                translationBtn.classList.toggle('disabled', s2sMode);
+            }
+            if (speakBtn) {
+                speakBtn.classList.toggle('active', s2sMode || ttsEnabled);
+                speakBtn.classList.toggle('locked', s2sMode);
+            }
+            if (ttsToggle) {
+                ttsToggle.classList.toggle('on', s2sMode || ttsEnabled);
+                ttsToggle.classList.toggle('locked', s2sMode);
+            }
+        }
+
         function setTranslationModel(modelName) {
             const btn = document.getElementById('translation-model-btn');
             const label = document.getElementById('translation-model-label');
@@ -141,10 +162,15 @@
             const btn = document.getElementById('transcription-model-btn');
             const label = document.getElementById('transcription-model-label');
             if (btn) btn.dataset.value = modelName;
-            if (label) label.textContent = TRANSCRIPTION_MODEL_LABELS[modelName] || modelName;
+            if (label) {
+                label.textContent = modelName === 'gemini-live-s2s'
+                    ? (overlayLocale.geminiS2sTitle || 'Gemini S2S')
+                    : (TRANSCRIPTION_MODEL_LABELS[modelName] || modelName);
+            }
             // Legacy
             const icons = document.querySelectorAll('.trans-model-icon');
             if (icons.length) setSelectedByDataValue(icons, modelName);
+            applyS2sMode(modelName === 'gemini-live-s2s');
         }
 
         function setFontSize(fontSize) {
@@ -251,6 +277,10 @@
             ttsToggle.addEventListener('click', function(e) {
                 e.stopPropagation();
                 preserveControlsScroll(() => {
+                    if (s2sMode) {
+                        applyS2sMode(true);
+                        return;
+                    }
                     ttsEnabled = !ttsEnabled;
                     this.classList.toggle('on', ttsEnabled);
                     if (speakBtn) speakBtn.classList.toggle('active', ttsEnabled);
@@ -493,6 +523,11 @@
             updateTitleBySelector('.model-icon[data-value="cerebras-oss"]', overlayLocale.cerebrasTitle);
             updateTitleBySelector('.model-icon[data-value="google-gtx"]', overlayLocale.gtxTitle);
             updateTitleBySelector('.trans-model-icon[data-value="gemini-live-audio"]', overlayLocale.geminiLive25Title);
+            updateTitleBySelector('.trans-model-icon[data-value="gemini-live-s2s"]', overlayLocale.geminiS2sTitle);
+            const currentTranscriptionModelBtn = document.getElementById('transcription-model-btn');
+            if (currentTranscriptionModelBtn && window.setTranscriptionModel) {
+                window.setTranscriptionModel(currentTranscriptionModelBtn.dataset.value || '');
+            }
             updateTextNode('tts-modal-title-text', overlayLocale.ttsTitle);
             updateTextNode('tts-speed-label', overlayLocale.ttsSpeed);
             updateTextNode('tts-volume-label', overlayLocale.ttsVolume);
@@ -584,6 +619,7 @@
             translationModelBtn.addEventListener('pointerup', (e) => {
                 e.stopPropagation();
                 e.preventDefault();
+                if (s2sMode) return;
                 if (window.ipc) window.ipc.postMessage('showTranslationModelPicker');
             });
         }

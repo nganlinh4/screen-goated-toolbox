@@ -208,6 +208,22 @@ class AndroidLiveSessionRepository(
         store.setTranscriptSegments(committed, draft, nowMs)
     }
 
+    fun setGeminiS2sDisplay(
+        sourceCommitted: String,
+        sourceDraft: String,
+        targetCommitted: String,
+        targetDraft: String,
+        nowMs: Long,
+    ) {
+        store.setGeminiS2sDisplay(
+            sourceCommitted = sourceCommitted,
+            sourceDraft = sourceDraft,
+            targetCommitted = targetCommitted,
+            targetDraft = targetDraft,
+            nowMs = nowMs,
+        )
+    }
+
     fun claimTranslationRequest(): TranslationRequest? {
         return store.claimTranslationRequest()
     }

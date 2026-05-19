@@ -40,6 +40,7 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
             repository = repository,
             projectionConsentStore = container.projectionConsentStore,
             liveSocketClient = container.geminiLiveSocketClient,
+            s2sClient = container.geminiS2sClient,
             translationClient = container.realtimeTranslationClient,
             ttsRuntimeService = container.ttsRuntimeService,
             overlaySupported = dev.screengoated.toolbox.mobile.BuildConfig.OVERLAY_SUPPORTED,

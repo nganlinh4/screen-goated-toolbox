@@ -47,4 +47,22 @@ class OverlayControllerTtsStateTest {
 
         assertEquals(100, state.speedPercent)
     }
+
+    @Test
+    fun `overlay forces read visual on for direct s2s mode`() {
+        val state = overlayTtsState(
+            settings = RealtimeTtsSettings(
+                enabled = false,
+                speedPercent = 125,
+                autoSpeed = true,
+                volumePercent = 80,
+            ),
+            runtimeState = TtsRuntimeState(),
+            forceEnabled = true,
+        )
+
+        assertEquals(true, state.enabled)
+        assertEquals(125, state.speedPercent)
+        assertEquals(80, state.volumePercent)
+    }
 }

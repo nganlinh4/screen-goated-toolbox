@@ -105,6 +105,33 @@ object LiveTranslateParity {
         )
     }
 
+    fun setGeminiS2sDisplay(
+        state: LiveTextState,
+        sourceCommitted: String,
+        sourceDraft: String,
+        targetCommitted: String,
+        targetDraft: String,
+        nowMs: Long,
+    ): LiveTextState {
+        val sourceFull = joinDisplayText(sourceCommitted, sourceDraft)
+        val targetFull = joinDisplayText(targetCommitted, targetDraft)
+        val sourceCommittedLen = if (sourceCommitted.isBlank()) 0 else sourceCommitted.length
+        return state.copy(
+            transcriptionMethod = TranscriptionMethod.GEMINI_LIVE_S2S,
+            fullTranscript = sourceFull,
+            displayTranscript = sourceFull,
+            lastCommittedPos = sourceCommittedLen,
+            lastProcessedLen = sourceCommittedLen,
+            committedTranslation = targetCommitted,
+            uncommittedTranslation = targetDraft,
+            uncommittedSourceStart = sourceCommittedLen,
+            uncommittedSourceEnd = sourceFull.length,
+            displayTranslation = targetFull,
+            lastTranscriptAppendAtMs = nowMs,
+            lastTranslationUpdateAtMs = nowMs,
+        )
+    }
+
     fun claimTranslationRequest(state: LiveTextState): TranslationRequest? {
         if (state.fullTranscript.length == state.lastProcessedLen) {
             return null
@@ -426,6 +453,19 @@ object LiveTranslateParity {
             committedTranslation.isBlank() -> uncommittedTranslation
             uncommittedTranslation.isBlank() -> committedTranslation
             else -> "$committedTranslation $uncommittedTranslation"
+        }
+    }
+
+    private fun joinDisplayText(
+        committed: String,
+        draft: String,
+    ): String {
+        return when {
+            committed.isBlank() -> draft.trimStart()
+            draft.isBlank() -> committed
+            committed.lastOrNull()?.isWhitespace() == true ||
+                draft.firstOrNull()?.isWhitespace() == true -> "$committed$draft"
+            else -> "$committed $draft"
         }
     }
 

@@ -42,6 +42,7 @@ enum class SessionPhase {
 @Serializable
 enum class TranscriptionMethod {
     GEMINI_LIVE,
+    GEMINI_LIVE_S2S,
     PARAKEET,
     MOONSHINE,
 }

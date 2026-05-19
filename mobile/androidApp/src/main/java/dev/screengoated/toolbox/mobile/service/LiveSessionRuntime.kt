@@ -29,6 +29,7 @@ class LiveSessionRuntime(
     private val repository: AndroidLiveSessionRepository,
     projectionConsentStore: ProjectionConsentStore,
     private val liveSocketClient: GeminiLiveSocketClient,
+    private val s2sClient: GeminiS2sClient,
     private val translationClient: RealtimeTranslationClient,
     ttsRuntimeService: TtsRuntimeService,
     overlaySupported: Boolean,
@@ -107,8 +108,15 @@ class LiveSessionRuntime(
             repository.updateTranscriptionLanguage("en")
         }
         val modelId = repository.currentConfig().transcriptionProvider.id
+        val useGeminiS2s = modelId == RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S
         val useMoonshine = modelId.startsWith("moonshine-") || modelId == "zipformer"
             || modelId == RealtimeModelIds.TRANSCRIPTION_MOONSHINE
+        Log.i(
+            SESSION_TAG,
+            "launch model_id=$modelId api_model=${repository.currentConfig().transcriptionProvider.model} " +
+                "s2s=$useGeminiS2s moonshine=$useMoonshine source=${repository.currentConfig().sourceMode} " +
+                "target=${repository.currentConfig().targetLanguage}",
+        )
 
         sessionJob = scope.launch {
             repository.markStarting()
@@ -181,18 +189,30 @@ class LiveSessionRuntime(
                 }
             }
 
-            if (useMoonshine) {
+            if (useGeminiS2s) {
+                repository.setTranscriptionMethod(TranscriptionMethod.GEMINI_LIVE_S2S)
+            } else if (useMoonshine) {
                 repository.setTranscriptionMethod(TranscriptionMethod.MOONSHINE)
             } else {
                 repository.setTranscriptionMethod(TranscriptionMethod.GEMINI_LIVE)
             }
 
-            val translationJob = launch(Dispatchers.IO) {
-                runTranslationLoop()
+            val translationJob = if (useGeminiS2s) {
+                null
+            } else {
+                launch(Dispatchers.IO) {
+                    runTranslationLoop()
+                }
             }
 
             try {
-                if (useMoonshine) {
+                if (useGeminiS2s) {
+                    realtimeTtsCoordinator.stopAndReset()
+                    runGeminiS2sSession(
+                        apiKey = apiKey,
+                        model = config.transcriptionProvider.model,
+                    )
+                } else if (useMoonshine) {
                     runMoonshineSession()
                 } else {
                     runGeminiSession(
@@ -206,8 +226,57 @@ class LiveSessionRuntime(
                 Log.e("LiveSessionRuntime", "Transcription error", error)
                 repository.fail(error.message ?: "Live transcription stopped unexpectedly.")
             } finally {
-                translationJob.cancel()
+                translationJob?.cancel()
             }
+        }
+    }
+
+    private suspend fun runGeminiS2sSession(
+        apiKey: String,
+        model: String,
+    ) {
+        withContext(Dispatchers.IO) {
+            val captureConfig = repository.currentConfig()
+            Log.i(
+                SESSION_TAG,
+                "s2s-start model=$model source=${captureConfig.sourceMode} target=${captureConfig.targetLanguage}",
+            )
+            s2sClient.runSession(
+                apiKey = apiKey,
+                model = model,
+                audioChunks = audioCaptureController.open(
+                    config = captureConfig,
+                    onRms = { rms -> overlayController.updateVolume(rms) },
+                ),
+                settingsProvider = {
+                    val config = repository.currentConfig()
+                    val global = repository.currentGlobalTtsSettings()
+                    val custom = global.languageConditions.firstOrNull {
+                        it.languageName.equals(config.targetLanguage, ignoreCase = true) ||
+                            it.languageCode.equals(
+                                dev.screengoated.toolbox.mobile.model.LanguageCatalog.codeForName(config.targetLanguage),
+                                ignoreCase = true,
+                            )
+                    }?.instruction.orEmpty()
+                    GeminiS2sRuntimeSettings(
+                        targetLanguage = config.targetLanguage,
+                        customInstruction = custom,
+                        globalTts = global,
+                        realtime = repository.currentRealtimeTtsSettings(),
+                    )
+                },
+                onDisplay = { snapshot ->
+                    repository.markListening()
+                    repository.setGeminiS2sDisplay(
+                        sourceCommitted = snapshot.sourceCommitted,
+                        sourceDraft = snapshot.sourceDraft,
+                        targetCommitted = snapshot.targetCommitted,
+                        targetDraft = snapshot.targetDraft,
+                        nowMs = SystemClock.elapsedRealtime(),
+                    )
+                },
+            )
+            Log.i(SESSION_TAG, "s2s-exit")
         }
     }
 
@@ -786,6 +855,7 @@ class LiveSessionRuntime(
 private const val TRANSLATION_INTERVAL_MS = 1_500L
 private const val TRANSLATION_INTERVAL_MAX_MS = 4_000L
 private const val TRANSLATION_TAG = "LiveTranslate"
+private const val SESSION_TAG = "LiveSessionRuntime"
 
 /** Mirrors Windows `utils::split_at_sentence_boundary`. */
 private fun splitAtSentenceBoundary(text: String): Pair<String, String>? {
