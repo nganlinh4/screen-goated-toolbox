@@ -70,7 +70,7 @@ pub(super) fn render_studio_panel(
             });
         }
         TtsPlaygroundMode::AudioEdit => {
-            ui.label(egui::RichText::new("Audio Edit Output").strong());
+            ui.label(egui::RichText::new(text.tts_step_audio_edit_output).strong());
             ui.add_space(8.0);
             let edit = &config.tts_playground.step_audio_edit_settings;
             let can_generate = !state.is_generating
@@ -78,7 +78,10 @@ pub(super) fn render_studio_panel(
                 && !edit.source_text.trim().is_empty()
                 && (edit.edit_type != "paralinguistic" || !edit.target_text.trim().is_empty());
             if ui
-                .add_enabled(can_generate, primary_generate_button("Generate edit"))
+                .add_enabled(
+                    can_generate,
+                    primary_generate_button(text.tts_step_audio_generate_edit),
+                )
                 .clicked()
             {
                 start_step_audio_edit(config, state);
@@ -328,7 +331,7 @@ fn render_player(
         ui.horizontal(|ui| {
             ui.spinner();
             ui.label(text.tts_playground_generating);
-            if ui.button("Cancel").clicked() {
+            if ui.button(text.cancel_label).clicked() {
                 cancel_generation(state);
             }
         });

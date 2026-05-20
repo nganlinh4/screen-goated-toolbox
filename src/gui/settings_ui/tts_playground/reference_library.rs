@@ -6,6 +6,7 @@ use super::state::{
 use crate::api::tts::TTS_MANAGER;
 use crate::api::tts::types::SOURCE_SAMPLE_RATE;
 use crate::config::{Config, Preset, ProcessingBlock, StepAudioReferenceVoice, StepAudioSettings};
+use crate::gui::locale::LocaleText;
 use eframe::egui;
 use std::sync::mpsc;
 use std::time::Instant;
@@ -80,22 +81,23 @@ pub(super) fn poll_reference_transcript(
 
 pub(super) fn render_reference_voice_selector(
     ui: &mut egui::Ui,
+    text: &LocaleText,
     references: &[StepAudioReferenceVoice],
     settings: &mut StepAudioSettings,
     id: &str,
 ) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
-        ui.label("Reference voice:");
+        ui.label(text.tts_reference_voice_label);
         egui::ComboBox::from_id_salt(id)
-            .selected_text(selected_reference_label(references, settings))
+            .selected_text(selected_reference_label(references, settings, text))
             .width(220.0)
             .show_ui(ui, |ui| {
                 changed |= ui
                     .selectable_value(
                         &mut settings.reference_voice_id,
                         String::new(),
-                        "Bundled default reference",
+                        text.tts_reference_default,
                     )
                     .changed();
                 for reference in references {
@@ -103,7 +105,7 @@ pub(super) fn render_reference_voice_selector(
                         .selectable_value(
                             &mut settings.reference_voice_id,
                             reference.id.clone(),
-                            reference_label(reference),
+                            reference_label_or_default(reference, text),
                         )
                         .changed();
                 }
@@ -114,6 +116,7 @@ pub(super) fn render_reference_voice_selector(
 
 pub(super) fn render_reference_library(
     ui: &mut egui::Ui,
+    text: &LocaleText,
     config: &mut Config,
     state: &mut TtsPlaygroundUiState,
 ) -> bool {
@@ -123,15 +126,15 @@ pub(super) fn render_reference_library(
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(250));
     }
-    ui.label(egui::RichText::new("Reference voice library").strong());
+    ui.label(egui::RichText::new(text.tts_reference_voice_library_title).strong());
     ui.horizontal_wrapped(|ui| {
         ui.label(
-            egui::RichText::new("Shared by Step Audio TTS, global TTS config, and narration.")
+            egui::RichText::new(text.tts_reference_voice_library_desc)
                 .small()
                 .color(egui::Color32::from_rgb(96, 125, 139)),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("+ Add reference").clicked() {
+            if ui.button(text.tts_reference_add).clicked() {
                 let idx = config.step_audio_reference_voices.len() + 1;
                 let id = format!(
                     "ref-{}",
@@ -151,7 +154,7 @@ pub(super) fn render_reference_library(
 
     let mut remove_idx = None;
     for idx in 0..config.step_audio_reference_voices.len() {
-        changed |= render_reference_row(ui, config, state, idx, &mut remove_idx);
+        changed |= render_reference_row(ui, text, config, state, idx, &mut remove_idx);
         ui.add_space(6.0);
     }
     if let Some(idx) = remove_idx {
@@ -182,6 +185,7 @@ pub(super) fn render_reference_library(
 
 fn render_reference_row(
     ui: &mut egui::Ui,
+    text: &LocaleText,
     config: &mut Config,
     state: &mut TtsPlaygroundUiState,
     idx: usize,
@@ -193,14 +197,14 @@ fn render_reference_row(
         .inner_margin(egui::Margin::symmetric(8, 8))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Label");
+                ui.label(text.tts_reference_label);
                 changed |= ui
                     .add(
                         egui::TextEdit::singleline(&mut reference.label)
                             .desired_width(f32::INFINITY),
                     )
                     .changed();
-                if ui.button("Play").clicked() {
+                if ui.button(text.tts_reference_play).clicked() {
                     preview_reference_voice(reference, state);
                 }
                 let is_previewing = state
@@ -208,17 +212,17 @@ fn render_reference_row(
                     .as_ref()
                     .is_some_and(|preview| preview.reference_id == reference.id);
                 if ui
-                    .add_enabled(is_previewing, egui::Button::new("Stop"))
+                    .add_enabled(is_previewing, egui::Button::new(text.tts_playground_stop))
                     .clicked()
                 {
                     stop_reference_preview(state);
                 }
-                if ui.button("Remove").clicked() {
+                if ui.button(text.remove_label).clicked() {
                     *remove_idx = Some(idx);
                 }
             });
             ui.horizontal_wrapped(|ui| {
-                if ui.button("Pick audio").clicked() {
+                if ui.button(text.tts_reference_pick_audio).clicked() {
                     match export::pick_audio_file_dialog() {
                         Ok(Some(path)) => {
                             reference.audio_path = path.display().to_string();
@@ -228,7 +232,7 @@ fn render_reference_row(
                                 reference.label = path
                                     .file_stem()
                                     .and_then(|name| name.to_str())
-                                    .unwrap_or("Reference voice")
+                                    .unwrap_or(text.tts_reference_voice_library_title)
                                     .to_string();
                             }
                             if reference.transcript.trim().is_empty() {
@@ -245,7 +249,7 @@ fn render_reference_row(
                     }
                 }
                 if state.mic_recording.is_some() {
-                    if ui.button("Stop mic").clicked() {
+                    if ui.button(text.tts_reference_stop_mic).clicked() {
                         if let Some(recording) = state.mic_recording.take() {
                             recording
                                 .stop
@@ -259,7 +263,7 @@ fn render_reference_row(
                                 if reference.label.trim().is_empty()
                                     || reference.label.starts_with("Reference ")
                                 {
-                                    reference.label = "Mic reference".to_string();
+                                    reference.label = text.tts_reference_label.to_string();
                                 }
                                 if reference.transcript.trim().is_empty() {
                                     start_reference_transcription(
@@ -272,7 +276,7 @@ fn render_reference_row(
                             }
                         }
                     }
-                } else if ui.button("Record mic").clicked() {
+                } else if ui.button(text.tts_reference_record_mic).clicked() {
                     let samples = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
                     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                     let pause = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -294,7 +298,7 @@ fn render_reference_row(
                 if ui
                     .add_enabled(
                         !state.is_recognizing_reference && !reference.audio_path.trim().is_empty(),
-                        egui::Button::new("Auto recognize"),
+                        egui::Button::new(text.tts_reference_auto_recognize),
                     )
                     .clicked()
                 {
@@ -304,13 +308,13 @@ fn render_reference_row(
                         state,
                     );
                 }
-                if ui.button("Use in playground").clicked() {
+                if ui.button(text.tts_reference_use_playground).clicked() {
                     config.tts_playground.step_audio_settings.reference_voice_id =
                         reference.id.clone();
                     config.tts_playground.method = crate::config::TtsMethod::StepAudioEditX;
                     changed = true;
                 }
-                if ui.button("Use globally").clicked() {
+                if ui.button(text.tts_reference_use_global).clicked() {
                     config.step_audio_settings.reference_voice_id = reference.id.clone();
                     changed = true;
                 }
@@ -318,7 +322,7 @@ fn render_reference_row(
 
             ui.horizontal(|ui| {
                 let path_text = if reference.audio_path.trim().is_empty() {
-                    "No reference audio selected"
+                    text.tts_reference_no_audio
                 } else {
                     reference.audio_path.as_str()
                 };
@@ -341,7 +345,7 @@ fn render_reference_row(
                     );
                 }
             });
-            ui.label(egui::RichText::new("Exact reference transcript").small());
+            ui.label(egui::RichText::new(text.tts_reference_exact_transcript).small());
             changed |= ui
                 .add(
                     egui::TextEdit::multiline(&mut reference.transcript)
@@ -484,17 +488,21 @@ fn fallback_whisper_reference_preset() -> Preset {
 fn selected_reference_label(
     references: &[StepAudioReferenceVoice],
     settings: &StepAudioSettings,
+    text: &LocaleText,
 ) -> String {
+    if settings.reference_voice_id.trim().is_empty() {
+        return text.tts_reference_default.to_string();
+    }
     references
         .iter()
         .find(|item| item.id == settings.reference_voice_id)
-        .map(reference_label)
-        .unwrap_or_else(|| "Bundled default reference".to_string())
+        .map(|reference| reference_label_or_default(reference, text))
+        .unwrap_or_else(|| text.tts_reference_missing.to_string())
 }
 
-pub(super) fn reference_label(reference: &StepAudioReferenceVoice) -> String {
+fn reference_label_or_default(reference: &StepAudioReferenceVoice, text: &LocaleText) -> String {
     if reference.label.trim().is_empty() {
-        "Untitled reference".to_string()
+        text.tts_reference_untitled.to_string()
     } else {
         reference.label.clone()
     }

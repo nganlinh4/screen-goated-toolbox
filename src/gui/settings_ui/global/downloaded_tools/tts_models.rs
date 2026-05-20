@@ -101,7 +101,7 @@ pub(super) fn render_magpie_card(ui: &mut egui::Ui, text: &LocaleText) {
 
 fn render_step_audio_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Step Audio managed runtime").strong());
+        ui.label(egui::RichText::new(text.tool_step_audio_runtime).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let is_downloading = is_step_audio_runtime_downloading()
                 || REALTIME_STATE
@@ -147,7 +147,7 @@ fn render_step_audio_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
             }
         });
     });
-    ui.label("Python, PyTorch CUDA, official Step-Audio-EditX source, and prompt voices; no system Python or pip required.");
+    ui.label(text.tool_desc_step_audio_runtime);
     if let Some(message) = current_step_audio_runtime_notice() {
         ui.label(egui::RichText::new(message).color(egui::Color32::RED));
     }
@@ -160,13 +160,14 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
         ui.label(text.tool_desc_vieneu);
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("VieNeu managed runtime").strong());
+            ui.label(egui::RichText::new(text.tool_vieneu_runtime).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let is_downloading = is_vieneu_runtime_downloading()
                     || REALTIME_STATE
                         .lock()
                         .map(|s| {
-                            s.is_downloading && s.download_title == text.vieneu_runtime_downloading_title
+                            s.is_downloading
+                                && s.download_title == text.vieneu_runtime_downloading_title
                         })
                         .unwrap_or(false);
                 let probe_variant = crate::config::tts_catalog::default_vieneu_variant_id();
@@ -182,8 +183,7 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
                 }) {
                     if ui
                         .button(
-                            egui::RichText::new(text.tool_action_delete)
-                                .color(egui::Color32::RED),
+                            egui::RichText::new(text.tool_action_delete).color(egui::Color32::RED),
                         )
                         .clicked()
                     {
@@ -211,8 +211,7 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
                         });
                     }
                     ui.label(
-                        egui::RichText::new(text.tool_status_missing)
-                            .color(egui::Color32::GRAY),
+                        egui::RichText::new(text.tool_status_missing).color(egui::Color32::GRAY),
                     );
                 }
             });
@@ -220,7 +219,7 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
         if let Some(notice) = current_vieneu_runtime_notice() {
             ui.label(egui::RichText::new(notice).color(egui::Color32::from_rgb(180, 90, 0)));
         }
-        ui.label("Managed VieNeu runtime bundle. No system Python or live pip build is required; model weights are still cached by the VieNeu SDK on first use.");
+        ui.label(text.tool_desc_vieneu_runtime);
     });
 }
 
@@ -275,7 +274,7 @@ fn render_model_row(ui: &mut egui::Ui, text: &LocaleText, spec: &TtsCardSpec) {
 
 fn render_magpie_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Magpie managed runtime").strong());
+        ui.label(egui::RichText::new(text.tool_magpie_runtime).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let is_downloading = is_magpie_runtime_downloading()
                 || REALTIME_STATE
@@ -319,7 +318,7 @@ fn render_magpie_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
             }
         });
     });
-    ui.label("Python, PyTorch CUDA, and NeMo sidecar; no system Python or pip required.");
+    ui.label(text.tool_desc_magpie_runtime);
     if let Some(message) = current_magpie_runtime_notice() {
         ui.label(egui::RichText::new(message).color(egui::Color32::RED));
     }
