@@ -74,7 +74,7 @@ pub fn render_tts_playground(
                         .max_height(available_height)
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            changed |= render_mode_tabs(ui, config);
+                            changed |= render_mode_tabs(ui, config, text);
                             ui.add_space(4.0);
                             match config.tts_playground.mode {
                                 TtsPlaygroundMode::TtsClone => {
@@ -95,10 +95,10 @@ pub fn render_tts_playground(
                                             changed |= render_edge_controls(ui, config, text);
                                         }
                                         TtsMethod::StepAudioEditX => {
-                                            changed |= render_step_audio_controls(ui, config);
+                                            changed |= render_step_audio_controls(ui, config, text);
                                         }
                                         TtsMethod::MagpieMultilingual => {
-                                            changed |= render_magpie_controls(ui, config);
+                                            changed |= render_magpie_controls(ui, config, text);
                                         }
                                         TtsMethod::Kokoro => {
                                             changed |= render_kokoro_controls(ui, config, text);
@@ -107,21 +107,22 @@ pub fn render_tts_playground(
                                             changed |= render_supertonic_controls(ui, config, text);
                                         }
                                         TtsMethod::VieneuTts => {
-                                            changed |= render_vieneu_controls(ui, config);
+                                            changed |= render_vieneu_controls(ui, config, text);
                                         }
                                         TtsMethod::VoxtralTts => {
                                             config.tts_playground.method = TtsMethod::VieneuTts;
-                                            let _ = render_vieneu_controls(ui, config);
+                                            let _ = render_vieneu_controls(ui, config, text);
                                             changed = true;
                                         }
                                     }
                                 }
                                 TtsPlaygroundMode::AudioEdit => {
-                                    changed |= render_step_audio_edit_controls(ui, config, state);
+                                    changed |=
+                                        render_step_audio_edit_controls(ui, config, state, text);
                                 }
                                 TtsPlaygroundMode::ReferenceLibrary => {
                                     changed |= reference_library::render_reference_library(
-                                        ui, config, state,
+                                        ui, text, config, state,
                                     );
                                 }
                             }
@@ -153,14 +154,14 @@ pub fn render_tts_playground(
     changed
 }
 
-fn render_mode_tabs(ui: &mut egui::Ui, config: &mut Config) -> bool {
+fn render_mode_tabs(ui: &mut egui::Ui, config: &mut Config, text: &LocaleText) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
         if ui
             .selectable_value(
                 &mut config.tts_playground.mode,
                 TtsPlaygroundMode::TtsClone,
-                "TTS / Clone",
+                text.tts_playground_tab_tts_clone,
             )
             .changed()
         {
@@ -170,7 +171,7 @@ fn render_mode_tabs(ui: &mut egui::Ui, config: &mut Config) -> bool {
             .selectable_value(
                 &mut config.tts_playground.mode,
                 TtsPlaygroundMode::AudioEdit,
-                "Audio Edit",
+                text.tts_playground_tab_audio_edit,
             )
             .changed()
         {
@@ -180,7 +181,7 @@ fn render_mode_tabs(ui: &mut egui::Ui, config: &mut Config) -> bool {
             .selectable_value(
                 &mut config.tts_playground.mode,
                 TtsPlaygroundMode::ReferenceLibrary,
-                "Reference voice library",
+                text.tts_reference_voice_library_title,
             )
             .changed()
         {
@@ -283,17 +284,15 @@ fn provider_speed_slider(
     .changed()
 }
 
-fn render_step_audio_controls(ui: &mut egui::Ui, config: &mut Config) -> bool {
+fn render_step_audio_controls(ui: &mut egui::Ui, config: &mut Config, text: &LocaleText) -> bool {
     let mut changed = false;
     ui.label(egui::RichText::new("Step Audio EditX").strong());
     ui.label(
-        egui::RichText::new(
-            "Supports Mandarin, English, Sichuanese, Cantonese, Japanese, and Korean.",
-        )
-        .color(egui::Color32::from_rgb(96, 125, 139)),
+        egui::RichText::new(text.tts_step_audio_desc).color(egui::Color32::from_rgb(96, 125, 139)),
     );
     changed |= reference_library::render_reference_voice_selector(
         ui,
+        text,
         &config.step_audio_reference_voices,
         &mut config.tts_playground.step_audio_settings,
         "tts_playground_step_audio_reference",
@@ -305,18 +304,19 @@ fn render_step_audio_edit_controls(
     ui: &mut egui::Ui,
     config: &mut Config,
     state: &mut TtsPlaygroundUiState,
+    text: &LocaleText,
 ) -> bool {
     let mut changed = false;
     let settings = &mut config.tts_playground.step_audio_edit_settings;
-    ui.label(egui::RichText::new("Step Audio EditX Audio Edit").strong());
+    ui.label(egui::RichText::new(text.tts_step_audio_edit_title).strong());
     ui.horizontal_wrapped(|ui| {
-        if ui.button("Pick source audio").clicked() {
+        if ui.button(text.tts_step_audio_pick_source).clicked() {
             if let Ok(Some(path)) = export::pick_audio_file_dialog() {
                 settings.source_audio_path = path.display().to_string();
                 changed = true;
             }
         }
-        if ui.button("Use current clip").clicked()
+        if ui.button(text.tts_step_audio_use_current_clip).clicked()
             && let Some(current) = &state.current
             && let Ok(path) = library::save_managed_wav("edit-source-current", &current.wav_data)
         {
@@ -327,7 +327,7 @@ fn render_step_audio_edit_controls(
             changed = true;
         }
         if state.mic_recording.is_some() {
-            if ui.button("Stop mic").clicked() {
+            if ui.button(text.tts_reference_stop_mic).clicked() {
                 if let Some(recording) = state.mic_recording.take() {
                     recording
                         .stop
@@ -342,7 +342,7 @@ fn render_step_audio_edit_controls(
                     }
                 }
             }
-        } else if ui.button("Record mic").clicked() {
+        } else if ui.button(text.tts_reference_record_mic).clicked() {
             let samples = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
             let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let pause = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -359,14 +359,14 @@ fn render_step_audio_edit_controls(
     });
     ui.label(
         egui::RichText::new(if settings.source_audio_path.trim().is_empty() {
-            "No source audio selected"
+            text.tts_step_audio_no_source
         } else {
             settings.source_audio_path.as_str()
         })
         .small()
         .color(egui::Color32::from_rgb(96, 125, 139)),
     );
-    ui.label("Exact source transcript:");
+    ui.label(text.tts_step_audio_source_transcript);
     changed |= ui
         .add(
             egui::TextEdit::multiline(&mut settings.source_text)
@@ -375,7 +375,7 @@ fn render_step_audio_edit_controls(
         )
         .changed();
     ui.horizontal(|ui| {
-        ui.label("Task:");
+        ui.label(text.tts_step_audio_task);
         egui::ComboBox::from_id_salt("tts_playground_step_audio_edit_type")
             .selected_text(&settings.edit_type)
             .show_ui(ui, |ui| {
@@ -396,7 +396,7 @@ fn render_step_audio_edit_controls(
     let options = step_audio_edit_info_options(&settings.edit_type);
     if !options.is_empty() {
         ui.horizontal(|ui| {
-            ui.label("Sub-task:");
+            ui.label(text.tts_step_audio_subtask);
             egui::ComboBox::from_id_salt("tts_playground_step_audio_edit_info")
                 .selected_text(if settings.edit_info.trim().is_empty() {
                     options[0]
@@ -414,9 +414,9 @@ fn render_step_audio_edit_controls(
     }
     if settings.edit_type == "paralinguistic" {
         ui.horizontal_wrapped(|ui| {
-            ui.label("Inline sound tag:");
+            ui.label(text.tts_step_audio_inline_sound_tag);
             egui::ComboBox::from_id_salt("tts_playground_step_audio_paralinguistic_tag")
-                .selected_text("Insert tag")
+                .selected_text(text.tts_step_audio_insert_tag)
                 .width(130.0)
                 .show_ui(ui, |ui| {
                     for tag in reference_library::STEP_AUDIO_PARALINGUISTIC_TAGS {
@@ -427,7 +427,7 @@ fn render_step_audio_edit_controls(
                     }
                 });
         });
-        ui.label("Target text:");
+        ui.label(text.tts_step_audio_target_text);
         changed |= ui
             .add(
                 egui::TextEdit::multiline(&mut settings.target_text)
@@ -506,25 +506,26 @@ fn step_audio_edit_info_options(edit_type: &str) -> &'static [&'static str] {
     }
 }
 
-fn render_magpie_controls(ui: &mut egui::Ui, config: &mut Config) -> bool {
+fn render_magpie_controls(ui: &mut egui::Ui, config: &mut Config, text: &LocaleText) -> bool {
     let mut changed = false;
     ui.label(egui::RichText::new("NVIDIA Magpie-Multilingual 357M").strong());
     ui.label(
-        egui::RichText::new(
-            "Supports English, Spanish, German, French, Vietnamese, Italian, Mandarin Chinese, Hindi, and Japanese.",
-        )
-        .color(egui::Color32::from_rgb(96, 125, 139)),
+        egui::RichText::new(text.tool_desc_magpie).color(egui::Color32::from_rgb(96, 125, 139)),
     );
-    changed |= render_magpie_voice_config_rows(ui, config);
+    changed |= render_magpie_voice_config_rows(ui, config, text);
     changed
 }
 
-fn render_magpie_voice_config_rows(ui: &mut egui::Ui, config: &mut Config) -> bool {
+fn render_magpie_voice_config_rows(
+    ui: &mut egui::Ui,
+    config: &mut Config,
+    text: &LocaleText,
+) -> bool {
     let mut changed = false;
     ui.add_space(10.0);
     ui.separator();
     ui.add_space(6.0);
-    ui.label(egui::RichText::new("Voice per Language:").strong());
+    ui.label(egui::RichText::new(text.tts_voice_per_language_label).strong());
 
     egui::ScrollArea::vertical()
         .max_height(180.0)
@@ -591,7 +592,7 @@ fn render_magpie_voice_config_rows(ui: &mut egui::Ui, config: &mut Config) -> bo
 
         if !available.is_empty() {
             egui::ComboBox::from_id_salt("tts_playground_magpie_add_language")
-                .selected_text("Add Voice Config")
+                .selected_text(text.tts_add_language_label)
                 .width(160.0)
                 .show_ui(ui, |ui| {
                     for (code, name) in &available {
@@ -609,7 +610,7 @@ fn render_magpie_voice_config_rows(ui: &mut egui::Ui, config: &mut Config) -> bo
                 });
         }
 
-        if ui.button("Reset to Defaults").clicked() {
+        if ui.button(text.tts_reset_to_defaults_label).clicked() {
             config.tts_playground.magpie_settings.voice_configs =
                 crate::config::MagpieSettings::default().voice_configs;
             changed = true;
@@ -767,7 +768,7 @@ fn render_supertonic_controls(ui: &mut egui::Ui, config: &mut Config, text: &Loc
             .changed();
     });
     ui.horizontal(|ui| {
-        ui.label("Quality steps");
+        ui.label(text.tts_quality_steps_label);
         changed |= ui
             .add(egui::Slider::new(&mut s.num_steps, 1..=20))
             .changed();
@@ -880,38 +881,39 @@ fn render_supertonic_voice_config_rows(
     changed
 }
 
-fn render_vieneu_controls(ui: &mut egui::Ui, config: &mut Config) -> bool {
+fn render_vieneu_controls(ui: &mut egui::Ui, config: &mut Config, text: &LocaleText) -> bool {
     let mut changed = false;
     ui.label(egui::RichText::new("VieNeu-TTS v2").strong());
     ui.label(
-        egui::RichText::new("Vietnamese-first local TTS with English/Vietnamese code-switching and zero-shot voice cloning.")
-            .color(egui::Color32::from_rgb(96, 125, 139)),
+        egui::RichText::new(text.tts_vieneu_desc).color(egui::Color32::from_rgb(96, 125, 139)),
     );
     ui.label(
-        egui::RichText::new(
-            "Uses the verified VieNeu-TTS-v2 Turbo GPU path. Reference voice is the only supported user control.",
-        )
+        egui::RichText::new(text.tts_vieneu_control_desc)
             .small()
             .color(egui::Color32::from_rgb(96, 125, 139)),
     );
-    changed |= render_vieneu_reference_selector(ui, config);
+    changed |= render_vieneu_reference_selector(ui, config, text);
     changed
 }
 
-fn render_vieneu_reference_selector(ui: &mut egui::Ui, config: &mut Config) -> bool {
+fn render_vieneu_reference_selector(
+    ui: &mut egui::Ui,
+    config: &mut Config,
+    text: &LocaleText,
+) -> bool {
     let mut changed = false;
     let settings = &mut config.tts_playground.vieneu_settings;
     ui.horizontal(|ui| {
-        ui.label("Reference voice:");
+        ui.label(text.tts_reference_voice_label);
         let selected = if settings.reference_voice_id.trim().is_empty() {
-            "Model default voice".to_string()
+            text.tts_reference_default.to_string()
         } else {
             config
                 .step_audio_reference_voices
                 .iter()
                 .find(|reference| reference.id == settings.reference_voice_id)
-                .map(reference_library::reference_label)
-                .unwrap_or_else(|| "Missing reference".to_string())
+                .map(|reference| reference_label_or_default(reference, text))
+                .unwrap_or_else(|| text.tts_reference_missing.to_string())
         };
         egui::ComboBox::from_id_salt("tts_playground_vieneu_reference")
             .selected_text(selected)
@@ -921,7 +923,7 @@ fn render_vieneu_reference_selector(ui: &mut egui::Ui, config: &mut Config) -> b
                     .selectable_value(
                         &mut settings.reference_voice_id,
                         String::new(),
-                        "Model default voice",
+                        text.tts_reference_default,
                     )
                     .changed();
                 for reference in &config.step_audio_reference_voices {
@@ -929,13 +931,24 @@ fn render_vieneu_reference_selector(ui: &mut egui::Ui, config: &mut Config) -> b
                         .selectable_value(
                             &mut settings.reference_voice_id,
                             reference.id.clone(),
-                            reference_library::reference_label(reference),
+                            reference_label_or_default(reference, text),
                         )
                         .changed();
                 }
             });
     });
     changed
+}
+
+fn reference_label_or_default(
+    reference: &crate::config::StepAudioReferenceVoice,
+    text: &LocaleText,
+) -> String {
+    if reference.label.trim().is_empty() {
+        text.tts_reference_untitled.to_string()
+    } else {
+        reference.label.clone()
+    }
 }
 
 fn render_gemini_controls(ui: &mut egui::Ui, config: &mut Config, text: &LocaleText) -> bool {

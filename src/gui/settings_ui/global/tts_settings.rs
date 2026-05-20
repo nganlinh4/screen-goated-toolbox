@@ -577,7 +577,7 @@ pub fn render_tts_settings_modal(
             } else if config.tts_method == TtsMethod::Supertonic {
                 changed |= render_supertonic_settings(ui, config, text);
             } else if config.tts_method == TtsMethod::VieneuTts {
-                changed |= render_vieneu_settings(ui, config);
+                changed |= render_vieneu_settings(ui, config, text);
             }
         });
 
@@ -612,27 +612,27 @@ fn render_speed_row(ui: &mut egui::Ui, label: &str, value: &mut f32, min: f32, m
     .changed()
 }
 
-fn render_step_audio_settings(ui: &mut egui::Ui, config: &mut Config, _text: &LocaleText) -> bool {
+fn render_step_audio_settings(ui: &mut egui::Ui, config: &mut Config, text: &LocaleText) -> bool {
     let mut changed = false;
-    render_open_weights_header(
-        ui,
-        "Step Audio EditX",
-        "Supports Mandarin, English, Sichuanese, Cantonese, Japanese, and Korean.",
-    );
-    changed |= render_step_audio_reference_controls(ui, config);
+    render_open_weights_header(ui, "Step Audio EditX", text.tts_step_audio_desc);
+    changed |= render_step_audio_reference_controls(ui, config, text);
     changed
 }
 
-fn render_step_audio_reference_controls(ui: &mut egui::Ui, config: &mut Config) -> bool {
+fn render_step_audio_reference_controls(
+    ui: &mut egui::Ui,
+    config: &mut Config,
+    text: &LocaleText,
+) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
-        ui.label("Reference voice:");
+        ui.label(text.tts_reference_voice_label);
         let selected = config
             .step_audio_reference_voices
             .iter()
             .find(|item| item.id == config.step_audio_settings.reference_voice_id)
-            .map(|item| item.label.as_str())
-            .unwrap_or("Bundled default reference");
+            .map(|item| reference_label_or_default(item, text))
+            .unwrap_or_else(|| text.tts_reference_default.to_string());
         egui::ComboBox::from_id_salt("step_audio_global_reference_voice")
             .selected_text(selected)
             .width(240.0)
@@ -641,7 +641,7 @@ fn render_step_audio_reference_controls(ui: &mut egui::Ui, config: &mut Config) 
                     .selectable_value(
                         &mut config.step_audio_settings.reference_voice_id,
                         String::new(),
-                        "Bundled default reference",
+                        text.tts_reference_default,
                     )
                     .changed();
                 for reference in &config.step_audio_reference_voices {
@@ -649,11 +649,7 @@ fn render_step_audio_reference_controls(ui: &mut egui::Ui, config: &mut Config) 
                         .selectable_value(
                             &mut config.step_audio_settings.reference_voice_id,
                             reference.id.clone(),
-                            if reference.label.trim().is_empty() {
-                                "Untitled reference"
-                            } else {
-                                reference.label.as_str()
-                            },
+                            reference_label_or_default(reference, text),
                         )
                         .changed();
                 }
@@ -909,7 +905,7 @@ fn render_supertonic_settings(ui: &mut egui::Ui, config: &mut Config, text: &Loc
     });
     changed |= render_speed_row(ui, text.tts_speed_label, &mut s.speed, 0.5, 2.0);
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Quality steps").strong());
+        ui.label(egui::RichText::new(text.tts_quality_steps_label).strong());
         changed |= ui
             .add(egui::Slider::new(&mut s.num_steps, 1..=20))
             .changed();
@@ -1017,34 +1013,32 @@ fn render_supertonic_voice_config_rows(
     changed
 }
 
-fn render_vieneu_settings(ui: &mut egui::Ui, config: &mut Config) -> bool {
+fn render_vieneu_settings(ui: &mut egui::Ui, config: &mut Config, text: &LocaleText) -> bool {
     let mut changed = false;
-    render_open_weights_header(
-        ui,
-        "VieNeu-TTS v2",
-        "Vietnamese-first local TTS with English/Vietnamese code-switching and zero-shot voice cloning.",
-    );
+    render_open_weights_header(ui, "VieNeu-TTS v2", text.tts_vieneu_desc);
     ui.label(
-        egui::RichText::new(
-            "Uses the verified VieNeu-TTS-v2 Turbo GPU path. Reference voice is the only supported user control.",
-        )
+        egui::RichText::new(text.tts_vieneu_control_desc)
             .small()
             .color(egui::Color32::from_rgb(96, 125, 139)),
     );
-    changed |= render_vieneu_reference_controls(ui, config);
+    changed |= render_vieneu_reference_controls(ui, config, text);
     changed
 }
 
-fn render_vieneu_reference_controls(ui: &mut egui::Ui, config: &mut Config) -> bool {
+fn render_vieneu_reference_controls(
+    ui: &mut egui::Ui,
+    config: &mut Config,
+    text: &LocaleText,
+) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
-        ui.label("Reference voice:");
+        ui.label(text.tts_reference_voice_label);
         let selected = config
             .step_audio_reference_voices
             .iter()
             .find(|item| item.id == config.vieneu_settings.reference_voice_id)
-            .map(|item| item.label.as_str())
-            .unwrap_or("Model default voice");
+            .map(|item| reference_label_or_default(item, text))
+            .unwrap_or_else(|| text.tts_reference_default.to_string());
         egui::ComboBox::from_id_salt("vieneu_global_reference_voice")
             .selected_text(selected)
             .width(240.0)
@@ -1053,7 +1047,7 @@ fn render_vieneu_reference_controls(ui: &mut egui::Ui, config: &mut Config) -> b
                     .selectable_value(
                         &mut config.vieneu_settings.reference_voice_id,
                         String::new(),
-                        "Model default voice",
+                        text.tts_reference_default,
                     )
                     .changed();
                 for reference in &config.step_audio_reference_voices {
@@ -1061,15 +1055,22 @@ fn render_vieneu_reference_controls(ui: &mut egui::Ui, config: &mut Config) -> b
                         .selectable_value(
                             &mut config.vieneu_settings.reference_voice_id,
                             reference.id.clone(),
-                            if reference.label.trim().is_empty() {
-                                "Untitled reference"
-                            } else {
-                                reference.label.as_str()
-                            },
+                            reference_label_or_default(reference, text),
                         )
                         .changed();
                 }
             });
     });
     changed
+}
+
+fn reference_label_or_default(
+    reference: &crate::config::StepAudioReferenceVoice,
+    text: &LocaleText,
+) -> String {
+    if reference.label.trim().is_empty() {
+        text.tts_reference_untitled.to_string()
+    } else {
+        reference.label.clone()
+    }
 }
