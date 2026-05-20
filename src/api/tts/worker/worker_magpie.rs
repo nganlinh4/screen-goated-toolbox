@@ -160,6 +160,16 @@ fn synthesize_magpie(request: &QueuedRequest) -> Result<(Vec<i16>, u32)> {
         codec_model_path: get_magpie_codec_path().to_string_lossy().to_string(),
         output_wav_path: output_wav_path.to_string_lossy().to_string(),
     };
+    eprintln!(
+        "[TTS Magpie][InputTrace] req_id={} lang_hint='{}' sidecar_lang='{}' voice='{}' text_chars={} text_json={}",
+        request.req._id,
+        language_hint.as_deref().unwrap_or(""),
+        sidecar_request.language,
+        sidecar_request.voice,
+        sidecar_request.text.chars().count(),
+        serde_json::to_string(&sidecar_request.text)
+            .unwrap_or_else(|_| "\"<unserializable>\"".to_string())
+    );
 
     let response = run_sidecar(sidecar_request)?;
     if !response.ok {

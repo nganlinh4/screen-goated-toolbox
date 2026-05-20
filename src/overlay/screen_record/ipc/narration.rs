@@ -997,14 +997,19 @@ fn run_subtitle_narration(
             state.active_subtitle_id = Some(item.id.clone());
             state.message = format!("Generating narration {}/{}", index + 1, total);
         });
+        let tts_text = prepare_narration_tts_text(clean_text, &profile.method);
         eprintln!(
-            "[Narration][job={}] item {}/{} subtitle_id={} text_len={} text_preview=\"{}\"",
+            "[Narration][job={}] item {}/{} subtitle_id={} method={:?} lang_override='{}' text_chars={} text_json={} tts_text_json={}",
             job_id,
             index + 1,
             total,
             item.id,
+            profile.method,
+            profile.language_code_override.as_deref().unwrap_or(""),
             clean_text.chars().count(),
-            clean_text.chars().take(60).collect::<String>()
+            serde_json::to_string(clean_text)
+                .unwrap_or_else(|_| "\"<unserializable>\"".to_string()),
+            serde_json::to_string(&tts_text).unwrap_or_else(|_| "\"<unserializable>\"".to_string())
         );
 
         let result = synthesize_narration_item_with_retries(NarrationSynthesisAttempt {
@@ -1012,7 +1017,7 @@ fn run_subtitle_narration(
             index,
             total,
             item,
-            clean_text,
+            clean_text: &tts_text,
             profile: &profile,
             snapshot: &snapshot,
             cancelled: &cancelled,
@@ -1110,6 +1115,27 @@ fn run_subtitle_narration(
             );
         }
     }
+}
+
+fn prepare_narration_tts_text(text: &str, method: &TtsMethod) -> String {
+    let trimmed = text.trim();
+    if *method != TtsMethod::MagpieMultilingual || trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    if trimmed
+        .chars()
+        .rev()
+        .find(|ch| !ch.is_whitespace() && !matches!(ch, '"' | '\'' | ')' | ']' | '}'))
+        .is_some_and(is_sentence_terminal_punctuation)
+    {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}.")
+    }
+}
+
+fn is_sentence_terminal_punctuation(ch: char) -> bool {
+    matches!(ch, '.' | '!' | '?' | '…' | '。' | '！' | '？')
 }
 
 struct NarrationSynthesisAttempt<'a> {
@@ -1221,7 +1247,7 @@ fn uuid() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{TtsProfileWire, handle_get_narration_tts_metadata};
+    use super::{TtsProfileWire, handle_get_narration_tts_metadata, prepare_narration_tts_text};
     use crate::config::TtsMethod;
 
     #[test]
@@ -1259,5 +1285,21 @@ mod tests {
         );
         assert!(metadata["stepAudioReferenceVoices"].is_array());
         assert!(metadata["defaults"]["stepAudioReferenceVoiceId"].is_string());
+    }
+
+    #[test]
+    fn magpie_narration_adds_terminal_punctuation_to_fragments() {
+        assert_eq!(
+            prepare_narration_tts_text("Đêm giông bão", &TtsMethod::MagpieMultilingual),
+            "Đêm giông bão."
+        );
+        assert_eq!(
+            prepare_narration_tts_text("Đêm giông bão!", &TtsMethod::MagpieMultilingual),
+            "Đêm giông bão!"
+        );
+        assert_eq!(
+            prepare_narration_tts_text("Đêm giông bão", &TtsMethod::GeminiLive),
+            "Đêm giông bão"
+        );
     }
 }
