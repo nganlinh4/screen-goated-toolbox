@@ -11,7 +11,8 @@ use crate::overlay::window_selector::{
     self, SelectorCallbacks, SelectorEntry, SelectorOwner, SelectorText,
 };
 
-use super::data::{AudioAppCandidate, enumerate_audio_app_candidates};
+use super::data::{AudioAppCandidate, enumerate_audio_app_candidates, refresh_audio_capture_pid};
+use super::{clear_selected_audio_app_candidate, store_selected_audio_app_candidate};
 use crate::overlay::realtime_webview::state::{
     AUDIO_SOURCE_CHANGE, CLOSE_TTS_MODAL_REQUEST, COMMITTED_TRANSLATION_QUEUE, CURRENT_TTS_SPEED,
     LAST_SPOKEN_LENGTH, NEW_AUDIO_SOURCE, REALTIME_HWND, REALTIME_TTS_ENABLED, REALTIME_TTS_SPEED,
@@ -71,6 +72,11 @@ fn push_script_to_realtime_windows(script: String) {
 
 fn apply_audio_app_selection(pid: u32, name: &str) {
     APP_SELECTOR_OPENING.store(false, Ordering::SeqCst);
+    crate::log_info!(
+        "[AppSelection] selected audio capture pid={} name={}",
+        pid,
+        name
+    );
     SELECTED_APP_PID.store(pid, Ordering::SeqCst);
     if let Ok(mut app_name) = SELECTED_APP_NAME.lock() {
         *app_name = name.to_string();
@@ -95,6 +101,7 @@ fn apply_audio_app_selection(pid: u32, name: &str) {
 
 fn cancel_audio_app_selection() {
     APP_SELECTOR_OPENING.store(false, Ordering::SeqCst);
+    clear_selected_audio_app_candidate();
     let is_s2s = crate::overlay::realtime_webview::controller::load_session_config()
         .transcription_model
         == "gemini-live-s2s";
@@ -131,6 +138,9 @@ fn spawn_thumbnail_loader(candidates: Vec<AudioAppCandidate>) {
         for candidate in candidates {
             if !window_selector::is_owner_active(SelectorOwner::RealtimeAppSelection) {
                 break;
+            }
+            if candidate.window_hwnd == 0 {
+                continue;
             }
 
             let hwnd = HWND(candidate.window_hwnd as *mut std::ffi::c_void);
@@ -178,6 +188,10 @@ pub fn show_audio_app_selector_overlay() {
         .iter()
         .map(|candidate| (candidate.pid.to_string(), candidate.display_name.clone()))
         .collect();
+    let app_candidates: HashMap<String, AudioAppCandidate> = candidates
+        .iter()
+        .map(|candidate| (candidate.pid.to_string(), candidate.clone()))
+        .collect();
     let entries: Vec<SelectorEntry> = candidates
         .iter()
         .map(|candidate| SelectorEntry {
@@ -199,7 +213,14 @@ pub fn show_audio_app_selector_overlay() {
                     .get(&selected_id)
                     .cloned()
                     .unwrap_or_else(|| format!("PID {pid}"));
-                apply_audio_app_selection(pid, &name);
+                let capture_pid = app_candidates
+                    .get(&selected_id)
+                    .map(|candidate| {
+                        store_selected_audio_app_candidate(candidate.clone());
+                        refresh_audio_capture_pid(candidate)
+                    })
+                    .unwrap_or(pid);
+                apply_audio_app_selection(capture_pid, &name);
             }
         },
         cancel_audio_app_selection,

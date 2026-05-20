@@ -79,35 +79,6 @@ pub fn start_realtime_transcription(
     let overlay_send = crate::win_types::SendHwnd(overlay_hwnd);
     let translation_send = translation_hwnd.map(crate::win_types::SendHwnd);
 
-    let trans_model = APP
-        .lock()
-        .map(|app| {
-            normalize_realtime_transcription_model_id(&app.config.realtime_transcription_model)
-        })
-        .unwrap_or_else(|_| crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5.to_string());
-    let is_s2s = trans_model == "gemini-live-s2s";
-
-    // Spawn translation thread if needed. Direct S2S owns translation audio itself.
-    let has_translation = translation_hwnd.is_some() && preset.blocks.len() > 1 && !is_s2s;
-    if has_translation {
-        crate::log_info!(
-            "[RealtimeTranslate] spawn text translation loop transcription_model={}",
-            trans_model
-        );
-        let t_send = translation_send.unwrap();
-        let t_state = state.clone();
-        let t_stop = stop_signal.clone();
-        let t_preset = preset.clone();
-
-        std::thread::spawn(move || {
-            run_translation_loop(t_preset, t_stop, t_send, t_state);
-        });
-    } else if translation_hwnd.is_some() && is_s2s {
-        crate::log_info!(
-            "[RealtimeTranslate] skip text translation loop because Gemini S2S owns target output"
-        );
-    }
-
     std::thread::spawn(move || {
         transcription_thread_entry(
             preset,
@@ -117,6 +88,30 @@ pub fn start_realtime_transcription(
             state,
             session_id,
         );
+    });
+}
+
+fn should_run_text_translation_loop(
+    preset: &Preset,
+    translation_hwnd: Option<HWND>,
+    trans_model: &str,
+) -> bool {
+    translation_hwnd.is_some() && preset.blocks.len() > 1 && trans_model != "gemini-live-s2s"
+}
+
+fn spawn_text_translation_loop(
+    preset: Preset,
+    stop_signal: Arc<AtomicBool>,
+    translation_send: crate::win_types::SendHwnd,
+    state: SharedRealtimeState,
+    trans_model: &str,
+) {
+    crate::log_info!(
+        "[RealtimeTranslate] spawn text translation loop transcription_model={}",
+        trans_model
+    );
+    std::thread::spawn(move || {
+        run_translation_loop(preset, stop_signal, translation_send, state);
     });
 }
 
@@ -138,6 +133,7 @@ fn transcription_thread_entry(
 
     let mut current_preset = preset;
     let mut freeze_on_next_restart = false;
+    let mut text_translation_loop_active = false;
 
     loop {
         if is_stale_session(session_id) {
@@ -165,6 +161,28 @@ fn transcription_thread_entry(
             let app = APP.lock().unwrap();
             normalize_realtime_transcription_model_id(&app.config.realtime_transcription_model)
         };
+
+        let wants_text_translation =
+            should_run_text_translation_loop(&current_preset, hwnd_translation, &trans_model);
+        if wants_text_translation && !text_translation_loop_active {
+            if let Some(t_send) = translation_send {
+                spawn_text_translation_loop(
+                    current_preset.clone(),
+                    stop_signal.clone(),
+                    t_send,
+                    state.clone(),
+                    &trans_model,
+                );
+                text_translation_loop_active = true;
+            }
+        } else if !wants_text_translation {
+            if trans_model == "gemini-live-s2s" && hwnd_translation.is_some() {
+                crate::log_info!(
+                    "[RealtimeTranslate] skip text translation loop because Gemini S2S owns target output"
+                );
+            }
+            text_translation_loop_active = false;
+        }
 
         // Update state with selected method immediately (before potentially slow model loading)
         if let Ok(mut s) = state.lock() {
@@ -489,7 +507,14 @@ fn run_realtime_transcription(
     // to ensure it runs independent of the transcription model (Parakeet/Gemini).
 
     // Main loop
-    run_main_loop(
+    let capture_label = if using_per_app_capture {
+        "per-app"
+    } else if using_device_loopback {
+        "device"
+    } else {
+        "mic"
+    };
+    let loop_result = run_main_loop(
         socket,
         audio_buffer,
         stop_signal,
@@ -497,10 +522,19 @@ fn run_realtime_transcription(
         state,
         &gemini_live_model,
         &gemini_api_key,
-    )?;
+        capture_label,
+    );
 
     drop(_stream);
-    Ok(())
+    loop_result
+}
+
+fn compute_i16_rms(samples: &[i16]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let sum_sq: f64 = samples.iter().map(|&s| (s as f64 / 32768.0).powi(2)).sum();
+    (sum_sq / samples.len() as f64).sqrt() as f32
 }
 
 fn run_main_loop(
@@ -511,6 +545,7 @@ fn run_main_loop(
     state: SharedRealtimeState,
     gemini_live_model: &str,
     gemini_api_key: &str,
+    capture_label: &'static str,
 ) -> Result<()> {
     let mut last_send = Instant::now();
     let send_interval = Duration::from_millis(100);
@@ -532,6 +567,8 @@ fn run_main_loop(
     let mut last_health_log = Instant::now();
     let mut sent_chunks = 0u64;
     let mut sent_samples = 0usize;
+    let mut active_sent_samples = 0usize;
+    let mut active_samples_since_transcript = 0usize;
     let mut transcript_updates = 0u64;
     let mut transcript_chars = 0usize;
     let mut reconnect_count = 0u32;
@@ -583,15 +620,19 @@ fn run_main_loop(
                 let mut buf = audio_buffer.lock().unwrap();
                 std::mem::take(&mut *buf)
             };
-
             match audio_mode {
                 AudioMode::Normal => {
                     if !real_audio.is_empty() {
+                        let is_active = compute_i16_rms(&real_audio) >= ACTIVE_AUDIO_RMS_THRESHOLD;
                         if send_audio_chunk(&mut socket, &real_audio).is_err() {
                             break;
                         }
                         sent_chunks += 1;
                         sent_samples += real_audio.len();
+                        if is_active {
+                            active_sent_samples += real_audio.len();
+                            active_samples_since_transcript += real_audio.len();
+                        }
                     }
                 }
                 AudioMode::Silence => {
@@ -617,8 +658,13 @@ fn run_main_loop(
                         break;
                     }
                     if !to_send.is_empty() {
+                        let is_active = compute_i16_rms(&to_send) >= ACTIVE_AUDIO_RMS_THRESHOLD;
                         sent_chunks += 1;
                         sent_samples += to_send.len();
+                        if is_active {
+                            active_sent_samples += to_send.len();
+                            active_samples_since_transcript += to_send.len();
+                        }
                     }
                 }
             }
@@ -636,6 +682,7 @@ fn run_main_loop(
                     && !transcript.is_empty()
                 {
                     last_transcription_time = Instant::now();
+                    active_samples_since_transcript = 0;
                     consecutive_empty_reads = 0;
                     transcript_updates += 1;
                     transcript_chars += transcript.chars().count();
@@ -656,6 +703,7 @@ fn run_main_loop(
                     && !transcript.is_empty()
                 {
                     last_transcription_time = Instant::now();
+                    active_samples_since_transcript = 0;
                     consecutive_empty_reads = 0;
                     transcript_updates += 1;
                     transcript_chars += transcript.chars().count();
@@ -707,11 +755,14 @@ fn run_main_loop(
                 if consecutive_empty_reads >= EMPTY_READ_CHECK_COUNT
                     && last_transcription_time.elapsed()
                         > Duration::from_secs(NO_RESULT_THRESHOLD_SECS)
+                    && samples_to_ms(active_samples_since_transcript)
+                        >= NO_RESULT_ACTIVE_AUDIO_THRESHOLD_MS
                 {
                     crate::log_info!(
-                        "[RealtimeGeminiLiveHealth] reconnect-start reason=no-results empty_reads={} since_transcript_ms={} mode={}",
+                        "[RealtimeGeminiLiveHealth] reconnect-start reason=no-results empty_reads={} since_transcript_ms={} active_since_transcript_ms={} mode={}",
                         consecutive_empty_reads,
                         last_transcription_time.elapsed().as_millis(),
+                        samples_to_ms(active_samples_since_transcript),
                         audio_mode.as_str()
                     );
                     if !try_reconnect(ReconnectContext {
@@ -782,13 +833,16 @@ fn run_main_loop(
 
         if last_health_log.elapsed() >= Duration::from_secs(5) {
             crate::log_info!(
-                "[RealtimeGeminiLiveHealth] uptime_ms={} model={} mode={} mode_ms={} sent_chunks={} sent_ms={} catchup_ms={} transcript_updates={} transcript_chars={} empty_reads={} since_transcript_ms={} reconnects={}",
+                "[RealtimeGeminiLiveHealth] uptime_ms={} model={} capture={} mode={} mode_ms={} sent_chunks={} sent_ms={} active_ms={} active_since_transcript_ms={} catchup_ms={} transcript_updates={} transcript_chars={} empty_reads={} since_transcript_ms={} reconnects={}",
                 session_started.elapsed().as_millis(),
                 gemini_live_model,
+                capture_label,
                 audio_mode.as_str(),
                 mode_start.elapsed().as_millis(),
                 sent_chunks,
                 samples_to_ms(sent_samples),
+                samples_to_ms(active_sent_samples),
+                samples_to_ms(active_samples_since_transcript),
                 samples_to_ms(silence_buffer.len()),
                 transcript_updates,
                 transcript_chars,
@@ -799,6 +853,7 @@ fn run_main_loop(
             last_health_log = Instant::now();
             sent_chunks = 0;
             sent_samples = 0;
+            active_sent_samples = 0;
             transcript_updates = 0;
             transcript_chars = 0;
         }
@@ -809,6 +864,9 @@ fn run_main_loop(
     let _ = socket.close(None);
     Ok(())
 }
+
+const ACTIVE_AUDIO_RMS_THRESHOLD: f32 = 0.004;
+const NO_RESULT_ACTIVE_AUDIO_THRESHOLD_MS: usize = 4_000;
 
 struct ReconnectContext<'a> {
     socket: &'a mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
