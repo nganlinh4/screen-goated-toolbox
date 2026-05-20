@@ -200,6 +200,8 @@ pub fn run_gemini_live_s2s(
     let audio_buffer = Arc::new(Mutex::new(Vec::<i16>::new()));
     let pause = Arc::new(AtomicBool::new(false));
     let selected_pid = SELECTED_APP_PID.load(Ordering::SeqCst);
+    let mut per_app_capture_stop: Option<Arc<AtomicBool>> = None;
+    let mut per_app_initial_pid: Option<u32> = None;
     let _stream = if preset.audio_source == "device" {
         let selected_pid = if selected_pid == 0 {
             crate::overlay::realtime_webview::app_selection::show_audio_app_selector_overlay();
@@ -208,13 +210,18 @@ pub fn run_gemini_live_s2s(
             Some(selected_pid)
         };
         if let Some(selected_pid) = selected_pid {
+            per_app_initial_pid = Some(selected_pid);
             #[cfg(target_os = "windows")]
-            start_per_app_capture(
-                selected_pid,
-                audio_buffer.clone(),
-                stop_signal.clone(),
-                pause.clone(),
-            )?;
+            {
+                let capture_stop = Arc::new(AtomicBool::new(false));
+                per_app_capture_stop = Some(capture_stop.clone());
+                start_per_app_capture(
+                    selected_pid,
+                    audio_buffer.clone(),
+                    capture_stop,
+                    pause.clone(),
+                )?;
+            }
             None
         } else {
             return Err(anyhow::anyhow!(
@@ -228,6 +235,18 @@ pub fn run_gemini_live_s2s(
             pause.clone(),
         )?)
     };
+    if let (Some(capture_stop), Some(initial_pid)) =
+        (per_app_capture_stop.clone(), per_app_initial_pid)
+    {
+        spawn_s2s_per_app_audio_pid_refresh(
+            initial_pid,
+            capture_stop,
+            audio_buffer.clone(),
+            stop_signal.clone(),
+            pause.clone(),
+            session_id,
+        );
+    }
 
     if let Ok(mut s) = state.lock() {
         s.set_transcription_method(super::state::TranscriptionMethod::GeminiLiveS2s);
@@ -281,6 +300,63 @@ pub fn run_gemini_live_s2s(
     );
 
     Ok(())
+}
+
+fn spawn_s2s_per_app_audio_pid_refresh(
+    initial_pid: u32,
+    capture_stop: Arc<AtomicBool>,
+    audio_buffer: Arc<Mutex<Vec<i16>>>,
+    stop_signal: Arc<AtomicBool>,
+    pause: Arc<AtomicBool>,
+    session_id: u64,
+) {
+    std::thread::spawn(move || {
+        let started = Instant::now();
+        let mut last_observed_samples = 0usize;
+        while !stop_signal.load(Ordering::Relaxed)
+            && !is_stale_session(session_id)
+            && started.elapsed() < Duration::from_secs(10)
+        {
+            std::thread::sleep(Duration::from_millis(500));
+            let observed_samples = audio_buffer.lock().map(|buffer| buffer.len()).unwrap_or(0);
+            if observed_samples > last_observed_samples + FRAME_SAMPLES {
+                return;
+            }
+            last_observed_samples = observed_samples;
+
+            let Some(refreshed_pid) =
+                crate::overlay::realtime_webview::app_selection::refresh_selected_audio_capture_pid(
+                )
+            else {
+                continue;
+            };
+            if refreshed_pid == 0 || refreshed_pid == initial_pid {
+                continue;
+            }
+
+            crate::log_info!(
+                "[RealtimeS2S] restart per-app capture initial_pid={} refreshed_pid={} elapsed_ms={}",
+                initial_pid,
+                refreshed_pid,
+                started.elapsed().as_millis()
+            );
+            capture_stop.store(true, Ordering::SeqCst);
+            SELECTED_APP_PID.store(refreshed_pid, Ordering::SeqCst);
+            if let Err(error) = start_per_app_capture(
+                refreshed_pid,
+                audio_buffer.clone(),
+                stop_signal.clone(),
+                pause.clone(),
+            ) {
+                crate::log_info!(
+                    "[RealtimeS2S] restart per-app capture failed refreshed_pid={} error={}",
+                    refreshed_pid,
+                    error
+                );
+            }
+            return;
+        }
+    });
 }
 
 fn apply_tts_speed_for_s2s(speed: &str) {

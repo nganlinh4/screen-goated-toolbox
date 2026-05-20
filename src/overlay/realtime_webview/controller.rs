@@ -138,6 +138,7 @@ pub fn set_translation_model(model: &str) {
 
 pub fn set_transcription_model(model: &str) {
     let model = crate::model_config::normalize_realtime_transcription_model_id(model);
+    let is_s2s = model == "gemini-live-s2s";
     if let Ok(mut new_model) = NEW_TRANSCRIPTION_MODEL.lock() {
         *new_model = model.clone();
     }
@@ -146,7 +147,14 @@ pub fn set_transcription_model(model: &str) {
         crate::config::save_config(&app.config);
     }
     TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
-    if model == "gemini-live-s2s" && load_session_config().audio_source == "device" {
+    if load_session_config().audio_source != "device" {
+        return;
+    }
+
+    if is_s2s {
+        show_audio_app_selector_overlay();
+    } else if REALTIME_TTS_ENABLED.load(Ordering::SeqCst) {
+        clear_selected_app();
         show_audio_app_selector_overlay();
     }
 }
