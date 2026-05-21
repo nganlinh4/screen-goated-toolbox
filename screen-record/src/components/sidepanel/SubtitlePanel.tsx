@@ -658,6 +658,19 @@ export function SubtitlePanel({
           />
         </div>
 
+        <div className="subtitle-translation-model-row flex items-center gap-2">
+          <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+            {t.subtitleTranslationModel}
+          </span>
+          <PanelSelect
+            value={subtitleTranslation.subtitleTranslationModelId}
+            options={subtitleTranslation.subtitleTranslationModelOptions}
+            onChange={subtitleTranslation.setSubtitleTranslationModelId}
+            triggerClassName="subtitle-translation-model-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+            contentClassName="subtitle-translation-model-menu"
+          />
+        </div>
+
         <div className="subtitle-translation-source-row flex items-center gap-2">
           <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
             {t.subtitleTranslationSource}
@@ -719,6 +732,9 @@ export function SubtitlePanel({
           <div className="subtitle-translation-instructions-label text-[11px] font-medium text-on-surface-variant">
             {t.subtitleTranslationInstructions}
           </div>
+          <p className="subtitle-translation-instructions-hint text-[10px] leading-4 text-on-surface-variant">
+            {t.subtitleTranslationInstructionsHint}
+          </p>
           <textarea
             value={subtitleTranslation.subtitleTranslationInstructions}
             onChange={(event) => subtitleTranslation.setSubtitleTranslationInstructions(event.target.value)}
@@ -734,6 +750,7 @@ export function SubtitlePanel({
             disabled={!subtitleTranslation.canTranslateSubtitles || subtitleTranslation.isTranslatingSubtitles}
             onClick={subtitleTranslation.handleTranslateSubtitles}
             data-tone="primary"
+            data-emphasis="strong"
             className="subtitle-translate-button ui-action-button flex h-8 items-center justify-center rounded-lg px-2.5 text-[11px] font-medium leading-tight"
           >
             {subtitleTranslation.hasExistingTranslationForTargetLanguage

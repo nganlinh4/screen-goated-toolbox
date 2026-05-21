@@ -993,11 +993,29 @@ fn run_subtitle_narration(
             continue;
         }
 
+        let Some(narration_text) = normalize_narration_input_text(clean_text, &profile.method)
+        else {
+            eprintln!(
+                "[Narration][job={}] skip invalid narration text item {}/{} subtitle_id={} text_json={}",
+                job_id,
+                index + 1,
+                total,
+                item.id,
+                serde_json::to_string(clean_text)
+                    .unwrap_or_else(|_| "\"<unserializable>\"".to_string())
+            );
+            let _ = update_snapshot(&snapshot, |state| {
+                state.completed_items += 1;
+                state.progress = state.completed_items as f64 / total.max(1) as f64;
+            });
+            continue;
+        };
+
         let _ = update_snapshot(&snapshot, |state| {
             state.active_subtitle_id = Some(item.id.clone());
             state.message = format!("Generating narration {}/{}", index + 1, total);
         });
-        let tts_text = prepare_narration_tts_text(clean_text, &profile.method);
+        let tts_text = prepare_narration_tts_text(&narration_text, &profile.method);
         eprintln!(
             "[Narration][job={}] item {}/{} subtitle_id={} method={:?} lang_override='{}' text_chars={} text_json={} tts_text_json={}",
             job_id,
@@ -1006,8 +1024,8 @@ fn run_subtitle_narration(
             item.id,
             profile.method,
             profile.language_code_override.as_deref().unwrap_or(""),
-            clean_text.chars().count(),
-            serde_json::to_string(clean_text)
+            narration_text.chars().count(),
+            serde_json::to_string(&narration_text)
                 .unwrap_or_else(|_| "\"<unserializable>\"".to_string()),
             serde_json::to_string(&tts_text).unwrap_or_else(|_| "\"<unserializable>\"".to_string())
         );
@@ -1138,6 +1156,125 @@ fn is_sentence_terminal_punctuation(ch: char) -> bool {
     matches!(ch, '.' | '!' | '?' | '…' | '。' | '！' | '？')
 }
 
+fn normalize_narration_input_text(text: &str, method: &TtsMethod) -> Option<String> {
+    let edge_trimmed = trim_narration_noise(text);
+    let repaired = repair_cp949_mojibake(&edge_trimmed);
+    let repaired_from_mojibake = repaired.is_some();
+    let repaired = repaired.unwrap_or(edge_trimmed);
+    let normalized = trim_narration_noise(&repaired);
+    if !has_speakable_text(&normalized) {
+        return None;
+    }
+    if matches!(
+        method,
+        TtsMethod::VieneuTts
+            | TtsMethod::Supertonic
+            | TtsMethod::MagpieMultilingual
+            | TtsMethod::StepAudioEditX
+    ) && (unresolved_mojibake_score(&normalized) >= 3
+        || (repaired_from_mojibake && unresolved_placeholder_score(&normalized) > 0))
+    {
+        return None;
+    }
+    Some(normalized)
+}
+
+fn trim_narration_noise(text: &str) -> String {
+    let lines = text
+        .lines()
+        .map(trim_narration_edge_noise)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    trim_narration_edge_noise(&lines).to_string()
+}
+
+fn trim_narration_edge_noise(text: &str) -> &str {
+    text.trim_matches(|ch: char| {
+        ch.is_whitespace()
+            || ch == '\u{fffd}'
+            || ch == '\u{feff}'
+            || matches!(
+                ch,
+                '?' | '¿'
+                    | '¡'
+                    | '!'
+                    | '"'
+                    | '\''
+                    | '`'
+                    | '*'
+                    | '_'
+                    | '~'
+                    | '|'
+                    | '·'
+                    | '•'
+                    | '♪'
+                    | '♫'
+                    | '♩'
+                    | '♬'
+                    | '♭'
+                    | '♮'
+                    | '♯'
+            )
+    })
+}
+
+fn has_speakable_text(text: &str) -> bool {
+    text.chars().any(|ch| ch.is_alphanumeric())
+}
+
+fn repair_cp949_mojibake(text: &str) -> Option<String> {
+    if unresolved_mojibake_score(text) < 2 {
+        return None;
+    }
+    let (bytes, _, had_encode_errors) = encoding_rs::EUC_KR.encode(text);
+    if had_encode_errors {
+        return None;
+    }
+    let repaired = std::str::from_utf8(&bytes).ok()?.trim();
+    if repaired.is_empty() || !has_speakable_text(repaired) {
+        return None;
+    }
+    if unresolved_mojibake_score(repaired) < unresolved_mojibake_score(text) {
+        Some(repaired.to_string())
+    } else {
+        None
+    }
+}
+
+fn unresolved_mojibake_score(text: &str) -> usize {
+    text.chars()
+        .filter(|ch| {
+            ('\u{3400}'..='\u{9fff}').contains(ch)
+                || ('\u{ac00}'..='\u{d7af}').contains(ch)
+                || *ch == '\u{fffd}'
+        })
+        .count()
+}
+
+fn unresolved_placeholder_score(text: &str) -> usize {
+    let chars: Vec<char> = text.chars().collect();
+    chars
+        .iter()
+        .enumerate()
+        .filter(|(index, ch)| {
+            if **ch != '?' {
+                return false;
+            }
+            let prev_is_word = chars[..*index]
+                .iter()
+                .rev()
+                .find(|candidate| !candidate.is_whitespace())
+                .is_some_and(|candidate| candidate.is_alphanumeric());
+            let next_is_word = chars[*index + 1..]
+                .iter()
+                .find(|candidate| !candidate.is_whitespace())
+                .is_some_and(|candidate| candidate.is_alphanumeric());
+            prev_is_word && next_is_word
+        })
+        .count()
+}
+
 struct NarrationSynthesisAttempt<'a> {
     job_id: &'a str,
     index: usize,
@@ -1247,7 +1384,10 @@ fn uuid() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{TtsProfileWire, handle_get_narration_tts_metadata, prepare_narration_tts_text};
+    use super::{
+        TtsProfileWire, handle_get_narration_tts_metadata, normalize_narration_input_text,
+        prepare_narration_tts_text,
+    };
     use crate::config::TtsMethod;
 
     #[test]
@@ -1300,6 +1440,57 @@ mod tests {
         assert_eq!(
             prepare_narration_tts_text("Đêm giông bão", &TtsMethod::GeminiLive),
             "Đêm giông bão"
+        );
+    }
+
+    #[test]
+    fn narration_normalization_repairs_cp949_mojibake() {
+        assert_eq!(
+            normalize_narration_input_text("휂챗m gi척ng b찾o", &TtsMethod::VieneuTts).as_deref(),
+            Some("Đêm giông bão")
+        );
+        assert_eq!(
+            normalize_narration_input_text(
+                "??R梳캮G CH횣NG T횚I C횙 CH梳짽??",
+                &TtsMethod::VieneuTts
+            )
+            .as_deref(),
+            Some("RẰNG CHÚNG TÔI CÓ CHẤT")
+        );
+    }
+
+    #[test]
+    fn narration_normalization_skips_unrecoverable_mojibake_placeholders() {
+        assert_eq!(
+            normalize_narration_input_text(
+                "??V? NH梳줪 THEO NH沼둗 휂I沼괣- ??",
+                &TtsMethod::VieneuTts
+            ),
+            None
+        );
+        assert_eq!(
+            normalize_narration_input_text("[V?O 휂칩A]", &TtsMethod::VieneuTts),
+            None
+        );
+    }
+
+    #[test]
+    fn narration_normalization_skips_unspeakable_fragments() {
+        assert_eq!(
+            normalize_narration_input_text("????", &TtsMethod::VieneuTts),
+            None
+        );
+    }
+
+    #[test]
+    fn narration_normalization_strips_music_wrappers_per_line() {
+        assert_eq!(
+            normalize_narration_input_text(
+                "♪♪TÔI VÀ CÔ GÁI CỦA TÔI♪♪\n♪♪MỐI QUAN HỆ NÀY♪♪",
+                &TtsMethod::VieneuTts
+            )
+            .as_deref(),
+            Some("TÔI VÀ CÔ GÁI CỦA TÔI\nMỐI QUAN HỆ NÀY")
         );
     }
 }

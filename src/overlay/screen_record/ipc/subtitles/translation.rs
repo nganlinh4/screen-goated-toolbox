@@ -182,14 +182,15 @@ fn run_subtitle_translation_inner(
         return Err("No subtitle items were provided for translation.".to_string());
     }
     let config = current_config()?;
-    let candidate_models = collect_translation_models(&config);
-    let gtx_allowed = request
-        .instructions
+    let selected_model_id = request
+        .model_id
         .as_deref()
         .map(str::trim)
-        .unwrap_or("")
-        .is_empty();
-    if candidate_models.is_empty() && !gtx_allowed {
+        .filter(|value| !value.is_empty())
+        .unwrap_or(GTX_TRANSLATION_MODEL_ID);
+    let gtx_prioritized = selected_model_id == GTX_TRANSLATION_MODEL_ID;
+    let candidate_models = collect_prioritized_translation_models(&config, selected_model_id)?;
+    if candidate_models.is_empty() && !gtx_prioritized {
         return Err(
             "No compatible text-to-text translation model is currently available.".to_string(),
         );
@@ -216,7 +217,8 @@ fn run_subtitle_translation_inner(
         request.chunk_mode.as_deref(),
         &request.target_language,
         request.instructions.as_deref(),
-        gtx_allowed,
+        selected_model_id,
+        gtx_prioritized,
         &candidate_models,
         &config.ui_language,
     );
@@ -235,6 +237,7 @@ fn run_subtitle_translation_inner(
         translate_group_with_retry(TranslateGroupRequest {
             config: &config,
             candidate_models: &candidate_models,
+            gtx_prioritized,
             target_language: &request.target_language,
             instructions: request.instructions.as_deref(),
             group: chunk,
@@ -277,6 +280,7 @@ fn run_subtitle_translation_inner(
 struct TranslateGroupRequest<'a> {
     config: &'a Config,
     candidate_models: &'a [ModelConfig],
+    gtx_prioritized: bool,
     target_language: &'a str,
     instructions: Option<&'a str>,
     group: Vec<SubtitleTranslationItemRequest>,
@@ -294,6 +298,7 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
     let TranslateGroupRequest {
         config,
         candidate_models,
+        gtx_prioritized,
         target_language,
         instructions,
         mut group,
@@ -315,7 +320,7 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
         "Subtitle translation failed because every model attempt returned invalid output."
             .to_string();
 
-    if instructions.map(str::trim).unwrap_or("").is_empty() {
+    if gtx_prioritized {
         update_translation_snapshot(snapshot, |locked| {
             locked.current_model_id = Some(GTX_TRANSLATION_MODEL_ID.to_string());
             locked.current_model_label = Some(GTX_TRANSLATION_MODEL_LABEL.to_string());
@@ -474,6 +479,7 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
         translate_group_with_retry(TranslateGroupRequest {
             config,
             candidate_models,
+            gtx_prioritized,
             target_language,
             instructions,
             group: left,
@@ -489,6 +495,7 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
         translate_group_with_retry(TranslateGroupRequest {
             config,
             candidate_models,
+            gtx_prioritized,
             target_language,
             instructions,
             group: right,
@@ -539,7 +546,8 @@ impl TranslationDiagnostics {
         chunk_mode: Option<&str>,
         target_language: &str,
         instructions: Option<&str>,
-        gtx_allowed: bool,
+        selected_model_id: &str,
+        gtx_prioritized: bool,
         candidate_models: &[ModelConfig],
         ui_language: &str,
     ) {
@@ -555,7 +563,7 @@ impl TranslationDiagnostics {
             .collect::<Vec<_>>()
             .join(" > ");
         eprintln!(
-            "[SubtitleTranslation][job={}] start items={} initial_chunks={} chunk_mode={} target=\"{}\" instructions={} gtx_allowed={} fallback_chain=\"{}\"",
+            "[SubtitleTranslation][job={}] start items={} initial_chunks={} chunk_mode={} target=\"{}\" instructions={} prioritized_model=\"{}\" gtx_prioritized={} fallback_chain=\"{}\"",
             self.job_id,
             item_count,
             chunk_count,
@@ -564,7 +572,8 @@ impl TranslationDiagnostics {
             instructions
                 .map(str::trim)
                 .is_some_and(|value| !value.is_empty()),
-            gtx_allowed,
+            selected_model_id,
+            gtx_prioritized,
             if model_chain.is_empty() {
                 "none"
             } else {
@@ -808,8 +817,10 @@ fn localized_model_label(model: &ModelConfig, ui_language: &str) -> String {
 fn collect_translation_models(config: &Config) -> Vec<ModelConfig> {
     let blocked_providers = HashSet::new();
     let mut models = Vec::new();
+    let mut seen_model_ids = HashSet::new();
 
     if let Some(initial_model) = resolve_initial_translation_model(config, &blocked_providers) {
+        seen_model_ids.insert(initial_model.id.clone());
         models.push(initial_model.clone());
         let mut failed_model_ids = vec![initial_model.id.clone()];
         let mut current_model = initial_model;
@@ -828,11 +839,55 @@ fn collect_translation_models(config: &Config) -> Vec<ModelConfig> {
             }
             failed_model_ids.push(next_model.id.clone());
             current_model = next_model.clone();
-            models.push(next_model);
+            if seen_model_ids.insert(next_model.id.clone()) {
+                models.push(next_model);
+            }
+        }
+    }
+
+    for model in get_all_models_with_ollama()
+        .into_iter()
+        .filter(|model| is_compatible_translation_model(model, config, &blocked_providers))
+    {
+        if seen_model_ids.insert(model.id.clone()) {
+            models.push(model);
         }
     }
 
     models
+}
+
+fn collect_prioritized_translation_models(
+    config: &Config,
+    model_id: &str,
+) -> Result<Vec<ModelConfig>, String> {
+    if model_id == GTX_TRANSLATION_MODEL_ID {
+        return Ok(collect_translation_models(config));
+    }
+    let blocked_providers = HashSet::new();
+    let Some(model) = get_model_by_id(model_id).or_else(|| {
+        get_all_models_with_ollama()
+            .into_iter()
+            .find(|model| model.id == model_id)
+    }) else {
+        return Err(format!("Unknown subtitle translation model: {model_id}"));
+    };
+    if !is_compatible_translation_model(&model, config, &blocked_providers) {
+        return Err(format!(
+            "Subtitle translation model '{}' is not currently available.",
+            localized_model_label(&model, &config.ui_language)
+        ));
+    }
+    let mut models = Vec::new();
+    let mut seen_model_ids = HashSet::new();
+    seen_model_ids.insert(model.id.clone());
+    models.push(model);
+    for fallback in collect_translation_models(config) {
+        if seen_model_ids.insert(fallback.id.clone()) {
+            models.push(fallback);
+        }
+    }
+    Ok(models)
 }
 
 fn resolve_initial_translation_model(

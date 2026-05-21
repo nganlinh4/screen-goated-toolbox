@@ -1,4 +1,5 @@
 mod data;
+mod icons;
 mod overlay;
 
 pub(crate) use data::{
