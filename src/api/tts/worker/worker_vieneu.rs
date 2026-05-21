@@ -169,9 +169,16 @@ fn synthesize_vieneu(
         bail!("VieNeu standard/fast cloning needs the exact reference transcript.");
     }
     let output_wav_path = temp_wav_path(request.req._id)?;
+    let text = normalize_vieneu_input_text(request);
+    if text != request.req.text {
+        eprintln!(
+            "[TTS VieNeu][InputNormalize] req_id={} normalized mostly-uppercase Vietnamese input",
+            request.req._id
+        );
+    }
     let sidecar_request = VieneuSidecarRequest {
         id: request.req._id.to_string(),
-        text: request.req.text.clone(),
+        text,
         output_wav_path: output_wav_path.to_string_lossy().to_string(),
         mode: variant.mode.to_string(),
         backbone_repo: variant.backbone_repo.to_string(),
@@ -185,6 +192,65 @@ fn synthesize_vieneu(
         top_k: 50,
     };
     run_request(sidecar_request, output_wav_path, manager, request)
+}
+
+fn normalize_vieneu_input_text(request: &QueuedRequest) -> String {
+    let text = collapse_vieneu_input_whitespace(&request.req.text);
+    if text.is_empty() {
+        return String::new();
+    }
+
+    if should_lowercase_for_vieneu(&text, request) {
+        text.to_lowercase()
+    } else {
+        text
+    }
+}
+
+fn collapse_vieneu_input_whitespace(text: &str) -> String {
+    text.chars()
+        .map(|ch| {
+            if matches!(ch, '♪' | '♫' | '♩' | '♬' | '♭' | '♮' | '♯') {
+                ' '
+            } else {
+                ch
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn should_lowercase_for_vieneu(text: &str, request: &QueuedRequest) -> bool {
+    let language_is_vietnamese = request
+        .req
+        .profile
+        .as_ref()
+        .and_then(|profile| profile.language_code_override.as_deref())
+        .map(|code| matches!(code, "vie" | "vi" | "vi-VN" | "Vietnamese" | "vietnamese"))
+        .unwrap_or(false);
+    let has_vietnamese_mark = text.chars().any(is_vietnamese_marked_char);
+    if !language_is_vietnamese && !has_vietnamese_mark {
+        return false;
+    }
+
+    let mut uppercase = 0usize;
+    let mut lowercase = 0usize;
+    for ch in text.chars().filter(|ch| ch.is_alphabetic()) {
+        if ch.is_uppercase() {
+            uppercase += 1;
+        } else if ch.is_lowercase() {
+            lowercase += 1;
+        }
+    }
+
+    uppercase >= 3 && uppercase >= lowercase.saturating_mul(2).max(1)
+}
+
+fn is_vietnamese_marked_char(ch: char) -> bool {
+    const VIETNAMESE_MARKED: &str = "ÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚÝàáâãèéêìíòóôõùúýĂăĐđĨĩŨũƠơƯưẠạẢảẤấẦầẨẩẪẫẬậẮắẰằẲẳẴẵẶặẸẹẺẻẼẽẾếỀềỂểỄễỆệỈỉỊịỌọỎỏỐốỒồỔổỖỗỘộỚớỜờỞởỠỡỢợỤụỦủỨứỪừỬửỮữỰựỲỳỴỵỶỷỸỹ";
+    VIETNAMESE_MARKED.contains(ch)
 }
 
 fn resolve_reference_voice(settings: &crate::config::VieneuSettings) -> (String, String) {
@@ -471,4 +537,50 @@ fn trim_vieneu_silence(samples: Vec<i16>, sample_rate: u32) -> Result<Vec<i16>> 
         );
     }
     Ok(trimmed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::tts::types::TtsRequest;
+
+    fn queued(text: &str) -> QueuedRequest {
+        QueuedRequest {
+            req: TtsRequest {
+                _id: 1,
+                text: text.to_string(),
+                hwnd: 0,
+                is_realtime: false,
+                profile: None,
+            },
+            generation: 0,
+        }
+    }
+
+    #[test]
+    fn vieneu_lowercases_all_caps_vietnamese() {
+        let request = queued("TÔI VÀ CÔ GÁI CỦA TÔI, CHÚNG TÔI CÓ\nMỐI QUAN HỆ NÀY");
+        assert_eq!(
+            normalize_vieneu_input_text(&request),
+            "tôi và cô gái của tôi, chúng tôi có mối quan hệ này"
+        );
+    }
+
+    #[test]
+    fn vieneu_preserves_mixed_case_vietnamese() {
+        let request = queued("Tôi và cô gái của tôi");
+        assert_eq!(
+            normalize_vieneu_input_text(&request),
+            "Tôi và cô gái của tôi"
+        );
+    }
+
+    #[test]
+    fn vieneu_collapses_lyric_line_breaks() {
+        let request = queued("♪ TÔI, TÔI VÀ LOUIE, CHÚNG TÔI\nSẼ CHẠY ĐẾN BÊN ♪");
+        assert_eq!(
+            normalize_vieneu_input_text(&request),
+            "tôi, tôi và louie, chúng tôi sẽ chạy đến bên"
+        );
+    }
 }

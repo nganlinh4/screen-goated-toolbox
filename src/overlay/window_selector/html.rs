@@ -125,8 +125,8 @@ html[data-theme='light']{{
 .card{{
   --card-accent-rgb: 128,128,128;
   background:
-    radial-gradient(circle at top left, rgba(var(--card-accent-rgb),0.18), transparent 48%),
-    linear-gradient(180deg, rgba(var(--card-accent-rgb),0.12), transparent 68%),
+    radial-gradient(circle at top left, rgba(var(--card-accent-rgb),0.28), transparent 52%),
+    linear-gradient(180deg, rgba(var(--card-accent-rgb),0.16), transparent 70%),
     var(--card-bg);
   border:1px solid var(--card-border);
   border-radius:10px;overflow:hidden;cursor:pointer;
@@ -146,8 +146,8 @@ html[data-theme='light']{{
   transform:translateY(-3px);
   box-shadow:
     0 10px 28px rgba(0,0,0,0.22),
-    0 0 0 1px rgba(var(--card-accent-rgb),0.20) inset,
-    0 0 24px rgba(var(--card-accent-rgb),0.14)
+    0 0 0 1px rgba(var(--card-accent-rgb),0.34) inset,
+    0 0 34px rgba(var(--card-accent-rgb),0.26)
 }}
 .card:active{{transform:translateY(-1px)}}
 .card.is-disabled{{opacity:0.35!important;cursor:not-allowed}}
@@ -174,16 +174,18 @@ html[data-theme='light']{{
 }}
 
 .info{{
-  padding:8px 10px;display:flex;align-items:center;gap:9px;
-  background:linear-gradient(90deg, rgba(var(--card-accent-rgb),0.16), transparent 78%)
+  padding:9px 10px;display:flex;align-items:center;gap:10px;
+  background:linear-gradient(90deg, rgba(var(--card-accent-rgb),0.26), transparent 82%)
 }}
 .icon{{
-  width:22px;height:22px;flex-shrink:0;border-radius:6px;object-fit:contain;
-  background:rgba(var(--card-accent-rgb),0.18);
-  box-shadow:0 0 0 1px rgba(var(--card-accent-rgb),0.24) inset;
-  padding:2px
+  width:30px;height:30px;flex-shrink:0;border-radius:8px;object-fit:contain;
+  background:rgba(var(--card-accent-rgb),0.24);
+  box-shadow:
+    0 0 0 1px rgba(var(--card-accent-rgb),0.42) inset,
+    0 0 18px rgba(var(--card-accent-rgb),0.32);
+  padding:3px
 }}
-.icon-ph{{width:22px;height:22px;background:rgba(128,128,128,0.12);border-radius:4px;flex-shrink:0}}
+.icon-ph{{width:30px;height:30px;background:rgba(128,128,128,0.14);border-radius:8px;flex-shrink:0}}
 .text{{flex:1;min-width:0}}
 .entry-title{{
   color:var(--title-color);font-size:11.5px;font-weight:500;

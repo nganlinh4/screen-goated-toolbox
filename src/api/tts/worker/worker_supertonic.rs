@@ -338,11 +338,50 @@ fn clean_supertonic_text(chars: impl Iterator<Item = char>) -> String {
 
 fn normalize_supertonic_text_for_lang(text: &str, lang: &str) -> String {
     let text = strip_unverified_supertonic_tags(text);
+    let text = collapse_supertonic_input_whitespace(&text);
+    let text = if lang == "vi" && should_lowercase_supertonic_vietnamese(&text) {
+        text.to_lowercase()
+    } else {
+        text
+    };
     if lang == "vi" {
         clean_supertonic_text(text.nfd())
     } else {
         normalize_supertonic_text(&text)
     }
+}
+
+fn collapse_supertonic_input_whitespace(text: &str) -> String {
+    text.chars()
+        .map(|ch| {
+            if matches!(ch, '♪' | '♫' | '♩' | '♬' | '♭' | '♮' | '♯') {
+                ' '
+            } else {
+                ch
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn should_lowercase_supertonic_vietnamese(text: &str) -> bool {
+    if !contains_vietnamese_marker(text) {
+        return false;
+    }
+
+    let mut uppercase = 0usize;
+    let mut lowercase = 0usize;
+    for ch in text.chars().filter(|ch| ch.is_alphabetic()) {
+        if ch.is_uppercase() {
+            uppercase += 1;
+        } else if ch.is_lowercase() {
+            lowercase += 1;
+        }
+    }
+
+    uppercase >= 3 && uppercase >= lowercase.saturating_mul(2).max(1)
 }
 
 fn strip_unverified_supertonic_tags(text: &str) -> String {
@@ -466,6 +505,17 @@ mod tests {
         assert!(normalized.contains("o\u{323}"));
         assert!(normalized.contains("o\u{302}\u{303}"));
         assert!(normalized.contains("a\u{302}\u{303}"));
+    }
+
+    #[test]
+    fn normalizes_supertonic_vietnamese_lyric_input() {
+        let normalized = super::normalize_supertonic_text_for_lang(
+            "♪ TÔI, TÔI VÀ LOUIE, CHÚNG TÔI\nSẼ CHẠY ĐẾN BÊN ♪",
+            "vi",
+        );
+        assert!(normalized.contains("to\u{302}i, to\u{302}i va\u{300} louie"));
+        assert!(!normalized.contains('\n'));
+        assert!(!normalized.contains('♪'));
     }
 
     #[test]

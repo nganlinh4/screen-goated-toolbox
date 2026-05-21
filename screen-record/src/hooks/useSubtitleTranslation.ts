@@ -43,6 +43,8 @@ const SUBTITLE_TRANSLATION_LANGUAGE_KEY = 'screen-record-subtitle-translation-la
 const SUBTITLE_TRANSLATION_CHUNK_COUNT_KEY = 'screen-record-subtitle-translation-chunk-count-v2';
 const SUBTITLE_TRANSLATION_INSTRUCTIONS_KEY = 'screen-record-subtitle-translation-instructions-v1';
 const SUBTITLE_TRANSLATION_SOURCE_KEY = 'screen-record-subtitle-translation-source-v1';
+const SUBTITLE_TRANSLATION_MODEL_KEY = 'screen-record-subtitle-translation-model-v1';
+const GTX_TRANSLATION_MODEL_ID = 'gtx';
 
 export type SubtitleTranslationSource = 'current' | 'all' | Exclude<SubtitleSourceGroupId, 'unassigned'>;
 
@@ -159,6 +161,18 @@ function getInitialTranslationSource(): SubtitleTranslationSource {
     // ignore persistence failures
   }
   return 'current';
+}
+
+function getInitialTranslationModelId(): string {
+  try {
+    const raw = localStorage.getItem(SUBTITLE_TRANSLATION_MODEL_KEY);
+    if (raw && raw.trim()) {
+      return raw;
+    }
+  } catch {
+    // ignore persistence failures
+  }
+  return GTX_TRANSLATION_MODEL_ID;
 }
 
 function formatTemplate(template: string, params?: Record<string, string> | null) {
@@ -340,6 +354,7 @@ export function useSubtitleTranslation({
   const [isChunkSliderDragging, setIsChunkSliderDragging] = useState(false);
   const [instructions, setInstructions] = useState(getInitialTranslationInstructions);
   const [translationSource, setTranslationSource] = useState<SubtitleTranslationSource>(getInitialTranslationSource);
+  const [selectedModelId, setSelectedModelId] = useState(getInitialTranslationModelId);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobContext, setJobContext] = useState<SubtitleTranslationJobContext | null>(null);
   const [status, setStatus] = useState<SubtitleTranslationJobStatus | null>(null);
@@ -384,6 +399,14 @@ export function useSubtitleTranslation({
   }, [translationSource]);
 
   useEffect(() => {
+    try {
+      localStorage.setItem(SUBTITLE_TRANSLATION_MODEL_KEY, selectedModelId);
+    } catch {
+      // ignore persistence failures
+    }
+  }, [selectedModelId]);
+
+  useEffect(() => {
     activeJobIdRef.current = jobId;
   }, [jobId]);
 
@@ -402,10 +425,10 @@ export function useSubtitleTranslation({
     if (activeJobId) {
       void invoke('cancel_subtitle_translation', { jobId: activeJobId }).catch(() => {});
     }
-      setJobId(null);
-      setJobContext(null);
-      setStatus(null);
-      setTranslationSource('current');
+    setJobId(null);
+    setJobContext(null);
+    setStatus(null);
+    setTranslationSource('current');
   }, [projectResetKey]);
 
   const refreshCapabilities = useCallback(async () => {
@@ -423,6 +446,12 @@ export function useSubtitleTranslation({
     });
   }, [refreshCapabilities]);
 
+  useEffect(() => {
+    if (!capabilities?.models.length) return;
+    if (capabilities.models.some((model) => model.modelId === selectedModelId)) return;
+    setSelectedModelId(capabilities.models[0]?.modelId ?? GTX_TRANSLATION_MODEL_ID);
+  }, [capabilities, selectedModelId]);
+
   const subtitleTracks = useMemo(() => getSubtitleTracks(segment), [segment]);
   const activeSubtitleView = useMemo(() => getActiveSubtitleView(segment), [segment]);
   const activeTrack = useMemo(
@@ -435,6 +464,13 @@ export function useSubtitleTranslation({
   const translationLanguageOptions = useMemo(
     () => SUBTITLE_LANGUAGE_OPTIONS.filter((option) => option.value !== 'auto'),
     [],
+  );
+  const translationModelOptions = useMemo(
+    () => (capabilities?.models ?? []).map((model) => ({
+      value: model.modelId,
+      label: model.modelLabel,
+    })),
+    [capabilities],
   );
   const targetLanguageTrack = useMemo(
     () => findTranslationTrackByLanguage(segment, targetLanguage),
@@ -683,6 +719,7 @@ export function useSubtitleTranslation({
     const result = await invoke<{ jobId: string }>('start_subtitle_translation', {
       targetLanguage,
       trackId: targetLanguageTrack?.id ?? null,
+      modelId: selectedModelId,
       chunkCount: effectiveChunkCount,
       instructions: instructions.trim() || null,
       items,
@@ -707,6 +744,7 @@ export function useSubtitleTranslation({
     selectedTranslationItems,
     setActivePanel,
     targetLanguageTrack,
+    selectedModelId,
     effectiveChunkCount,
     instructions,
     t.subtitleTranslationNoSource,
@@ -755,6 +793,9 @@ export function useSubtitleTranslation({
     subtitleTranslationSource: translationSource,
     setSubtitleTranslationSource: setTranslationSource,
     subtitleTranslationSourceCounts,
+    subtitleTranslationModelId: selectedModelId,
+    setSubtitleTranslationModelId: setSelectedModelId,
+    subtitleTranslationModelOptions: translationModelOptions,
     subtitleTranslationLanguageOptions: translationLanguageOptions,
     subtitleTranslationCapabilities: capabilities,
     canTranslateSubtitles: canTranslate && selectedTranslationItems.length > 0,

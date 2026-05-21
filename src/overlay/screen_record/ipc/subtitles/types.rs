@@ -137,6 +137,8 @@ pub struct CompactSubtitleSegment {
 pub struct SubtitleTranslationRequest {
     #[serde(rename = "targetLanguage")]
     pub target_language: String,
+    #[serde(rename = "modelId")]
+    pub model_id: Option<String>,
     #[serde(rename = "chunkMode")]
     pub chunk_mode: Option<String>,
     #[serde(rename = "chunkCount")]
