@@ -17,6 +17,7 @@ import {
   WebcamConfig,
 } from "@/types/video";
 import { getTotalTrimDuration } from "@/lib/trimSegments";
+import { materializeNarrationGroupTakes } from "@/lib/narrationGroupTakes";
 import { cloneWebcamConfig } from "@/lib/webcam";
 import { getSavedExportFpsPref } from "./videoStatePreferences";
 
@@ -315,7 +316,9 @@ export function useExport(props: UseExportProps) {
       videoFilePath: sourceVideoPath,
       audioSegments: (compositionOverride ?? props.composition)?.audioSegments,
       audioTrackVolumePoints: (compositionOverride ?? props.composition)?.audioTrackVolumePoints,
-      narrationSegments: (compositionOverride ?? props.composition)?.narrationSegments,
+      narrationSegments: materializeNarrationGroupTakes(
+        (compositionOverride ?? props.composition)?.narrationSegments,
+      ),
       narrationTrackVolumePoints: (compositionOverride ?? props.composition)?.narrationTrackVolumePoints,
     }),
     [

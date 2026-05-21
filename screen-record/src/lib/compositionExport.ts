@@ -16,6 +16,7 @@ import { getCursorAssetUrl } from "@/lib/renderer/cursorAssets";
 import { getCursorPack } from "@/lib/renderer/cursorTypes";
 import { buildSequenceTimeline, mergeCompositionSegmentsToSequence } from "@/lib/sequenceTimeline";
 import { getTotalTrimDuration, getTrimBounds, normalizeSegmentTrimData } from "@/lib/trimSegments";
+import { materializeNarrationGroupTakes } from "@/lib/narrationGroupTakes";
 import { videoRenderer } from "@/lib/videoRenderer";
 import type {
   BackgroundConfig,
@@ -485,7 +486,7 @@ export async function exportCompositionAndDownload(
         clips: clipJobs,
         audioSegments: context.composition.audioSegments,
         audioTrackVolumePoints: context.composition.audioTrackVolumePoints,
-        narrationSegments: context.composition.narrationSegments,
+        narrationSegments: materializeNarrationGroupTakes(context.composition.narrationSegments),
         narrationTrackVolumePoints: context.composition.narrationTrackVolumePoints,
       } satisfies NativeCompositionExportRequest,
     );

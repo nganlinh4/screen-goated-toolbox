@@ -118,6 +118,10 @@ fn generate_model_catalog(manifest_path: &Path, output_path: &Path) {
         "pub const DEFAULT_GEMINI_LIVE_TTS_MODEL: &str = {};",
         rust_string(manifest_string(defaults, "tts_gemini_live_model"))
     ));
+    lines.push(format!(
+        "pub const DEFAULT_REALTIME_TRANSCRIPTION_MODEL: &str = {};",
+        rust_string(manifest_string(defaults, "realtime_transcription_model"))
+    ));
     lines.push(String::new());
 
     let preset_defaults = manifest_object(&manifest, "preset_defaults");

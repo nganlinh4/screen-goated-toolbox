@@ -22,6 +22,16 @@ use windows_capture::settings::{
     MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings, SettingsOptions,
 };
 
+fn capture_stop_state() -> String {
+    format!(
+        "video={} audio={} mic={} webcam={}",
+        ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst),
+        AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst),
+        MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst),
+        WEBCAM_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
+    )
+}
+
 pub(super) fn handle_start_recording(
     args: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
@@ -134,6 +144,9 @@ pub(super) fn handle_start_recording(
         }
 
         let update_interval = if let Some(f) = fps {
+            // Sample faster than the target encoder cadence so a 100Hz display
+            // has enough source frames for a 50fps recording, without flooding
+            // WGC during cold start.
             let target_micros = 1_000_000 / f.max(1);
             MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_micros(
                 (target_micros / 2) as u64,
@@ -200,6 +213,9 @@ pub(super) fn handle_start_recording(
         }
 
         let update_interval = if let Some(f) = fps {
+            // Sample faster than the target encoder cadence so a 100Hz display
+            // has enough source frames for a 50fps recording, without flooding
+            // WGC during cold start.
             let target_micros = 1_000_000 / f.max(1);
             MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_micros(
                 (target_micros / 2) as u64,
@@ -259,7 +275,13 @@ pub(super) fn handle_start_recording(
 }
 
 pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
+    let stop_total = std::time::Instant::now();
+    eprintln!(
+        "[CaptureBackend][Stop] requested state={}",
+        capture_stop_state()
+    );
     SHOULD_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
+    super::super::engine::SHOULD_STOP_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);
     super::super::engine::TARGET_HWND.store(0, std::sync::atomic::Ordering::SeqCst);
     super::super::capture_border::hide_capture_border();
 
@@ -267,10 +289,33 @@ pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
     unsafe {
         timeEndPeriod(1);
     }
+    let active_stop_start = std::time::Instant::now();
     if let Some(control) = ACTIVE_CAPTURE_CONTROL.lock().take() {
         control.stop();
+        eprintln!(
+            "[CaptureBackend][Stop] active-control-stop elapsed_ms={}",
+            active_stop_start.elapsed().as_millis()
+        );
+    } else {
+        eprintln!("[CaptureBackend][Stop] active-control-stop skipped reason=none");
     }
+    let external_stop_start = std::time::Instant::now();
+    if let Some(control) = super::super::engine::EXTERNAL_CAPTURE_CONTROL.lock().take() {
+        let _ = control.stop();
+        eprintln!(
+            "[CaptureBackend][Stop] external-control-stop initial=true elapsed_ms={}",
+            external_stop_start.elapsed().as_millis()
+        );
+    } else {
+        eprintln!("[CaptureBackend][Stop] external-control-stop initial=true skipped reason=none");
+    }
+    let input_drain_start = std::time::Instant::now();
     let raw_input_events = input_capture::stop_capture_and_drain();
+    eprintln!(
+        "[CaptureBackend][Stop] input-drain elapsed_ms={} events={}",
+        input_drain_start.elapsed().as_millis(),
+        raw_input_events.len()
+    );
 
     // Check if capture failed to start (error stored by the capture thread).
     // Give the capture thread a brief moment to report failure.
@@ -298,12 +343,22 @@ pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
     //   shutdown_and_finalize → encoder.finish() (fast: transcode already
     //   completed from pump's EOF signals).
     let start = std::time::Instant::now();
+    let mut last_wait_log_ms = 0u128;
     while (!ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
         || !AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
         || !MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
         || !WEBCAM_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst))
         && start.elapsed().as_secs() < 10
     {
+        let elapsed_ms = start.elapsed().as_millis();
+        if elapsed_ms.saturating_sub(last_wait_log_ms) >= 1000 {
+            last_wait_log_ms = elapsed_ms;
+            eprintln!(
+                "[CaptureBackend][Stop] wait elapsed_ms={} state={}",
+                elapsed_ms,
+                capture_stop_state()
+            );
+        }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 
@@ -311,6 +366,12 @@ pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
         && AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
         && MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
         && WEBCAM_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst);
+    eprintln!(
+        "[CaptureBackend][Stop] wait-done elapsed_ms={} done={} state={}",
+        start.elapsed().as_millis(),
+        encoding_done,
+        capture_stop_state()
+    );
 
     if !encoding_done {
         eprintln!(
@@ -320,19 +381,38 @@ pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
 
         // Force-stop the capture thread so on_closed → shutdown_and_finalize
         // runs.  This is the fallback if on_frame_arrived never fired.
+        let external_stop_start = std::time::Instant::now();
         if let Some(control) = super::super::engine::EXTERNAL_CAPTURE_CONTROL.lock().take() {
             let _ = control.stop();
+            eprintln!(
+                "[CaptureBackend][Stop] external-control-stop initial=false elapsed_ms={}",
+                external_stop_start.elapsed().as_millis()
+            );
+        } else {
+            eprintln!(
+                "[CaptureBackend][Stop] external-control-stop initial=false skipped reason=none"
+            );
         }
 
         // Give shutdown_and_finalize's spawned thread a moment to set
         // ENCODING_FINISHED after the capture thread is stopped.
         let retry_start = std::time::Instant::now();
+        let mut last_retry_log_ms = 0u128;
         while (!ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
             || !AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
             || !MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
             || !WEBCAM_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst))
             && retry_start.elapsed().as_secs() < 5
         {
+            let elapsed_ms = retry_start.elapsed().as_millis();
+            if elapsed_ms.saturating_sub(last_retry_log_ms) >= 1000 {
+                last_retry_log_ms = elapsed_ms;
+                eprintln!(
+                    "[CaptureBackend][Stop] retry-wait elapsed_ms={} state={}",
+                    elapsed_ms,
+                    capture_stop_state()
+                );
+            }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
@@ -340,6 +420,12 @@ pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
             && AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
             && MIC_AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
             && WEBCAM_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst);
+        eprintln!(
+            "[CaptureBackend][Stop] retry-done elapsed_ms={} done={} state={}",
+            retry_start.elapsed().as_millis(),
+            retry_done,
+            capture_stop_state()
+        );
 
         if !retry_done {
             IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -417,6 +503,14 @@ pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
             format!("http://localhost:{}/?path={}", port, encoded)
         });
     IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
+    eprintln!(
+        "[CaptureBackend][Stop] complete elapsed_ms={} video_path={} audio_path={} mic_path={} webcam_path={}",
+        stop_total.elapsed().as_millis(),
+        video_file_path,
+        video_file_path,
+        mic_audio_path.as_deref().unwrap_or(""),
+        webcam_video_path.as_deref().unwrap_or("")
+    );
 
     Ok(serde_json::json!({
         "videoUrl": video_url,

@@ -1,8 +1,13 @@
 use std::collections::HashMap;
+use std::io::Write;
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use unicode_normalization::UnicodeNormalization;
+
 use crate::api::tts::TTS_MANAGER;
+use crate::api::tts::types::TtsCollectedAudio;
 use crate::api::tts::types::TtsRequestProfile;
 use crate::config::tts_catalog::{
     KOKORO_VOICES, MAGPIE_VOICE_LANGUAGES, MAGPIE_VOICES, SUPERTONIC_LANGUAGES, SUPERTONIC_VOICES,
@@ -19,9 +24,18 @@ use crate::gui::settings_ui::tts_playground_data::{
 use crate::model_config::tts_gemini_model_options;
 
 use super::media_server;
+use super::subtitles::audio::snap_split_frames_to_silence;
 
 const NARRATION_TTS_MAX_ATTEMPTS: usize = 4;
 const NARRATION_TTS_RETRY_BASE_DELAY_MS: u64 = 350;
+const NARRATION_GROUP_DEFAULT_TEXT_BUDGET: usize = 45;
+const NARRATION_GROUP_MIN_TEXT_BUDGET: usize = 15;
+const NARRATION_GROUP_MAX_TEXT_BUDGET: usize = 120;
+const NARRATION_GROUP_MAX_ITEMS: usize = 10;
+const NARRATION_GROUP_MAX_CHARS: usize = 650;
+const NARRATION_GROUP_GAP_BREAK_SEC: f64 = 1.2;
+const NARRATION_GROUP_DEFAULT_VAD_RADIUS_SEC: f64 = 0.35;
+const NARRATION_ALIGNER_ENV: &str = "SGT_NARRATION_ALIGNER_CMD";
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -342,6 +356,34 @@ struct SubtitleNarrationRequest {
     profile: TtsProfileWire,
     #[serde(default)]
     source_language_code: Option<String>,
+    #[serde(default)]
+    grouping: SubtitleNarrationGroupingRequest,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubtitleNarrationGroupingRequest {
+    #[serde(default = "default_narration_group_text_budget")]
+    text_budget_units: usize,
+    #[serde(default = "default_narration_group_vad_radius_sec")]
+    vad_search_radius_sec: f64,
+}
+
+impl Default for SubtitleNarrationGroupingRequest {
+    fn default() -> Self {
+        Self {
+            text_budget_units: default_narration_group_text_budget(),
+            vad_search_radius_sec: default_narration_group_vad_radius_sec(),
+        }
+    }
+}
+
+fn default_narration_group_text_budget() -> usize {
+    NARRATION_GROUP_DEFAULT_TEXT_BUDGET
+}
+
+fn default_narration_group_vad_radius_sec() -> f64 {
+    NARRATION_GROUP_DEFAULT_VAD_RADIUS_SEC
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -351,6 +393,14 @@ struct SubtitleNarrationResult {
     text: String,
     path: String,
     duration: f64,
+    source_in_point: f64,
+    source_out_point: f64,
+    group_id: String,
+    narration_group_take_id: String,
+    narration_group_prompt_text: String,
+    narration_group_source_start_time: f64,
+    alignment_mode: String,
+    alignment_confidence: f64,
     start_time: f64,
     end_time: f64,
 }
@@ -945,6 +995,507 @@ pub fn handle_cancel_subtitle_narration(
     Ok(serde_json::Value::Null)
 }
 
+#[derive(Clone)]
+struct CleanNarrationItem {
+    id: String,
+    text: String,
+    tts_text: String,
+    aligner_text: String,
+    start_time: f64,
+    end_time: f64,
+    text_units: usize,
+}
+
+struct NarrationRequestGroup {
+    id: String,
+    items: Vec<CleanNarrationItem>,
+    text: String,
+    spans: Vec<NarrationGroupTextSpan>,
+}
+
+#[derive(Clone)]
+struct NarrationGroupTextSpan {
+    subtitle_id: String,
+    text: String,
+    start_char: usize,
+    end_char: usize,
+}
+
+#[derive(Clone)]
+struct NarrationAlignedRange {
+    start_sec: f64,
+    end_sec: f64,
+    confidence: f64,
+}
+
+struct NarrationSplitResult {
+    ranges: Vec<NarrationAlignedRange>,
+    mode: &'static str,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NarrationAlignerRequest<'a> {
+    audio_path: &'a str,
+    prompt_text: &'a str,
+    language_code: Option<&'a str>,
+    items: Vec<NarrationAlignerItem<'a>>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NarrationAlignerItem<'a> {
+    subtitle_id: &'a str,
+    text: &'a str,
+    start_char: usize,
+    end_char: usize,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NarrationAlignerResponse {
+    ranges: Vec<NarrationAlignerRange>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NarrationAlignerRange {
+    subtitle_id: String,
+    source_in_point: f64,
+    source_out_point: f64,
+    #[serde(default = "default_alignment_confidence")]
+    confidence: f64,
+}
+
+fn default_alignment_confidence() -> f64 {
+    1.0
+}
+
+fn estimate_narration_speech_units(text: &str) -> usize {
+    let mut word_count = 0usize;
+    let mut in_word = false;
+    let mut alnum_chars = 0usize;
+    let mut has_whitespace = false;
+    for ch in text.nfc() {
+        if ch.is_whitespace() {
+            has_whitespace = true;
+            if in_word {
+                word_count += 1;
+                in_word = false;
+            }
+            continue;
+        }
+        if ch.is_alphanumeric() {
+            alnum_chars += 1;
+            in_word = true;
+        } else if in_word {
+            word_count += 1;
+            in_word = false;
+        }
+    }
+    if in_word {
+        word_count += 1;
+    }
+    if has_whitespace && word_count > 1 {
+        word_count
+    } else {
+        ((alnum_chars + 3) / 4).max(1)
+    }
+}
+
+fn normalize_group_sentence(text: &str) -> String {
+    let mut trimmed = text.trim().trim_matches(|ch: char| {
+        ch.is_whitespace()
+            || matches!(
+                ch,
+                '"' | '\'' | '`' | '*' | '_' | '~' | '|' | '♪' | '♫' | '♩' | '♬'
+            )
+    });
+    while trimmed
+        .chars()
+        .last()
+        .is_some_and(|ch| matches!(ch, ',' | ';' | ':' | '-' | '—' | '–' | '.' | '…'))
+    {
+        trimmed = trimmed
+            .trim_end_matches(|ch| matches!(ch, ',' | ';' | ':' | '-' | '—' | '–' | '.' | '…'))
+            .trim_end();
+    }
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed
+        .chars()
+        .last()
+        .is_some_and(|ch| matches!(ch, '!' | '?' | '！' | '？' | '。'))
+    {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}.")
+    }
+}
+
+fn normalize_alignment_text(text: &str) -> String {
+    text.nfc()
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn append_group_sentence(
+    text_parts: &mut Vec<String>,
+    spans: &mut Vec<NarrationGroupTextSpan>,
+    item: &CleanNarrationItem,
+    cursor: &mut usize,
+) {
+    let sentence = normalize_group_sentence(&item.tts_text);
+    if sentence.is_empty() {
+        return;
+    }
+    if !text_parts.is_empty() {
+        *cursor += 1;
+    }
+    let start_char = *cursor;
+    *cursor += sentence.chars().count();
+    spans.push(NarrationGroupTextSpan {
+        subtitle_id: item.id.clone(),
+        text: item.aligner_text.clone(),
+        start_char,
+        end_char: *cursor,
+    });
+    text_parts.push(sentence);
+}
+
+fn build_group_text_and_spans(
+    items: &[CleanNarrationItem],
+) -> (String, Vec<NarrationGroupTextSpan>) {
+    let mut text_parts = Vec::new();
+    let mut spans = Vec::new();
+    let mut cursor = 0usize;
+    for item in items {
+        append_group_sentence(&mut text_parts, &mut spans, item, &mut cursor);
+    }
+    (text_parts.join(" "), spans)
+}
+
+fn build_narration_groups(
+    items: Vec<CleanNarrationItem>,
+    grouping: &SubtitleNarrationGroupingRequest,
+) -> Vec<NarrationRequestGroup> {
+    let text_budget = grouping.text_budget_units.clamp(
+        NARRATION_GROUP_MIN_TEXT_BUDGET,
+        NARRATION_GROUP_MAX_TEXT_BUDGET,
+    );
+    let mut groups = Vec::new();
+    let mut current = Vec::<CleanNarrationItem>::new();
+    let mut current_units = 0usize;
+    let mut current_chars = 0usize;
+    let mut previous_end: Option<f64> = None;
+
+    let flush_current = |groups: &mut Vec<NarrationRequestGroup>,
+                         current: &mut Vec<CleanNarrationItem>,
+                         current_units: &mut usize,
+                         current_chars: &mut usize| {
+        if current.is_empty() {
+            return;
+        }
+        let group_index = groups.len();
+        let (text, spans) = build_group_text_and_spans(current);
+        groups.push(NarrationRequestGroup {
+            id: format!("group-{group_index}"),
+            items: std::mem::take(current),
+            text,
+            spans,
+        });
+        *current_units = 0;
+        *current_chars = 0;
+    };
+
+    for item in items {
+        let item_chars = item.tts_text.chars().count();
+        let gap = previous_end.map_or(0.0, |end| item.start_time - end);
+        let should_start_new = !current.is_empty()
+            && (current.len() >= NARRATION_GROUP_MAX_ITEMS
+                || current_chars + item_chars > NARRATION_GROUP_MAX_CHARS
+                || gap > NARRATION_GROUP_GAP_BREAK_SEC
+                || current_units + item.text_units > text_budget);
+        if should_start_new {
+            flush_current(
+                &mut groups,
+                &mut current,
+                &mut current_units,
+                &mut current_chars,
+            );
+        }
+        previous_end = Some(item.end_time);
+        current_units += item.text_units;
+        current_chars += item_chars;
+        current.push(item);
+    }
+    flush_current(
+        &mut groups,
+        &mut current,
+        &mut current_units,
+        &mut current_chars,
+    );
+    groups
+}
+
+fn split_group_audio_ranges(
+    group: &NarrationRequestGroup,
+    audio: &TtsCollectedAudio,
+    vad_search_radius_sec: f64,
+) -> NarrationSplitResult {
+    let total_items = group.items.len();
+    let duration_sec = (audio.duration_ms as f64 / 1000.0).max(0.05);
+    if total_items <= 1 {
+        return NarrationSplitResult {
+            ranges: vec![NarrationAlignedRange {
+                start_sec: 0.0,
+                end_sec: duration_sec,
+                confidence: 1.0,
+            }],
+            mode: "single",
+        };
+    }
+    if audio.pcm_samples.len() < total_items {
+        return NarrationSplitResult {
+            ranges: (0..total_items)
+                .map(|index| {
+                    let start = duration_sec * index as f64 / total_items as f64;
+                    let end = duration_sec * (index + 1) as f64 / total_items as f64;
+                    NarrationAlignedRange {
+                        start_sec: start,
+                        end_sec: end.max(start + 0.05).min(duration_sec),
+                        confidence: 0.25,
+                    }
+                })
+                .collect(),
+            mode: "estimated",
+        };
+    }
+    NarrationSplitResult {
+        ranges: split_group_audio_ranges_estimated(group, audio, vad_search_radius_sec),
+        mode: "estimated",
+    }
+}
+
+fn split_group_audio_ranges_estimated(
+    group: &NarrationRequestGroup,
+    audio: &TtsCollectedAudio,
+    vad_search_radius_sec: f64,
+) -> Vec<NarrationAlignedRange> {
+    let total_items = group.items.len();
+    let duration_sec = (audio.duration_ms as f64 / 1000.0).max(0.05);
+    let punctuation_total: f64 = group
+        .items
+        .iter()
+        .map(|item| narration_pause_weight(&item.tts_text))
+        .sum::<f64>()
+        .max(0.0);
+    let text_total: f64 = group
+        .items
+        .iter()
+        .map(|item| item.text_units.max(1) as f64 + narration_pause_weight(&item.tts_text))
+        .sum::<f64>()
+        .max(1.0);
+    let time_total: f64 = group
+        .items
+        .iter()
+        .map(|item| (item.end_time - item.start_time).max(0.05))
+        .sum::<f64>()
+        .max(0.05);
+    let weights = group
+        .items
+        .iter()
+        .map(|item| {
+            let text_ratio = (item.text_units.max(1) as f64
+                + narration_pause_weight(&item.tts_text))
+                / text_total;
+            let time_ratio = (item.end_time - item.start_time).max(0.05) / time_total;
+            (text_ratio * 0.82 + time_ratio * 0.18).max(0.001)
+        })
+        .collect::<Vec<_>>();
+
+    let sample_rate = audio.sample_rate.max(1);
+    let total_frames = audio.pcm_samples.len();
+    let mut cumulative = 0.0;
+    let ideal_frames = weights
+        .iter()
+        .take(total_items - 1)
+        .map(|weight| {
+            cumulative += *weight;
+            ((cumulative * total_frames as f64).round() as usize)
+                .min(total_frames.saturating_sub(1))
+        })
+        .collect::<Vec<_>>();
+    let snapped_frames = if total_frames > 2 {
+        snap_split_frames_to_silence(
+            &audio.pcm_samples,
+            1,
+            sample_rate,
+            &ideal_frames,
+            vad_search_radius_sec.clamp(0.05, 1.0),
+        )
+    } else {
+        ideal_frames
+    };
+
+    let min_gap_frames = ((sample_rate as f64 * 0.05).round() as usize).max(1);
+    let candidate_frames = if snapped_frames.len() == total_items - 1 {
+        snapped_frames
+    } else {
+        (1..total_items)
+            .map(|index| total_frames * index / total_items)
+            .collect::<Vec<_>>()
+    };
+    let mut boundaries = Vec::with_capacity(total_items + 1);
+    boundaries.push(0usize);
+    let mut previous = 0usize;
+    for frame in candidate_frames {
+        let min_next = previous.saturating_add(min_gap_frames);
+        let max_next = total_frames.saturating_sub(min_gap_frames);
+        let boundary = frame.max(min_next).min(max_next);
+        if boundary > previous && boundary < total_frames {
+            boundaries.push(boundary);
+            previous = boundary;
+        }
+    }
+    if boundaries.len() != total_items {
+        boundaries = (0..=total_items)
+            .map(|index| total_frames * index / total_items)
+            .collect();
+    } else {
+        boundaries.push(total_frames);
+    }
+    let base_confidence = if punctuation_total > 0.0 { 0.5 } else { 0.42 };
+    boundaries
+        .windows(2)
+        .take(total_items)
+        .map(|pair| {
+            let start = pair[0] as f64 / sample_rate as f64;
+            let end = pair[1] as f64 / sample_rate as f64;
+            NarrationAlignedRange {
+                start_sec: start.min(duration_sec),
+                end_sec: end.max(start + 0.05).min(duration_sec),
+                confidence: base_confidence,
+            }
+        })
+        .collect()
+}
+
+fn narration_pause_weight(text: &str) -> f64 {
+    let trimmed = text.trim();
+    let Some(last) = trimmed.chars().rev().find(|ch| !ch.is_whitespace()) else {
+        return 0.0;
+    };
+    match last {
+        '.' | '。' => 0.9,
+        '!' | '?' | '！' | '？' => 1.1,
+        '…' => 1.2,
+        ',' | ';' | ':' => 0.45,
+        _ => 0.0,
+    }
+}
+
+fn align_group_audio_ranges(
+    group: &NarrationRequestGroup,
+    audio_path: &str,
+    audio: &TtsCollectedAudio,
+    language_code: Option<&str>,
+    vad_search_radius_sec: f64,
+) -> NarrationSplitResult {
+    if let Some(aligned) = try_external_narration_aligner(group, audio_path, audio, language_code) {
+        return aligned;
+    }
+    split_group_audio_ranges(group, audio, vad_search_radius_sec)
+}
+
+fn try_external_narration_aligner(
+    group: &NarrationRequestGroup,
+    audio_path: &str,
+    audio: &TtsCollectedAudio,
+    language_code: Option<&str>,
+) -> Option<NarrationSplitResult> {
+    let command = std::env::var(NARRATION_ALIGNER_ENV).ok()?;
+    let command = command.trim();
+    if command.is_empty() {
+        return None;
+    }
+
+    let items = group
+        .spans
+        .iter()
+        .map(|span| NarrationAlignerItem {
+            subtitle_id: &span.subtitle_id,
+            text: &span.text,
+            start_char: span.start_char,
+            end_char: span.end_char,
+        })
+        .collect();
+    let request = NarrationAlignerRequest {
+        audio_path,
+        prompt_text: &group.text,
+        language_code,
+        items,
+    };
+    let payload = serde_json::to_vec(&request).ok()?;
+    let mut child = std::process::Command::new(command)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    if let Some(stdin) = child.stdin.as_mut()
+        && stdin.write_all(&payload).is_err()
+    {
+        let _ = child.kill();
+        return None;
+    }
+    let output = child.wait_with_output().ok()?;
+    if !output.status.success() {
+        eprintln!(
+            "[Narration][Aligner] command failed status={:?} stderr={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+                .chars()
+                .take(600)
+                .collect::<String>()
+        );
+        return None;
+    }
+    let response: NarrationAlignerResponse = serde_json::from_slice(&output.stdout).ok()?;
+    if response.ranges.len() != group.items.len() {
+        return None;
+    }
+    let duration_sec = (audio.duration_ms as f64 / 1000.0).max(0.05);
+    let mut by_id = response
+        .ranges
+        .into_iter()
+        .map(|range| (range.subtitle_id.clone(), range))
+        .collect::<HashMap<_, _>>();
+    let mut previous_end = 0.0;
+    let mut ranges = Vec::with_capacity(group.items.len());
+    for item in &group.items {
+        let range = by_id.remove(&item.id)?;
+        let start = range
+            .source_in_point
+            .max(previous_end)
+            .clamp(0.0, duration_sec);
+        let end = range.source_out_point.max(start + 0.05).min(duration_sec);
+        previous_end = end;
+        ranges.push(NarrationAlignedRange {
+            start_sec: start,
+            end_sec: end,
+            confidence: range.confidence.clamp(0.0, 1.0),
+        });
+    }
+    Some(NarrationSplitResult {
+        ranges,
+        mode: "aligned",
+    })
+}
+
 fn run_subtitle_narration(
     job_id: &str,
     request: SubtitleNarrationRequest,
@@ -961,6 +1512,7 @@ fn run_subtitle_narration(
         state.total_items = total;
     });
 
+    let mut clean_items = Vec::new();
     for (index, item) in request.items.iter().enumerate() {
         if cancelled.load(Ordering::SeqCst) {
             eprintln!(
@@ -1011,82 +1563,153 @@ fn run_subtitle_narration(
             continue;
         };
 
-        let _ = update_snapshot(&snapshot, |state| {
-            state.active_subtitle_id = Some(item.id.clone());
-            state.message = format!("Generating narration {}/{}", index + 1, total);
-        });
         let tts_text = prepare_narration_tts_text(&narration_text, &profile.method);
+        clean_items.push(CleanNarrationItem {
+            id: item.id.clone(),
+            text: clean_text.to_string(),
+            text_units: estimate_narration_speech_units(&narration_text),
+            aligner_text: normalize_alignment_text(&narration_text),
+            tts_text,
+            start_time: item.start_time,
+            end_time: item.end_time,
+        });
+    }
+
+    let groups = build_narration_groups(clean_items, &request.grouping);
+    eprintln!(
+        "[Narration][job={}] grouped total_items={} groups={} text_budget={} vad_radius={:.2}",
+        job_id,
+        total,
+        groups.len(),
+        request.grouping.text_budget_units,
+        request.grouping.vad_search_radius_sec
+    );
+
+    for (group_index, group) in groups.iter().enumerate() {
+        if cancelled.load(Ordering::SeqCst) {
+            eprintln!(
+                "[Narration][job={}] cancelled at group {}/{}",
+                job_id,
+                group_index + 1,
+                groups.len()
+            );
+            let _ = update_snapshot(&snapshot, |state| {
+                state.state = "cancelled".to_string();
+                state.message = "Subtitle narration cancelled".to_string();
+                state.active_subtitle_id = None;
+            });
+            return;
+        }
+
+        let Some(first_item) = group.items.first() else {
+            continue;
+        };
+        let _ = update_snapshot(&snapshot, |state| {
+            state.active_subtitle_id = Some(first_item.id.clone());
+            state.message = format!(
+                "Generating narration {}/{}",
+                (state.completed_items + 1).min(total),
+                total
+            );
+        });
         eprintln!(
-            "[Narration][job={}] item {}/{} subtitle_id={} method={:?} lang_override='{}' text_chars={} text_json={} tts_text_json={}",
+            "[Narration][job={}] group {}/{} group_id={} items={} first_subtitle_id={} method={:?} lang_override='{}' text_chars={} text_json={}",
             job_id,
-            index + 1,
-            total,
-            item.id,
+            group_index + 1,
+            groups.len(),
+            group.id,
+            group.items.len(),
+            first_item.id,
             profile.method,
             profile.language_code_override.as_deref().unwrap_or(""),
-            narration_text.chars().count(),
-            serde_json::to_string(&narration_text)
-                .unwrap_or_else(|_| "\"<unserializable>\"".to_string()),
-            serde_json::to_string(&tts_text).unwrap_or_else(|_| "\"<unserializable>\"".to_string())
+            group.text.chars().count(),
+            serde_json::to_string(&group.text)
+                .unwrap_or_else(|_| "\"<unserializable>\"".to_string())
         );
 
         let result = synthesize_narration_item_with_retries(NarrationSynthesisAttempt {
             job_id,
-            index,
-            total,
-            item,
-            clean_text: &tts_text,
+            index: group_index,
+            total: groups.len(),
+            item_id: &first_item.id,
+            clean_text: &group.text,
             profile: &profile,
             snapshot: &snapshot,
             cancelled: &cancelled,
         });
 
         match &result {
-            Ok((path, duration, attempts)) => eprintln!(
-                "[Narration][job={}] item {}/{} subtitle_id={} OK duration_sec={:.3} attempts={} path={}",
+            Ok((path, audio, attempts)) => eprintln!(
+                "[Narration][job={}] group {}/{} group_id={} items={} OK duration_sec={:.3} attempts={} path={}",
                 job_id,
-                index + 1,
-                total,
-                item.id,
-                duration,
+                group_index + 1,
+                groups.len(),
+                group.id,
+                group.items.len(),
+                audio.duration_ms as f64 / 1000.0,
                 attempts,
                 path
             ),
             Err(message) => eprintln!(
-                "[Narration][job={}] item {}/{} subtitle_id={} FAILED attempts={} error={}",
+                "[Narration][job={}] group {}/{} group_id={} first_subtitle_id={} FAILED attempts={} error={}",
                 job_id,
-                index + 1,
-                total,
-                item.id,
+                group_index + 1,
+                groups.len(),
+                group.id,
+                first_item.id,
                 NARRATION_TTS_MAX_ATTEMPTS,
                 message
             ),
         }
 
         let _ = update_snapshot(&snapshot, |state| {
-            state.completed_items += 1;
+            state.completed_items += group.items.len();
             state.progress = state.completed_items as f64 / total.max(1) as f64;
             match result {
-                Ok((path, duration, _attempts)) => {
-                    let result = SubtitleNarrationResult {
-                        subtitle_id: item.id.clone(),
-                        text: clean_text.to_string(),
-                        path,
-                        duration,
-                        start_time: item.start_time,
-                        end_time: item.end_time,
-                    };
-                    state.results.push(result.clone());
-                    state.results_revision += 1;
-                    let revision = state.results_revision;
-                    state
-                        .result_events
-                        .push(SubtitleNarrationResultEvent { revision, result });
+                Ok((path, audio, _attempts)) => {
+                    let duration = audio.duration_ms as f64 / 1000.0;
+                    let split = align_group_audio_ranges(
+                        group,
+                        &path,
+                        &audio,
+                        profile.language_code_override.as_deref(),
+                        request.grouping.vad_search_radius_sec,
+                    );
+                    let alignment_mode = split.mode.to_string();
+                    let take_id = format!("{job_id}-{}", group.id);
+                    for (item, range) in group.items.iter().zip(split.ranges.into_iter()) {
+                        let result = SubtitleNarrationResult {
+                            subtitle_id: item.id.clone(),
+                            text: item.text.clone(),
+                            path: path.clone(),
+                            duration,
+                            source_in_point: range.start_sec,
+                            source_out_point: range.end_sec,
+                            group_id: group.id.clone(),
+                            narration_group_take_id: take_id.clone(),
+                            narration_group_prompt_text: group.text.clone(),
+                            narration_group_source_start_time: first_item.start_time,
+                            alignment_mode: alignment_mode.clone(),
+                            alignment_confidence: range.confidence,
+                            start_time: item.start_time,
+                            end_time: item.end_time,
+                        };
+                        state.results.push(result.clone());
+                        state.results_revision += 1;
+                        let revision = state.results_revision;
+                        state
+                            .result_events
+                            .push(SubtitleNarrationResultEvent { revision, result });
+                    }
                 }
-                Err(message) => state.errors.push(SubtitleNarrationError {
-                    subtitle_id: item.id.clone(),
-                    message,
-                }),
+                Err(message) => {
+                    for item in &group.items {
+                        state.errors.push(SubtitleNarrationError {
+                            subtitle_id: item.id.clone(),
+                            message: message.clone(),
+                        });
+                    }
+                }
             }
         });
     }
@@ -1279,7 +1902,7 @@ struct NarrationSynthesisAttempt<'a> {
     job_id: &'a str,
     index: usize,
     total: usize,
-    item: &'a SubtitleNarrationItemRequest,
+    item_id: &'a str,
     clean_text: &'a str,
     profile: &'a TtsRequestProfile,
     snapshot: &'a Arc<Mutex<SubtitleNarrationJobSnapshot>>,
@@ -1288,12 +1911,12 @@ struct NarrationSynthesisAttempt<'a> {
 
 fn synthesize_narration_item_with_retries(
     attempt_ctx: NarrationSynthesisAttempt<'_>,
-) -> Result<(String, f64, usize), String> {
+) -> Result<(String, TtsCollectedAudio, usize), String> {
     let NarrationSynthesisAttempt {
         job_id,
         index,
         total,
-        item,
+        item_id,
         clean_text,
         profile,
         snapshot,
@@ -1319,11 +1942,11 @@ fn synthesize_narration_item_with_retries(
 
         let synth_started_at = std::time::Instant::now();
         let result = TTS_MANAGER
-            .synthesize_to_wav_with_profile(clean_text, profile.clone())
+            .synthesize_to_wav_with_profile_cancel(clean_text, profile.clone(), cancelled.clone())
             .map_err(|error| error.to_string())
             .and_then(|audio| {
                 media_server::write_managed_narration_wav(job_id, index, &audio.wav_data)
-                    .map(|path| (path, audio.duration_ms as f64 / 1000.0))
+                    .map(|path| (path, audio))
             });
         let synth_elapsed_ms = synth_started_at.elapsed().as_millis();
 
@@ -1338,7 +1961,7 @@ fn synthesize_narration_item_with_retries(
                     job_id,
                     index + 1,
                     total,
-                    item.id,
+                    item_id,
                     attempt,
                     NARRATION_TTS_MAX_ATTEMPTS,
                     synth_elapsed_ms,
@@ -1385,9 +2008,12 @@ fn uuid() -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        TtsProfileWire, handle_get_narration_tts_metadata, normalize_narration_input_text,
-        prepare_narration_tts_text,
+        CleanNarrationItem, NarrationRequestGroup, SubtitleNarrationGroupingRequest,
+        TtsProfileWire, build_narration_groups, handle_get_narration_tts_metadata,
+        normalize_group_sentence, normalize_narration_input_text, prepare_narration_tts_text,
+        split_group_audio_ranges,
     };
+    use crate::api::tts::types::TtsCollectedAudio;
     use crate::config::TtsMethod;
 
     #[test]
@@ -1492,5 +2118,81 @@ mod tests {
             .as_deref(),
             Some("TÔI VÀ CÔ GÁI CỦA TÔI\nMỐI QUAN HỆ NÀY")
         );
+    }
+
+    fn clean_item(id: &str, text: &str, start_time: f64, end_time: f64) -> CleanNarrationItem {
+        CleanNarrationItem {
+            id: id.to_string(),
+            text: text.to_string(),
+            tts_text: text.to_string(),
+            aligner_text: super::normalize_alignment_text(text),
+            start_time,
+            end_time,
+            text_units: super::estimate_narration_speech_units(text),
+        }
+    }
+
+    #[test]
+    fn narration_grouping_respects_text_budget_and_timing_gaps() {
+        let grouping = SubtitleNarrationGroupingRequest {
+            text_budget_units: 4,
+            vad_search_radius_sec: 0.35,
+        };
+        let groups = build_narration_groups(
+            vec![
+                clean_item("a", "one two", 0.0, 0.5),
+                clean_item("b", "three four", 0.6, 1.0),
+                clean_item("c", "five", 3.0, 3.4),
+            ],
+            &grouping,
+        );
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(
+            groups[0]
+                .items
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["a", "b"]
+        );
+        assert_eq!(groups[1].items[0].id, "c");
+    }
+
+    #[test]
+    fn narration_group_sentence_join_adds_periods_for_vad_pauses() {
+        assert_eq!(
+            normalize_group_sentence("♪ TÔI VÀ CÔ GÁI ♪"),
+            "TÔI VÀ CÔ GÁI."
+        );
+        assert_eq!(normalize_group_sentence("Bạn ổn không?"), "Bạn ổn không?");
+        assert_eq!(normalize_group_sentence("Chạy nào,"), "Chạy nào.");
+    }
+
+    #[test]
+    fn narration_group_split_ranges_are_monotonic() {
+        let group = NarrationRequestGroup {
+            id: "group-0".to_string(),
+            items: vec![
+                clean_item("a", "xin chào", 0.0, 0.6),
+                clean_item("b", "tạm biệt mọi người", 0.6, 1.4),
+            ],
+            text: "xin chào. tạm biệt mọi người.".to_string(),
+            spans: Vec::new(),
+        };
+        let audio = TtsCollectedAudio {
+            pcm_samples: vec![0; 24_000],
+            wav_data: Vec::new(),
+            sample_rate: 24_000,
+            duration_ms: 1000,
+        };
+        let split = split_group_audio_ranges(&group, &audio, 0.35);
+        let ranges = split.ranges;
+
+        assert_eq!(ranges.len(), 2);
+        assert_eq!(ranges[0].start_sec, 0.0);
+        assert!(ranges[0].end_sec > ranges[0].start_sec);
+        assert!(ranges[1].start_sec >= ranges[0].end_sec);
+        assert_eq!(ranges[1].end_sec, 1.0);
     }
 }

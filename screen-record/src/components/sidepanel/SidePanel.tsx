@@ -8,6 +8,7 @@ import type {
 } from '@/types/video';
 import { useSettings } from '@/hooks/useSettings';
 import type { SubtitleMethod } from '@/hooks/useSubtitleGeneration';
+import type { SubtitleNarrationGroupPreview } from '@/hooks/useSubtitleNarration';
 import type { SubtitleSource } from '@/lib/subtitleGenerationPlan';
 import { useSubtitleTranslation } from '@/hooks/useSubtitleTranslation';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
@@ -196,6 +197,7 @@ interface SidePanelProps {
   onAlignSubtitlesToNarration?: () => void;
   visibleSubtitlesForNarration?: SubtitleSegment[];
   subtitleTracksForNarration?: import('@/types/video').SubtitleTrack[];
+  onNarrationGroupPreviewChange?: (preview: SubtitleNarrationGroupPreview | null) => void;
   subtitleTranslation: ReturnType<typeof useSubtitleTranslation>;
   selectedTextIds?: string[];
   hasMouseData?: boolean;
@@ -268,6 +270,7 @@ export function SidePanel({
   onAlignSubtitlesToNarration,
   visibleSubtitlesForNarration,
   subtitleTracksForNarration,
+  onNarrationGroupPreviewChange,
   subtitleTranslation,
   selectedTextIds,
   hasMouseData,
@@ -483,6 +486,7 @@ export function SidePanel({
           selectedSubtitleRange={selectedSubtitleRange}
           onApplyNarrationSegments={onApplyNarrationSegments}
           onFinalizeNarrationSegments={onFinalizeNarrationSegments}
+          onNarrationGroupPreviewChange={onNarrationGroupPreviewChange}
         />
       );
     }

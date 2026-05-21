@@ -61,6 +61,7 @@ pub struct CaptureHandler {
     enc_h: u32,
     /// When true, frames are submitted by a background pump thread at
     /// constant FPS instead of directly from on_frame_arrived.
+    uses_frame_pump: bool,
     is_window_capture: bool,
     /// Pre-allocated VRAM ring buffer used for zero-copy window capture pumping
     /// and GPU resize fallback when the source dimensions do not match the encoder canvas.
@@ -92,6 +93,14 @@ pub struct CaptureHandler {
 
 impl CaptureHandler {
     fn shutdown_and_finalize(&mut self) {
+        eprintln!(
+            "[CaptureBackend][Finalize] begin pump={} window_capture={} submitted={} dropped={} max_pending={}",
+            self.uses_frame_pump,
+            self.is_window_capture,
+            self.window_enqueued,
+            self.window_dropped,
+            self.max_pending_frames
+        );
         ENCODER_ACTIVE.store(false, Ordering::SeqCst);
         SHOULD_STOP_AUDIO.store(true, Ordering::SeqCst);
         ACTIVE_CAPTURE_CONTROL.lock().take();
@@ -113,11 +122,24 @@ impl CaptureHandler {
                 {
                     std::thread::sleep(Duration::from_millis(20));
                 }
+                eprintln!(
+                    "[CaptureBackend][Finalize] audio-wait elapsed_ms={} audio={} mic={}",
+                    audio_wait.elapsed().as_millis(),
+                    AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst),
+                    MIC_AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst)
+                );
+                let finish_start = Instant::now();
                 if let Err(error) = encoder.finish() {
                     eprintln!("video encoder finalize error: {}", error);
                 }
+                eprintln!(
+                    "[CaptureBackend][Finalize] encoder-finish elapsed_ms={}",
+                    finish_start.elapsed().as_millis()
+                );
                 ENCODING_FINISHED.store(true, Ordering::SeqCst);
             });
+        } else {
+            eprintln!("[CaptureBackend][Finalize] encoder already taken");
         }
     }
 
@@ -211,13 +233,25 @@ impl CaptureHandler {
                 .saturating_sub(pending_now);
             self.last_pending_frames = pending_now;
             let encoded_fps = encoded_window as f64 / elapsed.max(0.001);
-            if self.is_window_capture {
+            if self.uses_frame_pump {
                 let ps = self.pump_submitted.swap(0, Ordering::Relaxed);
                 let pd = self.pump_dropped.swap(0, Ordering::Relaxed);
                 let pump_fps = ps as f64 / elapsed.max(0.001);
+                let backend = if self.is_window_capture {
+                    "window(pump)"
+                } else {
+                    "display(pump)"
+                };
                 eprintln!(
-                    "[CaptureStats] backend=window(pump) wgc_fps={:.1} cached={} pump_fps={:.1} pump_submitted={} pump_dropped={} queue_depth={} dropped_total={}",
-                    capture_fps, self.window_enqueued, pump_fps, ps, pd, queue_depth, dropped_total
+                    "[CaptureStats] backend={} wgc_fps={:.1} cached={} pump_fps={:.1} pump_submitted={} pump_dropped={} queue_depth={} dropped_total={}",
+                    backend,
+                    capture_fps,
+                    self.window_enqueued,
+                    pump_fps,
+                    ps,
+                    pd,
+                    queue_depth,
+                    dropped_total
                 );
             } else {
                 eprintln!(

@@ -329,6 +329,8 @@ const en = {
   narrationTtsLanguageConditionRemove: 'Remove',
   narrationSourceTrack: 'Narrate from',
   narrationReadUnsplitSubtitles: 'Read with unsplit subtitles',
+  narrationGrouping: 'Grouped requests',
+  narrationGroupingGroups: 'groups',
   narrationErrorDetails: 'Show error details',
   narrationErrorLogHint: 'Full log: %LOCALAPPDATA%\\SGT\\logs\\session.log',
   narrationTtsPitch: 'Pitch',
