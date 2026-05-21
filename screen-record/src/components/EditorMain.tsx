@@ -16,6 +16,7 @@ import { TimelineArea } from "@/components/timeline";
 import type { CanvasModeToggleProps } from "@/components/CanvasModeToggle";
 import { useSettings } from "@/hooks/useSettings";
 import type { SubtitleMethod } from "@/hooks/useSubtitleGeneration";
+import type { SubtitleNarrationGroupPreview } from "@/hooks/useSubtitleNarration";
 import type { SubtitleSource } from "@/lib/subtitleGenerationPlan";
 import { useSubtitleTranslation } from "@/hooks/useSubtitleTranslation";
 import { createManualSubtitleSegment } from "@/lib/subtitleDefaults";
@@ -383,6 +384,7 @@ export function EditorMain({
   const [selectedAudioSegmentRange, setSelectedAudioSegmentRange] = useState<TrackSelectionRange | null>(null);
   const [selectedNarrationSegmentIds, setSelectedNarrationSegmentIds] = useState<string[]>([]);
   const [selectedNarrationSegmentRange, setSelectedNarrationSegmentRange] = useState<TrackSelectionRange | null>(null);
+  const [narrationGroupPreview, setNarrationGroupPreview] = useState<SubtitleNarrationGroupPreview | null>(null);
   const deferredNarrationSegments = useDeferredValue(narrationSegments);
   const narrationSegmentCount = narrationSegments?.length ?? 0;
   const deferredNarrationSegmentCount = deferredNarrationSegments?.length ?? 0;
@@ -955,6 +957,7 @@ export function EditorMain({
             onAlignSubtitlesToNarration={handleAlignSubtitlesToNarration}
             visibleSubtitlesForNarration={visibleSubtitleSegments}
             subtitleTracksForNarration={allSubtitleTracks}
+            onNarrationGroupPreviewChange={setNarrationGroupPreview}
             subtitleTranslation={subtitleTranslation}
             selectedTextIds={selectedTextIds}
             hasMouseData={mousePositionsLength > 0}
@@ -1019,7 +1022,7 @@ export function EditorMain({
           clearSelectionSignal={clearSignal}
           hasMouseData={mousePositionsLength > 0}
           subtitleGenerationIndicator={subtitleGenerationIndicator}
-          subtitleTranslationChunkPreview={subtitleTranslation.subtitleTranslationChunkPreview}
+          subtitleTranslationChunkPreview={narrationGroupPreview ?? subtitleTranslation.subtitleTranslationChunkPreview}
           audioSegments={composition?.audioSegments}
           onUpdateAudioSegment={onUpdateAudioSegment}
           onPickImportedAudioFile={onPickImportedAudioFile}

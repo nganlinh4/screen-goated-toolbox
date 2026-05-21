@@ -6,6 +6,7 @@ import {
   mergeLiveNarrationSegments,
   useLiveNarrationState,
 } from "@/lib/liveNarrationStreamStore";
+import { materializeNarrationGroupTakes } from "@/lib/narrationGroupTakes";
 
 interface ImportedAudioPlayersProps {
   segments: ImportedAudioSegment[] | undefined;
@@ -23,9 +24,12 @@ type PreviewAudioSegment = ImportedAudioSegment & {
 };
 
 const SEEK_DRIFT_THRESHOLD_SEC = 0.15;
+const START_GRACE_SEC = 0.55;
+const START_GRACE_DRIFT_THRESHOLD_SEC = 0.65;
 const MIN_ACTIVE_SEC = 0.001;
-const PREROLL_SEC = 0.75;
+const PREROLL_SEC = 2.5;
 const PLAYBACK_WINDOW_TAIL_SEC = 0.35;
+const TIMELINE_JUMP_THRESHOLD_SEC = 0.35;
 
 const mediaUrlCache = new Map<string, string>();
 
@@ -94,7 +98,9 @@ export function ImportedAudioPlayers({
     }
     return [
       ...importedSegments,
-      ...mergeLiveNarrationSegments(narrationSegments, liveNarrationState).map((segment) => ({
+      ...materializeNarrationGroupTakes(
+        mergeLiveNarrationSegments(narrationSegments, liveNarrationState),
+      ).map((segment) => ({
         ...segment,
         previewTrackKind: "narration" as const,
       })),
@@ -161,6 +167,13 @@ const MusicSegmentAudio = memo(function MusicSegmentAudio({
 }: MusicSegmentAudioProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [url, setUrl] = useState<string | null>(null);
+  const wasAudibleRef = useRef(false);
+  const wasPlayingRef = useRef(false);
+  const lastTimelineTimeRef = useRef(0);
+  const lastTimelinePerfRef = useRef(0);
+  const startGraceUntilRef = useRef(0);
+  const lastSegmentKeyRef = useRef("");
+  const segmentKey = `${segment.id}:${segment.rawAudioPath}:${segment.startTime}:${segment.inPoint}:${segment.outPoint}:${segment.playbackRate ?? 1}`;
 
   useEffect(() => {
     const cached = mediaUrlCache.get(segment.rawAudioPath);
@@ -186,6 +199,29 @@ const MusicSegmentAudio = memo(function MusicSegmentAudio({
   useEffect(() => {
     const el = audioRef.current;
     if (!el || !url) return;
+    el.preload = "auto";
+    el.load();
+  }, [url]);
+
+  useEffect(() => {
+    if (lastSegmentKeyRef.current === segmentKey) return;
+    lastSegmentKeyRef.current = segmentKey;
+    wasAudibleRef.current = false;
+    wasPlayingRef.current = false;
+    lastTimelineTimeRef.current = currentTime;
+    lastTimelinePerfRef.current = performance.now();
+    startGraceUntilRef.current = 0;
+  }, [currentTime, segmentKey]);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el || !url) return;
+    const now = performance.now();
+    const finishCycle = () => {
+      lastTimelineTimeRef.current = currentTime;
+      lastTimelinePerfRef.current = now;
+      wasPlayingRef.current = isPlaying;
+    };
     const rate = segment.playbackRate && segment.playbackRate > 0
       ? segment.playbackRate
       : 1;
@@ -202,18 +238,103 @@ const MusicSegmentAudio = memo(function MusicSegmentAudio({
     const inWarmRange = localTime >= -PREROLL_SEC && localTime < timelineDuration;
     const targetTime =
       segment.inPoint + Math.max(0, Math.min(sourceDuration, localTime * rate));
+    const previousTimelineTime = lastTimelineTimeRef.current;
+    const previousPerf = lastTimelinePerfRef.current || now;
+    const expectedTimelineDelta = isPlaying && wasPlayingRef.current
+      ? ((now - previousPerf) / 1000) * timelineSpeed
+      : 0;
+    const timelineJump =
+      Math.abs((currentTime - previousTimelineTime) - expectedTimelineDelta) >
+      TIMELINE_JUMP_THRESHOLD_SEC;
+    const justStartedPlaying = isPlaying && !wasPlayingRef.current;
+    const justEnteredAudibleRange = inAudibleRange && !wasAudibleRef.current;
+    const isNarration = segment.previewTrackKind === "narration";
+    wasAudibleRef.current = inAudibleRange;
 
     el.volume = inAudibleRange
       ? getTrackVolumeAtTime(currentTime, trackVolumePoints)
       : 0;
 
+    if (inWarmRange && !inAudibleRange) {
+      if (!el.paused) {
+        el.pause();
+      }
+      if (Number.isFinite(segment.inPoint)) {
+        const warmDrift = Math.abs((el.currentTime || 0) - segment.inPoint);
+        if (warmDrift > 0.05) {
+          try {
+            el.currentTime = segment.inPoint;
+          } catch {
+            /* element not ready yet */
+          }
+        }
+      }
+      finishCycle();
+      return;
+    }
+
+    if (!inWarmRange) {
+      wasAudibleRef.current = false;
+      startGraceUntilRef.current = 0;
+    }
+
+    if (!isPlaying) {
+      if (!el.paused) {
+        el.pause();
+      }
+      startGraceUntilRef.current = 0;
+      if (Number.isFinite(targetTime)) {
+        const drift = Math.abs((el.currentTime || 0) - targetTime);
+        if (drift > 0.05) {
+          try {
+            el.currentTime = targetTime;
+          } catch {
+            /* element not ready yet */
+          }
+        }
+      }
+      finishCycle();
+      return;
+    }
+
+    if (justEnteredAudibleRange) {
+      startGraceUntilRef.current = performance.now() + START_GRACE_SEC * 1000;
+      if (Number.isFinite(segment.inPoint)) {
+        const startDrift = Math.abs((el.currentTime || 0) - segment.inPoint);
+        if (startDrift > 0.05) {
+          try {
+            el.currentTime = segment.inPoint;
+          } catch {
+            /* element not ready yet */
+          }
+        }
+      }
+    }
+
+    const inStartGrace =
+      inAudibleRange &&
+      (performance.now() < startGraceUntilRef.current || localTime < START_GRACE_SEC);
     if (Number.isFinite(targetTime)) {
       const drift = Math.abs((el.currentTime || 0) - targetTime);
-      if (drift > SEEK_DRIFT_THRESHOLD_SEC) {
+      const shouldSeekAfterTimelineJump =
+        !justEnteredAudibleRange && (timelineJump || justStartedPlaying);
+      if (shouldSeekAfterTimelineJump && drift > 0.05) {
         try {
           el.currentTime = targetTime;
         } catch {
           /* element not ready yet */
+        }
+      } else if (!isNarration) {
+        const threshold = inStartGrace
+          ? START_GRACE_DRIFT_THRESHOLD_SEC
+          : SEEK_DRIFT_THRESHOLD_SEC;
+        const wouldSkipStart = inStartGrace && (el.currentTime || 0) < targetTime;
+        if (drift > threshold && !wouldSkipStart) {
+          try {
+            el.currentTime = targetTime;
+          } catch {
+            /* element not ready yet */
+          }
         }
       }
     }
@@ -227,10 +348,12 @@ const MusicSegmentAudio = memo(function MusicSegmentAudio({
     } else if (!el.paused) {
       el.pause();
     }
+    finishCycle();
   }, [
     url,
     currentTime,
     isPlaying,
+    segmentKey,
     segment.startTime,
     segment.inPoint,
     segment.outPoint,
@@ -245,7 +368,7 @@ const MusicSegmentAudio = memo(function MusicSegmentAudio({
       ref={audioRef}
       src={url ?? undefined}
       className="hidden imported-audio-element"
-      preload="metadata"
+      preload="auto"
     />
   );
 });

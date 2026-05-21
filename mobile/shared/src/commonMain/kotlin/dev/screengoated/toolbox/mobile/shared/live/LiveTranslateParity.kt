@@ -13,7 +13,7 @@ private const val MAX_TRANSLATION_HISTORY = 3
 object LiveTranslateParity {
     fun reset(
         nowMs: Long = 0L,
-        transcriptionMethod: TranscriptionMethod = TranscriptionMethod.GEMINI_LIVE,
+        transcriptionMethod: TranscriptionMethod = TranscriptionMethod.GEMINI_LIVE_S2S,
     ): LiveTextState = LiveTextState(
         lastTranscriptAppendAtMs = nowMs,
         lastTranslationUpdateAtMs = nowMs,

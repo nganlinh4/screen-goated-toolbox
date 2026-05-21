@@ -1,4 +1,5 @@
 import { invoke } from "@/lib/ipc";
+import { materializeNarrationGroupTakes } from "@/lib/narrationGroupTakes";
 import { getTotalTrimDuration, getTrimBounds, normalizeSegmentTrimData } from "@/lib/trimSegments";
 import type {
   AudioDownloadFormat,
@@ -136,7 +137,7 @@ export async function buildAudioDownloadRequest(options: StartAudioDownloadOptio
     clips,
     audioSegments: options.composition?.audioSegments ?? [],
     audioTrackVolumePoints: options.composition?.audioTrackVolumePoints ?? [],
-    narrationSegments: options.composition?.narrationSegments ?? [],
+    narrationSegments: materializeNarrationGroupTakes(options.composition?.narrationSegments),
     narrationTrackVolumePoints: options.composition?.narrationTrackVolumePoints ?? [],
   });
 }

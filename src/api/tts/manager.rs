@@ -88,6 +88,7 @@ impl TtsManager {
     }
 
     /// Generate a full TTS artifact without enqueueing it for immediate playback.
+    #[cfg(test)]
     pub fn synthesize_to_wav_with_profile(
         &self,
         text: &str,

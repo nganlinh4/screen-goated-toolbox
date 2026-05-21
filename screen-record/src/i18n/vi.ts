@@ -331,6 +331,8 @@ const vi: Translations = {
   narrationTtsLanguageConditionRemove: 'Xóa',
   narrationSourceTrack: 'Đọc từ',
   narrationReadUnsplitSubtitles: 'Đọc bằng phụ đề chưa chia',
+  narrationGrouping: 'Gộp lượt đọc',
+  narrationGroupingGroups: 'nhóm',
   narrationErrorDetails: 'Xem chi tiết lỗi',
   narrationErrorLogHint: 'Log đầy đủ: %LOCALAPPDATA%\\SGT\\logs\\session.log',
   narrationTtsPitch: 'Cao độ',

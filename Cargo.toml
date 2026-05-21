@@ -126,6 +126,7 @@ features = [
     "Win32_Storage_Xps",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Variant",
+    "Devices_Enumeration",
     "Media_Capture",
     "Media_MediaProperties",
     "Storage",

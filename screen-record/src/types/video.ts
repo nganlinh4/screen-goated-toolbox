@@ -260,6 +260,16 @@ export interface NarrationSegment {
   sourceSubtitleIds?: string[];
   /** Group id for the narration generation batch this clip came from. */
   narrationBatchId?: string;
+  /** Continuous group-take id shared by virtual subtitle clips from one TTS request. */
+  narrationGroupTakeId?: string;
+  /** Full prompt used to synthesize the continuous group audio. */
+  narrationGroupPromptText?: string;
+  /** Project time where the continuous group audio should start. */
+  narrationGroupSourceStartTime?: number;
+  /** Alignment source for the virtual subtitle boundary. */
+  narrationAlignmentMode?: "aligned" | "mixed" | "estimated" | "single" | "failed";
+  /** 0..1 confidence for this subtitle boundary inside the group take. */
+  narrationAlignmentConfidence?: number;
   /** TTS profile snapshot used to synthesize this clip. */
   ttsProfileSnapshot?: TtsProfileSnapshot;
 }

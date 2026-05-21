@@ -1,4 +1,4 @@
-mod audio;
+pub(crate) mod audio;
 mod job;
 mod media;
 mod parakeet_tdt;

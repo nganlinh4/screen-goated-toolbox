@@ -210,6 +210,9 @@ pub fn record_audio(
             thread::sleep(Duration::from_millis(AUDIO_POLL_SLEEP_MS));
         }
 
+        let flush_start = Instant::now();
+        let mut flush_chunks = 0usize;
+        let mut flush_samples = 0usize;
         println!("Audio stop signal received. Flushing buffer into muxer...");
         drop(loopback_stream);
 
@@ -218,6 +221,8 @@ pub fn record_audio(
             if count == 0 {
                 break;
             }
+            flush_chunks = flush_chunks.saturating_add(1);
+            flush_samples = flush_samples.saturating_add(count);
             if let Some((bytes, duration_100ns)) =
                 encode_pcm_chunk_i16(&chunk[..count], channels, sample_rate)
             {
@@ -229,6 +234,12 @@ pub fn record_audio(
             }
         }
 
+        eprintln!(
+            "[AudioMux] flush complete elapsed_ms={} chunks={} samples={}",
+            flush_start.elapsed().as_millis(),
+            flush_chunks,
+            flush_samples
+        );
         finished_signal.store(true, Ordering::SeqCst);
     });
 }

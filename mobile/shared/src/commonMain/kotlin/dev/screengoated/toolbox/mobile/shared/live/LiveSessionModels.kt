@@ -130,7 +130,7 @@ data class LiveTextState(
     val translationHistory: List<TranslationHistoryEntry> = emptyList(),
     val lastTranscriptAppendAtMs: Long = 0L,
     val lastTranslationUpdateAtMs: Long = 0L,
-    val transcriptionMethod: TranscriptionMethod = TranscriptionMethod.GEMINI_LIVE,
+    val transcriptionMethod: TranscriptionMethod = TranscriptionMethod.GEMINI_LIVE_S2S,
 ) {
     val transcript: String
         get() = displayTranscript

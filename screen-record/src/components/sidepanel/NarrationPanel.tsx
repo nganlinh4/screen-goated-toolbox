@@ -1,10 +1,15 @@
-import { X } from 'lucide-react';
+import { RotateCcw, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { PanelSelect } from '@/components/ui/PanelSelect';
+import { Slider } from '@/components/ui/Slider';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useSettings } from '@/hooks/useSettings';
-import { useSubtitleNarration } from '@/hooks/useSubtitleNarration';
+import {
+  DEFAULT_NARRATION_GROUP_TEXT_BUDGET,
+  useSubtitleNarration,
+  type SubtitleNarrationGroupPreview,
+} from '@/hooks/useSubtitleNarration';
 import {
   useNarrationSettings,
   type NarrationEdgeVoiceConfig,
@@ -23,6 +28,19 @@ import type { NarrationSegment, SubtitleSegment, SubtitleTrack, SubtitleViewStat
 
 const CURRENT_SUBTITLE_VIEW_SOURCE_ID = 'current-subtitle-view';
 const READ_UNSPLIT_SUBTITLES_KEY = 'screen-record-narration-read-unsplit-subtitles-v1';
+const NARRATION_GROUP_TEXT_BUDGET_KEY = 'screen-record-narration-group-text-budget-v1';
+
+function getInitialNarrationGroupTextBudget() {
+  try {
+    const raw = Number(localStorage.getItem(NARRATION_GROUP_TEXT_BUDGET_KEY));
+    if (Number.isFinite(raw) && raw >= 15 && raw <= 120) {
+      return Math.round(raw);
+    }
+  } catch {
+    // ignore persistence failures
+  }
+  return DEFAULT_NARRATION_GROUP_TEXT_BUDGET;
+}
 
 function getInitialReadUnsplitSubtitles() {
   try {
@@ -69,6 +87,7 @@ interface NarrationPanelProps {
     replaceSubtitleIds: string[],
   ) => void | Promise<void>;
   onFinalizeNarrationSegments: () => void | Promise<void>;
+  onNarrationGroupPreviewChange?: (preview: SubtitleNarrationGroupPreview | null) => void;
 }
 
 export function NarrationPanel({
@@ -79,6 +98,7 @@ export function NarrationPanel({
   selectedSubtitleRange,
   onApplyNarrationSegments,
   onFinalizeNarrationSegments,
+  onNarrationGroupPreviewChange,
 }: NarrationPanelProps) {
   const { t } = useSettings();
   const { settings, update, profile, metadata } = useNarrationSettings();
@@ -91,6 +111,8 @@ export function NarrationPanel({
     preferredSourceTrackId,
   );
   const [readUnsplitSubtitles, setReadUnsplitSubtitles] = useState(getInitialReadUnsplitSubtitles);
+  const [groupTextBudget, setGroupTextBudget] = useState(getInitialNarrationGroupTextBudget);
+  const [isGroupSliderDragging, setIsGroupSliderDragging] = useState(false);
 
   useEffect(() => {
     try {
@@ -99,6 +121,14 @@ export function NarrationPanel({
       // ignore persistence failures
     }
   }, [readUnsplitSubtitles]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(NARRATION_GROUP_TEXT_BUDGET_KEY, String(groupTextBudget));
+    } catch {
+      // ignore persistence failures
+    }
+  }, [groupTextBudget]);
 
   useEffect(() => {
     setSelectedSourceTrackId(preferredSourceTrackId);
@@ -372,9 +402,16 @@ export function NarrationPanel({
     sourceLanguageCode: selectedSourceLanguageCode,
     profile,
     readUnsplitSubtitles,
+    groupTextBudget,
+    previewGrouping: isGroupSliderDragging,
     onApplyNarrationSegments,
     onFinalizeNarrationSegments,
   });
+
+  useEffect(() => {
+    onNarrationGroupPreviewChange?.(narration.narrationGroupPreview);
+    return () => onNarrationGroupPreviewChange?.(null);
+  }, [narration.narrationGroupPreview, onNarrationGroupPreviewChange]);
 
   const generateLabel =
     (selectedSubtitleIds?.length ?? 0) > 0 || selectedSubtitleRange
@@ -437,6 +474,42 @@ export function NarrationPanel({
             />
             {t.narrationReadUnsplitSubtitles}
           </label>
+          <div className="narration-panel-grouping mb-2 space-y-1.5">
+            <div className="narration-panel-grouping-header flex items-center justify-between gap-2">
+              <span className="text-[11px] font-medium text-on-surface-variant">
+                {t.narrationGrouping}
+              </span>
+              <div className="narration-panel-grouping-meta flex items-center gap-1.5">
+                <span className="narration-panel-grouping-value text-[10px] font-semibold text-on-surface-variant">
+                  {groupTextBudget} · {narration.narrationGroupCount} {t.narrationGroupingGroups}
+                </span>
+                {groupTextBudget !== DEFAULT_NARRATION_GROUP_TEXT_BUDGET ? (
+                  <button
+                    type="button"
+                    onClick={() => setGroupTextBudget(DEFAULT_NARRATION_GROUP_TEXT_BUDGET)}
+                    className="narration-panel-grouping-reset ui-chip-button flex h-6 w-6 items-center justify-center rounded-md"
+                    title={t.subtitleGeminiPromptReset}
+                    aria-label={t.subtitleGeminiPromptReset}
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            <Slider
+              min={15}
+              max={120}
+              step={5}
+              value={groupTextBudget}
+              onChange={(value) => setGroupTextBudget(Math.max(15, Math.min(120, Math.round(value))))}
+              onPointerDown={() => setIsGroupSliderDragging(true)}
+              onPointerUp={() => setIsGroupSliderDragging(false)}
+              onPointerCancel={() => setIsGroupSliderDragging(false)}
+              onBlur={() => setIsGroupSliderDragging(false)}
+              className="narration-panel-grouping-slider"
+              disabled={narration.narrationTargetCount <= 1}
+            />
+          </div>
           <div className="narration-panel-actions grid grid-cols-2 gap-1.5">
             <button
               type="button"

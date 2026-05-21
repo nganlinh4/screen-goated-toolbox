@@ -1,20 +1,23 @@
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use pollster::block_on;
+use windows::core::HSTRING;
+use windows::Devices::Enumeration::{DeviceClass, DeviceInformation};
 use windows::Media::Capture::{
     MediaCapture, MediaCaptureInitializationSettings, MediaCaptureMemoryPreference,
     MediaCaptureSharingMode, StreamingCaptureMode,
 };
 use windows::Media::MediaProperties::{MediaEncodingProfile, VideoEncodingQuality};
 use windows::Storage::StorageFile;
-use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
-use windows::core::HSTRING;
+use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
 
 const WEBCAM_POLL_SLEEP_MS: u64 = 20;
+static HAS_VIDEO_CAPTURE_DEVICE: OnceLock<bool> = OnceLock::new();
 
 struct ComScope(bool);
 
@@ -78,6 +81,30 @@ fn create_storage_file(path: &str) -> Result<StorageFile, String> {
     let async_file = StorageFile::GetFileFromPathAsync(&HSTRING::from(path))
         .map_err(|e| format!("GetFileFromPathAsync: {e}"))?;
     block_on(async_file).map_err(|e| format!("Resolve webcam storage file: {e}"))
+}
+
+fn has_video_capture_device() -> bool {
+    *HAS_VIDEO_CAPTURE_DEVICE.get_or_init(|| {
+        let devices = DeviceInformation::FindAllAsyncDeviceClass(DeviceClass::VideoCapture)
+            .and_then(block_on);
+        match devices {
+            Ok(devices) => match devices.Size() {
+                Ok(count) => count > 0,
+                Err(error) => {
+                    eprintln!(
+                        "[WebcamCapture] Could not read video capture device count: {error}; trying capture"
+                    );
+                    true
+                }
+            },
+            Err(error) => {
+                eprintln!(
+                    "[WebcamCapture] Could not enumerate video capture devices: {error}; trying capture"
+                );
+                true
+            }
+        }
+    })
 }
 
 fn initialize_media_capture() -> Result<MediaCapture, String> {
@@ -147,6 +174,10 @@ pub(crate) fn record_webcam_video_sidecar(
     thread::spawn(move || {
         let thread_result = (|| -> Result<(), String> {
             let _com_scope = ComScope::initialize_mta()?;
+            if !has_video_capture_device() {
+                eprintln!("[WebcamCapture] skipped: no video capture devices");
+                return Ok(());
+            }
             let file = create_storage_file(&output_path)?;
             let capture = initialize_media_capture()?;
             start_recording(&capture, &file)?;

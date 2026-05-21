@@ -263,6 +263,10 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let cursor_sampler_stop = Arc::new(AtomicBool::new(false));
 
         let is_window_capture = flags.target_type == "window";
+        // Keep WGC callbacks light for both window and monitor capture. The
+        // callback stages the newest frame into VRAM; a pump thread submits
+        // cached frames to MediaFoundation at the requested recording cadence.
+        let uses_frame_pump = true;
         let app_d3d_device: windows::Win32::Graphics::Direct3D11::ID3D11Device =
             clone_wc_interface_to_app(&ctx.device)
                 .map_err(|e| format!("Failed to bridge capture D3D11 device: {e}"))?;
@@ -276,12 +280,12 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let app_d3d_context: windows::Win32::Graphics::Direct3D11::ID3D11DeviceContext =
             clone_wc_interface_to_app(&ctx.device_context)
                 .map_err(|e| format!("Failed to bridge capture D3D11 context: {e}"))?;
-        let max_pending_frames = if is_window_capture {
+        let max_pending_frames = if uses_frame_pump {
             compute_window_max_pending_frames(target_fps)
         } else {
             ENCODER_MAX_PENDING_FRAMES
         };
-        let window_vram_pool_frames = if is_window_capture {
+        let window_vram_pool_frames = if uses_frame_pump {
             compute_window_vram_pool_frames(max_pending_frames)
         } else {
             3
@@ -343,10 +347,9 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         ));
         let encoder_shared = Arc::new(Mutex::new(Some(encoder)));
 
-        // For window capture, spawn a pump thread that submits the cached
-        // frame at constant FPS.  WGC only delivers frames when the window
-        // content changes, which can be <1 fps for a static window.
-        if is_window_capture {
+        // The pump submits cached frames at constant FPS. This keeps WGC frame
+        // callbacks short and decouples capture cadence from encoder cadence.
+        if uses_frame_pump {
             spawn_frame_pump(
                 vram_pool.clone(),
                 latest_ready_idx.clone(),
@@ -378,6 +381,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             stats_window_start: Instant::now(),
             enc_w,
             enc_h,
+            uses_frame_pump,
             is_window_capture,
             vram_pool,
             latest_ready_idx,
@@ -408,12 +412,12 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let mut queue_depth = 0usize;
         let mut dropped_total = 0usize;
 
-        if self.is_window_capture {
-            // Window capture: stage latest frame into VRAM ring; pump thread
+        if self.uses_frame_pump {
+            // Pumped capture: stage latest frame into VRAM ring; pump thread
             // submits at constant target_fps.
             let frame_w = frame.width();
             let frame_h = frame.height();
-            if should_ignore_window_frame(frame_w, frame_h) {
+            if self.is_window_capture && should_ignore_window_frame(frame_w, frame_h) {
                 if self.last_ignored_window_frame != Some((frame_w, frame_h)) {
                     eprintln!(
                         "[FramePump] ignoring implausible window frame {}x{}; keeping last good frame",
@@ -462,6 +466,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             let now_100ns = (self.start.elapsed().as_nanos() / 100) as i64;
             let mut should_submit = false;
             let mut frames_to_submit = 0u32;
+            let mut missed_ticks_to_skip = 0u32;
 
             let mut due_100ns = self.next_submit_timestamp_100ns.unwrap_or(0);
 
@@ -473,7 +478,14 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 let due_ticks = ((now_100ns.saturating_sub(due_100ns)) / self.frame_interval_100ns)
                     .saturating_add(1);
                 let missed_ticks = due_ticks.saturating_sub(1) as u32;
-                frames_to_submit = due_ticks as u32;
+                // WGC can deliver fewer real frames than our target FPS when the
+                // captured app is GPU-bound or WebGL paints below target. Do not
+                // enqueue the same captured surface multiple times to catch up:
+                // that creates visible playback judder and extra encoder load.
+                // Instead, advance the encoder timeline for missed output ticks
+                // and submit only this newly captured frame.
+                frames_to_submit = 1;
+                missed_ticks_to_skip = missed_ticks;
                 self.window_paced_skips = self.window_paced_skips.saturating_add(missed_ticks);
                 self.next_submit_timestamp_100ns = Some(
                     due_100ns.saturating_add(self.frame_interval_100ns.saturating_mul(due_ticks)),
@@ -511,6 +523,9 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
                 let mut encoder_guard = self.encoder.lock();
                 if let Some(encoder) = encoder_guard.as_mut() {
+                    if missed_ticks_to_skip > 0 {
+                        encoder.skip_video_frames(missed_ticks_to_skip);
+                    }
                     let mut remaining = frames_to_submit.max(1);
                     let mut submitted = 0u32;
                     while remaining > 0 {

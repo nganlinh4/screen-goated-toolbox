@@ -320,6 +320,9 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
         const contentMaskStyle = buildContentMaskStyle(overlapRanges);
         const widthPx = (visible / safeDuration) * Math.max(canvasWidthPx, 1);
         const showSpeedBadge = Math.abs(rate - 1) > 0.001;
+        const isEstimatedAlignment =
+          seg.narrationAlignmentMode === "estimated" ||
+          ((seg.narrationAlignmentConfidence ?? 1) < 0.6 && Boolean(seg.narrationGroupTakeId));
         const shouldRenderWaveform =
           viewMode === "volume" &&
           widthPx >= MIN_WAVEFORM_SEGMENT_PX &&
@@ -396,6 +399,14 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
                 {showSpeedBadge && (
                   <span className="narration-track-segment-speed ml-auto rounded bg-[var(--secondary-color)]/30 px-1 text-[9px] font-semibold leading-3">
                     {rate.toFixed(2)}×
+                  </span>
+                )}
+                {isEstimatedAlignment && (
+                  <span
+                    className="narration-track-segment-alignment-badge ml-auto rounded bg-amber-500/25 px-1 text-[9px] font-semibold leading-3 text-amber-200"
+                    title="Estimated boundary"
+                  >
+                    est
                   </span>
                 )}
               </div>

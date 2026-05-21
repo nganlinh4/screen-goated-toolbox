@@ -22,8 +22,8 @@
   },
   "defaults": {
     "tts_gemini_live_model": "gemini-3.1-flash-live-preview",
-    "realtime_transcription_model": "gemini-live-audio",
-    "live_session_transcription_provider_id": "gemini-live-audio",
+    "realtime_transcription_model": "gemini-live-s2s",
+    "live_session_transcription_provider_id": "gemini-live-s2s",
     "live_session_translation_provider_id": "cerebras-oss"
   },
   "preset_defaults": {
@@ -80,7 +80,7 @@
     "whisper-fast"
   ],
   "realtime_transcription_aliases": {
-    "": "gemini-live-audio",
+    "": "gemini-live-s2s",
     "gemini": "gemini-live-audio",
     "gemini-live-audio": "gemini-live-audio",
     "gemini-live-audio-3.1": "gemini-live-audio",
