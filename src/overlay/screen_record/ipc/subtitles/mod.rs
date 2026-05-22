@@ -1,13 +1,13 @@
 pub(crate) mod audio;
 mod job;
-mod media;
+pub(crate) mod media;
 mod parakeet_tdt;
 mod postprocess;
 mod providers;
 mod qwen_local;
 mod translation;
 mod translation_providers;
-mod types;
+pub(crate) mod types;
 
 pub use job::{
     handle_cancel_subtitle_generation, handle_get_subtitle_generation_capabilities,

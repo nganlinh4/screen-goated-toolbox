@@ -150,6 +150,11 @@ interface SidePanelProps {
   editingSubtitleId: string | null;
   selectedSubtitleIds?: string[];
   selectedSubtitleRange?: TrackSelectionRange | null;
+  composition?: import('@/types/video').ProjectComposition | null;
+  activeClipId?: string | null;
+  currentRawVideoPath: string;
+  currentRawMicAudioPath: string;
+  duration: number;
   subtitleSource: SubtitleSource;
   onSubtitleSourceChange: (value: SubtitleSource) => void;
   subtitleMethod: SubtitleMethod;
@@ -228,6 +233,11 @@ export function SidePanel({
   editingSubtitleId,
   selectedSubtitleIds,
   selectedSubtitleRange,
+  composition,
+  activeClipId,
+  currentRawVideoPath,
+  currentRawMicAudioPath,
+  duration,
   subtitleSource,
   onSubtitleSourceChange,
   subtitleMethod,
@@ -284,8 +294,10 @@ export function SidePanel({
 
   const hasNarrationSegments = (narrationSegmentsForPanel?.length ?? 0) > 0;
   const hasAudioSegments = (audioSegmentsForPanel?.length ?? 0) > 0 || hasNarrationSegments;
+  const hasNarrationSource = canUseVideoSubtitleSource || canUseMicSubtitleSource || canUseAudioSubtitleSource;
   const hasNarrationContext = hasNarrationSegments
-    || (visibleSubtitlesForNarration?.length ?? 0) > 0;
+    || (visibleSubtitlesForNarration?.length ?? 0) > 0
+    || hasNarrationSource;
 
   const hiddenTabs = new Set<ActivePanel>();
   if (!hasMouseData) hiddenTabs.add('cursor');
@@ -479,6 +491,12 @@ export function SidePanel({
     if (panelId === 'narration') {
       return (
         <NarrationPanel
+          segment={segment}
+          composition={composition ?? null}
+          activeClipId={activeClipId}
+          currentRawVideoPath={currentRawVideoPath}
+          currentRawMicAudioPath={currentRawMicAudioPath}
+          duration={duration}
           visibleSubtitles={visibleSubtitlesForNarration ?? []}
           subtitleTracks={subtitleTracksForNarration}
           activeSubtitleView={subtitleTranslation.activeSubtitleView}
@@ -487,6 +505,13 @@ export function SidePanel({
           onApplyNarrationSegments={onApplyNarrationSegments}
           onFinalizeNarrationSegments={onFinalizeNarrationSegments}
           onNarrationGroupPreviewChange={onNarrationGroupPreviewChange}
+          selectedSource={subtitleSource}
+          onSourceChange={onSubtitleSourceChange}
+          canUseVideoSource={canUseVideoSubtitleSource}
+          canUseMicSource={canUseMicSubtitleSource}
+          canUseAudioSource={canUseAudioSubtitleSource}
+          audioSegments={audioSegments}
+          onUpdateSegment={onUpdateSegment}
         />
       );
     }

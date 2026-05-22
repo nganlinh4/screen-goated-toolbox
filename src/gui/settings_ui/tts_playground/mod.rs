@@ -120,6 +120,9 @@ pub fn render_tts_playground(
                                     changed |=
                                         render_step_audio_edit_controls(ui, config, state, text);
                                 }
+                                TtsPlaygroundMode::SpeechToSpeech => {
+                                    changed |= render_s2s_controls(ui, config, state, text);
+                                }
                                 TtsPlaygroundMode::ReferenceLibrary => {
                                     changed |= reference_library::render_reference_library(
                                         ui, text, config, state,
@@ -160,6 +163,16 @@ fn render_mode_tabs(ui: &mut egui::Ui, config: &mut Config, text: &LocaleText) -
         if ui
             .selectable_value(
                 &mut config.tts_playground.mode,
+                TtsPlaygroundMode::SpeechToSpeech,
+                "S2S",
+            )
+            .changed()
+        {
+            changed = true;
+        }
+        if ui
+            .selectable_value(
+                &mut config.tts_playground.mode,
                 TtsPlaygroundMode::TtsClone,
                 text.tts_playground_tab_tts_clone,
             )
@@ -193,6 +206,105 @@ fn render_mode_tabs(ui: &mut egui::Ui, config: &mut Config, text: &LocaleText) -
             changed = true;
         }
     });
+    changed
+}
+
+fn render_s2s_controls(
+    ui: &mut egui::Ui,
+    config: &mut Config,
+    state: &mut TtsPlaygroundUiState,
+    text: &LocaleText,
+) -> bool {
+    let mut changed = false;
+    ui.label(egui::RichText::new("Gemini S2S").strong());
+    ui.horizontal_wrapped(|ui| {
+        if ui.button(text.tts_reference_pick_audio).clicked()
+            && let Ok(Some(path)) = export::pick_audio_file_dialog()
+        {
+            config
+                .tts_playground
+                .step_audio_edit_settings
+                .source_audio_path = path.display().to_string();
+            changed = true;
+        }
+        if state.mic_recording.is_some() {
+            if ui.button(text.tts_reference_stop_mic).clicked()
+                && let Some(recording) = state.mic_recording.take()
+            {
+                recording
+                    .stop
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                drop(recording.stream);
+                if let Ok(samples) = recording.samples.lock()
+                    && let Ok(path) =
+                        library::encode_managed_wav("s2s-source-mic", &samples, 16_000)
+                {
+                    config
+                        .tts_playground
+                        .step_audio_edit_settings
+                        .source_audio_path = path.display().to_string();
+                    changed = true;
+                }
+            }
+        } else if ui.button(text.tts_reference_record_mic).clicked() {
+            let samples = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let pause = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            match crate::api::realtime_audio::start_mic_capture(
+                samples.clone(),
+                stop.clone(),
+                pause,
+            ) {
+                Ok(stream) => {
+                    state.mic_recording = Some(MicRecordingState {
+                        samples,
+                        stop,
+                        stream,
+                    });
+                }
+                Err(err) => state.error = Some(err.to_string()),
+            }
+        }
+    });
+    let source = config
+        .tts_playground
+        .step_audio_edit_settings
+        .source_audio_path
+        .trim();
+    ui.label(
+        egui::RichText::new(if source.is_empty() {
+            "No source audio"
+        } else {
+            source
+        })
+        .small(),
+    );
+    ui.horizontal(|ui| {
+        ui.label("Target");
+        egui::ComboBox::from_id_salt("tts_playground_s2s_target")
+            .selected_text(config.realtime_target_language.clone())
+            .show_ui(ui, |ui| {
+                for (code, name) in [
+                    ("en", "English"),
+                    ("vi", "Vietnamese"),
+                    ("ko", "Korean"),
+                    ("ja", "Japanese"),
+                    ("zh", "Chinese"),
+                    ("es", "Spanish"),
+                    ("fr", "French"),
+                    ("de", "German"),
+                ] {
+                    changed |= ui
+                        .selectable_value(
+                            &mut config.realtime_target_language,
+                            code.to_string(),
+                            name,
+                        )
+                        .changed();
+                }
+            });
+    });
+    changed |= render_gemini_controls(ui, config, text);
     changed
 }
 

@@ -39,6 +39,8 @@ const AUDIO_IDLE_FINISH_MS: u128 = 1_200;
 const DISPLAY_SEGMENT_LIMIT: usize = 8;
 const FIRST_AUDIO_SILENT_RETRY_MS: u128 = 3_800;
 const FIRST_AUDIO_ACTIVE_RETRY_MS: u128 = 5_200;
+const S2S_HEDGE_TIMEOUT_MS: u128 = 45_000;
+const S2S_HEDGE_FINAL_TIMEOUT_MS: u128 = 60_000;
 const CONTEXT_SEGMENT_LIMIT: usize = 5;
 const CONTEXT_LINE_CHAR_LIMIT: usize = 240;
 const CONTEXT_TOTAL_CHAR_LIMIT: usize = 1_500;
@@ -52,6 +54,25 @@ const MIN_SEGMENT_SPEECH_FRAMES: usize = 4;
 const MIN_SEGMENT_PEAK_RMS: f32 = 0.025;
 const MIN_SEGMENT_SPEECH_RATIO: f32 = 0.08;
 const MIN_TEXT_OVERLAP_CHARS: usize = 3;
+const S2S_BATCH_SEGMENT_ATTEMPTS: usize = 4;
+
+fn grouped_first_audio_timeout_ms(source_audio_ms: u128, text_updates: usize) -> u128 {
+    let base = if text_updates == 0 {
+        FIRST_AUDIO_SILENT_RETRY_MS
+    } else {
+        FIRST_AUDIO_ACTIVE_RETRY_MS
+    };
+    (base + source_audio_ms.saturating_mul(4)).clamp(10_000, 60_000)
+}
+
+fn grouped_hard_timeout_ms(source_audio_ms: u128, final_attempt: bool) -> u128 {
+    let base = if final_attempt {
+        S2S_HEDGE_FINAL_TIMEOUT_MS
+    } else {
+        S2S_HEDGE_TIMEOUT_MS
+    };
+    (base + source_audio_ms.saturating_mul(4)).min(180_000)
+}
 
 static S2S_PLAYBACK_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -135,6 +156,34 @@ struct Segment {
     samples: Vec<i16>,
     speech_frames: usize,
     peak_rms: f32,
+}
+
+#[derive(Clone, Debug)]
+pub struct S2sBatchSettings {
+    pub model: String,
+    pub voice: String,
+    pub speed: String,
+    pub target_language: String,
+    pub custom_instruction: String,
+    pub parallel_requests: usize,
+    pub vad_group_budget: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct S2sBatchSegment {
+    pub id: u64,
+    pub source_start_sec: f64,
+    pub source_end_sec: f64,
+    pub source_text: String,
+    pub target_text: String,
+    pub audio_pcm_24k: Vec<i16>,
+}
+
+#[derive(Clone)]
+struct TimedSegment {
+    segment: Segment,
+    start_sample: usize,
+    end_sample: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -430,6 +479,356 @@ fn load_settings() -> Result<S2sSettings> {
     })
 }
 
+pub fn default_batch_settings_for_target(
+    target_language: &str,
+    model: &str,
+    voice: &str,
+    speed: &str,
+) -> Result<S2sBatchSettings> {
+    let app = APP.lock().unwrap();
+    let target_language = if target_language.trim().is_empty() {
+        app.config.realtime_target_language.clone()
+    } else {
+        target_language.trim().to_string()
+    };
+    let custom_instruction =
+        tts_instruction_for_target(&target_language, &app.config.tts_language_conditions);
+    let model = if model.trim().is_empty() {
+        app.config.tts_gemini_live_model.trim().to_string()
+    } else {
+        model.trim().to_string()
+    };
+    let voice = if voice.trim().is_empty() {
+        app.config.tts_voice.trim().to_string()
+    } else {
+        voice.trim().to_string()
+    };
+    let speed = if speed.trim().is_empty() {
+        app.config.tts_speed.trim().to_string()
+    } else {
+        speed.trim().to_string()
+    };
+    Ok(S2sBatchSettings {
+        model,
+        voice,
+        speed,
+        target_language,
+        custom_instruction,
+        parallel_requests: 3,
+        vad_group_budget: 25,
+    })
+}
+
+pub fn run_gemini_live_s2s_batch(
+    samples_16k_mono: Vec<i16>,
+    batch_settings: S2sBatchSettings,
+    stop_signal: Arc<AtomicBool>,
+) -> Result<Vec<S2sBatchSegment>> {
+    run_gemini_live_s2s_batch_with_progress(samples_16k_mono, batch_settings, stop_signal, None)
+}
+
+pub fn run_gemini_live_s2s_batch_with_progress(
+    samples_16k_mono: Vec<i16>,
+    batch_settings: S2sBatchSettings,
+    stop_signal: Arc<AtomicBool>,
+    progress: Option<&mut dyn FnMut(usize, usize)>,
+) -> Result<Vec<S2sBatchSegment>> {
+    run_gemini_live_s2s_batch_with_callbacks(
+        samples_16k_mono,
+        batch_settings,
+        stop_signal,
+        progress,
+        None,
+    )
+}
+
+pub fn run_gemini_live_s2s_batch_with_callbacks(
+    samples_16k_mono: Vec<i16>,
+    batch_settings: S2sBatchSettings,
+    stop_signal: Arc<AtomicBool>,
+    mut progress: Option<&mut dyn FnMut(usize, usize)>,
+    mut on_segment: Option<&mut dyn FnMut(S2sBatchSegment) -> Result<()>>,
+) -> Result<Vec<S2sBatchSegment>> {
+    let api_key = {
+        let app = APP.lock().unwrap();
+        app.config.gemini_api_key.trim().to_string()
+    };
+    if api_key.is_empty() {
+        return Err(anyhow::anyhow!("NO_API_KEY:google"));
+    }
+    let settings = S2sSettings {
+        api_key,
+        model: if batch_settings.model.trim().is_empty() {
+            crate::model_config::GEMINI_LIVE_API_MODEL_3_1.to_string()
+        } else {
+            crate::model_config::normalize_tts_gemini_model(&batch_settings.model).to_string()
+        },
+        voice: if batch_settings.voice.trim().is_empty() {
+            "Aoede".to_string()
+        } else {
+            batch_settings.voice.trim().to_string()
+        },
+        speed: if batch_settings.speed.trim().is_empty() {
+            "Normal".to_string()
+        } else {
+            batch_settings.speed.trim().to_string()
+        },
+        custom_instruction: batch_settings.custom_instruction,
+        target_language: batch_settings.target_language,
+    };
+    let parallel_requests = batch_settings.parallel_requests.clamp(1, 6);
+    let context_memory = Arc::new(Mutex::new(S2sContextMemory::default()));
+    let timed_segments = group_timed_segments(
+        collect_vad_segments(samples_16k_mono.clone()),
+        &samples_16k_mono,
+        batch_settings.vad_group_budget,
+    );
+    let total_segments = timed_segments.len();
+    crate::log_info!(
+        "[GeminiS2S][Batch] vad_groups={} group_budget={} parallel={}",
+        total_segments,
+        batch_settings.vad_group_budget,
+        parallel_requests
+    );
+    if let Some(callback) = progress.as_mut() {
+        callback(0, total_segments);
+    }
+    if parallel_requests > 1 {
+        return run_gemini_live_s2s_segments_parallel(
+            timed_segments,
+            total_segments,
+            settings,
+            stop_signal,
+            progress,
+            on_segment,
+            parallel_requests,
+        );
+    }
+    let mut results = Vec::with_capacity(timed_segments.len());
+    for (index, timed) in timed_segments.into_iter().enumerate() {
+        if stop_signal.load(Ordering::SeqCst) {
+            break;
+        }
+        if let Some(callback) = progress.as_mut() {
+            callback(index + 1, total_segments);
+        }
+        let id = timed.segment.id;
+        let (event_tx, event_rx) = mpsc::channel::<S2sEvent>();
+        let result = run_single_segment_session(
+            0,
+            id + 1,
+            timed.segment.clone(),
+            &event_tx,
+            stop_signal.clone(),
+            &settings,
+            context_memory.clone(),
+        );
+        drop(event_tx);
+        let mut source_text = String::new();
+        let mut target_text = String::new();
+        let mut audio_bytes = Vec::new();
+        let mut error: Option<String> = None;
+        for event in event_rx.try_iter() {
+            match event {
+                S2sEvent::InputText { text, .. } => {
+                    source_text = text;
+                }
+                S2sEvent::OutputText { text, .. } => {
+                    merge_segment_text(&mut target_text, &text);
+                }
+                S2sEvent::Audio { bytes, .. } => audio_bytes.extend(bytes),
+                S2sEvent::Error { message, .. } => error = Some(message),
+                _ => {}
+            }
+        }
+        if let Err(err) = result {
+            return Err(err);
+        }
+        if let Some(error) = error {
+            return Err(anyhow::anyhow!(error));
+        }
+        if source_text.trim().is_empty() && target_text.trim().is_empty() && audio_bytes.is_empty()
+        {
+            continue;
+        }
+        if let Ok(mut memory) = context_memory.lock() {
+            memory.push_completed(id, &source_text, &target_text);
+        }
+        let batch_segment = S2sBatchSegment {
+            id,
+            source_start_sec: timed.start_sample as f64 / 16_000.0,
+            source_end_sec: timed.end_sample as f64 / 16_000.0,
+            source_text,
+            target_text,
+            audio_pcm_24k: pcm_bytes_to_i16(&audio_bytes),
+        };
+        if let Some(callback) = on_segment.as_mut() {
+            callback(batch_segment.clone())?;
+        }
+        results.push(batch_segment);
+    }
+    Ok(results)
+}
+
+struct S2sParallelSegmentResult {
+    segment: Option<S2sBatchSegment>,
+    error: Option<String>,
+}
+
+fn run_gemini_live_s2s_segments_parallel(
+    timed_segments: Vec<TimedSegment>,
+    total_segments: usize,
+    settings: S2sSettings,
+    stop_signal: Arc<AtomicBool>,
+    mut progress: Option<&mut dyn FnMut(usize, usize)>,
+    mut on_segment: Option<&mut dyn FnMut(S2sBatchSegment) -> Result<()>>,
+    parallel_requests: usize,
+) -> Result<Vec<S2sBatchSegment>> {
+    let (tx, rx) = mpsc::channel::<S2sParallelSegmentResult>();
+    let mut next_index = 0usize;
+    let mut active = 0usize;
+    let mut completed = 0usize;
+    let mut results = Vec::with_capacity(total_segments);
+    let mut first_error: Option<String> = None;
+
+    while (next_index < timed_segments.len() || active > 0) && !stop_signal.load(Ordering::SeqCst) {
+        while active < parallel_requests
+            && next_index < timed_segments.len()
+            && !stop_signal.load(Ordering::SeqCst)
+        {
+            let index = next_index;
+            next_index += 1;
+            active += 1;
+            let timed = timed_segments[index].clone();
+            let settings = settings.clone();
+            let stop_signal = stop_signal.clone();
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                let response = run_s2s_timed_segment_without_context(timed, settings, stop_signal);
+                let _ = tx.send(response);
+            });
+        }
+
+        match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(response) => {
+                active = active.saturating_sub(1);
+                completed += 1;
+                if let Some(callback) = progress.as_mut() {
+                    callback(completed, total_segments);
+                }
+                if let Some(error) = response.error {
+                    first_error.get_or_insert(error);
+                    continue;
+                }
+                if let Some(segment) = response.segment {
+                    if let Some(callback) = on_segment.as_mut() {
+                        callback(segment.clone())?;
+                    }
+                    results.push(segment);
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    results.sort_by_key(|segment| segment.id);
+    if let Some(error) = first_error {
+        return Err(anyhow::anyhow!(error));
+    }
+    Ok(results)
+}
+
+fn run_s2s_timed_segment_without_context(
+    timed: TimedSegment,
+    settings: S2sSettings,
+    stop_signal: Arc<AtomicBool>,
+) -> S2sParallelSegmentResult {
+    let id = timed.segment.id;
+    for attempt in 0..S2S_BATCH_SEGMENT_ATTEMPTS {
+        if stop_signal.load(Ordering::SeqCst) {
+            break;
+        }
+        let (event_tx, event_rx) = mpsc::channel::<S2sEvent>();
+        let context_memory = Arc::new(Mutex::new(S2sContextMemory::default()));
+        let result = run_single_segment_session(
+            0,
+            id + 1 + (attempt as u64 * 10_000_000),
+            timed.segment.clone(),
+            &event_tx,
+            stop_signal.clone(),
+            &settings,
+            context_memory,
+        );
+        drop(event_tx);
+        let mut source_text = String::new();
+        let mut target_text = String::new();
+        let mut audio_bytes = Vec::new();
+        let mut error: Option<String> = None;
+        for event in event_rx.try_iter() {
+            match event {
+                S2sEvent::InputText { text, .. } => {
+                    source_text = text;
+                }
+                S2sEvent::OutputText { text, .. } => {
+                    merge_segment_text(&mut target_text, &text);
+                }
+                S2sEvent::Audio { bytes, .. } => audio_bytes.extend(bytes),
+                S2sEvent::Error { message, .. } => error = Some(message),
+                _ => {}
+            }
+        }
+        if let Err(err) = result {
+            eprintln!(
+                "[RealtimeS2S] batch-retry segment={} attempt={}/{} reason=session_error error={}",
+                id,
+                attempt + 1,
+                S2S_BATCH_SEGMENT_ATTEMPTS,
+                err
+            );
+            continue;
+        }
+        if let Some(error) = error {
+            eprintln!(
+                "[RealtimeS2S] batch-retry segment={} attempt={}/{} reason=event_error error={}",
+                id,
+                attempt + 1,
+                S2S_BATCH_SEGMENT_ATTEMPTS,
+                error
+            );
+            continue;
+        }
+        if audio_bytes.is_empty() {
+            eprintln!(
+                "[RealtimeS2S] batch-retry segment={} attempt={}/{} reason=empty_audio source_text_chars={} target_text_chars={}",
+                id,
+                attempt + 1,
+                S2S_BATCH_SEGMENT_ATTEMPTS,
+                source_text.chars().count(),
+                target_text.chars().count()
+            );
+            continue;
+        }
+        return S2sParallelSegmentResult {
+            segment: Some(S2sBatchSegment {
+                id,
+                source_start_sec: timed.start_sample as f64 / 16_000.0,
+                source_end_sec: timed.end_sample as f64 / 16_000.0,
+                source_text,
+                target_text,
+                audio_pcm_24k: pcm_bytes_to_i16(&audio_bytes),
+            }),
+            error: None,
+        };
+    }
+    S2sParallelSegmentResult {
+        segment: None,
+        error: Some(format!(
+            "S2S segment {id} produced no audio after {S2S_BATCH_SEGMENT_ATTEMPTS} attempts"
+        )),
+    }
+}
+
 fn run_vad_loop(
     audio_buffer: Arc<Mutex<Vec<i16>>>,
     stop_signal: Arc<AtomicBool>,
@@ -587,6 +986,186 @@ fn run_vad_loop(
     }
 }
 
+fn collect_vad_segments(samples: Vec<i16>) -> Vec<TimedSegment> {
+    let mut pending = samples;
+    let mut cursor_sample = 0usize;
+    let mut preroll = VecDeque::<(usize, i16)>::new();
+    let mut active = Vec::<i16>::new();
+    let mut active_start_sample = 0usize;
+    let mut active_speech_frames = 0usize;
+    let mut active_peak_rms = 0.0f32;
+    let mut segment_id = 0u64;
+    let mut silence_frames = 0usize;
+    let mut noise_floor = 0.004f32;
+    let mut output = Vec::new();
+
+    while pending.len() >= FRAME_SAMPLES {
+        let frame_start = cursor_sample;
+        let frame: Vec<i16> = pending.drain(..FRAME_SAMPLES).collect();
+        cursor_sample += frame.len();
+        let rms = calculate_rms(&frame);
+        let speech_threshold = speech_threshold_for_noise(noise_floor);
+        let is_speech = rms >= speech_threshold || rms >= ABSOLUTE_SPEECH_RMS;
+        noise_floor = update_noise_floor(noise_floor, rms, speech_threshold, is_speech);
+
+        if active.is_empty() {
+            preroll.extend(
+                frame
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .map(|(idx, sample)| (frame_start + idx, sample)),
+            );
+            while preroll.len() > PREROLL_SAMPLES {
+                preroll.pop_front();
+            }
+            if is_speech {
+                active_start_sample = preroll.front().map(|(idx, _)| *idx).unwrap_or(frame_start);
+                active.extend(preroll.drain(..).map(|(_, sample)| sample));
+                active_speech_frames = 1;
+                active_peak_rms = rms;
+                silence_frames = 0;
+            }
+            continue;
+        }
+
+        active.extend(frame);
+        active_peak_rms = active_peak_rms.max(rms);
+        if is_speech {
+            active_speech_frames += 1;
+        }
+        silence_frames = if is_speech { 0 } else { silence_frames + 1 };
+        let long_enough = active.len() >= MIN_SEGMENT_SAMPLES;
+        let target_hit = active.len() >= TARGET_SEGMENT_SAMPLES;
+        let max_hit = active.len() >= MAX_SEGMENT_SAMPLES;
+        let silence_hit = target_hit && silence_frames >= END_SILENCE_FRAMES;
+        if long_enough && (silence_hit || max_hit) {
+            push_timed_segment(
+                &mut output,
+                &mut segment_id,
+                std::mem::take(&mut active),
+                active_start_sample,
+                active_speech_frames,
+                active_peak_rms,
+            );
+            active_speech_frames = 0;
+            active_peak_rms = 0.0;
+            silence_frames = 0;
+            preroll.clear();
+        }
+    }
+
+    if !pending.is_empty() {
+        if active.is_empty() {
+            active_start_sample = cursor_sample;
+        }
+        active.extend(pending);
+    }
+    if active.len() >= MIN_SEGMENT_SAMPLES {
+        push_timed_segment(
+            &mut output,
+            &mut segment_id,
+            active,
+            active_start_sample,
+            active_speech_frames,
+            active_peak_rms,
+        );
+    }
+    output
+}
+
+fn group_timed_segments(
+    timed_segments: Vec<TimedSegment>,
+    source_samples: &[i16],
+    group_budget: usize,
+) -> Vec<TimedSegment> {
+    if timed_segments.len() <= 1 {
+        return timed_segments;
+    }
+    let max_group_sec = (group_budget.clamp(5, 120) as f64 * 0.25).clamp(2.5, 12.0);
+    let max_gap_sec = 1.2;
+    let max_group_items = 10usize;
+    let mut output = Vec::new();
+    let mut group_start_index = 0usize;
+    while group_start_index < timed_segments.len() {
+        let first = &timed_segments[group_start_index];
+        let mut group_end_index = group_start_index;
+        let mut group_items = 1usize;
+        while group_end_index + 1 < timed_segments.len() {
+            let current = &timed_segments[group_end_index];
+            let next = &timed_segments[group_end_index + 1];
+            let next_total_sec =
+                (next.end_sample.saturating_sub(first.start_sample)) as f64 / 16_000.0;
+            let gap_sec = (next.start_sample.saturating_sub(current.end_sample)) as f64 / 16_000.0;
+            if group_items >= max_group_items
+                || gap_sec > max_gap_sec
+                || next_total_sec > max_group_sec
+            {
+                break;
+            }
+            group_end_index += 1;
+            group_items += 1;
+        }
+        let last = &timed_segments[group_end_index];
+        let start_sample = first.start_sample.min(source_samples.len());
+        let end_sample = last.end_sample.min(source_samples.len()).max(start_sample);
+        let samples = source_samples[start_sample..end_sample].to_vec();
+        let speech_frames = timed_segments[group_start_index..=group_end_index]
+            .iter()
+            .map(|timed| timed.segment.speech_frames)
+            .sum();
+        let peak_rms = timed_segments[group_start_index..=group_end_index]
+            .iter()
+            .map(|timed| timed.segment.peak_rms)
+            .fold(0.0f32, f32::max);
+        output.push(TimedSegment {
+            segment: Segment {
+                id: first.segment.id,
+                samples,
+                speech_frames,
+                peak_rms,
+            },
+            start_sample,
+            end_sample,
+        });
+        group_start_index = group_end_index + 1;
+    }
+    crate::log_info!(
+        "[GeminiS2S][VADGroup] input_segments={} grouped_segments={} budget={} max_group_sec={:.2}",
+        timed_segments.len(),
+        output.len(),
+        group_budget,
+        max_group_sec
+    );
+    output
+}
+
+fn push_timed_segment(
+    output: &mut Vec<TimedSegment>,
+    segment_id: &mut u64,
+    samples: Vec<i16>,
+    start_sample: usize,
+    speech_frames: usize,
+    peak_rms: f32,
+) {
+    let segment = Segment {
+        id: *segment_id,
+        samples,
+        speech_frames,
+        peak_rms,
+    };
+    *segment_id += 1;
+    if !is_segment_worth_sending(&segment) {
+        return;
+    }
+    let end_sample = start_sample + segment.samples.len();
+    output.push(TimedSegment {
+        segment,
+        start_sample,
+        end_sample,
+    });
+}
+
 fn session_worker(
     session_index: usize,
     segment_rx: mpsc::Receiver<Segment>,
@@ -692,6 +1271,9 @@ fn run_hedged_segment_session(
     let mut finished = [false; HEDGE_ATTEMPTS];
     let mut buffered_events = [Vec::<S2sEvent>::new(), Vec::<S2sEvent>::new()];
     let mut winner: Option<usize> = None;
+    let started = Instant::now();
+    let source_audio_ms = samples_to_ms(segment.samples.len()) as u128;
+    let hard_timeout_ms = grouped_hard_timeout_ms(source_audio_ms, final_attempt);
 
     for attempt in 0..HEDGE_ATTEMPTS {
         let attempt_generation = generation + (attempt as u64 * 100_000);
@@ -713,6 +1295,33 @@ fn run_hedged_segment_session(
     drop(race_tx);
 
     while !stop_signal.load(Ordering::SeqCst) {
+        if started.elapsed().as_millis() >= hard_timeout_ms {
+            for cancel in &cancel_flags {
+                cancel.store(true, Ordering::SeqCst);
+            }
+            eprintln!(
+                "[RealtimeS2S] hedge-timeout segment={} session={} gen={} elapsed_ms={} timeout_ms={} winner={:?} saw_audio={:?} finished={:?} final_attempt={}",
+                segment.id,
+                session_index,
+                generation,
+                started.elapsed().as_millis(),
+                hard_timeout_ms,
+                winner,
+                saw_audio,
+                finished,
+                final_attempt
+            );
+            if let Some(attempt) = winner
+                && saw_audio[attempt]
+            {
+                let _ = event_tx.send(S2sEvent::Done { id: segment.id });
+                return Ok(SegmentOutcome::Healthy);
+            }
+            if final_attempt {
+                let _ = event_tx.send(S2sEvent::Done { id: segment.id });
+            }
+            return Ok(SegmentOutcome::RetryFresh);
+        }
         match race_rx.recv_timeout(Duration::from_millis(50)) {
             Ok(S2sRaceEvent::Event { attempt, event }) => {
                 if matches!(event, S2sEvent::Audio { .. }) {
@@ -1080,7 +1689,21 @@ fn process_segment(
                 let detail = frame
                     .map(|f| format!("connection closed ({}: {})", f.code, f.reason))
                     .unwrap_or_else(|| "connection closed".to_string());
-                return Err(anyhow::anyhow!(detail));
+                eprintln!(
+                    "[RealtimeS2S] socket-close segment={} session={} gen={} elapsed_ms={} detail={} chunks={} text_updates={}",
+                    segment_id,
+                    session_index,
+                    generation,
+                    started.elapsed().as_millis(),
+                    detail,
+                    audio_chunks,
+                    text_updates
+                );
+                if audio_chunks > 0 {
+                    let _ = event_tx.send(S2sEvent::Done { id: segment_id });
+                    return Ok(SegmentOutcome::Healthy);
+                }
+                return Ok(SegmentOutcome::RetryFresh);
             }
             Ok(_) => {}
             Err(tungstenite::Error::Io(ref err))
@@ -1095,19 +1718,18 @@ fn process_segment(
                     let _ = event_tx.send(S2sEvent::Done { id: segment_id });
                     return Ok(SegmentOutcome::Healthy);
                 }
-                let no_first_audio_retry_ms = if text_updates == 0 {
-                    FIRST_AUDIO_SILENT_RETRY_MS
-                } else {
-                    FIRST_AUDIO_ACTIVE_RETRY_MS
-                };
+                let source_audio_ms = samples_to_ms(segment.samples.len()) as u128;
+                let no_first_audio_retry_ms =
+                    grouped_first_audio_timeout_ms(source_audio_ms, text_updates);
                 if audio_chunks == 0 && started.elapsed().as_millis() >= no_first_audio_retry_ms {
                     eprintln!(
-                        "[RealtimeS2S] done segment={} session={} gen={} elapsed_ms={} reason=no_first_audio_retry retry_ms={} text_updates={} chunks=0 first_audio_ms=none",
+                        "[RealtimeS2S] done segment={} session={} gen={} elapsed_ms={} reason=no_first_audio_retry retry_ms={} source_audio_ms={} text_updates={} chunks=0 first_audio_ms=none",
                         segment_id,
                         session_index,
                         generation,
                         started.elapsed().as_millis(),
                         no_first_audio_retry_ms,
+                        source_audio_ms,
                         text_updates
                     );
                     if final_attempt {
@@ -1115,16 +1737,19 @@ fn process_segment(
                     }
                     return Ok(SegmentOutcome::RetryFresh);
                 }
-                if last_update.elapsed() > Duration::from_secs(8)
-                    || started.elapsed() > Duration::from_secs(30)
+                let total_timeout_ms = no_first_audio_retry_ms.max(30_000);
+                if (audio_chunks > 0 && last_update.elapsed() > Duration::from_secs(8))
+                    || started.elapsed().as_millis() > total_timeout_ms
                 {
                     eprintln!(
-                        "[RealtimeS2S] done segment={} session={} gen={} elapsed_ms={} reason=timeout idle_ms={} chunks={} first_audio_ms={}",
+                        "[RealtimeS2S] done segment={} session={} gen={} elapsed_ms={} reason=timeout idle_ms={} total_timeout_ms={} source_audio_ms={} chunks={} first_audio_ms={}",
                         segment_id,
                         session_index,
                         generation,
                         started.elapsed().as_millis(),
                         last_update.elapsed().as_millis(),
+                        total_timeout_ms,
+                        source_audio_ms,
                         audio_chunks,
                         first_audio_ms
                             .map(|value| value.to_string())
@@ -1634,6 +2259,13 @@ fn segment_speech_ratio(segment: &Segment) -> f32 {
 
 fn samples_to_ms(samples: usize) -> usize {
     samples.saturating_mul(1000) / 16_000
+}
+
+fn pcm_bytes_to_i16(bytes: &[u8]) -> Vec<i16> {
+    bytes
+        .chunks_exact(2)
+        .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
+        .collect()
 }
 
 fn speed_instruction(speed: &str) -> &'static str {

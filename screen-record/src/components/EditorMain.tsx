@@ -402,12 +402,12 @@ export function EditorMain({
         ...segment,
         previewTrackKind: "imported" as const,
       })),
-      ...(deferredNarrationSegments ?? []).map((segment) => ({
+      ...(narrationSegments ?? []).map((segment) => ({
         ...segment,
         previewTrackKind: "narration" as const,
       })),
     ],
-    [composition?.audioSegments, deferredNarrationSegments],
+    [composition?.audioSegments, narrationSegments],
   );
   useEffect(() => {
     const start = performance.now();
@@ -913,6 +913,11 @@ export function EditorMain({
             editingSubtitleId={editingSubtitleId}
             selectedSubtitleIds={selectedSubtitleIds}
             selectedSubtitleRange={selectedSubtitleRange}
+            composition={composition}
+            activeClipId={null}
+            currentRawVideoPath={currentRawVideoPath}
+            currentRawMicAudioPath={currentRawMicAudioPath}
+            duration={duration}
             subtitleSource={subtitleSource}
             onSubtitleSourceChange={onSubtitleSourceChange}
             subtitleMethod={subtitleMethod}
@@ -949,7 +954,7 @@ export function EditorMain({
             onUpdateAudioSegmentForPanel={onUpdateAudioSegment}
             onDeleteAudioSegmentsForPanel={onDeleteAudioSegments}
             onCommitAudioSegmentsForPanel={onCommitAudioSegments}
-            narrationSegmentsForPanel={deferredNarrationSegments}
+            narrationSegmentsForPanel={narrationSegments}
             selectedNarrationSegmentIds={selectedNarrationSegmentIdSet}
             onUpdateNarrationSegmentForPanel={onUpdateNarrationSegment}
             onDeleteNarrationSegmentsForPanel={onDeleteNarrationSegments}
@@ -1040,7 +1045,7 @@ export function EditorMain({
           selectedAudioSegmentRange={selectedAudioSegmentRange}
           onAudioSelectionChange={handleAudioSelectionChange}
           onAudioRangeChange={handleAudioRangeChange}
-          narrationSegments={deferredNarrationSegments}
+          narrationSegments={narrationSegments}
           liveNarrationProjectId={projectResetKey}
           onNarrationSegmentClick={handleNarrationSegmentClick}
           onUpdateNarrationSegment={onUpdateNarrationSegment}

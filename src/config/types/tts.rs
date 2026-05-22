@@ -82,6 +82,7 @@ impl Default for TtsPlaygroundSettings {
 pub enum TtsPlaygroundMode {
     #[default]
     TtsClone,
+    SpeechToSpeech,
     AudioEdit,
     ReferenceLibrary,
 }

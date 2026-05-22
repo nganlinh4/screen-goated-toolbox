@@ -431,6 +431,7 @@ mod tests {
             gemini_speed: String::new(),
             gemini_instruction: String::new(),
             gemini_language_conditions: Vec::new(),
+            gemini_parallel_requests: 2,
             google_speed: String::new(),
             edge_voice: String::new(),
             edge_settings: Default::default(),

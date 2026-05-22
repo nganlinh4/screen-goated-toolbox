@@ -14,6 +14,10 @@ import {
   type SubtitleNarrationGroupPreview,
 } from '@/hooks/useSubtitleNarration';
 import {
+  populateEmptyS2sSubtitleTracks,
+  useS2sNarration,
+} from '@/hooks/useS2sNarration';
+import {
   useNarrationSettings,
   type NarrationEdgeVoiceConfig,
   type NarrationKokoroVoiceConfig,
@@ -23,11 +27,21 @@ import {
   type NarrationTtsMethod,
 } from '@/hooks/useNarrationSettings';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
+import type { SubtitleSource } from '@/lib/subtitleGenerationPlan';
+import { SUBTITLE_LANGUAGE_OPTIONS_GROQ } from '@/lib/subtitleLanguageOptions';
 import {
   ORIGINAL_SUBTITLE_TRACK_ID,
   getSubtitleTrackLabel,
 } from '@/lib/subtitleTracks';
-import type { NarrationSegment, SubtitleSegment, SubtitleTrack, SubtitleViewState } from '@/types/video';
+import type {
+  ImportedAudioSegment,
+  NarrationSegment,
+  ProjectComposition,
+  SubtitleSegment,
+  SubtitleTrack,
+  SubtitleViewState,
+  VideoSegment,
+} from '@/types/video';
 
 const CURRENT_SUBTITLE_VIEW_SOURCE_ID = 'current-subtitle-view';
 const READ_UNSPLIT_SUBTITLES_KEY = 'screen-record-narration-read-unsplit-subtitles-v1';
@@ -145,6 +159,12 @@ function kokoroVoiceLanguageForCondition(languageCode: string) {
 }
 
 interface NarrationPanelProps {
+  segment: VideoSegment | null;
+  composition: ProjectComposition | null;
+  activeClipId?: string | null;
+  currentRawVideoPath: string;
+  currentRawMicAudioPath: string;
+  duration: number;
   visibleSubtitles: SubtitleSegment[];
   /** All available subtitle tracks (original + translations) for the source picker. */
   subtitleTracks?: SubtitleTrack[];
@@ -157,9 +177,22 @@ interface NarrationPanelProps {
   ) => void | Promise<void>;
   onFinalizeNarrationSegments: () => void | Promise<void>;
   onNarrationGroupPreviewChange?: (preview: SubtitleNarrationGroupPreview | null) => void;
+  selectedSource: SubtitleSource;
+  onSourceChange: (value: SubtitleSource) => void;
+  canUseVideoSource: boolean;
+  canUseMicSource: boolean;
+  canUseAudioSource: boolean;
+  audioSegments?: ImportedAudioSegment[];
+  onUpdateSegment: (segment: VideoSegment) => void;
 }
 
 export function NarrationPanel({
+  segment,
+  composition,
+  activeClipId,
+  currentRawVideoPath,
+  currentRawMicAudioPath,
+  duration,
   visibleSubtitles = [],
   subtitleTracks,
   activeSubtitleView,
@@ -168,6 +201,13 @@ export function NarrationPanel({
   onApplyNarrationSegments,
   onFinalizeNarrationSegments,
   onNarrationGroupPreviewChange,
+  selectedSource,
+  onSourceChange,
+  canUseVideoSource,
+  canUseMicSource,
+  canUseAudioSource,
+  audioSegments = [],
+  onUpdateSegment,
 }: NarrationPanelProps) {
   const { t } = useSettings();
   const { settings, update, profile, metadata } = useNarrationSettings();
@@ -182,6 +222,13 @@ export function NarrationPanel({
   const [readUnsplitSubtitles, setReadUnsplitSubtitles] = useState(getInitialReadUnsplitSubtitles);
   const [groupTextBudget, setGroupTextBudget] = useState(getInitialNarrationGroupTextBudget);
   const [isGroupSliderDragging, setIsGroupSliderDragging] = useState(false);
+  const [narrationMode, setNarrationMode] = useState<'subtitles' | 's2s'>(
+    visibleSubtitles.length > 0 ? 'subtitles' : 's2s',
+  );
+  const [s2sTargetLanguage, setS2sTargetLanguage] = useState('vi');
+  const effectiveTtsMethod: NarrationTtsMethod = narrationMode === 's2s'
+    ? 'GeminiLive'
+    : settings.method;
 
   useEffect(() => {
     try {
@@ -600,6 +647,47 @@ export function NarrationPanel({
     onApplyNarrationSegments,
     onFinalizeNarrationSegments,
   });
+  const s2sSourceOptions = [
+    { value: 'video', label: t.subtitleSourceVideo, disabled: !canUseVideoSource },
+    { value: 'mic', label: t.subtitleSourceMic, disabled: !canUseMicSource },
+    { value: 'audio', label: t.subtitleSourceFullAudio, disabled: !canUseAudioSource },
+    ...audioSegments.map((audio) => ({
+      value: `audio:${audio.id}`,
+      label: audio.name || t.subtitleSourceAudio,
+      disabled: !audio.rawAudioPath,
+    })),
+  ];
+  const s2sLanguageOptions = SUBTITLE_LANGUAGE_OPTIONS_GROQ
+    .filter((option) => option.value !== 'auto')
+    .map((option) => ({ value: option.value, label: option.label }));
+  const s2s = useS2sNarration({
+    t,
+    segment,
+    composition,
+    activeClipId,
+    currentRawVideoPath,
+    currentRawMicAudioPath,
+    duration,
+    sourceType: selectedSource,
+    selectedRange: selectedSubtitleRange,
+    targetLanguage: s2sTargetLanguage,
+    geminiModel: profile.geminiModel,
+    geminiVoice: profile.geminiVoice,
+    geminiSpeed: profile.geminiSpeed,
+    parallelRequests: profile.geminiS2sParallelRequests,
+    groupTextBudget,
+    onApplyNarrationSegments,
+    onPopulateEmptySubtitles: (sourceSegments, targetSegments, targetLanguage) => {
+      if (!segment) return;
+      onUpdateSegment(populateEmptyS2sSubtitleTracks(
+        segment,
+        sourceSegments,
+        targetSegments,
+        targetLanguage,
+      ));
+    },
+    onFinalize: onFinalizeNarrationSegments,
+  });
 
   useEffect(() => {
     onNarrationGroupPreviewChange?.(narration.narrationGroupPreview);
@@ -637,6 +725,108 @@ export function NarrationPanel({
   return (
     <PanelCard className="narration-panel">
       <div className="narration-panel-body space-y-3">
+        <div className="narration-mode-row grid grid-cols-2 gap-1 rounded-lg bg-surface-container-high/50 p-1">
+          <button
+            type="button"
+            onClick={() => setNarrationMode('subtitles')}
+            disabled={visibleSubtitles.length === 0}
+            className="narration-mode-subtitles ui-chip-button h-7 rounded-md text-[11px] font-medium disabled:opacity-45"
+            data-active={narrationMode === 'subtitles'}
+          >
+            {t.narrationModeSubtitles}
+          </button>
+          <button
+            type="button"
+            onClick={() => setNarrationMode('s2s')}
+            className="narration-mode-s2s ui-chip-button h-7 rounded-md text-[11px] font-medium"
+            data-active={narrationMode === 's2s'}
+          >
+            {t.narrationModeS2s}
+          </button>
+        </div>
+
+        {narrationMode === 's2s' && (
+          <div className="narration-panel-s2s rounded-xl border border-outline/35 bg-surface-container-high/45 p-2.5">
+            <div className="narration-s2s-title mb-2 text-[11px] font-semibold text-on-surface">
+              {t.narrationModeS2s}
+            </div>
+            <div className="narration-s2s-source-row mb-2 flex items-center gap-2">
+              <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+                {t.subtitleSource}
+              </span>
+              <PanelSelect
+                value={selectedSource}
+                options={s2sSourceOptions}
+                onChange={(value) => onSourceChange(value as SubtitleSource)}
+                triggerClassName="narration-s2s-source-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+                contentClassName="narration-s2s-source-menu"
+              />
+            </div>
+            <div className="narration-s2s-language-row mb-2 flex items-center gap-2">
+              <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
+                {t.narrationS2sTarget}
+              </span>
+              <PanelSelect
+                value={s2sTargetLanguage}
+                options={s2sLanguageOptions}
+                onChange={setS2sTargetLanguage}
+                triggerClassName="narration-s2s-language-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+                contentClassName="narration-s2s-language-menu"
+              />
+            </div>
+            <div className="narration-s2s-grouping mb-2 space-y-1.5">
+              <div className="narration-s2s-grouping-header flex items-center justify-between gap-2">
+                <span className="text-[11px] font-medium text-on-surface-variant">
+                  {t.narrationGrouping}
+                </span>
+                <span className="narration-s2s-grouping-value text-[10px] font-semibold text-on-surface-variant">
+                  {groupTextBudget}
+                </span>
+              </div>
+              <Slider
+                min={MIN_NARRATION_GROUP_TEXT_BUDGET}
+                max={MAX_NARRATION_GROUP_TEXT_BUDGET}
+                step={5}
+                value={groupTextBudget}
+                onChange={(value) => setGroupTextBudget(
+                  Math.max(
+                    MIN_NARRATION_GROUP_TEXT_BUDGET,
+                    Math.min(MAX_NARRATION_GROUP_TEXT_BUDGET, Math.round(value)),
+                  ),
+                )}
+                className="narration-s2s-grouping-slider"
+                disabled={s2s.isGenerating}
+              />
+            </div>
+            <div className="narration-s2s-actions grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                disabled={!s2s.canGenerate}
+                onClick={s2s.handleGenerate}
+                data-tone="primary"
+                data-emphasis="strong"
+                className="narration-s2s-generate-button ui-action-button flex h-8 items-center justify-center rounded-lg px-2.5 text-[11px] font-medium"
+              >
+                {selectedSubtitleRange ? t.subtitleGenerateForRange : t.subtitleNarrationGenerate}
+              </button>
+              <button
+                type="button"
+                disabled={!s2s.isGenerating}
+                onClick={s2s.handleCancel}
+                data-tone="danger"
+                className="narration-s2s-cancel-button ui-action-button flex h-8 items-center justify-center rounded-lg px-2.5 text-[11px] font-medium"
+              >
+                {t.subtitleNarrationCancel}
+              </button>
+            </div>
+            <div className="narration-s2s-status mt-2 truncate text-[10px] leading-4 text-on-surface-variant">
+              {s2s.status?.message ?? t.subtitleNarrationIdleHint}
+            </div>
+          </div>
+        )}
+
+        {narrationMode === 'subtitles' && (
+          <>
         <div className="narration-panel-source-row flex items-center gap-2">
           <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
             {t.narrationSourceTrack}
@@ -766,6 +956,9 @@ export function NarrationPanel({
           )}
         </div>
 
+          </>
+        )}
+
         <div className="narration-panel-tts rounded-xl border border-outline/30 bg-surface-container-high/40 p-2.5">
           <div className="narration-panel-tts-header mb-2 text-[11px] font-semibold text-on-surface">
             {t.narrationTtsTitle}
@@ -776,15 +969,19 @@ export function NarrationPanel({
               {t.narrationTtsMethod}
             </span>
             <PanelSelect
-              value={settings.method}
-              options={providerOptions}
-              onChange={(value) => update('method', value as NarrationTtsMethod)}
+              value={effectiveTtsMethod}
+              options={narrationMode === 's2s'
+                ? [{ value: 'GeminiLive', label: t.narrationTtsMethodGeminiS2s }]
+                : providerOptions}
+              onChange={(value) => {
+                if (narrationMode !== 's2s') update('method', value as NarrationTtsMethod);
+              }}
               triggerClassName="narration-method-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
               contentClassName="narration-method-menu"
             />
           </div>
 
-          {settings.method === 'GeminiLive' && (
+          {effectiveTtsMethod === 'GeminiLive' && (
             <>
               {geminiModels.length > 0 && (
                 <div className="narration-panel-row mb-2 flex items-center gap-2">
@@ -833,6 +1030,38 @@ export function NarrationPanel({
                   triggerClassName="narration-speed-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
                   contentClassName="narration-speed-menu"
                 />
+              </div>
+              <div className="narration-panel-parallel mb-2 space-y-1.5">
+                <div className="narration-panel-parallel-header flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-medium text-on-surface-variant">
+                    {t.narrationTtsParallelRequests}
+                  </span>
+                  <span className="narration-panel-parallel-value text-[10px] font-semibold text-on-surface-variant">
+                    {narrationMode === 's2s'
+                      ? settings.geminiS2sParallelRequests
+                      : settings.geminiParallelRequests}
+                  </span>
+                </div>
+                <Slider
+                  min={1}
+                  max={narrationMode === 's2s' ? 6 : 4}
+                  step={1}
+                  value={narrationMode === 's2s'
+                    ? settings.geminiS2sParallelRequests
+                    : settings.geminiParallelRequests}
+                  onChange={(value) => {
+                    const next = Math.round(value);
+                    if (narrationMode === 's2s') {
+                      update('geminiS2sParallelRequests', Math.max(1, Math.min(6, next)));
+                    } else {
+                      update('geminiParallelRequests', Math.max(1, Math.min(4, next)));
+                    }
+                  }}
+                  className="narration-panel-parallel-slider"
+                />
+                <div className="narration-panel-parallel-warning text-[9px] leading-3 text-on-surface-variant/75">
+                  {t.narrationTtsParallelRequestsWarning}
+                </div>
               </div>
               <div className="narration-panel-row mb-2 flex flex-col gap-1">
                 <span className="text-[11px] font-medium text-on-surface-variant">
@@ -893,7 +1122,7 @@ export function NarrationPanel({
             </>
           )}
 
-          {settings.method === 'GoogleTranslate' && (
+          {effectiveTtsMethod === 'GoogleTranslate' && (
             <div className="narration-panel-row flex items-center gap-2">
               <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
                 {t.narrationTtsSpeed}
@@ -908,7 +1137,7 @@ export function NarrationPanel({
             </div>
           )}
 
-          {settings.method === 'Kokoro' && (
+          {effectiveTtsMethod === 'Kokoro' && (
             <>
               <div className="narration-panel-kokoro-voices mb-2 flex flex-col gap-1.5">
                 <span className="text-[11px] font-medium text-on-surface-variant">
@@ -1000,7 +1229,7 @@ export function NarrationPanel({
             </>
           )}
 
-          {settings.method === 'Supertonic' && (
+          {effectiveTtsMethod === 'Supertonic' && (
             <>
               <div className="narration-panel-supertonic-voices mb-2 flex flex-col gap-1.5">
                 <span className="text-[11px] font-medium text-on-surface-variant">
@@ -1104,7 +1333,7 @@ export function NarrationPanel({
             </>
           )}
 
-          {settings.method === 'MagpieMultilingual' && (
+          {effectiveTtsMethod === 'MagpieMultilingual' && (
             <>
               <div className="narration-panel-magpie-voices mb-2 flex flex-col gap-1.5">
                 <span className="text-[11px] font-medium text-on-surface-variant">
@@ -1157,7 +1386,7 @@ export function NarrationPanel({
             </>
           )}
 
-          {settings.method === 'StepAudioEditX' && (
+          {effectiveTtsMethod === 'StepAudioEditX' && (
             <>
               <div className="narration-panel-step-audio-reference mb-2 flex flex-col gap-1.5">
                 <span className="text-[11px] font-medium text-on-surface-variant">
@@ -1181,7 +1410,7 @@ export function NarrationPanel({
             </>
           )}
 
-          {settings.method === 'VieneuTts' && (
+          {effectiveTtsMethod === 'VieneuTts' && (
             <>
               <div className="narration-panel-vieneu-reference mb-2 flex flex-col gap-1.5">
                 <span className="text-[11px] font-medium text-on-surface-variant">
@@ -1205,7 +1434,7 @@ export function NarrationPanel({
             </>
           )}
 
-          {settings.method === 'EdgeTTS' && (
+          {effectiveTtsMethod === 'EdgeTTS' && (
             <>
               <div className="narration-panel-row mb-2 flex items-center gap-2">
                 <span className="w-20 flex-shrink-0 text-[10px] font-medium text-on-surface-variant">
