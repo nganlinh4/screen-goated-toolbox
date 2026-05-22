@@ -87,6 +87,24 @@ pub(super) fn render_studio_panel(
                 start_step_audio_edit(config, state);
             }
         }
+        TtsPlaygroundMode::SpeechToSpeech => {
+            let source = config
+                .tts_playground
+                .step_audio_edit_settings
+                .source_audio_path
+                .trim();
+            ui.label(egui::RichText::new("Speech-to-speech").strong());
+            let can_generate = !state.is_generating && !source.is_empty();
+            if ui
+                .add_enabled(
+                    can_generate,
+                    primary_generate_button(text.tts_playground_generate),
+                )
+                .clicked()
+            {
+                start_s2s_generation(config, state);
+            }
+        }
     }
 
     ui.separator();
@@ -183,6 +201,113 @@ fn start_step_audio_edit(config: &Config, state: &mut TtsPlaygroundUiState) {
         .map_err(|err| err.to_string());
         let _ = tx.send(result);
     });
+}
+
+fn start_s2s_generation(config: &Config, state: &mut TtsPlaygroundUiState) {
+    let source_path = config
+        .tts_playground
+        .step_audio_edit_settings
+        .source_audio_path
+        .trim()
+        .to_string();
+    if source_path.is_empty() {
+        state.error = Some("Pick or record source audio first.".to_string());
+        return;
+    }
+    let settings = match crate::api::realtime_audio::s2s::default_batch_settings_for_target(
+        &config.realtime_target_language,
+        &config.tts_playground.gemini_model,
+        &config.tts_playground.gemini_voice,
+        &config.tts_playground.gemini_speed,
+    ) {
+        Ok(settings) => settings,
+        Err(error) => {
+            state.error = Some(error.to_string());
+            return;
+        }
+    };
+    let cancel = Arc::new(AtomicBool::new(false));
+    let thread_cancel = cancel.clone();
+    let voice_label = config.tts_playground.gemini_voice.clone();
+    let (tx, rx) = mpsc::channel::<ArtifactResult>();
+    state.job_rx = Some(rx);
+    state.generation_cancel = Some(cancel);
+    state.is_generating = true;
+    state.status = "Generating Gemini S2S audio...".to_string();
+    state.error = None;
+    std::thread::spawn(move || {
+        let started = Instant::now();
+        let result = decode_audio_16k_mono(&source_path)
+            .and_then(|samples| {
+                crate::api::realtime_audio::s2s::run_gemini_live_s2s_batch(
+                    samples,
+                    settings,
+                    thread_cancel,
+                )
+                .map_err(|error| error.to_string())
+            })
+            .and_then(|segments| {
+                let mut pcm_samples = Vec::new();
+                let mut source_text = Vec::new();
+                let mut target_text = Vec::new();
+                for segment in segments {
+                    if !segment.source_text.trim().is_empty() {
+                        source_text.push(segment.source_text);
+                    }
+                    if !segment.target_text.trim().is_empty() {
+                        target_text.push(segment.target_text);
+                    }
+                    pcm_samples.extend(segment.audio_pcm_24k);
+                }
+                if pcm_samples.is_empty() {
+                    return Err("Gemini S2S returned no audio".to_string());
+                }
+                let wav_data = crate::api::audio::encode_wav(&pcm_samples, 24_000, 1);
+                let duration_ms = ((pcm_samples.len() as f64 / 24_000.0) * 1000.0).round() as u64;
+                let id = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                Ok(TtsPlaygroundArtifact {
+                    id,
+                    text: format!(
+                        "Source: {}\nTarget: {}",
+                        source_text.join(" "),
+                        target_text.join(" ")
+                    ),
+                    method: TtsMethod::GeminiLive,
+                    voice_label,
+                    pcm_samples,
+                    wav_data,
+                    sample_rate: 24_000,
+                    duration_ms,
+                    latency_ms: started.elapsed().as_millis(),
+                    created_label: chrono::Local::now().format("%H:%M:%S").to_string(),
+                })
+            });
+        let _ = tx.send(result);
+    });
+}
+
+fn decode_audio_16k_mono(path: &str) -> Result<Vec<i16>, String> {
+    let decoder = crate::overlay::screen_record::mf_audio::MfAudioDecoder::new_with_output_format(
+        path,
+        Some(16_000),
+        Some(1),
+    )?;
+    let channels = decoder.channels().max(1) as usize;
+    let mut samples = Vec::new();
+    while let Some((bytes, _)) = decoder.read_samples()? {
+        let floats = bytes
+            .chunks_exact(4)
+            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .collect::<Vec<_>>();
+        for frame in floats.chunks(channels) {
+            let sample = frame.first().copied().unwrap_or(0.0).clamp(-1.0, 1.0);
+            samples.push((sample * i16::MAX as f32) as i16);
+        }
+    }
+    Ok(samples)
 }
 
 pub(super) fn stop_player(state: &mut TtsPlaygroundUiState) {

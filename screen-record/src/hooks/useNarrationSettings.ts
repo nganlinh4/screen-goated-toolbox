@@ -53,6 +53,8 @@ export interface NarrationSettingsState {
   geminiSpeed: string;
   geminiInstruction: string;
   geminiLanguageConditions: NarrationLanguageCondition[];
+  geminiParallelRequests: number;
+  geminiS2sParallelRequests: number;
   googleSpeed: string;
   edgeVoice: string;
   edgePitch: number;
@@ -167,6 +169,8 @@ const FALLBACK_DEFAULTS: NarrationSettingsState = {
   geminiSpeed: '',
   geminiInstruction: '',
   geminiLanguageConditions: [],
+  geminiParallelRequests: 2,
+  geminiS2sParallelRequests: 3,
   googleSpeed: '',
   edgeVoice: '',
   edgePitch: 0,

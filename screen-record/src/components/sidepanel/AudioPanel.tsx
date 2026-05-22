@@ -138,6 +138,9 @@ export function AudioPanel({
       : `.audio-track-segment[data-audio-segment-id="${escapeSelectorValue(segment.id)}"]`;
     const element = document.querySelector<HTMLElement>(selector);
     if (!element) return;
+    element.querySelectorAll<HTMLElement>('[data-sgt-preview-created="true"]').forEach((child) => {
+      child.remove();
+    });
     delete element.dataset.sgtPreviewBaseWidthPct;
     delete element.dataset.sgtPreviewBaseLeftPct;
   };
@@ -255,6 +258,10 @@ export function AudioPanel({
   const handleRateChange = (segment: AudioPanelSegment, rate: number) => {
     const patch = { playbackRate: clampRate(rate) };
     setSegmentDraft(segment, patch);
+    if (segment.kind === 'narration') {
+      updateSegment(segment, patch);
+      return;
+    }
     schedulePreviewDraft(segment, patch);
   };
 
@@ -268,13 +275,25 @@ export function AudioPanel({
     const safeOut = Math.min(Math.max(outPoint, safeIn + 0.05), seg.duration);
     const patch = { inPoint: safeIn, outPoint: safeOut };
     setSegmentDraft(seg, patch);
+    if (seg.kind === 'narration') {
+      updateSegment(seg, patch);
+      return;
+    }
     schedulePreviewDraft(seg, patch);
   };
 
   const handleApplyRateToAll = (rate: number) => {
     const nextRate = clampRate(rate);
     setBulkRate(nextRate);
-    selected.forEach((segment) => schedulePreviewDraft(segment, { playbackRate: nextRate }));
+    selected.forEach((segment) => {
+      const patch = { playbackRate: nextRate };
+      setSegmentDraft(segment, patch);
+      if (segment.kind === 'narration') {
+        updateSegment(segment, patch);
+      } else {
+        schedulePreviewDraft(segment, patch);
+      }
+    });
   };
 
   const commitApplyRateToAll = () => {

@@ -8,6 +8,7 @@ mod hotkeys;
 pub mod media_server;
 mod narration;
 mod recording;
+mod s2s_narration;
 mod subtitle_export;
 mod subtitles;
 mod window_monitor;
@@ -376,6 +377,9 @@ pub fn handle_ipc_command(
         "start_subtitle_narration" => narration::handle_start_subtitle_narration(&args),
         "get_subtitle_narration_status" => narration::handle_get_subtitle_narration_status(&args),
         "cancel_subtitle_narration" => narration::handle_cancel_subtitle_narration(&args),
+        "start_s2s_narration" => s2s_narration::handle_start_s2s_narration(&args),
+        "get_s2s_narration_status" => s2s_narration::handle_get_s2s_narration_status(&args),
+        "cancel_s2s_narration" => s2s_narration::handle_cancel_s2s_narration(&args),
         "get_narration_tts_metadata" => narration::handle_get_narration_tts_metadata(&args),
         "detect_narration_language" => narration::handle_detect_narration_language(&args),
         "get_hotkeys" => hotkeys::handle_get_hotkeys(),
