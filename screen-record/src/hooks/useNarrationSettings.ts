@@ -149,6 +149,7 @@ interface NarrationTtsMetadata {
   supertonicLanguages?: NarrationSupertonicLanguage[];
   supertonicVoices?: NarrationSupertonicVoice[];
   stepAudioVoices?: NarrationStepAudioVoice[];
+  stepAudioVoiceLanguages?: NarrationGeminiInstructionLanguage[];
   stepAudioReferenceVoices?: NarrationStepAudioVoice[];
   edgeVoiceState?: 'idle' | 'loading' | 'loaded' | 'error';
   edgeVoiceError?: string | null;

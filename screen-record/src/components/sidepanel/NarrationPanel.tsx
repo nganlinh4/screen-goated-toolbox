@@ -1,12 +1,15 @@
-import { RotateCcw, X } from 'lucide-react';
+import { AlertTriangle, RotateCcw, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { PanelSelect } from '@/components/ui/PanelSelect';
 import { Slider } from '@/components/ui/Slider';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useSettings } from '@/hooks/useSettings';
+import { invoke } from '@/lib/ipc';
 import {
   DEFAULT_NARRATION_GROUP_TEXT_BUDGET,
+  MAX_NARRATION_GROUP_TEXT_BUDGET,
+  MIN_NARRATION_GROUP_TEXT_BUDGET,
   useSubtitleNarration,
   type SubtitleNarrationGroupPreview,
 } from '@/hooks/useSubtitleNarration';
@@ -28,12 +31,78 @@ import type { NarrationSegment, SubtitleSegment, SubtitleTrack, SubtitleViewStat
 
 const CURRENT_SUBTITLE_VIEW_SOURCE_ID = 'current-subtitle-view';
 const READ_UNSPLIT_SUBTITLES_KEY = 'screen-record-narration-read-unsplit-subtitles-v1';
-const NARRATION_GROUP_TEXT_BUDGET_KEY = 'screen-record-narration-group-text-budget-v1';
+const NARRATION_GROUP_TEXT_BUDGET_KEY = 'screen-record-narration-group-text-budget-v2';
+
+const LANGUAGE_6393_TO_PRIMARY: Record<string, string> = {
+  arb: 'ar',
+  cmn: 'zh',
+  deu: 'de',
+  eng: 'en',
+  fra: 'fr',
+  hin: 'hi',
+  ita: 'it',
+  jpn: 'ja',
+  kor: 'ko',
+  por: 'pt',
+  spa: 'es',
+  vie: 'vi',
+  yue: 'zh',
+  zho: 'zh',
+};
+
+const LANGUAGE_PRIMARY_TO_6393: Record<string, string> = {
+  ar: 'arb',
+  de: 'deu',
+  en: 'eng',
+  es: 'spa',
+  fr: 'fra',
+  hi: 'hin',
+  it: 'ita',
+  ja: 'jpn',
+  ko: 'kor',
+  pt: 'por',
+  vi: 'vie',
+  zh: 'cmn',
+};
+
+interface NarrationLanguageDetectionResponse {
+  languageCode?: string | null;
+  sample?: string;
+}
+
+function normalizeLanguagePrimary(code: string | null | undefined) {
+  const normalized = code?.trim().toLowerCase();
+  if (!normalized || normalized === 'auto') return null;
+  const base = normalized.split(/[-_]/)[0];
+  return LANGUAGE_6393_TO_PRIMARY[base] ?? base;
+}
+
+function normalizeLanguage6393(code: string | null | undefined) {
+  const primary = normalizeLanguagePrimary(code);
+  if (!primary) return null;
+  if (primary.length === 3) return primary;
+  return LANGUAGE_PRIMARY_TO_6393[primary] ?? primary;
+}
+
+function languageMatches(candidate: string | null | undefined, detectedCode: string) {
+  const candidatePrimary = normalizeLanguagePrimary(candidate);
+  const candidate6393 = normalizeLanguage6393(candidate);
+  const detectedPrimary = normalizeLanguagePrimary(detectedCode);
+  const detected6393 = normalizeLanguage6393(detectedCode);
+  return !!candidatePrimary && (
+    candidatePrimary === detectedPrimary
+    || candidate6393 === detected6393
+  );
+}
 
 function getInitialNarrationGroupTextBudget() {
   try {
     const raw = Number(localStorage.getItem(NARRATION_GROUP_TEXT_BUDGET_KEY));
-    if (Number.isFinite(raw) && raw >= 15 && raw <= 120) {
+    if (
+      Number.isFinite(raw) &&
+      raw >= MIN_NARRATION_GROUP_TEXT_BUDGET &&
+      raw <= MAX_NARRATION_GROUP_TEXT_BUDGET
+    ) {
       return Math.round(raw);
     }
   } catch {
@@ -176,6 +245,17 @@ export function NarrationPanel({
     const fromTrack = availableTracks.find((track) => track.id === selectedSourceTrackId);
     return fromTrack?.targetLanguage ?? null;
   }, [availableTracks, selectedSourceTrackId]);
+  const narrationLanguageSampleKey = useMemo(() => {
+    if (selectedSourceLanguageCode) return '';
+    return subtitlesFromSelectedTrack
+      .map((subtitle) => subtitle.text.trim())
+      .filter(Boolean)
+      .slice(0, 8)
+      .join('\n');
+  }, [selectedSourceLanguageCode, subtitlesFromSelectedTrack]);
+  const [detectedNarrationLanguageCode, setDetectedNarrationLanguageCode] = useState<string | null>(
+    null,
+  );
 
   const geminiVoices = metadata?.geminiVoices ?? [];
   const geminiModels = metadata?.geminiModels ?? [];
@@ -189,6 +269,7 @@ export function NarrationPanel({
   const supertonicLanguages = metadata?.supertonicLanguages ?? [];
   const supertonicVoices = metadata?.supertonicVoices ?? [];
   const stepAudioVoices = metadata?.stepAudioVoices ?? [];
+  const stepAudioVoiceLanguages = metadata?.stepAudioVoiceLanguages ?? [];
   const referenceVoices = metadata?.stepAudioReferenceVoices ?? stepAudioVoices;
   const edgeVoiceLanguages = metadata?.edgeVoiceLanguages ?? [];
   const edgeVoicesByLanguage = metadata?.edgeVoicesByLanguage ?? {};
@@ -219,6 +300,106 @@ export function NarrationPanel({
         return fallback;
     }
   };
+  useEffect(() => {
+    const declaredLanguageCode = normalizeLanguage6393(selectedSourceLanguageCode);
+    if (declaredLanguageCode) {
+      setDetectedNarrationLanguageCode(declaredLanguageCode);
+      return;
+    }
+    const sample = narrationLanguageSampleKey.trim();
+    if (!sample) {
+      setDetectedNarrationLanguageCode(null);
+      return;
+    }
+    let cancelled = false;
+    void invoke<NarrationLanguageDetectionResponse>('detect_narration_language', {
+      items: sample.split('\n').map((text) => ({ text })),
+    })
+      .then((response) => {
+        if (cancelled) return;
+        setDetectedNarrationLanguageCode(normalizeLanguage6393(response.languageCode) ?? null);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.warn('[Narration] Failed to detect subtitle language:', error);
+          setDetectedNarrationLanguageCode(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [narrationLanguageSampleKey, selectedSourceLanguageCode]);
+
+  const isMethodSupportedForDetectedLanguage = (method: NarrationTtsMethod) => {
+    const detectedCode = detectedNarrationLanguageCode;
+    if (!detectedCode) return true;
+    switch (method) {
+      case 'Kokoro':
+        return kokoroVoiceLanguages.length === 0
+          || kokoroVoiceLanguages.some((language) =>
+            languageMatches(language.languageCode, detectedCode),
+          );
+      case 'Supertonic':
+        return supertonicLanguages.length === 0
+          || supertonicLanguages.some((language) =>
+            languageMatches(language.languageCode, detectedCode),
+          );
+      case 'MagpieMultilingual':
+        return magpieVoiceLanguages.length === 0
+          || magpieVoiceLanguages.some((language) =>
+            languageMatches(language.languageCode, detectedCode),
+          );
+      case 'VieneuTts':
+        return languageMatches('vie', detectedCode);
+      case 'StepAudioEditX':
+        return stepAudioVoiceLanguages.length === 0
+          || stepAudioVoiceLanguages.some((language) =>
+            languageMatches(language.languageCode, detectedCode),
+          );
+      case 'EdgeTTS':
+        return edgeVoiceLanguages.length === 0
+          || edgeVoiceLanguages.some((language) =>
+            languageMatches(language.languageCode, detectedCode),
+          );
+      case 'GeminiLive':
+        return geminiInstructionLanguages.length === 0
+          || geminiInstructionLanguages.some((language) =>
+            languageMatches(language.languageCode, detectedCode),
+          );
+      case 'GoogleTranslate':
+      default:
+        return true;
+    }
+  };
+
+  const detectedLanguageLabel = useMemo(() => {
+    const detectedCode = detectedNarrationLanguageCode;
+    if (!detectedCode) return null;
+    const allLanguages = [
+      ...geminiInstructionLanguages,
+      ...edgeVoiceLanguages,
+      ...kokoroVoiceLanguages,
+      ...magpieVoiceLanguages,
+      ...supertonicLanguages,
+      ...stepAudioVoiceLanguages,
+    ];
+    const match = allLanguages.find((language) =>
+      languageMatches(language.languageCode, detectedCode),
+    );
+    return match?.languageName ?? detectedCode;
+  }, [
+    detectedNarrationLanguageCode,
+    edgeVoiceLanguages,
+    geminiInstructionLanguages,
+    kokoroVoiceLanguages,
+    magpieVoiceLanguages,
+    stepAudioVoiceLanguages,
+    supertonicLanguages,
+  ]);
+
+  const unsupportedLanguageTitle = detectedLanguageLabel
+    ? t.narrationTtsUnsupportedForLanguage.replace('{language}', detectedLanguageLabel)
+    : t.narrationTtsUnsupported;
   const providerOptions = (metadata?.providers?.length
     ? metadata.providers
     : [
@@ -230,10 +411,22 @@ export function NarrationPanel({
         { method: 'VieneuTts' as const, label: 'VieNeu-TTS v2' },
         { method: 'StepAudioEditX' as const, label: 'Step Audio EditX' },
         { method: 'MagpieMultilingual' as const, label: 'NVIDIA Magpie-Multilingual 357M' },
-      ]).map((provider) => ({
-        value: provider.method,
-        label: methodLabel(provider.method, provider.label),
-      }));
+      ]).map((provider) => {
+        const isSupported = isMethodSupportedForDetectedLanguage(provider.method);
+        return {
+          value: provider.method,
+          label: methodLabel(provider.method, provider.label),
+          disabled: !isSupported,
+          trailing: !isSupported ? (
+            <span className="narration-method-language-warning-wrapper" title={unsupportedLanguageTitle}>
+              <AlertTriangle
+                className="narration-method-language-warning h-3.5 w-3.5 text-[var(--tertiary-color)]"
+                aria-label={unsupportedLanguageTitle}
+              />
+            </span>
+          ) : undefined,
+        };
+      });
 
   const usedConditionCodes = new Set(
     geminiLanguageConditions.map((condition) => condition.languageCode.toLowerCase()),
@@ -419,7 +612,11 @@ export function NarrationPanel({
       : t.subtitleNarrationGenerate;
 
   const status = narration.narrationStatus;
+  const selectedMethodSupported = isMethodSupportedForDetectedLanguage(settings.method);
   const statusMessage = (() => {
+    if (!selectedMethodSupported && detectedLanguageLabel) {
+      return t.narrationTtsSelectedUnsupported.replace('{language}', detectedLanguageLabel);
+    }
     if (!status) return t.subtitleNarrationIdleHint;
     switch (status.state) {
       case 'queued':
@@ -497,11 +694,16 @@ export function NarrationPanel({
               </div>
             </div>
             <Slider
-              min={15}
-              max={120}
+              min={MIN_NARRATION_GROUP_TEXT_BUDGET}
+              max={MAX_NARRATION_GROUP_TEXT_BUDGET}
               step={5}
               value={groupTextBudget}
-              onChange={(value) => setGroupTextBudget(Math.max(15, Math.min(120, Math.round(value))))}
+              onChange={(value) => setGroupTextBudget(
+                Math.max(
+                  MIN_NARRATION_GROUP_TEXT_BUDGET,
+                  Math.min(MAX_NARRATION_GROUP_TEXT_BUDGET, Math.round(value)),
+                ),
+              )}
               onPointerDown={() => setIsGroupSliderDragging(true)}
               onPointerUp={() => setIsGroupSliderDragging(false)}
               onPointerCancel={() => setIsGroupSliderDragging(false)}
@@ -513,7 +715,7 @@ export function NarrationPanel({
           <div className="narration-panel-actions grid grid-cols-2 gap-1.5">
             <button
               type="button"
-              disabled={!narration.canGenerateNarration}
+              disabled={!narration.canGenerateNarration || !selectedMethodSupported}
               onClick={narration.handleGenerateNarration}
               data-tone="primary"
               data-emphasis="strong"

@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 export interface PanelSelectOption {
   value: string;
   label: string;
+  triggerLabel?: string;
   disabled?: boolean;
   keywords?: string[];
   trailing?: React.ReactNode;
@@ -113,7 +114,7 @@ export function PanelSelect({
           )}
         >
           <span className="panel-select-trigger-label min-w-0 flex-1 truncate">
-            {selectedOption?.label ?? value}
+            {selectedOption?.triggerLabel ?? selectedOption?.label ?? value}
           </span>
           <ChevronDown className="panel-select-trigger-icon h-4 w-4 flex-shrink-0 opacity-70" />
         </button>

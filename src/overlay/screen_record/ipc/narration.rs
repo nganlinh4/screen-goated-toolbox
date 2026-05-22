@@ -28,8 +28,8 @@ use super::subtitles::audio::snap_split_frames_to_silence;
 
 const NARRATION_TTS_MAX_ATTEMPTS: usize = 4;
 const NARRATION_TTS_RETRY_BASE_DELAY_MS: u64 = 350;
-const NARRATION_GROUP_DEFAULT_TEXT_BUDGET: usize = 45;
-const NARRATION_GROUP_MIN_TEXT_BUDGET: usize = 15;
+const NARRATION_GROUP_DEFAULT_TEXT_BUDGET: usize = 25;
+const NARRATION_GROUP_MIN_TEXT_BUDGET: usize = 5;
 const NARRATION_GROUP_MAX_TEXT_BUDGET: usize = 120;
 const NARRATION_GROUP_MAX_ITEMS: usize = 10;
 const NARRATION_GROUP_MAX_CHARS: usize = 650;
@@ -44,6 +44,19 @@ struct SubtitleNarrationItemRequest {
     text: String,
     start_time: f64,
     end_time: f64,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NarrationLanguageDetectionItem {
+    text: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NarrationLanguageDetectionRequest {
+    #[serde(default)]
+    items: Vec<NarrationLanguageDetectionItem>,
 }
 
 /// Wire shape for a Gemini language-instruction condition. Uses camelCase to
@@ -599,6 +612,20 @@ fn build_narration_language_sample(items: &[SubtitleNarrationItemRequest]) -> St
         .join(" ")
 }
 
+fn build_narration_language_sample_from_texts<'a>(
+    texts: impl IntoIterator<Item = &'a str>,
+) -> String {
+    texts
+        .into_iter()
+        .filter_map(|text| {
+            let text = text.trim();
+            (!text.is_empty()).then_some(text)
+        })
+        .take(8)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn detect_narration_job_language(
     items: &[SubtitleNarrationItemRequest],
 ) -> (Option<String>, String) {
@@ -607,6 +634,25 @@ fn detect_narration_job_language(
         return (None, String::new());
     }
     (crate::lang_detect::detect_language(&sample), sample)
+}
+
+pub fn handle_detect_narration_language(
+    args: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let request: NarrationLanguageDetectionRequest = serde_json::from_value(args.clone())
+        .map_err(|error| format!("Invalid narration language detection request: {error}"))?;
+    let sample = build_narration_language_sample_from_texts(
+        request.items.iter().map(|item| item.text.as_str()),
+    );
+    let language_code = if sample.trim().is_empty() {
+        None
+    } else {
+        crate::lang_detect::detect_language(&sample)
+    };
+    Ok(serde_json::json!({
+        "languageCode": language_code,
+        "sample": sample,
+    }))
 }
 
 pub fn handle_get_subtitle_narration_status(
@@ -882,6 +928,17 @@ pub fn handle_get_narration_tts_metadata(
             }))
         })
         .collect();
+    let step_audio_voice_languages: Vec<serde_json::Value> = defaults
+        .step_audio_settings
+        .voice_configs
+        .iter()
+        .map(|config| {
+            serde_json::json!({
+                "languageCode": config.language_code,
+                "languageName": config.language_name,
+            })
+        })
+        .collect();
     let default_method = tts_method_id(&defaults.method);
     let default_magpie_voice_configs: Vec<serde_json::Value> = defaults
         .magpie_settings
@@ -967,6 +1024,7 @@ pub fn handle_get_narration_tts_metadata(
         "supertonicLanguages": supertonic_languages,
         "supertonicVoices": supertonic_voices,
         "stepAudioVoices": step_audio_voices,
+        "stepAudioVoiceLanguages": step_audio_voice_languages,
         "stepAudioReferenceVoices": step_audio_reference_voices,
         "edgeVoiceState": edge_voice_state,
         "edgeVoiceError": edge_voice_error,

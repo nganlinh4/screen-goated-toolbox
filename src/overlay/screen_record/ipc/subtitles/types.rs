@@ -143,6 +143,8 @@ pub struct SubtitleTranslationRequest {
     pub chunk_mode: Option<String>,
     #[serde(rename = "chunkCount")]
     pub chunk_count: Option<usize>,
+    #[serde(rename = "smartFallback", default)]
+    pub smart_fallback: bool,
     pub instructions: Option<String>,
     pub items: Vec<SubtitleTranslationItemRequest>,
 }
@@ -206,5 +208,7 @@ pub struct SubtitleTranslationModelCapability {
     pub model_id: String,
     #[serde(rename = "modelLabel")]
     pub model_label: String,
+    #[serde(rename = "modelName")]
+    pub model_name: String,
     pub provider: String,
 }
