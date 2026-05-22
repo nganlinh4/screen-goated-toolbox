@@ -44,6 +44,7 @@ const SUBTITLE_TRANSLATION_CHUNK_COUNT_KEY = 'screen-record-subtitle-translation
 const SUBTITLE_TRANSLATION_INSTRUCTIONS_KEY = 'screen-record-subtitle-translation-instructions-v1';
 const SUBTITLE_TRANSLATION_SOURCE_KEY = 'screen-record-subtitle-translation-source-v1';
 const SUBTITLE_TRANSLATION_MODEL_KEY = 'screen-record-subtitle-translation-model-v1';
+const SUBTITLE_TRANSLATION_SMART_FALLBACK_KEY = 'screen-record-subtitle-translation-smart-fallback-v1';
 const GTX_TRANSLATION_MODEL_ID = 'gtx';
 
 export type SubtitleTranslationSource = 'current' | 'all' | Exclude<SubtitleSourceGroupId, 'unassigned'>;
@@ -76,6 +77,7 @@ interface SubtitleTranslationCapabilities {
   models: Array<{
     modelId: string;
     modelLabel: string;
+    modelName: string;
     provider: string;
   }>;
 }
@@ -173,6 +175,15 @@ function getInitialTranslationModelId(): string {
     // ignore persistence failures
   }
   return GTX_TRANSLATION_MODEL_ID;
+}
+
+function getInitialSmartFallback(): boolean {
+  try {
+    return localStorage.getItem(SUBTITLE_TRANSLATION_SMART_FALLBACK_KEY) === 'true';
+  } catch {
+    // ignore persistence failures
+  }
+  return false;
 }
 
 function formatTemplate(template: string, params?: Record<string, string> | null) {
@@ -355,6 +366,7 @@ export function useSubtitleTranslation({
   const [instructions, setInstructions] = useState(getInitialTranslationInstructions);
   const [translationSource, setTranslationSource] = useState<SubtitleTranslationSource>(getInitialTranslationSource);
   const [selectedModelId, setSelectedModelId] = useState(getInitialTranslationModelId);
+  const [smartFallback, setSmartFallback] = useState(getInitialSmartFallback);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobContext, setJobContext] = useState<SubtitleTranslationJobContext | null>(null);
   const [status, setStatus] = useState<SubtitleTranslationJobStatus | null>(null);
@@ -405,6 +417,14 @@ export function useSubtitleTranslation({
       // ignore persistence failures
     }
   }, [selectedModelId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SUBTITLE_TRANSLATION_SMART_FALLBACK_KEY, String(smartFallback));
+    } catch {
+      // ignore persistence failures
+    }
+  }, [smartFallback]);
 
   useEffect(() => {
     activeJobIdRef.current = jobId;
@@ -468,7 +488,9 @@ export function useSubtitleTranslation({
   const translationModelOptions = useMemo(
     () => (capabilities?.models ?? []).map((model) => ({
       value: model.modelId,
-      label: model.modelLabel,
+      label: `${model.modelLabel} (${model.modelName})`,
+      triggerLabel: model.modelLabel,
+      keywords: [model.modelId, model.modelName, model.provider],
     })),
     [capabilities],
   );
@@ -720,6 +742,7 @@ export function useSubtitleTranslation({
       targetLanguage,
       trackId: targetLanguageTrack?.id ?? null,
       modelId: selectedModelId,
+      smartFallback,
       chunkCount: effectiveChunkCount,
       instructions: instructions.trim() || null,
       items,
@@ -745,6 +768,7 @@ export function useSubtitleTranslation({
     setActivePanel,
     targetLanguageTrack,
     selectedModelId,
+    smartFallback,
     effectiveChunkCount,
     instructions,
     t.subtitleTranslationNoSource,
@@ -795,6 +819,8 @@ export function useSubtitleTranslation({
     subtitleTranslationSourceCounts,
     subtitleTranslationModelId: selectedModelId,
     setSubtitleTranslationModelId: setSelectedModelId,
+    subtitleTranslationSmartFallback: smartFallback,
+    setSubtitleTranslationSmartFallback: setSmartFallback,
     subtitleTranslationModelOptions: translationModelOptions,
     subtitleTranslationLanguageOptions: translationLanguageOptions,
     subtitleTranslationCapabilities: capabilities,

@@ -118,6 +118,7 @@ pub fn handle_get_subtitle_translation_capabilities(
     let mut model_payload = vec![SubtitleTranslationModelCapability {
         model_id: GTX_TRANSLATION_MODEL_ID.to_string(),
         model_label: GTX_TRANSLATION_MODEL_LABEL.to_string(),
+        model_name: "translate.googleapis.com/gtx".to_string(),
         provider: "gtx".to_string(),
     }];
     model_payload.extend(
@@ -126,6 +127,7 @@ pub fn handle_get_subtitle_translation_capabilities(
             .map(|model| SubtitleTranslationModelCapability {
                 model_id: model.id.clone(),
                 model_label: localized_model_label(&model, &config.ui_language),
+                model_name: model.full_name.clone(),
                 provider: model.provider.clone(),
             }),
     );
@@ -188,9 +190,10 @@ fn run_subtitle_translation_inner(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(GTX_TRANSLATION_MODEL_ID);
-    let gtx_prioritized = selected_model_id == GTX_TRANSLATION_MODEL_ID;
-    let candidate_models = collect_prioritized_translation_models(&config, selected_model_id)?;
-    if candidate_models.is_empty() && !gtx_prioritized {
+    let gtx_selected = selected_model_id == GTX_TRANSLATION_MODEL_ID;
+    let candidate_models =
+        collect_prioritized_translation_models(&config, selected_model_id, request.smart_fallback)?;
+    if candidate_models.is_empty() && !gtx_selected {
         return Err(
             "No compatible text-to-text translation model is currently available.".to_string(),
         );
@@ -218,7 +221,8 @@ fn run_subtitle_translation_inner(
         &request.target_language,
         request.instructions.as_deref(),
         selected_model_id,
-        gtx_prioritized,
+        gtx_selected,
+        request.smart_fallback,
         &candidate_models,
         &config.ui_language,
     );
@@ -237,7 +241,8 @@ fn run_subtitle_translation_inner(
         translate_group_with_retry(TranslateGroupRequest {
             config: &config,
             candidate_models: &candidate_models,
-            gtx_prioritized,
+            gtx_selected,
+            smart_fallback: request.smart_fallback,
             target_language: &request.target_language,
             instructions: request.instructions.as_deref(),
             group: chunk,
@@ -280,7 +285,8 @@ fn run_subtitle_translation_inner(
 struct TranslateGroupRequest<'a> {
     config: &'a Config,
     candidate_models: &'a [ModelConfig],
-    gtx_prioritized: bool,
+    gtx_selected: bool,
+    smart_fallback: bool,
     target_language: &'a str,
     instructions: Option<&'a str>,
     group: Vec<SubtitleTranslationItemRequest>,
@@ -298,7 +304,8 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
     let TranslateGroupRequest {
         config,
         candidate_models,
-        gtx_prioritized,
+        gtx_selected,
+        smart_fallback,
         target_language,
         instructions,
         mut group,
@@ -320,7 +327,7 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
         "Subtitle translation failed because every model attempt returned invalid output."
             .to_string();
 
-    if gtx_prioritized {
+    if gtx_selected {
         update_translation_snapshot(snapshot, |locked| {
             locked.current_model_id = Some(GTX_TRANSLATION_MODEL_ID.to_string());
             locked.current_model_label = Some(GTX_TRANSLATION_MODEL_LABEL.to_string());
@@ -342,31 +349,75 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
                 ("total".to_string(), total_groups.to_string()),
             ]);
         })?;
-        match translate_subtitle_chunk_with_gtx(target_language, &group) {
-            Ok(response) => {
-                diagnostics.record_success(GTX_TRANSLATION_MODEL_ID, group.len(), 1);
-                history.push(TranslationConversationTurn {
-                    user_payload: response.user_payload,
-                    assistant_payload: response.assistant_payload,
-                });
-                translated_results.extend(response.items);
-                *completed_groups += 1;
-                update_translation_snapshot(snapshot, |locked| {
-                    locked.progress = translated_results.len() as f64 / total_items.max(1) as f64;
-                    locked.results = translated_results.clone();
-                })?;
+        for attempt_index in 0..TRANSLATION_MODEL_ATTEMPTS {
+            if cancelled.load(Ordering::SeqCst) {
                 return Ok(());
             }
-            Err(error) => {
-                diagnostics.record_failure(
-                    GTX_TRANSLATION_MODEL_ID,
-                    GTX_TRANSLATION_MODEL_LABEL,
-                    1,
-                    group.len(),
-                    history.len(),
-                    &error,
-                );
-                last_error = error;
+            if attempt_index > 0 {
+                let delay = translation_retry_delay(attempt_index);
+                update_translation_snapshot(snapshot, |locked| {
+                    locked.message = format!(
+                        "Retrying subtitle translation with {} ({}/{}, attempt {}/{})",
+                        GTX_TRANSLATION_MODEL_LABEL,
+                        *completed_groups + 1,
+                        *total_groups,
+                        attempt_index + 1,
+                        TRANSLATION_MODEL_ATTEMPTS
+                    );
+                    locked.message_key = Some("subtitleTranslationStatusRetry".to_string());
+                    locked.message_params = HashMap::from([
+                        ("model".to_string(), GTX_TRANSLATION_MODEL_LABEL.to_string()),
+                        ("current".to_string(), (*completed_groups + 1).to_string()),
+                        ("total".to_string(), total_groups.to_string()),
+                        ("attempt".to_string(), (attempt_index + 1).to_string()),
+                        (
+                            "attempts".to_string(),
+                            TRANSLATION_MODEL_ATTEMPTS.to_string(),
+                        ),
+                    ]);
+                })?;
+                sleep_cancelable(cancelled, delay);
+                if cancelled.load(Ordering::SeqCst) {
+                    return Ok(());
+                }
+            }
+            match translate_subtitle_chunk_with_gtx(target_language, &group) {
+                Ok(response) => {
+                    diagnostics.record_success(
+                        GTX_TRANSLATION_MODEL_ID,
+                        group.len(),
+                        attempt_index + 1,
+                    );
+                    history.push(TranslationConversationTurn {
+                        user_payload: response.user_payload,
+                        assistant_payload: response.assistant_payload,
+                    });
+                    translated_results.extend(response.items);
+                    *completed_groups += 1;
+                    update_translation_snapshot(snapshot, |locked| {
+                        locked.progress =
+                            translated_results.len() as f64 / total_items.max(1) as f64;
+                        locked.results = translated_results.clone();
+                    })?;
+                    return Ok(());
+                }
+                Err(error) => {
+                    diagnostics.record_failure(
+                        GTX_TRANSLATION_MODEL_ID,
+                        GTX_TRANSLATION_MODEL_LABEL,
+                        attempt_index + 1,
+                        group.len(),
+                        history.len(),
+                        &error,
+                    );
+                    last_error = error;
+                }
+            }
+        }
+        if !smart_fallback {
+            // Keep retry/split behavior, but do not switch away from the chosen GTX model.
+            if candidate_models.is_empty() && group.len() <= 1 {
+                return Err(last_error);
             }
         }
     }
@@ -479,7 +530,8 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
         translate_group_with_retry(TranslateGroupRequest {
             config,
             candidate_models,
-            gtx_prioritized,
+            gtx_selected,
+            smart_fallback,
             target_language,
             instructions,
             group: left,
@@ -495,7 +547,8 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
         translate_group_with_retry(TranslateGroupRequest {
             config,
             candidate_models,
-            gtx_prioritized,
+            gtx_selected,
+            smart_fallback,
             target_language,
             instructions,
             group: right,
@@ -548,6 +601,7 @@ impl TranslationDiagnostics {
         instructions: Option<&str>,
         selected_model_id: &str,
         gtx_prioritized: bool,
+        smart_fallback: bool,
         candidate_models: &[ModelConfig],
         ui_language: &str,
     ) {
@@ -563,7 +617,7 @@ impl TranslationDiagnostics {
             .collect::<Vec<_>>()
             .join(" > ");
         eprintln!(
-            "[SubtitleTranslation][job={}] start items={} initial_chunks={} chunk_mode={} target=\"{}\" instructions={} prioritized_model=\"{}\" gtx_prioritized={} fallback_chain=\"{}\"",
+            "[SubtitleTranslation][job={}] start items={} initial_chunks={} chunk_mode={} target=\"{}\" instructions={} prioritized_model=\"{}\" gtx_prioritized={} smart_fallback={} fallback_chain=\"{}\"",
             self.job_id,
             item_count,
             chunk_count,
@@ -574,6 +628,7 @@ impl TranslationDiagnostics {
                 .is_some_and(|value| !value.is_empty()),
             selected_model_id,
             gtx_prioritized,
+            smart_fallback,
             if model_chain.is_empty() {
                 "none"
             } else {
@@ -860,9 +915,14 @@ fn collect_translation_models(config: &Config) -> Vec<ModelConfig> {
 fn collect_prioritized_translation_models(
     config: &Config,
     model_id: &str,
+    smart_fallback: bool,
 ) -> Result<Vec<ModelConfig>, String> {
     if model_id == GTX_TRANSLATION_MODEL_ID {
-        return Ok(collect_translation_models(config));
+        return Ok(if smart_fallback {
+            collect_translation_models(config)
+        } else {
+            Vec::new()
+        });
     }
     let blocked_providers = HashSet::new();
     let Some(model) = get_model_by_id(model_id).or_else(|| {
@@ -882,9 +942,11 @@ fn collect_prioritized_translation_models(
     let mut seen_model_ids = HashSet::new();
     seen_model_ids.insert(model.id.clone());
     models.push(model);
-    for fallback in collect_translation_models(config) {
-        if seen_model_ids.insert(fallback.id.clone()) {
-            models.push(fallback);
+    if smart_fallback {
+        for fallback in collect_translation_models(config) {
+            if seen_model_ids.insert(fallback.id.clone()) {
+                models.push(fallback);
+            }
         }
     }
     Ok(models)

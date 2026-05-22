@@ -48,7 +48,9 @@ interface SubtitleNarrationJobStatus {
 
 const APPLY_RESULT_STREAM_INTERVAL_MS = 140;
 const STATUS_UI_UPDATE_INTERVAL_MS = 900;
-export const DEFAULT_NARRATION_GROUP_TEXT_BUDGET = 45;
+export const DEFAULT_NARRATION_GROUP_TEXT_BUDGET = 25;
+export const MIN_NARRATION_GROUP_TEXT_BUDGET = 5;
+export const MAX_NARRATION_GROUP_TEXT_BUDGET = 120;
 const NARRATION_GROUP_MAX_ITEMS = 10;
 const NARRATION_GROUP_MAX_CHARS = 650;
 const NARRATION_GROUP_GAP_BREAK_SEC = 1.2;
@@ -179,7 +181,10 @@ function buildNarrationGroupPreview(
   items: readonly SubtitleNarrationRequestItem[],
   textBudget: number,
 ): SubtitleNarrationGroupPreview {
-  const safeBudget = Math.max(15, Math.min(120, Math.round(textBudget)));
+  const safeBudget = Math.max(
+    MIN_NARRATION_GROUP_TEXT_BUDGET,
+    Math.min(MAX_NARRATION_GROUP_TEXT_BUDGET, Math.round(textBudget)),
+  );
   const groups: Record<string, number> = {};
   let groupIndex = -1;
   let groupUnits = 0;

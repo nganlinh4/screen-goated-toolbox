@@ -671,6 +671,14 @@ export function SubtitlePanel({
           />
         </div>
 
+        <label className="subtitle-translation-smart-fallback-row flex cursor-pointer items-center gap-2 text-[11px] font-medium text-on-surface">
+          <Checkbox
+            checked={subtitleTranslation.subtitleTranslationSmartFallback}
+            onChange={(event) => subtitleTranslation.setSubtitleTranslationSmartFallback(event.target.checked)}
+          />
+          {t.subtitleTranslationSmartFallback}
+        </label>
+
         <div className="subtitle-translation-source-row flex items-center gap-2">
           <span className="w-20 flex-shrink-0 text-[11px] font-medium text-on-surface-variant">
             {t.subtitleTranslationSource}

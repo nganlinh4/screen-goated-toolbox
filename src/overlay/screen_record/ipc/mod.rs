@@ -377,6 +377,7 @@ pub fn handle_ipc_command(
         "get_subtitle_narration_status" => narration::handle_get_subtitle_narration_status(&args),
         "cancel_subtitle_narration" => narration::handle_cancel_subtitle_narration(&args),
         "get_narration_tts_metadata" => narration::handle_get_narration_tts_metadata(&args),
+        "detect_narration_language" => narration::handle_detect_narration_language(&args),
         "get_hotkeys" => hotkeys::handle_get_hotkeys(),
         "remove_hotkey" => hotkeys::handle_remove_hotkey(&args),
         "set_hotkey" => hotkeys::handle_set_hotkey(&args),
