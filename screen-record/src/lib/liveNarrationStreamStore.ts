@@ -13,6 +13,7 @@ const EMPTY_STATE: LiveNarrationState = {
 
 const states = new Map<string, LiveNarrationState>();
 const listeners = new Set<() => void>();
+let emitScheduled = false;
 
 function getNarrationSourceIds(segment: NarrationSegment): string[] {
   if (segment.sourceSubtitleIds?.length) return segment.sourceSubtitleIds;
@@ -21,6 +22,20 @@ function getNarrationSourceIds(segment: NarrationSegment): string[] {
 
 function emit() {
   listeners.forEach((listener) => listener());
+}
+
+function scheduleEmit() {
+  if (emitScheduled) return;
+  emitScheduled = true;
+  const flush = () => {
+    emitScheduled = false;
+    emit();
+  };
+  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(flush);
+    return;
+  }
+  globalThis.setTimeout(flush, 0);
 }
 
 function getState(projectId: string | null | undefined): LiveNarrationState {
@@ -49,13 +64,13 @@ export function applyLiveNarrationSegments(
   ].sort((left, right) => left.startTime - right.startTime);
 
   states.set(projectId, { segments: nextSegments, hiddenSourceSubtitleIds });
-  emit();
+  scheduleEmit();
 }
 
 export function clearLiveNarrationSegments(projectId: string | null | undefined) {
   if (!projectId || !states.has(projectId)) return;
   states.delete(projectId);
-  emit();
+  scheduleEmit();
 }
 
 export function mergeLiveNarrationSegments(

@@ -112,20 +112,6 @@ export function ImportedAudioPlayers({
     ),
     [currentTime, effectiveSegments, isPlaying],
   );
-  const activeSignature = activeSegments.map((segment) => segment.id).join("|");
-  const lastActiveSignatureRef = useRef("");
-  useEffect(() => {
-    if (lastActiveSignatureRef.current === activeSignature) return;
-    lastActiveSignatureRef.current = activeSignature;
-    if (!isPlaying) return;
-    const narrationCount = activeSegments.filter(
-      (segment) => (segment as PreviewAudioSegment).previewTrackKind === "narration",
-    ).length;
-    if (activeSegments.length === 0 && narrationCount === 0) return;
-    console.info(
-      `[NarrationPerf][PreviewAudioWindow] t=${currentTime.toFixed(2)} active=${activeSegments.length} narration=${narrationCount} total=${effectiveSegments.length} ids=${activeSegments.slice(0, 4).map((segment) => segment.id).join(",")}`,
-    );
-  }, [activeSegments, activeSignature, currentTime, effectiveSegments.length, isPlaying]);
   if (activeSegments.length === 0) return null;
   return (
     <>

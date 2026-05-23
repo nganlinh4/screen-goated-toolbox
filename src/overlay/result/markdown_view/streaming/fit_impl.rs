@@ -144,10 +144,21 @@ const FIT_FONT_SCRIPT: &str = r#"
                             && (wordCount <= 12 || longestToken >= 4);
                     }
 
+                    function getHorizontalOverflow() {
+                        void body.offsetHeight;
+                        var scrollW = Math.max(
+                            doc.scrollWidth || 0,
+                            body.scrollWidth || 0
+                        );
+                        return scrollW - Math.max(1, winW);
+                    }
+
                     // Helper: check if content fits (re-reads scrollHeight each time for accuracy).
                     function fits() {
                         void body.offsetHeight;
-                        return doc.scrollHeight <= winH && !hasPathologicalWrap();
+                        return doc.scrollHeight <= winH
+                            && getHorizontalOverflow() <= 1
+                            && !hasPathologicalWrap();
                     }
 
                     function getGap() {

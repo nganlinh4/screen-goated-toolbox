@@ -1,5 +1,5 @@
 import { AlertTriangle, RotateCcw, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { PanelSelect } from '@/components/ui/PanelSelect';
 import { Slider } from '@/components/ui/Slider';
@@ -14,6 +14,7 @@ import {
   type SubtitleNarrationGroupPreview,
 } from '@/hooks/useSubtitleNarration';
 import {
+  type PopulateS2sSubtitleTracksOptions,
   populateEmptyS2sSubtitleTracks,
   useS2sNarration,
 } from '@/hooks/useS2sNarration';
@@ -184,6 +185,7 @@ interface NarrationPanelProps {
   canUseAudioSource: boolean;
   audioSegments?: ImportedAudioSegment[];
   onUpdateSegment: (segment: VideoSegment) => void;
+  onUpdateSegmentSilently?: (segment: VideoSegment) => void;
 }
 
 export function NarrationPanel({
@@ -208,6 +210,7 @@ export function NarrationPanel({
   canUseAudioSource,
   audioSegments = [],
   onUpdateSegment,
+  onUpdateSegmentSilently,
 }: NarrationPanelProps) {
   const { t } = useSettings();
   const { settings, update, profile, metadata } = useNarrationSettings();
@@ -226,9 +229,14 @@ export function NarrationPanel({
     visibleSubtitles.length > 0 ? 'subtitles' : 's2s',
   );
   const [s2sTargetLanguage, setS2sTargetLanguage] = useState('vi');
+  const segmentRef = useRef<VideoSegment | null>(segment);
   const effectiveTtsMethod: NarrationTtsMethod = narrationMode === 's2s'
     ? 'GeminiLive'
     : settings.method;
+
+  useEffect(() => {
+    segmentRef.current = segment;
+  }, [segment]);
 
   useEffect(() => {
     try {
@@ -660,6 +668,31 @@ export function NarrationPanel({
   const s2sLanguageOptions = SUBTITLE_LANGUAGE_OPTIONS_GROQ
     .filter((option) => option.value !== 'auto')
     .map((option) => ({ value: option.value, label: option.label }));
+  const handlePopulateS2sSubtitles = useCallback((
+    sourceSegments: SubtitleSegment[],
+    targetSegments: SubtitleSegment[],
+    targetLanguage: string,
+    options?: PopulateS2sSubtitleTracksOptions,
+  ) => {
+    const currentSegment = segmentRef.current;
+    if (!currentSegment) return;
+    const nextSegment = populateEmptyS2sSubtitleTracks(
+      currentSegment,
+      sourceSegments,
+      targetSegments,
+      targetLanguage,
+      options,
+    );
+    const phase = options?.debugPhase ?? 'unknown';
+    const isLiveUpdate = options?.liveUpdate === true || phase === 'live';
+    segmentRef.current = nextSegment;
+    if (isLiveUpdate && onUpdateSegmentSilently) {
+      onUpdateSegmentSilently(nextSegment);
+    } else {
+      onUpdateSegment(nextSegment);
+    }
+    return nextSegment;
+  }, [onUpdateSegment, onUpdateSegmentSilently]);
   const s2s = useS2sNarration({
     t,
     segment,
@@ -677,15 +710,7 @@ export function NarrationPanel({
     parallelRequests: profile.geminiS2sParallelRequests,
     groupTextBudget,
     onApplyNarrationSegments,
-    onPopulateEmptySubtitles: (sourceSegments, targetSegments, targetLanguage) => {
-      if (!segment) return;
-      onUpdateSegment(populateEmptyS2sSubtitleTracks(
-        segment,
-        sourceSegments,
-        targetSegments,
-        targetLanguage,
-      ));
-    },
+    onPopulateEmptySubtitles: handlePopulateS2sSubtitles,
     onFinalize: onFinalizeNarrationSegments,
   });
 
@@ -698,6 +723,10 @@ export function NarrationPanel({
     (selectedSubtitleIds?.length ?? 0) > 0 || selectedSubtitleRange
       ? t.subtitleNarrationGenerateSelection
       : t.subtitleNarrationGenerate;
+  const groupBudgetLabel = t.narrationGroupingBudgetValue.replace(
+    '{count}',
+    String(groupTextBudget),
+  );
 
   const status = narration.narrationStatus;
   const selectedMethodSupported = isMethodSupportedForDetectedLanguage(settings.method);
@@ -780,7 +809,7 @@ export function NarrationPanel({
                   {t.narrationGrouping}
                 </span>
                 <span className="narration-s2s-grouping-value text-[10px] font-semibold text-on-surface-variant">
-                  {groupTextBudget}
+                  {groupBudgetLabel}
                 </span>
               </div>
               <Slider
@@ -868,7 +897,7 @@ export function NarrationPanel({
               </span>
               <div className="narration-panel-grouping-meta flex items-center gap-1.5">
                 <span className="narration-panel-grouping-value text-[10px] font-semibold text-on-surface-variant">
-                  {groupTextBudget} · {narration.narrationGroupCount} {t.narrationGroupingGroups}
+                  {groupBudgetLabel} · {narration.narrationGroupCount} {t.narrationGroupingGroups}
                 </span>
                 {groupTextBudget !== DEFAULT_NARRATION_GROUP_TEXT_BUDGET ? (
                   <button

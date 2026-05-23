@@ -16,11 +16,16 @@ import {
   useLiveNarrationState,
 } from "@/lib/liveNarrationStreamStore";
 import { countFrontendRender } from "@/lib/frontendPerfDiagnostics";
+import {
+  getTimelineTimingConflictIds,
+  TIMELINE_TIMING_CONFLICT_COLOR,
+} from "@/lib/subtitleTimingConflicts";
 
 interface NarrationTrackProps {
   segments: NarrationSegment[];
   liveProjectId?: string | null;
   duration: number;
+  isPlaying?: boolean;
   onSegmentClick?: (id: string) => void;
   onDeleteSegments?: (ids: string[]) => void;
   selectedIds?: ReadonlySet<string>;
@@ -116,6 +121,7 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
   segments,
   liveProjectId,
   duration,
+  isPlaying = false,
   onSegmentClick,
   onDeleteSegments,
   selectedIds: externalSelectedIds,
@@ -138,6 +144,7 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
   const safeDuration = Math.max(duration, 0.001);
   const [frontSegmentId, setFrontSegmentId] = useState<string | null>(null);
   const liveNarrationState = useLiveNarrationState(liveProjectId);
+  const hasLiveNarration = liveNarrationState.segments.length > 0;
   const displayedSegments = useMemo(
     () => mergeLiveNarrationSegments(segments, liveNarrationState),
     [liveNarrationState, segments],
@@ -160,6 +167,10 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
         };
       }),
     [displayedSegments],
+  );
+  const timingConflictIds = useMemo(
+    () => getTimelineTimingConflictIds(selectable),
+    [selectable],
   );
 
   const {
@@ -184,7 +195,7 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
 
   const effectiveSelectedIds = externalSelectedIds ?? selectedIds;
   const effectiveSelectedRange = externalSelectedRange ?? selectedRange;
-  const denseMode = displayedSegments.length >= DENSE_SEGMENT_COUNT;
+  const denseMode = displayedSegments.length >= DENSE_SEGMENT_COUNT || (isPlaying && hasLiveNarration);
   const renderWindow = useMemo(
     () => buildTimelineRenderWindow({
       segments: selectable,
@@ -199,11 +210,15 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
   );
   const canvasSegments = useMemo(
     () =>
-      renderWindow.canvasSegments.map((segment) => ({
-        ...segment,
-        selected: effectiveSelectedIds.has(segment.id),
-      })),
-    [effectiveSelectedIds, renderWindow.canvasSegments],
+      renderWindow.canvasSegments.map((segment) => {
+        const hasTimingConflict = timingConflictIds.has(segment.id);
+        return {
+          ...segment,
+          color: hasTimingConflict ? TIMELINE_TIMING_CONFLICT_COLOR : null,
+          selected: effectiveSelectedIds.has(segment.id),
+        };
+      }),
+    [effectiveSelectedIds, renderWindow.canvasSegments, timingConflictIds],
   );
   const {
     isDraggingAudioSegment,
@@ -323,6 +338,10 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
         const isEstimatedAlignment =
           seg.narrationAlignmentMode === "estimated" ||
           ((seg.narrationAlignmentConfidence ?? 1) < 0.6 && Boolean(seg.narrationGroupTakeId));
+        const hasTimingConflict = timingConflictIds.has(seg.id);
+        const segmentAccentColor = hasTimingConflict
+          ? TIMELINE_TIMING_CONFLICT_COLOR
+          : "var(--secondary-color)";
         const shouldRenderWaveform =
           viewMode === "volume" &&
           widthPx >= MIN_WAVEFORM_SEGMENT_PX &&
@@ -338,24 +357,25 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
             data-playback-rate={rate}
             data-duration={seg.duration}
             data-timeline-duration={safeDuration}
-            data-tone="secondary"
+            data-tone={hasTimingConflict ? "warning" : "secondary"}
             data-selected={isSelected ? "true" : undefined}
+            data-timing-conflict={hasTimingConflict ? "true" : undefined}
             style={{
               left: `${leftPct}%`,
               width: `${widthPct}%`,
               zIndex: isFront ? 5 : isSelected ? 4 : 3,
               background:
                 hasCoveredSegmentUnderneath
-                  ? "color-mix(in srgb, var(--secondary-color) 34%, transparent)"
+                  ? `color-mix(in srgb, ${segmentAccentColor} 34%, transparent)`
                   : isSelected
-                    ? "color-mix(in srgb, var(--secondary-color) 18%, var(--ui-surface-3))"
-                  : "color-mix(in srgb, var(--secondary-color) 22%, var(--ui-surface-3))",
+                    ? `color-mix(in srgb, ${segmentAccentColor} 18%, var(--ui-surface-3))`
+                  : `color-mix(in srgb, ${segmentAccentColor} 22%, var(--ui-surface-3))`,
               borderColor: isSelected
-                ? "var(--secondary-color)"
-                : "color-mix(in srgb, var(--secondary-color) 56%, var(--timeline-lane-border))",
+                ? segmentAccentColor
+                : `color-mix(in srgb, ${segmentAccentColor} 56%, var(--timeline-lane-border))`,
               boxShadow: isSelected
-                ? "0 0 0 1px var(--secondary-color), 0 0 10px color-mix(in srgb, var(--secondary-color) 28%, transparent)"
-                : "0 0 0 1px color-mix(in srgb, var(--secondary-color) 32%, transparent)",
+                ? `0 0 0 1px ${segmentAccentColor}, 0 0 10px color-mix(in srgb, ${segmentAccentColor} 28%, transparent)`
+                : `0 0 0 1px color-mix(in srgb, ${segmentAccentColor} 32%, transparent)`,
             }}
             onPointerDown={(e) => {
               if (e.ctrlKey) return;

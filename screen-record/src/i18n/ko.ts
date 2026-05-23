@@ -349,6 +349,7 @@ const ko: Translations = {
   narrationSourceTrack: '읽을 트랙',
   narrationReadUnsplitSubtitles: '분할 전 자막으로 읽기',
   narrationGrouping: '묶어서 생성',
+  narrationGroupingBudgetValue: '그룹당 약 {count}단어',
   narrationGroupingGroups: '그룹',
   narrationErrorDetails: '오류 자세히 보기',
   narrationErrorLogHint: '전체 로그: %LOCALAPPDATA%\\SGT\\logs\\session.log',

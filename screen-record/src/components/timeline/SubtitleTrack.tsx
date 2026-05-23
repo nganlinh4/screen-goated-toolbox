@@ -19,6 +19,10 @@ import {
   getSubtitleSourceGroupId,
   makeSubtitleSourceGroup,
 } from '@/lib/subtitleSourceGroups';
+import {
+  getTimelineTimingConflictIds,
+  TIMELINE_TIMING_CONFLICT_COLOR,
+} from '@/lib/subtitleTimingConflicts';
 import { countFrontendRender } from '@/lib/frontendPerfDiagnostics';
 import {
   SegmentBlocksCanvas,
@@ -165,6 +169,10 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
   const safeDuration = Math.max(duration, 0.001);
   const subtitles = getVisibleSubtitleSegments(segment);
   const denseMode = subtitles.length >= DENSE_SUBTITLE_COUNT;
+  const timingConflictIds = useMemo(
+    () => getTimelineTimingConflictIds(subtitles),
+    [subtitles],
+  );
   const lastClickRef = useRef<{ id: string | null; time: number }>({ id: null, time: 0 });
   const DOUBLE_CLICK_MS = 350;
 
@@ -210,15 +218,16 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
           ? TRANSLATION_CHUNK_COLORS[chunkIndex % TRANSLATION_CHUNK_COLORS.length]
           : null;
         const sourceColor = getSubtitleSourceGroupColor(getSubtitleSourceGroupId(subtitle));
+        const hasTimingConflict = timingConflictIds.has(subtitle.id);
         return {
           id: subtitle.id,
           startTime: subtitle.startTime,
           endTime: subtitle.endTime,
-          color: chunkColor ?? sourceColor,
+          color: hasTimingConflict ? TIMELINE_TIMING_CONFLICT_COLOR : chunkColor ?? sourceColor,
           selected: selectedIds.has(subtitle.id) || editingSubtitleId === subtitle.id,
         };
       }),
-    [editingSubtitleId, renderWindow.canvasSegments, selectedIds, translationChunkPreview?.groups],
+    [editingSubtitleId, renderWindow.canvasSegments, selectedIds, timingConflictIds, translationChunkPreview?.groups],
   );
 
   const handleTrackPointerDownFast = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -360,7 +369,8 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
         const sourceGroupId = getSubtitleSourceGroupId(subtitle);
         const sourceColor = getSubtitleSourceGroupColor(sourceGroupId);
         const isUnassignedSource = getSubtitleSourceGroup(subtitle).kind === 'unassigned';
-        const accentColor = chunkColor ?? sourceColor;
+        const hasTimingConflict = timingConflictIds.has(subtitle.id);
+        const accentColor = hasTimingConflict ? TIMELINE_TIMING_CONFLICT_COLOR : chunkColor ?? sourceColor;
         const isFront = frontSubtitleId === subtitle.id || isActive;
         const stackRank = isFront ? 3 : isSelected ? 2 : 1;
         const hasCoveredSegmentUnderneath = renderWindow.domSegments.some((other, otherIndex) => {
@@ -435,9 +445,10 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
             onSubtitleClick(subtitle.id);
           }}
           className="subtitle-segment timeline-block absolute h-full cursor-move overflow-hidden group"
-          data-tone="accent"
+          data-tone={hasTimingConflict ? 'warning' : 'accent'}
           data-active={isActive ? 'true' : 'false'}
           data-selected={isSelected ? 'true' : undefined}
+          data-timing-conflict={hasTimingConflict ? 'true' : undefined}
           data-source-unassigned={isUnassignedSource ? 'true' : undefined}
           style={{
             left: `${(subtitle.startTime / safeDuration) * 100}%`,

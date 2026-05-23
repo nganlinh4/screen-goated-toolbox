@@ -347,6 +347,7 @@ const en = {
   narrationSourceTrack: 'Narrate from',
   narrationReadUnsplitSubtitles: 'Read with unsplit subtitles',
   narrationGrouping: 'Grouped requests',
+  narrationGroupingBudgetValue: '~{count} words/group',
   narrationGroupingGroups: 'groups',
   narrationErrorDetails: 'Show error details',
   narrationErrorLogHint: 'Full log: %LOCALAPPDATA%\\SGT\\logs\\session.log',

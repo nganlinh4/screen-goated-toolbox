@@ -1,4 +1,4 @@
-import React, { useCallback, useDeferredValue, useEffect, useMemo, useState, type MutableRefObject, type RefObject } from "react";
+import React, { useCallback, useEffect, useMemo, useState, type MutableRefObject, type RefObject } from "react";
 import {
   BackgroundConfig,
   ImportedAudioSegment,
@@ -94,6 +94,7 @@ export interface EditorMainProps {
   isAutoCanvasDisabled?: boolean;
   segment: VideoSegment | null;
   setSegment: (s: VideoSegment | null) => void;
+  setSegmentSilently?: (s: VideoSegment | null) => void;
   composition: ProjectComposition | null;
   setComposition: (
     composition:
@@ -278,6 +279,7 @@ export function EditorMain({
   isAutoCanvasDisabled,
   segment,
   setSegment,
+  setSegmentSilently,
   composition,
   setComposition,
   handleToggleKeystrokeMode,
@@ -385,9 +387,6 @@ export function EditorMain({
   const [selectedNarrationSegmentIds, setSelectedNarrationSegmentIds] = useState<string[]>([]);
   const [selectedNarrationSegmentRange, setSelectedNarrationSegmentRange] = useState<TrackSelectionRange | null>(null);
   const [narrationGroupPreview, setNarrationGroupPreview] = useState<SubtitleNarrationGroupPreview | null>(null);
-  const deferredNarrationSegments = useDeferredValue(narrationSegments);
-  const narrationSegmentCount = narrationSegments?.length ?? 0;
-  const deferredNarrationSegmentCount = deferredNarrationSegments?.length ?? 0;
   const selectedAudioSegmentIdSet = useMemo(
     () => new Set(selectedAudioSegmentIds),
     [selectedAudioSegmentIds],
@@ -409,18 +408,6 @@ export function EditorMain({
     ],
     [composition?.audioSegments, narrationSegments],
   );
-  useEffect(() => {
-    const start = performance.now();
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        const twoFrameMs = performance.now() - start;
-        if (!isPlaying && twoFrameMs < 80) return;
-        console.info(
-          `[NarrationPerf][EditorCommit] live=${narrationSegmentCount} deferred=${deferredNarrationSegmentCount} playing=${isPlaying ? 1 : 0} two_frame_ms=${twoFrameMs.toFixed(1)}`,
-        );
-      });
-    });
-  }, [deferredNarrationSegmentCount, isPlaying, narrationSegmentCount]);
   const exportSubtitleSrtInFlightRef = React.useRef(false);
   const subtitleTranslation = useSubtitleTranslation({
     t,
@@ -967,6 +954,9 @@ export function EditorMain({
             selectedTextIds={selectedTextIds}
             hasMouseData={mousePositionsLength > 0}
             onUpdateSegment={setSegment as (segment: VideoSegment) => void}
+            onUpdateSegmentSilently={
+              setSegmentSilently as ((segment: VideoSegment) => void) | undefined
+            }
             beginBatch={beginBatch}
             commitBatch={commitBatch}
           />
